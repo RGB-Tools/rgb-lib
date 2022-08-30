@@ -1,0 +1,24 @@
+namespace rgb_lib {
+  Keys generate_keys(BitcoinNetwork bitcoin_network);
+
+  [Throws=RgbLibError]
+  Keys restore_keys(BitcoinNetwork bitcoin_network, string mnemonic);
+};
+
+[Error]
+enum RgbLibError {
+  "InvalidMnemonic",
+};
+
+enum BitcoinNetwork {
+  "Mainnet",
+  "Testnet",
+  "Signet",
+  "Regtest",
+};
+
+dictionary Keys {
+  string mnemonic;
+  string xpub;
+  string xpub_fingerprint;
+};

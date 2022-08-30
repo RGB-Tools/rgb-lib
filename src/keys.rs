@@ -1,0 +1,54 @@
+//! RGB wallet keys
+//!
+//! This module defines the [`Keys`] structure and its related functions.
+
+use bdk::bitcoin::secp256k1::Secp256k1;
+use bdk::bitcoin::Network as BdkNetwork;
+use bdk::keys::bip39::{Language, Mnemonic, WordCount};
+use bdk::keys::{DerivableKey, ExtendedKey, GeneratableKey};
+
+use crate::{BitcoinNetwork, Error};
+
+/// A set of Bitcoin keys used by the RGB wallet
+#[derive(Clone, Debug)]
+pub struct Keys {
+    /// Mnemonic phrase
+    pub mnemonic: String,
+    /// Xpub corresponding to the mnemonic phrase
+    pub xpub: String,
+    /// Fingerprint of the xpub
+    pub xpub_fingerprint: String,
+}
+
+/// Generate a set of [`Keys`] for the given Bitcoin network
+pub fn generate_keys(bitcoin_network: BitcoinNetwork) -> Keys {
+    let bdk_network = BdkNetwork::from(bitcoin_network);
+    let mnemonic = Mnemonic::generate((WordCount::Words12, Language::English))
+        .expect("to be able to generate a new mnemonic");
+    let xkey: ExtendedKey = mnemonic
+        .clone()
+        .into_extended_key()
+        .expect("a valid key should have been provided");
+    let xpub = &xkey.into_xpub(bdk_network, &Secp256k1::new());
+    Keys {
+        mnemonic: mnemonic.to_string(),
+        xpub: xpub.clone().to_string(),
+        xpub_fingerprint: xpub.fingerprint().to_string(),
+    }
+}
+
+/// Recreate a set of [`Keys`] from a given mnemonic phrase
+pub fn restore_keys(bitcoin_network: BitcoinNetwork, mnemonic: String) -> Result<Keys, Error> {
+    let bdk_network = BdkNetwork::from(bitcoin_network);
+    let mnemonic = Mnemonic::parse_in(Language::English, mnemonic)?;
+    let xkey: ExtendedKey = mnemonic
+        .clone()
+        .into_extended_key()
+        .expect("a valid key should have been provided");
+    let xpub = &xkey.into_xpub(bdk_network, &Secp256k1::new());
+    Ok(Keys {
+        mnemonic: mnemonic.to_string(),
+        xpub: xpub.clone().to_string(),
+        xpub_fingerprint: xpub.fingerprint().to_string(),
+    })
+}
