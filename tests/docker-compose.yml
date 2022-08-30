@@ -1,0 +1,18 @@
+version: '3.2'
+
+services:
+  bitcoind:
+    container_name: rgb-bitcoind
+    image: registry.gitlab.com/hashbeam/docker/bitcoind:23.0
+    command: "-fallbackfee=0.0002"
+    volumes:
+      - ./tmp/bitcoin:/srv/app/.bitcoin
+  electrs:
+    container_name: rgb-electrs
+    image: registry.gitlab.com/hashbeam/docker/electrs:0.9.9
+    volumes:
+      - ./tmp/electrs:/srv/app/db
+    ports:
+      - 50001:50001
+    depends_on:
+      - bitcoind

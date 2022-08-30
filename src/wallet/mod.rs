@@ -2060,3 +2060,6 @@ impl Wallet {
         Ok(txid)
     }
 }
+
+#[cfg(test)]
+mod test;
