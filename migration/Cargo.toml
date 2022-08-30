@@ -1,0 +1,18 @@
+[package]
+name = "rgb_lib_migration"
+version = "0.1.0"
+authors = ["Zoe Faltibà <zoefaltiba@gmail.com>", "Nicola Busanello <nicola.busanello@gmail.com>"]
+edition = "2021"
+rust-version = "1.59.0"
+repository = "https://github.com/RGB-Tools/rgb-lib"
+homepage = "https://github.com/RGB-Tools/rgb-lib"
+license = "MIT"
+description = "RGB wallet library migrations"
+
+[lib]
+name = "rgb_lib_migration"
+path = "src/lib.rs"
+
+[dependencies]
+async-std = { version = "^1", features = ["attributes", "tokio1"] }
+sea-orm-migration = { version = "^0.8.0", features = ["sqlx-mysql", "sqlx-postgres", "sqlx-sqlite", "runtime-async-std-native-tls"] }

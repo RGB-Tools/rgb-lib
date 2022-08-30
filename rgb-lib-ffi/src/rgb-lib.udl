@@ -7,7 +7,49 @@ namespace rgb_lib {
 
 [Error]
 enum RgbLibError {
+  "AllocationsAlreadyAvailable",
+  "AssetNotFound",
+  "BlindedUTXOAlreadyUsed",
+  "CannotChangeOnline",
+  "CannotDeleteTransfer",
+  "CannotFailTransfer",
+  "ConsignmentProxy",
+  "Electrum",
+  "FailedBdkSync",
+  "FailedBroadcast",
+  "FailedIssuance",
+  "IO",
+  "Inconsistency",
+  "InexistentDataDir",
+  "InsufficientAllocationSlots",
+  "InsufficientAssets",
+  "InsufficientFunds",
+  "Internal",
+  "InvalidAddress",
+  "InvalidBitcoinKeys",
+  "InvalidBlindedUTXO",
+  "InvalidElectrum",
   "InvalidMnemonic",
+  "InvalidName",
+  "InvalidOnline",
+  "InvalidPsbt",
+  "InvalidPubkey",
+  "InvalidTicker",
+  "TransferNotFound",
+  "WatchOnly",
+};
+
+dictionary Asset {
+  string asset_id;
+  string ticker;
+  string name;
+  u8 precision;
+  Balance balance;
+};
+
+dictionary Balance {
+  u64 settled;
+  u64 future;
 };
 
 enum BitcoinNetwork {
@@ -17,8 +59,139 @@ enum BitcoinNetwork {
   "Regtest",
 };
 
+dictionary BlindData {
+  string blinded_utxo;
+  u64 blinding_secret;
+  i64? expiration_timestamp;
+};
+
+enum DatabaseType {
+  "Sqlite",
+};
+
 dictionary Keys {
   string mnemonic;
   string xpub;
   string xpub_fingerprint;
+};
+
+dictionary Online {
+  u64 id;
+  string electrum_url;
+};
+
+dictionary Outpoint {
+  string txid;
+  u32 vout;
+};
+
+dictionary RgbAllocation {
+  string? asset_id;
+  u64 amount;
+  boolean settled;
+};
+
+enum TransferStatus {
+  "WaitingCounterparty",
+  "WaitingConfirmations",
+  "Settled",
+  "Failed",
+};
+
+dictionary Transfer {
+  i64 idx;
+  i64 created_at;
+  i64 updated_at;
+  TransferStatus status;
+  u64 received;
+  u64 sent;
+  string? txid;
+  string? blinded_utxo;
+  Outpoint? unblinded_utxo;
+  Outpoint? change_utxo;
+  u64? blinding_secret;
+  i64? expiration;
+};
+
+dictionary Unspent {
+  Utxo utxo;
+  sequence<RgbAllocation> rgb_allocations;
+};
+
+dictionary Utxo {
+  Outpoint outpoint;
+  u64 btc_amount;
+  boolean colorable;
+};
+
+dictionary WalletData {
+  string data_dir;
+  BitcoinNetwork bitcoin_network;
+  DatabaseType database_type;
+  string pubkey;
+  string? mnemonic;
+};
+
+interface Wallet {
+  [Throws=RgbLibError]
+  constructor(WalletData wallet_data);
+
+  [Throws=RgbLibError]
+  BlindData blind(string? asset_id, u32? duration_seconds);
+
+  [Throws=RgbLibError]
+  u64 create_utxos(Online online);
+
+  [Throws=RgbLibError]
+  string create_utxos_begin(Online online);
+
+  [Throws=RgbLibError]
+  u64 create_utxos_end(Online online, string signed_psbt);
+
+  [Throws=RgbLibError]
+  void delete_transfers(string? blinded_utxo);
+
+  [Throws=RgbLibError]
+  string drain_to(Online online, string address, boolean destroy_assets);
+
+  [Throws=RgbLibError]
+  string drain_to_begin(Online online, string address, boolean destroy_assets);
+
+  [Throws=RgbLibError]
+  string drain_to_end(Online online, string signed_psbt);
+
+  [Throws=RgbLibError]
+  void fail_transfers(Online online, string? blinded_utxo);
+
+  string get_address();
+
+  [Throws=RgbLibError]
+  Balance get_asset_balance(string asset_id);
+
+  [Throws=RgbLibError]
+  Online go_online(string electrum_url, boolean skip_consistency_check);
+
+  [Throws=RgbLibError]
+  Asset issue_asset(Online online, string ticker, string name, u8 precision, u64 amount);
+
+  [Throws=RgbLibError]
+  sequence<Asset> list_assets();
+
+  [Throws=RgbLibError]
+  sequence<Transfer> list_transfers(string asset_id);
+
+  [Throws=RgbLibError]
+  sequence<Unspent> list_unspents(boolean settled_only);
+
+  [Throws=RgbLibError]
+  void refresh(Online online, string? asset_id);
+
+  [Throws=RgbLibError]
+  string send(Online online, string asset_id, string blinded_utxo, u64 amount);
+
+  [Throws=RgbLibError]
+  string send_begin(Online online, string asset_id, string blinded_utxo, u64 amount);
+
+  [Throws=RgbLibError]
+  string send_end(Online online, string signed_psbt);
 };

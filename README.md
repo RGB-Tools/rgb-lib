@@ -1,13 +1,5 @@
 # RGB Lib
 
-## Limited version
-
-This is a limited version for publishing to crates.io only and does not contain
-the full functionality. The working version will be released as soon as all
-required dependencies will be available.
-
-## Introduction
-
 `rgb-lib` is a Rust library which provides tools to build cross-platform RGB
 compatible wallets in a simple fashion, without having to worry about Bitcoin
 and RGB internals.
