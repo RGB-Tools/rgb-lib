@@ -52,7 +52,6 @@ docker-compose -f tests/docker-compose.yml down
 ## Known issues
 - the library doesn't currently work when built in release mode
 - the project currently builds with rust 1.59.0 (stable or nightly unsupported)
-- spending a received RGB allocation is currently not possible
 - running all tests in parallel opens a lot of file descriptors, hitting the
   default limit, so test threads need to be limited to 1
 

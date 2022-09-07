@@ -3452,7 +3452,7 @@ dependencies = [
 [[package]]
 name = "rgb_node"
 version = "0.8.0"
-source = "git+https://github.com/zoedberg/rgb-node?branch=fix/rgb_core#056d413034a5d9e5d65412fe8b9d8d821e3977ec"
+source = "git+https://github.com/zoedberg/rgb-node?branch=fix/various#2667f3794529bc2ee0d18268a5a45727c7489aa4"
 dependencies = [
  "amplify",
  "bitcoin",
@@ -3490,7 +3490,7 @@ dependencies = [
 [[package]]
 name = "rgb_rpc"
 version = "0.8.0"
-source = "git+https://github.com/zoedberg/rgb-node?branch=fix/rgb_core#056d413034a5d9e5d65412fe8b9d8d821e3977ec"
+source = "git+https://github.com/zoedberg/rgb-node?branch=fix/various#2667f3794529bc2ee0d18268a5a45727c7489aa4"
 dependencies = [
  "amplify",
  "bitcoin",

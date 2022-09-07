@@ -262,7 +262,6 @@ fn send_twice_success() {
 }
 
 #[test]
-#[ignore]
 fn send_received_success() {
     initialize();
 
