@@ -30,7 +30,7 @@ fn _bitcoin_cli() -> [String; 9] {
 }
 
 fn fund_wallet(address: String) {
-    Command::new("docker-compose")
+    let status = Command::new("docker-compose")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -41,10 +41,11 @@ fn fund_wallet(address: String) {
         .arg("1")
         .status()
         .expect("failed to fund wallet");
+        assert!(status.success());
 }
 
 fn mine() {
-    Command::new("docker-compose")
+    let status = Command::new("docker-compose")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -54,16 +55,18 @@ fn mine() {
         .arg("3")
         .status()
         .expect("failed to mine");
+        assert!(status.success());
 }
 
 pub fn initialize() {
     INIT.call_once(|| {
         println!("starting test services...");
-        Command::new("./tests/start_services.sh")
+        let status = Command::new("./tests/start_services.sh")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
             .expect("failed to start test services");
+        assert!(status.success());
     });
 }
 
