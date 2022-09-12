@@ -1,4 +1,5 @@
 #!/bin/bash
+set -eu
 
 COMPOSE="docker-compose -f tests/docker-compose.yml"
 TEST_DIR="./tests/tmp"
