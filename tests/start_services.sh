@@ -15,7 +15,7 @@ until $COMPOSE logs bitcoind |grep 'Bound to'; do
 done
 
 # prepare bitcoin funds
-BCLI="$COMPOSE exec -u blits bitcoind bitcoin-cli -regtest"
+BCLI="$COMPOSE exec -T -u blits bitcoind bitcoin-cli -regtest"
 $BCLI createwallet miner
 $BCLI -rpcwallet=miner -generate 103
 
