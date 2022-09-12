@@ -1,3 +1,6 @@
 [bindings.kotlin]
 package_name = "org.rgbtools"
 cdylib_name = "rgblibffi"
+
+[bindings.python]
+cdylib_name = "rgblibffi"

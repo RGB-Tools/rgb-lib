@@ -12,6 +12,7 @@ git submodule.
 | Language | Platform     | Repository   |
 | -------- | ------------ | ------------ |
 | Kotlin   | android      | [rgb-lib-kotlin] |
+| Python   | linux, macOS | [rgb-lib-python] |
 
 ## Language bindings generator tool
 
@@ -31,4 +32,5 @@ work by the [mozilla/uniffi-rs] team.
 [bdk-ffi]: https://github.com/bitcoindevkit/bdk-ffi
 [mozilla/uniffi-rs]: https://github.com/mozilla/uniffi-rs
 [rgb-lib-kotlin]: https://github.com/RGB-Tools/rgb-lib-kotlin
+[rgb-lib-python]: https://github.com/RGB-Tools/rgb-lib-python
 [rgb-lib]: https://github.com/RGB-Tools/rgb-lib
