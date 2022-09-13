@@ -4,3 +4,6 @@ cdylib_name = "rgblibffi"
 
 [bindings.python]
 cdylib_name = "rgblibffi"
+
+[bindings.swift]
+cdylib_name = "rgblibffi"

@@ -9,6 +9,7 @@ use structopt::StructOpt;
 pub enum Language {
     Kotlin,
     Python,
+    Swift,
 }
 
 impl fmt::Display for Language {
@@ -16,6 +17,7 @@ impl fmt::Display for Language {
         match self {
             Language::Kotlin => write!(f, "kotlin"),
             Language::Python => write!(f, "python"),
+            Language::Swift => write!(f, "swift"),
         }
     }
 }
@@ -37,6 +39,7 @@ impl FromStr for Language {
         match s {
             "kotlin" => Ok(Language::Kotlin),
             "python" => Ok(Language::Python),
+            "swift" => Ok(Language::Swift),
             _ => Err(Error::UnsupportedLanguage),
         }
     }
@@ -72,7 +75,7 @@ struct Opt {
     udl_file: PathBuf,
 
     /// Language to generate bindings for
-    #[structopt(env = "RGBFFI_BINDGEN_LANGUAGE", short, long, possible_values(&["kotlin","python"]), parse(try_from_str = Language::from_str))]
+    #[structopt(env = "RGBFFI_BINDGEN_LANGUAGE", short, long, possible_values(&["kotlin","python","swift"]), parse(try_from_str = Language::from_str))]
     language: Language,
 
     /// Output directory to put generated language bindings

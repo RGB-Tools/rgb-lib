@@ -13,6 +13,7 @@ git submodule.
 | -------- | ------------ | ------------ |
 | Kotlin   | android      | [rgb-lib-kotlin] |
 | Python   | linux, macOS | [rgb-lib-python] |
+| Swift    | iOS, macOS   | [rgb-lib-swift]  |
 
 ## Language bindings generator tool
 
@@ -33,4 +34,5 @@ work by the [mozilla/uniffi-rs] team.
 [mozilla/uniffi-rs]: https://github.com/mozilla/uniffi-rs
 [rgb-lib-kotlin]: https://github.com/RGB-Tools/rgb-lib-kotlin
 [rgb-lib-python]: https://github.com/RGB-Tools/rgb-lib-python
+[rgb-lib-swift]: https://github.com/RGB-Tools/rgb-lib-swift
 [rgb-lib]: https://github.com/RGB-Tools/rgb-lib
