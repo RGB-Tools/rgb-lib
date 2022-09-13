@@ -43,7 +43,7 @@ use rgb_core::{Assignment, SealEndpoint, Validator};
 use rgb_lib_migration::{Migrator, MigratorTrait};
 use rgb_node::{rgbd, Config};
 use rgb_rpc::client::Client;
-use rgb_rpc::{ContractValidity, AcceptValidity};
+use rgb_rpc::{AcceptValidity, ContractValidity};
 use sea_orm::{ActiveValue, ConnectOptions, Database, DeriveActiveEnum, EnumIter};
 use serde::{Deserialize, Serialize};
 use slog::{debug, error, info, Logger};
@@ -1588,15 +1588,22 @@ impl Wallet {
             return Err(InternalError::Unexpected)?;
         }
         if transfer.incoming() {
-            let detailed_transfer = Transfer::from_db_transfer(transfer.clone(),
-                self.database.get_transfer_data(transfer)?);
+            let detailed_transfer = Transfer::from_db_transfer(
+                transfer.clone(),
+                self.database.get_transfer_data(transfer)?,
+            );
             let blinding = detailed_transfer
                 .blinding_secret
                 .expect("incoming transfer should have a blinding secret");
-            let outpoint = OutPoint::from(detailed_transfer.unblinded_utxo
-                .expect("incoming transfer should have a unblinded UTXO"));
+            let outpoint = OutPoint::from(
+                detailed_transfer
+                    .unblinded_utxo
+                    .expect("incoming transfer should have a unblinded UTXO"),
+            );
 
-            let status = self._rgb_client()?.accept_transfer(consignment, outpoint, blinding, |_| ())
+            let status = self
+                ._rgb_client()?
+                .accept_transfer(consignment, outpoint, blinding, |_| ())
                 .map_err(InternalError::from)?;
             if !matches!(status, AcceptValidity::Valid) {
                 return Err(InternalError::Unexpected)?;

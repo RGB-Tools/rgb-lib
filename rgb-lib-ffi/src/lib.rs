@@ -31,7 +31,6 @@ struct Wallet {
     wallet_mutex: Mutex<RgbLibWallet>,
 }
 
-
 impl Wallet {
     fn new(wallet_data: WalletData) -> Result<Self, RgbLibError> {
         Ok(Wallet {
@@ -67,19 +66,34 @@ impl Wallet {
         self._get_wallet().delete_transfers(blinded_utxo)
     }
 
-    fn drain_to(&self, online: Online, address: String, destroy_assets: bool) -> Result<String, RgbLibError> {
+    fn drain_to(
+        &self,
+        online: Online,
+        address: String,
+        destroy_assets: bool,
+    ) -> Result<String, RgbLibError> {
         self._get_wallet().drain_to(online, address, destroy_assets)
     }
 
-    fn drain_to_begin(&self, online: Online, address: String, destroy_assets: bool) -> Result<String, RgbLibError> {
-        self._get_wallet().drain_to_begin(online, address, destroy_assets)
+    fn drain_to_begin(
+        &self,
+        online: Online,
+        address: String,
+        destroy_assets: bool,
+    ) -> Result<String, RgbLibError> {
+        self._get_wallet()
+            .drain_to_begin(online, address, destroy_assets)
     }
 
     fn drain_to_end(&self, online: Online, signed_psbt: String) -> Result<String, RgbLibError> {
         self._get_wallet().drain_to_end(online, signed_psbt)
     }
 
-    fn fail_transfers(&self, online: Online, blinded_utxo: Option<String>) -> Result<(), RgbLibError> {
+    fn fail_transfers(
+        &self,
+        online: Online,
+        blinded_utxo: Option<String>,
+    ) -> Result<(), RgbLibError> {
         self._get_wallet().fail_transfers(online, blinded_utxo)
     }
 
@@ -91,8 +105,13 @@ impl Wallet {
         self._get_wallet().get_asset_balance(asset_id)
     }
 
-    fn go_online(&self, electrum_url: String, skip_consistency_check: bool) -> Result<Online, RgbLibError> {
-        self._get_wallet().go_online(electrum_url, skip_consistency_check)
+    fn go_online(
+        &self,
+        electrum_url: String,
+        skip_consistency_check: bool,
+    ) -> Result<Online, RgbLibError> {
+        self._get_wallet()
+            .go_online(electrum_url, skip_consistency_check)
     }
 
     fn issue_asset(
@@ -103,7 +122,8 @@ impl Wallet {
         precision: u8,
         amount: u64,
     ) -> Result<Asset, RgbLibError> {
-        self._get_wallet().issue_asset(online, ticker, name, precision, amount)
+        self._get_wallet()
+            .issue_asset(online, ticker, name, precision, amount)
     }
 
     fn list_assets(&self) -> Result<Vec<Asset>, RgbLibError> {
@@ -129,7 +149,8 @@ impl Wallet {
         blinded_utxo: String,
         amount: u64,
     ) -> Result<String, RgbLibError> {
-        self._get_wallet().send(online, asset_id, blinded_utxo, amount)
+        self._get_wallet()
+            .send(online, asset_id, blinded_utxo, amount)
     }
 
     fn send_begin(
@@ -139,14 +160,11 @@ impl Wallet {
         blinded_utxo: String,
         amount: u64,
     ) -> Result<String, RgbLibError> {
-        self._get_wallet().send_begin(online, asset_id, blinded_utxo, amount)
+        self._get_wallet()
+            .send_begin(online, asset_id, blinded_utxo, amount)
     }
 
-    fn send_end(
-        &self,
-        online: Online,
-        signed_psbt: String,
-    ) -> Result<String, RgbLibError> {
+    fn send_end(&self, online: Online, signed_psbt: String) -> Result<String, RgbLibError> {
         self._get_wallet().send_end(online, signed_psbt)
     }
 }

@@ -41,7 +41,7 @@ fn fund_wallet(address: String) {
         .arg("1")
         .status()
         .expect("failed to fund wallet");
-        assert!(status.success());
+    assert!(status.success());
 }
 
 fn mine() {
@@ -55,7 +55,7 @@ fn mine() {
         .arg("3")
         .status()
         .expect("failed to mine");
-        assert!(status.success());
+    assert!(status.success());
 }
 
 pub fn initialize() {
