@@ -6,5 +6,5 @@ fn success() {
 
     let (wallet, _online) = get_empty_wallet!();
     let address = wallet.get_address();
-    assert_eq!(address.is_empty(), false);
+    assert!(!address.is_empty());
 }

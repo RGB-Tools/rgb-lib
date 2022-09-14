@@ -21,7 +21,7 @@ fn success() {
     let (mut wallet, online) = get_funded_wallet!();
     let asset = wallet
         .issue_asset(
-            online.clone(),
+            online,
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
@@ -34,16 +34,16 @@ fn success() {
     assert_eq!(unspent_list_all.len(), UTXO_NUM as usize + 1);
     let unspents_with_rgb_allocations: Vec<Unspent> = unspent_list
         .into_iter()
-        .filter(|u| u.rgb_allocations.len() > 0)
+        .filter(|u| !u.rgb_allocations.is_empty())
         .collect();
     assert!(unspents_with_rgb_allocations.len() == 1);
-    let allocation_asset_ids: Vec<String> = unspents_with_rgb_allocations
+
+    assert!(unspents_with_rgb_allocations
         .first()
         .unwrap()
         .rgb_allocations
         .clone()
         .into_iter()
-        .map(|a| a.asset_id.unwrap_or(s!("")))
-        .collect();
-    assert!(allocation_asset_ids.contains(&asset.asset_id));
+        .map(|a| a.asset_id.unwrap_or_else(|| s!("")))
+        .any(|x| x == asset.asset_id));
 }

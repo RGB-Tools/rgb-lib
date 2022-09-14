@@ -11,7 +11,7 @@ fn success() {
     let (wallet, online) = get_funded_noutxo_wallet!();
     wallet._sync_db_txos().unwrap();
     wallet
-        .drain_to(online.clone(), rcv_wallet.get_address(), false)
+        .drain_to(online, rcv_wallet.get_address(), false)
         .unwrap();
     mine();
     wallet._sync_db_txos().unwrap();
@@ -57,24 +57,24 @@ fn fail() {
 
     // drain empty wallet
     let (wallet, online) = get_empty_wallet!();
-    let result = wallet.drain_to(online.clone(), rcv_wallet.get_address(), true);
+    let result = wallet.drain_to(online, rcv_wallet.get_address(), true);
     assert!(matches!(result, Err(Error::InsufficientFunds)));
 
     // bad online object
     let (wallet, _online) = get_funded_noutxo_wallet!();
     wallet._sync_db_txos().unwrap();
-    let result = wallet.drain_to(rcv_online.clone(), rcv_wallet.get_address(), false);
+    let result = wallet.drain_to(rcv_online, rcv_wallet.get_address(), false);
     assert!(matches!(result, Err(Error::InvalidOnline())));
 
     // bad address
     let (wallet, online) = get_funded_noutxo_wallet!();
     wallet._sync_db_txos().unwrap();
-    let result = wallet.drain_to(online.clone(), s!("invalid address"), false);
+    let result = wallet.drain_to(online, s!("invalid address"), false);
     assert!(matches!(result, Err(Error::InvalidAddress(_))));
 
     // no private keys
     let (wallet, online) = get_funded_noutxo_wallet!(false, false);
     wallet._sync_db_txos().unwrap();
-    let result = wallet.drain_to(online.clone(), rcv_wallet.get_address(), false);
+    let result = wallet.drain_to(online, rcv_wallet.get_address(), false);
     assert!(matches!(result, Err(Error::WatchOnly())));
 }

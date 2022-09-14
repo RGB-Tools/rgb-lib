@@ -13,7 +13,7 @@ fn success() {
     // one issued asset
     let asset = wallet
         .issue_asset(
-            online.clone(),
+            online,
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
@@ -242,10 +242,10 @@ fn transfer_balances() {
     // take transfers from WaitingConfirmations to Settled
     mine();
     wallet_recv
-        .refresh(online_recv.clone(), Some(asset.asset_id.clone()))
+        .refresh(online_recv, Some(asset.asset_id.clone()))
         .unwrap();
     wallet_send
-        .refresh(online_send.clone(), Some(asset.asset_id.clone()))
+        .refresh(online_send, Some(asset.asset_id.clone()))
         .unwrap();
 
     // balances with transfer Settled
@@ -261,9 +261,7 @@ fn transfer_balances() {
             future: AMOUNT - amount_1 - amount_2
         }
     );
-    let asset_balance_recv = wallet_recv
-        .get_asset_balance(asset.asset_id.clone())
-        .unwrap();
+    let asset_balance_recv = wallet_recv.get_asset_balance(asset.asset_id).unwrap();
     assert_eq!(
         asset_balance_recv,
         Balance {

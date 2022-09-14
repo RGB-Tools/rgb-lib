@@ -185,7 +185,7 @@ impl RgbLibDatabase {
         Ok(())
     }
 
-    pub(crate) fn del_transfer(&self, db_transfer: DbTransfer) -> Result<(), InternalError> {
+    pub(crate) fn del_transfer(&self, db_transfer: &DbTransfer) -> Result<(), InternalError> {
         block_on(transfer::Entity::delete_by_id(db_transfer.idx).exec(self.get_connection()))?;
         Ok(())
     }
@@ -197,7 +197,7 @@ impl RgbLibDatabase {
                 .one(self.get_connection()),
         )?;
         if let Some(a) = asset {
-            return Ok(Some(DbAsset::from(a)));
+            return Ok(Some(a));
         }
         Ok(None)
     }
@@ -212,7 +212,7 @@ impl RgbLibDatabase {
                 .one(self.get_connection()),
         )?;
         if let Some(t) = transfer {
-            return Ok(Some(DbTransfer::from(t)));
+            return Ok(Some(t));
         }
         Ok(None)
     }
@@ -424,7 +424,6 @@ impl RgbLibDatabase {
             .map(|c| c.txo_idx)
             .collect();
         let change_utxo = transfer_txos
-            .clone()
             .into_iter()
             .filter(|t| change_txo_idx.contains(&t.idx))
             .map(|t| t.outpoint())
@@ -451,7 +450,7 @@ impl RgbLibDatabase {
         let transfers: Vec<DbTransfer> = self.iter_transfers()?.into_iter().collect();
 
         let mut allocations: Vec<RgbAllocation> = vec![];
-        utxo_colorings.into_iter().for_each(|c| {
+        utxo_colorings.iter().for_each(|c| {
             let transfer: &DbTransfer = transfers
                 .iter()
                 .filter(|t| t.idx == c.transfer_idx)
