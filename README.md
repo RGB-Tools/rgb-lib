@@ -37,7 +37,7 @@ Native language bindings for this library are also available via the
 ## Tests
 In order to run the available tests, execute:
 ```bash
-cargo test -- --test-threads=1
+cargo test
 ```
 
 This command will run a [bitcoind] node and an [electrs] node in order to
@@ -51,9 +51,9 @@ docker-compose -f tests/docker-compose.yml down
 
 ## Known issues
 - the library doesn't currently work when built in release mode
-- the project currently builds with rust 1.59.0 (stable or nightly unsupported)
 - running all tests in parallel opens a lot of file descriptors, hitting the
-  default limit, so test threads need to be limited to 1
+  default 1024 limit, so it needs to be increased (e.g. `ulimit -n 2048`);
+  running tests in smaller batches (e.g. `cargo test send` is also possible)
 
 ## Roadmap
 - add an API to extend `BlindData` expiration
