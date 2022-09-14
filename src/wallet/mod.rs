@@ -43,7 +43,7 @@ use rgb_core::{Assignment, SealEndpoint, Validator};
 use rgb_lib_migration::{Migrator, MigratorTrait};
 use rgb_node::{rgbd, Config};
 use rgb_rpc::client::Client;
-use rgb_rpc::{AcceptValidity, ContractValidity};
+use rgb_rpc::{ContractValidity, Reveal};
 use sea_orm::{ActiveValue, ConnectOptions, Database, DeriveActiveEnum, EnumIter};
 use serde::{Deserialize, Serialize};
 use slog::{debug, error, info, Logger};
@@ -1569,19 +1569,12 @@ impl Wallet {
         };
         let consignment =
             StateTransfer::strict_file_load(&consignment_path).map_err(InternalError::from)?;
-        let status = self
-            ._rgb_client()?
-            .consume_transfer(consignment.clone(), true, |_| ())
-            .map_err(InternalError::from)?;
-        if !matches!(status, ContractValidity::Valid) {
-            return Err(InternalError::Unexpected)?;
-        }
-        if transfer.incoming() {
+        let reveal = if transfer.incoming() {
             let detailed_transfer = Transfer::from_db_transfer(
                 transfer.clone(),
                 self.database.get_transfer_data(transfer)?,
             );
-            let blinding = detailed_transfer
+            let blinding_factor = detailed_transfer
                 .blinding_secret
                 .expect("incoming transfer should have a blinding secret");
             let outpoint = OutPoint::from(
@@ -1589,14 +1582,20 @@ impl Wallet {
                     .unblinded_utxo
                     .expect("incoming transfer should have a unblinded UTXO"),
             );
-
-            let status = self
-                ._rgb_client()?
-                .accept_transfer(consignment, outpoint, blinding, |_| ())
-                .map_err(InternalError::from)?;
-            if !matches!(status, AcceptValidity::Valid) {
-                return Err(InternalError::Unexpected)?;
-            }
+            Some(Reveal {
+                blinding_factor,
+                outpoint,
+                close_method: CloseMethod::OpretFirst,
+            })
+        } else {
+            None
+        };
+        let status = self
+            ._rgb_client()?
+            .consume_transfer(consignment, true, reveal, |_| ())
+            .map_err(InternalError::from)?;
+        if !matches!(status, ContractValidity::Valid) {
+            return Err(InternalError::Unexpected)?;
         }
 
         let mut updated_transfer: DbTransferActMod = transfer.clone().into();

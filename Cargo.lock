@@ -3345,7 +3345,7 @@ dependencies = [
 [[package]]
 name = "rgb_node"
 version = "0.8.0"
-source = "git+https://github.com/zoedberg/rgb-node?branch=fix/various2#f04c20a2a7c3232b3acbd48d51d8706fa3d25a86"
+source = "git+https://github.com/zoedberg/rgb-node?branch=fix/various3#06c6c3978a26fe6de6a196298aeeb7c279d124e4"
 dependencies = [
  "amplify",
  "bitcoin",
@@ -3383,10 +3383,11 @@ dependencies = [
 [[package]]
 name = "rgb_rpc"
 version = "0.8.0"
-source = "git+https://github.com/zoedberg/rgb-node?branch=fix/various2#f04c20a2a7c3232b3acbd48d51d8706fa3d25a86"
+source = "git+https://github.com/zoedberg/rgb-node?branch=fix/various3#06c6c3978a26fe6de6a196298aeeb7c279d124e4"
 dependencies = [
  "amplify",
  "bitcoin",
+ "bp-core",
  "colored",
  "internet2",
  "lnpbp",
@@ -3505,7 +3506,7 @@ version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bfa0f585226d2e68097d4f95d113b15b83a82e819ab25717ec0590d9584ef366"
 dependencies = [
- "semver 1.0.13",
+ "semver 1.0.14",
 ]
 
 [[package]]
@@ -3777,9 +3778,9 @@ dependencies = [
 
 [[package]]
 name = "semver"
-version = "1.0.13"
+version = "1.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93f6841e709003d68bb2deee8c343572bf446003ec20a583e76f7b15cebf3711"
+checksum = "e25dfac463d778e353db5be2449d1cce89bd6fd23c9f1ea21310ce6e5a1b29c4"
 
 [[package]]
 name = "semver-parser"
