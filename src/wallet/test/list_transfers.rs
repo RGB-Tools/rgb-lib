@@ -9,7 +9,7 @@ fn success() {
     // issue asset
     let asset = wallet
         .issue_asset(
-            online.clone(),
+            online,
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,

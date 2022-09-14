@@ -44,7 +44,7 @@ fn consistency_check_fail_utxos() {
     let wallet_data_orig = wallet_orig.get_wallet_data();
     wallet_orig
         .issue_asset(
-            online_orig.clone(),
+            online_orig,
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
@@ -57,7 +57,7 @@ fn consistency_check_fail_utxos() {
     let wallet_dir_orig = wallet_orig.get_wallet_dir();
     let pubkey = ExtendedPubKey::from_str(&wallet_data_orig.pubkey).unwrap();
     let extended_key: ExtendedKey = ExtendedKey::from(pubkey);
-    let bdk_network = BdkNetwork::from(bitcoin_network.clone());
+    let bdk_network = BdkNetwork::from(bitcoin_network);
     let xpub = extended_key.into_xpub(bdk_network, &Secp256k1::new());
     let fingerprint = xpub.fingerprint().to_string();
     // prepare directories
@@ -79,37 +79,25 @@ fn consistency_check_fail_utxos() {
     }
     // prepare wallet data objects
     let wallet_data_empty = WalletData {
-        data_dir: data_dir_empty
-            .clone()
-            .into_os_string()
-            .into_string()
-            .unwrap(),
+        data_dir: data_dir_empty.into_os_string().into_string().unwrap(),
         bitcoin_network,
         database_type: DatabaseType::Sqlite,
         pubkey: wallet_data_orig.pubkey.clone(),
         mnemonic: wallet_data_orig.mnemonic.clone(),
     };
     let wallet_data_prefill = WalletData {
-        data_dir: data_dir_prefill
-            .clone()
-            .into_os_string()
-            .into_string()
-            .unwrap(),
+        data_dir: data_dir_prefill.into_os_string().into_string().unwrap(),
         bitcoin_network,
         database_type: DatabaseType::Sqlite,
         pubkey: wallet_data_orig.pubkey.clone(),
         mnemonic: wallet_data_orig.mnemonic.clone(),
     };
     let wallet_data_prefill_2 = WalletData {
-        data_dir: data_dir_prefill_2
-            .clone()
-            .into_os_string()
-            .into_string()
-            .unwrap(),
+        data_dir: data_dir_prefill_2.into_os_string().into_string().unwrap(),
         bitcoin_network,
         database_type: DatabaseType::Sqlite,
         pubkey: wallet_data_orig.pubkey.clone(),
-        mnemonic: wallet_data_orig.mnemonic.clone(),
+        mnemonic: wallet_data_orig.mnemonic,
     };
     // copy original wallet's db data to prefilled wallet data dir
     let wallet_dir_entries = fs::read_dir(&wallet_dir_orig).unwrap();
@@ -140,7 +128,7 @@ fn consistency_check_fail_utxos() {
         .unwrap();
     let (rcv_wallet, _rcv_online) = get_funded_wallet!();
     wallet_empty
-        .drain_to(online_empty.clone(), rcv_wallet.get_address(), false)
+        .drain_to(online_empty, rcv_wallet.get_address(), false)
         .unwrap();
 
     // detect asset inconcistency
@@ -168,7 +156,7 @@ fn consistency_check_fail_asset_ids() {
     let wallet_data_orig = wallet_orig.get_wallet_data();
     let _asset = wallet_orig
         .issue_asset(
-            online_orig.clone(),
+            online_orig,
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
@@ -181,7 +169,7 @@ fn consistency_check_fail_asset_ids() {
     let wallet_dir_orig = wallet_orig.get_wallet_dir();
     let pubkey = ExtendedPubKey::from_str(&wallet_data_orig.pubkey).unwrap();
     let extended_key: ExtendedKey = ExtendedKey::from(pubkey);
-    let bdk_network = BdkNetwork::from(bitcoin_network.clone());
+    let bdk_network = BdkNetwork::from(bitcoin_network);
     let xpub = extended_key.into_xpub(bdk_network, &Secp256k1::new());
     let fingerprint = xpub.fingerprint().to_string();
     // prepare directories
@@ -221,7 +209,7 @@ fn consistency_check_fail_asset_ids() {
         bitcoin_network,
         database_type: DatabaseType::Sqlite,
         pubkey: wallet_data_orig.pubkey.clone(),
-        mnemonic: wallet_data_orig.mnemonic.clone(),
+        mnemonic: wallet_data_orig.mnemonic,
     };
     // copy original wallet's data to prefilled wallets 1 + 2 data dir
     for destination in [&wallet_dir_prefill_1, &wallet_dir_prefill_2] {

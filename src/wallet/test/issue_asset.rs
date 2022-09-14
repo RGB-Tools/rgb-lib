@@ -8,7 +8,7 @@ fn success() {
 
     let asset = wallet
         .issue_asset(
-            online.clone(),
+            online,
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
@@ -59,13 +59,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidName(_))));
 
     // invalid precision
-    let result = wallet.issue_asset(
-        online.clone(),
-        TICKER.to_string(),
-        NAME.to_string(),
-        19,
-        AMOUNT,
-    );
+    let result = wallet.issue_asset(online, TICKER.to_string(), NAME.to_string(), 19, AMOUNT);
     assert!(matches!(result, Err(Error::FailedIssuance(_))));
 
     // insufficient funds
@@ -99,12 +93,6 @@ fn zero_amount_fail() {
     let (mut wallet, online) = get_funded_wallet!();
 
     // invalid amount
-    let result = wallet.issue_asset(
-        online.clone(),
-        TICKER.to_string(),
-        NAME.to_string(),
-        PRECISION,
-        0,
-    );
+    let result = wallet.issue_asset(online, TICKER.to_string(), NAME.to_string(), PRECISION, 0);
     assert!(matches!(result, Err(Error::FailedIssuance(_))));
 }

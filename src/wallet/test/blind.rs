@@ -28,7 +28,7 @@ fn success() {
     // asset id is set
     let asset = wallet
         .issue_asset(
-            online.clone(),
+            online,
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
@@ -53,16 +53,14 @@ fn pending_transfer_skip() {
         .iter_transfers()
         .unwrap()
         .into_iter()
-        .filter(|t| t.blinded_utxo == Some(blind_data_1.blinded_utxo.clone()))
-        .next()
+        .find(|t| t.blinded_utxo == Some(blind_data_1.blinded_utxo.clone()))
         .unwrap();
     let db_transfer_2 = wallet
         .database
         .iter_transfers()
         .unwrap()
         .into_iter()
-        .filter(|t| t.blinded_utxo == Some(blind_data_2.blinded_utxo.clone()))
-        .next()
+        .find(|t| t.blinded_utxo == Some(blind_data_2.blinded_utxo.clone()))
         .unwrap();
 
     let db_coloring_1 = wallet
@@ -70,16 +68,14 @@ fn pending_transfer_skip() {
         .iter_colorings()
         .unwrap()
         .into_iter()
-        .filter(|c| c.transfer_idx == db_transfer_1.idx)
-        .next()
+        .find(|c| c.transfer_idx == db_transfer_1.idx)
         .unwrap();
     let db_coloring_2 = wallet
         .database
         .iter_colorings()
         .unwrap()
         .into_iter()
-        .filter(|c| c.transfer_idx == db_transfer_2.idx)
-        .next()
+        .find(|c| c.transfer_idx == db_transfer_2.idx)
         .unwrap();
 
     let db_txo_1 = wallet
@@ -87,16 +83,14 @@ fn pending_transfer_skip() {
         .iter_txos()
         .unwrap()
         .into_iter()
-        .filter(|t| t.idx == db_coloring_1.txo_idx)
-        .next()
+        .find(|t| t.idx == db_coloring_1.txo_idx)
         .unwrap();
     let db_txo_2 = wallet
         .database
         .iter_txos()
         .unwrap()
         .into_iter()
-        .filter(|t| t.idx == db_coloring_2.txo_idx)
-        .next()
+        .find(|t| t.idx == db_coloring_2.txo_idx)
         .unwrap();
 
     assert_ne!(db_txo_1.idx, db_txo_2.idx);

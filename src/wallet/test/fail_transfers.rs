@@ -30,10 +30,10 @@ fn fail() {
             AMOUNT,
         )
         .unwrap();
-    let asset_id = asset.asset_id.clone();
+    let asset_id = asset.asset_id;
     // blind
     let blind_data = rcv_wallet.blind(None, Some(60)).unwrap();
-    let blinded_utxo = blind_data.blinded_utxo.clone();
+    let blinded_utxo = blind_data.blinded_utxo;
     // send
     wallet
         .send(online.clone(), asset_id.clone(), blinded_utxo.clone(), 66)
@@ -91,7 +91,7 @@ fn fail() {
         .refresh(online.clone(), Some(asset_id.clone()))
         .unwrap();
     rcv_wallet
-        .refresh(rcv_online.clone(), Some(asset_id.clone()))
+        .refresh(rcv_online.clone(), Some(asset_id))
         .unwrap();
 
     // fail to fail incoming transfer: settled

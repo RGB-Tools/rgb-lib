@@ -38,7 +38,7 @@ fn success() {
     // two issued assets
     let asset_2 = wallet
         .issue_asset(
-            online.clone(),
+            online,
             s!("TICKER2"),
             s!("NAME2"),
             PRECISION * 2,

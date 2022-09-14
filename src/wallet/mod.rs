@@ -257,14 +257,10 @@ pub struct Transfer {
 
 impl Transfer {
     fn from_db_transfer(x: DbTransfer, td: TransferData) -> Transfer {
-        let blinding_secret = if let Some(bs) = x.blinding_secret {
-            Some(
-                bs.parse::<u64>()
-                    .expect("DB should contain a valid u64 value"),
-            )
-        } else {
-            None
-        };
+        let blinding_secret = x.blinding_secret.map(|bs| {
+            bs.parse::<u64>()
+                .expect("DB should contain a valid u64 value")
+        });
         Transfer {
             idx: x.idx,
             created_at: x.created_at,
@@ -365,7 +361,7 @@ impl Wallet {
         // wallet directory and file logging setup
         let pubkey = ExtendedPubKey::from_str(&wdata.pubkey)?;
         let extended_key: ExtendedKey = ExtendedKey::from(pubkey);
-        let bdk_network = BdkNetwork::from(wdata.bitcoin_network.clone());
+        let bdk_network = BdkNetwork::from(wdata.bitcoin_network);
         let xpub = extended_key.into_xpub(bdk_network, &Secp256k1::new());
         let fingerprint = xpub.fingerprint().to_string();
         let absolute_data_dir = fs::canonicalize(wdata.data_dir)?;
@@ -402,7 +398,6 @@ impl Wallet {
                 return Err(Error::InvalidBitcoinKeys());
             }
             let xkey: ExtendedKey = mnemonic
-                .clone()
                 .into_extended_key()
                 .expect("a valid key should have been provided");
             let xprv = xkey
@@ -431,11 +426,8 @@ impl Wallet {
 
         // RGB-LIB setup
         let db_path = wallet_dir.join(RGB_DB_NAME);
-        let connection_string = format!(
-            "sqlite://{}?mode=rwc",
-            db_path.as_path().display().to_string()
-        );
-        let mut opt = ConnectOptions::new(connection_string.to_owned());
+        let connection_string = format!("sqlite://{}?mode=rwc", db_path.as_path().display());
+        let mut opt = ConnectOptions::new(connection_string);
         opt.max_connections(1)
             .min_connections(1)
             .connect_timeout(Duration::from_secs(8))
@@ -710,14 +702,14 @@ impl Wallet {
             .clone()
             .into_iter()
             .filter(|u| !u.utxo.colorable)
-            .map(|u| OutPoint::from(u.utxo.clone()))
+            .map(|u| OutPoint::from(u.utxo))
             .collect();
         let inputs: &[OutPoint] = &inputs;
         let new_btc_amount = self._get_spendable_bitcoins(unspents);
         let max_possible_utxos = new_btc_amount / UTXO_SIZE;
         let mut num_utxos_to_create = min(UTXO_NUM as u64, max_possible_utxos);
         while num_utxos_to_create > 0 {
-            match self._create_split_tx(inputs.clone(), num_utxos_to_create) {
+            match self._create_split_tx(inputs, num_utxos_to_create) {
                 Ok(_v) => break,
                 Err(_e) => num_utxos_to_create -= 1,
             };
@@ -807,7 +799,7 @@ impl Wallet {
         Ok(num_utxos_created)
     }
 
-    fn _delete_transfer(&self, transfer: DbTransfer) -> Result<(), Error> {
+    fn _delete_transfer(&self, transfer: &DbTransfer) -> Result<(), Error> {
         self.database.del_coloring(transfer.idx)?;
         Ok(self.database.del_transfer(transfer)?)
     }
@@ -824,7 +816,7 @@ impl Wallet {
             if db_transfer.status != TransferStatus::Failed {
                 return Err(Error::CannotDeleteTransfer(bu));
             }
-            self._delete_transfer(db_transfer)?;
+            self._delete_transfer(&db_transfer)?;
         } else {
             let db_transfers: Vec<DbTransfer> = self
                 .database
@@ -832,7 +824,7 @@ impl Wallet {
                 .into_iter()
                 .filter(|t| t.status == TransferStatus::Failed)
                 .collect();
-            for db_transfer in db_transfers.into_iter() {
+            for db_transfer in db_transfers.iter() {
                 self._delete_transfer(db_transfer)?
             }
         }
@@ -1342,7 +1334,7 @@ impl Wallet {
     fn _get_signed_psbt(&self, transfer_dir: PathBuf) -> Result<PartiallySignedTransaction, Error> {
         let psbt_file = transfer_dir.join(SIGNED_PSBT_FILE);
         let psbt_str = fs::read_to_string(&psbt_file)?;
-        Ok(PartiallySignedTransaction::from_str(&psbt_str).map_err(Error::InvalidPsbt)?)
+        PartiallySignedTransaction::from_str(&psbt_str).map_err(Error::InvalidPsbt)
     }
 
     fn _wait_consignment(&mut self, transfer: &DbTransfer) -> Result<Option<DbTransfer>, Error> {
@@ -1374,8 +1366,8 @@ impl Wallet {
             .wallet_dir
             .join(TRANSFER_DIR)
             .join(blinded_utxo.clone());
-        let consignment_path = transfer_dir.clone().join(CONSIGNMENT_RCV_FILE);
-        fs::create_dir_all(transfer_dir.clone())?;
+        let consignment_path = transfer_dir.join(CONSIGNMENT_RCV_FILE);
+        fs::create_dir_all(transfer_dir)?;
         let consignment_bytes = base64::decode(consignment).map_err(InternalError::from)?;
         fs::write(consignment_path.clone(), consignment_bytes).expect("Unable to write file");
         let consignment =
@@ -1398,7 +1390,7 @@ impl Wallet {
 
         // add asset info to transfer if missing
         if transfer.asset_id.is_none() {
-            let contract_id = consignment.clone().contract_id().to_string();
+            let contract_id = consignment.contract_id().to_string();
             // save asset in DB if unknown
             if self
                 .database
@@ -1446,11 +1438,8 @@ impl Wallet {
                 let owned_rights = transition.owned_rights();
                 for (_owned_right_type, typed_assignment) in owned_rights.iter() {
                     for assignment in typed_assignment.to_value_assignments() {
-                        match assignment {
-                            Assignment::ConfidentialSeal { seal: _, state } => {
-                                amount += state.value;
-                            }
-                            _ => (),
+                        if let Assignment::ConfidentialSeal { seal: _, state } = assignment {
+                            amount += state.value;
                         };
                     }
                 }
@@ -1643,7 +1632,7 @@ impl Wallet {
         }
         self._check_online(online)?;
 
-        let mut db_transfers: Vec<DbTransfer> = if asset_id.clone().is_some() {
+        let mut db_transfers: Vec<DbTransfer> = if asset_id.is_some() {
             self.database
                 .iter_transfers()?
                 .into_iter()
@@ -1749,7 +1738,7 @@ impl Wallet {
             .database
             .get_rgb_allocations(asset_txos, false)?
             .into_iter()
-            .filter(|u| u.rgb_allocations.iter().all(|a| a.settled == true))
+            .filter(|u| u.rgb_allocations.iter().all(|a| a.settled))
             .collect();
         let mut input_allocations: HashMap<DbTxo, u64> = HashMap::new();
         let mut amount_input_asset: u64 = 0;
@@ -1781,8 +1770,7 @@ impl Wallet {
             .collect();
 
         // RGB node compose
-        let input_outpoints: Vec<OutPoint> =
-            inputs.clone().into_iter().map(OutPoint::from).collect();
+        let input_outpoints: Vec<OutPoint> = inputs.into_iter().map(OutPoint::from).collect();
         let input_outpoints_bt: BTreeSet<OutPoint> = input_outpoints.clone().into_iter().collect();
         let rgb_asset_id = ContractId::from_str(&asset_id).map_err(InternalError::from)?;
         let transfer = self
@@ -1884,7 +1872,7 @@ impl Wallet {
             .collect();
         let state_map = self
             ._rgb_client()?
-            .outpoint_state(outpoints.clone(), |_| ())
+            .outpoint_state(outpoints, |_| ())
             .map_err(InternalError::from)?;
         let change_outpoint = OutPoint::from(change_utxo.clone());
         let ty = transition
@@ -1964,7 +1952,7 @@ impl Wallet {
         let consignment_out = transfer_dir.join(CONSIGNMENT_FILE);
         transfer_consignment
             .consignment
-            .strict_file_save(consignment_out.clone())
+            .strict_file_save(consignment_out)
             .map_err(InternalError::from)?;
         let psbt = transfer_consignment.psbt;
         let psbt_serialized =
@@ -2014,7 +2002,7 @@ impl Wallet {
         let info_contents: TransferInfoFile =
             serde_json::from_str(&serialized_info).map_err(InternalError::from)?;
         let psbt_out = transfer_dir.join(SIGNED_PSBT_FILE);
-        fs::write(psbt_out.clone(), psbt.to_string())?;
+        fs::write(psbt_out, psbt.to_string())?;
 
         // post consignment
         let consignment_out = transfer_dir.join(CONSIGNMENT_FILE);

@@ -48,7 +48,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidPubkey(_))));
 
     // bad mnemonic word count
-    let mut wallet_data_bad = wallet_data.clone();
+    let mut wallet_data_bad = wallet_data;
     wallet_data_bad.mnemonic = Some(s!(""));
     let result = Wallet::new(wallet_data_bad);
     assert!(matches!(result, Err(Error::InvalidMnemonic(_))));
