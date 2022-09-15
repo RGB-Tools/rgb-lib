@@ -54,6 +54,7 @@ fn generate_bindings(opt: &Opt) -> anyhow::Result<(), anyhow::Error> {
                 .expect("a valid path")
                 .as_path(),
         ),
+        None,
         false,
     )?;
 
