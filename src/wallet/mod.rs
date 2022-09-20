@@ -1626,6 +1626,8 @@ impl Wallet {
     pub fn refresh(&mut self, online: Online, asset_id: Option<String>) -> Result<(), Error> {
         if asset_id.is_some() {
             info!(self.logger, "Refreshing asset {:?}...", asset_id);
+            self.database
+                .get_asset_or_fail(asset_id.clone().expect("asset ID"))?;
         } else {
             info!(self.logger, "Refreshing assets...");
         }

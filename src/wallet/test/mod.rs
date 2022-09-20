@@ -184,4 +184,5 @@ mod list_assets;
 mod list_transfers;
 mod list_unspents;
 mod new;
+mod refresh;
 mod send;
