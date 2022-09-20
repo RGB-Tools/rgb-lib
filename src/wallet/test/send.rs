@@ -39,7 +39,7 @@ fn success() {
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
-            AMOUNT,
+            vec![AMOUNT],
         )
         .unwrap();
 
@@ -152,7 +152,7 @@ fn send_twice_success() {
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
-            AMOUNT,
+            vec![AMOUNT],
         )
         .unwrap();
 
@@ -274,7 +274,7 @@ fn send_received_success() {
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
-            AMOUNT,
+            vec![AMOUNT],
         )
         .unwrap();
 
@@ -396,7 +396,7 @@ fn multiple_assets_success() {
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
-            AMOUNT,
+            vec![AMOUNT],
         )
         .unwrap();
     let asset_2 = wallet
@@ -405,7 +405,7 @@ fn multiple_assets_success() {
             s!("TICKER2"),
             s!("NAME2"),
             PRECISION,
-            AMOUNT * 2,
+            vec![AMOUNT * 2],
         )
         .unwrap();
 
@@ -493,7 +493,7 @@ fn fail() {
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
-            AMOUNT,
+            vec![AMOUNT],
         )
         .unwrap();
     // blind
@@ -542,7 +542,7 @@ fn pending_incoming_transfer_fail() {
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
-            AMOUNT,
+            vec![AMOUNT],
         )
         .unwrap();
 
@@ -617,7 +617,7 @@ fn pending_outgoing_transfer_fail() {
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
-            AMOUNT,
+            vec![AMOUNT],
         )
         .unwrap();
 
@@ -657,7 +657,7 @@ fn pending_transfer_input_fail() {
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
-            AMOUNT,
+            vec![AMOUNT],
         )
         .unwrap();
 
@@ -685,7 +685,7 @@ fn send_begin_success() {
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
-            AMOUNT,
+            vec![AMOUNT],
         )
         .unwrap();
 

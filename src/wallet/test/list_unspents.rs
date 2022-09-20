@@ -25,7 +25,7 @@ fn success() {
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
-            AMOUNT,
+            vec![AMOUNT],
         )
         .unwrap();
     let unspent_list = wallet.list_unspents(true).unwrap();

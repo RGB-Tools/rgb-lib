@@ -1180,24 +1180,33 @@ impl Wallet {
         ticker: String,
         name: String,
         precision: u8,
-        amount: u64,
+        amounts: Vec<u64>,
     ) -> Result<Asset, Error> {
+        if amounts.is_empty() {
+            return Err(Error::NoIssuanceAmounts);
+        }
         info!(
             self.logger,
-            "Issuing asset with ticker '{}' name '{}' precision '{}' amount '{}'...",
+            "Issuing asset with ticker '{}' name '{}' precision '{}' amounts '{:?}'...",
             ticker,
             name,
             precision,
-            amount
+            amounts
         );
         self._check_online(online)?;
 
-        let utxo = self._get_utxo(true, vec![])?;
-        let outpoint = utxo.outpoint().to_string();
-        debug!(self.logger, "Issuing asset on outpoint '{}'", outpoint);
-
-        let allocations = vec![RgbOutpointValue::from_str(&format!("{amount}@{outpoint}"))
-            .expect("allocation structure should be correct")];
+        let mut outputs: HashMap<DbTxo, u64> = HashMap::new();
+        let mut allocations = vec![];
+        for amount in &amounts {
+            let outpoints: Vec<Outpoint> = outputs.iter().map(|(txo, _)| txo.outpoint()).collect();
+            let utxo = self._get_utxo(true, outpoints)?;
+            let outpoint = utxo.outpoint().to_string();
+            outputs.insert(utxo, *amount);
+            let allocation = RgbOutpointValue::from_str(&format!("{amount}@{outpoint}"))
+                .expect("allocation structure should be correct");
+            allocations.push(allocation)
+        }
+        debug!(self.logger, "Issuing asset allocations '{:?}'", allocations);
         let asset = Contract::create_rgb20(
             RgbNetwork::from(self.bitcoin_network),
             AsciiString::from_str(&ticker).map_err(|e| Error::InvalidTicker(e.to_string()))?,
@@ -1234,19 +1243,21 @@ impl Wallet {
             ..Default::default()
         };
         let transfer_idx = self.database.set_transfer(transfer)?;
-        let db_coloring = DbColoringActMod {
-            txo_idx: ActiveValue::Set(utxo.idx),
-            transfer_idx: ActiveValue::Set(transfer_idx),
-            coloring_type: ActiveValue::Set(ColoringType::Issue),
-            amount: ActiveValue::Set(amount.to_string()),
-            ..Default::default()
-        };
-        self.database.set_coloring(db_coloring)?;
+        for (utxo, amount) in outputs {
+            let db_coloring = DbColoringActMod {
+                txo_idx: ActiveValue::Set(utxo.idx),
+                transfer_idx: ActiveValue::Set(transfer_idx),
+                coloring_type: ActiveValue::Set(ColoringType::Issue),
+                amount: ActiveValue::Set(amount.to_string()),
+                ..Default::default()
+            };
+            self.database.set_coloring(db_coloring)?;
+        }
 
         Ok(Asset::from_db_asset(
             db_asset,
             Balance {
-                settled: amount,
+                settled: amounts.iter().sum(),
                 future: 0,
             },
         ))

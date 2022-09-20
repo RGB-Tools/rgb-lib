@@ -35,6 +35,7 @@ enum RgbLibError {
   "InvalidPsbt",
   "InvalidPubkey",
   "InvalidTicker",
+  "NoIssuanceAmounts",
   "TransferNotFound",
   "WatchOnly",
 };
@@ -172,7 +173,7 @@ interface Wallet {
   Online go_online(string electrum_url, boolean skip_consistency_check);
 
   [Throws=RgbLibError]
-  Asset issue_asset(Online online, string ticker, string name, u8 precision, u64 amount);
+  Asset issue_asset(Online online, string ticker, string name, u8 precision, sequence<u64> amounts);
 
   [Throws=RgbLibError]
   sequence<Asset> list_assets();

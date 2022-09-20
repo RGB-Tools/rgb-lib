@@ -48,7 +48,7 @@ fn consistency_check_fail_utxos() {
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
-            AMOUNT,
+            vec![AMOUNT],
         )
         .unwrap();
 
@@ -160,7 +160,7 @@ fn consistency_check_fail_asset_ids() {
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
-            AMOUNT,
+            vec![AMOUNT],
         )
         .unwrap();
 

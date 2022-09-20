@@ -27,7 +27,7 @@ fn fail() {
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
-            AMOUNT,
+            vec![AMOUNT],
         )
         .unwrap();
     let asset_id = asset.asset_id;

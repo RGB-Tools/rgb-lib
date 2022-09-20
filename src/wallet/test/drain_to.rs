@@ -26,7 +26,7 @@ fn success() {
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
-            AMOUNT,
+            vec![AMOUNT],
         )
         .unwrap();
     wallet._sync_db_txos().unwrap();

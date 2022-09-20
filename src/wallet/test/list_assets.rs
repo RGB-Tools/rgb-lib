@@ -17,7 +17,7 @@ fn success() {
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
-            AMOUNT,
+            vec![AMOUNT],
         )
         .unwrap();
     let asset_list = wallet.list_assets().unwrap();
@@ -42,7 +42,7 @@ fn success() {
             s!("TICKER2"),
             s!("NAME2"),
             PRECISION * 2,
-            AMOUNT * 2,
+            vec![AMOUNT * 2],
         )
         .unwrap();
     let asset_list = wallet.list_assets().unwrap();

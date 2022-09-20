@@ -17,7 +17,7 @@ fn success() {
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
-            AMOUNT,
+            vec![AMOUNT],
         )
         .unwrap();
     let asset_balance = wallet.get_asset_balance(asset.asset_id).unwrap();
@@ -47,7 +47,7 @@ fn transfer_balances() {
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
-            AMOUNT,
+            vec![AMOUNT],
         )
         .unwrap();
 

@@ -32,7 +32,7 @@ fn success() {
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
-            AMOUNT,
+            vec![AMOUNT],
         )
         .unwrap();
     let result = wallet.blind(Some(asset.asset_id), None);

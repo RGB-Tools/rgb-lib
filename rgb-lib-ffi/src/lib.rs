@@ -120,10 +120,10 @@ impl Wallet {
         ticker: String,
         name: String,
         precision: u8,
-        amount: u64,
+        amounts: Vec<u64>,
     ) -> Result<Asset, RgbLibError> {
         self._get_wallet()
-            .issue_asset(online, ticker, name, precision, amount)
+            .issue_asset(online, ticker, name, precision, amounts)
     }
 
     fn list_assets(&self) -> Result<Vec<Asset>, RgbLibError> {

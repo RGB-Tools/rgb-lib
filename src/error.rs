@@ -119,6 +119,10 @@ pub enum Error {
     #[error("Invalid ticker: {0}")]
     InvalidTicker(String),
 
+    /// Cannot issue an asset without knowing the amounts
+    #[error("Issuance request with no provided amounts")]
+    NoIssuanceAmounts,
+
     /// The requested transfer was not found
     #[error("Transfer with blinded UTXO {0} not found")]
     TransferNotFound(String),
