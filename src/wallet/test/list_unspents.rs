@@ -4,10 +4,24 @@ use super::*;
 fn success() {
     initialize();
 
+    let amount: u64 = 66;
+    let pending_fake_allocation = RgbAllocation {
+        asset_id: Some(s!("")),
+        amount: 0,
+        settled: false,
+    };
+    let settled_fake_allocation = RgbAllocation {
+        asset_id: Some(s!("")),
+        amount: 0,
+        settled: false,
+    };
+
     // no unspents
     let (wallet, _online) = get_empty_wallet!();
     let unspent_list = wallet.list_unspents(true).unwrap();
     assert_eq!(unspent_list.len(), 0);
+    let unspent_list_all = wallet.list_unspents(false).unwrap();
+    assert_eq!(unspent_list_all.len(), 0);
 
     // one (settled) unspent, no rgb allocations
     let (wallet, _online) = get_funded_noutxo_wallet!();
@@ -21,7 +35,7 @@ fn success() {
     let (mut wallet, online) = get_funded_wallet!();
     let asset = wallet
         .issue_asset(
-            online,
+            online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
@@ -36,14 +50,51 @@ fn success() {
         .into_iter()
         .filter(|u| !u.rgb_allocations.is_empty())
         .collect();
-    assert!(unspents_with_rgb_allocations.len() == 1);
+    assert_eq!(unspents_with_rgb_allocations.len(), 1);
+    let unspent_with_settled_allocation = unspents_with_rgb_allocations.iter().find(|u| {
+        u.rgb_allocations
+            .iter()
+            .find(|a| a.amount == AMOUNT)
+            .unwrap_or(&pending_fake_allocation)
+            .settled
+    });
+    assert!(unspent_with_settled_allocation.is_some());
 
-    assert!(unspents_with_rgb_allocations
-        .first()
-        .unwrap()
-        .rgb_allocations
-        .clone()
+    // an unspent witn a pending allocation
+    let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
+    let blind_data = rcv_wallet.blind(None, None).unwrap();
+    let recipient_map = HashMap::from([(
+        asset.asset_id,
+        vec![Recipient {
+            amount,
+            blinded_utxo: blind_data.blinded_utxo,
+        }],
+    )]);
+    let txid = wallet.send(online, recipient_map, false).unwrap();
+    assert!(!txid.is_empty());
+    let unspent_list = rcv_wallet.list_unspents(true).unwrap();
+    assert_eq!(unspent_list.len(), UTXO_NUM as usize + 1);
+    let unspent_list_all = wallet.list_unspents(false).unwrap();
+    assert_eq!(unspent_list_all.len(), UTXO_NUM as usize + 1);
+    let unspents_with_rgb_allocations: Vec<Unspent> = unspent_list_all
         .into_iter()
-        .map(|a| a.asset_id.unwrap_or_else(|| s!("")))
-        .any(|x| x == asset.asset_id));
+        .filter(|u| !u.rgb_allocations.is_empty())
+        .collect();
+    assert_eq!(unspents_with_rgb_allocations.len(), 2);
+    let unspent_with_settled_allocation = unspents_with_rgb_allocations.iter().find(|u| {
+        u.rgb_allocations
+            .iter()
+            .find(|a| a.amount == AMOUNT)
+            .unwrap_or(&pending_fake_allocation)
+            .settled
+    });
+    assert!(unspent_with_settled_allocation.is_some());
+    let unspent_with_pending_allocation = unspents_with_rgb_allocations.iter().find(|u| {
+        !u.rgb_allocations
+            .iter()
+            .find(|a| a.amount == (AMOUNT - amount))
+            .unwrap_or(&settled_fake_allocation)
+            .settled
+    });
+    assert!(unspent_with_pending_allocation.is_some());
 }

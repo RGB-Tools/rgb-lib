@@ -70,7 +70,37 @@ fn fail() {
     );
     assert!(matches!(result, Err(Error::InvalidOnline())));
 
-    // invalid ticker
+    // invalid ticker: too short
+    let result = wallet.issue_asset(
+        online.clone(),
+        s!(""),
+        NAME.to_string(),
+        PRECISION,
+        vec![AMOUNT],
+    );
+    assert!(matches!(result, Err(Error::FailedIssuance(_))));
+
+    // invalid ticker: too long
+    let result = wallet.issue_asset(
+        online.clone(),
+        s!("ABCDEFGHI"),
+        NAME.to_string(),
+        PRECISION,
+        vec![AMOUNT],
+    );
+    assert!(matches!(result, Err(Error::FailedIssuance(_))));
+
+    // invalid ticker: lowercase
+    let result = wallet.issue_asset(
+        online.clone(),
+        s!("TiCkEr"),
+        NAME.to_string(),
+        PRECISION,
+        vec![AMOUNT],
+    );
+    assert!(matches!(result, Err(Error::FailedIssuance(_))));
+
+    // invalid ticker: unicode characters
     let result = wallet.issue_asset(
         online.clone(),
         s!("ticker with ℧nicode characters"),
@@ -80,7 +110,27 @@ fn fail() {
     );
     assert!(matches!(result, Err(Error::InvalidTicker(_))));
 
-    // invalid name
+    // invalid name: too short
+    let result = wallet.issue_asset(
+        online.clone(),
+        TICKER.to_string(),
+        s!(""),
+        PRECISION,
+        vec![AMOUNT],
+    );
+    assert!(matches!(result, Err(Error::FailedIssuance(_))));
+
+    // invalid name: too long
+    let result = wallet.issue_asset(
+        online.clone(),
+        TICKER.to_string(),
+        ("a").repeat(257),
+        PRECISION,
+        vec![AMOUNT],
+    );
+    assert!(matches!(result, Err(Error::FailedIssuance(_))));
+
+    // invalid name: unicode characters
     let result = wallet.issue_asset(
         online.clone(),
         TICKER.to_string(),

@@ -52,3 +52,38 @@ pub fn restore_keys(bitcoin_network: BitcoinNetwork, mnemonic: String) -> Result
         xpub_fingerprint: xpub.fingerprint().to_string(),
     })
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use bitcoin::util::bip32::ExtendedPubKey;
+    use std::str::FromStr;
+
+    #[test]
+    fn generate_success() {
+        let Keys {
+            mnemonic,
+            xpub,
+            xpub_fingerprint,
+        } = generate_keys(BitcoinNetwork::Regtest);
+
+        assert!(Mnemonic::from_str(&mnemonic).is_ok());
+        let pubkey = ExtendedPubKey::from_str(&xpub);
+        assert!(pubkey.is_ok());
+        assert_eq!(pubkey.unwrap().fingerprint().to_string(), xpub_fingerprint);
+    }
+
+    #[test]
+    fn restore_success() {
+        let network = BitcoinNetwork::Regtest;
+        let Keys {
+            mnemonic,
+            xpub,
+            xpub_fingerprint,
+        } = generate_keys(network);
+
+        let keys = restore_keys(network, mnemonic).unwrap();
+        assert_eq!(keys.xpub, xpub);
+        assert_eq!(keys.xpub_fingerprint, xpub_fingerprint);
+    }
+}

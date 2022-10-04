@@ -40,60 +40,23 @@ fn success() {
 }
 
 #[test]
-fn pending_transfer_skip() {
+fn respect_max_allocations() {
     initialize();
 
     let (mut wallet, _online) = get_funded_wallet!();
 
-    let blind_data_1 = wallet.blind(None, None).unwrap();
-    let blind_data_2 = wallet.blind(None, None).unwrap();
+    // generate MAX_ALLOCATIONS_PER_UTXO + 1 blinded UTXOs and save selected TXOs
+    let mut txo_list: HashSet<DbTxo> = HashSet::new();
+    for _ in 0..=MAX_ALLOCATIONS_PER_UTXO {
+        let blind_data = wallet.blind(None, None).unwrap();
+        let transfer = get_test_transfer_recipient(&wallet, &blind_data.blinded_utxo);
+        let coloring = get_test_coloring(&wallet, transfer.asset_transfer_idx);
+        let txo = get_test_txo(&wallet, coloring.txo_idx);
+        txo_list.insert(txo);
+    }
 
-    let db_transfer_1 = wallet
-        .database
-        .iter_transfers()
-        .unwrap()
-        .into_iter()
-        .find(|t| t.blinded_utxo == Some(blind_data_1.blinded_utxo.clone()))
-        .unwrap();
-    let db_transfer_2 = wallet
-        .database
-        .iter_transfers()
-        .unwrap()
-        .into_iter()
-        .find(|t| t.blinded_utxo == Some(blind_data_2.blinded_utxo.clone()))
-        .unwrap();
-
-    let db_coloring_1 = wallet
-        .database
-        .iter_colorings()
-        .unwrap()
-        .into_iter()
-        .find(|c| c.transfer_idx == db_transfer_1.idx)
-        .unwrap();
-    let db_coloring_2 = wallet
-        .database
-        .iter_colorings()
-        .unwrap()
-        .into_iter()
-        .find(|c| c.transfer_idx == db_transfer_2.idx)
-        .unwrap();
-
-    let db_txo_1 = wallet
-        .database
-        .iter_txos()
-        .unwrap()
-        .into_iter()
-        .find(|t| t.idx == db_coloring_1.txo_idx)
-        .unwrap();
-    let db_txo_2 = wallet
-        .database
-        .iter_txos()
-        .unwrap()
-        .into_iter()
-        .find(|t| t.idx == db_coloring_2.txo_idx)
-        .unwrap();
-
-    assert_ne!(db_txo_1.idx, db_txo_2.idx);
+    // check a second TXO has been selected
+    assert_eq!(txo_list.len(), 2);
 }
 
 #[test]
@@ -101,7 +64,7 @@ fn expire() {
     initialize();
 
     let expiration = 1;
-    let (mut wallet, online) = get_funded_wallet!();
+    let (mut wallet, _online) = get_funded_wallet!();
 
     // check expiration
     let now_timestamp = now().unix_timestamp();
@@ -114,14 +77,13 @@ fn expire() {
         expiration as u64 * 1000 + 2000,
     ));
 
-    // call create_utxos() to trigger the expiration check (via _get_utxo(true, ...))
-    let _result = wallet.create_utxos(online);
+    // trigger the expiration of pending transfers
+    wallet._handle_expired_transfers().unwrap();
 
     // check transfer is now in status Failed
-    let db_transfers = wallet.database.iter_transfers().unwrap();
-    assert_eq!(db_transfers.len(), 1);
-    let db_transfer = db_transfers.first().unwrap();
-    assert_eq!(db_transfer.status, TransferStatus::Failed);
+    let transfer = get_test_transfer_recipient(&wallet, &blind_data_1.blinded_utxo);
+    let transfer_data = wallet.database.get_transfer_data(&transfer).unwrap();
+    assert_eq!(transfer_data.status, TransferStatus::Failed);
 }
 
 #[test]

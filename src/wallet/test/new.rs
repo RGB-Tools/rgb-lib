@@ -7,16 +7,10 @@ fn success() {
     initialize();
 
     // with private keys
-    let wallet = get_test_wallet(true);
-    let wallet_data = wallet.get_wallet_data();
-    let new_wallet = Wallet::new(wallet_data);
-    assert!(new_wallet.is_ok());
+    get_test_wallet(true);
 
     // without private keys
-    let wallet = get_test_wallet(false);
-    let wallet_data = wallet.get_wallet_data();
-    let new_wallet = Wallet::new(wallet_data);
-    assert!(new_wallet.is_ok());
+    get_test_wallet(false);
 }
 
 #[test]
