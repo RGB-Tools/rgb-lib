@@ -17,7 +17,7 @@ impl EntityName for Entity {
 pub struct Model {
     pub idx: i64,
     pub txo_idx: i64,
-    pub transfer_idx: i64,
+    pub asset_transfer_idx: i64,
     pub coloring_type: ColoringType,
     pub amount: String,
 }
@@ -26,7 +26,7 @@ pub struct Model {
 pub enum Column {
     Idx,
     TxoIdx,
-    TransferIdx,
+    AssetTransferIdx,
     ColoringType,
     Amount,
 }
@@ -45,7 +45,7 @@ impl PrimaryKeyTrait for PrimaryKey {
 
 #[derive(Copy, Clone, Debug, EnumIter)]
 pub enum Relation {
-    Transfer,
+    AssetTransfer,
     Txo,
 }
 
@@ -55,7 +55,7 @@ impl ColumnTrait for Column {
         match self {
             Self::Idx => ColumnType::BigInteger.def(),
             Self::TxoIdx => ColumnType::BigInteger.def(),
-            Self::TransferIdx => ColumnType::BigInteger.def(),
+            Self::AssetTransferIdx => ColumnType::BigInteger.def(),
             Self::ColoringType => ColumnType::SmallInteger.def(),
             Self::Amount => ColumnType::String(None).def(),
         }
@@ -65,9 +65,9 @@ impl ColumnTrait for Column {
 impl RelationTrait for Relation {
     fn def(&self) -> RelationDef {
         match self {
-            Self::Transfer => Entity::belongs_to(super::transfer::Entity)
-                .from(Column::TransferIdx)
-                .to(super::transfer::Column::Idx)
+            Self::AssetTransfer => Entity::belongs_to(super::asset_transfer::Entity)
+                .from(Column::AssetTransferIdx)
+                .to(super::asset_transfer::Column::Idx)
                 .into(),
             Self::Txo => Entity::belongs_to(super::txo::Entity)
                 .from(Column::TxoIdx)
@@ -77,9 +77,9 @@ impl RelationTrait for Relation {
     }
 }
 
-impl Related<super::transfer::Entity> for Entity {
+impl Related<super::asset_transfer::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Transfer.def()
+        Relation::AssetTransfer.def()
     }
 }
 

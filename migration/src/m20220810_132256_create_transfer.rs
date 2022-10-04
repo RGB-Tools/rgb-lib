@@ -1,4 +1,4 @@
-use super::m20220810_131915_create_asset::Asset;
+use super::m20220810_132250_create_asset_transfer::AssetTransfer;
 use sea_orm_migration::prelude::*;
 
 pub struct Migration;
@@ -25,27 +25,19 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(
-                        ColumnDef::new(Transfer::CreatedAt)
-                            .big_unsigned()
+                        ColumnDef::new(Transfer::AssetTransferIdx)
+                            .big_integer()
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(Transfer::UpdatedAt)
-                            .big_unsigned()
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(Transfer::Status).small_unsigned().not_null())
-                    .col(ColumnDef::new(Transfer::UserDriven).boolean().not_null())
-                    .col(ColumnDef::new(Transfer::AssetId).string())
-                    .col(ColumnDef::new(Transfer::Txid).string())
+                    .col(ColumnDef::new(Transfer::Amount).string().not_null())
                     .col(ColumnDef::new(Transfer::BlindedUtxo).string())
                     .col(ColumnDef::new(Transfer::BlindingSecret).string())
-                    .col(ColumnDef::new(Transfer::Expiration).big_unsigned())
+                    .col(ColumnDef::new(Transfer::Ack).boolean())
                     .foreign_key(
                         ForeignKey::create()
-                            .name("fk-asset-transfer")
-                            .from(Transfer::Table, Transfer::AssetId)
-                            .to(Asset::Table, Asset::AssetId)
+                            .name("fk-transfer-assettransfer")
+                            .from(Transfer::Table, Transfer::AssetTransferIdx)
+                            .to(AssetTransfer::Table, AssetTransfer::Idx)
                             .on_delete(ForeignKeyAction::Cascade)
                             .on_update(ForeignKeyAction::Cascade),
                     )
@@ -66,13 +58,9 @@ impl MigrationTrait for Migration {
 pub enum Transfer {
     Table,
     Idx,
-    CreatedAt,
-    UpdatedAt,
-    Status,
-    UserDriven,
-    AssetId,
-    Txid,
+    AssetTransferIdx,
+    Amount,
     BlindedUtxo,
     BlindingSecret,
-    Expiration,
+    Ack,
 }

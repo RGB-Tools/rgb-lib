@@ -2,8 +2,6 @@
 
 use sea_orm::entity::prelude::*;
 
-use crate::wallet::TransferStatus;
-
 #[derive(Copy, Clone, Default, Debug, DeriveEntity)]
 pub struct Entity;
 
@@ -16,29 +14,21 @@ impl EntityName for Entity {
 #[derive(Clone, Debug, PartialEq, Eq, DeriveModel, DeriveActiveModel)]
 pub struct Model {
     pub idx: i64,
-    pub created_at: i64,
-    pub updated_at: i64,
-    pub status: TransferStatus,
-    pub user_driven: bool,
-    pub asset_id: Option<String>,
-    pub txid: Option<String>,
+    pub asset_transfer_idx: i64,
+    pub amount: String,
     pub blinded_utxo: Option<String>,
     pub blinding_secret: Option<String>,
-    pub expiration: Option<i64>,
+    pub ack: Option<bool>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
 pub enum Column {
     Idx,
-    CreatedAt,
-    UpdatedAt,
-    Status,
-    UserDriven,
-    AssetId,
-    Txid,
+    AssetTransferIdx,
+    Amount,
     BlindedUtxo,
     BlindingSecret,
-    Expiration,
+    Ack,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DerivePrimaryKey)]
@@ -55,8 +45,7 @@ impl PrimaryKeyTrait for PrimaryKey {
 
 #[derive(Copy, Clone, Debug, EnumIter)]
 pub enum Relation {
-    Asset,
-    Coloring,
+    AssetTransfer,
 }
 
 impl ColumnTrait for Column {
@@ -64,15 +53,11 @@ impl ColumnTrait for Column {
     fn def(&self) -> ColumnDef {
         match self {
             Self::Idx => ColumnType::BigInteger.def(),
-            Self::CreatedAt => ColumnType::BigInteger.def(),
-            Self::UpdatedAt => ColumnType::BigInteger.def(),
-            Self::Status => ColumnType::SmallInteger.def(),
-            Self::UserDriven => ColumnType::Boolean.def(),
-            Self::AssetId => ColumnType::String(None).def().null(),
-            Self::Txid => ColumnType::String(None).def().null(),
+            Self::AssetTransferIdx => ColumnType::BigInteger.def(),
+            Self::Amount => ColumnType::String(None).def(),
             Self::BlindedUtxo => ColumnType::String(None).def().null(),
             Self::BlindingSecret => ColumnType::String(None).def().null(),
-            Self::Expiration => ColumnType::BigInteger.def().null(),
+            Self::Ack => ColumnType::Boolean.def().null(),
         }
     }
 }
@@ -80,24 +65,17 @@ impl ColumnTrait for Column {
 impl RelationTrait for Relation {
     fn def(&self) -> RelationDef {
         match self {
-            Self::Asset => Entity::belongs_to(super::asset::Entity)
-                .from(Column::AssetId)
-                .to(super::asset::Column::AssetId)
+            Self::AssetTransfer => Entity::belongs_to(super::asset_transfer::Entity)
+                .from(Column::AssetTransferIdx)
+                .to(super::asset_transfer::Column::Idx)
                 .into(),
-            Self::Coloring => Entity::has_many(super::coloring::Entity).into(),
         }
     }
 }
 
-impl Related<super::asset::Entity> for Entity {
+impl Related<super::asset_transfer::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Asset.def()
-    }
-}
-
-impl Related<super::coloring::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Coloring.def()
+        Relation::AssetTransfer.def()
     }
 }
 

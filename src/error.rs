@@ -8,11 +8,15 @@
 pub enum Error {
     /// No need to create more allocations
     #[error("Allocation already available")]
-    AllocationsAlreadyAvailable(),
+    AllocationsAlreadyAvailable,
 
     /// Requested asset was not found
     #[error("Asset with id {0} not found")]
     AssetNotFound(String),
+
+    /// The requested batch transfer was not found
+    #[error("Batch transfer with TXID {0} not found")]
+    BatchTransferNotFound(String),
 
     /// Provided blinded UTXO has already been used for another transfer
     #[error("Blinded UTXO already used")]
@@ -23,12 +27,12 @@ pub enum Error {
     CannotChangeOnline(),
 
     /// Requested transfer cannot be deleted
-    #[error("Transfer with blinded UTXO {0} cannot be deleted")]
-    CannotDeleteTransfer(String),
+    #[error("Transfer cannot be deleted")]
+    CannotDeleteTransfer,
 
     /// Requested transfer cannot be failed
-    #[error("Transfer with blinded UTXO {0} cannot set to FAILED status")]
-    CannotFailTransfer(String),
+    #[error("Transfer cannot be set to failed status")]
+    CannotFailTransfer,
 
     /// Error contacting the consignment proxy
     #[error("Consignment proxy error: {0}")]
@@ -89,7 +93,7 @@ pub enum Error {
 
     /// The provided blinded UTXO is invalid
     #[error("Invalid blinded UTXO: {0}")]
-    InvalidBlindedUTXO(#[from] rgb::fungible::allocation::ParseError),
+    InvalidBlindedUTXO(#[from] bp::seals::txout::blind::ParseError),
 
     /// Electrum server does not provide the required functionality
     #[error("Invalid electrum server: {0}")]

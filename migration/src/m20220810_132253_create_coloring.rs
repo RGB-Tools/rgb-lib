@@ -1,12 +1,12 @@
 use super::m20220810_130049_create_txo::Txo;
-use super::m20220810_132256_create_transfer::Transfer;
+use super::m20220810_132250_create_asset_transfer::AssetTransfer;
 use sea_orm_migration::prelude::*;
 
 pub struct Migration;
 
 impl MigrationName for Migration {
     fn name(&self) -> &str {
-        "m20220810_162300_create_coloring"
+        "m20220810_132253_create_coloring"
     }
 }
 
@@ -27,7 +27,7 @@ impl MigrationTrait for Migration {
                     )
                     .col(ColumnDef::new(Coloring::TxoIdx).big_integer().not_null())
                     .col(
-                        ColumnDef::new(Coloring::TransferIdx)
+                        ColumnDef::new(Coloring::AssetTransferIdx)
                             .big_integer()
                             .not_null(),
                     )
@@ -39,9 +39,9 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Coloring::Amount).string().not_null())
                     .foreign_key(
                         ForeignKey::create()
-                            .name("fk-coloring-transfer")
-                            .from(Coloring::Table, Coloring::TransferIdx)
-                            .to(Transfer::Table, Transfer::Idx)
+                            .name("fk-coloring-assettransfer")
+                            .from(Coloring::Table, Coloring::AssetTransferIdx)
+                            .to(AssetTransfer::Table, AssetTransfer::Idx)
                             .on_delete(ForeignKeyAction::Restrict)
                             .on_update(ForeignKeyAction::Restrict),
                     )
@@ -71,7 +71,7 @@ enum Coloring {
     Table,
     Idx,
     TxoIdx,
-    TransferIdx,
+    AssetTransferIdx,
     ColoringType,
     Amount,
 }

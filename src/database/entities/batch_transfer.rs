@@ -2,33 +2,35 @@
 
 use sea_orm::entity::prelude::*;
 
+use crate::wallet::TransferStatus;
+
 #[derive(Copy, Clone, Default, Debug, DeriveEntity)]
 pub struct Entity;
 
 impl EntityName for Entity {
     fn table_name(&self) -> &str {
-        "txo"
+        "batch_transfer"
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, DeriveModel, DeriveActiveModel, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, DeriveModel, DeriveActiveModel)]
 pub struct Model {
     pub idx: i64,
-    pub txid: String,
-    pub vout: u32,
-    pub btc_amount: String,
-    pub colorable: bool,
-    pub spent: bool,
+    pub txid: Option<String>,
+    pub status: TransferStatus,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub expiration: Option<i64>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
 pub enum Column {
     Idx,
     Txid,
-    Vout,
-    BtcAmount,
-    Colorable,
-    Spent,
+    Status,
+    CreatedAt,
+    UpdatedAt,
+    Expiration,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DerivePrimaryKey)]
@@ -45,7 +47,7 @@ impl PrimaryKeyTrait for PrimaryKey {
 
 #[derive(Copy, Clone, Debug, EnumIter)]
 pub enum Relation {
-    Coloring,
+    AssetTransfer,
 }
 
 impl ColumnTrait for Column {
@@ -53,11 +55,11 @@ impl ColumnTrait for Column {
     fn def(&self) -> ColumnDef {
         match self {
             Self::Idx => ColumnType::BigInteger.def(),
-            Self::Txid => ColumnType::String(None).def(),
-            Self::Vout => ColumnType::Integer.def(),
-            Self::BtcAmount => ColumnType::String(None).def(),
-            Self::Colorable => ColumnType::Boolean.def(),
-            Self::Spent => ColumnType::Boolean.def(),
+            Self::Txid => ColumnType::String(None).def().null(),
+            Self::Status => ColumnType::SmallInteger.def(),
+            Self::CreatedAt => ColumnType::BigInteger.def(),
+            Self::UpdatedAt => ColumnType::BigInteger.def(),
+            Self::Expiration => ColumnType::BigInteger.def().null(),
         }
     }
 }
@@ -65,14 +67,14 @@ impl ColumnTrait for Column {
 impl RelationTrait for Relation {
     fn def(&self) -> RelationDef {
         match self {
-            Self::Coloring => Entity::has_many(super::coloring::Entity).into(),
+            Self::AssetTransfer => Entity::has_many(super::asset_transfer::Entity).into(),
         }
     }
 }
 
-impl Related<super::coloring::Entity> for Entity {
+impl Related<super::asset_transfer::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Coloring.def()
+        Relation::AssetTransfer.def()
     }
 }
 
