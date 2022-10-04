@@ -21,7 +21,9 @@ use bitcoin::consensus::{deserialize, serialize};
 use bitcoin::psbt::serialize::Deserialize as BitcoinDeserialize;
 use bitcoin::psbt::PartiallySignedTransaction;
 use bitcoin::util::bip32::ExtendedPubKey;
+use bitcoin::Txid;
 use bitcoin::{Address, OutPoint, Transaction};
+use bp::seals::txout::blind::ConcealedSeal;
 use bp::seals::txout::{CloseMethod, ExplicitSeal};
 use electrum_client::{Client as ElectrumClient, ElectrumApi, Param};
 use futures::executor::block_on;
@@ -36,10 +38,9 @@ use rgb::{
     seal, Consignment, Contract, ContractId, IntoRevealedSeal, Node, StateTransfer,
     TransitionBundle,
 };
-use rgb20::schema::FieldType;
+use rgb20::schema::{FieldType, OwnedRightType};
 use rgb20::{Asset as RgbAsset, Rgb20};
-use rgb_core::schema::{OwnedRightType, TransitionType};
-use rgb_core::{Assignment, SealEndpoint, Validator};
+use rgb_core::{Assignment, SealEndpoint, Validator, Validity};
 use rgb_lib_migration::{Migrator, MigratorTrait};
 use rgb_node::{rgbd, Config};
 use rgb_rpc::client::Client;
@@ -48,9 +49,11 @@ use sea_orm::{ActiveValue, ConnectOptions, Database, DeriveActiveEnum, EnumIter}
 use serde::{Deserialize, Serialize};
 use slog::{debug, error, info, Logger};
 use std::cmp::min;
+use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -63,6 +66,12 @@ use strict_encoding::{StrictDecode, StrictEncode};
 use crate::api::consignment_proxy::AckResponse;
 use crate::api::ConsignmentProxy;
 use crate::database::entities::asset::Model as DbAsset;
+use crate::database::entities::asset_transfer::{
+    ActiveModel as DbAssetTransferActMod, Model as DbAssetTransfer,
+};
+use crate::database::entities::batch_transfer::{
+    ActiveModel as DbBatchTransferActMod, Model as DbBatchTransfer,
+};
 use crate::database::entities::coloring::{ActiveModel as DbColoringActMod, Model as DbColoring};
 use crate::database::entities::transfer::{ActiveModel as DbTransferActMod, Model as DbTransfer};
 use crate::database::entities::txo::{ActiveModel as DbTxoActMod, Model as DbTxo};
@@ -87,10 +96,19 @@ const UTXO_NUM: u8 = 5;
 
 const MIN_CONFIRMATIONS: u8 = 1;
 
-const MAX_ALLOCATIONS_PER_UTXO: u32 = 1;
+const MAX_ALLOCATIONS_PER_UTXO: u32 = 5;
 
 const DURATION_SEND_TRANSFER: i64 = 3600;
 const DURATION_RCV_TRANSFER: u32 = 86400;
+
+/// An RGB recipient
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
+pub struct Recipient {
+    /// Blinded UTXO
+    pub blinded_utxo: String,
+    /// RGB amount
+    pub amount: u64,
+}
 
 /// An RGB asset
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -117,6 +135,13 @@ impl Asset {
             balance,
         }
     }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct AssetSpend {
+    txo_map: HashMap<i64, u64>,
+    input_outpoints: Vec<OutPoint>,
+    change_amount: u64,
 }
 
 /// An asset balance
@@ -146,6 +171,19 @@ pub struct BlindData {
 pub enum DatabaseType {
     /// A SQLite database
     Sqlite,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct InfoBatchTransfer {
+    change_utxo_idx: i64,
+    blank_allocations: HashMap<String, u64>,
+    donation: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct InfoAssetTransfer {
+    recipients: Vec<Recipient>,
+    asset_spend: AssetSpend,
 }
 
 /// Data for operations that require the wallet to be online
@@ -198,16 +236,6 @@ pub struct RgbAllocation {
     pub settled: bool,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-struct TransferInfoFile {
-    asset_id: String,
-    blinded_utxo: String,
-    change_amount: u64,
-    change_txo_idx: i64,
-    input_allocations: HashMap<i64, u64>,
-    auto_allocations: HashMap<String, u64>,
-}
-
 /// The status of a [`Transfer`]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
 #[sea_orm(rs_type = "u16", db_type = "Integer")]
@@ -237,10 +265,10 @@ pub struct Transfer {
     pub updated_at: i64,
     /// Status of the transfer
     pub status: TransferStatus,
-    /// Received amount
-    pub received: u64,
-    /// Sent amount
-    pub sent: u64,
+    /// Amount
+    pub amount: u64,
+    /// Whether the transfer is incoming
+    pub incoming: bool,
     /// Txid of the transfer
     pub txid: Option<String>,
     /// Blinded UTXO of the transfer's recipient
@@ -263,17 +291,20 @@ impl Transfer {
         });
         Transfer {
             idx: x.idx,
-            created_at: x.created_at,
-            updated_at: x.updated_at,
-            status: x.status,
-            received: td.received,
-            sent: td.sent,
-            txid: x.txid,
+            created_at: td.created_at,
+            updated_at: td.updated_at,
+            status: td.status,
+            amount: x
+                .amount
+                .parse::<u64>()
+                .expect("DB should contain a valid u64 value"),
+            incoming: td.incoming,
+            txid: td.txid,
             blinded_utxo: x.blinded_utxo,
             unblinded_utxo: td.unblinded_utxo,
             change_utxo: td.change_utxo,
             blinding_secret,
-            expiration: x.expiration,
+            expiration: td.expiration,
         }
     }
 }
@@ -573,21 +604,36 @@ impl Wallet {
 
     fn _handle_expired_transfers(&mut self) -> Result<(), Error> {
         let now = now().unix_timestamp();
-        let expired_transfers: Vec<DbTransfer> = self
+        let expired_transfers: Vec<DbBatchTransfer> = self
             .database
-            .iter_transfers()?
+            .iter_batch_transfers()?
             .into_iter()
             .filter(|t| t.waiting_counterparty() && t.expiration.unwrap_or(now) < now)
             .collect();
         for transfer in expired_transfers.iter() {
             let updated_transfer = self._refresh_transfer(transfer)?;
             if updated_transfer.is_none() {
-                let mut updated_transfer: DbTransferActMod = transfer.clone().into();
+                let mut updated_transfer: DbBatchTransferActMod = transfer.clone().into();
                 updated_transfer.status = ActiveValue::Set(TransferStatus::Failed);
-                self.database.update_transfer(&mut updated_transfer)?;
+                self.database.update_batch_transfer(&mut updated_transfer)?;
             }
         }
         Ok(())
+    }
+
+    fn _get_available_allocations(
+        &self,
+        unspents: Vec<LocalUnspent>,
+        exclude_utxos: Vec<Outpoint>,
+    ) -> Result<Vec<LocalUnspent>, Error> {
+        Ok(unspents
+            .iter()
+            .filter(|u| !exclude_utxos.contains(&u.utxo.outpoint()))
+            .filter(|u| {
+                (u.rgb_allocations.len() as u32) < MAX_ALLOCATIONS_PER_UTXO && u.utxo.colorable
+            })
+            .cloned()
+            .collect())
     }
 
     fn _get_utxo(&mut self, online: bool, exclude_utxos: Vec<Outpoint>) -> Result<DbTxo, Error> {
@@ -599,14 +645,7 @@ impl Wallet {
         let unspents: Vec<LocalUnspent> = self
             .database
             .get_rgb_allocations(self.database.get_unspent_txos()?, false)?;
-        let allocatable: Vec<LocalUnspent> = unspents
-            .iter()
-            .filter(|u| !exclude_utxos.contains(&u.utxo.outpoint()))
-            .filter(|u| {
-                (u.rgb_allocations.len() as u32) < MAX_ALLOCATIONS_PER_UTXO && u.utxo.colorable
-            })
-            .cloned()
-            .collect();
+        let allocatable = self._get_available_allocations(unspents.clone(), exclude_utxos)?;
         match allocatable.first() {
             Some(u) => Ok(u.clone().utxo),
             None => {
@@ -654,19 +693,30 @@ impl Wallet {
             let duration_seconds = duration_seconds.unwrap_or(DURATION_RCV_TRANSFER) as i64;
             Some(created_at + duration_seconds)
         };
-        let transfer = DbTransferActMod {
+        let batch_transfer = DbBatchTransferActMod {
             status: ActiveValue::Set(TransferStatus::WaitingCounterparty),
-            user_driven: ActiveValue::Set(true),
-            asset_id: ActiveValue::Set(asset_id),
-            blinded_utxo: ActiveValue::Set(Some(blinded_utxo.clone())),
-            blinding_secret: ActiveValue::Set(Some(seal.blinding.to_string())),
             expiration: ActiveValue::Set(expiration),
             ..Default::default()
         };
-        let transfer_idx = self.database.set_transfer(transfer)?;
+        let batch_transfer_idx = self.database.set_batch_transfer(batch_transfer)?;
+        let asset_transfer = DbAssetTransferActMod {
+            user_driven: ActiveValue::Set(true),
+            batch_transfer_idx: ActiveValue::Set(batch_transfer_idx),
+            asset_id: ActiveValue::Set(asset_id),
+            ..Default::default()
+        };
+        let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
+        let transfer = DbTransferActMod {
+            asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
+            amount: ActiveValue::Set(s!("0")),
+            blinded_utxo: ActiveValue::Set(Some(blinded_utxo.clone())),
+            blinding_secret: ActiveValue::Set(Some(seal.blinding.to_string())),
+            ..Default::default()
+        };
+        self.database.set_transfer(transfer)?;
         let db_coloring = DbColoringActMod {
             txo_idx: ActiveValue::Set(utxo.idx),
-            transfer_idx: ActiveValue::Set(transfer_idx),
+            asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
             coloring_type: ActiveValue::Set(ColoringType::Blind),
             amount: ActiveValue::Set(s!("0")),
             ..Default::default()
@@ -683,7 +733,7 @@ impl Wallet {
     fn _create_split_tx(
         &self,
         inputs: &[OutPoint],
-        num_utxos_to_create: u64,
+        num_utxos_to_create: u8,
     ) -> Result<PartiallySignedTransaction, bdk::Error> {
         let mut tx_builder = self.bdk_wallet.build_tx();
         tx_builder.add_utxos(inputs)?;
@@ -694,45 +744,20 @@ impl Wallet {
         Ok(tx_builder.finish()?.0)
     }
 
-    fn _create_split_psbt(&self) -> Result<String, Error> {
-        let unspents: Vec<LocalUnspent> = self
-            .database
-            .get_rgb_allocations(self.database.get_unspent_txos()?, true)?;
-        let inputs: Vec<OutPoint> = unspents
-            .clone()
-            .into_iter()
-            .filter(|u| !u.utxo.colorable)
-            .map(|u| OutPoint::from(u.utxo))
-            .collect();
-        let inputs: &[OutPoint] = &inputs;
-        let new_btc_amount = self._get_spendable_bitcoins(unspents);
-        let max_possible_utxos = new_btc_amount / UTXO_SIZE;
-        let mut num_utxos_to_create = min(UTXO_NUM as u64, max_possible_utxos);
-        while num_utxos_to_create > 0 {
-            match self._create_split_tx(inputs, num_utxos_to_create) {
-                Ok(_v) => break,
-                Err(_e) => num_utxos_to_create -= 1,
-            };
-        }
-
-        if num_utxos_to_create == 0 {
-            Err(Error::InsufficientFunds)
-        } else {
-            Ok(self
-                ._create_split_tx(inputs, num_utxos_to_create)
-                .map_err(InternalError::from)?
-                .to_string())
-        }
-    }
-
-    /// Create new UTXOs to hold RGB allocations
+    /// Create new UTXOs. See the [`create_utxos_begin`](Wallet::create_utxos_begin) function for
+    /// details.
     ///
     /// This is the full version, requiring a wallet with private keys and [`Online`] data
-    pub fn create_utxos(&mut self, online: Online) -> Result<u64, Error> {
+    pub fn create_utxos(
+        &mut self,
+        online: Online,
+        up_to: bool,
+        num: Option<u8>,
+    ) -> Result<u8, Error> {
         info!(self.logger, "Creating UTXOs...");
         self._check_xprv()?;
 
-        let unsigned_psbt = self.create_utxos_begin(online.clone())?;
+        let unsigned_psbt = self.create_utxos_begin(online.clone(), up_to, num)?;
 
         let mut psbt =
             PartiallySignedTransaction::from_str(&unsigned_psbt).map_err(InternalError::from)?;
@@ -743,34 +768,87 @@ impl Wallet {
         self.create_utxos_end(online, psbt.to_string())
     }
 
-    /// Prepare the PSBT to create new UTXOs to hold RGB allocations
+    /// Prepare the PSBT to create new UTXOs to hold RGB allocations.
+    ///
+    /// If `up_to` is false, just create the required UTXOs.
+    /// If `up_to` is true, create as many UTXOs as needed to reach the requested number or return
+    /// an error if none need to be created.
+    ///
+    /// Providing the optional `num` parameter requests that many UTXOs, if it's not specified the
+    /// default number is used.
+    ///
+    /// If not enough bitcoin funds are available to create the requested (or default) number of
+    /// UTXOs, the number is decremented by one until it is possible to complete the operation. If
+    /// the number reaches zero, an error is returned.
     ///
     /// This is the first half of the partial version, requiring no private keys nor [`Online`] data.
     /// Signing of the returned PSBT needs to be carried out separately. The signed PSBT then needs
-    /// to be fed to the `create_utxos_end` function.
+    /// to be fed to the [`create_utxos_end`](Wallet::create_utxos_end) function.
     ///
     /// Returns a PSBT ready to be signed
-    pub fn create_utxos_begin(&mut self, online: Online) -> Result<String, Error> {
+    pub fn create_utxos_begin(
+        &mut self,
+        online: Online,
+        up_to: bool,
+        num: Option<u8>,
+    ) -> Result<String, Error> {
         info!(self.logger, "Creating UTXOs (begin)...");
         self._check_online(online)?;
 
-        match self._get_utxo(true, vec![]) {
-            Ok(_a) => Err(Error::AllocationsAlreadyAvailable()),
-            Err(e) => match e {
-                Error::InsufficientAllocationSlots => self._create_split_psbt(),
-                _ => Err(e),
-            },
+        self._sync_db_txos()?;
+
+        let unspent_txos = self.database.get_unspent_txos()?;
+        let unspents: Vec<LocalUnspent> = self
+            .database
+            .get_rgb_allocations(unspent_txos.clone(), false)?;
+        let allocatable = self._get_available_allocations(unspents, vec![])?.len() as u8;
+
+        let mut utxos_to_create = num.unwrap_or(UTXO_NUM);
+        if up_to {
+            if allocatable >= utxos_to_create {
+                return Err(Error::AllocationsAlreadyAvailable);
+            } else {
+                utxos_to_create -= allocatable
+            }
+        }
+        debug!(self.logger, "Will try to create {} UTXOs", utxos_to_create);
+
+        let unspents: Vec<LocalUnspent> = self.database.get_rgb_allocations(unspent_txos, true)?;
+        let inputs: Vec<OutPoint> = unspents
+            .clone()
+            .into_iter()
+            .filter(|u| !u.utxo.colorable)
+            .map(|u| OutPoint::from(u.utxo))
+            .collect();
+        let inputs: &[OutPoint] = &inputs;
+        let new_btc_amount = self._get_spendable_bitcoins(unspents);
+        let max_possible_utxos = new_btc_amount / UTXO_SIZE;
+        let mut num_try_creating = min(utxos_to_create, max_possible_utxos as u8);
+        while num_try_creating > 0 {
+            match self._create_split_tx(inputs, num_try_creating) {
+                Ok(_v) => break,
+                Err(_e) => num_try_creating -= 1,
+            };
+        }
+
+        if num_try_creating == 0 {
+            Err(Error::InsufficientFunds)
+        } else {
+            Ok(self
+                ._create_split_tx(inputs, num_try_creating)
+                .map_err(InternalError::from)?
+                .to_string())
         }
     }
 
-    /// Broadcast the provided PSBT to create new UTXOs to hold RGB allocations
+    /// Broadcast the provided PSBT to create new UTXOs.
     ///
     /// This is the second half of the partial version, requiring [`Online`] data but no private keys.
-    /// The provided PSBT, prepared with the `create_utxos_begin` function, needs to have already
-    /// been signed.
+    /// The provided PSBT, prepared with the [`create_utxos_begin`](Wallet::create_utxos_begin)
+    /// function, needs to have already been signed.
     ///
     /// Returns the number of created UTXOs
-    pub fn create_utxos_end(&self, online: Online, signed_psbt: String) -> Result<u64, Error> {
+    pub fn create_utxos_end(&self, online: Online, signed_psbt: String) -> Result<u8, Error> {
         info!(self.logger, "Creating UTXOs (end)...");
         self._check_online(online)?;
 
@@ -799,41 +877,83 @@ impl Wallet {
         Ok(num_utxos_created)
     }
 
-    fn _delete_transfer(&self, transfer: &DbTransfer) -> Result<(), Error> {
-        self.database.del_coloring(transfer.idx)?;
-        Ok(self.database.del_transfer(transfer)?)
+    fn _delete_batch_transfer(&self, batch_transfer: &DbBatchTransfer) -> Result<(), Error> {
+        let asset_transfers: Vec<DbAssetTransfer> =
+            self.database.iter_batch_asset_transfers(batch_transfer)?;
+        for asset_transfer in asset_transfers {
+            self.database.del_coloring(asset_transfer.idx)?;
+        }
+        Ok(self.database.del_batch_transfer(batch_transfer)?)
     }
 
-    /// Delete eligible transfers from the databse
+    /// Delete eligible transfers from the database
     ///
-    /// An optional blinded_utxo can be provided to operate on a single transfer
+    /// An optional `blinded_utxo` can be provided to operate on a single transfer.
+    /// An optional `txid` can be provided to operate on a batch transfer.
+    /// If both a `blinded_utxo` and a `txid` are provided, they need to belong to the same batch
+    /// transfer or an error is returned.
     ///
     /// Eligible transfers are the ones in status [`TransferStatus::Failed`]
-    pub fn delete_transfers(&self, blinded_utxo: Option<String>) -> Result<(), Error> {
-        info!(self.logger, "Deleting transfer {:?}...", blinded_utxo);
-        if let Some(bu) = blinded_utxo {
-            let db_transfer = self.database.get_transfer_or_fail(bu.clone())?;
-            if db_transfer.status != TransferStatus::Failed {
-                return Err(Error::CannotDeleteTransfer(bu));
+    pub fn delete_transfers(
+        &self,
+        blinded_utxo: Option<String>,
+        txid: Option<String>,
+    ) -> Result<(), Error> {
+        info!(
+            self.logger,
+            "Deleting transfer with blinded UTXO {:?} and TXID {:?}...", blinded_utxo, txid
+        );
+
+        if blinded_utxo.is_some() || txid.is_some() {
+            let batch_transfer = if let Some(bu) = blinded_utxo {
+                let db_transfer = &mut self.database.get_transfer_or_fail(bu)?;
+                let (_, batch_transfer) = db_transfer.related_transfers(self.database.clone())?;
+                let asset_transfer_ids: Vec<i64> = self
+                    .database
+                    .iter_batch_asset_transfers(&batch_transfer)?
+                    .iter()
+                    .map(|t| t.idx)
+                    .collect();
+                if (self
+                    .database
+                    .iter_transfers()?
+                    .into_iter()
+                    .filter(|t| asset_transfer_ids.contains(&t.asset_transfer_idx))
+                    .count()
+                    > 1
+                    || txid.is_some())
+                    && txid != batch_transfer.txid
+                {
+                    return Err(Error::CannotDeleteTransfer);
+                }
+                batch_transfer
+            } else {
+                self.database
+                    .get_batch_transfer_or_fail(txid.expect("TXID"))?
+            };
+
+            if !batch_transfer.failed() {
+                return Err(Error::CannotDeleteTransfer);
             }
-            self._delete_transfer(&db_transfer)?;
+            self._delete_batch_transfer(&batch_transfer)?
         } else {
-            let db_transfers: Vec<DbTransfer> = self
+            // delete all failed transfers
+            let mut batch_transfers: Vec<DbBatchTransfer> = self
                 .database
-                .iter_transfers()?
+                .iter_batch_transfers()?
                 .into_iter()
-                .filter(|t| t.status == TransferStatus::Failed)
+                .filter(|t| t.failed())
                 .collect();
-            for db_transfer in db_transfers.iter() {
-                self._delete_transfer(db_transfer)?
+            for batch_transfer in batch_transfers.iter_mut() {
+                self._delete_batch_transfer(batch_transfer)?
             }
         }
 
         Ok(())
     }
 
-    /// Send bitcoin funds not used for RGB allocations, or all if `destroy_assets` is specified, to
-    /// the provided address
+    /// Send bitcoin funds to the provided address. See the
+    /// [`drain_to_begin`](Wallet::drain_to_begin) function for details.
     ///
     /// This is the full version, requiring a wallet with private keys and [`Online`] data
     pub fn drain_to(
@@ -859,12 +979,15 @@ impl Wallet {
         self.drain_to_end(online, psbt.to_string())
     }
 
-    /// Prepare the PSBT to send bitcoin funds not used for RGB allocations, or all if
-    /// `destroy_assets` is specified, to the provided address
+    /// Prepare the PSBT to send bitcoin funds not in use for RGB allocations, or all if
+    /// `destroy_assets` is specified, to the provided `address`.
     ///
-    /// This is the first half of the partial version, requiring no private keys nor [`Online`] data.
+    /// Warning: setting `destroy_assets` to true is dangerous, only do this if you know what
+    /// you're doing!
+    ///
+    /// This is the first half of the partial version, requiring no private keys.
     /// Signing of the returned PSBT needs to be carried out separately. The signed PSBT then needs
-    /// to be fed to the `drain_to_end` function.
+    /// to be fed to the [`drain_to_end`](Wallet::drain_to_end) function.
     ///
     /// Returns a PSBT ready to be signed
     pub fn drain_to_begin(
@@ -911,11 +1034,11 @@ impl Wallet {
             .to_string())
     }
 
-    /// Broadcast the provided PSBT to send bitcoin funds
+    /// Broadcast the provided PSBT to send bitcoin funds.
     ///
     /// This is the second half of the partial version, requiring [`Online`] data but no private keys.
-    /// The provided PSBT, prepared with the `drain_to_begin` function, needs to have already
-    /// been signed.
+    /// The provided PSBT, prepared with the [`drain_to_begin`](Wallet::drain_to_begin) function,
+    /// needs to have already been signed.
     ///
     /// Returns the txid of the transaction that's been broadcast
     pub fn drain_to_end(&self, online: Online, signed_psbt: String) -> Result<String, Error> {
@@ -929,18 +1052,31 @@ impl Wallet {
         Ok(tx.txid().to_string())
     }
 
-    fn _fail_transfer(&self, transfer: &DbTransfer) -> Result<(), Error> {
-        let mut updated_transfer: DbTransferActMod = transfer.clone().into();
-        updated_transfer.status = ActiveValue::Set(TransferStatus::Failed);
-        updated_transfer.expiration = ActiveValue::Set(Some(now().unix_timestamp()));
-        self.database.update_transfer(&mut updated_transfer)?;
+    fn _fail_batch_transfer(
+        &mut self,
+        batch_transfer: &DbBatchTransfer,
+        throw_err: bool,
+    ) -> Result<(), Error> {
+        let updated_transfer = self._refresh_transfer(batch_transfer)?;
+        // fail transfer if the status didn't change after a refresh
+        if updated_transfer.is_none() {
+            let mut updated_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
+            updated_transfer.status = ActiveValue::Set(TransferStatus::Failed);
+            updated_transfer.expiration = ActiveValue::Set(Some(now().unix_timestamp()));
+            self.database.update_batch_transfer(&mut updated_transfer)?;
+        } else if throw_err {
+            return Err(Error::CannotFailTransfer);
+        }
 
         Ok(())
     }
 
     /// Set the status for eligible transfers to [`TransferStatus::Failed`]
     ///
-    /// An optional blinded_utxo can be provided to operate on a single transfer
+    /// An optional `blinded_utxo` can be provided to operate on a single transfer.
+    /// An optional `txid` can be provided to operate on a batch transfer.
+    /// If both a `blinded_utxo` and a `txid` are provided, they need to belong to the same batch
+    /// transfer or an error is returned.
     ///
     /// Eligible transfer are the ones in status [`TransferStatus::WaitingCounterparty`] after a
     /// `refresh` has been performed
@@ -948,35 +1084,56 @@ impl Wallet {
         &mut self,
         online: Online,
         blinded_utxo: Option<String>,
+        txid: Option<String>,
     ) -> Result<(), Error> {
-        info!(self.logger, "Failing transfer {:?}...", blinded_utxo);
+        info!(
+            self.logger,
+            "Failing transfer with blinded UTXO {:?} and TXID {:?}...", blinded_utxo, txid
+        );
         self._check_online(online)?;
 
-        if let Some(bu) = blinded_utxo {
-            let db_transfer = &mut self.database.get_transfer_or_fail(bu.clone())?;
-            if !db_transfer.waiting_counterparty() {
-                return Err(Error::CannotFailTransfer(bu));
+        if blinded_utxo.is_some() || txid.is_some() {
+            let batch_transfer = if let Some(bu) = blinded_utxo {
+                let db_transfer = &mut self.database.get_transfer_or_fail(bu)?;
+                let (_, batch_transfer) = db_transfer.related_transfers(self.database.clone())?;
+                let asset_transfer_ids: Vec<i64> = self
+                    .database
+                    .iter_batch_asset_transfers(&batch_transfer)?
+                    .iter()
+                    .map(|t| t.idx)
+                    .collect();
+                if (self
+                    .database
+                    .iter_transfers()?
+                    .into_iter()
+                    .filter(|t| asset_transfer_ids.contains(&t.asset_transfer_idx))
+                    .count()
+                    > 1
+                    || txid.is_some())
+                    && txid != batch_transfer.txid
+                {
+                    return Err(Error::CannotFailTransfer);
+                }
+                batch_transfer
+            } else {
+                self.database
+                    .get_batch_transfer_or_fail(txid.expect("TXID"))?
+            };
+
+            if !batch_transfer.waiting_counterparty() {
+                return Err(Error::CannotFailTransfer);
             }
-            let updated_transfer = self._refresh_transfer(db_transfer)?;
-            // don't fail transfer if the status changed after a refresh
-            if updated_transfer.is_some() {
-                return Err(Error::CannotFailTransfer(bu));
-            }
-            self._fail_transfer(db_transfer)?
+            self._fail_batch_transfer(&batch_transfer, true)?
         } else {
             // fail all transfers in status WaitingCounterparty
-            let mut db_transfers: Vec<DbTransfer> = self
+            let mut batch_transfers: Vec<DbBatchTransfer> = self
                 .database
-                .iter_transfers()?
+                .iter_batch_transfers()?
                 .into_iter()
                 .filter(|t| t.waiting_counterparty())
                 .collect();
-            for db_transfer in db_transfers.iter_mut() {
-                let updated_transfer = self._refresh_transfer(db_transfer)?;
-                // fail transfer if the status didn't change after a refresh
-                if updated_transfer.is_none() {
-                    self._fail_transfer(db_transfer)?
-                }
+            for batch_transfer in batch_transfers.iter_mut() {
+                self._fail_batch_transfer(batch_transfer, false)?
             }
         }
 
@@ -999,6 +1156,7 @@ impl Wallet {
     /// Return the balance for the requested asset
     pub fn get_asset_balance(&self, asset_id: String) -> Result<Balance, Error> {
         info!(self.logger, "Getting balance for asset '{}'...", asset_id);
+        self.database.get_asset_or_fail(asset_id.clone())?;
         self.database.get_asset_balance(asset_id)
     }
 
@@ -1149,6 +1307,9 @@ impl Wallet {
     }
 
     /// Return the existing or freshly generated set of wallet [`Online`] data
+    ///
+    /// Setting skip_consistency_check to true bypases the check and allows operating an
+    /// inconsistent wallet. Warning: this is dangerous, only do this if you know what you're doing!
     pub fn go_online(
         &mut self,
         electrum_url: String,
@@ -1227,6 +1388,11 @@ impl Wallet {
         if !matches!(status, ContractValidity::Valid) {
             return Err(Error::FailedIssuance(format!("{:?}", status)));
         }
+        debug!(
+            self.logger,
+            "Issued asset with ID '{:?}'",
+            asset.contract_id()
+        );
 
         let db_asset = DbAsset {
             idx: 0,
@@ -1236,17 +1402,30 @@ impl Wallet {
             precision,
         };
         self.database.set_asset(db_asset.clone())?;
-        let transfer = DbTransferActMod {
+        let batch_transfer = DbBatchTransferActMod {
             status: ActiveValue::Set(TransferStatus::Settled),
+            expiration: ActiveValue::Set(None),
+            ..Default::default()
+        };
+        let batch_transfer_idx = self.database.set_batch_transfer(batch_transfer)?;
+        let asset_transfer = DbAssetTransferActMod {
             user_driven: ActiveValue::Set(true),
+            batch_transfer_idx: ActiveValue::Set(batch_transfer_idx),
             asset_id: ActiveValue::Set(Some(db_asset.asset_id.clone())),
             ..Default::default()
         };
-        let transfer_idx = self.database.set_transfer(transfer)?;
+        let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
+        let settled: u64 = amounts.iter().sum();
+        let transfer = DbTransferActMod {
+            asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
+            amount: ActiveValue::Set(settled.to_string()),
+            ..Default::default()
+        };
+        self.database.set_transfer(transfer)?;
         for (utxo, amount) in outputs {
             let db_coloring = DbColoringActMod {
                 txo_idx: ActiveValue::Set(utxo.idx),
-                transfer_idx: ActiveValue::Set(transfer_idx),
+                asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
                 coloring_type: ActiveValue::Set(ColoringType::Issue),
                 amount: ActiveValue::Set(amount.to_string()),
                 ..Default::default()
@@ -1256,10 +1435,7 @@ impl Wallet {
 
         Ok(Asset::from_db_asset(
             db_asset,
-            Balance {
-                settled: amounts.iter().sum(),
-                future: 0,
-            },
+            Balance { settled, future: 0 },
         ))
     }
 
@@ -1282,14 +1458,21 @@ impl Wallet {
     pub fn list_transfers(&self, asset_id: String) -> Result<Vec<Transfer>, Error> {
         info!(self.logger, "Listing transfers for asset '{}'...", asset_id);
         let _db_asset = self.database.get_asset_or_fail(asset_id.clone())?;
+        let asset_transfer_ids: Vec<i64> = self
+            .database
+            .iter_asset_asset_transfers(asset_id)?
+            .iter()
+            .filter(|t| t.user_driven)
+            .map(|t| t.idx)
+            .collect();
         self.database
             .iter_transfers()?
-            .iter()
-            .filter(|t| t.asset_id.clone() == Some(asset_id.clone()) && t.user_driven)
+            .into_iter()
+            .filter(|t| asset_transfer_ids.contains(&t.asset_transfer_idx))
             .map(|t| {
                 Ok(Transfer::from_db_transfer(
                     t.clone(),
-                    self.database.get_transfer_data(t)?,
+                    self.database.get_transfer_data(&t)?,
                 ))
             })
             .collect()
@@ -1309,11 +1492,18 @@ impl Wallet {
             .filter(|t| t.spent)
             .map(|u| u.idx)
             .collect();
+        let waiting_confs_batch_transfer_ids: Vec<i64> = self
+            .database
+            .iter_batch_transfers()?
+            .into_iter()
+            .filter(|t| t.waiting_confirmations())
+            .map(|t| t.idx)
+            .collect();
         let waiting_confs_transfer_ids: Vec<i64> = self
             .database
-            .iter_transfers()?
+            .iter_asset_transfers()?
             .into_iter()
-            .filter(|t| t.status == TransferStatus::WaitingConfirmations)
+            .filter(|t| waiting_confs_batch_transfer_ids.contains(&t.batch_transfer_idx))
             .map(|t| t.idx)
             .collect();
         let almost_spent_txos_ids: Vec<i64> = self
@@ -1321,7 +1511,7 @@ impl Wallet {
             .iter_colorings()?
             .into_iter()
             .filter(|c| {
-                waiting_confs_transfer_ids.contains(&c.transfer_idx)
+                waiting_confs_transfer_ids.contains(&c.asset_transfer_idx)
                     && spent_txos_ids.contains(&c.txo_idx)
             })
             .map(|c| c.txo_idx)
@@ -1348,8 +1538,12 @@ impl Wallet {
         PartiallySignedTransaction::from_str(&psbt_str).map_err(Error::InvalidPsbt)
     }
 
-    fn _wait_consignment(&mut self, transfer: &DbTransfer) -> Result<Option<DbTransfer>, Error> {
+    fn _wait_consignment(
+        &mut self,
+        batch_transfer: &DbBatchTransfer,
+    ) -> Result<Option<DbBatchTransfer>, Error> {
         debug!(self.logger, "Waiting consignment...");
+        let (asset_transfer, transfer) = self.database.get_incoming_transfer(batch_transfer)?;
         let blinded_utxo = transfer
             .blinded_utxo
             .clone()
@@ -1370,7 +1564,7 @@ impl Wallet {
             return Ok(None);
         };
 
-        let mut updated_transfer: DbTransferActMod = transfer.clone().into();
+        let mut updated_batch_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
 
         // write consignment
         let transfer_dir = self
@@ -1386,22 +1580,31 @@ impl Wallet {
 
         // validate consignment
         let validation_status = Validator::validate(&consignment, self._electrum_client()?);
-        let unmined_txid = validation_status.unmined_endpoint_txids.first();
-        if !validation_status.failures.is_empty() || unmined_txid.is_none() {
+        if !vec![Validity::Valid, Validity::ValidExceptEndpoints]
+            .contains(&validation_status.validity())
+        {
             debug!(self.logger, "Consignment is invalid");
             let nack_res = self.rest_client.clone().post_nack(blinded_utxo)?;
             debug!(self.logger, "Consignment NACK response: {:?}", nack_res);
-            updated_transfer.status = ActiveValue::Set(TransferStatus::Failed);
-            return Ok(Some(self.database.update_transfer(&mut updated_transfer)?));
+            updated_batch_transfer.status = ActiveValue::Set(TransferStatus::Failed);
+            return Ok(Some(
+                self.database
+                    .update_batch_transfer(&mut updated_batch_transfer)?,
+            ));
         }
-        let transfer_txid = unmined_txid.expect("unmined txid should be there");
         debug!(self.logger, "Consignment is valid");
+        let anchored_bundles = consignment.anchored_bundles();
+        let (anchor, transition_bundle) = anchored_bundles
+            .last()
+            .expect("there should be at least an anchored bundle");
+        let txid = anchor.txid;
         let ack_res = self.rest_client.clone().post_ack(blinded_utxo)?;
         debug!(self.logger, "Consignment ACK response: {:?}", ack_res);
 
+        let contract_id = consignment.contract_id().to_string();
+
         // add asset info to transfer if missing
-        if transfer.asset_id.is_none() {
-            let contract_id = consignment.contract_id().to_string();
+        if asset_transfer.asset_id.is_none() {
             // save asset in DB if unknown
             if self
                 .database
@@ -1433,34 +1636,36 @@ impl Wallet {
                 };
                 self.database.set_asset(db_asset)?;
             }
-            updated_transfer.asset_id = ActiveValue::Set(Some(contract_id));
-            self.database.update_transfer(&mut updated_transfer)?;
+            let mut updated_asset_transfer: DbAssetTransferActMod = asset_transfer.clone().into();
+            updated_asset_transfer.asset_id = ActiveValue::Set(Some(contract_id.clone()));
+            self.database
+                .update_asset_transfer(&mut updated_asset_transfer)?;
         }
 
         // get and update transfer amount
-        let anchored_bundles = consignment.anchored_bundles();
         let mut amount = 0;
-        for (anchor, transition_bundle) in anchored_bundles {
-            if anchor.txid != *transfer_txid {
-                continue;
-            }
-            let known_transitions = transition_bundle.known_transitions();
-            for transition in known_transitions {
-                let owned_rights = transition.owned_rights();
-                for (_owned_right_type, typed_assignment) in owned_rights.iter() {
-                    for assignment in typed_assignment.to_value_assignments() {
-                        if let Assignment::ConfidentialSeal { seal: _, state } = assignment {
-                            amount += state.value;
-                        };
-                    }
+        let known_transitions = transition_bundle.known_transitions();
+        for transition in known_transitions {
+            let owned_rights = transition.owned_rights();
+            for (_owned_right_type, typed_assignment) in owned_rights.iter() {
+                for assignment in typed_assignment.to_value_assignments() {
+                    if let Assignment::ConfidentialSeal { seal: _, state } = assignment {
+                        amount += state.value;
+                    };
                 }
             }
         }
+        debug!(
+            self.logger,
+            "Received '{}' of contract '{}'", amount, contract_id
+        );
         let transfer_colorings = self
             .database
             .iter_colorings()?
             .into_iter()
-            .filter(|c| c.transfer_idx == transfer.idx && c.coloring_type == ColoringType::Blind)
+            .filter(|c| {
+                c.asset_transfer_idx == asset_transfer.idx && c.coloring_type == ColoringType::Blind
+            })
             .collect::<Vec<DbColoring>>()
             .first()
             .cloned();
@@ -1470,50 +1675,102 @@ impl Wallet {
         updated_coloring.amount = ActiveValue::Set(amount.to_string());
         self.database.update_coloring(updated_coloring)?;
 
-        updated_transfer.txid = ActiveValue::Set(Some(transfer_txid.to_string()));
-        updated_transfer.status = ActiveValue::Set(TransferStatus::WaitingConfirmations);
-        Ok(Some(self.database.update_transfer(&mut updated_transfer)?))
+        let mut updated_transfer: DbTransferActMod = transfer.into();
+        updated_transfer.amount = ActiveValue::Set(amount.to_string());
+        self.database.update_transfer(&mut updated_transfer)?;
+
+        updated_batch_transfer.txid = ActiveValue::Set(Some(txid.to_string()));
+        updated_batch_transfer.status = ActiveValue::Set(TransferStatus::WaitingConfirmations);
+        Ok(Some(
+            self.database
+                .update_batch_transfer(&mut updated_batch_transfer)?,
+        ))
     }
 
-    fn _wait_ack(&self, transfer: &DbTransfer) -> Result<Option<DbTransfer>, Error> {
+    fn _wait_ack(
+        &self,
+        batch_transfer: &DbBatchTransfer,
+    ) -> Result<Option<DbBatchTransfer>, Error> {
         debug!(self.logger, "Waiting ACK...");
-        let ack_res = self.rest_client.clone().get_ack(
-            transfer
-                .blinded_utxo
-                .clone()
-                .expect("transfer should have a blinded UTXO"),
-        )?;
-        debug!(self.logger, "Consignment ACK/NACK response: {:?}", ack_res);
+        let asset_transfers: Vec<DbAssetTransfer> =
+            self.database.iter_batch_asset_transfers(batch_transfer)?;
+        for asset_transfer in &asset_transfers {
+            let transfers: Vec<DbTransfer> = self
+                .database
+                .iter_transfers()?
+                .into_iter()
+                .filter(|t| t.asset_transfer_idx == asset_transfer.idx && t.ack.is_none())
+                .collect();
 
-        return match ack_res {
-            AckResponse {
-                ack: Some(true), ..
-            } => {
-                let transfer_dir = self
-                    .wallet_dir
-                    .join(TRANSFER_DIR)
-                    .join(transfer.txid.as_ref().expect("transfer should have a txid"));
-                let signed_psbt = self._get_signed_psbt(transfer_dir)?;
-                self._broadcast_psbt(signed_psbt)?;
-                let mut updated_transfer: DbTransferActMod = transfer.clone().into();
-                updated_transfer.status = ActiveValue::Set(TransferStatus::WaitingConfirmations);
-                Ok(Some(self.database.update_transfer(&mut updated_transfer)?))
+            for transfer in transfers {
+                let ack_res = self.rest_client.clone().get_ack(
+                    transfer
+                        .blinded_utxo
+                        .clone()
+                        .expect("transfer should have a blinded UTXO"),
+                )?;
+                debug!(self.logger, "Consignment ACK/NACK response: {:?}", ack_res);
+
+                match ack_res {
+                    AckResponse {
+                        ack: Some(true), ..
+                    } => {
+                        let mut updated_transfer: DbTransferActMod = transfer.clone().into();
+                        updated_transfer.ack = ActiveValue::Set(Some(true));
+                        self.database.update_transfer(&mut updated_transfer)?;
+                    }
+                    AckResponse {
+                        nack: Some(true), ..
+                    } => {
+                        let mut updated_transfer: DbTransferActMod = transfer.clone().into();
+                        updated_transfer.ack = ActiveValue::Set(Some(false));
+                        self.database.update_transfer(&mut updated_transfer)?;
+                    }
+                    _ => (),
+                };
             }
-            AckResponse {
-                nack: Some(true), ..
-            } => {
-                let mut updated_transfer: DbTransferActMod = transfer.clone().into();
-                updated_transfer.status = ActiveValue::Set(TransferStatus::Failed);
-                Ok(Some(self.database.update_transfer(&mut updated_transfer)?))
-            }
-            _ => Ok(None),
-        };
+        }
+
+        let asset_transfer_ids: Vec<i64> = asset_transfers.iter().map(|t| t.idx).collect();
+        let transfers: Vec<DbTransfer> = self
+            .database
+            .iter_transfers()?
+            .into_iter()
+            .filter(|t| asset_transfer_ids.contains(&t.asset_transfer_idx))
+            .collect();
+        let mut update_batch_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
+        if transfers.iter().any(|t| t.ack == Some(false)) {
+            update_batch_transfer.status = ActiveValue::Set(TransferStatus::Failed);
+        } else if transfers.iter().all(|t| t.ack == Some(true)) {
+            let transfer_dir = self.wallet_dir.join(TRANSFER_DIR).join(
+                batch_transfer
+                    .txid
+                    .as_ref()
+                    .expect("batch transfer should have a txid"),
+            );
+            let signed_psbt = self._get_signed_psbt(transfer_dir)?;
+            self._broadcast_psbt(signed_psbt)?;
+            update_batch_transfer.status = ActiveValue::Set(TransferStatus::WaitingConfirmations);
+        } else {
+            return Ok(None);
+        }
+
+        Ok(Some(
+            self.database
+                .update_batch_transfer(&mut update_batch_transfer)?,
+        ))
     }
 
-    fn _wait_confirmations(&mut self, transfer: &DbTransfer) -> Result<Option<DbTransfer>, Error> {
+    fn _wait_confirmations(
+        &mut self,
+        batch_transfer: &DbBatchTransfer,
+    ) -> Result<Option<DbBatchTransfer>, Error> {
         debug!(self.logger, "Waiting confirmations...");
-        let transfer_txid = transfer.txid.clone().expect("transfer should have a txid");
-        let tx_details = match self._get_tx_details(transfer_txid.clone()) {
+        let txid = batch_transfer
+            .txid
+            .clone()
+            .expect("batch transfer should have a txid");
+        let tx_details = match self._get_tx_details(txid.clone()) {
             Ok(v) => Ok(v),
             Err(e) => {
                 if e.to_string()
@@ -1540,18 +1797,21 @@ impl Wallet {
             return Ok(None);
         }
 
-        let transfer_dir = if transfer.incoming() {
+        let asset_transfers: Vec<DbAssetTransfer> =
+            self.database.iter_batch_asset_transfers(batch_transfer)?;
+
+        let transfer_dir = if batch_transfer.incoming(self.database.clone())? {
+            let (_, transfer) = self.database.get_incoming_transfer(batch_transfer)?;
             self.wallet_dir.join(TRANSFER_DIR).join(
                 transfer
                     .blinded_utxo
-                    .clone()
                     .expect("transfer should have a blinded UTXO"),
             )
         } else {
-            self.wallet_dir.join(TRANSFER_DIR).join(transfer_txid)
+            self.wallet_dir.join(TRANSFER_DIR).join(txid.clone())
         };
 
-        if !transfer.incoming() {
+        if !batch_transfer.incoming(self.database.clone())? {
             // set change outpoints as colorable
             let tx = self._get_signed_psbt(transfer_dir.clone())?.extract_tx();
             let txid = tx.txid().to_string();
@@ -1572,59 +1832,84 @@ impl Wallet {
             }
         }
 
-        // accept consignment
-        let consignment_path = if transfer.incoming() {
-            transfer_dir.join(CONSIGNMENT_RCV_FILE)
+        // accept consignment(s)
+        let consignment_paths = if batch_transfer.incoming(self.database.clone())? {
+            vec![transfer_dir.join(CONSIGNMENT_RCV_FILE)]
         } else {
-            transfer_dir.join(CONSIGNMENT_FILE)
+            asset_transfers
+                .iter()
+                .filter(|t| t.user_driven)
+                .map(|t| {
+                    transfer_dir
+                        .join(t.asset_id.clone().expect("asset ID should be present"))
+                        .join(CONSIGNMENT_FILE)
+                })
+                .collect()
         };
-        let consignment =
-            StateTransfer::strict_file_load(&consignment_path).map_err(InternalError::from)?;
-        let reveal = if transfer.incoming() {
-            let detailed_transfer = Transfer::from_db_transfer(
-                transfer.clone(),
-                self.database.get_transfer_data(transfer)?,
-            );
-            let blinding_factor = detailed_transfer
-                .blinding_secret
-                .expect("incoming transfer should have a blinding secret");
-            let outpoint = OutPoint::from(
-                detailed_transfer
-                    .unblinded_utxo
-                    .expect("incoming transfer should have a unblinded UTXO"),
-            );
-            Some(Reveal {
-                blinding_factor,
-                outpoint,
-                close_method: CloseMethod::OpretFirst,
-            })
-        } else {
-            None
-        };
-        let status = self
-            ._rgb_client()?
-            .consume_transfer(consignment, true, reveal, |_| ())
-            .map_err(InternalError::from)?;
-        if !matches!(status, ContractValidity::Valid) {
-            return Err(InternalError::Unexpected)?;
+        for consignment_path in consignment_paths {
+            let consignment =
+                StateTransfer::strict_file_load(&consignment_path).map_err(InternalError::from)?;
+            let reveal = if batch_transfer.incoming(self.database.clone())? {
+                let (_, transfer) = self.database.get_incoming_transfer(batch_transfer)?;
+                let transfer_data = self.database.get_transfer_data(&transfer)?;
+                let detailed_transfer = Transfer::from_db_transfer(transfer, transfer_data);
+                let blinding_factor = detailed_transfer
+                    .blinding_secret
+                    .expect("incoming transfer should have a blinding secret");
+                let outpoint = OutPoint::from(
+                    detailed_transfer
+                        .unblinded_utxo
+                        .expect("incoming transfer should have an unblinded UTXO"),
+                );
+                Some(Reveal {
+                    blinding_factor,
+                    outpoint,
+                    close_method: CloseMethod::OpretFirst,
+                })
+            } else {
+                None
+            };
+            let status = self
+                ._rgb_client()?
+                .consume_transfer(consignment, true, reveal, |_| ())
+                .map_err(InternalError::from)?;
+            if !matches!(status, ContractValidity::Valid) {
+                return Err(InternalError::Unexpected)?;
+            }
         }
 
-        let mut updated_transfer: DbTransferActMod = transfer.clone().into();
+        if asset_transfers.into_iter().any(|t| !t.user_driven) {
+            debug!(self.logger, "Processing disclosure...");
+            self._rgb_client()?
+                .process_disclosure(
+                    Txid::from_str(&txid).expect("transaction should have a valid ID"),
+                    |_| (),
+                )
+                .map_err(InternalError::from)?;
+        }
+
+        let mut updated_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
         updated_transfer.status = ActiveValue::Set(TransferStatus::Settled);
-        let updated = self.database.update_transfer(&mut updated_transfer)?;
+        let updated = self.database.update_batch_transfer(&mut updated_transfer)?;
 
         Ok(Some(updated))
     }
 
-    fn _wait_counterparty(&mut self, transfer: &DbTransfer) -> Result<Option<DbTransfer>, Error> {
-        if transfer.incoming() {
+    fn _wait_counterparty(
+        &mut self,
+        transfer: &DbBatchTransfer,
+    ) -> Result<Option<DbBatchTransfer>, Error> {
+        if transfer.incoming(self.database.clone())? {
             self._wait_consignment(transfer)
         } else {
             self._wait_ack(transfer)
         }
     }
 
-    fn _refresh_transfer(&mut self, transfer: &DbTransfer) -> Result<Option<DbTransfer>, Error> {
+    fn _refresh_transfer(
+        &mut self,
+        transfer: &DbBatchTransfer,
+    ) -> Result<Option<DbBatchTransfer>, Error> {
         debug!(self.logger, "Refreshing transfer: {:?}", transfer);
         match transfer.status {
             TransferStatus::WaitingCounterparty => self._wait_counterparty(transfer),
@@ -1633,7 +1918,10 @@ impl Wallet {
         }
     }
 
-    /// Refresh the status of pending transfers, optionally filtered by [`Asset`] ID
+    /// Refresh the status of pending transfers, optionally filtered by [`Asset`] ID.
+    ///
+    /// Changes to each transfer depend on its status and whether the wallet is on the receiving or
+    /// sending side.
     pub fn refresh(&mut self, online: Online, asset_id: Option<String>) -> Result<(), Error> {
         if asset_id.is_some() {
             info!(self.logger, "Refreshing asset {:?}...", asset_id);
@@ -1644,107 +1932,44 @@ impl Wallet {
         }
         self._check_online(online)?;
 
-        let mut db_transfers: Vec<DbTransfer> = if asset_id.is_some() {
-            self.database
-                .iter_transfers()?
+        let mut batch_transfers: Vec<DbBatchTransfer> = if let Some(aid) = asset_id {
+            let batch_transfers_ids: Vec<i64> = self
+                .database
+                .iter_asset_asset_transfers(aid)?
                 .into_iter()
-                .filter(|t| t.asset_id.clone() == asset_id.clone())
+                .map(|t| t.batch_transfer_idx)
+                .collect();
+            self.database
+                .iter_batch_transfers()?
+                .into_iter()
+                .filter(|t| batch_transfers_ids.contains(&t.idx))
                 .collect()
         } else {
-            self.database.iter_transfers()?
+            self.database.iter_batch_transfers()?
         }
         .into_iter()
         .filter(|t| t.pending())
         .collect();
 
-        for transfer in db_transfers.iter_mut() {
+        for transfer in batch_transfers.iter_mut() {
             self._refresh_transfer(transfer)?;
         }
 
         Ok(())
     }
 
-    /// Send a specified amount of tokens of the given [`Asset`] ID to the provided blinded UTXO
-    ///
-    /// This is the full version, requiring a wallet with private keys and [`Online`] data
-    pub fn send(
-        &mut self,
-        online: Online,
+    fn _select_rgb_inputs(
+        &self,
         asset_id: String,
-        blinded_utxo: String,
-        amount: u64,
-    ) -> Result<String, Error> {
-        info!(
-            self.logger,
-            "Sending {} of asset '{}' to blinded '{}'...", amount, asset_id, blinded_utxo
-        );
-        self._check_xprv()?;
-
-        let unsigned_psbt = self.send_begin(online.clone(), asset_id, blinded_utxo, amount)?;
-
-        let mut psbt =
-            PartiallySignedTransaction::from_str(&unsigned_psbt).map_err(InternalError::from)?;
-        self.bdk_wallet
-            .sign(&mut psbt, SignOptions::default())
-            .map_err(InternalError::from)?;
-
-        self.send_end(online, psbt.to_string())
-    }
-
-    /// Prepare the PSBT to send a specified amount of tokens of the given [`Asset`] ID to the
-    /// provided blinded UTXO
-    ///
-    /// This is the first half of the partial version, requiring no private keys nor [`Online`] data.
-    /// Signing of the returned PSBT needs to be carried out separately. The signed PSBT then needs
-    /// to be fed to the `send_end` function.
-    ///
-    /// Returns a PSBT ready to be signed
-    pub fn send_begin(
-        &mut self,
-        online: Online,
-        asset_id: String,
-        blinded_utxo: String,
-        amount: u64,
-    ) -> Result<String, Error> {
-        info!(
-            self.logger,
-            "Sending (begin) {} of asset '{}' to blinded '{}'...", amount, asset_id, blinded_utxo
-        );
-        self._check_online(online)?;
-
-        self.database.get_asset_or_fail(asset_id.clone())?;
-
-        if self
-            .database
-            .iter_transfers()?
-            .iter()
-            .any(|t| t.blinded_utxo == Some(blinded_utxo.clone()))
-        {
-            return Err(Error::BlindedUTXOAlreadyUsed)?;
-        }
-
-        let transfer_dir = self
-            .wallet_dir
-            .join(TRANSFER_DIR)
-            .join(blinded_utxo.clone());
-        if transfer_dir.is_dir() {
-            fs::remove_dir_all(transfer_dir.clone())?;
-        }
-        fs::create_dir_all(transfer_dir.clone())?;
-
-        // input selection
-        let input_coloring_ids: Vec<i64> = self
-            .database
-            .iter_colorings()?
-            .into_iter()
-            .filter(|c| c.coloring_type == ColoringType::Input)
-            .map(|c| c.txo_idx)
-            .collect();
+        amount_needed: u64,
+        unspendable_txo_ids: Vec<i64>,
+    ) -> Result<AssetSpend, Error> {
+        debug!(self.logger, "Selecting inputs for asset '{}'...", asset_id);
         let asset_txos = self
             .database
             .get_asset_utxos(asset_id.clone())?
             .into_iter()
-            .filter(|t| !input_coloring_ids.contains(&t.idx))
+            .filter(|t| !unspendable_txo_ids.contains(&t.idx))
             .collect();
         let unspents: Vec<LocalUnspent> = self
             .database
@@ -1760,15 +1985,15 @@ impl Wallet {
                 .into_iter()
                 .filter(|a| a.asset_id == Some(asset_id.clone()))
                 .collect();
-            asset_allocations.sort();
+            asset_allocations.sort_by(|a, b| b.cmp(a));
             let amount_allocation: u64 = asset_allocations.iter().map(|a| a.amount).sum();
             input_allocations.insert(unspent.utxo, amount_allocation);
             amount_input_asset += amount_allocation;
-            if amount_input_asset >= amount {
+            if amount_input_asset >= amount_needed {
                 break;
             }
         }
-        if amount_input_asset < amount {
+        if amount_input_asset < amount_needed {
             return Err(Error::InsufficientAssets);
         }
         debug!(self.logger, "Asset input amount {:?}", amount_input_asset);
@@ -1776,107 +2001,160 @@ impl Wallet {
         inputs
             .iter()
             .for_each(|t| debug!(self.logger, "Input outpoint '{}'", t.outpoint().to_string()));
-        let input_allocations: HashMap<i64, u64> = input_allocations
+        let txo_map: HashMap<i64, u64> = input_allocations
             .into_iter()
             .map(|(k, v)| (k.idx, v))
             .collect();
-
-        // RGB node compose
         let input_outpoints: Vec<OutPoint> = inputs.into_iter().map(OutPoint::from).collect();
-        let input_outpoints_bt: BTreeSet<OutPoint> = input_outpoints.clone().into_iter().collect();
-        let rgb_asset_id = ContractId::from_str(&asset_id).map_err(InternalError::from)?;
-        let transfer = self
-            ._rgb_client()?
-            .consign(rgb_asset_id, vec![], input_outpoints_bt.clone(), |_| ())
-            .map_err(InternalError::from)?;
-        let consignment_path = transfer_dir.join("compose.rgbc");
-        let consignment_file = fs::File::create(consignment_path.clone())?;
-        transfer
-            .strict_encode(consignment_file)
-            .map_err(InternalError::from)?;
-
-        // RGB20 transfer
-        let transfer = StateTransfer::strict_file_load(consignment_path.clone())
-            .map_err(InternalError::from)?;
-        let rgb_asset =
-            RgbAsset::try_from(&transfer).expect("to have provided a valid consignment");
-        let beneficiaries: Vec<UtxobValue> =
-            vec![
-                UtxobValue::from_str(&format!("{}@{}", amount, blinded_utxo))
-                    .map_err(Error::InvalidBlindedUTXO)?,
-            ];
-        let change_amount = amount_input_asset - amount;
+        let change_amount = amount_input_asset - amount_needed;
         debug!(self.logger, "Asset change amount {:?}", change_amount);
-        let close_method = "opret1st";
+        Ok(AssetSpend {
+            txo_map,
+            input_outpoints,
+            change_amount,
+        })
+    }
+
+    fn _prepare_psbt(
+        &self,
+        input_outpoints: Vec<OutPoint>,
+    ) -> Result<PartiallySignedTransaction, Error> {
+        let mut builder = self.bdk_wallet.build_tx();
+        builder
+            .add_utxos(&input_outpoints)
+            .map_err(InternalError::from)?
+            .manually_selected_only()
+            .drain_to(self._get_new_address().script_pubkey())
+            .fee_rate(FeeRate::from_sat_per_vb(1.5));
+        Ok(builder.finish().map_err(InternalError::from)?.0)
+    }
+
+    fn _prepare_rgb_psbt(
+        &mut self,
+        final_psbt: &mut PartiallySignedTransaction,
+        input_outpoints: Vec<OutPoint>,
+        transfer_info_map: BTreeMap<String, InfoAssetTransfer>,
+        transfer_dir: PathBuf,
+        donation: bool,
+    ) -> Result<(), Error> {
         let change_utxo = self._get_utxo(
             true,
-            input_outpoints
-                .clone()
-                .into_iter()
-                .map(|t| t.into())
-                .collect(),
+            input_outpoints.into_iter().map(|t| t.into()).collect(),
         )?;
         debug!(
             self.logger,
             "Change outpoint '{}'",
             change_utxo.outpoint().to_string()
         );
-        let change: Vec<AllocatedValue> = vec![AllocatedValue {
-            value: change_amount as u64,
-            seal: ExplicitSeal::from_str(&format!("{}:{}", close_method, change_utxo.outpoint(),))
-                .map_err(InternalError::from)?,
-        }];
-        let beneficiaries: BTreeMap<SealEndpoint, u64> = beneficiaries
+
+        let batch_transfer_ids: Vec<i64> = self
+            .database
+            .iter_batch_transfers()?
             .into_iter()
-            .map(|v| (v.seal_confidential.into(), v.value))
+            .filter(|t| t.failed())
+            .map(|t| t.idx)
             .collect();
-        let revealed_seal = change
+        let asset_transfer_ids: Vec<i64> = self
+            .database
+            .iter_asset_transfers()?
             .into_iter()
-            .map(|v| (v.into_revealed_seal(), v.value))
+            .filter(|t| batch_transfer_ids.contains(&t.batch_transfer_idx))
+            .map(|t| t.idx)
             .collect();
-        let transition = rgb_asset
-            .transfer(
-                input_outpoints_bt.clone(),
-                beneficiaries.clone(),
-                revealed_seal,
-            )
-            .expect("transfer should succeed");
+        let mut asset_beneficiaries: BTreeMap<String, BTreeMap<SealEndpoint, u64>> = bmap![];
+        for (asset_id, transfer_info) in transfer_info_map.clone() {
+            let asset_spend = transfer_info.asset_spend;
+            let recipients = transfer_info.recipients;
 
-        // prepare PSBT with bdk
-        let change_address = self._get_new_address();
-        let input_utxos: &[OutPoint] = &input_outpoints;
-        let mut builder = self.bdk_wallet.build_tx();
-        builder
-            .add_utxos(input_utxos)
-            .map_err(InternalError::from)?
-            .manually_selected_only()
-            .drain_to(change_address.script_pubkey())
-            .fee_rate(FeeRate::from_sat_per_vb(1.5));
-        let (psbt, _) = builder.finish().map_err(InternalError::from)?;
-
-        // RGB node contract embed
-        let node_types: Vec<TransitionType> = vec![];
-        let contract = self
-            ._rgb_client()?
-            .contract(rgb_asset_id, node_types, |_| {})
-            .map_err(InternalError::from)?;
-        let psbt_bytes = serialize(&psbt);
-        let mut psbt =
-            <Psbt as BitcoinDeserialize>::deserialize(&psbt_bytes).map_err(InternalError::from)?;
-        psbt.set_rgb_contract(contract)
-            .map_err(InternalError::from)?;
-
-        // RGB node transfer combine
-        let node_id = transition.node_id();
-        psbt.push_rgb_transition(transition.clone())
-            .map_err(InternalError::from)?;
-        for input in &mut psbt.inputs {
-            if input_outpoints_bt.contains(&input.previous_outpoint) {
-                input
-                    .set_rgb_consumer(rgb_asset_id, node_id)
-                    .map_err(InternalError::from)?;
+            // RGB node compose
+            let input_outpoints_bt: BTreeSet<OutPoint> =
+                asset_spend.input_outpoints.clone().into_iter().collect();
+            let rgb_asset_id = ContractId::from_str(&asset_id).map_err(InternalError::from)?;
+            let transfer = self
+                ._rgb_client()?
+                .consign(rgb_asset_id, vec![], input_outpoints_bt.clone(), |_| ())
+                .map_err(InternalError::from)?;
+            let asset_transfer_dir = transfer_dir.join(asset_id.clone());
+            if asset_transfer_dir.is_dir() {
+                fs::remove_dir_all(asset_transfer_dir.clone())?;
             }
+            fs::create_dir_all(asset_transfer_dir.clone())?;
+            let consignment_path = asset_transfer_dir.join(CONSIGNMENT_FILE);
+            let consignment_file = fs::File::create(consignment_path.clone())?;
+            transfer
+                .strict_encode(&consignment_file)
+                .map_err(InternalError::from)?;
+
+            // RGB node contract embed
+            let contract = self
+                ._rgb_client()?
+                .contract(rgb_asset_id, vec![], |_| {})
+                .map_err(InternalError::from)?;
+            let mut psbt = <Psbt as BitcoinDeserialize>::deserialize(&serialize(&final_psbt))
+                .map_err(InternalError::from)?;
+            psbt.set_rgb_contract(contract)
+                .map_err(InternalError::from)?;
+
+            // RGB20 transfer
+            let mut out_allocations: Vec<UtxobValue> = vec![];
+            let existing_transfers = self.database.iter_transfers()?;
+            for recipient in recipients.clone() {
+                if existing_transfers
+                    .iter()
+                    .filter(|t| !asset_transfer_ids.contains(&t.asset_transfer_idx))
+                    .any(|t| t.blinded_utxo == Some(recipient.blinded_utxo.clone()))
+                {
+                    return Err(Error::BlindedUTXOAlreadyUsed)?;
+                }
+                out_allocations.push(UtxobValue {
+                    value: recipient.amount,
+                    seal_confidential: ConcealedSeal::from_str(&recipient.blinded_utxo)
+                        .map_err(Error::InvalidBlindedUTXO)?,
+                });
+            }
+            let beneficiaries: BTreeMap<SealEndpoint, u64> = out_allocations
+                .into_iter()
+                .map(|v| (v.seal_confidential.into(), v.value))
+                .collect();
+            asset_beneficiaries.insert(asset_id, beneficiaries.clone());
+            let change: Vec<AllocatedValue> = vec![AllocatedValue {
+                value: asset_spend.change_amount,
+                seal: ExplicitSeal::from_str(&format!("opret1st:{}", change_utxo.outpoint(),))
+                    .map_err(InternalError::from)?,
+            }];
+            let revealed_seal = change
+                .into_iter()
+                .map(|v| (v.into_revealed_seal(), v.value))
+                .collect();
+            let rgb_asset =
+                RgbAsset::try_from(&transfer).expect("to have provided a valid consignment");
+            let transition = rgb_asset
+                .transfer(input_outpoints_bt.clone(), beneficiaries, revealed_seal)
+                .expect("transfer should succeed");
+
+            // RGB node transfer combine
+            let node_id = transition.node_id();
+            psbt.push_rgb_transition(transition.clone())
+                .map_err(InternalError::from)?;
+            for input in &mut psbt.inputs {
+                if input_outpoints_bt.contains(&input.previous_outpoint) {
+                    input
+                        .set_rgb_consumer(rgb_asset_id, node_id)
+                        .map_err(InternalError::from)?;
+                }
+            }
+
+            let psbt_serialized =
+                &Vec::<u8>::from_hex(&psbt.to_string()).expect("provided psbt should be valid");
+            let intermediate_psbt: PartiallySignedTransaction =
+                deserialize(psbt_serialized).map_err(InternalError::from)?;
+            *final_psbt = intermediate_psbt.clone();
         }
+
+        let mut psbt = <Psbt as BitcoinDeserialize>::deserialize(&serialize(&final_psbt))
+            .map_err(InternalError::from)?;
+
+        // handle blank transitions
         let outpoints: BTreeSet<_> = psbt
             .inputs
             .iter()
@@ -1886,21 +2164,29 @@ impl Wallet {
             ._rgb_client()?
             .outpoint_state(outpoints, |_| ())
             .map_err(InternalError::from)?;
-        let change_outpoint = OutPoint::from(change_utxo.clone());
-        let ty = transition
-            .owned_right_types()
-            .into_iter()
-            .next()
-            .expect("transition should contain an owned right");
-        let new_outpoints: BTreeMap<OwnedRightType, (OutPoint, CloseMethod)> = bmap! {
-            ty => (change_outpoint, CloseMethod::OpretFirst)
+        let new_outpoints: BTreeMap<u16, (OutPoint, CloseMethod)> = bmap! {
+            OwnedRightType::Assets as u16 => (OutPoint::from(change_utxo.clone()), CloseMethod::OpretFirst)
         };
-        let mut auto_allocations: HashMap<String, u64> = HashMap::new();
-        for (cid, outpoint_map) in state_map {
-            if cid == rgb_asset_id {
-                continue;
+        let mut blank_allocations: HashMap<String, u64> = HashMap::new();
+        for (cid, mut outpoint_map) in state_map {
+            let cid_str = cid.to_string();
+            if transfer_info_map.contains_key(&cid_str) {
+                let input_outpoints = transfer_info_map[&cid_str]
+                    .clone()
+                    .asset_spend
+                    .input_outpoints;
+                outpoint_map.retain(|&k, _| !input_outpoints.contains(&k));
+                if outpoint_map.is_empty() {
+                    continue;
+                }
+            } else {
+                let contract = self
+                    ._rgb_client()?
+                    .contract(cid, vec![], |_| ())
+                    .map_err(InternalError::from)?;
+                psbt.set_rgb_contract(contract)
+                    .map_err(InternalError::from)?;
             }
-            let mut moved_amount = 0;
             let blank_bundle = TransitionBundle::blank(&outpoint_map, &new_outpoints)
                 .map_err(InternalError::from)?;
             for (transition, indexes) in blank_bundle.revealed_iter() {
@@ -1925,8 +2211,8 @@ impl Wallet {
                     }
                 }
             }
-            let known_transitions = blank_bundle.known_transitions();
-            for transition in known_transitions {
+            let mut moved_amount = 0;
+            for transition in blank_bundle.known_transitions() {
                 let owned_rights = transition.owned_rights();
                 for (_owned_right_type, typed_assignment) in owned_rights.iter() {
                     for assignment in typed_assignment.to_value_assignments() {
@@ -1942,7 +2228,7 @@ impl Wallet {
                     }
                 }
             }
-            auto_allocations.insert(cid.to_string(), moved_amount);
+            blank_allocations.insert(cid.to_string(), moved_amount);
         }
 
         // RGB std PSBT bundle
@@ -1953,131 +2239,339 @@ impl Wallet {
             .set_opret_host()
             .expect("given output should be valid");
 
-        // RGB node transfer finalize
-        let endseals = beneficiaries.into_iter().map(|b| b.0).collect();
-        let consignment =
-            StateTransfer::strict_file_load(&consignment_path).map_err(InternalError::from)?;
-        let transfer_consignment = self
-            ._rgb_client()?
-            .transfer(consignment, endseals, psbt.clone(), None, |_| ())
-            .map_err(InternalError::from)?;
-        let consignment_out = transfer_dir.join(CONSIGNMENT_FILE);
-        transfer_consignment
-            .consignment
-            .strict_file_save(consignment_out)
-            .map_err(InternalError::from)?;
-        let psbt = transfer_consignment.psbt;
-        let psbt_serialized =
-            &Vec::<u8>::from_hex(&psbt.to_string()).expect("provided psbt should be valid");
-        let psbt: PartiallySignedTransaction =
-            deserialize(psbt_serialized).map_err(InternalError::from)?;
+        for (asset_id, transfer_info) in transfer_info_map {
+            // RGB node transfer finalize
+            let beneficiaries = asset_beneficiaries[&asset_id].clone();
+            let endseals = beneficiaries.into_iter().map(|b| b.0).collect();
+            let asset_transfer_dir = transfer_dir.join(asset_id.clone());
+            let consignment_path = asset_transfer_dir.join(CONSIGNMENT_FILE);
+            let consignment =
+                StateTransfer::strict_file_load(&consignment_path).map_err(InternalError::from)?;
+            let transfer_consignment = self
+                ._rgb_client()?
+                .transfer(consignment, endseals, psbt.clone(), None, |_| ())
+                .map_err(InternalError::from)?;
+            transfer_consignment
+                .consignment
+                .strict_file_save(consignment_path)
+                .map_err(InternalError::from)?;
+            let psbt = transfer_consignment.psbt;
+            let psbt_serialized =
+                &Vec::<u8>::from_hex(&psbt.to_string()).expect("provided psbt should be valid");
+            let intermediate_psbt: PartiallySignedTransaction =
+                deserialize(psbt_serialized).map_err(InternalError::from)?;
+            *final_psbt = intermediate_psbt.clone();
 
-        // save transefer data to file (for send_end)
-        let info_contents = TransferInfoFile {
-            asset_id,
-            blinded_utxo,
-            change_amount,
-            change_txo_idx: change_utxo.idx,
-            input_allocations,
-            auto_allocations,
+            // save asset transefer data to file (for send_end)
+            let serialized_info =
+                serde_json::to_string(&transfer_info).map_err(InternalError::from)?;
+            let info_file = asset_transfer_dir.join(TRANSFER_DATA_FILE);
+            fs::write(info_file, serialized_info)?;
+        }
+
+        // save batch transefer data to file (for send_end)
+        let info_contents = InfoBatchTransfer {
+            change_utxo_idx: change_utxo.idx,
+            blank_allocations,
+            donation,
         };
         let serialized_info = serde_json::to_string(&info_contents).map_err(InternalError::from)?;
         let info_file = transfer_dir.join(TRANSFER_DATA_FILE);
         fs::write(info_file, serialized_info)?;
 
-        // rename transfer directory
-        let txid = psbt.clone().extract_tx().txid().to_string();
-        let transfer_dir_txid = self.wallet_dir.join(TRANSFER_DIR).join(txid);
-        fs::rename(transfer_dir, transfer_dir_txid)?;
-
-        Ok(psbt.to_string())
+        Ok(())
     }
 
-    /// Broadcast the provided PSBT to send tokens to a blinded UTXO
-    ///
-    /// This is the second half of the partial version, requiring [`Online`] data but no private keys.
-    /// The provided PSBT, prepared with the `send_begin` function, needs to have already been
-    /// signed.
-    ///
-    /// Returns the txid of the transaction that's been broadcast
-    pub fn send_end(&self, online: Online, signed_psbt: String) -> Result<String, Error> {
-        info!(self.logger, "Sending (end)...");
-        self._check_online(online)?;
+    fn _post_consignment(
+        &self,
+        recipients: Vec<Recipient>,
+        asset_transfer_dir: PathBuf,
+    ) -> Result<(), Error> {
+        let consignment_path = asset_transfer_dir.join(CONSIGNMENT_FILE);
+        for recipient in recipients {
+            let consignment_res = self
+                .rest_client
+                .clone()
+                .post_consignment(recipient.blinded_utxo.clone(), consignment_path.clone())?;
+            debug!(
+                self.logger,
+                "Consignment POST response: {:?}", consignment_res
+            );
+        }
+        Ok(())
+    }
 
-        // save signed PSBT in transfer directory
-        let psbt =
-            PartiallySignedTransaction::from_str(&signed_psbt).map_err(Error::InvalidPsbt)?;
-        let txid = psbt.clone().extract_tx().txid().to_string();
-        let transfer_dir = self.wallet_dir.join(TRANSFER_DIR).join(txid.clone());
-        let info_file = transfer_dir.join(TRANSFER_DATA_FILE);
-        let serialized_info = fs::read_to_string(info_file)?;
-        let info_contents: TransferInfoFile =
-            serde_json::from_str(&serialized_info).map_err(InternalError::from)?;
-        let psbt_out = transfer_dir.join(SIGNED_PSBT_FILE);
-        fs::write(psbt_out, psbt.to_string())?;
-
-        // post consignment
-        let consignment_out = transfer_dir.join(CONSIGNMENT_FILE);
-        let consignment_res = self
-            .rest_client
-            .clone()
-            .post_consignment(info_contents.blinded_utxo.clone(), consignment_out)?;
-        debug!(
-            self.logger,
-            "Consignment POST response: {:?}", consignment_res
-        );
-
-        // save transfer to DB
+    fn _save_transfers(
+        &self,
+        txid: String,
+        transfer_info_map: BTreeMap<String, InfoAssetTransfer>,
+        blank_allocations: HashMap<String, u64>,
+        change_utxo_idx: i64,
+        status: TransferStatus,
+    ) -> Result<(), Error> {
         let created_at = now().unix_timestamp();
         let expiration = Some(created_at + DURATION_SEND_TRANSFER);
-        let transfer = DbTransferActMod {
-            status: ActiveValue::Set(TransferStatus::WaitingCounterparty), // waiting ACK from receiver
-            user_driven: ActiveValue::Set(true),
-            asset_id: ActiveValue::Set(Some(info_contents.asset_id)),
-            txid: ActiveValue::Set(Some(txid.clone())),
-            blinded_utxo: ActiveValue::Set(Some(info_contents.blinded_utxo.clone())),
+
+        let batch_transfer = DbBatchTransferActMod {
+            txid: ActiveValue::Set(Some(txid)),
+            status: ActiveValue::Set(status),
             expiration: ActiveValue::Set(expiration),
             ..Default::default()
         };
-        let transfer_idx = self.database.set_transfer(transfer)?;
-        for (asset_id, amt) in info_contents.auto_allocations {
-            let transfer = DbTransferActMod {
-                status: ActiveValue::Set(TransferStatus::WaitingCounterparty),
-                user_driven: ActiveValue::Set(false),
-                asset_id: ActiveValue::Set(Some(asset_id)),
-                txid: ActiveValue::Set(Some(txid.clone())),
-                blinded_utxo: ActiveValue::Set(Some(info_contents.blinded_utxo.clone())),
-                expiration: ActiveValue::Set(expiration),
+        let batch_transfer_idx = self.database.set_batch_transfer(batch_transfer)?;
+
+        for (asset_id, transfer_info) in transfer_info_map {
+            let asset_spend = transfer_info.asset_spend;
+            let recipients = transfer_info.recipients;
+
+            let asset_transfer = DbAssetTransferActMod {
+                user_driven: ActiveValue::Set(true),
+                batch_transfer_idx: ActiveValue::Set(batch_transfer_idx),
+                asset_id: ActiveValue::Set(Some(asset_id.clone())),
                 ..Default::default()
             };
-            let transfer_idx = self.database.set_transfer(transfer)?;
+            let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
+
+            for (input_idx, amount) in asset_spend.txo_map.clone().into_iter() {
+                let db_coloring = DbColoringActMod {
+                    txo_idx: ActiveValue::Set(input_idx),
+                    asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
+                    coloring_type: ActiveValue::Set(ColoringType::Input),
+                    amount: ActiveValue::Set(amount.to_string()),
+                    ..Default::default()
+                };
+                self.database.set_coloring(db_coloring)?;
+            }
             let db_coloring = DbColoringActMod {
-                txo_idx: ActiveValue::Set(info_contents.change_txo_idx),
-                transfer_idx: ActiveValue::Set(transfer_idx),
+                txo_idx: ActiveValue::Set(change_utxo_idx),
+                asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
+                coloring_type: ActiveValue::Set(ColoringType::Change),
+                amount: ActiveValue::Set(asset_spend.change_amount.to_string()),
+                ..Default::default()
+            };
+            self.database.set_coloring(db_coloring)?;
+
+            for recipient in recipients.clone() {
+                let transfer = DbTransferActMod {
+                    asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
+                    amount: ActiveValue::Set(recipient.amount.to_string()),
+                    blinded_utxo: ActiveValue::Set(Some(recipient.blinded_utxo.clone())),
+                    ..Default::default()
+                };
+                self.database.set_transfer(transfer)?;
+            }
+        }
+
+        for (asset_id, amt) in blank_allocations {
+            let asset_transfer = DbAssetTransferActMod {
+                user_driven: ActiveValue::Set(false),
+                batch_transfer_idx: ActiveValue::Set(batch_transfer_idx),
+                asset_id: ActiveValue::Set(Some(asset_id)),
+                ..Default::default()
+            };
+            let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
+            let db_coloring = DbColoringActMod {
+                txo_idx: ActiveValue::Set(change_utxo_idx),
+                asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
                 coloring_type: ActiveValue::Set(ColoringType::Change),
                 amount: ActiveValue::Set(amt.to_string()),
                 ..Default::default()
             };
             self.database.set_coloring(db_coloring)?;
         }
-        for (input, amount) in info_contents.input_allocations.into_iter() {
-            let db_coloring = DbColoringActMod {
-                txo_idx: ActiveValue::Set(input),
-                transfer_idx: ActiveValue::Set(transfer_idx),
-                coloring_type: ActiveValue::Set(ColoringType::Input),
-                amount: ActiveValue::Set(amount.to_string()),
-                ..Default::default()
+
+        Ok(())
+    }
+
+    /// Send tokens. See the [`send_begin`](Wallet::send_begin) function for details.
+    ///
+    /// This is the full version, requiring a wallet with private keys
+    pub fn send(
+        &mut self,
+        online: Online,
+        recipient_map: HashMap<String, Vec<Recipient>>,
+        donation: bool,
+    ) -> Result<String, Error> {
+        info!(self.logger, "Sending to: {:?}...", recipient_map);
+        self._check_xprv()?;
+
+        let unsigned_psbt = self.send_begin(online.clone(), recipient_map, donation)?;
+
+        let mut psbt =
+            PartiallySignedTransaction::from_str(&unsigned_psbt).map_err(InternalError::from)?;
+        self.bdk_wallet
+            .sign(&mut psbt, SignOptions::default())
+            .map_err(InternalError::from)?;
+
+        self.send_end(online, psbt.to_string())
+    }
+
+    /// Prepare the PSBT to send tokens according to the given recipient map.
+    ///
+    /// The `recipient_map` maps [`Asset`] IDs to a vector of [`Recipient`]s. Each recipient
+    /// is specified by a `blinded_utxo` and the `amount` to send.
+    ///
+    /// If `donation` is true, the resulting transaction will be broadcast (by
+    /// [`send_end`](Wallet::send_end)) as soon as it's ready, without the need for recipients to
+    /// acknowledge the transfer.
+    /// If `donation` is false, all recipients will need to ack the transfer before the transaction
+    /// is broadcast (as part of [`refresh`](Wallet::refresh)).
+    ///
+    /// This is the first half of the partial version, requiring no private keys.
+    /// Signing of the returned PSBT needs to be carried out separately. The signed PSBT then needs
+    /// to be fed to the `send_end` function for broadcasting.
+    ///
+    /// Returns a PSBT ready to be signed
+    pub fn send_begin(
+        &mut self,
+        online: Online,
+        recipient_map: HashMap<String, Vec<Recipient>>,
+        donation: bool,
+    ) -> Result<String, Error> {
+        info!(self.logger, "Sending (begin) to: {:?}...", recipient_map);
+        self._check_online(online)?;
+
+        let mut blinded_utxos: Vec<String> = recipient_map
+            .values()
+            .map(|r| r.iter().map(|r| r.blinded_utxo.clone()).collect())
+            .collect();
+        blinded_utxos.sort();
+        let mut hasher = DefaultHasher::new();
+        blinded_utxos.hash(&mut hasher);
+        let transfer_dir = self
+            .wallet_dir
+            .join(TRANSFER_DIR)
+            .join(hasher.finish().to_string());
+
+        // input selection
+        let batch_transfer_ids: Vec<i64> = self
+            .database
+            .iter_batch_transfers()?
+            .into_iter()
+            .filter(|t| t.failed())
+            .map(|t| t.idx)
+            .collect();
+        let asset_transfer_ids: Vec<i64> = self
+            .database
+            .iter_asset_transfers()?
+            .into_iter()
+            .filter(|t| batch_transfer_ids.contains(&t.batch_transfer_idx))
+            .map(|t| t.idx)
+            .collect();
+        let input_coloring_ids: Vec<i64> = self
+            .database
+            .iter_colorings()?
+            .into_iter()
+            .filter(|c| {
+                c.coloring_type == ColoringType::Input
+                    && !asset_transfer_ids.contains(&c.asset_transfer_idx)
+            })
+            .map(|c| c.txo_idx)
+            .collect();
+        let mut transfer_info_map: BTreeMap<String, InfoAssetTransfer> = BTreeMap::new();
+        for (asset_id, recipients) in recipient_map {
+            self.database.get_asset_or_fail(asset_id.clone())?;
+            let amount: u64 = recipients.iter().map(|a| a.amount).sum();
+            let asset_spend =
+                self._select_rgb_inputs(asset_id.clone(), amount, input_coloring_ids.clone())?;
+            let transfer_info = InfoAssetTransfer {
+                recipients,
+                asset_spend,
             };
-            self.database.set_coloring(db_coloring)?;
+            transfer_info_map.insert(asset_id.clone(), transfer_info);
         }
-        let db_coloring = DbColoringActMod {
-            txo_idx: ActiveValue::Set(info_contents.change_txo_idx),
-            transfer_idx: ActiveValue::Set(transfer_idx),
-            coloring_type: ActiveValue::Set(ColoringType::Change),
-            amount: ActiveValue::Set(info_contents.change_amount.to_string()),
-            ..Default::default()
+
+        // prepare BDK PSBT
+        let mut all_inputs: Vec<OutPoint> = transfer_info_map
+            .values()
+            .cloned()
+            .map(|i| i.asset_spend.input_outpoints)
+            .collect::<Vec<Vec<OutPoint>>>()
+            .concat();
+        all_inputs.sort();
+        all_inputs.dedup();
+        let mut psbt = self._prepare_psbt(all_inputs.clone())?;
+
+        // prepare RGB PSBT
+        self._prepare_rgb_psbt(
+            &mut psbt,
+            all_inputs,
+            transfer_info_map.clone(),
+            transfer_dir.clone(),
+            donation,
+        )?;
+
+        // rename transfer directory
+        let txid = psbt.clone().extract_tx().txid().to_string();
+        let new_transfer_dir = self.wallet_dir.join(TRANSFER_DIR).join(txid);
+        fs::rename(transfer_dir, new_transfer_dir)?;
+
+        Ok(psbt.to_string())
+    }
+
+    /// Complete the send operation by saving the PSBT to disk, POSTing consignments to the proxy
+    /// server, saving the transfer to DB and broadcasting the provided PSBT, if appropriate.
+    ///
+    /// This is the second half of the partial version. The provided PSBT, prepared with the
+    /// `send_begin` function, needs to have already been signed.
+    ///
+    /// Returns the txid of the signed PSBT that's been saved and optionally broadcast
+    pub fn send_end(&self, online: Online, signed_psbt: String) -> Result<String, Error> {
+        info!(self.logger, "Sending (end)...");
+        self._check_online(online)?;
+
+        // save signed PSBT
+        let psbt =
+            PartiallySignedTransaction::from_str(&signed_psbt).map_err(Error::InvalidPsbt)?;
+        let txid = psbt.clone().extract_tx().txid().to_string();
+        let transfer_dir = self.wallet_dir.join(TRANSFER_DIR).join(txid.clone());
+        let psbt_out = transfer_dir.join(SIGNED_PSBT_FILE);
+        fs::write(psbt_out, psbt.to_string())?;
+
+        // restore transfer data
+        let info_file = transfer_dir.join(TRANSFER_DATA_FILE);
+        let serialized_info = fs::read_to_string(info_file)?;
+        let info_contents: InfoBatchTransfer =
+            serde_json::from_str(&serialized_info).map_err(InternalError::from)?;
+        let blank_allocations = info_contents.blank_allocations;
+        let change_utxo_idx = info_contents.change_utxo_idx;
+        let donation = info_contents.donation;
+        let mut transfer_info_map: BTreeMap<String, InfoAssetTransfer> = BTreeMap::new();
+        for asset_dir in fs::read_dir(transfer_dir)? {
+            let asset_transfer_dir = asset_dir?.path();
+            if !asset_transfer_dir.is_dir() {
+                continue;
+            }
+            let info_file = asset_transfer_dir.join(TRANSFER_DATA_FILE);
+            let serialized_info = fs::read_to_string(info_file)?;
+            let info_contents: InfoAssetTransfer =
+                serde_json::from_str(&serialized_info).map_err(InternalError::from)?;
+            let asset_id: String = asset_transfer_dir
+                .file_name()
+                .expect("valid directory name")
+                .to_str()
+                .expect("should be possible to convert path to a string")
+                .to_string();
+            transfer_info_map.insert(asset_id, info_contents.clone());
+
+            // post consignment(s)
+            self._post_consignment(info_contents.recipients, asset_transfer_dir)?;
+        }
+
+        // broadcast PSBT if donation and finally save transfer to DB
+        let status = if donation {
+            self._broadcast_psbt(psbt)?;
+            TransferStatus::WaitingConfirmations
+        } else {
+            TransferStatus::WaitingCounterparty
         };
-        self.database.set_coloring(db_coloring)?;
+        self._save_transfers(
+            txid.clone(),
+            transfer_info_map,
+            blank_allocations,
+            change_utxo_idx,
+            status,
+        )?;
 
         Ok(txid)
     }

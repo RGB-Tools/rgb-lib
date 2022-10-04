@@ -6,11 +6,7 @@ fn success() {
 
     let (mut wallet, online) = get_funded_wallet!();
 
-    // no assets
-    let asset_list = wallet.list_assets().unwrap();
-    assert_eq!(asset_list.len(), 0);
-
-    // one issued asset
+    // issue
     let asset = wallet
         .issue_asset(
             online,
@@ -20,6 +16,8 @@ fn success() {
             vec![AMOUNT],
         )
         .unwrap();
+
+    // balances after issuance
     let asset_balance = wallet.get_asset_balance(asset.asset_id).unwrap();
     assert_eq!(
         asset_balance,
@@ -63,16 +61,8 @@ fn transfer_balances() {
         }
     );
     // receiver side after issuance (no asset yet)
-    let asset_balance_recv = wallet_recv
-        .get_asset_balance(asset.asset_id.clone())
-        .unwrap();
-    assert_eq!(
-        asset_balance_recv,
-        Balance {
-            settled: 0,
-            future: 0
-        }
-    );
+    let result = wallet_recv.get_asset_balance(asset.asset_id.clone());
+    assert!(matches!(result, Err(Error::AssetNotFound(_))));
 
     //
     // 1st transfer
@@ -80,13 +70,15 @@ fn transfer_balances() {
 
     // send some assets
     let blind_data_1 = wallet_recv.blind(None, None).unwrap();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            blinded_utxo: blind_data_1.blinded_utxo,
+            amount: amount_1,
+        }],
+    )]);
     wallet_send
-        .send(
-            online_send.clone(),
-            asset.asset_id.clone(),
-            blind_data_1.blinded_utxo,
-            amount_1,
-        )
+        .send(online_send.clone(), recipient_map, false)
         .unwrap();
 
     // sender balance with transfer WaitingCounterparty
@@ -179,13 +171,15 @@ fn transfer_balances() {
 
     // send some assets
     let blind_data_2 = wallet_recv.blind(None, None).unwrap();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            blinded_utxo: blind_data_2.blinded_utxo,
+            amount: amount_2,
+        }],
+    )]);
     wallet_send
-        .send(
-            online_send.clone(),
-            asset.asset_id.clone(),
-            blind_data_2.blinded_utxo,
-            amount_2,
-        )
+        .send(online_send.clone(), recipient_map, false)
         .unwrap();
 
     // sender balance with transfer WaitingCounterparty
@@ -269,4 +263,15 @@ fn transfer_balances() {
             future: amount_1 + amount_2
         }
     );
+}
+
+#[test]
+fn fail() {
+    initialize();
+
+    let (wallet, _online) = get_funded_wallet!();
+
+    // bad asset_id returns an error
+    let result = wallet.get_asset_balance("rgb1inexistent".to_string());
+    assert!(matches!(result, Err(Error::AssetNotFound(_))));
 }

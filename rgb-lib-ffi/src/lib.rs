@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard};
 
 uniffi_macros::include_scaffolding!("rgb-lib");
@@ -10,6 +11,7 @@ type DatabaseType = rgb_lib::wallet::DatabaseType;
 type Keys = rgb_lib::keys::Keys;
 type Online = rgb_lib::wallet::Online;
 type Outpoint = rgb_lib::wallet::Outpoint;
+type Recipient = rgb_lib::wallet::Recipient;
 type RgbAllocation = rgb_lib::wallet::RgbAllocation;
 type RgbLibError = rgb_lib::Error;
 type RgbLibWallet = rgb_lib::wallet::Wallet;
@@ -50,20 +52,34 @@ impl Wallet {
         self._get_wallet().blind(asset_id, duration_seconds)
     }
 
-    fn create_utxos(&self, online: Online) -> Result<u64, RgbLibError> {
-        self._get_wallet().create_utxos(online)
+    fn create_utxos(
+        &self,
+        online: Online,
+        up_to: bool,
+        num: Option<u8>,
+    ) -> Result<u8, RgbLibError> {
+        self._get_wallet().create_utxos(online, up_to, num)
     }
 
-    fn create_utxos_begin(&self, online: Online) -> Result<String, RgbLibError> {
-        self._get_wallet().create_utxos_begin(online)
+    fn create_utxos_begin(
+        &self,
+        online: Online,
+        up_to: bool,
+        num: Option<u8>,
+    ) -> Result<String, RgbLibError> {
+        self._get_wallet().create_utxos_begin(online, up_to, num)
     }
 
-    fn create_utxos_end(&self, online: Online, signed_psbt: String) -> Result<u64, RgbLibError> {
+    fn create_utxos_end(&self, online: Online, signed_psbt: String) -> Result<u8, RgbLibError> {
         self._get_wallet().create_utxos_end(online, signed_psbt)
     }
 
-    fn delete_transfers(&self, blinded_utxo: Option<String>) -> Result<(), RgbLibError> {
-        self._get_wallet().delete_transfers(blinded_utxo)
+    fn delete_transfers(
+        &self,
+        blinded_utxo: Option<String>,
+        txid: Option<String>,
+    ) -> Result<(), RgbLibError> {
+        self._get_wallet().delete_transfers(blinded_utxo, txid)
     }
 
     fn drain_to(
@@ -93,8 +109,10 @@ impl Wallet {
         &self,
         online: Online,
         blinded_utxo: Option<String>,
+        txid: Option<String>,
     ) -> Result<(), RgbLibError> {
-        self._get_wallet().fail_transfers(online, blinded_utxo)
+        self._get_wallet()
+            .fail_transfers(online, blinded_utxo, txid)
     }
 
     fn get_address(&self) -> String {
@@ -145,23 +163,19 @@ impl Wallet {
     fn send(
         &self,
         online: Online,
-        asset_id: String,
-        blinded_utxo: String,
-        amount: u64,
+        recipient_map: HashMap<String, Vec<Recipient>>,
+        donation: bool,
     ) -> Result<String, RgbLibError> {
-        self._get_wallet()
-            .send(online, asset_id, blinded_utxo, amount)
+        self._get_wallet().send(online, recipient_map, donation)
     }
 
     fn send_begin(
         &self,
         online: Online,
-        asset_id: String,
-        blinded_utxo: String,
-        amount: u64,
+        recipient_map: HashMap<String, Vec<Recipient>>,
+        donation: bool,
     ) -> Result<String, RgbLibError> {
-        self._get_wallet()
-            .send_begin(online, asset_id, blinded_utxo, amount)
+        self._get_wallet().send(online, recipient_map, donation)
     }
 
     fn send_end(&self, online: Online, signed_psbt: String) -> Result<String, RgbLibError> {

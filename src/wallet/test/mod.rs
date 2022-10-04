@@ -126,7 +126,7 @@ macro_rules! get_funded_noutxo_wallet {
 
 fn get_funded_wallet(print_log: bool, private_keys: bool) -> (Wallet, Online) {
     let (mut wallet, online) = get_funded_noutxo_wallet(print_log, private_keys);
-    wallet.create_utxos(online.clone()).unwrap();
+    wallet.create_utxos(online.clone(), false, None).unwrap();
     (wallet, online)
 }
 macro_rules! get_funded_wallet {
@@ -138,23 +138,100 @@ macro_rules! get_funded_wallet {
     };
 }
 
-fn check_test_transfer_status(
+fn check_test_transfer_status_recipient(
     wallet: &Wallet,
     blinded_utxo: &str,
     expected_status: TransferStatus,
 ) -> bool {
+    let transfers = wallet.database.iter_transfers().unwrap();
+    let transfer = transfers
+        .iter()
+        .find(|t| t.blinded_utxo == Some(blinded_utxo.to_string()))
+        .unwrap();
+    let transfer_data = wallet.database.get_transfer_data(transfer).unwrap();
+    println!(
+        "receive with blinded_utxo {} is in status {:?}",
+        blinded_utxo, &transfer_data.status
+    );
+    transfer_data.status == expected_status
+}
+
+fn check_test_transfer_status_sender(
+    wallet: &Wallet,
+    txid: &str,
+    expected_status: TransferStatus,
+) -> bool {
+    let batch_transfers = wallet.database.iter_batch_transfers().unwrap();
+    let batch_transfer = batch_transfers
+        .iter()
+        .find(|t| t.txid == Some(txid.to_string()))
+        .unwrap();
+    println!(
+        "send with txid {} is in status {:?}",
+        txid, &batch_transfer.status
+    );
+    batch_transfer.status == expected_status
+}
+
+fn get_test_asset_transfer(wallet: &Wallet, batch_transfer_idx: i64) -> DbAssetTransfer {
+    wallet
+        .database
+        .iter_asset_transfers()
+        .unwrap()
+        .iter()
+        .find(|at| at.batch_transfer_idx == batch_transfer_idx)
+        .unwrap()
+        .clone()
+}
+
+fn get_test_coloring(wallet: &Wallet, idx: i64) -> DbColoring {
+    wallet
+        .database
+        .iter_colorings()
+        .unwrap()
+        .into_iter()
+        .find(|c| c.asset_transfer_idx == idx)
+        .unwrap()
+}
+
+fn get_test_transfer_recipient(wallet: &Wallet, blinded_utxo: &str) -> DbTransfer {
+    wallet
+        .database
+        .get_transfer(blinded_utxo.to_string())
+        .unwrap()
+        .unwrap()
+}
+
+fn get_test_transfer_sender(
+    wallet: &Wallet,
+    txid: &str,
+) -> (DbTransfer, DbAssetTransfer, DbBatchTransfer) {
+    let batch_transfer = wallet
+        .database
+        .iter_batch_transfers()
+        .unwrap()
+        .into_iter()
+        .find(|b| b.txid == Some(txid.to_string()))
+        .unwrap();
+    let asset_transfer = get_test_asset_transfer(wallet, batch_transfer.idx);
     let transfer = wallet
         .database
         .iter_transfers()
         .unwrap()
-        .iter()
-        .filter(|t| t.blinded_utxo == Some(blinded_utxo.to_string()) && t.user_driven)
-        .map(|t| {
-            Transfer::from_db_transfer(t.clone(), wallet.database.get_transfer_data(t).unwrap())
-        })
-        .next()
+        .into_iter()
+        .find(|t| t.asset_transfer_idx == asset_transfer.idx)
         .unwrap();
-    transfer.status == expected_status
+    (transfer, asset_transfer, batch_transfer)
+}
+
+fn get_test_txo(wallet: &Wallet, idx: i64) -> DbTxo {
+    wallet
+        .database
+        .iter_txos()
+        .unwrap()
+        .into_iter()
+        .find(|t| t.idx == idx)
+        .unwrap()
 }
 
 fn list_test_unspents(wallet: &Wallet, msg: &str) -> Vec<Unspent> {

@@ -9,6 +9,7 @@ namespace rgb_lib {
 enum RgbLibError {
   "AllocationsAlreadyAvailable",
   "AssetNotFound",
+  "BatchTransferNotFound",
   "BlindedUTXOAlreadyUsed",
   "CannotChangeOnline",
   "CannotDeleteTransfer",
@@ -38,6 +39,11 @@ enum RgbLibError {
   "NoIssuanceAmounts",
   "TransferNotFound",
   "WatchOnly",
+};
+
+dictionary Recipient {
+  string blinded_utxo;
+  u64 amount;
 };
 
 dictionary Asset {
@@ -104,8 +110,8 @@ dictionary Transfer {
   i64 created_at;
   i64 updated_at;
   TransferStatus status;
-  u64 received;
-  u64 sent;
+  u64 amount;
+  boolean incoming;
   string? txid;
   string? blinded_utxo;
   Outpoint? unblinded_utxo;
@@ -141,16 +147,16 @@ interface Wallet {
   BlindData blind(string? asset_id, u32? duration_seconds);
 
   [Throws=RgbLibError]
-  u64 create_utxos(Online online);
+  u8 create_utxos(Online online, boolean up_to, u8? num);
 
   [Throws=RgbLibError]
-  string create_utxos_begin(Online online);
+  string create_utxos_begin(Online online, boolean up_to, u8? num);
 
   [Throws=RgbLibError]
-  u64 create_utxos_end(Online online, string signed_psbt);
+  u8 create_utxos_end(Online online, string signed_psbt);
 
   [Throws=RgbLibError]
-  void delete_transfers(string? blinded_utxo);
+  void delete_transfers(string? blinded_utxo, string? txid);
 
   [Throws=RgbLibError]
   string drain_to(Online online, string address, boolean destroy_assets);
@@ -162,7 +168,7 @@ interface Wallet {
   string drain_to_end(Online online, string signed_psbt);
 
   [Throws=RgbLibError]
-  void fail_transfers(Online online, string? blinded_utxo);
+  void fail_transfers(Online online, string? blinded_utxo, string? txid);
 
   string get_address();
 
@@ -188,10 +194,10 @@ interface Wallet {
   void refresh(Online online, string? asset_id);
 
   [Throws=RgbLibError]
-  string send(Online online, string asset_id, string blinded_utxo, u64 amount);
+  string send(Online online, record<DOMString, sequence<Recipient>> recipient_map, boolean donation);
 
   [Throws=RgbLibError]
-  string send_begin(Online online, string asset_id, string blinded_utxo, u64 amount);
+  string send_begin(Online online, record<DOMString, sequence<Recipient>> recipient_map, boolean donation);
 
   [Throws=RgbLibError]
   string send_end(Online online, string signed_psbt);

@@ -3,6 +3,8 @@
 pub mod prelude;
 
 pub mod asset;
+pub mod asset_transfer;
+pub mod batch_transfer;
 pub mod coloring;
 pub mod seaql_migrations;
 pub mod transfer;

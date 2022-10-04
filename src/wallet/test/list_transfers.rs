@@ -29,6 +29,6 @@ fn fail() {
     let (wallet, _online) = get_funded_wallet!();
 
     // asset not found
-    let result = wallet.list_transfers(s!(""));
+    let result = wallet.list_transfers(s!("rgb1inexistent"));
     assert!(matches!(result, Err(Error::AssetNotFound(_))));
 }
