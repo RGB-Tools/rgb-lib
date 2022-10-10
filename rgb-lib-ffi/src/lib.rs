@@ -125,11 +125,12 @@ impl Wallet {
 
     fn go_online(
         &self,
-        electrum_url: String,
         skip_consistency_check: bool,
+        electrum_url: String,
+        proxy_url: String,
     ) -> Result<Online, RgbLibError> {
         self._get_wallet()
-            .go_online(electrum_url, skip_consistency_check)
+            .go_online(skip_consistency_check, electrum_url, proxy_url)
     }
 
     fn issue_asset(

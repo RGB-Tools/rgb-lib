@@ -85,6 +85,7 @@ dictionary Keys {
 dictionary Online {
   u64 id;
   string electrum_url;
+  string proxy_url;
 };
 
 dictionary Outpoint {
@@ -176,7 +177,7 @@ interface Wallet {
   Balance get_asset_balance(string asset_id);
 
   [Throws=RgbLibError]
-  Online go_online(string electrum_url, boolean skip_consistency_check);
+  Online go_online(boolean skip_consistency_check, string electrum_url, string proxy_url);
 
   [Throws=RgbLibError]
   Asset issue_asset(Online online, string ticker, string name, u8 precision, sequence<u64> amounts);

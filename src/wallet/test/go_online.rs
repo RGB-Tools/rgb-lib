@@ -9,11 +9,11 @@ fn success() {
     let mut wallet = get_test_wallet(true);
 
     // go online
-    let result_1 = wallet.go_online(ELECTRUM_URL.to_string(), false);
+    let result_1 = wallet.go_online(false, ELECTRUM_URL.to_string(), PROXY_URL.to_string());
     assert!(result_1.is_ok());
 
     // can go online twice with the same electrum URL
-    let result_2 = wallet.go_online(ELECTRUM_URL.to_string(), false);
+    let result_2 = wallet.go_online(false, ELECTRUM_URL.to_string(), PROXY_URL.to_string());
     assert!(result_2.is_ok());
     assert_eq!(result_1.unwrap(), result_2.unwrap());
 }
@@ -23,10 +23,25 @@ fn fail() {
     initialize();
 
     let mut wallet = get_test_wallet(true);
-    wallet.go_online(ELECTRUM_URL.to_string(), false).unwrap();
+
+    // cannot go online with a broken electrum URL
+    let result = wallet.go_online(false, s!("other:50001"), PROXY_URL.to_string());
+    assert!(matches!(result, Err(Error::InvalidElectrum(_))));
+
+    // cannot go online with a broken proxy URL
+    let result = wallet.go_online(false, ELECTRUM_URL.to_string(), s!("http://other"));
+    assert!(matches!(result, Err(Error::ConsignmentProxy(_))));
+
+    wallet
+        .go_online(false, ELECTRUM_URL.to_string(), PROXY_URL.to_string())
+        .unwrap();
 
     // cannot go online twice with different electrum URLs
-    let result = wallet.go_online("other:50001".to_string(), false);
+    let result = wallet.go_online(false, s!("other:50001"), PROXY_URL.to_string());
+    assert!(matches!(result, Err(Error::CannotChangeOnline())));
+
+    // cannot go online twice with differente proxy URLs
+    let result = wallet.go_online(false, ELECTRUM_URL.to_string(), s!("http://other"));
     assert!(matches!(result, Err(Error::CannotChangeOnline())));
 
     // bad online object
@@ -124,7 +139,7 @@ fn consistency_check_fail_utxos() {
     // loss)
     let mut wallet_empty = Wallet::new(wallet_data_empty).unwrap();
     let online_empty = wallet_empty
-        .go_online(ELECTRUM_URL.to_string(), false)
+        .go_online(false, ELECTRUM_URL.to_string(), PROXY_URL.to_string())
         .unwrap();
     let (rcv_wallet, _rcv_online) = get_funded_wallet!();
     wallet_empty
@@ -133,7 +148,7 @@ fn consistency_check_fail_utxos() {
 
     // detect asset inconcistency
     let mut wallet_prefill = Wallet::new(wallet_data_prefill).unwrap();
-    let result = wallet_prefill.go_online(ELECTRUM_URL.to_string(), false);
+    let result = wallet_prefill.go_online(false, ELECTRUM_URL.to_string(), PROXY_URL.to_string());
     assert!(matches!(result, Err(Error::Inconsistency(_))));
 
     // make sure detection works multiple times (doesn't get reset on first failed check)
@@ -143,7 +158,7 @@ fn consistency_check_fail_utxos() {
         let dst = PathBuf::from(&wallet_dir_prefill_2).join(&file);
         fs::copy(&src, &dst).unwrap();
     }
-    let result = wallet_prefill_2.go_online(ELECTRUM_URL.to_string(), false);
+    let result = wallet_prefill_2.go_online(false, ELECTRUM_URL.to_string(), PROXY_URL.to_string());
     assert!(matches!(result, Err(Error::Inconsistency(_))));
 }
 
@@ -226,7 +241,7 @@ fn consistency_check_fail_asset_ids() {
 
     // check the first wallet copy works ok
     let mut wallet_prefill_1 = Wallet::new(wallet_data_prefill_1).unwrap();
-    let result = wallet_prefill_1.go_online(ELECTRUM_URL.to_string(), false);
+    let result = wallet_prefill_1.go_online(false, ELECTRUM_URL.to_string(), PROXY_URL.to_string());
     assert!(result.is_ok());
 
     // introduce asset id inconsistency by removing rgb data from wallet dir
@@ -234,7 +249,7 @@ fn consistency_check_fail_asset_ids() {
 
     // detect inconsistency
     let mut wallet_prefill_2 = Wallet::new(wallet_data_prefill_2).unwrap();
-    let result = wallet_prefill_2.go_online(ELECTRUM_URL.to_string(), false);
+    let result = wallet_prefill_2.go_online(false, ELECTRUM_URL.to_string(), PROXY_URL.to_string());
     assert!(matches!(result, Err(Error::Inconsistency(_))));
 
     // make sure detection works multiple times
@@ -248,6 +263,6 @@ fn consistency_check_fail_asset_ids() {
         .status();
     assert!(result.is_ok());
     let mut wallet_prefill_3 = Wallet::new(wallet_data_prefill_3).unwrap();
-    let result = wallet_prefill_3.go_online(ELECTRUM_URL.to_string(), false);
+    let result = wallet_prefill_3.go_online(false, ELECTRUM_URL.to_string(), PROXY_URL.to_string());
     assert!(matches!(result, Err(Error::Inconsistency(_))));
 }

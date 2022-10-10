@@ -5,7 +5,11 @@ use std::path::PathBuf;
 
 use crate::error::{Error, InternalError};
 
-const CONSIGNMENT_PROXY_URL: &str = "http://proxy.rgbtools.org";
+#[derive(Debug, Deserialize, Serialize)]
+pub struct InfoResponse {
+    pub(crate) version: String,
+    pub(crate) uptime: u64,
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct AckResponse {
@@ -31,47 +35,56 @@ pub struct AckNackRequest {
 }
 
 pub trait ConsignmentProxy {
-    fn get_ack(self, blindedutxo: String) -> Result<AckResponse, Error>;
+    fn get_info(self, url: &str) -> Result<InfoResponse, Error>;
 
-    fn get_consignment(self, blindedutxo: String) -> Result<ConsignmentResponse, Error>;
+    fn get_ack(self, url: &str, blindedutxo: String) -> Result<AckResponse, Error>;
 
-    fn post_ack(self, blindedutxo: String) -> Result<SuccessResponse, Error>;
+    fn get_consignment(self, url: &str, blindedutxo: String) -> Result<ConsignmentResponse, Error>;
 
-    fn post_nack(self, blindedutxo: String) -> Result<SuccessResponse, Error>;
+    fn post_ack(self, url: &str, blindedutxo: String) -> Result<SuccessResponse, Error>;
+
+    fn post_nack(self, url: &str, blindedutxo: String) -> Result<SuccessResponse, Error>;
 
     fn post_consignment(
         self,
+        url: &str,
         blindedutxo: String,
         consignment_path: PathBuf,
     ) -> Result<SuccessResponse, Error>;
 }
 
 impl ConsignmentProxy for Client {
-    fn get_ack(self, blindedutxo: String) -> Result<AckResponse, Error> {
+    fn get_info(self, url: &str) -> Result<InfoResponse, Error> {
         Ok(self
-            .get(format!("{}/ack/{}", CONSIGNMENT_PROXY_URL, blindedutxo))
+            .get(format!("{}/getinfo", url))
+            .send()
+            .map_err(Error::ConsignmentProxy)?
+            .json::<InfoResponse>()
+            .map_err(InternalError::from)?)
+    }
+
+    fn get_ack(self, url: &str, blindedutxo: String) -> Result<AckResponse, Error> {
+        Ok(self
+            .get(format!("{}/ack/{}", url, blindedutxo))
             .send()
             .map_err(Error::ConsignmentProxy)?
             .json::<AckResponse>()
             .map_err(InternalError::from)?)
     }
 
-    fn get_consignment(self, blindedutxo: String) -> Result<ConsignmentResponse, Error> {
+    fn get_consignment(self, url: &str, blindedutxo: String) -> Result<ConsignmentResponse, Error> {
         Ok(self
-            .get(format!(
-                "{}/consignment/{}",
-                CONSIGNMENT_PROXY_URL, blindedutxo
-            ))
+            .get(format!("{}/consignment/{}", url, blindedutxo))
             .send()
             .map_err(Error::ConsignmentProxy)?
             .json::<ConsignmentResponse>()
             .map_err(InternalError::from)?)
     }
 
-    fn post_nack(self, blindedutxo: String) -> Result<SuccessResponse, Error> {
+    fn post_nack(self, url: &str, blindedutxo: String) -> Result<SuccessResponse, Error> {
         let body = AckNackRequest { blindedutxo };
         Ok(self
-            .post(format!("{}/nack", CONSIGNMENT_PROXY_URL))
+            .post(format!("{}/nack", url))
             .json(&body)
             .send()
             .map_err(Error::ConsignmentProxy)?
@@ -79,10 +92,10 @@ impl ConsignmentProxy for Client {
             .map_err(InternalError::from)?)
     }
 
-    fn post_ack(self, blindedutxo: String) -> Result<SuccessResponse, Error> {
+    fn post_ack(self, url: &str, blindedutxo: String) -> Result<SuccessResponse, Error> {
         let body = AckNackRequest { blindedutxo };
         Ok(self
-            .post(format!("{}/ack", CONSIGNMENT_PROXY_URL))
+            .post(format!("{}/ack", url))
             .json(&body)
             .send()
             .map_err(Error::ConsignmentProxy)?
@@ -92,6 +105,7 @@ impl ConsignmentProxy for Client {
 
     fn post_consignment(
         self,
+        url: &str,
         blindedutxo: String,
         consignment_path: PathBuf,
     ) -> Result<SuccessResponse, Error> {
@@ -99,7 +113,7 @@ impl ConsignmentProxy for Client {
             .text("blindedutxo", blindedutxo)
             .file("consignment", consignment_path)?;
         Ok(self
-            .post(format!("{}/consignment", CONSIGNMENT_PROXY_URL))
+            .post(format!("{}/consignment", url))
             .multipart(form)
             .send()
             .map_err(Error::ConsignmentProxy)?

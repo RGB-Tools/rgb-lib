@@ -996,7 +996,7 @@ fn nack() {
     // manually nack the transfer (consignment is valid so refreshing receiver would yield an ack)
     rcv_wallet
         .rest_client
-        .post_nack(blind_data.blinded_utxo)
+        .post_nack(PROXY_URL, blind_data.blinded_utxo)
         .unwrap();
 
     // refreshing sender transfer now has it fail

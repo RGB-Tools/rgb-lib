@@ -25,7 +25,7 @@ use bitcoin::Txid;
 use bitcoin::{Address, OutPoint, Transaction};
 use bp::seals::txout::blind::ConcealedSeal;
 use bp::seals::txout::{CloseMethod, ExplicitSeal};
-use electrum_client::{Client as ElectrumClient, ElectrumApi, Param};
+use electrum_client::{Client as ElectrumClient, ConfigBuilder, ElectrumApi, Param};
 use futures::executor::block_on;
 use internet2::addr::ServiceAddr;
 use lnpbp::chain::Chain as RgbNetwork;
@@ -100,6 +100,8 @@ const MAX_ALLOCATIONS_PER_UTXO: u32 = 5;
 
 const DURATION_SEND_TRANSFER: i64 = 3600;
 const DURATION_RCV_TRANSFER: u32 = 86400;
+
+const ELECTRUM_TIMEOUT: u8 = 4;
 
 /// An RGB recipient
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
@@ -193,6 +195,8 @@ pub struct Online {
     pub id: u64,
     /// URL of the electrum server to be used for online operations
     pub electrum_url: String,
+    /// URL of the proxy server to be used for online operations
+    pub proxy_url: String,
 }
 
 /// Bitcoin transaction outpoint
@@ -1220,25 +1224,33 @@ impl Wallet {
 
     fn _go_online(
         &mut self,
-        electrum_url: String,
         skip_consistency_check: bool,
+        electrum_url: String,
+        proxy_url: String,
     ) -> Result<Online, Error> {
         let online_id = now().unix_timestamp_nanos() as u64;
         let online = Online {
             id: online_id,
             electrum_url: electrum_url.clone(),
+            proxy_url: proxy_url.clone(),
         };
         self.online = Some(online.clone());
 
         // check electrum server
+        let electrum_config = ConfigBuilder::new()
+            .timeout(Some(ELECTRUM_TIMEOUT))?
+            .build();
         self.electrum_client = Some(
-            ElectrumClient::new(&electrum_url)
+            ElectrumClient::from_config(&electrum_url, electrum_config)
                 .map_err(|e| Error::InvalidElectrum(e.to_string()))?,
         );
         if self.bitcoin_network != BitcoinNetwork::Regtest {
             self._get_tx_details(get_txid(self.bitcoin_network))
                 .map_err(|e| Error::InvalidElectrum(e.to_string()))?;
         }
+
+        // check proxy server
+        self.rest_client.clone().get_info(&proxy_url)?;
 
         // BDK setup
         let config = ElectrumBlockchainConfig {
@@ -1312,18 +1324,19 @@ impl Wallet {
     /// inconsistent wallet. Warning: this is dangerous, only do this if you know what you're doing!
     pub fn go_online(
         &mut self,
-        electrum_url: String,
         skip_consistency_check: bool,
+        electrum_url: String,
+        proxy_url: String,
     ) -> Result<Online, Error> {
         info!(self.logger, "Going online...");
         if let Some(online) = self.online.clone() {
-            if electrum_url == online.electrum_url {
+            if electrum_url == online.electrum_url && proxy_url == online.proxy_url {
                 Ok(online)
             } else {
                 Err(Error::CannotChangeOnline())
             }
         } else {
-            let online = self._go_online(electrum_url, skip_consistency_check);
+            let online = self._go_online(skip_consistency_check, electrum_url, proxy_url);
             if online.is_err() {
                 self.online = None;
                 self.bdk_blockchain = None;
@@ -1550,10 +1563,11 @@ impl Wallet {
             .expect("transfer should have a blinded UTXO");
 
         // check if a consignment has been posted
+        let proxy_url = self.online.clone().expect("should be online").proxy_url;
         let consignment_res = self
             .rest_client
             .clone()
-            .get_consignment(blinded_utxo.clone())?;
+            .get_consignment(&proxy_url, blinded_utxo.clone())?;
         debug!(
             self.logger,
             "Consignment GET response: {:?}", consignment_res
@@ -1579,12 +1593,16 @@ impl Wallet {
             StateTransfer::strict_file_load(&consignment_path).map_err(InternalError::from)?;
 
         // validate consignment
+        let proxy_url = self.online.clone().expect("should be online").proxy_url;
         let validation_status = Validator::validate(&consignment, self._electrum_client()?);
         if !vec![Validity::Valid, Validity::ValidExceptEndpoints]
             .contains(&validation_status.validity())
         {
             debug!(self.logger, "Consignment is invalid");
-            let nack_res = self.rest_client.clone().post_nack(blinded_utxo)?;
+            let nack_res = self
+                .rest_client
+                .clone()
+                .post_nack(&proxy_url, blinded_utxo)?;
             debug!(self.logger, "Consignment NACK response: {:?}", nack_res);
             updated_batch_transfer.status = ActiveValue::Set(TransferStatus::Failed);
             return Ok(Some(
@@ -1598,7 +1616,10 @@ impl Wallet {
             .last()
             .expect("there should be at least an anchored bundle");
         let txid = anchor.txid;
-        let ack_res = self.rest_client.clone().post_ack(blinded_utxo)?;
+        let ack_res = self
+            .rest_client
+            .clone()
+            .post_ack(&proxy_url, blinded_utxo)?;
         debug!(self.logger, "Consignment ACK response: {:?}", ack_res);
 
         let contract_id = consignment.contract_id().to_string();
@@ -1694,6 +1715,7 @@ impl Wallet {
         debug!(self.logger, "Waiting ACK...");
         let asset_transfers: Vec<DbAssetTransfer> =
             self.database.iter_batch_asset_transfers(batch_transfer)?;
+        let proxy_url = self.online.clone().expect("should be online").proxy_url;
         for asset_transfer in &asset_transfers {
             let transfers: Vec<DbTransfer> = self
                 .database
@@ -1704,6 +1726,7 @@ impl Wallet {
 
             for transfer in transfers {
                 let ack_res = self.rest_client.clone().get_ack(
+                    &proxy_url,
                     transfer
                         .blinded_utxo
                         .clone()
@@ -2288,11 +2311,13 @@ impl Wallet {
         asset_transfer_dir: PathBuf,
     ) -> Result<(), Error> {
         let consignment_path = asset_transfer_dir.join(CONSIGNMENT_FILE);
+        let proxy_url = self.online.clone().expect("should be online").proxy_url;
         for recipient in recipients {
-            let consignment_res = self
-                .rest_client
-                .clone()
-                .post_consignment(recipient.blinded_utxo.clone(), consignment_path.clone())?;
+            let consignment_res = self.rest_client.clone().post_consignment(
+                &proxy_url,
+                recipient.blinded_utxo.clone(),
+                consignment_path.clone(),
+            )?;
             debug!(
                 self.logger,
                 "Consignment POST response: {:?}", consignment_res

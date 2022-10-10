@@ -6,6 +6,7 @@ use crate::generate_keys;
 
 use super::*;
 
+const PROXY_URL: &str = "http://proxy.rgbtools.org";
 const ELECTRUM_URL: &str = "127.0.0.1:50001";
 const TEST_DATA_DIR: &str = "./tests/tmp";
 const TICKER: &str = "TICKER";
@@ -97,7 +98,9 @@ fn get_empty_wallet(print_log: bool, private_keys: bool) -> (Wallet, Online) {
     if print_log {
         println!("wallet directory: {:?}", wallet.get_wallet_dir());
     }
-    let online = wallet.go_online(ELECTRUM_URL.to_string(), true).unwrap();
+    let online = wallet
+        .go_online(true, ELECTRUM_URL.to_string(), PROXY_URL.to_string())
+        .unwrap();
     (wallet, online)
 }
 macro_rules! get_empty_wallet {
