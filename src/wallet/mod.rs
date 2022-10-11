@@ -1666,12 +1666,29 @@ impl Wallet {
         // get and update transfer amount
         let mut amount = 0;
         let known_transitions = transition_bundle.known_transitions();
+        let transfer_data = self.database.get_transfer_data(&transfer)?;
+        let detailed_transfer = Transfer::from_db_transfer(transfer.clone(), transfer_data);
+        let blinding = detailed_transfer
+            .blinding_secret
+            .expect("incoming transfer should have a blinding secret");
+        let unblinded_utxo = detailed_transfer
+            .unblinded_utxo
+            .ok_or(InternalError::Unexpected)?;
+        let known_concealed = seal::Revealed {
+            method: CloseMethod::OpretFirst,
+            blinding,
+            txid: Some(Txid::from_str(&unblinded_utxo.txid).expect("should be a valid TXID")),
+            vout: unblinded_utxo.vout as u32,
+        }
+        .to_concealed_seal();
         for transition in known_transitions {
             let owned_rights = transition.owned_rights();
             for (_owned_right_type, typed_assignment) in owned_rights.iter() {
                 for assignment in typed_assignment.to_value_assignments() {
-                    if let Assignment::ConfidentialSeal { seal: _, state } = assignment {
-                        amount += state.value;
+                    if let Assignment::ConfidentialSeal { seal, state } = assignment {
+                        if seal == known_concealed {
+                            amount += state.value;
+                        }
                     };
                 }
             }
