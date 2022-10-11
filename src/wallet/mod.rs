@@ -2279,6 +2279,7 @@ impl Wallet {
             .set_opret_host()
             .expect("given output should be valid");
 
+        let mut transfers = vec![];
         for (asset_id, transfer_info) in transfer_info_map {
             // RGB node transfer finalize
             let beneficiaries = asset_beneficiaries[&asset_id].clone();
@@ -2287,20 +2288,7 @@ impl Wallet {
             let consignment_path = asset_transfer_dir.join(CONSIGNMENT_FILE);
             let consignment =
                 StateTransfer::strict_file_load(&consignment_path).map_err(InternalError::from)?;
-            let transfer_consignment = self
-                ._rgb_client()?
-                .transfer(consignment, endseals, psbt.clone(), None, |_| ())
-                .map_err(InternalError::from)?;
-            transfer_consignment
-                .consignment
-                .strict_file_save(consignment_path)
-                .map_err(InternalError::from)?;
-            let psbt = transfer_consignment.psbt;
-            let psbt_serialized =
-                &Vec::<u8>::from_hex(&psbt.to_string()).expect("provided psbt should be valid");
-            let intermediate_psbt: PartiallySignedTransaction =
-                deserialize(psbt_serialized).map_err(InternalError::from)?;
-            *final_psbt = intermediate_psbt.clone();
+            transfers.push((consignment, endseals));
 
             // save asset transefer data to file (for send_end)
             let serialized_info =
@@ -2308,6 +2296,25 @@ impl Wallet {
             let info_file = asset_transfer_dir.join(TRANSFER_DATA_FILE);
             fs::write(info_file, serialized_info)?;
         }
+
+        let transfer_consignment = self
+            ._rgb_client()?
+            .finalize_transfers(transfers, psbt.clone(), |_| ())
+            .map_err(InternalError::from)?;
+
+        for consignment in transfer_consignment.consignments {
+            let asset_id = consignment.contract_id().to_string();
+            let asset_transfer_dir = transfer_dir.join(asset_id.clone());
+            let consignment_path = asset_transfer_dir.join(CONSIGNMENT_FILE);
+            consignment
+                .strict_file_save(consignment_path)
+                .map_err(InternalError::from)?;
+        }
+
+        let psbt = transfer_consignment.psbt;
+        let psbt_serialized =
+            &Vec::<u8>::from_hex(&psbt.to_string()).expect("provided psbt should be valid");
+        *final_psbt = deserialize(psbt_serialized).map_err(InternalError::from)?;
 
         // save batch transefer data to file (for send_end)
         let info_contents = InfoBatchTransfer {

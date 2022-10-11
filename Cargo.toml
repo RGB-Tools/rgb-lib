@@ -41,8 +41,8 @@ psbt = "=0.8.5"
 rgb-std = { git = "https://github.com/zoedberg/rgb-std", branch = "fix/rgb_core", version = "0.8.0" }
 rgb20 = { git = "https://github.com/zoedberg/rust-rgb20", branch = "fix/rgb_core", version = "0.8.0-rc.4" }
 rgb_core = { package = "rgb-core", git = "https://github.com/RGB-WG/rgb-core", branch = "master", version = "0.8.0" }
-rgb_node = { git = "https://github.com/zoedberg/rgb-node", branch = "fixes_and_features", version = "0.8.0-rc.1", features = ["server", "embedded"] }
-rgb_rpc = { git = "https://github.com/zoedberg/rgb-node", branch = "fixes_and_features", version = "0.8.0-rc.1" }
+rgb_node = { git = "https://github.com/zoedberg/rgb-node", branch = "fixes_and_features_2", version = "0.8.0-rc.1", features = ["server", "embedded"] }
+rgb_rpc = { git = "https://github.com/zoedberg/rgb-node", branch = "fixes_and_features_2", version = "0.8.0-rc.1" }
 stens = "=0.7.1"
 store_daemon = "=0.8.0"
 strict_encoding = "=0.8.1"
