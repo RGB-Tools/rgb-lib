@@ -164,11 +164,9 @@ fn check_test_transfer_status_sender(
     txid: &str,
     expected_status: TransferStatus,
 ) -> bool {
-    let batch_transfers = wallet.database.iter_batch_transfers().unwrap();
-    let batch_transfer = batch_transfers
-        .iter()
-        .find(|t| t.txid == Some(txid.to_string()))
-        .unwrap();
+    let batch_transfers = get_test_batch_transfers(wallet, txid);
+    assert_eq!(batch_transfers.len(), 1);
+    let batch_transfer = batch_transfers.first().unwrap();
     println!(
         "send with txid {} is in status {:?}",
         txid, &batch_transfer.status
@@ -176,25 +174,52 @@ fn check_test_transfer_status_sender(
     batch_transfer.status == expected_status
 }
 
-fn get_test_asset_transfer(wallet: &Wallet, batch_transfer_idx: i64) -> DbAssetTransfer {
+fn get_test_batch_transfers(wallet: &Wallet, txid: &str) -> Vec<DbBatchTransfer> {
+    wallet
+        .database
+        .iter_batch_transfers()
+        .unwrap()
+        .into_iter()
+        .filter(|b| b.txid == Some(txid.to_string()))
+        .collect()
+}
+
+fn get_test_asset_transfers(wallet: &Wallet, batch_transfer_idx: i64) -> Vec<DbAssetTransfer> {
     wallet
         .database
         .iter_asset_transfers()
         .unwrap()
-        .iter()
-        .find(|at| at.batch_transfer_idx == batch_transfer_idx)
-        .unwrap()
-        .clone()
+        .into_iter()
+        .filter(|at| at.batch_transfer_idx == batch_transfer_idx)
+        .collect()
 }
 
-fn get_test_coloring(wallet: &Wallet, idx: i64) -> DbColoring {
+fn get_test_transfers(wallet: &Wallet, asset_transfer_idx: i64) -> Vec<DbTransfer> {
     wallet
+        .database
+        .iter_transfers()
+        .unwrap()
+        .into_iter()
+        .filter(|t| t.asset_transfer_idx == asset_transfer_idx)
+        .collect()
+}
+
+fn get_test_asset_transfer(wallet: &Wallet, batch_transfer_idx: i64) -> DbAssetTransfer {
+    let asset_transfers = get_test_asset_transfers(wallet, batch_transfer_idx);
+    assert_eq!(asset_transfers.len(), 1);
+    asset_transfers.first().unwrap().clone()
+}
+
+fn get_test_coloring(wallet: &Wallet, asset_transfer_idx: i64) -> DbColoring {
+    let colorings: Vec<DbColoring> = wallet
         .database
         .iter_colorings()
         .unwrap()
         .into_iter()
-        .find(|c| c.asset_transfer_idx == idx)
-        .unwrap()
+        .filter(|c| c.asset_transfer_idx == asset_transfer_idx)
+        .collect();
+    assert_eq!(colorings.len(), 1);
+    colorings.first().unwrap().clone()
 }
 
 fn get_test_transfer_recipient(wallet: &Wallet, blinded_utxo: &str) -> DbTransfer {
@@ -209,22 +234,34 @@ fn get_test_transfer_sender(
     wallet: &Wallet,
     txid: &str,
 ) -> (DbTransfer, DbAssetTransfer, DbBatchTransfer) {
-    let batch_transfer = wallet
-        .database
-        .iter_batch_transfers()
-        .unwrap()
-        .into_iter()
-        .find(|b| b.txid == Some(txid.to_string()))
-        .unwrap();
+    let batch_transfers = get_test_batch_transfers(wallet, txid);
+    assert_eq!(batch_transfers.len(), 1);
+    let batch_transfer = batch_transfers.first().unwrap();
     let asset_transfer = get_test_asset_transfer(wallet, batch_transfer.idx);
-    let transfer = wallet
-        .database
-        .iter_transfers()
-        .unwrap()
-        .into_iter()
-        .find(|t| t.asset_transfer_idx == asset_transfer.idx)
-        .unwrap();
-    (transfer, asset_transfer, batch_transfer)
+    let transfers = get_test_transfers(wallet, asset_transfer.idx);
+    assert_eq!(transfers.len(), 1);
+    let transfer = transfers.first().unwrap();
+    (transfer.clone(), asset_transfer, batch_transfer.clone())
+}
+
+fn get_test_transfers_sender(
+    wallet: &Wallet,
+    txid: &str,
+) -> (
+    HashMap<String, Vec<DbTransfer>>,
+    Vec<DbAssetTransfer>,
+    DbBatchTransfer,
+) {
+    let batch_transfers = get_test_batch_transfers(wallet, txid);
+    assert_eq!(batch_transfers.len(), 1);
+    let batch_transfer = batch_transfers.first().unwrap();
+    let asset_transfers = get_test_asset_transfers(wallet, batch_transfer.idx);
+    let mut transfers: HashMap<String, Vec<DbTransfer>> = HashMap::new();
+    for asset_transfer in asset_transfers.clone() {
+        let transfers_for_asset = get_test_transfers(wallet, asset_transfer.idx);
+        transfers.insert(asset_transfer.asset_id.unwrap(), transfers_for_asset);
+    }
+    (transfers.clone(), asset_transfers, batch_transfer.clone())
 }
 
 fn get_test_txo(wallet: &Wallet, idx: i64) -> DbTxo {
