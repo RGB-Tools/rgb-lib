@@ -658,6 +658,621 @@ fn send_received_success() {
 }
 
 #[test]
+fn receive_multiple_same_asset_success() {
+    initialize();
+
+    let amount_1: u64 = 66;
+    let amount_2: u64 = 33;
+
+    // wallets
+    let (mut wallet, online) = get_funded_wallet!();
+    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
+
+    // issue
+    let asset = wallet
+        .issue_asset(
+            online.clone(),
+            TICKER.to_string(),
+            NAME.to_string(),
+            PRECISION,
+            vec![AMOUNT],
+        )
+        .unwrap();
+
+    // send
+    let blind_data_1 = rcv_wallet.blind(None, None).unwrap();
+    let blind_data_2 = rcv_wallet.blind(None, None).unwrap();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![
+            Recipient {
+                amount: amount_1,
+                blinded_utxo: blind_data_1.blinded_utxo.clone(),
+            },
+            Recipient {
+                amount: amount_2,
+                blinded_utxo: blind_data_2.blinded_utxo.clone(),
+            },
+        ],
+    )]);
+    let txid = wallet.send(online.clone(), recipient_map, false).unwrap();
+    assert!(!txid.is_empty());
+
+    let rcv_transfer_1 = get_test_transfer_recipient(&rcv_wallet, &blind_data_1.blinded_utxo);
+    let rcv_transfer_2 = get_test_transfer_recipient(&rcv_wallet, &blind_data_2.blinded_utxo);
+    let rcv_transfer_data_1 = rcv_wallet
+        .database
+        .get_transfer_data(&rcv_transfer_1)
+        .unwrap();
+    let rcv_transfer_data_2 = rcv_wallet
+        .database
+        .get_transfer_data(&rcv_transfer_2)
+        .unwrap();
+    let rcv_asset_transfer_1 =
+        get_test_asset_transfer(&rcv_wallet, rcv_transfer_1.asset_transfer_idx);
+    let rcv_asset_transfer_2 =
+        get_test_asset_transfer(&rcv_wallet, rcv_transfer_2.asset_transfer_idx);
+    let (transfers, asset_transfers, _) = get_test_transfers_sender(&wallet, &txid);
+    dbg!(&asset_transfers);
+    dbg!(&transfers);
+    assert_eq!(asset_transfers.len(), 1);
+    assert_eq!(transfers.len(), 1);
+    let asset_transfer = asset_transfers.first().unwrap();
+    let transfers_for_asset = transfers.get(&asset.asset_id).unwrap();
+    assert_eq!(transfers_for_asset.len(), 2);
+    let transfer_1 = transfers_for_asset
+        .iter()
+        .find(|t| t.blinded_utxo == Some(blind_data_1.blinded_utxo.clone()))
+        .unwrap();
+    let transfer_2 = transfers_for_asset
+        .iter()
+        .find(|t| t.blinded_utxo == Some(blind_data_2.blinded_utxo.clone()))
+        .unwrap();
+    let transfer_data_1 = wallet.database.get_transfer_data(transfer_1).unwrap();
+    let transfer_data_2 = wallet.database.get_transfer_data(transfer_2).unwrap();
+
+    // ack is None
+    assert_eq!(rcv_transfer_1.ack, None);
+    assert_eq!(rcv_transfer_2.ack, None);
+    assert_eq!(transfer_1.ack, None);
+    assert_eq!(transfer_2.ack, None);
+    // amount is set only for the sender
+    assert_eq!(rcv_transfer_1.amount, 0.to_string());
+    assert_eq!(rcv_transfer_2.amount, 0.to_string());
+    assert_eq!(transfer_1.amount, amount_1.to_string());
+    assert_eq!(transfer_2.amount, amount_2.to_string());
+    // blinded_utxo is set
+    assert_eq!(
+        rcv_transfer_1.blinded_utxo,
+        Some(blind_data_1.blinded_utxo.clone())
+    );
+    assert_eq!(
+        rcv_transfer_2.blinded_utxo,
+        Some(blind_data_2.blinded_utxo.clone())
+    );
+    assert_eq!(
+        transfer_1.blinded_utxo,
+        Some(blind_data_1.blinded_utxo.clone())
+    );
+    assert_eq!(
+        transfer_2.blinded_utxo,
+        Some(blind_data_2.blinded_utxo.clone())
+    );
+    // blindind_secret
+    assert_eq!(
+        rcv_transfer_1.blinding_secret,
+        Some(blind_data_1.blinding_secret.to_string())
+    );
+    assert_eq!(
+        rcv_transfer_2.blinding_secret,
+        Some(blind_data_2.blinding_secret.to_string())
+    );
+    assert!(transfer_1.blinding_secret.is_none());
+    assert!(transfer_2.blinding_secret.is_none());
+
+    // change_utxo is set only for the sender and it's the same for all transfers
+    assert!(rcv_transfer_data_1.change_utxo.is_none());
+    assert!(rcv_transfer_data_2.change_utxo.is_none());
+    assert!(transfer_data_1.change_utxo.is_some());
+    assert!(transfer_data_2.change_utxo.is_some());
+    assert_eq!(transfer_data_1.change_utxo, transfer_data_2.change_utxo);
+    // create and update timestamps are the same
+    assert_eq!(
+        rcv_transfer_data_1.created_at,
+        rcv_transfer_data_1.updated_at
+    );
+    assert_eq!(
+        rcv_transfer_data_2.created_at,
+        rcv_transfer_data_2.updated_at
+    );
+    assert_eq!(transfer_data_1.created_at, transfer_data_1.updated_at);
+    assert_eq!(transfer_data_2.created_at, transfer_data_2.updated_at);
+    // expiration is create timestamp + expiration offset
+    assert_eq!(
+        rcv_transfer_data_1.expiration,
+        Some(rcv_transfer_data_1.created_at + DURATION_RCV_TRANSFER as i64)
+    );
+    assert_eq!(
+        rcv_transfer_data_2.expiration,
+        Some(rcv_transfer_data_2.created_at + DURATION_RCV_TRANSFER as i64)
+    );
+    assert_eq!(
+        transfer_data_1.expiration,
+        Some(transfer_data_1.created_at + DURATION_SEND_TRANSFER)
+    );
+    assert_eq!(
+        transfer_data_2.expiration,
+        Some(transfer_data_2.created_at + DURATION_SEND_TRANSFER)
+    );
+    // transfer is incoming for receiver and outgoing for sender
+    assert!(rcv_transfer_data_1.incoming);
+    assert!(rcv_transfer_data_2.incoming);
+    assert!(!transfer_data_1.incoming);
+    assert!(!transfer_data_2.incoming);
+    // transfers start in WaitingCounterparty status
+    assert_eq!(
+        rcv_transfer_data_1.status,
+        TransferStatus::WaitingCounterparty
+    );
+    assert_eq!(
+        rcv_transfer_data_2.status,
+        TransferStatus::WaitingCounterparty
+    );
+    assert_eq!(transfer_data_1.status, TransferStatus::WaitingCounterparty);
+    assert_eq!(transfer_data_2.status, TransferStatus::WaitingCounterparty);
+    // txid is set only for the sender
+    assert_eq!(rcv_transfer_data_1.txid, None);
+    assert_eq!(rcv_transfer_data_2.txid, None);
+    assert_eq!(transfer_data_1.txid, Some(txid.clone()));
+    assert_eq!(transfer_data_2.txid, Some(txid.clone()));
+    // unblinded UTXO is set only for the receiver
+    assert!(rcv_transfer_data_1.unblinded_utxo.is_some());
+    assert!(rcv_transfer_data_2.unblinded_utxo.is_some());
+    assert!(transfer_data_1.unblinded_utxo.is_none());
+    assert!(transfer_data_2.unblinded_utxo.is_none());
+
+    // asset id is set only for the sender
+    assert!(rcv_asset_transfer_1.asset_id.is_none());
+    assert!(rcv_asset_transfer_2.asset_id.is_none());
+    assert_eq!(asset_transfer.asset_id, Some(asset.asset_id.clone()));
+    // transfers are user-driven on both sides
+    assert!(rcv_asset_transfer_1.user_driven);
+    assert!(rcv_asset_transfer_2.user_driven);
+    assert!(asset_transfer.user_driven);
+
+    // transfers progress to status WaitingConfirmations after a refresh
+    rcv_wallet.refresh(rcv_online.clone(), None).unwrap();
+    wallet
+        .refresh(online.clone(), Some(asset.asset_id.clone()))
+        .unwrap();
+
+    let rcv_transfer_1 = get_test_transfer_recipient(&rcv_wallet, &blind_data_1.blinded_utxo);
+    let rcv_transfer_2 = get_test_transfer_recipient(&rcv_wallet, &blind_data_2.blinded_utxo);
+    let rcv_transfer_data_1 = rcv_wallet
+        .database
+        .get_transfer_data(&rcv_transfer_1)
+        .unwrap();
+    let rcv_transfer_data_2 = rcv_wallet
+        .database
+        .get_transfer_data(&rcv_transfer_2)
+        .unwrap();
+    let rcv_asset_transfer_1 =
+        get_test_asset_transfer(&rcv_wallet, rcv_transfer_1.asset_transfer_idx);
+    let rcv_asset_transfer_2 =
+        get_test_asset_transfer(&rcv_wallet, rcv_transfer_2.asset_transfer_idx);
+    let (transfers, _, _) = get_test_transfers_sender(&wallet, &txid);
+    dbg!(&transfers);
+    assert_eq!(transfers.len(), 1);
+    let transfers_for_asset = transfers.get(&asset.asset_id).unwrap();
+    assert_eq!(transfers_for_asset.len(), 2);
+    let transfer_1 = transfers_for_asset
+        .iter()
+        .find(|t| t.blinded_utxo == Some(blind_data_1.blinded_utxo.clone()))
+        .unwrap();
+    let transfer_2 = transfers_for_asset
+        .iter()
+        .find(|t| t.blinded_utxo == Some(blind_data_2.blinded_utxo.clone()))
+        .unwrap();
+    let transfer_data_1 = wallet.database.get_transfer_data(transfer_1).unwrap();
+    let transfer_data_2 = wallet.database.get_transfer_data(transfer_2).unwrap();
+
+    assert_eq!(
+        rcv_transfer_data_1.status,
+        TransferStatus::WaitingConfirmations
+    );
+    assert_eq!(
+        rcv_transfer_data_2.status,
+        TransferStatus::WaitingConfirmations
+    );
+    assert_eq!(transfer_data_1.status, TransferStatus::WaitingConfirmations);
+    assert_eq!(transfer_data_2.status, TransferStatus::WaitingConfirmations);
+    // ack is now true on the sender side
+    assert_eq!(transfer_1.ack, Some(true));
+    assert_eq!(transfer_2.ack, Some(true));
+    // amount is now set on the receiver side
+    assert_eq!(rcv_transfer_1.amount, amount_1.to_string());
+    assert_eq!(rcv_transfer_2.amount, amount_2.to_string());
+    // asset id is now set on the receiver side
+    assert_eq!(rcv_asset_transfer_1.asset_id, Some(asset.asset_id.clone()));
+    assert_eq!(rcv_asset_transfer_2.asset_id, Some(asset.asset_id.clone()));
+    // update timestamp has been updated
+    let rcv_updated_at_1 = rcv_transfer_data_1.updated_at;
+    let rcv_updated_at_2 = rcv_transfer_data_2.updated_at;
+    let updated_at_1 = transfer_data_1.updated_at;
+    let updated_at_2 = transfer_data_2.updated_at;
+    assert!(rcv_updated_at_1 > rcv_transfer_data_1.created_at);
+    assert!(rcv_updated_at_2 > rcv_transfer_data_2.created_at);
+    assert!(updated_at_1 > transfer_data_1.created_at);
+    assert!(updated_at_2 > transfer_data_2.created_at);
+
+    // transfers progress to status Settled after tx mining + refresh
+    mine();
+    rcv_wallet.refresh(rcv_online, None).unwrap();
+    wallet
+        .refresh(online, Some(asset.asset_id.clone()))
+        .unwrap();
+
+    let rcv_transfer_1 = get_test_transfer_recipient(&rcv_wallet, &blind_data_1.blinded_utxo);
+    let rcv_transfer_2 = get_test_transfer_recipient(&rcv_wallet, &blind_data_2.blinded_utxo);
+    let rcv_transfer_data_1 = rcv_wallet
+        .database
+        .get_transfer_data(&rcv_transfer_1)
+        .unwrap();
+    let rcv_transfer_data_2 = rcv_wallet
+        .database
+        .get_transfer_data(&rcv_transfer_2)
+        .unwrap();
+    let (transfers, _, _) = get_test_transfers_sender(&wallet, &txid);
+    dbg!(&transfers);
+    assert_eq!(transfers.len(), 1);
+    let transfers_for_asset = transfers.get(&asset.asset_id).unwrap();
+    assert_eq!(transfers_for_asset.len(), 2);
+    let transfer_1 = transfers_for_asset
+        .iter()
+        .find(|t| t.blinded_utxo == Some(blind_data_1.blinded_utxo.clone()))
+        .unwrap();
+    let transfer_2 = transfers_for_asset
+        .iter()
+        .find(|t| t.blinded_utxo == Some(blind_data_2.blinded_utxo.clone()))
+        .unwrap();
+    let transfer_data_1 = wallet.database.get_transfer_data(transfer_1).unwrap();
+    let transfer_data_2 = wallet.database.get_transfer_data(transfer_2).unwrap();
+
+    assert_eq!(rcv_transfer_data_1.status, TransferStatus::Settled);
+    assert_eq!(rcv_transfer_data_2.status, TransferStatus::Settled);
+    assert_eq!(transfer_data_1.status, TransferStatus::Settled);
+    assert_eq!(transfer_data_2.status, TransferStatus::Settled);
+    // update timestamp has been updated
+    assert!(rcv_transfer_data_1.updated_at > rcv_updated_at_1);
+    assert!(rcv_transfer_data_2.updated_at > rcv_updated_at_2);
+    assert!(transfer_data_1.updated_at > updated_at_1);
+    assert!(transfer_data_2.updated_at > updated_at_1);
+
+    // change is unspent once transfer is Settled
+    wallet._sync_db_txos().unwrap();
+    let unspents = wallet.list_unspents(true).unwrap();
+    let change_unspent = unspents
+        .into_iter()
+        .find(|u| Some(u.utxo.outpoint.clone()) == transfer_data_1.change_utxo);
+    assert!(change_unspent.is_some());
+}
+
+#[test]
+fn receive_multiple_different_assets_success() {
+    initialize();
+
+    let amount_1: u64 = 66;
+    let amount_2: u64 = 33;
+
+    // wallets
+    let (mut wallet, online) = get_funded_wallet!();
+    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
+
+    // issue
+    let asset_1 = wallet
+        .issue_asset(
+            online.clone(),
+            TICKER.to_string(),
+            NAME.to_string(),
+            PRECISION,
+            vec![AMOUNT],
+        )
+        .unwrap();
+    let asset_2 = wallet
+        .issue_asset(
+            online.clone(),
+            s!("TICKER2"),
+            s!("NAME2"),
+            PRECISION,
+            vec![AMOUNT * 2],
+        )
+        .unwrap();
+
+    // send
+    let blind_data_1 = rcv_wallet.blind(None, None).unwrap();
+    let blind_data_2 = rcv_wallet.blind(None, None).unwrap();
+    let recipient_map = HashMap::from([
+        (
+            asset_1.asset_id.clone(),
+            vec![Recipient {
+                amount: amount_1,
+                blinded_utxo: blind_data_1.blinded_utxo.clone(),
+            }],
+        ),
+        (
+            asset_2.asset_id.clone(),
+            vec![Recipient {
+                amount: amount_2,
+                blinded_utxo: blind_data_2.blinded_utxo.clone(),
+            }],
+        ),
+    ]);
+    let txid = wallet.send(online.clone(), recipient_map, false).unwrap();
+    assert!(!txid.is_empty());
+
+    let rcv_transfer_1 = get_test_transfer_recipient(&rcv_wallet, &blind_data_1.blinded_utxo);
+    let rcv_transfer_2 = get_test_transfer_recipient(&rcv_wallet, &blind_data_2.blinded_utxo);
+    let rcv_transfer_data_1 = rcv_wallet
+        .database
+        .get_transfer_data(&rcv_transfer_1)
+        .unwrap();
+    let rcv_transfer_data_2 = rcv_wallet
+        .database
+        .get_transfer_data(&rcv_transfer_2)
+        .unwrap();
+    let rcv_asset_transfer_1 =
+        get_test_asset_transfer(&rcv_wallet, rcv_transfer_1.asset_transfer_idx);
+    let rcv_asset_transfer_2 =
+        get_test_asset_transfer(&rcv_wallet, rcv_transfer_2.asset_transfer_idx);
+    let (transfers, asset_transfers, _) = get_test_transfers_sender(&wallet, &txid);
+    dbg!(&asset_transfers);
+    dbg!(&transfers);
+    assert_eq!(asset_transfers.len(), 2);
+    assert_eq!(transfers.len(), 2);
+    let asset_transfer_1 = asset_transfers
+        .iter()
+        .find(|a| a.asset_id == Some(asset_1.asset_id.clone()))
+        .unwrap();
+    let asset_transfer_2 = asset_transfers
+        .iter()
+        .find(|a| a.asset_id == Some(asset_2.asset_id.clone()))
+        .unwrap();
+    let transfers_for_asset_1 = transfers.get(&asset_1.asset_id).unwrap();
+    let transfers_for_asset_2 = transfers.get(&asset_2.asset_id).unwrap();
+    assert_eq!(transfers_for_asset_1.len(), 1);
+    assert_eq!(transfers_for_asset_2.len(), 1);
+    let transfer_1 = transfers_for_asset_1.first().unwrap();
+    let transfer_2 = transfers_for_asset_2.first().unwrap();
+    let transfer_data_1 = wallet.database.get_transfer_data(transfer_1).unwrap();
+    let transfer_data_2 = wallet.database.get_transfer_data(transfer_2).unwrap();
+
+    // ack is None
+    assert_eq!(rcv_transfer_1.ack, None);
+    assert_eq!(rcv_transfer_2.ack, None);
+    assert_eq!(transfer_1.ack, None);
+    assert_eq!(transfer_2.ack, None);
+    // amount is set only for the sender
+    assert_eq!(rcv_transfer_1.amount, 0.to_string());
+    assert_eq!(rcv_transfer_2.amount, 0.to_string());
+    assert_eq!(transfer_1.amount, amount_1.to_string());
+    assert_eq!(transfer_2.amount, amount_2.to_string());
+    // blinded_utxo is set
+    assert_eq!(
+        rcv_transfer_1.blinded_utxo,
+        Some(blind_data_1.blinded_utxo.clone())
+    );
+    assert_eq!(
+        rcv_transfer_2.blinded_utxo,
+        Some(blind_data_2.blinded_utxo.clone())
+    );
+    assert_eq!(
+        transfer_1.blinded_utxo,
+        Some(blind_data_1.blinded_utxo.clone())
+    );
+    assert_eq!(
+        transfer_2.blinded_utxo,
+        Some(blind_data_2.blinded_utxo.clone())
+    );
+    // blindind_secret
+    assert_eq!(
+        rcv_transfer_1.blinding_secret,
+        Some(blind_data_1.blinding_secret.to_string())
+    );
+    assert_eq!(
+        rcv_transfer_2.blinding_secret,
+        Some(blind_data_2.blinding_secret.to_string())
+    );
+    assert!(transfer_1.blinding_secret.is_none());
+    assert!(transfer_2.blinding_secret.is_none());
+
+    // change_utxo is set only for the sender and it's the same for all transfers
+    assert!(rcv_transfer_data_1.change_utxo.is_none());
+    assert!(rcv_transfer_data_2.change_utxo.is_none());
+    assert!(transfer_data_1.change_utxo.is_some());
+    assert!(transfer_data_2.change_utxo.is_some());
+    assert_eq!(transfer_data_1.change_utxo, transfer_data_2.change_utxo);
+    // create and update timestamps are the same
+    assert_eq!(
+        rcv_transfer_data_1.created_at,
+        rcv_transfer_data_1.updated_at
+    );
+    assert_eq!(
+        rcv_transfer_data_2.created_at,
+        rcv_transfer_data_2.updated_at
+    );
+    assert_eq!(transfer_data_1.created_at, transfer_data_1.updated_at);
+    assert_eq!(transfer_data_2.created_at, transfer_data_2.updated_at);
+    // expiration is create timestamp + expiration offset
+    assert_eq!(
+        rcv_transfer_data_1.expiration,
+        Some(rcv_transfer_data_1.created_at + DURATION_RCV_TRANSFER as i64)
+    );
+    assert_eq!(
+        rcv_transfer_data_2.expiration,
+        Some(rcv_transfer_data_2.created_at + DURATION_RCV_TRANSFER as i64)
+    );
+    assert_eq!(
+        transfer_data_1.expiration,
+        Some(transfer_data_1.created_at + DURATION_SEND_TRANSFER)
+    );
+    assert_eq!(
+        transfer_data_2.expiration,
+        Some(transfer_data_2.created_at + DURATION_SEND_TRANSFER)
+    );
+    // transfer is incoming for receiver and outgoing for sender
+    assert!(rcv_transfer_data_1.incoming);
+    assert!(rcv_transfer_data_2.incoming);
+    assert!(!transfer_data_1.incoming);
+    assert!(!transfer_data_2.incoming);
+    // transfers start in WaitingCounterparty status
+    assert_eq!(
+        rcv_transfer_data_1.status,
+        TransferStatus::WaitingCounterparty
+    );
+    assert_eq!(
+        rcv_transfer_data_2.status,
+        TransferStatus::WaitingCounterparty
+    );
+    assert_eq!(transfer_data_1.status, TransferStatus::WaitingCounterparty);
+    assert_eq!(transfer_data_2.status, TransferStatus::WaitingCounterparty);
+    // txid is set only for the sender
+    assert_eq!(rcv_transfer_data_1.txid, None);
+    assert_eq!(rcv_transfer_data_2.txid, None);
+    assert_eq!(transfer_data_1.txid, Some(txid.clone()));
+    assert_eq!(transfer_data_2.txid, Some(txid.clone()));
+    // unblinded UTXO is set only for the receiver
+    assert!(rcv_transfer_data_1.unblinded_utxo.is_some());
+    assert!(rcv_transfer_data_2.unblinded_utxo.is_some());
+    assert!(transfer_data_1.unblinded_utxo.is_none());
+    assert!(transfer_data_2.unblinded_utxo.is_none());
+
+    // asset id is set only for the sender
+    assert!(rcv_asset_transfer_1.asset_id.is_none());
+    assert!(rcv_asset_transfer_2.asset_id.is_none());
+    assert_eq!(asset_transfer_1.asset_id, Some(asset_1.asset_id.clone()));
+    assert_eq!(asset_transfer_2.asset_id, Some(asset_2.asset_id.clone()));
+    // transfers are user-driven on both sides
+    assert!(rcv_asset_transfer_1.user_driven);
+    assert!(rcv_asset_transfer_2.user_driven);
+    assert!(asset_transfer_1.user_driven);
+    assert!(asset_transfer_2.user_driven);
+
+    // transfers progress to status WaitingConfirmations after a refresh
+    rcv_wallet.refresh(rcv_online.clone(), None).unwrap();
+    wallet
+        .refresh(online.clone(), Some(asset_1.asset_id.clone()))
+        .unwrap();
+
+    let rcv_transfer_1 = get_test_transfer_recipient(&rcv_wallet, &blind_data_1.blinded_utxo);
+    let rcv_transfer_2 = get_test_transfer_recipient(&rcv_wallet, &blind_data_2.blinded_utxo);
+    let rcv_transfer_data_1 = rcv_wallet
+        .database
+        .get_transfer_data(&rcv_transfer_1)
+        .unwrap();
+    let rcv_transfer_data_2 = rcv_wallet
+        .database
+        .get_transfer_data(&rcv_transfer_2)
+        .unwrap();
+    let rcv_asset_transfer_1 =
+        get_test_asset_transfer(&rcv_wallet, rcv_transfer_1.asset_transfer_idx);
+    let rcv_asset_transfer_2 =
+        get_test_asset_transfer(&rcv_wallet, rcv_transfer_2.asset_transfer_idx);
+    let (transfers, _, _) = get_test_transfers_sender(&wallet, &txid);
+    dbg!(&transfers);
+    assert_eq!(transfers.len(), 2);
+    let transfers_for_asset_1 = transfers.get(&asset_1.asset_id).unwrap();
+    let transfers_for_asset_2 = transfers.get(&asset_2.asset_id).unwrap();
+    assert_eq!(transfers_for_asset_1.len(), 1);
+    assert_eq!(transfers_for_asset_2.len(), 1);
+    let transfer_1 = transfers_for_asset_1.first().unwrap();
+    let transfer_2 = transfers_for_asset_2.first().unwrap();
+    let transfer_data_1 = wallet.database.get_transfer_data(transfer_1).unwrap();
+    let transfer_data_2 = wallet.database.get_transfer_data(transfer_2).unwrap();
+
+    assert_eq!(
+        rcv_transfer_data_1.status,
+        TransferStatus::WaitingConfirmations
+    );
+    assert_eq!(
+        rcv_transfer_data_2.status,
+        TransferStatus::WaitingConfirmations
+    );
+    assert_eq!(transfer_data_1.status, TransferStatus::WaitingConfirmations);
+    assert_eq!(transfer_data_2.status, TransferStatus::WaitingConfirmations);
+    // ack is now true on the sender side
+    assert_eq!(transfer_1.ack, Some(true));
+    assert_eq!(transfer_2.ack, Some(true));
+    // amount is now set on the receiver side
+    assert_eq!(rcv_transfer_1.amount, amount_1.to_string());
+    assert_eq!(rcv_transfer_2.amount, amount_2.to_string());
+    // asset id is now set on the receiver side
+    assert_eq!(
+        rcv_asset_transfer_1.asset_id,
+        Some(asset_1.asset_id.clone())
+    );
+    assert_eq!(
+        rcv_asset_transfer_2.asset_id,
+        Some(asset_2.asset_id.clone())
+    );
+    // update timestamp has been updated
+    let rcv_updated_at_1 = rcv_transfer_data_1.updated_at;
+    let rcv_updated_at_2 = rcv_transfer_data_2.updated_at;
+    let updated_at_1 = transfer_data_1.updated_at;
+    let updated_at_2 = transfer_data_2.updated_at;
+    assert!(rcv_updated_at_1 > rcv_transfer_data_1.created_at);
+    assert!(rcv_updated_at_2 > rcv_transfer_data_2.created_at);
+    assert!(updated_at_1 > transfer_data_1.created_at);
+    assert!(updated_at_2 > transfer_data_2.created_at);
+
+    // transfers progress to status Settled after tx mining + refresh
+    mine();
+    rcv_wallet.refresh(rcv_online, None).unwrap();
+    wallet
+        .refresh(online, Some(asset_1.asset_id.clone()))
+        .unwrap();
+
+    let rcv_transfer_1 = get_test_transfer_recipient(&rcv_wallet, &blind_data_1.blinded_utxo);
+    let rcv_transfer_2 = get_test_transfer_recipient(&rcv_wallet, &blind_data_2.blinded_utxo);
+    let rcv_transfer_data_1 = rcv_wallet
+        .database
+        .get_transfer_data(&rcv_transfer_1)
+        .unwrap();
+    let rcv_transfer_data_2 = rcv_wallet
+        .database
+        .get_transfer_data(&rcv_transfer_2)
+        .unwrap();
+    let (transfers, _, _) = get_test_transfers_sender(&wallet, &txid);
+    dbg!(&transfers);
+    assert_eq!(transfers.len(), 2);
+    let transfers_for_asset_1 = transfers.get(&asset_1.asset_id).unwrap();
+    let transfers_for_asset_2 = transfers.get(&asset_2.asset_id).unwrap();
+    assert_eq!(transfers_for_asset_1.len(), 1);
+    assert_eq!(transfers_for_asset_2.len(), 1);
+    let transfer_1 = transfers_for_asset_1.first().unwrap();
+    let transfer_2 = transfers_for_asset_2.first().unwrap();
+    let transfer_data_1 = wallet.database.get_transfer_data(transfer_1).unwrap();
+    let transfer_data_2 = wallet.database.get_transfer_data(transfer_2).unwrap();
+
+    assert_eq!(rcv_transfer_data_1.status, TransferStatus::Settled);
+    assert_eq!(rcv_transfer_data_2.status, TransferStatus::Settled);
+    assert_eq!(transfer_data_1.status, TransferStatus::Settled);
+    assert_eq!(transfer_data_2.status, TransferStatus::Settled);
+    // update timestamp has been updated
+    assert!(rcv_transfer_data_1.updated_at > rcv_updated_at_1);
+    assert!(rcv_transfer_data_2.updated_at > rcv_updated_at_2);
+    assert!(transfer_data_1.updated_at > updated_at_1);
+    assert!(transfer_data_2.updated_at > updated_at_1);
+
+    // change is unspent once transfer is Settled
+    wallet._sync_db_txos().unwrap();
+    let unspents = wallet.list_unspents(true).unwrap();
+    let change_unspent = unspents
+        .into_iter()
+        .find(|u| Some(u.utxo.outpoint.clone()) == transfer_data_1.change_utxo);
+    assert!(change_unspent.is_some());
+}
+
+#[test]
 fn batch_donation_success() {
     initialize();
 
