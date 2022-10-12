@@ -15,9 +15,9 @@ members = [".", "migration"]
 
 [dependencies]
 base64 = "0.13.0"
-bdk = { version = "0.21", features = ["electrum", "keys-bip39", "sqlite-bundled"] }
+bdk = { version = "0.23", features = ["electrum", "keys-bip39", "sqlite-bundled"] }
 bitcoin = "0.28.1"
-electrum-client = "0.10.2"
+electrum-client = "0.11.0"
 futures = "0.3"
 rgb_lib_migration = { path = "migration", version = "0.1.0" }
 reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "multipart"] }
@@ -33,16 +33,16 @@ time = { version = "0.3.13", features = ["std"] }
 # RGB-related deps
 amplify = "=3.13.0"
 amplify_num = "=0.4.1"
-bp-core = { version = "=0.8.0", features = ["psbt", "wallet"] }
-bp-dbc = "=0.8.0"
+bp-core = { git = "https://github.com/zoedberg/bp-core", branch = "fixes", version = "0.8.0", features = ["psbt", "wallet"] }
+bp-dbc = { git = "https://github.com/zoedberg/bp-core", branch = "fixes", version = "0.8.0" }
 internet2 = "=0.8.3"
 lnpbp = "=0.8.0"
-psbt = "=0.8.5"
-rgb-std = { git = "https://github.com/zoedberg/rgb-std", branch = "fix/rgb_core", version = "0.8.0" }
-rgb20 = { git = "https://github.com/zoedberg/rust-rgb20", branch = "fix/rgb_core", version = "0.8.0-rc.4" }
-rgb_core = { package = "rgb-core", git = "https://github.com/RGB-WG/rgb-core", branch = "master", version = "0.8.0" }
-rgb_node = { git = "https://github.com/zoedberg/rgb-node", branch = "fixes_and_features_2", version = "0.8.0-rc.1", features = ["server", "embedded"] }
-rgb_rpc = { git = "https://github.com/zoedberg/rgb-node", branch = "fixes_and_features_2", version = "0.8.0-rc.1" }
+psbt = { git = "https://github.com/zoedberg/descriptor-wallet", branch = "fixes", version = "0.8.5" }
+rgb-std = { git = "https://github.com/zoedberg/rgb-std", branch = "fixes", version = "0.8.0" }
+rgb20 = { git = "https://github.com/zoedberg/rust-rgb20", branch = "fixes", version = "0.8.0-rc.4" }
+rgb_core = { package = "rgb-core", git = "https://github.com/zoedberg/rgb-core", branch = "fixes", version = "0.8.0" }
+rgb_node = { git = "https://github.com/zoedberg/rgb-node", branch = "fixes", version = "0.8.0-rc.1", features = ["server", "embedded"] }
+rgb_rpc = { git = "https://github.com/zoedberg/rgb-node", branch = "fixes", version = "0.8.0-rc.1" }
 stens = "=0.7.1"
 store_daemon = "=0.8.0"
 strict_encoding = "=0.8.1"

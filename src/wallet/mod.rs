@@ -512,11 +512,10 @@ impl Wallet {
     }
 
     fn _get_tx_details(&self, txid: String) -> Result<serde_json::Value, Error> {
-        let call = (
-            s!("blockchain.transaction.get"),
+        Ok(self._electrum_client()?.raw_call(
+            "blockchain.transaction.get",
             vec![Param::String(txid), Param::Bool(true)],
-        );
-        Ok(self._electrum_client()?.raw_call(&call)?)
+        )?)
     }
 
     fn _sync_db_txos(&self) -> Result<(), Error> {
