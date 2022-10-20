@@ -103,11 +103,11 @@ const MEDIA_FNAME: &str = "media";
 const MIME_FNAME: &str = "mime";
 
 const UTXO_SIZE: u64 = 1000;
-const UTXO_NUM: u8 = 5;
+const UTXO_NUM: u8 = 4;
 
 const MIN_CONFIRMATIONS: u8 = 1;
 
-const MAX_ALLOCATIONS_PER_UTXO: u32 = 5;
+const MAX_ALLOCATIONS_PER_UTXO: u32 = 1;
 
 const DURATION_SEND_TRANSFER: i64 = 3600;
 const DURATION_RCV_TRANSFER: u32 = 86400;
