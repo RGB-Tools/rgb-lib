@@ -34,9 +34,9 @@ pub enum Error {
     #[error("Transfer cannot be set to failed status")]
     CannotFailTransfer,
 
-    /// Error contacting the consignment proxy
-    #[error("Consignment proxy error: {0}")]
-    ConsignmentProxy(#[from] reqwest::Error),
+    /// Error contacting the RGB proxy
+    #[error("Proxy error: {0}")]
+    Proxy(#[from] reqwest::Error),
 
     /// An error was received from the Electrum server
     #[error("Electrum error: {0}")]
@@ -95,9 +95,17 @@ pub enum Error {
     #[error("Invalid blinded UTXO: {0}")]
     InvalidBlindedUTXO(#[from] bp::seals::txout::blind::ParseError),
 
+    /// The provided asset description is invalid
+    #[error("Invalid description: {0}")]
+    InvalidDescription(String),
+
     /// Electrum server does not provide the required functionality
     #[error("Invalid electrum server: {0}")]
     InvalidElectrum(String),
+
+    /// The provided file path is invalid
+    #[error("Invalid file path: {0}")]
+    InvalidFilePath(String),
 
     /// The provided mnemonic phrase is invalid
     #[error("Invalid mnemonic error: {0}")]
@@ -110,6 +118,10 @@ pub enum Error {
     /// The provided online object is invalid
     #[error("Invalid online object")]
     InvalidOnline(),
+
+    /// The provided asset parent ID is invalid
+    #[error("Invalid parent ID: {0}")]
+    InvalidParentId(String),
 
     /// The provided PSBT could not be parsed
     #[error("Invalid PSBT: {0}")]
@@ -130,6 +142,10 @@ pub enum Error {
     /// The requested transfer was not found
     #[error("Transfer with blinded UTXO {0} not found")]
     TransferNotFound(String),
+
+    /// The detected RGB schema is unknown
+    #[error("Unknown RGB schema: {0}")]
+    UnknownRgbSchema(String),
 
     /// The requested operation cannot be processed by a watch-only wallet
     #[error("Operation not allowed on watch only wallet")]
@@ -170,6 +186,9 @@ pub enum InternalError {
 
     #[error("PSBT parse error: {0}")]
     PsbtParse(#[from] bitcoin::util::psbt::PsbtParseError),
+
+    #[error("Rgb 21 create error: {0}")]
+    Rgb21Creation(#[from] rgb21::CreateError),
 
     #[error("Rgb blank error: {0}")]
     RgbBlank(#[from] rgb::blank::Error),

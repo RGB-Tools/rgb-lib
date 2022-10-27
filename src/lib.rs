@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)]
 #![warn(missing_docs)]
 
 //! A library to manage wallets for RGB assets.

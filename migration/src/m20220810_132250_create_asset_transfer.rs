@@ -1,4 +1,5 @@
-use super::m20220810_131915_create_asset::Asset;
+use super::m20220810_131915_create_asset_rgb20::AssetRgb20;
+use super::m20220810_131920_create_asset_rgb21::AssetRgb21;
 use super::m20220810_132240_create_batch_transfer::BatchTransfer;
 use sea_orm_migration::prelude::*;
 
@@ -35,7 +36,8 @@ impl MigrationTrait for Migration {
                             .big_integer()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(AssetTransfer::AssetId).string())
+                    .col(ColumnDef::new(AssetTransfer::AssetRgb20Id).string())
+                    .col(ColumnDef::new(AssetTransfer::AssetRgb21Id).string())
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk-assettransfer-batchtransfer")
@@ -46,9 +48,17 @@ impl MigrationTrait for Migration {
                     )
                     .foreign_key(
                         ForeignKey::create()
-                            .name("fk-assettransfer-asset")
-                            .from(AssetTransfer::Table, AssetTransfer::AssetId)
-                            .to(Asset::Table, Asset::AssetId)
+                            .name("fk-assettransfer-assetrgb20")
+                            .from(AssetTransfer::Table, AssetTransfer::AssetRgb20Id)
+                            .to(AssetRgb20::Table, AssetRgb20::AssetId)
+                            .on_delete(ForeignKeyAction::Cascade)
+                            .on_update(ForeignKeyAction::Cascade),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk-assettransfer-assetrgb21")
+                            .from(AssetTransfer::Table, AssetTransfer::AssetRgb21Id)
+                            .to(AssetRgb21::Table, AssetRgb21::AssetId)
                             .on_delete(ForeignKeyAction::Cascade)
                             .on_update(ForeignKeyAction::Cascade),
                     )
@@ -71,5 +81,6 @@ pub enum AssetTransfer {
     Idx,
     UserDriven,
     BatchTransferIdx,
-    AssetId,
+    AssetRgb20Id,
+    AssetRgb21Id,
 }

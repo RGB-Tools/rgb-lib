@@ -1,14 +1,20 @@
+#![allow(clippy::too_many_arguments)]
+
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard};
 
 uniffi_macros::include_scaffolding!("rgb-lib");
 
-type Asset = rgb_lib::wallet::Asset;
+type AssetRgb20 = rgb_lib::wallet::AssetRgb20;
+type AssetRgb21 = rgb_lib::wallet::AssetRgb21;
+type AssetType = rgb_lib::wallet::AssetType;
+type Assets = rgb_lib::wallet::Assets;
 type Balance = rgb_lib::wallet::Balance;
 type BitcoinNetwork = rgb_lib::BitcoinNetwork;
 type BlindData = rgb_lib::wallet::BlindData;
 type DatabaseType = rgb_lib::wallet::DatabaseType;
 type Keys = rgb_lib::keys::Keys;
+type Media = rgb_lib::wallet::Media;
 type Online = rgb_lib::wallet::Online;
 type Outpoint = rgb_lib::wallet::Outpoint;
 type Recipient = rgb_lib::wallet::Recipient;
@@ -133,20 +139,41 @@ impl Wallet {
             .go_online(skip_consistency_check, electrum_url, proxy_url)
     }
 
-    fn issue_asset(
+    fn issue_asset_rgb20(
         &self,
         online: Online,
         ticker: String,
         name: String,
         precision: u8,
         amounts: Vec<u64>,
-    ) -> Result<Asset, RgbLibError> {
+    ) -> Result<AssetRgb20, RgbLibError> {
         self._get_wallet()
-            .issue_asset(online, ticker, name, precision, amounts)
+            .issue_asset_rgb20(online, ticker, name, precision, amounts)
     }
 
-    fn list_assets(&self) -> Result<Vec<Asset>, RgbLibError> {
-        self._get_wallet().list_assets()
+    fn issue_asset_rgb21(
+        &self,
+        online: Online,
+        name: String,
+        description: Option<String>,
+        precision: u8,
+        amounts: Vec<u64>,
+        parent_id: Option<String>,
+        file_path: Option<String>,
+    ) -> Result<AssetRgb21, RgbLibError> {
+        self._get_wallet().issue_asset_rgb21(
+            online,
+            name,
+            description,
+            precision,
+            amounts,
+            parent_id,
+            file_path,
+        )
+    }
+
+    fn list_assets(&self, filter_asset_types: Vec<AssetType>) -> Result<Assets, RgbLibError> {
+        self._get_wallet().list_assets(filter_asset_types)
     }
 
     fn list_transfers(&self, asset_id: String) -> Result<Vec<Transfer>, RgbLibError> {
@@ -176,7 +203,8 @@ impl Wallet {
         recipient_map: HashMap<String, Vec<Recipient>>,
         donation: bool,
     ) -> Result<String, RgbLibError> {
-        self._get_wallet().send(online, recipient_map, donation)
+        self._get_wallet()
+            .send_begin(online, recipient_map, donation)
     }
 
     fn send_end(&self, online: Online, signed_psbt: String) -> Result<String, RgbLibError> {

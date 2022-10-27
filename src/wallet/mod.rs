@@ -18,6 +18,7 @@ use bdk::keys::{DerivableKey, ExtendedKey};
 use bdk::wallet::AddressIndex;
 use bdk::{FeeRate, KeychainKind, LocalUtxo, SignOptions, SyncOptions, Wallet as BdkWallet};
 use bitcoin::consensus::{deserialize, serialize};
+use bitcoin::hashes::{sha256, Hash as Sha256Hash};
 use bitcoin::psbt::serialize::Deserialize as BitcoinDeserialize;
 use bitcoin::psbt::PartiallySignedTransaction;
 use bitcoin::util::bip32::ExtendedPubKey;
@@ -25,6 +26,7 @@ use bitcoin::Txid;
 use bitcoin::{Address, OutPoint, Transaction};
 use bp::seals::txout::blind::ConcealedSeal;
 use bp::seals::txout::{CloseMethod, ExplicitSeal};
+use commit_verify::commit_verify::CommitVerify;
 use electrum_client::{Client as ElectrumClient, ConfigBuilder, ElectrumApi, Param};
 use futures::executor::block_on;
 use internet2::addr::ServiceAddr;
@@ -35,12 +37,17 @@ use rgb::blank::BlankBundle;
 use rgb::fungible::allocation::{AllocatedValue, OutpointValue as RgbOutpointValue, UtxobValue};
 use rgb::psbt::{RgbExt, RgbInExt};
 use rgb::{
-    seal, Consignment, Contract, ContractId, IntoRevealedSeal, Node, StateTransfer,
+    seal, Consignment, Contract, ContractId, IntoRevealedSeal, Node, OutpointState, StateTransfer,
     TransitionBundle,
 };
-use rgb20::schema::{FieldType, OwnedRightType};
-use rgb20::{Asset as RgbAsset, Rgb20};
-use rgb_core::{Assignment, SealEndpoint, Validator, Validity};
+use rgb20::schema::FieldType as Rgb20FieldType;
+use rgb20::{Asset as Rgb20Asset, Rgb20};
+use rgb21::{
+    Asset as Rgb21Asset, FieldType as Rgb21FieldType, FileAttachment,
+    OwnedRightType as Rgb21OwnedRightType, Rgb21, SCHEMA_ID_BECH32 as RGB21_SCHEMA_ID,
+};
+use rgb_core::vm::embedded::constants::STATE_TYPE_OWNERSHIP_RIGHT;
+use rgb_core::{Assignment, AttachmentId, SealEndpoint, TypedAssignments, Validator, Validity};
 use rgb_lib_migration::{Migrator, MigratorTrait};
 use rgb_node::{rgbd, Config};
 use rgb_rpc::client::Client;
@@ -63,9 +70,10 @@ use stens::AsciiString;
 use stored::Config as StoreConfig;
 use strict_encoding::{StrictDecode, StrictEncode};
 
-use crate::api::consignment_proxy::AckResponse;
-use crate::api::ConsignmentProxy;
-use crate::database::entities::asset::Model as DbAsset;
+use crate::api::proxy::AckResponse;
+use crate::api::Proxy;
+use crate::database::entities::asset_rgb20::Model as DbAssetRgb20;
+use crate::database::entities::asset_rgb21::Model as DbAssetRgb21;
 use crate::database::entities::asset_transfer::{
     ActiveModel as DbAssetTransferActMod, Model as DbAssetTransfer,
 };
@@ -85,11 +93,14 @@ use crate::utils::{
 const RGB_DB_NAME: &str = "rgb_db";
 const BDK_DB_NAME: &str = "bdk_db";
 
+const ASSETS_DIR: &str = "assets";
 const TRANSFER_DIR: &str = "transfers";
 const TRANSFER_DATA_FILE: &str = "transfer_data.txt";
 const SIGNED_PSBT_FILE: &str = "signed.psbt";
 const CONSIGNMENT_FILE: &str = "consignment_out";
 const CONSIGNMENT_RCV_FILE: &str = "rcv_compose.rgbc";
+const MEDIA_FNAME: &str = "media";
+const MIME_FNAME: &str = "mime";
 
 const UTXO_SIZE: u64 = 1000;
 const UTXO_NUM: u8 = 5;
@@ -102,19 +113,20 @@ const DURATION_SEND_TRANSFER: i64 = 3600;
 const DURATION_RCV_TRANSFER: u32 = 86400;
 
 const ELECTRUM_TIMEOUT: u8 = 4;
+const PROXY_TIMEOUT: u8 = 90;
 
-/// An RGB recipient
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
-pub struct Recipient {
-    /// Blinded UTXO
-    pub blinded_utxo: String,
-    /// RGB amount
-    pub amount: u64,
+/// The type of an asset
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub enum AssetType {
+    /// Rgb20 schema for fungible assets
+    Rgb20,
+    /// Rgb21 schema for non-fungible assets
+    Rgb21,
 }
 
-/// An RGB asset
+/// An RGB20 fungible asset
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Asset {
+pub struct AssetRgb20 {
     /// ID of the asset
     pub asset_id: String,
     /// Ticker of the asset
@@ -127,9 +139,9 @@ pub struct Asset {
     pub balance: Balance,
 }
 
-impl Asset {
-    fn from_db_asset(x: DbAsset, balance: Balance) -> Asset {
-        Asset {
+impl AssetRgb20 {
+    fn from_db_asset(x: DbAssetRgb20, balance: Balance) -> AssetRgb20 {
+        AssetRgb20 {
             asset_id: x.asset_id,
             ticker: x.ticker,
             name: x.name,
@@ -137,6 +149,70 @@ impl Asset {
             balance,
         }
     }
+}
+
+/// An asset media file
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Media {
+    /// Path of the media file
+    pub file_path: String,
+    /// Mime of the media file
+    pub mime: String,
+}
+
+/// An RGB21 non-fungible asset
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AssetRgb21 {
+    /// ID of the asset
+    pub asset_id: String,
+    /// Name of the asset
+    pub name: String,
+    /// Description of the asset
+    pub description: Option<String>,
+    /// Precision, also known as divisibility, of the asset
+    pub precision: u8,
+    /// Current balance of the asset
+    pub balance: Balance,
+    /// List of asset data file paths
+    pub data_paths: Vec<Media>,
+    /// Parent ID of the asset
+    pub parent_id: Option<String>,
+}
+
+impl AssetRgb21 {
+    fn from_db_asset(
+        x: DbAssetRgb21,
+        balance: Balance,
+        assets_dir: PathBuf,
+    ) -> Result<AssetRgb21, Error> {
+        let mut data_paths = vec![];
+        let asset_dir = assets_dir.join(x.asset_id.clone());
+        if asset_dir.is_dir() {
+            for fp in fs::read_dir(asset_dir)? {
+                let fpath = fp?.path();
+                let file_path = fpath.join(MEDIA_FNAME).to_string_lossy().to_string();
+                let mime = fs::read_to_string(fpath.join(MIME_FNAME))?;
+                data_paths.push(Media { file_path, mime });
+            }
+        }
+        Ok(AssetRgb21 {
+            asset_id: x.asset_id,
+            description: x.description,
+            name: x.name,
+            precision: x.precision,
+            balance,
+            data_paths,
+            parent_id: x.parent_id,
+        })
+    }
+}
+
+/// List of known assets, divided by asset type in different lists
+pub struct Assets {
+    /// List of Rgb20 assets
+    pub rgb20: Option<Vec<AssetRgb20>>,
+    /// List of Rgb21 assets
+    pub rgb21: Option<Vec<AssetRgb21>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -186,6 +262,7 @@ struct InfoBatchTransfer {
 struct InfoAssetTransfer {
     recipients: Vec<Recipient>,
     asset_spend: AssetSpend,
+    asset_type: AssetType,
 }
 
 /// Data for operations that require the wallet to be online
@@ -227,6 +304,15 @@ impl From<Outpoint> for OutPoint {
     fn from(x: Outpoint) -> OutPoint {
         OutPoint::from_str(&x.to_string()).expect("outpoint should be parsable")
     }
+}
+
+/// An RGB recipient
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
+pub struct Recipient {
+    /// Blinded UTXO
+    pub blinded_utxo: String,
+    /// RGB amount
+    pub amount: u64,
 }
 
 /// An RGB allocation
@@ -438,8 +524,9 @@ impl Wallet {
             let xprv = xkey
                 .into_xprv(bdk_network)
                 .expect("should be possible to get an extended private key");
-            let descriptor = calculate_descriptor_from_xprv(xprv, false);
-            let change_descriptor = calculate_descriptor_from_xprv(xprv, true);
+            let descriptor = calculate_descriptor_from_xprv(xprv, wdata.bitcoin_network, false);
+            let change_descriptor =
+                calculate_descriptor_from_xprv(xprv, wdata.bitcoin_network, true);
             BdkWallet::new(
                 &descriptor,
                 Some(&change_descriptor),
@@ -448,8 +535,10 @@ impl Wallet {
             )
             .map_err(InternalError::from)?
         } else {
-            let descriptor_pub = calculate_descriptor_from_xpub(xpub, false)?;
-            let change_descriptor_pub = calculate_descriptor_from_xpub(xpub, true)?;
+            let descriptor_pub =
+                calculate_descriptor_from_xpub(xpub, wdata.bitcoin_network, false)?;
+            let change_descriptor_pub =
+                calculate_descriptor_from_xpub(xpub, wdata.bitcoin_network, true)?;
             BdkWallet::new(
                 &descriptor_pub,
                 Some(&change_descriptor_pub),
@@ -472,7 +561,9 @@ impl Wallet {
         let connection = db_cnn.map_err(InternalError::from)?;
         block_on(Migrator::up(&connection, None)).map_err(InternalError::from)?;
         let database = RgbLibDatabase::new(connection);
-        let rest_client = RestClient::new();
+        let rest_client = RestClient::builder()
+            .timeout(Duration::from_secs(PROXY_TIMEOUT as u64))
+            .build()?;
 
         Ok(Wallet {
             wallet_data,
@@ -673,8 +764,8 @@ impl Wallet {
             self.logger,
             "Blinding for asset '{:?}' with duration '{:?}'...", asset_id, duration_seconds
         );
-        let asset_id = if let Some(cid) = asset_id {
-            Some(self.database.get_asset_or_fail(cid)?.asset_id)
+        let asset_type = if let Some(cid) = asset_id.clone() {
+            Some(self.database.get_asset_or_fail(cid)?)
         } else {
             None
         };
@@ -702,12 +793,18 @@ impl Wallet {
             ..Default::default()
         };
         let batch_transfer_idx = self.database.set_batch_transfer(batch_transfer)?;
-        let asset_transfer = DbAssetTransferActMod {
+        let mut asset_transfer = DbAssetTransferActMod {
             user_driven: ActiveValue::Set(true),
             batch_transfer_idx: ActiveValue::Set(batch_transfer_idx),
-            asset_id: ActiveValue::Set(asset_id),
             ..Default::default()
         };
+        if let Some(at) = asset_type {
+            let cid = asset_id.expect("asset ID");
+            match at {
+                AssetType::Rgb20 => asset_transfer.asset_rgb20_id = ActiveValue::Set(Some(cid)),
+                AssetType::Rgb21 => asset_transfer.asset_rgb21_id = ActiveValue::Set(Some(cid)),
+            }
+        }
         let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
         let transfer = DbTransferActMod {
             asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
@@ -1206,12 +1303,7 @@ impl Wallet {
             .iter()
             .map(|id| id.to_string())
             .collect();
-        let db_asset_ids: Vec<String> = self
-            .database
-            .iter_assets()?
-            .into_iter()
-            .map(|c| c.asset_id)
-            .collect();
+        let db_asset_ids: Vec<String> = self.database.get_asset_ids()?;
         if !db_asset_ids.iter().all(|i| asset_ids.contains(i)) {
             return Err(Error::Inconsistency(s!(
                 "DB assets do not match with ones stored in RGB"
@@ -1346,21 +1438,21 @@ impl Wallet {
         }
     }
 
-    /// Issue a new RGB [`Asset`] and return it
-    pub fn issue_asset(
+    /// Issue a new RGB [`AssetRgb20`] and return it
+    pub fn issue_asset_rgb20(
         &mut self,
         online: Online,
         ticker: String,
         name: String,
         precision: u8,
         amounts: Vec<u64>,
-    ) -> Result<Asset, Error> {
+    ) -> Result<AssetRgb20, Error> {
         if amounts.is_empty() {
             return Err(Error::NoIssuanceAmounts);
         }
         info!(
             self.logger,
-            "Issuing asset with ticker '{}' name '{}' precision '{}' amounts '{:?}'...",
+            "Issuing RGB20 asset with ticker '{}' name '{}' precision '{}' amounts '{:?}'...",
             ticker,
             name,
             precision,
@@ -1391,7 +1483,7 @@ impl Wallet {
             None,
         );
         let _rgb_asset =
-            RgbAsset::try_from(&asset).expect("create_rgb20 does not match RGB20 schema");
+            Rgb20Asset::try_from(&asset).expect("create_rgb20 does not match RGB20 schema");
         let force = true;
         let status = self
             ._rgb_client()?
@@ -1406,14 +1498,14 @@ impl Wallet {
             asset.contract_id()
         );
 
-        let db_asset = DbAsset {
+        let db_asset = DbAssetRgb20 {
             idx: 0,
             asset_id: asset.contract_id().to_string(),
             ticker,
             name,
             precision,
         };
-        self.database.set_asset(db_asset.clone())?;
+        self.database.set_asset_rgb20(db_asset.clone())?;
         let batch_transfer = DbBatchTransferActMod {
             status: ActiveValue::Set(TransferStatus::Settled),
             expiration: ActiveValue::Set(None),
@@ -1423,7 +1515,7 @@ impl Wallet {
         let asset_transfer = DbAssetTransferActMod {
             user_driven: ActiveValue::Set(true),
             batch_transfer_idx: ActiveValue::Set(batch_transfer_idx),
-            asset_id: ActiveValue::Set(Some(db_asset.asset_id.clone())),
+            asset_rgb20_id: ActiveValue::Set(Some(db_asset.asset_id.clone())),
             ..Default::default()
         };
         let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
@@ -1445,31 +1537,218 @@ impl Wallet {
             self.database.set_coloring(db_coloring)?;
         }
 
-        Ok(Asset::from_db_asset(
+        Ok(AssetRgb20::from_db_asset(
             db_asset,
-            Balance { settled, future: 0 },
+            Balance {
+                settled,
+                future: settled,
+            },
         ))
     }
 
-    /// List the [`Asset`]s known by the underlying RGB node
-    pub fn list_assets(&self) -> Result<Vec<Asset>, Error> {
+    /// Issue a new RGB [`AssetRgb21`] and return it
+    pub fn issue_asset_rgb21(
+        &mut self,
+        online: Online,
+        name: String,
+        description: Option<String>,
+        precision: u8,
+        amounts: Vec<u64>,
+        parent_id: Option<String>,
+        file_path: Option<String>,
+    ) -> Result<AssetRgb21, Error> {
+        if amounts.is_empty() {
+            return Err(Error::NoIssuanceAmounts);
+        }
+        info!(
+            self.logger,
+            "Issuing RGB21 asset with name '{}' precision '{}' amounts '{:?}'...",
+            name,
+            precision,
+            amounts
+        );
+        self._check_online(online)?;
+
+        let mut outputs: HashMap<DbTxo, u64> = HashMap::new();
+        let mut allocations = vec![];
+        for amount in &amounts {
+            let outpoints: Vec<Outpoint> = outputs.iter().map(|(txo, _)| txo.outpoint()).collect();
+            let utxo = self._get_utxo(true, outpoints)?;
+            let outpoint = utxo.outpoint().to_string();
+            outputs.insert(utxo, *amount);
+            let allocation = RgbOutpointValue::from_str(&format!("{amount}@{outpoint}"))
+                .expect("allocation structure should be correct");
+            allocations.push(allocation)
+        }
+        debug!(self.logger, "Issuing asset allocations '{:?}'", allocations);
+        let desc = if let Some(desc) = description.clone() {
+            Some(
+                AsciiString::from_str(&desc)
+                    .map_err(|e| Error::InvalidDescription(e.to_string()))?,
+            )
+        } else {
+            None
+        };
+        let pid = if let Some(pid) = &parent_id {
+            Some(AsciiString::from_str(pid).map_err(|e| Error::InvalidParentId(e.to_string()))?)
+        } else {
+            None
+        };
+        let attachments = if let Some(fp) = &file_path {
+            let fpath = std::path::Path::new(fp);
+            if !fpath.exists() {
+                return Err(Error::InvalidFilePath(fp.clone()));
+            }
+            vec![FileAttachment {
+                file_path: PathBuf::from(fp),
+                mime: AsciiString::from_str(&tree_magic::from_filepath(fpath)).expect("valid mime"),
+                salt: 1,
+            }]
+        } else {
+            vec![]
+        };
+
+        let asset = Contract::create_rgb21(
+            RgbNetwork::from(self.bitcoin_network),
+            AsciiString::from_str(&name).map_err(|e| Error::InvalidName(e.to_string()))?,
+            desc,
+            precision,
+            pid,
+            attachments,
+            vec![],
+            allocations,
+        )
+        .map_err(InternalError::from)?;
+        let _rgb_asset =
+            Rgb21Asset::try_from(&asset).expect("create_rgb21 does not match RGB21 schema");
+        let force = true;
+        let status = self
+            ._rgb_client()?
+            .register_contract(asset.clone(), force, |_| ())
+            .map_err(InternalError::from)?;
+        if !matches!(status, ContractValidity::Valid) {
+            return Err(Error::FailedIssuance(format!("{:?}", status)));
+        }
+        let asset_id = asset.contract_id().to_string();
+        debug!(self.logger, "Issued asset with ID '{:?}'", asset_id);
+
+        if let Some(fp) = file_path {
+            let file_bytes = std::fs::read(fp.clone())?;
+            let file_hash: sha256::Hash = Sha256Hash::hash(&file_bytes[..]);
+            let attachment_id = AttachmentId::commit(&file_hash).to_string();
+            let media_dir = self
+                .wallet_dir
+                .join(ASSETS_DIR)
+                .join(asset_id.clone())
+                .join(attachment_id);
+            fs::create_dir_all(&media_dir)?;
+            let media_path = media_dir.join(MEDIA_FNAME);
+            fs::copy(fp, &media_path)?;
+            let mime = AsciiString::from_str(&tree_magic::from_filepath(media_path.as_path()))
+                .expect("valid mime");
+            fs::write(media_dir.join(MIME_FNAME), mime.to_string())?;
+        }
+
+        let db_asset = DbAssetRgb21 {
+            idx: 0,
+            asset_id,
+            name,
+            precision,
+            description,
+            parent_id,
+        };
+        self.database.set_asset_rgb21(db_asset.clone())?;
+        let batch_transfer = DbBatchTransferActMod {
+            status: ActiveValue::Set(TransferStatus::Settled),
+            expiration: ActiveValue::Set(None),
+            ..Default::default()
+        };
+        let batch_transfer_idx = self.database.set_batch_transfer(batch_transfer)?;
+        let asset_transfer = DbAssetTransferActMod {
+            user_driven: ActiveValue::Set(true),
+            batch_transfer_idx: ActiveValue::Set(batch_transfer_idx),
+            asset_rgb21_id: ActiveValue::Set(Some(db_asset.asset_id.clone())),
+            ..Default::default()
+        };
+        let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
+        let settled: u64 = amounts.iter().sum();
+        let transfer = DbTransferActMod {
+            asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
+            amount: ActiveValue::Set(settled.to_string()),
+            ..Default::default()
+        };
+        self.database.set_transfer(transfer)?;
+        for (utxo, amount) in outputs {
+            let db_coloring = DbColoringActMod {
+                txo_idx: ActiveValue::Set(utxo.idx),
+                asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
+                coloring_type: ActiveValue::Set(ColoringType::Issue),
+                amount: ActiveValue::Set(amount.to_string()),
+                ..Default::default()
+            };
+            self.database.set_coloring(db_coloring)?;
+        }
+
+        AssetRgb21::from_db_asset(
+            db_asset,
+            Balance {
+                settled,
+                future: settled,
+            },
+            self.wallet_dir.join(ASSETS_DIR),
+        )
+    }
+
+    /// List the assets known by the underlying RGB node
+    pub fn list_assets(&self, mut filter_asset_types: Vec<AssetType>) -> Result<Assets, Error> {
         info!(self.logger, "Listing assets...");
-        self.database
-            .iter_assets()?
-            .iter()
-            .map(|c| {
-                Ok(Asset::from_db_asset(
-                    c.clone(),
-                    self.database.get_asset_balance(c.asset_id.clone())?,
-                ))
-            })
-            .collect()
+        if filter_asset_types.is_empty() {
+            filter_asset_types = vec![AssetType::Rgb20, AssetType::Rgb21];
+        }
+        let mut rgb20 = None;
+        let mut rgb21 = None;
+        for asset_type in filter_asset_types {
+            match asset_type {
+                AssetType::Rgb20 => {
+                    rgb20 = Some(
+                        self.database
+                            .iter_assets_rgb20()?
+                            .iter()
+                            .map(|c| {
+                                Ok(AssetRgb20::from_db_asset(
+                                    c.clone(),
+                                    self.database.get_asset_balance(c.asset_id.clone())?,
+                                ))
+                            })
+                            .collect::<Result<Vec<AssetRgb20>, Error>>()?,
+                    );
+                }
+                AssetType::Rgb21 => {
+                    let assets_dir = self.wallet_dir.join(ASSETS_DIR);
+                    rgb21 = Some(
+                        self.database
+                            .iter_assets_rgb21()?
+                            .iter()
+                            .map(|c| {
+                                AssetRgb21::from_db_asset(
+                                    c.clone(),
+                                    self.database.get_asset_balance(c.asset_id.clone())?,
+                                    assets_dir.clone(),
+                                )
+                            })
+                            .collect::<Result<Vec<AssetRgb21>, Error>>()?,
+                    );
+                }
+            }
+        }
+
+        Ok(Assets { rgb20, rgb21 })
     }
 
     /// List the [`Transfer`]s known to the RGB wallet
     pub fn list_transfers(&self, asset_id: String) -> Result<Vec<Transfer>, Error> {
         info!(self.logger, "Listing transfers for asset '{}'...", asset_id);
-        let _db_asset = self.database.get_asset_or_fail(asset_id.clone())?;
+        self.database.get_asset_or_fail(asset_id.clone())?;
         let asset_transfer_ids: Vec<i64> = self
             .database
             .iter_asset_asset_transfers(asset_id)?
@@ -1590,14 +1869,70 @@ impl Wallet {
         fs::write(consignment_path.clone(), consignment_bytes).expect("Unable to write file");
         let consignment =
             StateTransfer::strict_file_load(&consignment_path).map_err(InternalError::from)?;
+        let cid = consignment.contract_id().to_string();
+        let mut valid = true;
+
+        // check if blinded is connected to an asset
+        let ass_id = if let Some(aid) = asset_transfer.asset_rgb20_id.clone() {
+            Some(aid)
+        } else {
+            asset_transfer.asset_rgb21_id.clone()
+        };
+        if let Some(aid) = ass_id {
+            if aid != cid {
+                valid = false
+            }
+        }
 
         // validate consignment
         let proxy_url = self.online.clone().expect("should be online").proxy_url;
         let validation_status = Validator::validate(&consignment, self._electrum_client()?);
-        if !vec![Validity::Valid, Validity::ValidExceptEndpoints]
-            .contains(&validation_status.validity())
+        if valid
+            && !vec![Validity::Valid, Validity::ValidExceptEndpoints]
+                .contains(&validation_status.validity())
         {
             debug!(self.logger, "Consignment is invalid");
+            valid = false;
+        } else if valid {
+            let genesis_media_file = consignment
+                .genesis()
+                .owned_rights_by_type(Rgb21OwnedRightType::Engraving as u16);
+
+            if let Some(TypedAssignments::Attachment(assigments)) = genesis_media_file {
+                for ass in assigments {
+                    if let Assignment::Revealed { seal: _, state } = ass {
+                        let attachment_id = state.id;
+                        let media_res = self
+                            .rest_client
+                            .clone()
+                            .get_media(&proxy_url, attachment_id.to_string().clone())?;
+                        debug!(self.logger, "Media GET response: {:?}", media_res);
+                        if let Some(media) = media_res.media {
+                            let file_bytes = base64::decode(media).map_err(InternalError::from)?;
+                            let file_hash: sha256::Hash = Sha256Hash::hash(&file_bytes[..]);
+                            let real_attachment_id = AttachmentId::commit(&file_hash);
+                            if attachment_id != real_attachment_id {
+                                valid = false;
+                                break;
+                            }
+                            let media_dir = self
+                                .wallet_dir
+                                .join(ASSETS_DIR)
+                                .join(cid.clone())
+                                .join(attachment_id.to_string());
+                            fs::create_dir_all(&media_dir)?;
+                            fs::write(media_dir.join(MEDIA_FNAME), file_bytes)?;
+                            fs::write(media_dir.join(MIME_FNAME), state.mime.to_string())?;
+                        } else {
+                            valid = false;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if !valid {
             let nack_res = self
                 .rest_client
                 .clone()
@@ -1609,6 +1944,7 @@ impl Wallet {
                     .update_batch_transfer(&mut updated_batch_transfer)?,
             ));
         }
+
         debug!(self.logger, "Consignment is valid");
         let anchored_bundles = consignment.anchored_bundles();
         let (anchor, transition_bundle) = anchored_bundles
@@ -1621,43 +1957,76 @@ impl Wallet {
             .post_ack(&proxy_url, blinded_utxo)?;
         debug!(self.logger, "Consignment ACK response: {:?}", ack_res);
 
-        let contract_id = consignment.contract_id().to_string();
-
         // add asset info to transfer if missing
-        if asset_transfer.asset_id.is_none() {
+        if asset_transfer.asset_rgb20_id.is_none() && asset_transfer.asset_rgb21_id.is_none() {
             // save asset in DB if unknown
-            if self
-                .database
-                .get_asset_or_fail(contract_id.clone())
-                .is_err()
-            {
+            let asset_type = self.database.get_asset_or_fail(cid.clone());
+            let asset_type: AssetType = if asset_type.is_err() {
                 // extract asset data from consignment
                 let metadata = consignment.genesis().metadata();
-                let ticker = metadata
-                    .ascii_string(FieldType::Ticker)
-                    .first()
-                    .expect("valid consignment should contain the asset ticker")
-                    .to_string();
-                let name = metadata
-                    .ascii_string(FieldType::Name)
-                    .first()
-                    .expect("valid consignment should contain the asset name")
-                    .to_string();
-                let precision = *metadata
-                    .u8(FieldType::Precision)
-                    .first()
-                    .expect("valid consignment should contain the asset precision");
-                let db_asset = DbAsset {
-                    idx: 0,
-                    asset_id: contract_id.clone(),
-                    ticker,
-                    name,
-                    precision,
-                };
-                self.database.set_asset(db_asset)?;
-            }
+                let schema_id = consignment.schema_id().to_string();
+                match &schema_id[..] {
+                    rgb20::schema::SCHEMA_ID_BECH32 => {
+                        let name = metadata
+                            .ascii_string(Rgb20FieldType::Name)
+                            .first()
+                            .expect("valid consignment should contain the asset name")
+                            .to_string();
+                        let precision = *metadata
+                            .u8(Rgb20FieldType::Precision)
+                            .first()
+                            .expect("valid consignment should contain the asset precision");
+                        let ticker = metadata
+                            .ascii_string(Rgb20FieldType::Ticker)
+                            .first()
+                            .expect("valid consignment should contain the asset ticker")
+                            .to_string();
+                        let db_asset = DbAssetRgb20 {
+                            idx: 0,
+                            asset_id: cid.clone(),
+                            ticker,
+                            name,
+                            precision,
+                        };
+                        self.database.set_asset_rgb20(db_asset)?;
+                        AssetType::Rgb20
+                    }
+                    RGB21_SCHEMA_ID => {
+                        let name = metadata
+                            .ascii_string(Rgb21FieldType::Name)
+                            .first()
+                            .expect("valid consignment should contain the asset name")
+                            .to_string();
+                        let precision = *metadata
+                            .u8(Rgb21FieldType::Precision)
+                            .first()
+                            .expect("valid consignment should contain the asset precision");
+                        let description = metadata.ascii_string(Rgb21FieldType::Description);
+                        let description = description.first().map(|desc| desc.to_string());
+                        let parent_id = metadata.ascii_string(Rgb21FieldType::ParentId);
+                        let parent_id = parent_id.first().map(|pid| pid.to_string());
+                        let db_asset = DbAssetRgb21 {
+                            idx: 0,
+                            asset_id: cid.clone(),
+                            name,
+                            precision,
+                            description,
+                            parent_id,
+                        };
+                        self.database.set_asset_rgb21(db_asset)?;
+                        AssetType::Rgb21
+                    }
+                    _ => return Err(Error::UnknownRgbSchema(schema_id)),
+                }
+            } else {
+                asset_type?
+            };
             let mut updated_asset_transfer: DbAssetTransferActMod = asset_transfer.clone().into();
-            updated_asset_transfer.asset_id = ActiveValue::Set(Some(contract_id.clone()));
+            let db_asset_id = ActiveValue::Set(Some(cid.clone()));
+            match asset_type {
+                AssetType::Rgb20 => updated_asset_transfer.asset_rgb20_id = db_asset_id,
+                AssetType::Rgb21 => updated_asset_transfer.asset_rgb21_id = db_asset_id,
+            }
             self.database
                 .update_asset_transfer(&mut updated_asset_transfer)?;
         }
@@ -1692,10 +2061,7 @@ impl Wallet {
                 }
             }
         }
-        debug!(
-            self.logger,
-            "Received '{}' of contract '{}'", amount, contract_id
-        );
+        debug!(self.logger, "Received '{}' of contract '{}'", amount, cid);
         let transfer_colorings = self
             .database
             .iter_colorings()?
@@ -1879,9 +2245,14 @@ impl Wallet {
                 .iter()
                 .filter(|t| t.user_driven)
                 .map(|t| {
-                    transfer_dir
-                        .join(t.asset_id.clone().expect("asset ID should be present"))
-                        .join(CONSIGNMENT_FILE)
+                    let ass_id = if let Some(aid) = t.asset_rgb20_id.clone() {
+                        aid
+                    } else if let Some(aid) = t.asset_rgb21_id.clone() {
+                        aid
+                    } else {
+                        unreachable!("corrupt DB or broken code");
+                    };
+                    transfer_dir.join(ass_id).join(CONSIGNMENT_FILE)
                 })
                 .collect()
         };
@@ -2134,7 +2505,7 @@ impl Wallet {
             psbt.set_rgb_contract(contract)
                 .map_err(InternalError::from)?;
 
-            // RGB20 transfer
+            // RGB20-RGB21 transfer
             let mut out_allocations: Vec<UtxobValue> = vec![];
             let existing_transfers = self.database.iter_transfers()?;
             for recipient in recipients.clone() {
@@ -2165,11 +2536,24 @@ impl Wallet {
                 .into_iter()
                 .map(|v| (v.into_revealed_seal(), v.value))
                 .collect();
-            let rgb_asset =
-                RgbAsset::try_from(&transfer).expect("to have provided a valid consignment");
-            let transition = rgb_asset
-                .transfer(input_outpoints_bt.clone(), beneficiaries, revealed_seal)
-                .expect("transfer should succeed");
+            let schema_id = transfer.schema_id().to_string();
+            let transition = match &schema_id[..] {
+                rgb20::schema::SCHEMA_ID_BECH32 => {
+                    let rgb_asset = Rgb20Asset::try_from(&transfer)
+                        .expect("to have provided a valid consignment");
+                    rgb_asset
+                        .transfer(input_outpoints_bt.clone(), beneficiaries, revealed_seal)
+                        .expect("transfer should succeed")
+                }
+                RGB21_SCHEMA_ID => {
+                    let rgb_asset = Rgb21Asset::try_from(&transfer)
+                        .expect("to have provided a valid consignment");
+                    rgb_asset
+                        .transfer(input_outpoints_bt.clone(), beneficiaries, revealed_seal)
+                        .expect("transfer should succeed")
+                }
+                _ => return Err(Error::UnknownRgbSchema(schema_id)),
+            };
 
             // RGB node transfer combine
             let node_id = transition.node_id();
@@ -2204,7 +2588,7 @@ impl Wallet {
             .outpoint_state(outpoints, |_| ())
             .map_err(InternalError::from)?;
         let new_outpoints: BTreeMap<u16, (OutPoint, CloseMethod)> = bmap! {
-            OwnedRightType::Assets as u16 => (OutPoint::from(change_utxo.clone()), CloseMethod::OpretFirst)
+            STATE_TYPE_OWNERSHIP_RIGHT => (OutPoint::from(change_utxo.clone()), CloseMethod::OpretFirst)
         };
         let mut blank_allocations: HashMap<String, u64> = HashMap::new();
         for (cid, mut outpoint_map) in state_map {
@@ -2226,27 +2610,25 @@ impl Wallet {
                 psbt.set_rgb_contract(contract)
                     .map_err(InternalError::from)?;
             }
+            for inputs in &mut outpoint_map.values_mut() {
+                inputs.retain(
+                    |OutpointState {
+                         node_outpoint: input,
+                         state: _,
+                     }| input.ty != Rgb21OwnedRightType::Engraving as u16,
+                );
+            }
             let blank_bundle = TransitionBundle::blank(&outpoint_map, &new_outpoints)
                 .map_err(InternalError::from)?;
-            for (transition, indexes) in blank_bundle.revealed_iter() {
+            for (transition, _indexes) in blank_bundle.revealed_iter() {
+                let node_id = transition.node_id();
                 psbt.push_rgb_transition(transition.clone())
                     .map_err(InternalError::from)?;
-                let transition_txid = transition
-                    .revealed_seals()
-                    .map_err(InternalError::from)?
-                    .last()
-                    .expect("revealed seal should be there")
-                    .txid
-                    .expect("revealed seal should have a txid");
-                for no in indexes {
-                    for input in psbt.inputs.iter_mut() {
-                        if input.previous_outpoint.txid == transition_txid
-                            && input.previous_outpoint.vout == *no as u32
-                        {
-                            input
-                                .set_rgb_consumer(cid, transition.node_id())
-                                .map_err(InternalError::from)?;
-                        }
+                for input in psbt.inputs.iter_mut() {
+                    if outpoint_map.get(&input.previous_outpoint).is_some() {
+                        input
+                            .set_rgb_consumer(cid, node_id)
+                            .map_err(InternalError::from)?;
                     }
                 }
             }
@@ -2255,14 +2637,8 @@ impl Wallet {
                 let owned_rights = transition.owned_rights();
                 for (_owned_right_type, typed_assignment) in owned_rights.iter() {
                     for assignment in typed_assignment.to_value_assignments() {
-                        match assignment {
-                            Assignment::ConfidentialSeal { seal: _, state } => {
-                                moved_amount += state.value;
-                            }
-                            Assignment::Revealed { seal: _, state } => {
-                                moved_amount += state.value;
-                            }
-                            _ => (),
+                        if let Assignment::Revealed { seal: _, state } = assignment {
+                            moved_amount += state.value;
                         };
                     }
                 }
@@ -2328,11 +2704,24 @@ impl Wallet {
         Ok(())
     }
 
-    fn _post_consignment(
+    fn _post_transfer_data(
         &self,
         recipients: Vec<Recipient>,
         asset_transfer_dir: PathBuf,
+        asset_dir: Option<PathBuf>,
     ) -> Result<(), Error> {
+        let mut attachments = vec![];
+        if let Some(ass_dir) = &asset_dir {
+            for fp in fs::read_dir(ass_dir)? {
+                let fpath = fp?.path();
+                let file_path = fpath.join(MEDIA_FNAME);
+                let file_bytes = std::fs::read(file_path.clone())?;
+                let file_hash: sha256::Hash = Sha256Hash::hash(&file_bytes[..]);
+                let attachment_id = AttachmentId::commit(&file_hash).to_string();
+                attachments.push((attachment_id, file_path))
+            }
+        }
+
         let consignment_path = asset_transfer_dir.join(CONSIGNMENT_FILE);
         let proxy_url = self.online.clone().expect("should be online").proxy_url;
         for recipient in recipients {
@@ -2346,6 +2735,15 @@ impl Wallet {
                 "Consignment POST response: {:?}", consignment_res
             );
         }
+
+        for attachment in attachments {
+            let media_res =
+                self.rest_client
+                    .clone()
+                    .post_media(&proxy_url, attachment.0, attachment.1)?;
+            debug!(self.logger, "Attachment POST response: {:?}", media_res);
+        }
+
         Ok(())
     }
 
@@ -2372,12 +2770,19 @@ impl Wallet {
             let asset_spend = transfer_info.asset_spend;
             let recipients = transfer_info.recipients;
 
-            let asset_transfer = DbAssetTransferActMod {
+            let mut asset_transfer = DbAssetTransferActMod {
                 user_driven: ActiveValue::Set(true),
                 batch_transfer_idx: ActiveValue::Set(batch_transfer_idx),
-                asset_id: ActiveValue::Set(Some(asset_id.clone())),
                 ..Default::default()
             };
+            match transfer_info.asset_type {
+                AssetType::Rgb20 => {
+                    asset_transfer.asset_rgb20_id = ActiveValue::Set(Some(asset_id))
+                }
+                AssetType::Rgb21 => {
+                    asset_transfer.asset_rgb21_id = ActiveValue::Set(Some(asset_id))
+                }
+            }
             let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
 
             for (input_idx, amount) in asset_spend.txo_map.clone().into_iter() {
@@ -2411,12 +2816,19 @@ impl Wallet {
         }
 
         for (asset_id, amt) in blank_allocations {
-            let asset_transfer = DbAssetTransferActMod {
+            let mut asset_transfer = DbAssetTransferActMod {
                 user_driven: ActiveValue::Set(false),
                 batch_transfer_idx: ActiveValue::Set(batch_transfer_idx),
-                asset_id: ActiveValue::Set(Some(asset_id)),
                 ..Default::default()
             };
+            match self.database.get_asset_or_fail(asset_id.clone())? {
+                AssetType::Rgb20 => {
+                    asset_transfer.asset_rgb20_id = ActiveValue::Set(Some(asset_id))
+                }
+                AssetType::Rgb21 => {
+                    asset_transfer.asset_rgb21_id = ActiveValue::Set(Some(asset_id))
+                }
+            }
             let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
             let db_coloring = DbColoringActMod {
                 txo_idx: ActiveValue::Set(change_utxo_idx),
@@ -2518,13 +2930,14 @@ impl Wallet {
             .collect();
         let mut transfer_info_map: BTreeMap<String, InfoAssetTransfer> = BTreeMap::new();
         for (asset_id, recipients) in recipient_map {
-            self.database.get_asset_or_fail(asset_id.clone())?;
+            let asset_type = self.database.get_asset_or_fail(asset_id.clone())?;
             let amount: u64 = recipients.iter().map(|a| a.amount).sum();
             let asset_spend =
                 self._select_rgb_inputs(asset_id.clone(), amount, input_coloring_ids.clone())?;
             let transfer_info = InfoAssetTransfer {
                 recipients,
                 asset_spend,
+                asset_type,
             };
             transfer_info_map.insert(asset_id.clone(), transfer_info);
         }
@@ -2585,8 +2998,8 @@ impl Wallet {
         let change_utxo_idx = info_contents.change_utxo_idx;
         let donation = info_contents.donation;
         let mut transfer_info_map: BTreeMap<String, InfoAssetTransfer> = BTreeMap::new();
-        for asset_dir in fs::read_dir(transfer_dir)? {
-            let asset_transfer_dir = asset_dir?.path();
+        for ass_transf_dir in fs::read_dir(transfer_dir)? {
+            let asset_transfer_dir = ass_transf_dir?.path();
             if !asset_transfer_dir.is_dir() {
                 continue;
             }
@@ -2600,10 +3013,20 @@ impl Wallet {
                 .to_str()
                 .expect("should be possible to convert path to a string")
                 .to_string();
-            transfer_info_map.insert(asset_id, info_contents.clone());
+            transfer_info_map.insert(asset_id.clone(), info_contents.clone());
 
-            // post consignment(s)
-            self._post_consignment(info_contents.recipients, asset_transfer_dir)?;
+            // post consignment(s) and optional media
+            let asset_dir = if info_contents.asset_type == AssetType::Rgb21 {
+                let ass_dir = self.wallet_dir.join(ASSETS_DIR).join(asset_id);
+                if ass_dir.is_dir() {
+                    Some(ass_dir)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            self._post_transfer_data(info_contents.recipients, asset_transfer_dir, asset_dir)?;
         }
 
         // broadcast PSBT if donation and finally save transfer to DB

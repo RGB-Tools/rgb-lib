@@ -22,6 +22,7 @@ futures = "0.3"
 rgb_lib_migration = { path = "migration", version = "0.1.0" }
 reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "multipart", "native-tls"] }
 sea-orm = { version = "^0.8.0", features = ["sqlx-mysql", "sqlx-postgres", "sqlx-sqlite", "runtime-async-std-native-tls", "macros"] }
+sea-query = "=0.24.6"
 serde = { version = "^1.0", features = ["derive"] }
 serde_json = { version = "^1.0" }
 slog = "2.7.0"
@@ -29,17 +30,20 @@ slog-async = "2.7.0"
 slog-term = "2.9.0"
 thiserror = "1.0"
 time = { version = "0.3.13", features = ["std"] }
+tree_magic = "0.2.3"
 
 # RGB-related deps
 amplify = "=3.13.0"
 amplify_num = "=0.4.1"
 bp-core = { git = "https://github.com/zoedberg/bp-core", branch = "fixes", version = "0.8.0", features = ["psbt", "wallet"] }
 bp-dbc = { git = "https://github.com/zoedberg/bp-core", branch = "fixes", version = "0.8.0" }
+commit_verify = "=0.8.0"
 internet2 = "=0.8.3"
 lnpbp = "=0.8.0"
 psbt = { git = "https://github.com/zoedberg/descriptor-wallet", branch = "fixes", version = "0.8.5" }
 rgb-std = { git = "https://github.com/zoedberg/rgb-std", branch = "fixes", version = "0.8.0" }
 rgb20 = { git = "https://github.com/zoedberg/rust-rgb20", branch = "fixes", version = "0.8.0-rc.4" }
+rgb21 = { git = "https://github.com/RGB-Tools/rust-rgb21", branch = "master", version = "0.1.0" }
 rgb_core = { package = "rgb-core", git = "https://github.com/zoedberg/rgb-core", branch = "fixes", version = "0.8.0" }
 rgb_node = { git = "https://github.com/zoedberg/rgb-node", branch = "fixes", version = "0.8.0-rc.1", features = ["server", "embedded"] }
 rgb_rpc = { git = "https://github.com/zoedberg/rgb-node", branch = "fixes", version = "0.8.0-rc.1" }

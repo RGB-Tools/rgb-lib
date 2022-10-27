@@ -16,7 +16,8 @@ pub struct Model {
     pub idx: i64,
     pub user_driven: bool,
     pub batch_transfer_idx: i64,
-    pub asset_id: Option<String>,
+    pub asset_rgb20_id: Option<String>,
+    pub asset_rgb21_id: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
@@ -24,7 +25,8 @@ pub enum Column {
     Idx,
     UserDriven,
     BatchTransferIdx,
-    AssetId,
+    AssetRgb20Id,
+    AssetRgb21Id,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DerivePrimaryKey)]
@@ -41,10 +43,11 @@ impl PrimaryKeyTrait for PrimaryKey {
 
 #[derive(Copy, Clone, Debug, EnumIter)]
 pub enum Relation {
-    Asset,
+    AssetRgb20,
+    AssetRgb21,
     BatchTransfer,
-    Coloring,
     Transfer,
+    Coloring,
 }
 
 impl ColumnTrait for Column {
@@ -54,7 +57,8 @@ impl ColumnTrait for Column {
             Self::Idx => ColumnType::BigInteger.def(),
             Self::UserDriven => ColumnType::Boolean.def(),
             Self::BatchTransferIdx => ColumnType::BigInteger.def(),
-            Self::AssetId => ColumnType::String(None).def().null(),
+            Self::AssetRgb20Id => ColumnType::String(None).def().null(),
+            Self::AssetRgb21Id => ColumnType::String(None).def().null(),
         }
     }
 }
@@ -62,23 +66,33 @@ impl ColumnTrait for Column {
 impl RelationTrait for Relation {
     fn def(&self) -> RelationDef {
         match self {
-            Self::Asset => Entity::belongs_to(super::asset::Entity)
-                .from(Column::AssetId)
-                .to(super::asset::Column::AssetId)
+            Self::AssetRgb20 => Entity::belongs_to(super::asset_rgb20::Entity)
+                .from(Column::AssetRgb20Id)
+                .to(super::asset_rgb20::Column::AssetId)
+                .into(),
+            Self::AssetRgb21 => Entity::belongs_to(super::asset_rgb21::Entity)
+                .from(Column::AssetRgb21Id)
+                .to(super::asset_rgb21::Column::AssetId)
                 .into(),
             Self::BatchTransfer => Entity::belongs_to(super::batch_transfer::Entity)
                 .from(Column::BatchTransferIdx)
                 .to(super::batch_transfer::Column::Idx)
                 .into(),
-            Self::Coloring => Entity::has_many(super::coloring::Entity).into(),
             Self::Transfer => Entity::has_many(super::transfer::Entity).into(),
+            Self::Coloring => Entity::has_many(super::coloring::Entity).into(),
         }
     }
 }
 
-impl Related<super::asset::Entity> for Entity {
+impl Related<super::asset_rgb20::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Asset.def()
+        Relation::AssetRgb20.def()
+    }
+}
+
+impl Related<super::asset_rgb21::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::AssetRgb21.def()
     }
 }
 
@@ -88,15 +102,15 @@ impl Related<super::batch_transfer::Entity> for Entity {
     }
 }
 
-impl Related<super::coloring::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Coloring.def()
-    }
-}
-
 impl Related<super::transfer::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Transfer.def()
+    }
+}
+
+impl Related<super::coloring::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Coloring.def()
     }
 }
 

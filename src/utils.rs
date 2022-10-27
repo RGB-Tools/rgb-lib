@@ -27,7 +27,7 @@ const TIMESTAMP_FORMAT: &[time::format_description::FormatItem] = time::macros::
 const LOG_FILE: &str = "log";
 
 /// Supported Bitcoin networks
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BitcoinNetwork {
     /// Bitcoin's mainnet
     Mainnet,
@@ -89,17 +89,38 @@ pub(crate) fn get_txid(bitcoin_network: BitcoinNetwork) -> String {
     }
 }
 
-pub(crate) fn calculate_descriptor_from_xprv(xprv: ExtendedPrivKey, change: bool) -> String {
+pub(crate) fn _get_derivation_path(
+    watch_only: bool,
+    bitcoin_network: BitcoinNetwork,
+    change: bool,
+) -> String {
     let change_num = if change { 1 } else { 0 };
-    format!("wpkh({xprv}/84'/1'/{DERIVATION_PATH_ACCOUNT}'/{change_num}/*)")
+    let coin_type = if bitcoin_network == BitcoinNetwork::Mainnet {
+        0
+    } else {
+        1
+    };
+    let hardened = if watch_only { "" } else { "'" };
+    let child_number = if watch_only { "" } else { "/*" };
+    let master = if watch_only { "m" } else { "" };
+    format!("{master}/84{hardened}/{coin_type}{hardened}/{DERIVATION_PATH_ACCOUNT}{hardened}/{change_num}{child_number}")
+}
+
+pub(crate) fn calculate_descriptor_from_xprv(
+    xprv: ExtendedPrivKey,
+    bitcoin_network: BitcoinNetwork,
+    change: bool,
+) -> String {
+    let derivation_path = _get_derivation_path(false, bitcoin_network, change);
+    format!("wpkh({xprv}{derivation_path})")
 }
 
 pub(crate) fn calculate_descriptor_from_xpub(
     xpub: ExtendedPubKey,
+    bitcoin_network: BitcoinNetwork,
     change: bool,
 ) -> Result<String, Error> {
-    let change_num = if change { 1 } else { 0 };
-    let derivation_path = format!("m/84/1/{DERIVATION_PATH_ACCOUNT}/{change_num}");
+    let derivation_path = _get_derivation_path(true, bitcoin_network, change);
     let path =
         DerivationPath::from_str(&derivation_path).expect("derivation path should be well-formed");
     let der_xpub = &xpub

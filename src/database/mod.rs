@@ -6,12 +6,13 @@ use sea_orm::{
     ActiveValue, ColumnTrait, DatabaseConnection, DeriveActiveEnum, EnumIter, IntoActiveValue,
     ModelTrait, QueryFilter,
 };
+use sea_query::query::Condition;
 use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::error::InternalError;
 use crate::utils::now;
-use crate::wallet::{Balance, Outpoint, RgbAllocation, TransferStatus};
+use crate::wallet::{AssetType, Balance, Outpoint, RgbAllocation, TransferStatus};
 use crate::Error;
 
 pub(crate) mod entities;
@@ -22,11 +23,12 @@ use crate::database::entities::asset_transfer::{
 use crate::database::entities::batch_transfer::{
     ActiveModel as DbBatchTransferActMod, Model as DbBatchTransfer,
 };
-use entities::asset::{ActiveModel as DbAssetActMod, Model as DbAsset};
+use entities::asset_rgb20::{ActiveModel as DbAssetRgb20ActMod, Model as DbAssetRgb20};
+use entities::asset_rgb21::{ActiveModel as DbAssetRgb21ActMod, Model as DbAssetRgb21};
 use entities::coloring::{ActiveModel as DbColoringActMod, Model as DbColoring};
 use entities::transfer::{ActiveModel as DbTransferActMod, Model as DbTransfer};
 use entities::txo::{ActiveModel as DbTxoActMod, Model as DbTxo};
-use entities::{asset, asset_transfer, batch_transfer, coloring, transfer, txo};
+use entities::{asset_rgb20, asset_rgb21, asset_transfer, batch_transfer, coloring, transfer, txo};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
 #[sea_orm(rs_type = "u16", db_type = "Integer")]
@@ -176,10 +178,17 @@ impl RgbLibDatabase {
         &self.connection
     }
 
-    pub(crate) fn set_asset(&self, db_asset: DbAsset) -> Result<i64, InternalError> {
-        let mut asset: DbAssetActMod = db_asset.into();
+    pub(crate) fn set_asset_rgb20(&self, asset_rgb20: DbAssetRgb20) -> Result<i64, InternalError> {
+        let mut asset: DbAssetRgb20ActMod = asset_rgb20.into();
         asset.idx = ActiveValue::NotSet;
-        let res = block_on(asset::Entity::insert(asset).exec(self.get_connection()))?;
+        let res = block_on(asset_rgb20::Entity::insert(asset).exec(self.get_connection()))?;
+        Ok(res.last_insert_id)
+    }
+
+    pub(crate) fn set_asset_rgb21(&self, asset_rgb21: DbAssetRgb21) -> Result<i64, InternalError> {
+        let mut asset: DbAssetRgb21ActMod = asset_rgb21.into();
+        asset.idx = ActiveValue::NotSet;
+        let res = block_on(asset_rgb21::Entity::insert(asset).exec(self.get_connection()))?;
         Ok(res.last_insert_id)
     }
 
@@ -277,14 +286,6 @@ impl RgbLibDatabase {
         Ok(())
     }
 
-    pub(crate) fn get_asset(&self, asset_id: String) -> Result<Option<DbAsset>, InternalError> {
-        Ok(block_on(
-            asset::Entity::find()
-                .filter(asset::Column::AssetId.eq(asset_id))
-                .one(self.get_connection()),
-        )?)
-    }
-
     pub(crate) fn get_batch_transfer(
         &self,
         txid: String,
@@ -316,8 +317,16 @@ impl RgbLibDatabase {
         )?)
     }
 
-    pub(crate) fn iter_assets(&self) -> Result<Vec<DbAsset>, InternalError> {
-        Ok(block_on(asset::Entity::find().all(self.get_connection()))?)
+    pub(crate) fn iter_assets_rgb20(&self) -> Result<Vec<DbAssetRgb20>, InternalError> {
+        Ok(block_on(
+            asset_rgb20::Entity::find().all(self.get_connection()),
+        )?)
+    }
+
+    pub(crate) fn iter_assets_rgb21(&self) -> Result<Vec<DbAssetRgb21>, InternalError> {
+        Ok(block_on(
+            asset_rgb21::Entity::find().all(self.get_connection()),
+        )?)
     }
 
     pub(crate) fn iter_asset_transfers(&self) -> Result<Vec<DbAssetTransfer>, InternalError> {
@@ -332,7 +341,11 @@ impl RgbLibDatabase {
     ) -> Result<Vec<DbAssetTransfer>, InternalError> {
         Ok(block_on(
             asset_transfer::Entity::find()
-                .filter(asset_transfer::Column::AssetId.eq(asset_id))
+                .filter(
+                    Condition::any()
+                        .add(asset_transfer::Column::AssetRgb20Id.eq(asset_id.clone()))
+                        .add(asset_transfer::Column::AssetRgb21Id.eq(asset_id)),
+                )
                 .all(self.get_connection()),
         )?)
     }
@@ -495,9 +508,34 @@ impl RgbLibDatabase {
         })
     }
 
-    pub(crate) fn get_asset_or_fail(&self, asset_id: String) -> Result<DbAsset, Error> {
-        if let Some(asset) = self.get_asset(asset_id.clone())? {
-            Ok(asset)
+    pub(crate) fn get_asset_ids(&self) -> Result<Vec<String>, InternalError> {
+        Ok(self
+            .iter_assets_rgb20()?
+            .iter()
+            .map(|a| a.asset_id.clone())
+            .chain(self.iter_assets_rgb21()?.iter().map(|a| a.asset_id.clone()))
+            .collect())
+    }
+
+    pub(crate) fn get_asset_or_fail(&self, asset_id: String) -> Result<AssetType, Error> {
+        if block_on(
+            asset_rgb20::Entity::find()
+                .filter(asset_rgb20::Column::AssetId.eq(asset_id.clone()))
+                .one(self.get_connection()),
+        )
+        .map_err(InternalError::from)?
+        .is_some()
+        {
+            Ok(AssetType::Rgb20)
+        } else if block_on(
+            asset_rgb21::Entity::find()
+                .filter(asset_rgb21::Column::AssetId.eq(asset_id.clone()))
+                .one(self.get_connection()),
+        )
+        .map_err(InternalError::from)?
+        .is_some()
+        {
+            Ok(AssetType::Rgb21)
         } else {
             Err(Error::AssetNotFound(asset_id))
         }
@@ -670,8 +708,12 @@ impl RgbLibDatabase {
                     .amount
                     .parse::<u64>()
                     .expect("DB should contain a valid u64 value");
+                let mut asset_id = asset_transfer.asset_rgb20_id.clone();
+                if asset_id.is_none() {
+                    asset_id = asset_transfer.asset_rgb21_id.clone()
+                };
                 allocations.push(RgbAllocation {
-                    asset_id: asset_transfer.asset_id.clone(),
+                    asset_id,
                     amount: coloring_amount,
                     settled: true,
                 });
@@ -686,8 +728,12 @@ impl RgbLibDatabase {
                     .amount
                     .parse::<u64>()
                     .expect("DB should contain a valid u64 value");
+                let mut asset_id = asset_transfer.asset_rgb20_id.clone();
+                if asset_id.is_none() {
+                    asset_id = asset_transfer.asset_rgb21_id.clone()
+                };
                 allocations.push(RgbAllocation {
-                    asset_id: asset_transfer.asset_id.clone(),
+                    asset_id,
                     amount: coloring_amount,
                     settled: false,
                 });

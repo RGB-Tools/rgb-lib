@@ -2,7 +2,8 @@
 
 pub mod prelude;
 
-pub mod asset;
+pub mod asset_rgb20;
+pub mod asset_rgb21;
 pub mod asset_transfer;
 pub mod batch_transfer;
 pub mod coloring;

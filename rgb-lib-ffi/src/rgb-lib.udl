@@ -14,7 +14,7 @@ enum RgbLibError {
   "CannotChangeOnline",
   "CannotDeleteTransfer",
   "CannotFailTransfer",
-  "ConsignmentProxy",
+  "Proxy",
   "Electrum",
   "FailedBdkSync",
   "FailedBroadcast",
@@ -29,15 +29,19 @@ enum RgbLibError {
   "InvalidAddress",
   "InvalidBitcoinKeys",
   "InvalidBlindedUTXO",
+  "InvalidDescription",
   "InvalidElectrum",
+  "InvalidFilePath",
   "InvalidMnemonic",
   "InvalidName",
   "InvalidOnline",
+  "InvalidParentId",
   "InvalidPsbt",
   "InvalidPubkey",
   "InvalidTicker",
   "NoIssuanceAmounts",
   "TransferNotFound",
+  "UnknownRgbSchema",
   "WatchOnly",
 };
 
@@ -46,12 +50,37 @@ dictionary Recipient {
   u64 amount;
 };
 
-dictionary Asset {
+enum AssetType {
+  "Rgb20",
+  "Rgb21",
+};
+
+dictionary AssetRgb20 {
   string asset_id;
   string ticker;
   string name;
   u8 precision;
   Balance balance;
+};
+
+dictionary Media {
+  string file_path;
+  string mime;
+};
+
+dictionary AssetRgb21 {
+  string asset_id;
+  string name;
+  string? description;
+  u8 precision;
+  Balance balance;
+  sequence<Media> data_paths;
+  string? parent_id;
+};
+
+dictionary Assets {
+  sequence<AssetRgb20>? rgb20;
+  sequence<AssetRgb21>? rgb21;
 };
 
 dictionary Balance {
@@ -180,10 +209,17 @@ interface Wallet {
   Online go_online(boolean skip_consistency_check, string electrum_url, string proxy_url);
 
   [Throws=RgbLibError]
-  Asset issue_asset(Online online, string ticker, string name, u8 precision, sequence<u64> amounts);
+  AssetRgb20 issue_asset_rgb20(
+    Online online, string ticker, string name, u8 precision,
+    sequence<u64> amounts);
 
   [Throws=RgbLibError]
-  sequence<Asset> list_assets();
+  AssetRgb21 issue_asset_rgb21(
+    Online online, string name, string? description, u8 precision,
+    sequence<u64> amounts, string? parent_id, string? file_path);
+
+  [Throws=RgbLibError]
+  Assets list_assets(sequence<AssetType> filter_asset_types);
 
   [Throws=RgbLibError]
   sequence<Transfer> list_transfers(string asset_id);
@@ -195,10 +231,14 @@ interface Wallet {
   void refresh(Online online, string? asset_id);
 
   [Throws=RgbLibError]
-  string send(Online online, record<DOMString, sequence<Recipient>> recipient_map, boolean donation);
+  string send(
+    Online online, record<DOMString, sequence<Recipient>> recipient_map,
+    boolean donation);
 
   [Throws=RgbLibError]
-  string send_begin(Online online, record<DOMString, sequence<Recipient>> recipient_map, boolean donation);
+  string send_begin(
+    Online online, record<DOMString, sequence<Recipient>> recipient_map,
+    boolean donation);
 
   [Throws=RgbLibError]
   string send_end(Online online, string signed_psbt);
