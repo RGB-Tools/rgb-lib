@@ -1,19 +1,49 @@
 use super::*;
 
 #[test]
-fn success() {
+fn rgb20_success() {
     initialize();
 
     let (mut wallet, online) = get_funded_wallet!();
 
     // issue
     let asset = wallet
-        .issue_asset(
+        .issue_asset_rgb20(
             online,
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
             vec![AMOUNT],
+        )
+        .unwrap();
+
+    // balances after issuance
+    let asset_balance = wallet.get_asset_balance(asset.asset_id).unwrap();
+    assert_eq!(
+        asset_balance,
+        Balance {
+            settled: AMOUNT,
+            future: AMOUNT
+        }
+    );
+}
+
+#[test]
+fn rgb21_success() {
+    initialize();
+
+    let (mut wallet, online) = get_funded_wallet!();
+
+    // issue
+    let asset = wallet
+        .issue_asset_rgb21(
+            online,
+            NAME.to_string(),
+            Some(DESCRIPTION.to_string()),
+            PRECISION,
+            vec![AMOUNT],
+            None,
+            None,
         )
         .unwrap();
 
@@ -40,7 +70,7 @@ fn transfer_balances() {
 
     // issue
     let asset = wallet_send
-        .issue_asset(
+        .issue_asset_rgb20(
             online_send.clone(),
             TICKER.to_string(),
             NAME.to_string(),

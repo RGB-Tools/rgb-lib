@@ -30,7 +30,7 @@ fn fail() {
 
     // cannot go online with a broken proxy URL
     let result = wallet.go_online(false, ELECTRUM_URL.to_string(), s!("http://other"));
-    assert!(matches!(result, Err(Error::ConsignmentProxy(_))));
+    assert!(matches!(result, Err(Error::Proxy(_))));
 
     wallet
         .go_online(false, ELECTRUM_URL.to_string(), PROXY_URL.to_string())
@@ -58,7 +58,7 @@ fn consistency_check_fail_utxos() {
     let (mut wallet_orig, online_orig) = get_funded_wallet!(true, true);
     let wallet_data_orig = wallet_orig.get_wallet_data();
     wallet_orig
-        .issue_asset(
+        .issue_asset_rgb20(
             online_orig,
             TICKER.to_string(),
             NAME.to_string(),
@@ -170,7 +170,7 @@ fn consistency_check_fail_asset_ids() {
     let (mut wallet_orig, online_orig) = get_funded_wallet!();
     let wallet_data_orig = wallet_orig.get_wallet_data();
     let _asset = wallet_orig
-        .issue_asset(
+        .issue_asset_rgb20(
             online_orig,
             TICKER.to_string(),
             NAME.to_string(),

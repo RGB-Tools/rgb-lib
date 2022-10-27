@@ -34,7 +34,7 @@ fn success() {
     // more unspents, one with an rgb allocation
     let (mut wallet, online) = get_funded_wallet!();
     let asset = wallet
-        .issue_asset(
+        .issue_asset_rgb20(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),

@@ -27,7 +27,7 @@ fn success() {
 
     // asset id is set
     let asset = wallet
-        .issue_asset(
+        .issue_asset_rgb20(
             online,
             TICKER.to_string(),
             NAME.to_string(),
@@ -100,4 +100,89 @@ fn fail() {
     let (mut wallet, _online) = get_empty_wallet!();
     let result = wallet.blind(None, None);
     assert!(matches!(result, Err(Error::InsufficientFunds)));
+}
+
+#[test]
+fn wrong_asset_fail() {
+    initialize();
+
+    let amount: u64 = 66;
+
+    let (mut wallet_1, online_1) = get_funded_wallet!();
+    let (mut wallet_2, online_2) = get_funded_wallet!();
+
+    // issue one asset per wallet
+    let asset_a = wallet_1
+        .issue_asset_rgb20(
+            online_1.clone(),
+            TICKER.to_string(),
+            NAME.to_string(),
+            PRECISION,
+            vec![AMOUNT],
+        )
+        .unwrap();
+    let asset_b = wallet_2
+        .issue_asset_rgb20(
+            online_2.clone(),
+            TICKER.to_string(),
+            NAME.to_string(),
+            PRECISION,
+            vec![AMOUNT],
+        )
+        .unwrap();
+    dbg!(&asset_a.asset_id);
+    dbg!(&asset_b.asset_id);
+
+    let blind_data_a = wallet_1
+        .blind(Some(asset_a.asset_id.clone()), None)
+        .unwrap();
+
+    let recipient_map = HashMap::from([(
+        asset_b.asset_id.clone(),
+        vec![Recipient {
+            amount,
+            blinded_utxo: blind_data_a.blinded_utxo.clone(),
+        }],
+    )]);
+    let txid = wallet_2
+        .send(online_2.clone(), recipient_map, false)
+        .unwrap();
+    assert!(!txid.is_empty());
+
+    // transfer is pending
+    let rcv_transfers_a = wallet_1.list_transfers(asset_a.asset_id.clone()).unwrap();
+    dbg!(&rcv_transfers_a);
+
+    let rcv_transfer_a = get_test_transfer_recipient(&wallet_1, &blind_data_a.blinded_utxo);
+    dbg!(&rcv_transfer_a);
+    let rcv_transfer_data_a = wallet_1
+        .database
+        .get_transfer_data(&rcv_transfer_a)
+        .unwrap();
+    dbg!(&rcv_transfer_data_a.status);
+    assert_eq!(
+        rcv_transfer_data_a.status,
+        TransferStatus::WaitingCounterparty
+    );
+    let rcv_asset_transfer_a =
+        get_test_asset_transfer(&wallet_1, rcv_transfer_a.asset_transfer_idx);
+    dbg!(&rcv_asset_transfer_a);
+
+    // transfer doesn't progress to status WaitingConfirmations on the receiving side
+    wallet_1.refresh(online_1, None).unwrap();
+    wallet_2.refresh(online_2, None).unwrap();
+
+    // transfer has been NACKed
+    let rcv_transfers_a = wallet_1.list_transfers(asset_a.asset_id).unwrap();
+    dbg!(&rcv_transfers_a);
+    let rcv_transfer_data_a = wallet_1
+        .database
+        .get_transfer_data(&rcv_transfer_a)
+        .unwrap();
+    dbg!(&rcv_transfer_data_a.status);
+    assert_eq!(rcv_transfer_data_a.status, TransferStatus::Failed);
+    let rcv_transfers_b = wallet_1.list_transfers(asset_b.asset_id.clone());
+    assert!(matches!(rcv_transfers_b, Err(Error::AssetNotFound(_))));
+    let transfers_b = wallet_2.list_transfers(asset_b.asset_id).unwrap();
+    dbg!(&transfers_b);
 }

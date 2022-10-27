@@ -11,6 +11,7 @@ const ELECTRUM_URL: &str = "127.0.0.1:50001";
 const TEST_DATA_DIR: &str = "./tests/tmp";
 const TICKER: &str = "TICKER";
 const NAME: &str = "name";
+const DESCRIPTION: &str = "DESCRIPTION";
 const PRECISION: u8 = 7;
 const AMOUNT: u64 = 666;
 
@@ -258,8 +259,14 @@ fn get_test_transfers_sender(
     let asset_transfers = get_test_asset_transfers(wallet, batch_transfer.idx);
     let mut transfers: HashMap<String, Vec<DbTransfer>> = HashMap::new();
     for asset_transfer in asset_transfers.clone() {
+        let asset_id = if asset_transfer.asset_rgb20_id.is_some() {
+            asset_transfer.asset_rgb20_id
+        } else {
+            asset_transfer.asset_rgb21_id
+        }
+        .unwrap();
         let transfers_for_asset = get_test_transfers(wallet, asset_transfer.idx);
-        transfers.insert(asset_transfer.asset_id.unwrap(), transfers_for_asset);
+        transfers.insert(asset_id, transfers_for_asset);
     }
     (transfers.clone(), asset_transfers, batch_transfer.clone())
 }
@@ -296,7 +303,8 @@ mod fail_transfers;
 mod get_address;
 mod get_asset_balance;
 mod go_online;
-mod issue_asset;
+mod issue_asset_rgb20;
+mod issue_asset_rgb21;
 mod list_assets;
 mod list_transfers;
 mod list_unspents;

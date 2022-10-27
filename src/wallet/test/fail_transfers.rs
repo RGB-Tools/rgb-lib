@@ -11,7 +11,7 @@ fn success() {
 
     // issue
     let asset = wallet
-        .issue_asset(
+        .issue_asset_rgb20(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -90,7 +90,7 @@ fn batch_success() {
 
     // issue
     let asset = wallet
-        .issue_asset(
+        .issue_asset_rgb20(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -208,7 +208,7 @@ fn fail() {
 
     // issue
     let asset = wallet
-        .issue_asset(
+        .issue_asset_rgb20(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -319,7 +319,7 @@ fn batch_fail() {
 
     // issue
     let asset = wallet
-        .issue_asset(
+        .issue_asset_rgb20(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),

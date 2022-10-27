@@ -21,7 +21,7 @@ fn success() {
     // issue asset (to produce an RGB allocation)
     let (mut wallet, online) = get_funded_wallet!();
     wallet
-        .issue_asset(
+        .issue_asset_rgb20(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
