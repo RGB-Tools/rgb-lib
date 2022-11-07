@@ -32,7 +32,7 @@ use futures::executor::block_on;
 use internet2::addr::ServiceAddr;
 use lnpbp::chain::Chain as RgbNetwork;
 use psbt::Psbt;
-use reqwest::blocking::Client as RestClient;
+use reqwest::Client as RestClient;
 use rgb::blank::BlankBundle;
 use rgb::fungible::allocation::{AllocatedValue, OutpointValue as RgbOutpointValue, UtxobValue};
 use rgb::psbt::{RgbExt, RgbInExt};

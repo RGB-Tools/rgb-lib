@@ -10,6 +10,7 @@ use lnpbp::chain::Chain as RgbNetwork;
 use std::io;
 use std::str::FromStr;
 use std::{fs::OpenOptions, path::PathBuf};
+use tokio::runtime::Runtime;
 
 use slog::{Drain, Logger};
 use slog_term::{FullFormat, PlainDecorator};
@@ -72,6 +73,12 @@ impl From<BitcoinNetwork> for RgbNetwork {
             }
         }
     }
+}
+
+pub(crate) fn get_runtime_handle() -> Result<Runtime, Error> {
+    Ok(tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?)
 }
 
 pub(crate) fn get_txid(bitcoin_network: BitcoinNetwork) -> String {
