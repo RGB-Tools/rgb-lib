@@ -107,6 +107,10 @@ pub enum Error {
     #[error("Invalid file path: {0}")]
     InvalidFilePath(String),
 
+    /// The provided invoice is invalid
+    #[error("Invalid invoice: {0}")]
+    InvalidInvoice(#[from] lnpbp::bech32::Error),
+
     /// The provided mnemonic phrase is invalid
     #[error("Invalid mnemonic error: {0}")]
     InvalidMnemonic(#[from] bdk::keys::bip39::Error),
@@ -150,6 +154,10 @@ pub enum Error {
     /// The detected RGB schema is unknown
     #[error("Unknown RGB schema: {0}")]
     UnknownRgbSchema(String),
+
+    /// The given invoice type is not supported
+    #[error("Invoice type is not supported")]
+    UnsupportedInvoice,
 
     /// The requested operation cannot be processed by a watch-only wallet
     #[error("Operation not allowed on watch only wallet")]

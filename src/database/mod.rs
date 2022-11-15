@@ -427,12 +427,34 @@ impl RgbLibDatabase {
         Ok(unspendable_txo_ids)
     }
 
-    pub(crate) fn get_asset_balance(&self, asset_id: String) -> Result<Balance, Error> {
-        let asset_transfers = self.iter_asset_asset_transfers(asset_id)?;
-
-        let batch_transfers = self.iter_batch_transfers()?;
-        let colorings = self.iter_colorings()?;
-        let txos = self.iter_txos()?;
+    pub(crate) fn get_asset_balance(
+        &self,
+        asset_id: String,
+        asset_transfers: Option<Vec<DbAssetTransfer>>,
+        batch_transfers: Option<Vec<DbBatchTransfer>>,
+        colorings: Option<Vec<DbColoring>>,
+        txos: Option<Vec<DbTxo>>,
+    ) -> Result<Balance, Error> {
+        let batch_transfers = if let Some(bt) = batch_transfers {
+            bt
+        } else {
+            self.iter_batch_transfers()?
+        };
+        let asset_transfers = if let Some(at) = asset_transfers {
+            at
+        } else {
+            self.iter_asset_transfers()?
+        };
+        let colorings = if let Some(cs) = colorings {
+            cs
+        } else {
+            self.iter_colorings()?
+        };
+        let txos = if let Some(t) = txos {
+            t
+        } else {
+            self.iter_txos()?
+        };
 
         let pending_batch_transfer_ids: Vec<i64> = batch_transfers
             .clone()
@@ -453,7 +475,15 @@ impl RgbLibDatabase {
             .map(|t| t.idx)
             .collect();
 
-        let ass_pending_transfer_ids: Vec<i64> = asset_transfers
+        let ass_asset_transfers: Vec<DbAssetTransfer> = asset_transfers
+            .into_iter()
+            .filter(|t| {
+                Some(asset_id.clone()) == t.asset_rgb20_id
+                    || Some(asset_id.clone()) == t.asset_rgb121_id
+            })
+            .collect();
+
+        let ass_pending_transfer_ids: Vec<i64> = ass_asset_transfers
             .clone()
             .into_iter()
             .filter(|t| pending_batch_transfer_ids.contains(&t.batch_transfer_idx))
@@ -484,7 +514,7 @@ impl RgbLibDatabase {
             })
             .sum();
 
-        let ass_settled_transfer_ids: Vec<i64> = asset_transfers
+        let ass_settled_transfer_ids: Vec<i64> = ass_asset_transfers
             .clone()
             .into_iter()
             .filter(|t| settled_batch_transfer_ids.contains(&t.batch_transfer_idx))
@@ -496,7 +526,7 @@ impl RgbLibDatabase {
             .filter(|t| !t.spent)
             .map(|u| u.idx)
             .collect();
-        let ass_waiting_confs_transfer_ids: Vec<i64> = asset_transfers
+        let ass_waiting_confs_transfer_ids: Vec<i64> = ass_asset_transfers
             .into_iter()
             .filter(|t| waiting_confs_batch_transfer_ids.contains(&t.batch_transfer_idx))
             .map(|t| t.idx)
@@ -819,6 +849,7 @@ impl RgbLibDatabase {
         } else {
             self.iter_colorings()?
         };
+
         utxos
             .iter()
             .map(|t| {

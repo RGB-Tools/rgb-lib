@@ -17,6 +17,7 @@ members = [".", "migration"]
 base64 = "0.13.0"
 bdk = { version = "0.23", features = ["electrum", "keys-bip39", "sqlite-bundled"] }
 bitcoin = "0.28.1"
+chrono = "0.4.23"
 electrum-client = "0.10.2"
 futures = "0.3"
 rgb_lib_migration = { path = "migration", version = "0.1.0" }
@@ -42,6 +43,7 @@ bp-dbc = "=0.8.1"
 commit_verify = "=0.8.1"
 internet2 = "=0.8.4"
 lnpbp = "=0.8.0"
+lnpbp-invoice = { version = "0.8.0-rc.1", features = ["rgb"] }
 psbt = "=0.8.5"
 rgb-std = "=0.8.1"
 rgb20 = "=0.8.0"

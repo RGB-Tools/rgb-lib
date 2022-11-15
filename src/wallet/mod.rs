@@ -26,11 +26,13 @@ use bitcoin::Txid;
 use bitcoin::{Address, OutPoint, Transaction};
 use bp::seals::txout::blind::ConcealedSeal;
 use bp::seals::txout::{CloseMethod, ExplicitSeal};
+use chrono::NaiveDateTime;
 use commit_verify::commit_verify::CommitVerify;
 use electrum_client::{Client as ElectrumClient, ConfigBuilder, ElectrumApi, Param};
 use futures::executor::block_on;
 use internet2::addr::ServiceAddr;
-use lnpbp::chain::Chain as RgbNetwork;
+use invoice::{AmountExt, Beneficiary, Invoice as UniversalInvoice};
+use lnpbp::chain::{AssetId, Chain as RgbNetwork};
 use psbt::Psbt;
 use reqwest::Client as RestClient;
 use rgb::blank::{BlankBundle, Error as BlankError};
@@ -300,13 +302,31 @@ impl BlankBundleRgb121 for TransitionBundle {
 }
 
 /// Data for a UTXO blinding
+#[derive(Debug)]
 pub struct BlindData {
+    /// Bech32 invoice
+    pub invoice: String,
     /// Blinded UTXO
     pub blinded_utxo: String,
     /// Secret used to blind the UTXO
     pub blinding_secret: u64,
     /// Expiration of the `blinded_utxo`
     pub expiration_timestamp: Option<i64>,
+}
+
+/// An RGB blinded UTXO
+#[derive(Debug)]
+pub struct BlindedUTXO {
+    /// Blinded UTXO
+    pub blinded_utxo: String,
+}
+
+impl BlindedUTXO {
+    /// Checks that the provided [`blinded_utxo`] is a valid blinded UTXO
+    pub fn new(blinded_utxo: String) -> Result<Self, Error> {
+        ConcealedSeal::from_str(&blinded_utxo)?;
+        Ok(BlindedUTXO { blinded_utxo })
+    }
 }
 
 /// Supported database types
@@ -328,6 +348,94 @@ struct InfoAssetTransfer {
     recipients: Vec<Recipient>,
     asset_spend: AssetSpend,
     asset_type: AssetType,
+}
+
+/// An RGB invoice
+pub struct Invoice {
+    /// The RGB invoice in bech32 encoding
+    bech32_invoice: String,
+    /// The decoded RGB invoice
+    invoice_data: InvoiceData,
+}
+
+impl Invoice {
+    /// Parse the provided [`bech32_invoice`].
+    /// Throws an error if the provided string is not a valid bech32 invoice.
+    pub fn new(bech32_invoice: String) -> Result<Self, Error> {
+        let decoded = UniversalInvoice::from_str(&bech32_invoice)?;
+        let asset_id = decoded.rgb_asset().map(|rid| rid.to_string());
+        let amount = match decoded.amount() {
+            AmountExt::Any => None,
+            AmountExt::Normal(v) => Some(*v),
+            AmountExt::Milli(_v, _m) => return Err(Error::UnsupportedInvoice),
+        };
+        let blinded_utxo = match decoded.beneficiary() {
+            Beneficiary::BlindUtxo(concealed_seal) => concealed_seal.to_string(),
+            _ => return Err(Error::UnsupportedInvoice),
+        };
+        let expiration_timestamp = decoded.expiry().as_ref().map(|exp| exp.timestamp());
+        let invoice_data = InvoiceData {
+            blinded_utxo,
+            asset_id,
+            amount,
+            expiration_timestamp,
+        };
+
+        Ok(Invoice {
+            bech32_invoice,
+            invoice_data,
+        })
+    }
+
+    /// Parse the provided [`invoice_data`].
+    /// Throws an error if the provided data is invalid.
+    pub fn from_invoice_data(invoice_data: InvoiceData) -> Result<Self, Error> {
+        let concealed_seal = ConcealedSeal::from_str(&invoice_data.blinded_utxo)?;
+        let beneficiary = Beneficiary::BlindUtxo(concealed_seal);
+        let rgb_asset_id = if let Some(cid) = invoice_data.asset_id.clone() {
+            let contract_id = ContractId::from_str(&cid).map_err(InternalError::from)?;
+            let rid = AssetId::from(contract_id);
+            Some(rid)
+        } else {
+            None
+        };
+        let mut invoice = UniversalInvoice::new(beneficiary, invoice_data.amount, rgb_asset_id);
+        if let Some(exp) = invoice_data.expiration_timestamp {
+            if let Some(expiry) = NaiveDateTime::from_timestamp_opt(exp, 0) {
+                invoice.set_expiry(expiry);
+            }
+        }
+
+        let bech32_invoice = invoice.to_string();
+
+        Ok(Invoice {
+            bech32_invoice,
+            invoice_data,
+        })
+    }
+
+    /// Return the data associated with this [`Invoice`]
+    pub fn invoice_data(&self) -> InvoiceData {
+        self.invoice_data.clone()
+    }
+
+    /// Return the bech32 invoice string associated with this [`Invoice`]
+    pub fn bech32_invoice(&self) -> String {
+        self.bech32_invoice.clone()
+    }
+}
+
+/// A decoded RGB invoice
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
+pub struct InvoiceData {
+    /// Blinded UTXO
+    pub blinded_utxo: String,
+    /// RGB asset ID
+    pub asset_id: Option<String>,
+    /// RGB amount
+    pub amount: Option<u64>,
+    /// Invoice expiration
+    pub expiration_timestamp: Option<i64>,
 }
 
 /// Data for operations that require the wallet to be online
@@ -834,16 +942,20 @@ impl Wallet {
     pub fn blind(
         &mut self,
         asset_id: Option<String>,
+        amount: Option<u64>,
         duration_seconds: Option<u32>,
     ) -> Result<BlindData, Error> {
         info!(
             self.logger,
             "Blinding for asset '{:?}' with duration '{:?}'...", asset_id, duration_seconds
         );
-        let asset_type = if let Some(cid) = asset_id.clone() {
-            Some(self.database.get_asset_or_fail(cid)?)
+        let (asset_type, rgb_asset_id) = if let Some(cid) = asset_id.clone() {
+            let asset_type = self.database.get_asset_or_fail(cid.clone())?;
+            let contract_id = ContractId::from_str(&cid).map_err(InternalError::from)?;
+            let rid = AssetId::from(contract_id);
+            (Some(asset_type), Some(rid))
         } else {
-            None
+            (None, None)
         };
 
         let utxo = self._get_utxo(vec![], None)?;
@@ -854,14 +966,17 @@ impl Wallet {
         );
 
         let seal = seal::Revealed::new(CloseMethod::OpretFirst, OutPoint::from(utxo.clone()));
-        let blinded_utxo = seal.to_concealed_seal().to_string();
+        let concealed_seal = seal.to_concealed_seal();
+        let blinded_utxo = concealed_seal.to_string();
 
         let created_at = now().unix_timestamp();
-        let expiration = if duration_seconds == Some(0) {
-            None
+        let (expiration, expiry) = if duration_seconds == Some(0) {
+            (None, None)
         } else {
             let duration_seconds = duration_seconds.unwrap_or(DURATION_RCV_TRANSFER) as i64;
-            Some(created_at + duration_seconds)
+            let expiration = created_at + duration_seconds;
+            let expiry = NaiveDateTime::from_timestamp_opt(expiration, 0);
+            (Some(expiration), expiry)
         };
         let batch_transfer = DbBatchTransferActMod {
             status: ActiveValue::Set(TransferStatus::WaitingCounterparty),
@@ -899,7 +1014,14 @@ impl Wallet {
         };
         self.database.set_coloring(db_coloring)?;
 
+        let beneficiary = Beneficiary::BlindUtxo(concealed_seal);
+        let mut invoice = UniversalInvoice::new(beneficiary, amount, rgb_asset_id);
+        if let Some(exp) = expiry {
+            invoice.set_expiry(exp);
+        }
+
         Ok(BlindData {
+            invoice: invoice.to_string(),
             blinded_utxo,
             blinding_secret: seal.blinding,
             expiration_timestamp: expiration,
@@ -1337,7 +1459,8 @@ impl Wallet {
     pub fn get_asset_balance(&self, asset_id: String) -> Result<Balance, Error> {
         info!(self.logger, "Getting balance for asset '{}'...", asset_id);
         self.database.get_asset_or_fail(asset_id.clone())?;
-        self.database.get_asset_balance(asset_id)
+        self.database
+            .get_asset_balance(asset_id, None, None, None, None)
     }
 
     /// Return the wallet data provided by the user
@@ -1625,7 +1748,8 @@ impl Wallet {
 
         Ok(AssetRgb20::from_db_asset(
             db_asset,
-            self.database.get_asset_balance(asset_id)?,
+            self.database
+                .get_asset_balance(asset_id, None, None, None, None)?,
         ))
     }
 
@@ -1783,7 +1907,8 @@ impl Wallet {
 
         AssetRgb121::from_db_asset(
             db_asset,
-            self.database.get_asset_balance(asset_id)?,
+            self.database
+                .get_asset_balance(asset_id, None, None, None, None)?,
             self.wallet_dir.join(ASSETS_DIR),
         )
     }
@@ -1794,6 +1919,12 @@ impl Wallet {
         if filter_asset_types.is_empty() {
             filter_asset_types = vec![AssetType::Rgb20, AssetType::Rgb121];
         }
+
+        let batch_transfers = Some(self.database.iter_batch_transfers()?);
+        let colorings = Some(self.database.iter_colorings()?);
+        let txos = Some(self.database.iter_txos()?);
+        let asset_transfers = Some(self.database.iter_asset_transfers()?);
+
         let mut rgb20 = None;
         let mut rgb121 = None;
         for asset_type in filter_asset_types {
@@ -1806,7 +1937,13 @@ impl Wallet {
                             .map(|c| {
                                 Ok(AssetRgb20::from_db_asset(
                                     c.clone(),
-                                    self.database.get_asset_balance(c.asset_id.clone())?,
+                                    self.database.get_asset_balance(
+                                        c.asset_id.clone(),
+                                        asset_transfers.clone(),
+                                        batch_transfers.clone(),
+                                        colorings.clone(),
+                                        txos.clone(),
+                                    )?,
                                 ))
                             })
                             .collect::<Result<Vec<AssetRgb20>, Error>>()?,
@@ -1821,7 +1958,13 @@ impl Wallet {
                             .map(|c| {
                                 AssetRgb121::from_db_asset(
                                     c.clone(),
-                                    self.database.get_asset_balance(c.asset_id.clone())?,
+                                    self.database.get_asset_balance(
+                                        c.asset_id.clone(),
+                                        asset_transfers.clone(),
+                                        batch_transfers.clone(),
+                                        colorings.clone(),
+                                        txos.clone(),
+                                    )?,
                                     assets_dir.clone(),
                                 )
                             })
@@ -2467,6 +2610,9 @@ impl Wallet {
         asset_id: String,
         amount_needed: u64,
         unspents: Vec<LocalUnspent>,
+        asset_transfers: Option<Vec<DbAssetTransfer>>,
+        batch_transfers: Option<Vec<DbBatchTransfer>>,
+        colorings: Option<Vec<DbColoring>>,
     ) -> Result<AssetSpend, Error> {
         debug!(self.logger, "Selecting inputs for asset '{}'...", asset_id);
         let mut input_allocations: HashMap<DbTxo, u64> = HashMap::new();
@@ -2489,7 +2635,13 @@ impl Wallet {
             }
         }
         if amount_input_asset < amount_needed {
-            let ass_balance = self.database.get_asset_balance(asset_id.clone())?;
+            let ass_balance = self.database.get_asset_balance(
+                asset_id.clone(),
+                asset_transfers,
+                batch_transfers,
+                colorings,
+                None,
+            )?;
             if ass_balance.future < amount_needed {
                 return Err(Error::InsufficientTotalAssets(asset_id));
             }
@@ -3047,7 +3199,7 @@ impl Wallet {
         let unspents = self.database.get_rgb_allocations(
             spendable_utxos,
             false,
-            Some(colorings),
+            Some(colorings.clone()),
             Some(batch_transfers.clone()),
             Some(asset_transfers.clone()),
         )?;
@@ -3055,8 +3207,14 @@ impl Wallet {
         for (asset_id, recipients) in recipient_map {
             let asset_type = self.database.get_asset_or_fail(asset_id.clone())?;
             let amount: u64 = recipients.iter().map(|a| a.amount).sum();
-            let asset_spend =
-                self._select_rgb_inputs(asset_id.clone(), amount, unspents.clone())?;
+            let asset_spend = self._select_rgb_inputs(
+                asset_id.clone(),
+                amount,
+                unspents.clone(),
+                Some(asset_transfers.clone()),
+                Some(batch_transfers.clone()),
+                Some(colorings.clone()),
+            )?;
             let transfer_info = InfoAssetTransfer {
                 recipients,
                 asset_spend,

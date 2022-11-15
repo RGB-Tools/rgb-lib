@@ -32,6 +32,7 @@ enum RgbLibError {
   "InvalidDescription",
   "InvalidElectrum",
   "InvalidFilePath",
+  "InvalidInvoice",
   "InvalidMnemonic",
   "InvalidName",
   "InvalidOnline",
@@ -43,12 +44,8 @@ enum RgbLibError {
   "Proxy",
   "TransferNotFound",
   "UnknownRgbSchema",
+  "UnsupportedInvoice",
   "WatchOnly",
-};
-
-dictionary Recipient {
-  string blinded_utxo;
-  u64 amount;
 };
 
 enum AssetType {
@@ -98,13 +95,38 @@ enum BitcoinNetwork {
 };
 
 dictionary BlindData {
+  string invoice;
   string blinded_utxo;
   u64 blinding_secret;
   i64? expiration_timestamp;
 };
 
+interface BlindedUTXO {
+  [Throws=RgbLibError]
+  constructor(string blinded_utxo);
+};
+
 enum DatabaseType {
   "Sqlite",
+};
+
+interface Invoice {
+  [Throws=RgbLibError]
+  constructor(string bech32_invoice);
+
+  [Name=from_invoice_data, Throws=RgbLibError]
+  constructor(InvoiceData invoice_data);
+
+  InvoiceData invoice_data();
+
+  string bech32_invoice();
+};
+
+dictionary InvoiceData {
+  string blinded_utxo;
+  string? asset_id;
+  u64? amount;
+  i64? expiration_timestamp;
 };
 
 dictionary Keys {
@@ -122,6 +144,11 @@ dictionary Online {
 dictionary Outpoint {
   string txid;
   u32 vout;
+};
+
+dictionary Recipient {
+  string blinded_utxo;
+  u64 amount;
 };
 
 dictionary RgbAllocation {
@@ -176,7 +203,7 @@ interface Wallet {
   constructor(WalletData wallet_data);
 
   [Throws=RgbLibError]
-  BlindData blind(string? asset_id, u32? duration_seconds);
+  BlindData blind(string? asset_id, u64? amount, u32? duration_seconds);
 
   [Throws=RgbLibError]
   u8 create_utxos(Online online, boolean up_to, u8? num, u32? size);

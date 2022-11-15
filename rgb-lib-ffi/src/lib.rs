@@ -1,7 +1,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use std::collections::HashMap;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard};
 
 uniffi_macros::include_scaffolding!("rgb-lib");
 
@@ -10,15 +10,18 @@ type AssetRgb121 = rgb_lib::wallet::AssetRgb121;
 type AssetType = rgb_lib::wallet::AssetType;
 type Assets = rgb_lib::wallet::Assets;
 type Balance = rgb_lib::wallet::Balance;
+type InvoiceData = rgb_lib::wallet::InvoiceData;
 type BitcoinNetwork = rgb_lib::BitcoinNetwork;
 type BlindData = rgb_lib::wallet::BlindData;
 type DatabaseType = rgb_lib::wallet::DatabaseType;
+type RgbLibInvoice = rgb_lib::wallet::Invoice;
 type Keys = rgb_lib::keys::Keys;
 type Media = rgb_lib::wallet::Media;
 type Online = rgb_lib::wallet::Online;
 type Outpoint = rgb_lib::wallet::Outpoint;
 type Recipient = rgb_lib::wallet::Recipient;
 type RgbAllocation = rgb_lib::wallet::RgbAllocation;
+type RgbLibBlindedUTXO = rgb_lib::wallet::BlindedUTXO;
 type RgbLibError = rgb_lib::Error;
 type RgbLibWallet = rgb_lib::wallet::Wallet;
 type Transfer = rgb_lib::wallet::Transfer;
@@ -33,6 +36,48 @@ fn generate_keys(bitcoin_network: BitcoinNetwork) -> Keys {
 
 fn restore_keys(bitcoin_network: BitcoinNetwork, mnemonic: String) -> Result<Keys, RgbLibError> {
     rgb_lib::restore_keys(bitcoin_network, mnemonic)
+}
+
+struct BlindedUTXO {
+    _blinded_utxo: RwLock<RgbLibBlindedUTXO>,
+}
+
+impl BlindedUTXO {
+    fn new(blinded_utxo: String) -> Result<Self, RgbLibError> {
+        Ok(BlindedUTXO {
+            _blinded_utxo: RwLock::new(RgbLibBlindedUTXO::new(blinded_utxo)?),
+        })
+    }
+}
+
+struct Invoice {
+    invoice: RwLock<RgbLibInvoice>,
+}
+
+impl Invoice {
+    fn new(bech32_invoice: String) -> Result<Self, RgbLibError> {
+        Ok(Invoice {
+            invoice: RwLock::new(RgbLibInvoice::new(bech32_invoice)?),
+        })
+    }
+
+    fn from_invoice_data(invoice_data: InvoiceData) -> Result<Self, RgbLibError> {
+        Ok(Invoice {
+            invoice: RwLock::new(RgbLibInvoice::from_invoice_data(invoice_data)?),
+        })
+    }
+
+    fn _get_invoice(&self) -> RwLockReadGuard<RgbLibInvoice> {
+        self.invoice.read().expect("invoice")
+    }
+
+    fn invoice_data(&self) -> InvoiceData {
+        self._get_invoice().invoice_data()
+    }
+
+    fn bech32_invoice(&self) -> String {
+        self._get_invoice().bech32_invoice()
+    }
 }
 
 struct Wallet {
@@ -53,9 +98,10 @@ impl Wallet {
     fn blind(
         &self,
         asset_id: Option<String>,
+        amount: Option<u64>,
         duration_seconds: Option<u32>,
     ) -> Result<BlindData, RgbLibError> {
-        self._get_wallet().blind(asset_id, duration_seconds)
+        self._get_wallet().blind(asset_id, amount, duration_seconds)
     }
 
     fn create_utxos(

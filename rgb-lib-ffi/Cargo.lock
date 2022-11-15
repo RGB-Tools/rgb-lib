@@ -860,9 +860,9 @@ dependencies = [
 
 [[package]]
 name = "chrono"
-version = "0.4.22"
+version = "0.4.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bfd4d1b31faaa3a89d7934dbded3111da0d2ef28e3ebccdb4f0179f5929d1ef1"
+checksum = "16b0a3d9ed01224b22057780a37bb8c5dbfe1be8ba48678e7bf57ec4b385411f"
 dependencies = [
  "iana-time-zone",
  "js-sys",
@@ -2478,6 +2478,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "lnpbp-invoice"
+version = "0.8.0-rc.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b04bf898babc2eee2b2d8dc578db760aaf921637ee403ea493e5e0e1216dcd38"
+dependencies = [
+ "amplify",
+ "bitcoin",
+ "bp-core",
+ "chrono",
+ "commit_verify",
+ "descriptor-wallet",
+ "internet2",
+ "lnp-core",
+ "lnpbp",
+ "miniscript",
+ "rgb-core",
+ "strict_encoding",
+ "url",
+]
+
+[[package]]
 name = "lnpbp_bech32"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3607,11 +3628,13 @@ dependencies = [
  "bitcoin",
  "bp-core",
  "bp-dbc",
+ "chrono",
  "commit_verify",
  "electrum-client 0.10.2",
  "futures",
  "internet2",
  "lnpbp",
+ "lnpbp-invoice",
  "psbt",
  "reqwest",
  "rgb-core",
