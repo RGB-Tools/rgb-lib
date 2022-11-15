@@ -7,7 +7,7 @@ fn success() {
     // receiver wallet
     let (rcv_wallet, _rcv_online) = get_empty_wallet!();
 
-    // drain funded wallet with no allocation utxos
+    // drain funded wallet with no allocation UTXOs
     let (wallet, online) = get_funded_noutxo_wallet!();
     wallet._sync_db_txos().unwrap();
     wallet
@@ -58,7 +58,7 @@ fn fail() {
     // drain empty wallet
     let (wallet, online) = get_empty_wallet!();
     let result = wallet.drain_to(online, rcv_wallet.get_address(), true);
-    assert!(matches!(result, Err(Error::InsufficientFunds)));
+    assert!(matches!(result, Err(Error::InsufficientBitcoins)));
 
     // bad online object
     let (wallet, _online) = get_funded_noutxo_wallet!();

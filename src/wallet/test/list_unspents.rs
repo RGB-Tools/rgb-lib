@@ -23,7 +23,7 @@ fn success() {
     let unspent_list_all = wallet.list_unspents(false).unwrap();
     assert_eq!(unspent_list_all.len(), 0);
 
-    // one (settled) unspent, no rgb allocations
+    // one (settled) unspent, no RGB allocations
     let (wallet, _online) = get_funded_noutxo_wallet!();
     wallet._sync_db_txos().unwrap();
     let unspent_list = wallet.list_unspents(true).unwrap();
@@ -31,7 +31,7 @@ fn success() {
     let unspent_list_all = wallet.list_unspents(false).unwrap();
     assert_eq!(unspent_list_all.len(), 1);
 
-    // more unspents, one with an rgb allocation
+    // more unspents, one with an RGB allocation
     let (mut wallet, online) = get_funded_wallet!();
     let asset = wallet
         .issue_asset_rgb20(
@@ -60,7 +60,7 @@ fn success() {
     });
     assert!(unspent_with_settled_allocation.is_some());
 
-    // an unspent witn a pending allocation
+    // an unspent with a pending allocation
     let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
     let blind_data = rcv_wallet.blind(None, None).unwrap();
     let recipient_map = HashMap::from([(

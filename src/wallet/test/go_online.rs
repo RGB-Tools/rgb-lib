@@ -54,7 +54,7 @@ fn fail() {
 fn consistency_check_fail_utxos() {
     initialize();
 
-    // prepare test wallet with utxos + an asset
+    // prepare test wallet with UTXOs + an asset
     let (mut wallet_orig, online_orig) = get_funded_wallet!(true, true);
     let wallet_data_orig = wallet_orig.get_wallet_data();
     wallet_orig
@@ -129,12 +129,12 @@ fn consistency_check_fail_utxos() {
         .map(|e| e.as_ref().unwrap().file_name())
         .collect();
     for file in &db_files {
-        let src = PathBuf::from(&wallet_dir_orig).join(&file);
-        let dst = PathBuf::from(&wallet_dir_prefill).join(&file);
+        let src = PathBuf::from(&wallet_dir_orig).join(file);
+        let dst = PathBuf::from(&wallet_dir_prefill).join(file);
         fs::copy(&src, &dst).unwrap();
     }
 
-    // introduce asset inconsistency by spending utxos from other instance of the same wallet,
+    // introduce asset inconsistency by spending UTXOs from other instance of the same wallet,
     // simulating a wallet used on multiple devices (which needs to be avoided to prevent asset
     // loss)
     let mut wallet_empty = Wallet::new(wallet_data_empty).unwrap();
@@ -146,7 +146,7 @@ fn consistency_check_fail_utxos() {
         .drain_to(online_empty, rcv_wallet.get_address(), false)
         .unwrap();
 
-    // detect asset inconcistency
+    // detect asset inconsistency
     let mut wallet_prefill = Wallet::new(wallet_data_prefill).unwrap();
     let result = wallet_prefill.go_online(false, ELECTRUM_URL.to_string(), PROXY_URL.to_string());
     assert!(matches!(result, Err(Error::Inconsistency(_))));
@@ -154,8 +154,8 @@ fn consistency_check_fail_utxos() {
     // make sure detection works multiple times (doesn't get reset on first failed check)
     let mut wallet_prefill_2 = Wallet::new(wallet_data_prefill_2).unwrap();
     for file in &db_files {
-        let src = PathBuf::from(&wallet_dir_prefill).join(&file);
-        let dst = PathBuf::from(&wallet_dir_prefill_2).join(&file);
+        let src = PathBuf::from(&wallet_dir_prefill).join(file);
+        let dst = PathBuf::from(&wallet_dir_prefill_2).join(file);
         fs::copy(&src, &dst).unwrap();
     }
     let result = wallet_prefill_2.go_online(false, ELECTRUM_URL.to_string(), PROXY_URL.to_string());
@@ -166,7 +166,7 @@ fn consistency_check_fail_utxos() {
 fn consistency_check_fail_asset_ids() {
     initialize();
 
-    // prepare test wallet with utxos + an asset
+    // prepare test wallet with UTXOs + an asset
     let (mut wallet_orig, online_orig) = get_funded_wallet!();
     let wallet_data_orig = wallet_orig.get_wallet_data();
     let _asset = wallet_orig
@@ -234,7 +234,7 @@ fn consistency_check_fail_asset_ids() {
             .stderr(Stdio::null())
             .arg("-r")
             .arg(&wallet_dir_orig)
-            .arg(&destination)
+            .arg(destination)
             .status();
         assert!(result.is_ok());
     }
@@ -244,7 +244,7 @@ fn consistency_check_fail_asset_ids() {
     let result = wallet_prefill_1.go_online(false, ELECTRUM_URL.to_string(), PROXY_URL.to_string());
     assert!(result.is_ok());
 
-    // introduce asset id inconsistency by removing rgb data from wallet dir
+    // introduce asset id inconsistency by removing RGB data from wallet dir
     fs::remove_dir_all(wallet_dir_prefill_2.join("sled.db")).unwrap();
 
     // detect inconsistency

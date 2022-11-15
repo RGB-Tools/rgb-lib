@@ -6,23 +6,28 @@ fn success() {
 
     let (mut wallet, online) = get_funded_wallet!();
 
+    // add a pending operation to an UTXO so spendable balance will be != settled / future
+    let _blind_data = wallet.blind(None, None);
+
     let asset = wallet
         .issue_asset_rgb20(
             online,
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
-            vec![AMOUNT],
+            vec![AMOUNT, AMOUNT],
         )
         .unwrap();
+    show_unspent_colorings(&wallet, "after issuance");
     assert_eq!(asset.ticker, TICKER.to_string());
     assert_eq!(asset.name, NAME.to_string());
     assert_eq!(asset.precision, PRECISION);
     assert_eq!(
         asset.balance,
         Balance {
-            settled: AMOUNT,
-            future: AMOUNT
+            settled: AMOUNT * 2,
+            future: AMOUNT * 2,
+            spendable: AMOUNT,
         }
     );
 }
@@ -49,7 +54,7 @@ fn multi_success() {
     // check balance is the sum of the amounts
     assert_eq!(asset.balance.settled, sum);
 
-    // check each allocation ends up on a different utxo
+    // check each allocation ends up on a different UTXO
     let unspents: Vec<Unspent> = wallet
         .list_unspents(true)
         .unwrap()
@@ -184,7 +189,7 @@ fn fail() {
         PRECISION,
         vec![AMOUNT],
     );
-    assert!(matches!(result, Err(Error::InsufficientFunds)));
+    assert!(matches!(result, Err(Error::InsufficientBitcoins)));
 
     // insufficient allocations
     let (mut wallet, online) = get_funded_noutxo_wallet!();

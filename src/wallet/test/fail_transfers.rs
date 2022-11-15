@@ -242,7 +242,7 @@ fn fail() {
         TransferStatus::WaitingCounterparty
     ));
 
-    // don't fail unknown blinded utxo
+    // don't fail unknown blinded UTXO
     let result = rcv_wallet.fail_transfers(rcv_online.clone(), Some(s!("txob1inexistent")), None);
     assert!(matches!(result, Err(Error::TransferNotFound(_))));
 

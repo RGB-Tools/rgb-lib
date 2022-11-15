@@ -8,26 +8,32 @@ fn success() {
 
     let (mut wallet, online) = get_funded_wallet!();
 
+    // add a pending operation to an UTXO so spendable balance will be != settled / future
+    let _blind_data = wallet.blind(None, None);
+
     // required fields only
+    println!("asset 1");
     let asset_1 = wallet
         .issue_asset_rgb21(
             online.clone(),
             NAME.to_string(),
             Some(DESCRIPTION.to_string()),
             PRECISION,
-            vec![AMOUNT],
+            vec![AMOUNT, AMOUNT],
             None,
             None,
         )
         .unwrap();
+    show_unspent_colorings(&wallet, "after issuance 1");
     assert_eq!(asset_1.name, NAME.to_string());
     assert_eq!(asset_1.description, Some(DESCRIPTION.to_string()));
     assert_eq!(asset_1.precision, PRECISION);
     assert_eq!(
         asset_1.balance,
         Balance {
-            settled: AMOUNT,
-            future: AMOUNT
+            settled: AMOUNT * 2,
+            future: AMOUNT * 2,
+            spendable: AMOUNT,
         }
     );
     assert!(asset_1.parent_id.is_none());
@@ -42,6 +48,7 @@ fn success() {
     assert_eq!(asset_type, AssetType::Rgb21);
 
     // include a parent_id and a file
+    println!("asset 2");
     let asset_2 = wallet
         .issue_asset_rgb21(
             online,
@@ -53,6 +60,7 @@ fn success() {
             Some(file_str.to_string()),
         )
         .unwrap();
+    show_unspent_colorings(&wallet, "after issuance 2");
     assert_eq!(asset_2.name, NAME.to_string());
     assert_eq!(asset_2.description, Some(DESCRIPTION.to_string()));
     assert_eq!(asset_2.precision, PRECISION);
@@ -60,7 +68,8 @@ fn success() {
         asset_2.balance,
         Balance {
             settled: AMOUNT * 2,
-            future: AMOUNT * 2
+            future: AMOUNT * 2,
+            spendable: 0,
         }
     );
     assert_eq!(asset_2.parent_id, Some(asset_1.asset_id));
@@ -109,7 +118,7 @@ fn multi_success() {
     // check balance is the sum of the amounts
     assert_eq!(asset.balance.settled, sum);
 
-    // check each allocation ends up on a different utxo
+    // check each allocation ends up on a different UTXO
     let unspents: Vec<Unspent> = wallet
         .list_unspents(true)
         .unwrap()
@@ -272,7 +281,7 @@ fn fail() {
         None,
         None,
     );
-    assert!(matches!(result, Err(Error::InsufficientFunds)));
+    assert!(matches!(result, Err(Error::InsufficientBitcoins)));
 
     // insufficient allocations
     let (mut wallet, online) = get_funded_noutxo_wallet!();

@@ -142,7 +142,7 @@ fn fail() {
     let result = wallet.delete_transfers(Some(blind_data.blinded_utxo), None);
     assert!(matches!(result, Err(Error::CannotDeleteTransfer)));
 
-    // don't delete unknown blinded utxo
+    // don't delete unknown blinded UTXO
     let result = wallet.delete_transfers(Some(s!("txob1inexistent")), None);
     assert!(matches!(result, Err(Error::TransferNotFound(_))));
 }
@@ -169,7 +169,7 @@ fn batch_fail() {
         .unwrap();
     let asset_id = asset.asset_id;
 
-    // only blinded utxo given but multiple transfers in batch
+    // only blinded UTXO given but multiple transfers in batch
     let blind_data_1 = rcv_wallet_1.blind(None, None).unwrap();
     let blind_data_2 = rcv_wallet_2.blind(None, None).unwrap();
     let recipient_map = HashMap::from([(
@@ -197,7 +197,7 @@ fn batch_fail() {
     let result = wallet.delete_transfers(Some(blind_data_1.blinded_utxo), None);
     assert!(matches!(result, Err(Error::CannotDeleteTransfer)));
 
-    // blinded utxo + txid given but blinded utxo transfer not part of batch transfer
+    // blinded UTXO + txid given but blinded UTXO transfer not part of batch transfer
     let blind_data_1 = rcv_wallet_1.blind(None, None).unwrap();
     let blind_data_2 = rcv_wallet_2.blind(None, None).unwrap();
     let recipient_map_1 = HashMap::from([(

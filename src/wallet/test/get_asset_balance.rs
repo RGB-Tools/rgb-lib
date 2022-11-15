@@ -23,7 +23,8 @@ fn rgb20_success() {
         asset_balance,
         Balance {
             settled: AMOUNT,
-            future: AMOUNT
+            future: AMOUNT,
+            spendable: AMOUNT,
         }
     );
 }
@@ -53,7 +54,8 @@ fn rgb21_success() {
         asset_balance,
         Balance {
             settled: AMOUNT,
-            future: AMOUNT
+            future: AMOUNT,
+            spendable: AMOUNT,
         }
     );
 }
@@ -75,9 +77,12 @@ fn transfer_balances() {
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
-            vec![AMOUNT],
+            vec![AMOUNT, AMOUNT, AMOUNT],
         )
         .unwrap();
+
+    show_unspent_colorings(&wallet_send, "send after issuance");
+    show_unspent_colorings(&wallet_recv, "recv after issuance");
 
     // balances after issuance
     let asset_balance_send = wallet_send
@@ -86,8 +91,9 @@ fn transfer_balances() {
     assert_eq!(
         asset_balance_send,
         Balance {
-            settled: AMOUNT,
-            future: AMOUNT
+            settled: AMOUNT * 3,
+            future: AMOUNT * 3,
+            spendable: AMOUNT * 3,
         }
     );
     // receiver side after issuance (no asset yet)
@@ -111,6 +117,9 @@ fn transfer_balances() {
         .send(online_send.clone(), recipient_map, false)
         .unwrap();
 
+    show_unspent_colorings(&wallet_send, "send after 1st send");
+    show_unspent_colorings(&wallet_recv, "recv after 1st send");
+
     // sender balance with transfer WaitingCounterparty
     let transfers = wallet_send.list_transfers(asset.asset_id.clone()).unwrap();
     assert_eq!(transfers.len(), 2);
@@ -124,8 +133,9 @@ fn transfer_balances() {
     assert_eq!(
         asset_balance_send,
         Balance {
-            settled: AMOUNT,
-            future: AMOUNT - amount_1
+            settled: AMOUNT * 3,
+            future: AMOUNT * 3 - amount_1,
+            spendable: AMOUNT,
         }
     );
 
@@ -147,8 +157,9 @@ fn transfer_balances() {
     assert_eq!(
         asset_balance_send,
         Balance {
-            settled: AMOUNT,
-            future: AMOUNT - amount_1
+            settled: AMOUNT * 3,
+            future: AMOUNT * 3 - amount_1,
+            spendable: AMOUNT,
         }
     );
     let asset_balance_recv = wallet_recv
@@ -158,7 +169,8 @@ fn transfer_balances() {
         asset_balance_recv,
         Balance {
             settled: 0,
-            future: amount_1
+            future: amount_1,
+            spendable: 0,
         }
     );
 
@@ -171,6 +183,9 @@ fn transfer_balances() {
         .refresh(online_send.clone(), Some(asset.asset_id.clone()))
         .unwrap();
 
+    show_unspent_colorings(&wallet_send, "send after 1st send, settled");
+    show_unspent_colorings(&wallet_recv, "recv after 1st send, settled");
+
     // balances with transfer Settled
     let transfers = wallet_send.list_transfers(asset.asset_id.clone()).unwrap();
     assert_eq!(transfers.last().unwrap().status, TransferStatus::Settled);
@@ -180,8 +195,9 @@ fn transfer_balances() {
     assert_eq!(
         asset_balance_send,
         Balance {
-            settled: AMOUNT - amount_1,
-            future: AMOUNT - amount_1
+            settled: AMOUNT * 3 - amount_1,
+            future: AMOUNT * 3 - amount_1,
+            spendable: AMOUNT * 3 - amount_1,
         }
     );
     let asset_balance_recv = wallet_recv
@@ -191,7 +207,8 @@ fn transfer_balances() {
         asset_balance_recv,
         Balance {
             settled: amount_1,
-            future: amount_1
+            future: amount_1,
+            spendable: amount_1,
         }
     );
 
@@ -212,6 +229,9 @@ fn transfer_balances() {
         .send(online_send.clone(), recipient_map, false)
         .unwrap();
 
+    show_unspent_colorings(&wallet_send, "send after 2nd send");
+    show_unspent_colorings(&wallet_recv, "recv after 2nd send");
+
     // sender balance with transfer WaitingCounterparty
     let transfers = wallet_send.list_transfers(asset.asset_id.clone()).unwrap();
     assert_eq!(transfers.len(), 3);
@@ -225,8 +245,9 @@ fn transfer_balances() {
     assert_eq!(
         asset_balance_send,
         Balance {
-            settled: AMOUNT - amount_1,
-            future: AMOUNT - amount_1 - amount_2
+            settled: AMOUNT * 3 - amount_1,
+            future: AMOUNT * 3 - amount_1 - amount_2,
+            spendable: 0,
         }
     );
 
@@ -248,8 +269,9 @@ fn transfer_balances() {
     assert_eq!(
         asset_balance_send,
         Balance {
-            settled: AMOUNT - amount_1,
-            future: AMOUNT - amount_1 - amount_2
+            settled: AMOUNT * 3 - amount_1,
+            future: AMOUNT * 3 - amount_1 - amount_2,
+            spendable: 0,
         }
     );
     let asset_balance_recv = wallet_recv
@@ -259,7 +281,8 @@ fn transfer_balances() {
         asset_balance_recv,
         Balance {
             settled: amount_1,
-            future: amount_1 + amount_2
+            future: amount_1 + amount_2,
+            spendable: 0,
         }
     );
 
@@ -272,6 +295,9 @@ fn transfer_balances() {
         .refresh(online_send, Some(asset.asset_id.clone()))
         .unwrap();
 
+    show_unspent_colorings(&wallet_send, "send after 2nd send, settled");
+    show_unspent_colorings(&wallet_recv, "recv after 2nd send, settled");
+
     // balances with transfer Settled
     let transfers = wallet_send.list_transfers(asset.asset_id.clone()).unwrap();
     assert_eq!(transfers.last().unwrap().status, TransferStatus::Settled);
@@ -281,8 +307,9 @@ fn transfer_balances() {
     assert_eq!(
         asset_balance_send,
         Balance {
-            settled: AMOUNT - amount_1 - amount_2,
-            future: AMOUNT - amount_1 - amount_2
+            settled: AMOUNT * 3 - amount_1 - amount_2,
+            future: AMOUNT * 3 - amount_1 - amount_2,
+            spendable: AMOUNT * 3 - amount_1 - amount_2,
         }
     );
     let asset_balance_recv = wallet_recv.get_asset_balance(asset.asset_id).unwrap();
@@ -290,7 +317,8 @@ fn transfer_balances() {
         asset_balance_recv,
         Balance {
             settled: amount_1 + amount_2,
-            future: amount_1 + amount_2
+            future: amount_1 + amount_2,
+            spendable: amount_1 + amount_2,
         }
     );
 }

@@ -130,7 +130,9 @@ macro_rules! get_funded_noutxo_wallet {
 
 fn get_funded_wallet(print_log: bool, private_keys: bool) -> (Wallet, Online) {
     let (mut wallet, online) = get_funded_noutxo_wallet(print_log, private_keys);
-    wallet.create_utxos(online.clone(), false, None).unwrap();
+    wallet
+        .create_utxos(online.clone(), false, None, None)
+        .unwrap();
     (wallet, online)
 }
 macro_rules! get_funded_wallet {
@@ -293,6 +295,58 @@ fn list_test_unspents(wallet: &Wallet, msg: &str) -> Vec<Unspent> {
         println!("- {:?}", unspent);
     }
     unspents
+}
+
+/// print the provided message, then get colorings for each wallet unspent and print their status,
+/// type, amount and asset
+fn show_unspent_colorings(wallet: &Wallet, msg: &str) {
+    println!("\n{}", msg);
+    let unspents = wallet.list_unspents(false).unwrap();
+    for unspent in unspents {
+        let outpoint = unspent.utxo.outpoint;
+        let db_txos = wallet.database.iter_txos().unwrap();
+        let db_txo = db_txos
+            .iter()
+            .find(|t| t.txid == outpoint.txid && t.vout == outpoint.vout)
+            .unwrap();
+        let db_colorings: Vec<DbColoring> = wallet
+            .database
+            .iter_colorings()
+            .unwrap()
+            .into_iter()
+            .filter(|c| c.txo_idx == db_txo.idx)
+            .collect();
+        println!(
+            "> {}:{}, {} sat, {}colorable",
+            outpoint.txid,
+            outpoint.vout,
+            unspent.utxo.btc_amount,
+            if unspent.utxo.colorable { "" } else { "not " }
+        );
+        for db_coloring in db_colorings {
+            let db_asset_transfers = wallet.database.iter_asset_transfers().unwrap();
+            let db_asset_transfer = db_asset_transfers
+                .iter()
+                .find(|a| a.idx == db_coloring.asset_transfer_idx)
+                .unwrap();
+            let db_batch_transfers = wallet.database.iter_batch_transfers().unwrap();
+            let db_batch_transfer = db_batch_transfers
+                .iter()
+                .find(|b| b.idx == db_asset_transfer.batch_transfer_idx)
+                .unwrap();
+            println!(
+                "\t- {:?} {:?} of {:?} for {:?}",
+                db_batch_transfer.status,
+                db_coloring.coloring_type,
+                db_coloring.amount,
+                if db_asset_transfer.asset_rgb20_id.is_some() {
+                    &db_asset_transfer.asset_rgb20_id
+                } else {
+                    &db_asset_transfer.asset_rgb21_id
+                },
+            );
+        }
+    }
 }
 
 mod blind;

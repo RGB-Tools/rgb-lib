@@ -56,7 +56,7 @@ fn success() {
         Some(blind_data.blinded_utxo.clone())
     );
     assert_eq!(transfer.blinded_utxo, Some(blind_data.blinded_utxo.clone()));
-    // blindind_secret
+    // blinding_secret
     assert!(rcv_transfer.blinding_secret.is_some());
     assert!(transfer.blinding_secret.is_none());
 
@@ -146,7 +146,8 @@ fn success() {
         rcv_asset.balance,
         Balance {
             settled: 0,
-            future: amount
+            future: amount,
+            spendable: 0,
         }
     );
 
@@ -364,7 +365,7 @@ fn send_blank_success() {
         )
         .unwrap();
 
-    // check both assets are allocated to the same utxo
+    // check both assets are allocated to the same UTXO
     wallet_1._sync_db_txos().unwrap();
     let unspents = wallet_1.list_unspents(true).unwrap();
     let unspents_with_rgb_allocations: Vec<Unspent> = unspents
@@ -757,7 +758,7 @@ fn send_received_success() {
     assert_eq!(change_allocation_a.amount, amount_1a - amount_2a);
     assert_eq!(change_allocation_b.amount, amount_1b - amount_2b);
 
-    // check rgb21 asset has the correct attachment after being received
+    // check RGB21 asset has the correct attachment after being received
     let rgb21_assets = wallet_3
         .list_assets(vec![AssetType::Rgb21])
         .unwrap()
@@ -924,7 +925,8 @@ fn send_received_rgb21_success() {
         recv_asset.balance,
         Balance {
             settled: amount_2,
-            future: amount_2
+            future: amount_2,
+            spendable: amount_2,
         }
     );
     assert_eq!(recv_asset.parent_id, Some(parent_str.to_string()));
@@ -1044,7 +1046,7 @@ fn receive_multiple_same_asset_success() {
         transfer_2.blinded_utxo,
         Some(blind_data_2.blinded_utxo.clone())
     );
-    // blindind_secret
+    // blinding_secret
     assert_eq!(
         rcv_transfer_1.blinding_secret,
         Some(blind_data_1.blinding_secret.to_string())
@@ -1545,7 +1547,8 @@ fn receive_multiple_different_assets_success() {
         rcv_asset_rgb20.balance,
         Balance {
             settled: 0,
-            future: amount_1
+            future: amount_1,
+            spendable: 0,
         }
     );
     let rcv_asset_rgb21 = rgb21_assets.last().unwrap();
@@ -1557,7 +1560,8 @@ fn receive_multiple_different_assets_success() {
         rcv_asset_rgb21.balance,
         Balance {
             settled: 0,
-            future: amount_2
+            future: amount_2,
+            spendable: 0,
         }
     );
     assert!(rcv_asset_rgb21.parent_id.is_none());
@@ -1654,7 +1658,7 @@ fn batch_donation_success() {
         )
         .unwrap();
 
-    // check all assets are allocated to the same utxo
+    // check all assets are allocated to the same UTXO
     wallet._sync_db_txos().unwrap();
     let unspents = wallet.list_unspents(true).unwrap();
     let unspents_with_rgb_allocations: Vec<Unspent> = unspents
@@ -1809,7 +1813,7 @@ fn reuse_failed_blinded_success() {
         .fail_transfers(online.clone(), None, Some(txid))
         .unwrap();
 
-    // 2nd transfer using the same blinded utxo
+    // 2nd transfer using the same blinded UTXO
     let txid = wallet.send(online, recipient_map, false).unwrap();
     assert!(!txid.is_empty());
 }
@@ -1947,7 +1951,7 @@ fn nack() {
         TransferStatus::WaitingCounterparty
     ));
 
-    // manually nack the transfer (consignment is valid so refreshing receiver would yield an ack)
+    // manually NACK the transfer (consignment is valid so refreshing receiver would yield an ACK)
     rcv_wallet
         .rest_client
         .post_nack(PROXY_URL, blind_data.blinded_utxo)
@@ -2051,7 +2055,7 @@ fn fail() {
     let result = wallet.send(online.clone(), recipient_map, false);
     assert!(matches!(result, Err(Error::AssetNotFound(_))));
 
-    // invalid input (blinded utxo)
+    // invalid input (blinded UTXO)
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -2064,14 +2068,14 @@ fn fail() {
 
     // insufficient assets (amount too big)
     let recipient_map = HashMap::from([(
-        asset.asset_id,
+        asset.asset_id.clone(),
         vec![Recipient {
             blinded_utxo: blind_data.blinded_utxo,
             amount: AMOUNT + 1,
         }],
     )]);
     let result = wallet.send(online, recipient_map, false);
-    assert!(matches!(result, Err(Error::InsufficientAssets)));
+    assert!(matches!(result, Err(Error::InsufficientTotalAssets(t)) if t == asset.asset_id));
 }
 
 #[test]
@@ -2143,14 +2147,14 @@ fn pending_incoming_transfer_fail() {
     // send from receiving wallet, 1st receive Settled, 2nd one still pending
     let blind_data = wallet.blind(None, None).unwrap();
     let recipient_map = HashMap::from([(
-        asset.asset_id,
+        asset.asset_id.clone(),
         vec![Recipient {
             blinded_utxo: blind_data.blinded_utxo,
             amount: amount_3,
         }],
     )]);
     let result = wallet.send(online, recipient_map, false);
-    assert!(matches!(result, Err(Error::InsufficientAssets)));
+    assert!(matches!(result, Err(Error::InsufficientSpendableAssets(t)) if t == asset.asset_id));
 }
 
 #[test]
@@ -2223,17 +2227,17 @@ fn pending_transfer_input_fail() {
     // blind with sender wallet to create a pending transfer
     wallet.blind(None, None).unwrap();
 
-    // send and check it fails as the issuance utxo is "blocked" by the pending receive operation
+    // send and check it fails as the issuance UTXO is "blocked" by the pending receive operation
     let blind_data = rcv_wallet.blind(None, None).unwrap();
     let recipient_map = HashMap::from([(
-        asset.asset_id,
+        asset.asset_id.clone(),
         vec![Recipient {
             blinded_utxo: blind_data.blinded_utxo,
             amount,
         }],
     )]);
     let result = wallet.send(online, recipient_map, false);
-    assert!(matches!(result, Err(Error::InsufficientAssets)));
+    assert!(matches!(result, Err(Error::InsufficientSpendableAssets(t)) if t == asset.asset_id));
 }
 
 #[test]
@@ -2246,7 +2250,7 @@ fn already_used_fail() {
     let (mut wallet, online) = get_funded_wallet!();
     let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
 
-    // issue asset to 3 utxos
+    // issue asset to 3 UTXOs
     let asset = wallet
         .issue_asset_rgb20(
             online.clone(),
@@ -2271,7 +2275,7 @@ fn already_used_fail() {
         .unwrap();
     assert!(!txid.is_empty());
 
-    // 2nd transfer using the same blinded utxo
+    // 2nd transfer using the same blinded UTXO
     let result = wallet.send(online, recipient_map, false);
     assert!(matches!(result, Err(Error::BlindedUTXOAlreadyUsed)));
 }
@@ -2287,7 +2291,7 @@ fn rgb21_blank_success() {
     let (mut wallet, online) = get_funded_wallet!();
     let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
 
-    // issue rgb20
+    // issue RGB20
     let asset_rgb20 = wallet
         .issue_asset_rgb20(
             online.clone(),
@@ -2298,7 +2302,7 @@ fn rgb21_blank_success() {
         )
         .unwrap();
 
-    // issue rgb21
+    // issue RGB21
     let _asset_rgb21 = wallet
         .issue_asset_rgb21(
             online.clone(),
@@ -2311,12 +2315,9 @@ fn rgb21_blank_success() {
         )
         .unwrap();
 
-    let unspents = wallet.list_unspents(false).unwrap();
-    dbg!(&unspents);
-
     let blind_data = rcv_wallet.blind(None, None).unwrap();
 
-    // try sending rgb20
+    // try sending RGB20
     let recipient_map = HashMap::from([(
         asset_rgb20.asset_id,
         vec![Recipient {
@@ -2325,7 +2326,6 @@ fn rgb21_blank_success() {
         }],
     )]);
     let res = wallet.send_begin(online, recipient_map, false);
-    dbg!(&res);
     assert!(!res.unwrap().is_empty());
 }
 
@@ -2335,16 +2335,18 @@ fn psbt_rgb_consumer_success() {
 
     let amount_issue_ft = 10000;
 
-    // create wallet with funds and no utxos
+    // create wallet with funds and no UTXOs
     let (mut wallet, online) = get_funded_noutxo_wallet!();
     let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
 
-    // create 1 utxo
+    // create 1 UTXO
     println!("utxo 1");
-    let num_utxos_created = wallet.create_utxos(online.clone(), true, Some(1)).unwrap();
+    let num_utxos_created = wallet
+        .create_utxos(online.clone(), true, Some(1), None)
+        .unwrap();
     assert_eq!(num_utxos_created, 1);
 
-    // issue an rgb20 asset
+    // issue an RGB20 asset
     println!("issue 1");
     let asset_rgb20_a = wallet
         .issue_asset_rgb20(
@@ -2356,9 +2358,11 @@ fn psbt_rgb_consumer_success() {
         )
         .unwrap();
 
-    // create 1 more utxo for change, up_to false or AllocationsAlreadyAvailable is returned
+    // create 1 more UTXO for change, up_to false or AllocationsAlreadyAvailable is returned
     println!("utxo 2");
-    let num_utxos_created = wallet.create_utxos(online.clone(), false, Some(1)).unwrap();
+    let num_utxos_created = wallet
+        .create_utxos(online.clone(), false, Some(1), None)
+        .unwrap();
     assert_eq!(num_utxos_created, 1);
 
     // try to send it
@@ -2372,12 +2376,9 @@ fn psbt_rgb_consumer_success() {
         }],
     )]);
     let res = wallet.send_begin(online.clone(), recipient_map, false);
-    if res.is_err() {
-        dbg!(&res);
-    }
     assert!(!res.unwrap().is_empty());
 
-    // issue one more rgb20 asset, should go to the same utxo as the 1st issuance
+    // issue one more RGB20 asset, should go to the same UTXO as the 1st issuance
     println!("issue 2");
     let asset_rgb20_b = wallet
         .issue_asset_rgb20(
@@ -2400,9 +2401,6 @@ fn psbt_rgb_consumer_success() {
         }],
     )]);
     let res = wallet.send_begin(online.clone(), recipient_map, false);
-    if res.is_err() {
-        dbg!(&res);
-    }
     assert!(!res.unwrap().is_empty());
 
     // exhaust allocations + issue 3rd asset, on a different UTXO
@@ -2424,9 +2422,11 @@ fn psbt_rgb_consumer_success() {
     // fail transfers so 1st UTXO can be used as input
     wallet.fail_transfers(online.clone(), None, None).unwrap();
 
-    // create 1 more utxo for change, up_to false or AllocationsAlreadyAvailable is returned
+    // create 1 more UTXO for change, up_to false or AllocationsAlreadyAvailable is returned
     println!("utxo 3");
-    let num_utxos_created = wallet.create_utxos(online.clone(), false, Some(1)).unwrap();
+    let num_utxos_created = wallet
+        .create_utxos(online.clone(), false, Some(1), None)
+        .unwrap();
     assert_eq!(num_utxos_created, 1);
 
     // try to send the second asset to a recipient and the third to different one
@@ -2450,8 +2450,160 @@ fn psbt_rgb_consumer_success() {
         ),
     ]);
     let res = wallet.send_begin(online, recipient_map, false);
-    if res.is_err() {
-        dbg!(&res);
-    }
+    assert!(!res.unwrap().is_empty());
+}
+
+#[test]
+fn insufficient_bitcoins() {
+    initialize();
+
+    let tiny_btc_amount = 300;
+
+    // wallets
+    let (mut wallet, online) = get_funded_noutxo_wallet!();
+    let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
+
+    // create 1 UTXO with not enough bitcoins for a send and drain the rest
+    let num_utxos_created = wallet
+        .create_utxos(online.clone(), false, Some(1), Some(tiny_btc_amount))
+        .unwrap();
+    assert_eq!(num_utxos_created, 1);
+    wallet
+        .drain_to(online.clone(), rcv_wallet.get_address(), false)
+        .unwrap();
+
+    // issue an RGB20 asset
+    let asset_rgb20_a = wallet
+        .issue_asset_rgb20(
+            online.clone(),
+            s!("TFT1"),
+            s!("Test Fungible Token 1"),
+            PRECISION,
+            vec![AMOUNT],
+        )
+        .unwrap();
+
+    // send with no colorable UTXOs available as additional bitcoin inputs and no other funds
+    let unspents = wallet.list_unspents(false).unwrap();
+    assert_eq!(unspents.len(), 1);
+    let blind_data_1 = rcv_wallet.blind(None, None).unwrap();
+    let recipient_map = HashMap::from([(
+        asset_rgb20_a.asset_id,
+        vec![Recipient {
+            amount: 1,
+            blinded_utxo: blind_data_1.blinded_utxo,
+        }],
+    )]);
+    let res = wallet.send_begin(online.clone(), recipient_map.clone(), false);
+    assert!(matches!(res, Err(Error::InsufficientBitcoins)));
+
+    // create 1 UTXO for change (add funds, create UTXO, drain the rest)
+    fund_wallet(wallet.get_address());
+    wallet._sync_db_txos().unwrap();
+    let num_utxos_created = wallet
+        .create_utxos(online.clone(), false, Some(1), Some(tiny_btc_amount))
+        .unwrap();
+    assert_eq!(num_utxos_created, 1);
+    wallet
+        .drain_to(online.clone(), rcv_wallet.get_address(), false)
+        .unwrap();
+
+    // send with only 1 colorable UTXO available, for change
+    let unspents = wallet.list_unspents(false).unwrap();
+    assert_eq!(unspents.len(), 2);
+    let res = wallet.send_begin(online, recipient_map, false);
+    assert!(matches!(res, Err(Error::InsufficientBitcoins)));
+}
+
+#[test]
+fn insufficient_allocations_fail() {
+    initialize();
+
+    // wallets
+    let (mut wallet, online) = get_funded_noutxo_wallet!();
+    let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
+
+    // create 1 UTXO with not enough bitcoins for a send
+    let num_utxos_created = wallet
+        .create_utxos(online.clone(), false, Some(1), Some(300))
+        .unwrap();
+    assert_eq!(num_utxos_created, 1);
+
+    // issue an RGB20 asset
+    let asset_rgb20_a = wallet
+        .issue_asset_rgb20(
+            online.clone(),
+            s!("TFT1"),
+            s!("Test Fungible Token 1"),
+            PRECISION,
+            vec![AMOUNT],
+        )
+        .unwrap();
+
+    // send with no colorable UTXOs available as change
+    let blind_data_1 = rcv_wallet.blind(None, None).unwrap();
+    let recipient_map = HashMap::from([(
+        asset_rgb20_a.asset_id,
+        vec![Recipient {
+            amount: 1,
+            blinded_utxo: blind_data_1.blinded_utxo,
+        }],
+    )]);
+    let res = wallet.send_begin(online.clone(), recipient_map.clone(), false);
+    assert!(matches!(res, Err(Error::InsufficientAllocationSlots)));
+
+    // create 1 more UTXO for change, up_to false or AllocationsAlreadyAvailable is returned
+    println!("utxo 2");
+    let num_utxos_created = wallet
+        .create_utxos(online.clone(), false, Some(1), None)
+        .unwrap();
+    assert_eq!(num_utxos_created, 1);
+
+    // send with no colorable UTXOs available as additional bitcoin inputs, uncolorable available
+    let res = wallet.send_begin(online, recipient_map, false);
+    assert!(matches!(res, Err(Error::InsufficientAllocationSlots)));
+}
+
+#[test]
+fn insufficient_allocations_success() {
+    initialize();
+
+    // wallets
+    let (mut wallet, online) = get_funded_noutxo_wallet!();
+    let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
+
+    // create 1 UTXO with not enough bitcoins for a send
+    let num_utxos_created = wallet
+        .create_utxos(online.clone(), false, Some(1), Some(300))
+        .unwrap();
+    assert_eq!(num_utxos_created, 1);
+
+    // issue an RGB20 asset on the unspendable UTXO
+    let asset_rgb20_a = wallet
+        .issue_asset_rgb20(
+            online.clone(),
+            s!("TFT1"),
+            s!("Test Fungible Token 1"),
+            PRECISION,
+            vec![AMOUNT],
+        )
+        .unwrap();
+
+    // create 2 more UTXOs, 1 for change + 1 as additional bitcoin input
+    let num_utxos_created = wallet
+        .create_utxos(online.clone(), false, Some(2), None)
+        .unwrap();
+    assert_eq!(num_utxos_created, 2);
+
+    // send with 1 colorable UTXOs available as additional bitcoin input
+    let blind_data_1 = rcv_wallet.blind(None, None).unwrap();
+    let recipient_map = HashMap::from([(
+        asset_rgb20_a.asset_id,
+        vec![Recipient {
+            amount: 1,
+            blinded_utxo: blind_data_1.blinded_utxo,
+        }],
+    )]);
+    let res = wallet.send_begin(online, recipient_map, false);
     assert!(!res.unwrap().is_empty());
 }

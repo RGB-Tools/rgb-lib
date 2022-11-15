@@ -10,7 +10,7 @@ fn success() {
     let assets = wallet.list_assets(vec![]).unwrap();
     assert_eq!(assets.rgb20.unwrap().len(), 0);
 
-    // one issued rgb20 asset
+    // one issued RGB20 asset
     let asset_1 = wallet
         .issue_asset_rgb20(
             online.clone(),
@@ -34,11 +34,12 @@ fn success() {
         asset.balance,
         Balance {
             settled: AMOUNT,
-            future: AMOUNT
+            future: AMOUNT,
+            spendable: AMOUNT,
         }
     );
 
-    // two issued rgb20 assets
+    // two issued RGB20 assets
     let asset_2 = wallet
         .issue_asset_rgb20(
             online.clone(),
@@ -62,11 +63,12 @@ fn success() {
         asset.balance,
         Balance {
             settled: AMOUNT * 2,
-            future: AMOUNT * 2
+            future: AMOUNT * 2,
+            spendable: AMOUNT * 2,
         }
     );
 
-    // three issued assets: 2x rgb20 + 1x rgb21
+    // three issued assets: 2x RGB20 + 1x RGB21
     let asset_3 = wallet
         .issue_asset_rgb21(
             online,
@@ -92,7 +94,8 @@ fn success() {
         asset.balance,
         Balance {
             settled: AMOUNT * 3,
-            future: AMOUNT * 3
+            future: AMOUNT * 3,
+            spendable: AMOUNT * 3,
         }
     );
     assert!(asset.parent_id.is_none());
@@ -101,14 +104,10 @@ fn success() {
 
     // test filter by asset type
     let assets = wallet.list_assets(vec![AssetType::Rgb20]).unwrap();
-    dbg!(&assets.rgb20);
-    dbg!(&assets.rgb21);
     assert_eq!(assets.rgb20.unwrap().len(), 2);
     assert!(assets.rgb21.is_none());
 
     let assets = wallet.list_assets(vec![AssetType::Rgb21]).unwrap();
-    dbg!(&assets.rgb20);
-    dbg!(&assets.rgb21);
     assert!(assets.rgb20.is_none());
     assert_eq!(assets.rgb21.unwrap().len(), 1);
 }

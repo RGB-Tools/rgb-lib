@@ -64,7 +64,7 @@ fn expire() {
     initialize();
 
     let expiration = 1;
-    let (mut wallet, _online) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_wallet!();
 
     // check expiration
     let now_timestamp = now().unix_timestamp();
@@ -78,7 +78,15 @@ fn expire() {
     ));
 
     // trigger the expiration of pending transfers
-    wallet._handle_expired_transfers().unwrap();
+    let _asset = wallet
+        .issue_asset_rgb20(
+            online,
+            TICKER.to_string(),
+            NAME.to_string(),
+            PRECISION,
+            vec![AMOUNT],
+        )
+        .unwrap();
 
     // check transfer is now in status Failed
     let transfer = get_test_transfer_recipient(&wallet, &blind_data_1.blinded_utxo);
@@ -99,7 +107,7 @@ fn fail() {
     // insufficient funds
     let (mut wallet, _online) = get_empty_wallet!();
     let result = wallet.blind(None, None);
-    assert!(matches!(result, Err(Error::InsufficientFunds)));
+    assert!(matches!(result, Err(Error::InsufficientBitcoins)));
 }
 
 #[test]
@@ -130,12 +138,8 @@ fn wrong_asset_fail() {
             vec![AMOUNT],
         )
         .unwrap();
-    dbg!(&asset_a.asset_id);
-    dbg!(&asset_b.asset_id);
 
-    let blind_data_a = wallet_1
-        .blind(Some(asset_a.asset_id.clone()), None)
-        .unwrap();
+    let blind_data_a = wallet_1.blind(Some(asset_a.asset_id), None).unwrap();
 
     let recipient_map = HashMap::from([(
         asset_b.asset_id.clone(),
@@ -150,39 +154,26 @@ fn wrong_asset_fail() {
     assert!(!txid.is_empty());
 
     // transfer is pending
-    let rcv_transfers_a = wallet_1.list_transfers(asset_a.asset_id.clone()).unwrap();
-    dbg!(&rcv_transfers_a);
-
     let rcv_transfer_a = get_test_transfer_recipient(&wallet_1, &blind_data_a.blinded_utxo);
-    dbg!(&rcv_transfer_a);
     let rcv_transfer_data_a = wallet_1
         .database
         .get_transfer_data(&rcv_transfer_a)
         .unwrap();
-    dbg!(&rcv_transfer_data_a.status);
     assert_eq!(
         rcv_transfer_data_a.status,
         TransferStatus::WaitingCounterparty
     );
-    let rcv_asset_transfer_a =
-        get_test_asset_transfer(&wallet_1, rcv_transfer_a.asset_transfer_idx);
-    dbg!(&rcv_asset_transfer_a);
 
     // transfer doesn't progress to status WaitingConfirmations on the receiving side
     wallet_1.refresh(online_1, None).unwrap();
     wallet_2.refresh(online_2, None).unwrap();
 
     // transfer has been NACKed
-    let rcv_transfers_a = wallet_1.list_transfers(asset_a.asset_id).unwrap();
-    dbg!(&rcv_transfers_a);
     let rcv_transfer_data_a = wallet_1
         .database
         .get_transfer_data(&rcv_transfer_a)
         .unwrap();
-    dbg!(&rcv_transfer_data_a.status);
     assert_eq!(rcv_transfer_data_a.status, TransferStatus::Failed);
-    let rcv_transfers_b = wallet_1.list_transfers(asset_b.asset_id.clone());
+    let rcv_transfers_b = wallet_1.list_transfers(asset_b.asset_id);
     assert!(matches!(rcv_transfers_b, Err(Error::AssetNotFound(_))));
-    let transfers_b = wallet_2.list_transfers(asset_b.asset_id).unwrap();
-    dbg!(&transfers_b);
 }

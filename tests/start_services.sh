@@ -1,7 +1,15 @@
 #!/bin/bash
 set -eu
 
-COMPOSE="docker-compose -f tests/docker-compose.yml"
+if which docker-compose >/dev/null; then
+    COMPOSE_CMD="docker-compose"
+elif docker compose >/dev/null; then
+    COMPOSE_CMD="docker compose"
+else
+    echo "could not locate docker compose command or plugin"
+    exit 1
+fi
+COMPOSE="$COMPOSE_CMD -f tests/docker-compose.yml"
 TEST_DIR="./tests/tmp"
 
 $COMPOSE down -v
