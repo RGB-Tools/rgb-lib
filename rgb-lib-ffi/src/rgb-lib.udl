@@ -14,7 +14,6 @@ enum RgbLibError {
   "CannotChangeOnline",
   "CannotDeleteTransfer",
   "CannotFailTransfer",
-  "Proxy",
   "Electrum",
   "FailedBdkSync",
   "FailedBroadcast",
@@ -23,8 +22,9 @@ enum RgbLibError {
   "Inconsistency",
   "InexistentDataDir",
   "InsufficientAllocationSlots",
-  "InsufficientAssets",
-  "InsufficientFunds",
+  "InsufficientBitcoins",
+  "InsufficientSpendableAssets",
+  "InsufficientTotalAssets",
   "Internal",
   "InvalidAddress",
   "InvalidBitcoinKeys",
@@ -40,6 +40,7 @@ enum RgbLibError {
   "InvalidPubkey",
   "InvalidTicker",
   "NoIssuanceAmounts",
+  "Proxy",
   "TransferNotFound",
   "UnknownRgbSchema",
   "WatchOnly",
@@ -86,6 +87,7 @@ dictionary Assets {
 dictionary Balance {
   u64 settled;
   u64 future;
+  u64 spendable;
 };
 
 enum BitcoinNetwork {
@@ -177,10 +179,10 @@ interface Wallet {
   BlindData blind(string? asset_id, u32? duration_seconds);
 
   [Throws=RgbLibError]
-  u8 create_utxos(Online online, boolean up_to, u8? num);
+  u8 create_utxos(Online online, boolean up_to, u8? num, u32? size);
 
   [Throws=RgbLibError]
-  string create_utxos_begin(Online online, boolean up_to, u8? num);
+  string create_utxos_begin(Online online, boolean up_to, u8? num, u32? size);
 
   [Throws=RgbLibError]
   u8 create_utxos_end(Online online, string signed_psbt);

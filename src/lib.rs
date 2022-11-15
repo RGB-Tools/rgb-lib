@@ -6,8 +6,8 @@
 //! ## Wallet
 //! The main component of the library is the [`Wallet`].
 //!
-//! It allows to create and operate an RGB wallet that can issue, send and receive RGB20 assets.
-//! The library also manages UTXOs and asset allocations.
+//! It allows to create and operate an RGB wallet that can issue, send and receive RGB20 and RGB21
+//! assets. The library also manages UTXOs and asset allocations.
 //!
 //! ## Backend
 //! The library uses BDK for walleting operations and several components from the RGB ecosystem for
@@ -20,9 +20,11 @@
 //! SQLite is supported but adding more should be relatively easy.
 //!
 //! ## Api
-//! RGB asset transfers require the exchange of off-chain data in the form of consignment files.
+//! RGB asset transfers require the exchange of off-chain data in the form of consignment or media
+//! files.
 //!
-//! The library currently implements the API for a consignment proxy server.
+//! The library currently implements the API for a proxy server to support these data exchanges
+//! between sender and receiver.
 //!
 //! ## Errors
 //! Errors are handled with the crate `thiserror`.

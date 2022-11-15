@@ -101,7 +101,7 @@ pub(crate) fn _get_derivation_path(
     bitcoin_network: BitcoinNetwork,
     change: bool,
 ) -> String {
-    let change_num = if change { 1 } else { 0 };
+    let change_num = u8::from(change);
     let coin_type = if bitcoin_network == BitcoinNetwork::Mainnet {
         0
     } else {

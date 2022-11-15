@@ -63,8 +63,9 @@ impl Wallet {
         online: Online,
         up_to: bool,
         num: Option<u8>,
+        size: Option<u32>,
     ) -> Result<u8, RgbLibError> {
-        self._get_wallet().create_utxos(online, up_to, num)
+        self._get_wallet().create_utxos(online, up_to, num, size)
     }
 
     fn create_utxos_begin(
@@ -72,8 +73,9 @@ impl Wallet {
         online: Online,
         up_to: bool,
         num: Option<u8>,
+        size: Option<u32>,
     ) -> Result<String, RgbLibError> {
-        self._get_wallet().create_utxos_begin(online, up_to, num)
+        self._get_wallet().create_utxos_begin(online, up_to, num, size)
     }
 
     fn create_utxos_end(&self, online: Online, signed_psbt: String) -> Result<u8, RgbLibError> {

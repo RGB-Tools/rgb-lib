@@ -34,10 +34,6 @@ pub enum Error {
     #[error("Transfer cannot be set to failed status")]
     CannotFailTransfer,
 
-    /// Error contacting the RGB proxy
-    #[error("Proxy error: {0}")]
-    Proxy(#[from] reqwest::Error),
-
     /// An error was received from the Electrum server
     #[error("Electrum error: {0}")]
     Electrum(#[from] electrum_client::Error),
@@ -71,13 +67,17 @@ pub enum Error {
     #[error("Insufficient allocations")]
     InsufficientAllocationSlots,
 
-    /// There are not enough spendable tokens of the requested asset to fulfill the request
-    #[error("Insufficient assets")]
-    InsufficientAssets,
-
     /// There are not enough bitcoins to fulfill the request
-    #[error("Insufficient funds")]
-    InsufficientFunds,
+    #[error("Insufficient bitcoin funds")]
+    InsufficientBitcoins,
+
+    /// There are not enough spendable tokens of the requested asset to fulfill the request
+    #[error("Insufficient spendable funds for asset: {0}")]
+    InsufficientSpendableAssets(String),
+
+    /// There are not enough total tokens of the requested asset to fulfill the request
+    #[error("Insufficient total funds for asset: {0}")]
+    InsufficientTotalAssets(String),
 
     /// An internal error has been encountered
     #[error("Internal error: {0}")]
@@ -138,6 +138,10 @@ pub enum Error {
     /// Cannot issue an asset without knowing the amounts
     #[error("Issuance request with no provided amounts")]
     NoIssuanceAmounts,
+
+    /// Error contacting the RGB proxy
+    #[error("Proxy error: {0}")]
+    Proxy(#[from] reqwest::Error),
 
     /// The requested transfer was not found
     #[error("Transfer with blinded UTXO {0} not found")]

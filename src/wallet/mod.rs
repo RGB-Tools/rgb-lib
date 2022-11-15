@@ -102,7 +102,9 @@ const CONSIGNMENT_RCV_FILE: &str = "rcv_compose.rgbc";
 const MEDIA_FNAME: &str = "media";
 const MIME_FNAME: &str = "mime";
 
-const UTXO_SIZE: u64 = 1000;
+const MIN_BTC_REQUIRED: u64 = 2000;
+
+const UTXO_SIZE: u32 = 1000;
 const UTXO_NUM: u8 = 5;
 
 const MIN_CONFIRMATIONS: u8 = 1;
@@ -160,7 +162,7 @@ pub struct Media {
     pub mime: String,
 }
 
-/// An RGB21 non-fungible asset
+/// An RGB21 collectible asset
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AssetRgb21 {
     /// ID of the asset
@@ -207,7 +209,7 @@ impl AssetRgb21 {
     }
 }
 
-/// List of known assets, divided by asset type in different lists
+/// List of known assets, grouped by asset type
 pub struct Assets {
     /// List of Rgb20 assets
     pub rgb20: Option<Vec<AssetRgb20>>,
@@ -224,14 +226,20 @@ struct AssetSpend {
 
 /// An asset balance
 ///
-/// The settled balance includes all operations that have completed and are in a final status.
-/// The future balance also includes operations that have not yet completed or are not yet final.
+/// The settled balance includes allocations created by operations that have completed and are in a
+/// final status.
+/// The future balance also includes operations that have not yet completed or are not yet final,
+/// reflecting what the balance will be once all pending operations will have settled.
+/// The spendable balance is a subset of the settled balance, excluding allocations on UTXOs that
+/// are supporting any pending operation.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Balance {
     /// Settled balance
     pub settled: u64,
-    /// Future balance, as if everything was settled
+    /// Future balance
     pub future: u64,
+    /// Spendable balance
+    pub spendable: u64,
 }
 
 /// Data for a UTXO blinding
@@ -240,7 +248,7 @@ pub struct BlindData {
     pub blinded_utxo: String,
     /// Secret used to blind the UTXO
     pub blinding_secret: u64,
-    /// Expiration of the blinded_utxo
+    /// Expiration of the `blinded_utxo`
     pub expiration_timestamp: Option<i64>,
 }
 
@@ -404,7 +412,7 @@ impl Transfer {
 pub struct Unspent {
     /// Bitcoin UTXO
     pub utxo: Utxo,
-    /// RGB allocations on the utxo
+    /// RGB allocations on the UTXO
     pub rgb_allocations: Vec<RgbAllocation>,
 }
 
@@ -448,7 +456,7 @@ pub struct WalletData {
     pub data_dir: String,
     /// Bitcoin network for the wallet
     pub bitcoin_network: BitcoinNetwork,
-    /// Database type used by the wallet
+    /// Database type for the wallet
     pub database_type: DatabaseType,
     /// Wallet xpub
     pub pubkey: String,
@@ -683,7 +691,7 @@ impl Wallet {
         Ok(())
     }
 
-    fn _get_spendable_bitcoins(&self, unspents: Vec<LocalUnspent>) -> u64 {
+    fn _get_uncolorable_btc_sum(&self, unspents: Vec<LocalUnspent>) -> u64 {
         unspents
             .iter()
             .filter(|u| !u.utxo.colorable)
@@ -697,6 +705,7 @@ impl Wallet {
     }
 
     fn _handle_expired_transfers(&mut self) -> Result<(), Error> {
+        self._sync_db_txos()?;
         let now = now().unix_timestamp();
         let expired_transfers: Vec<DbBatchTransfer> = self
             .database
@@ -719,36 +728,45 @@ impl Wallet {
         &self,
         unspents: Vec<LocalUnspent>,
         exclude_utxos: Vec<Outpoint>,
+        max_allocations: Option<u32>,
     ) -> Result<Vec<LocalUnspent>, Error> {
+        let max_allocs = max_allocations.unwrap_or(MAX_ALLOCATIONS_PER_UTXO - 1);
         Ok(unspents
             .iter()
             .filter(|u| !exclude_utxos.contains(&u.utxo.outpoint()))
-            .filter(|u| {
-                (u.rgb_allocations.len() as u32) < MAX_ALLOCATIONS_PER_UTXO && u.utxo.colorable
-            })
+            .filter(|u| (u.rgb_allocations.len() as u32) <= max_allocs && u.utxo.colorable)
             .cloned()
             .collect())
     }
 
-    fn _get_utxo(&mut self, online: bool, exclude_utxos: Vec<Outpoint>) -> Result<DbTxo, Error> {
-        if online {
-            self._sync_db_txos()?;
-            self._handle_expired_transfers()?;
+    fn _detect_btc_unspendable_err(&self, unspents: Vec<LocalUnspent>) -> Error {
+        if self._get_uncolorable_btc_sum(unspents) < MIN_BTC_REQUIRED {
+            Error::InsufficientBitcoins
+        } else {
+            Error::InsufficientAllocationSlots
         }
+    }
 
-        let unspents: Vec<LocalUnspent> = self
-            .database
-            .get_rgb_allocations(self.database.get_unspent_txos()?, false)?;
-        let allocatable = self._get_available_allocations(unspents.clone(), exclude_utxos)?;
+    fn _get_utxo(
+        &mut self,
+        exclude_utxos: Vec<Outpoint>,
+        unspents: Option<Vec<LocalUnspent>>,
+    ) -> Result<DbTxo, Error> {
+        let unspents = if let Some(u) = unspents {
+            u
+        } else {
+            self.database.get_rgb_allocations(
+                self.database.get_unspent_txos()?,
+                false,
+                None,
+                None,
+                None,
+            )?
+        };
+        let allocatable = self._get_available_allocations(unspents.clone(), exclude_utxos, None)?;
         match allocatable.first() {
             Some(u) => Ok(u.clone().utxo),
-            None => {
-                if self._get_spendable_bitcoins(unspents) < UTXO_SIZE * 2 {
-                    Err(Error::InsufficientFunds)
-                } else {
-                    Err(Error::InsufficientAllocationSlots)
-                }
-            }
+            None => Err(self._detect_btc_unspendable_err(unspents)),
         }
     }
 
@@ -770,7 +788,7 @@ impl Wallet {
             None
         };
 
-        let utxo = self._get_utxo(false, vec![])?;
+        let utxo = self._get_utxo(vec![], None)?;
         debug!(
             self.logger,
             "Blinding outpoint '{}'",
@@ -834,12 +852,13 @@ impl Wallet {
         &self,
         inputs: &[OutPoint],
         num_utxos_to_create: u8,
+        size: u32,
     ) -> Result<PartiallySignedTransaction, bdk::Error> {
         let mut tx_builder = self.bdk_wallet.build_tx();
         tx_builder.add_utxos(inputs)?;
         tx_builder.manually_selected_only();
         for _i in 0..num_utxos_to_create {
-            tx_builder.add_recipient(self._get_new_address().script_pubkey(), UTXO_SIZE as u64);
+            tx_builder.add_recipient(self._get_new_address().script_pubkey(), size as u64);
         }
         Ok(tx_builder.finish()?.0)
     }
@@ -853,11 +872,12 @@ impl Wallet {
         online: Online,
         up_to: bool,
         num: Option<u8>,
+        size: Option<u32>,
     ) -> Result<u8, Error> {
         info!(self.logger, "Creating UTXOs...");
         self._check_xprv()?;
 
-        let unsigned_psbt = self.create_utxos_begin(online.clone(), up_to, num)?;
+        let unsigned_psbt = self.create_utxos_begin(online.clone(), up_to, num, size)?;
 
         let mut psbt =
             PartiallySignedTransaction::from_str(&unsigned_psbt).map_err(InternalError::from)?;
@@ -891,6 +911,7 @@ impl Wallet {
         online: Online,
         up_to: bool,
         num: Option<u8>,
+        size: Option<u32>,
     ) -> Result<String, Error> {
         info!(self.logger, "Creating UTXOs (begin)...");
         self._check_online(online)?;
@@ -898,10 +919,12 @@ impl Wallet {
         self._sync_db_txos()?;
 
         let unspent_txos = self.database.get_unspent_txos()?;
-        let unspents: Vec<LocalUnspent> = self
-            .database
-            .get_rgb_allocations(unspent_txos.clone(), false)?;
-        let allocatable = self._get_available_allocations(unspents, vec![])?.len() as u8;
+        let unspents: Vec<LocalUnspent> =
+            self.database
+                .get_rgb_allocations(unspent_txos.clone(), false, None, None, None)?;
+        let allocatable = self
+            ._get_available_allocations(unspents.clone(), vec![], None)?
+            .len() as u8;
 
         let mut utxos_to_create = num.unwrap_or(UTXO_NUM);
         if up_to {
@@ -913,29 +936,28 @@ impl Wallet {
         }
         debug!(self.logger, "Will try to create {} UTXOs", utxos_to_create);
 
-        let unspents: Vec<LocalUnspent> = self.database.get_rgb_allocations(unspent_txos, true)?;
-        let inputs: Vec<OutPoint> = unspents
-            .clone()
+        let inputs: Vec<OutPoint> = unspent_txos
             .into_iter()
-            .filter(|u| !u.utxo.colorable)
-            .map(|u| OutPoint::from(u.utxo))
+            .filter(|u| !u.colorable)
+            .map(OutPoint::from)
             .collect();
         let inputs: &[OutPoint] = &inputs;
-        let new_btc_amount = self._get_spendable_bitcoins(unspents);
-        let max_possible_utxos = new_btc_amount / UTXO_SIZE;
+        let new_btc_amount = self._get_uncolorable_btc_sum(unspents);
+        let utxo_size = size.unwrap_or(UTXO_SIZE);
+        let max_possible_utxos = new_btc_amount / utxo_size as u64;
         let mut num_try_creating = min(utxos_to_create, max_possible_utxos as u8);
         while num_try_creating > 0 {
-            match self._create_split_tx(inputs, num_try_creating) {
+            match self._create_split_tx(inputs, num_try_creating, utxo_size) {
                 Ok(_v) => break,
                 Err(_e) => num_try_creating -= 1,
             };
         }
 
         if num_try_creating == 0 {
-            Err(Error::InsufficientFunds)
+            Err(Error::InsufficientBitcoins)
         } else {
             Ok(self
-                ._create_split_tx(inputs, num_try_creating)
+                ._create_split_tx(inputs, num_try_creating, utxo_size)
                 .map_err(InternalError::from)?
                 .to_string())
         }
@@ -1127,7 +1149,7 @@ impl Wallet {
         Ok(tx_builder
             .finish()
             .map_err(|e| match e {
-                bdk::Error::InsufficientFunds { .. } => Error::InsufficientFunds,
+                bdk::Error::InsufficientFunds { .. } => Error::InsufficientBitcoins,
                 _ => Error::from(InternalError::from(e)),
             })?
             .0
@@ -1253,7 +1275,7 @@ impl Wallet {
         self._get_new_address().to_string()
     }
 
-    /// Return the balance for the requested asset
+    /// Return the [`Balance`] for the requested asset
     pub fn get_asset_balance(&self, asset_id: String) -> Result<Balance, Error> {
         info!(self.logger, "Getting balance for asset '{}'...", asset_id);
         self.database.get_asset_or_fail(asset_id.clone())?;
@@ -1411,7 +1433,7 @@ impl Wallet {
 
     /// Return the existing or freshly generated set of wallet [`Online`] data
     ///
-    /// Setting skip_consistency_check to true bypases the check and allows operating an
+    /// Setting `skip_consistency_check` to true bypases the check and allows operating an
     /// inconsistent wallet. Warning: this is dangerous, only do this if you know what you're doing!
     pub fn go_online(
         &mut self,
@@ -1459,12 +1481,20 @@ impl Wallet {
             amounts
         );
         self._check_online(online)?;
+        self._handle_expired_transfers()?;
 
+        let unspents: Vec<LocalUnspent> = self.database.get_rgb_allocations(
+            self.database.get_unspent_txos()?,
+            false,
+            None,
+            None,
+            None,
+        )?;
         let mut outputs: HashMap<DbTxo, u64> = HashMap::new();
         let mut allocations = vec![];
         for amount in &amounts {
             let outpoints: Vec<Outpoint> = outputs.iter().map(|(txo, _)| txo.outpoint()).collect();
-            let utxo = self._get_utxo(true, outpoints)?;
+            let utxo = self._get_utxo(outpoints, Some(unspents.clone()))?;
             let outpoint = utxo.outpoint().to_string();
             outputs.insert(utxo, *amount);
             let allocation = RgbOutpointValue::from_str(&format!("{amount}@{outpoint}"))
@@ -1492,15 +1522,12 @@ impl Wallet {
         if !matches!(status, ContractValidity::Valid) {
             return Err(Error::FailedIssuance(format!("{:?}", status)));
         }
-        debug!(
-            self.logger,
-            "Issued asset with ID '{:?}'",
-            asset.contract_id()
-        );
+        let asset_id = asset.contract_id().to_string();
+        debug!(self.logger, "Issued asset with ID '{:?}'", asset_id);
 
         let db_asset = DbAssetRgb20 {
             idx: 0,
-            asset_id: asset.contract_id().to_string(),
+            asset_id: asset_id.clone(),
             ticker,
             name,
             precision,
@@ -1515,7 +1542,7 @@ impl Wallet {
         let asset_transfer = DbAssetTransferActMod {
             user_driven: ActiveValue::Set(true),
             batch_transfer_idx: ActiveValue::Set(batch_transfer_idx),
-            asset_rgb20_id: ActiveValue::Set(Some(db_asset.asset_id.clone())),
+            asset_rgb20_id: ActiveValue::Set(Some(asset_id.clone())),
             ..Default::default()
         };
         let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
@@ -1539,10 +1566,7 @@ impl Wallet {
 
         Ok(AssetRgb20::from_db_asset(
             db_asset,
-            Balance {
-                settled,
-                future: settled,
-            },
+            self.database.get_asset_balance(asset_id)?,
         ))
     }
 
@@ -1568,12 +1592,20 @@ impl Wallet {
             amounts
         );
         self._check_online(online)?;
+        self._handle_expired_transfers()?;
 
+        let unspents: Vec<LocalUnspent> = self.database.get_rgb_allocations(
+            self.database.get_unspent_txos()?,
+            false,
+            None,
+            None,
+            None,
+        )?;
         let mut outputs: HashMap<DbTxo, u64> = HashMap::new();
         let mut allocations = vec![];
         for amount in &amounts {
             let outpoints: Vec<Outpoint> = outputs.iter().map(|(txo, _)| txo.outpoint()).collect();
-            let utxo = self._get_utxo(true, outpoints)?;
+            let utxo = self._get_utxo(outpoints, Some(unspents.clone()))?;
             let outpoint = utxo.outpoint().to_string();
             outputs.insert(utxo, *amount);
             let allocation = RgbOutpointValue::from_str(&format!("{amount}@{outpoint}"))
@@ -1651,7 +1683,7 @@ impl Wallet {
 
         let db_asset = DbAssetRgb21 {
             idx: 0,
-            asset_id,
+            asset_id: asset_id.clone(),
             name,
             precision,
             description,
@@ -1667,7 +1699,7 @@ impl Wallet {
         let asset_transfer = DbAssetTransferActMod {
             user_driven: ActiveValue::Set(true),
             batch_transfer_idx: ActiveValue::Set(batch_transfer_idx),
-            asset_rgb21_id: ActiveValue::Set(Some(db_asset.asset_id.clone())),
+            asset_rgb21_id: ActiveValue::Set(Some(asset_id.clone())),
             ..Default::default()
         };
         let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
@@ -1691,10 +1723,7 @@ impl Wallet {
 
         AssetRgb21::from_db_asset(
             db_asset,
-            Balance {
-                settled,
-                future: settled,
-            },
+            self.database.get_asset_balance(asset_id)?,
             self.wallet_dir.join(ASSETS_DIR),
         )
     }
@@ -1770,36 +1799,37 @@ impl Wallet {
     }
 
     /// List the [`Unspent`]s known to the RGB wallet,
-    /// if "settled" is true only show settled allocations
-    /// if "settled" is false also show pending allocations
+    /// if `settled` is true only show settled allocations
+    /// if `settled` is false also show pending allocations
     pub fn list_unspents(&self, settled_only: bool) -> Result<Vec<Unspent>, Error> {
         info!(self.logger, "Listing unspents...");
 
+        let batch_transfers = self.database.iter_batch_transfers()?;
+        let colorings = self.database.iter_colorings()?;
+        let txos = self.database.iter_txos()?;
+        let asset_transfers = self.database.iter_asset_transfers()?;
+
         let mut allocation_txos = self.database.get_unspent_txos()?;
-        let spent_txos_ids: Vec<i64> = self
-            .database
-            .iter_txos()?
+        let spent_txos_ids: Vec<i64> = txos
+            .clone()
             .into_iter()
             .filter(|t| t.spent)
             .map(|u| u.idx)
             .collect();
-        let waiting_confs_batch_transfer_ids: Vec<i64> = self
-            .database
-            .iter_batch_transfers()?
+        let waiting_confs_batch_transfer_ids: Vec<i64> = batch_transfers
+            .clone()
             .into_iter()
             .filter(|t| t.waiting_confirmations())
             .map(|t| t.idx)
             .collect();
-        let waiting_confs_transfer_ids: Vec<i64> = self
-            .database
-            .iter_asset_transfers()?
+        let waiting_confs_transfer_ids: Vec<i64> = asset_transfers
+            .clone()
             .into_iter()
             .filter(|t| waiting_confs_batch_transfer_ids.contains(&t.batch_transfer_idx))
             .map(|t| t.idx)
             .collect();
-        let almost_spent_txos_ids: Vec<i64> = self
-            .database
-            .iter_colorings()?
+        let almost_spent_txos_ids: Vec<i64> = colorings
+            .clone()
             .into_iter()
             .filter(|c| {
                 waiting_confs_transfer_ids.contains(&c.asset_transfer_idx)
@@ -1807,9 +1837,7 @@ impl Wallet {
             })
             .map(|c| c.txo_idx)
             .collect();
-        let mut spent_txos = self
-            .database
-            .iter_txos()?
+        let mut spent_txos = txos
             .into_iter()
             .filter(|t| almost_spent_txos_ids.contains(&t.idx))
             .collect();
@@ -1817,7 +1845,13 @@ impl Wallet {
 
         Ok(self
             .database
-            .get_rgb_allocations(allocation_txos, settled_only)?
+            .get_rgb_allocations(
+                allocation_txos,
+                settled_only,
+                Some(colorings),
+                Some(batch_transfers),
+                Some(asset_transfers),
+            )?
             .into_iter()
             .map(Unspent::from)
             .collect())
@@ -2372,21 +2406,9 @@ impl Wallet {
         &self,
         asset_id: String,
         amount_needed: u64,
-        unspendable_txo_ids: Vec<i64>,
+        unspents: Vec<LocalUnspent>,
     ) -> Result<AssetSpend, Error> {
         debug!(self.logger, "Selecting inputs for asset '{}'...", asset_id);
-        let asset_txos = self
-            .database
-            .get_asset_utxos(asset_id.clone())?
-            .into_iter()
-            .filter(|t| !unspendable_txo_ids.contains(&t.idx))
-            .collect();
-        let unspents: Vec<LocalUnspent> = self
-            .database
-            .get_rgb_allocations(asset_txos, false)?
-            .into_iter()
-            .filter(|u| u.rgb_allocations.iter().all(|a| a.settled))
-            .collect();
         let mut input_allocations: HashMap<DbTxo, u64> = HashMap::new();
         let mut amount_input_asset: u64 = 0;
         for unspent in unspents {
@@ -2395,6 +2417,9 @@ impl Wallet {
                 .into_iter()
                 .filter(|a| a.asset_id == Some(asset_id.clone()))
                 .collect();
+            if asset_allocations.is_empty() {
+                continue;
+            }
             asset_allocations.sort_by(|a, b| b.cmp(a));
             let amount_allocation: u64 = asset_allocations.iter().map(|a| a.amount).sum();
             input_allocations.insert(unspent.utxo, amount_allocation);
@@ -2404,7 +2429,11 @@ impl Wallet {
             }
         }
         if amount_input_asset < amount_needed {
-            return Err(Error::InsufficientAssets);
+            let ass_balance = self.database.get_asset_balance(asset_id.clone())?;
+            if ass_balance.future < amount_needed {
+                return Err(Error::InsufficientTotalAssets(asset_id));
+            }
+            return Err(Error::InsufficientSpendableAssets(asset_id));
         }
         debug!(self.logger, "Asset input amount {:?}", amount_input_asset);
         let inputs: Vec<DbTxo> = input_allocations.clone().into_keys().collect();
@@ -2436,7 +2465,13 @@ impl Wallet {
             .manually_selected_only()
             .drain_to(self._get_new_address().script_pubkey())
             .fee_rate(FeeRate::from_sat_per_vb(1.5));
-        Ok(builder.finish().map_err(InternalError::from)?.0)
+        Ok(builder
+            .finish()
+            .map_err(|e| match e {
+                bdk::Error::InsufficientFunds { .. } => Error::InsufficientBitcoins,
+                _ => Error::from(InternalError::from(e)),
+            })?
+            .0)
     }
 
     fn _prepare_rgb_psbt(
@@ -2446,10 +2481,13 @@ impl Wallet {
         transfer_info_map: BTreeMap<String, InfoAssetTransfer>,
         transfer_dir: PathBuf,
         donation: bool,
+        unspents: Vec<LocalUnspent>,
+        batch_transfers: Vec<DbBatchTransfer>,
+        asset_transfers: Vec<DbAssetTransfer>,
     ) -> Result<(), Error> {
         let change_utxo = self._get_utxo(
-            true,
             input_outpoints.into_iter().map(|t| t.into()).collect(),
+            Some(unspents),
         )?;
         debug!(
             self.logger,
@@ -2457,20 +2495,17 @@ impl Wallet {
             change_utxo.outpoint().to_string()
         );
 
-        let batch_transfer_ids: Vec<i64> = self
-            .database
-            .iter_batch_transfers()?
+        let batch_transfer_ids: Vec<i64> = batch_transfers
             .into_iter()
             .filter(|t| t.failed())
             .map(|t| t.idx)
             .collect();
-        let asset_transfer_ids: Vec<i64> = self
-            .database
-            .iter_asset_transfers()?
+        let asset_transfer_ids: Vec<i64> = asset_transfers
             .into_iter()
             .filter(|t| batch_transfer_ids.contains(&t.batch_transfer_idx))
             .map(|t| t.idx)
             .collect();
+        let existing_transfers = self.database.iter_transfers()?;
         let mut asset_beneficiaries: BTreeMap<String, BTreeMap<SealEndpoint, u64>> = bmap![];
         for (asset_id, transfer_info) in transfer_info_map.clone() {
             let asset_spend = transfer_info.asset_spend;
@@ -2507,7 +2542,6 @@ impl Wallet {
 
             // RGB20-RGB21 transfer
             let mut out_allocations: Vec<UtxobValue> = vec![];
-            let existing_transfers = self.database.iter_transfers()?;
             for recipient in recipients.clone() {
                 if existing_transfers
                     .iter()
@@ -2890,6 +2924,7 @@ impl Wallet {
     ) -> Result<String, Error> {
         info!(self.logger, "Sending (begin) to: {:?}...", recipient_map);
         self._check_online(online)?;
+        self._handle_expired_transfers()?;
 
         let mut blinded_utxos: Vec<String> = recipient_map
             .values()
@@ -2904,36 +2939,46 @@ impl Wallet {
             .join(hasher.finish().to_string());
 
         // input selection
-        let batch_transfer_ids: Vec<i64> = self
-            .database
-            .iter_batch_transfers()?
+        let batch_transfers = self.database.iter_batch_transfers()?;
+        let pending_batch_transfer_ids: Vec<i64> = batch_transfers
+            .clone()
+            .into_iter()
+            .filter(|t| t.pending())
+            .map(|t| t.idx)
+            .collect();
+        let failed_batch_transfer_ids: Vec<i64> = batch_transfers
+            .clone()
             .into_iter()
             .filter(|t| t.failed())
             .map(|t| t.idx)
             .collect();
-        let asset_transfer_ids: Vec<i64> = self
-            .database
-            .iter_asset_transfers()?
+        let utxos = self.database.get_unspent_txos()?;
+        let unspent_txo_ids: Vec<i64> = utxos.iter().map(|u| u.idx).collect();
+        let colorings = self.database.iter_colorings()?;
+        let unspendable_utxo_ids = self.database.get_unspendable_utxo_ids(
+            unspent_txo_ids,
+            pending_batch_transfer_ids,
+            failed_batch_transfer_ids,
+            colorings.clone(),
+        )?;
+        let spendable_utxos: Vec<DbTxo> = utxos
             .into_iter()
-            .filter(|t| batch_transfer_ids.contains(&t.batch_transfer_idx))
-            .map(|t| t.idx)
+            .filter(|t| !unspendable_utxo_ids.contains(&t.idx))
             .collect();
-        let input_coloring_ids: Vec<i64> = self
-            .database
-            .iter_colorings()?
-            .into_iter()
-            .filter(|c| {
-                c.coloring_type == ColoringType::Input
-                    && !asset_transfer_ids.contains(&c.asset_transfer_idx)
-            })
-            .map(|c| c.txo_idx)
-            .collect();
+        let asset_transfers = self.database.iter_asset_transfers()?;
+        let unspents = self.database.get_rgb_allocations(
+            spendable_utxos,
+            false,
+            Some(colorings),
+            Some(batch_transfers.clone()),
+            Some(asset_transfers.clone()),
+        )?;
         let mut transfer_info_map: BTreeMap<String, InfoAssetTransfer> = BTreeMap::new();
         for (asset_id, recipients) in recipient_map {
             let asset_type = self.database.get_asset_or_fail(asset_id.clone())?;
             let amount: u64 = recipients.iter().map(|a| a.amount).sum();
             let asset_spend =
-                self._select_rgb_inputs(asset_id.clone(), amount, input_coloring_ids.clone())?;
+                self._select_rgb_inputs(asset_id.clone(), amount, unspents.clone())?;
             let transfer_info = InfoAssetTransfer {
                 recipients,
                 asset_spend,
@@ -2951,7 +2996,25 @@ impl Wallet {
             .concat();
         all_inputs.sort();
         all_inputs.dedup();
-        let mut psbt = self._prepare_psbt(all_inputs.clone())?;
+        let mut psbt = loop {
+            break match self._prepare_psbt(all_inputs.clone()) {
+                Ok(psbt) => psbt,
+                Err(Error::InsufficientBitcoins) => {
+                    let used_txos: Vec<Outpoint> =
+                        all_inputs.clone().into_iter().map(|o| o.into()).collect();
+                    if let Some(a) = self
+                        ._get_available_allocations(unspents.clone(), used_txos.clone(), Some(0))?
+                        .pop()
+                    {
+                        all_inputs.push(a.utxo.into());
+                        continue;
+                    } else {
+                        return Err(self._detect_btc_unspendable_err(unspents));
+                    }
+                }
+                Err(e) => return Err(e),
+            };
+        };
 
         // prepare RGB PSBT
         self._prepare_rgb_psbt(
@@ -2960,6 +3023,9 @@ impl Wallet {
             transfer_info_map.clone(),
             transfer_dir.clone(),
             donation,
+            unspents,
+            batch_transfers,
+            asset_transfers,
         )?;
 
         // rename transfer directory

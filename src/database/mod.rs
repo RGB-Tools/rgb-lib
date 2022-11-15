@@ -148,9 +148,9 @@ impl From<LocalUtxo> for DbTxoActMod {
 
 #[derive(Clone, Debug)]
 pub(crate) struct LocalUnspent {
-    /// Database utxo
+    /// Database UTXO
     pub utxo: DbTxo,
-    /// RGB allocations on the utxo
+    /// RGB allocations on the UTXO
     pub rgb_allocations: Vec<RgbAllocation>,
 }
 
@@ -387,29 +387,48 @@ impl RgbLibDatabase {
         Ok(self.iter_txos()?.into_iter().filter(|t| !t.spent).collect())
     }
 
-    pub(crate) fn get_asset_utxos(&self, asset_id: String) -> Result<Vec<DbTxo>, InternalError> {
-        let transfer_ids: Vec<i64> = self
-            .iter_asset_asset_transfers(asset_id)?
-            .iter()
+    pub(crate) fn get_unspendable_utxo_ids(
+        &self,
+        utxo_ids: Vec<i64>,
+        pending_batch_transfer_ids: Vec<i64>,
+        failed_batch_transfer_ids: Vec<i64>,
+        colorings: Vec<DbColoring>,
+    ) -> Result<Vec<i64>, Error> {
+        let failed_asset_transfer_ids: Vec<i64> = self
+            .iter_asset_transfers()?
+            .into_iter()
+            .filter(|t| failed_batch_transfer_ids.contains(&t.batch_transfer_idx))
             .map(|t| t.idx)
             .collect();
-        let txo_ids: Vec<i64> = self
-            .iter_colorings()?
+        let pending_asset_transfer_ids: Vec<i64> = self
+            .iter_asset_transfers()?
             .into_iter()
-            .filter(|c| transfer_ids.contains(&c.asset_transfer_idx))
+            .filter(|t| pending_batch_transfer_ids.contains(&t.batch_transfer_idx))
+            .map(|t| t.idx)
+            .collect();
+        let mut unspendable_txo_ids: Vec<i64> = colorings
+            .into_iter()
+            .filter(|c| utxo_ids.contains(&c.txo_idx))
+            .filter(|c| {
+                (!c.incoming() && !failed_asset_transfer_ids.contains(&c.asset_transfer_idx))
+                    || (c.incoming() && pending_asset_transfer_ids.contains(&c.asset_transfer_idx))
+            })
             .map(|c| c.txo_idx)
             .collect();
-        Ok(self
-            .iter_txos()?
-            .into_iter()
-            .filter(|t| txo_ids.contains(&t.idx) && !t.spent)
-            .collect())
+
+        unspendable_txo_ids.sort();
+        unspendable_txo_ids.dedup();
+
+        Ok(unspendable_txo_ids)
     }
 
     pub(crate) fn get_asset_balance(&self, asset_id: String) -> Result<Balance, Error> {
         let asset_transfers = self.iter_asset_asset_transfers(asset_id)?;
 
-        let batch_transfers: Vec<DbBatchTransfer> = self.iter_batch_transfers()?;
+        let batch_transfers = self.iter_batch_transfers()?;
+        let colorings = self.iter_colorings()?;
+        let txos = self.iter_txos()?;
+
         let pending_batch_transfer_ids: Vec<i64> = batch_transfers
             .clone()
             .into_iter()
@@ -423,25 +442,24 @@ impl RgbLibDatabase {
             .map(|t| t.idx)
             .collect();
         let waiting_confs_batch_transfer_ids: Vec<i64> = batch_transfers
+            .clone()
             .into_iter()
             .filter(|t| t.waiting_confirmations())
             .map(|t| t.idx)
             .collect();
 
-        let colorings = self.iter_colorings()?;
-
-        let pending_transfer_ids: Vec<i64> = asset_transfers
+        let ass_pending_transfer_ids: Vec<i64> = asset_transfers
             .clone()
             .into_iter()
             .filter(|t| pending_batch_transfer_ids.contains(&t.batch_transfer_idx))
             .map(|t| t.idx)
             .collect();
-        let pending_colorings: Vec<DbColoring> = colorings
+        let ass_pending_colorings: Vec<DbColoring> = colorings
             .clone()
             .into_iter()
-            .filter(|c| pending_transfer_ids.contains(&c.asset_transfer_idx))
+            .filter(|c| ass_pending_transfer_ids.contains(&c.asset_transfer_idx))
             .collect();
-        let pending_incoming: u64 = pending_colorings
+        let ass_pending_incoming: u64 = ass_pending_colorings
             .clone()
             .into_iter()
             .filter(|c| c.incoming())
@@ -451,7 +469,7 @@ impl RgbLibDatabase {
                     .expect("DB should contain a valid u64 value")
             })
             .sum();
-        let pending_outgoing: u64 = pending_colorings
+        let ass_pending_outgoing: u64 = ass_pending_colorings
             .into_iter()
             .filter(|c| !c.incoming())
             .map(|c| {
@@ -461,33 +479,32 @@ impl RgbLibDatabase {
             })
             .sum();
 
-        let settled_transfer_ids: Vec<i64> = asset_transfers
+        let ass_settled_transfer_ids: Vec<i64> = asset_transfers
             .clone()
             .into_iter()
             .filter(|t| settled_batch_transfer_ids.contains(&t.batch_transfer_idx))
             .map(|t| t.idx)
             .collect();
-        let unspent_utxos: Vec<i64> = self
-            .iter_txos()?
+        let unspent_txo_ids: Vec<i64> = txos
+            .clone()
             .into_iter()
             .filter(|t| !t.spent)
             .map(|u| u.idx)
             .collect();
-        let waiting_confs_transfer_ids: Vec<i64> = asset_transfers
+        let ass_waiting_confs_transfer_ids: Vec<i64> = asset_transfers
             .into_iter()
             .filter(|t| waiting_confs_batch_transfer_ids.contains(&t.batch_transfer_idx))
             .map(|t| t.idx)
             .collect();
-        let spent_txos_ids: Vec<i64> = self
-            .iter_txos()?
+        let spent_txos_ids: Vec<i64> = txos
             .into_iter()
             .filter(|t| t.spent)
             .map(|u| u.idx)
             .collect();
-        let settled_colorings = colorings.iter().filter(|c| {
-            (settled_transfer_ids.contains(&c.asset_transfer_idx)
-                && unspent_utxos.contains(&c.txo_idx))
-                || (waiting_confs_transfer_ids.contains(&c.asset_transfer_idx)
+        let settled_colorings = colorings.clone().into_iter().filter(|c| {
+            (ass_settled_transfer_ids.contains(&c.asset_transfer_idx)
+                && unspent_txo_ids.contains(&c.txo_idx))
+                || (ass_waiting_confs_transfer_ids.contains(&c.asset_transfer_idx)
                     && spent_txos_ids.contains(&c.txo_idx))
         });
         let settled: u64 = settled_colorings
@@ -499,12 +516,39 @@ impl RgbLibDatabase {
             })
             .sum();
 
-        let pending: i128 = pending_incoming as i128 - pending_outgoing as i128;
-        let future = settled as i128 + pending;
+        let ass_pending: i128 = ass_pending_incoming as i128 - ass_pending_outgoing as i128;
+        let future = settled as i128 + ass_pending;
+
+        let failed_batch_transfer_ids: Vec<i64> = batch_transfers
+            .into_iter()
+            .filter(|t| t.failed())
+            .map(|t| t.idx)
+            .collect();
+        let unspendable_utxo_ids = self.get_unspendable_utxo_ids(
+            unspent_txo_ids.clone(),
+            pending_batch_transfer_ids,
+            failed_batch_transfer_ids,
+            colorings,
+        )?;
+        let global_pending: u64 = settled_colorings
+            .filter(|c| {
+                unspendable_utxo_ids.contains(&c.txo_idx)
+                    || (ass_waiting_confs_transfer_ids.contains(&c.asset_transfer_idx)
+                        && spent_txos_ids.contains(&c.txo_idx))
+            })
+            .map(|c| {
+                c.amount
+                    .parse::<u64>()
+                    .expect("DB should contain a valid u64 value")
+            })
+            .sum();
+
+        let spendable = settled - global_pending;
 
         Ok(Balance {
             settled,
             future: future as u64,
+            spendable,
         })
     }
 
@@ -677,12 +721,12 @@ impl RgbLibDatabase {
         &self,
         utxo: &DbTxo,
         settled_only: bool,
+        colorings: Vec<DbColoring>,
+        asset_transfers: Vec<DbAssetTransfer>,
+        batch_transfers: Vec<DbBatchTransfer>,
     ) -> Result<Vec<RgbAllocation>, Error> {
-        let colorings = self.iter_colorings()?;
         let utxo_colorings: Vec<&DbColoring> =
             colorings.iter().filter(|c| c.txo_idx == utxo.idx).collect();
-        let asset_transfers = self.iter_asset_transfers()?;
-        let batch_transfers = self.iter_batch_transfers()?;
 
         let mut allocations: Vec<RgbAllocation> = vec![];
         utxo_colorings.iter().for_each(|c| {
@@ -747,13 +791,37 @@ impl RgbLibDatabase {
         &self,
         utxos: Vec<DbTxo>,
         settled_only: bool,
+        colorings: Option<Vec<DbColoring>>,
+        batch_transfers: Option<Vec<DbBatchTransfer>>,
+        asset_transfers: Option<Vec<DbAssetTransfer>>,
     ) -> Result<Vec<LocalUnspent>, Error> {
+        let batch_transfers = if let Some(bt) = batch_transfers {
+            bt
+        } else {
+            self.iter_batch_transfers()?
+        };
+        let asset_transfers = if let Some(at) = asset_transfers {
+            at
+        } else {
+            self.iter_asset_transfers()?
+        };
+        let colorings = if let Some(cs) = colorings {
+            cs
+        } else {
+            self.iter_colorings()?
+        };
         utxos
             .iter()
             .map(|t| {
                 Ok(LocalUnspent {
                     utxo: t.clone(),
-                    rgb_allocations: self._get_utxo_allocations(t, settled_only)?,
+                    rgb_allocations: self._get_utxo_allocations(
+                        t,
+                        settled_only,
+                        colorings.clone(),
+                        asset_transfers.clone(),
+                        batch_transfers.clone(),
+                    )?,
                 })
             })
             .collect()
