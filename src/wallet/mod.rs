@@ -2,7 +2,7 @@
 //!
 //! This module defines the [`Wallet`] structure and all its related data.
 
-use amplify::{bmap, s};
+use amplify::{bmap, bset, empty, s};
 use amplify_num::hex::FromHex;
 use bdk::bitcoin::secp256k1::Secp256k1;
 use bdk::bitcoin::Network as BdkNetwork;
@@ -33,7 +33,7 @@ use internet2::addr::ServiceAddr;
 use lnpbp::chain::Chain as RgbNetwork;
 use psbt::Psbt;
 use reqwest::Client as RestClient;
-use rgb::blank::BlankBundle;
+use rgb::blank::{BlankBundle, Error as BlankError};
 use rgb::fungible::allocation::{AllocatedValue, OutpointValue as RgbOutpointValue, UtxobValue};
 use rgb::psbt::{RgbExt, RgbInExt};
 use rgb::{
@@ -46,8 +46,14 @@ use rgb21::{
     Asset as Rgb21Asset, FieldType as Rgb21FieldType, FileAttachment,
     OwnedRightType as Rgb21OwnedRightType, Rgb21, SCHEMA_ID_BECH32 as RGB21_SCHEMA_ID,
 };
-use rgb_core::vm::embedded::constants::STATE_TYPE_OWNERSHIP_RIGHT;
-use rgb_core::{Assignment, AttachmentId, SealEndpoint, TypedAssignments, Validator, Validity};
+use rgb_core::schema::OwnedRightType;
+use rgb_core::vm::embedded::constants::{
+    STATE_TYPE_OWNERSHIP_RIGHT, TRANSITION_TYPE_VALUE_TRANSFER,
+};
+use rgb_core::{
+    Assignment, AttachmentId, NodeId, OwnedRights, ParentOwnedRights, SealEndpoint, Transition,
+    TypedAssignments, Validator, Validity,
+};
 use rgb_lib_migration::{Migrator, MigratorTrait};
 use rgb_node::{rgbd, Config};
 use rgb_rpc::client::Client;
@@ -240,6 +246,57 @@ pub struct Balance {
     pub future: u64,
     /// Spendable balance
     pub spendable: u64,
+}
+
+trait BlankBundleRgb21 {
+    fn blank_rgb21(
+        prev_state: &BTreeMap<OutPoint, BTreeSet<OutpointState>>,
+        new_outpoints: &BTreeMap<OwnedRightType, (OutPoint, CloseMethod)>,
+    ) -> Result<TransitionBundle, BlankError>;
+}
+
+impl BlankBundleRgb21 for TransitionBundle {
+    fn blank_rgb21(
+        prev_state: &BTreeMap<OutPoint, BTreeSet<OutpointState>>,
+        new_outpoints: &BTreeMap<OwnedRightType, (OutPoint, CloseMethod)>,
+    ) -> Result<TransitionBundle, BlankError> {
+        let mut transitions: BTreeMap<Transition, BTreeSet<u16>> = bmap! {};
+
+        for (tx_outpoint, inputs) in prev_state {
+            let mut parent_owned_rights: BTreeMap<NodeId, BTreeMap<OwnedRightType, Vec<u16>>> =
+                bmap! {};
+            let mut owned_rights: BTreeMap<OwnedRightType, TypedAssignments> = bmap! {};
+            for OutpointState {
+                node_outpoint: input,
+                state,
+            } in inputs
+            {
+                parent_owned_rights
+                    .entry(input.node_id)
+                    .or_default()
+                    .entry(input.ty)
+                    .or_default()
+                    .push(input.no);
+                let (op, close_method) = new_outpoints
+                    .get(&input.ty)
+                    .ok_or(BlankError::NoOutpoint(input.ty))?;
+                let new_seal = seal::Revealed::new(*close_method, *op);
+                let new_assignments = state.to_revealed_assignment_vec(new_seal);
+                owned_rights.insert(input.ty, new_assignments);
+            }
+            let transition = Transition::with(
+                TRANSITION_TYPE_VALUE_TRANSFER,
+                empty!(),
+                empty!(),
+                OwnedRights::from(owned_rights),
+                empty!(),
+                ParentOwnedRights::from(parent_owned_rights),
+            );
+            transitions.insert(transition, bset! { tx_outpoint.vout as u16 });
+        }
+
+        TransitionBundle::try_from(transitions).map_err(BlankError::from)
+    }
 }
 
 /// Data for a UTXO blinding
@@ -611,10 +668,11 @@ impl Wallet {
     }
 
     fn _get_tx_details(&self, txid: String) -> Result<serde_json::Value, Error> {
-        Ok(self._electrum_client()?.raw_call(
-            "blockchain.transaction.get",
+        let call = (
+            s!("blockchain.transaction.get"),
             vec![Param::String(txid), Param::Bool(true)],
-        )?)
+        );
+        Ok(self._electrum_client()?.raw_call(&call)?)
     }
 
     fn _sync_db_txos(&self) -> Result<(), Error> {
@@ -1509,6 +1567,7 @@ impl Wallet {
             precision,
             allocations,
             BTreeMap::new(),
+            CloseMethod::OpretFirst,
             None,
             None,
         );
@@ -1649,6 +1708,7 @@ impl Wallet {
             attachments,
             vec![],
             allocations,
+            CloseMethod::OpretFirst,
         )
         .map_err(InternalError::from)?;
         let _rgb_asset =
@@ -2627,7 +2687,7 @@ impl Wallet {
         let mut blank_allocations: HashMap<String, u64> = HashMap::new();
         for (cid, mut outpoint_map) in state_map {
             let cid_str = cid.to_string();
-            if transfer_info_map.contains_key(&cid_str) {
+            let contract = if transfer_info_map.contains_key(&cid_str) {
                 let input_outpoints = transfer_info_map[&cid_str]
                     .clone()
                     .asset_spend
@@ -2636,24 +2696,42 @@ impl Wallet {
                 if outpoint_map.is_empty() {
                     continue;
                 }
+                self._rgb_client()?
+                    .contract(cid, vec![], |_| ())
+                    .map_err(InternalError::from)?
             } else {
                 let contract = self
                     ._rgb_client()?
                     .contract(cid, vec![], |_| ())
                     .map_err(InternalError::from)?;
-                psbt.set_rgb_contract(contract)
+                psbt.set_rgb_contract(contract.clone())
                     .map_err(InternalError::from)?;
-            }
-            for inputs in &mut outpoint_map.values_mut() {
-                inputs.retain(
-                    |OutpointState {
-                         node_outpoint: input,
-                         state: _,
-                     }| input.ty != Rgb21OwnedRightType::Engraving as u16,
-                );
-            }
-            let blank_bundle = TransitionBundle::blank(&outpoint_map, &new_outpoints)
-                .map_err(InternalError::from)?;
+                contract
+            };
+
+            let schema_id = contract.schema_id().to_string();
+            let blank_bundle = match &schema_id[..] {
+                rgb20::schema::SCHEMA_ID_BECH32 => {
+                    TransitionBundle::blank(&outpoint_map, &new_outpoints)
+                        .map_err(InternalError::from)?
+                }
+                RGB21_SCHEMA_ID => {
+                    for inputs in &mut outpoint_map.values_mut() {
+                        inputs.retain(
+                            |OutpointState {
+                                 node_outpoint: input,
+                                 state: _,
+                             }| {
+                                input.ty != Rgb21OwnedRightType::Engraving as u16
+                            },
+                        );
+                    }
+                    TransitionBundle::blank_rgb21(&outpoint_map, &new_outpoints)
+                        .map_err(InternalError::from)?
+                }
+                _ => return Err(Error::UnknownRgbSchema(schema_id)),
+            };
+
             for (transition, _indexes) in blank_bundle.revealed_iter() {
                 let node_id = transition.node_id();
                 psbt.push_rgb_transition(transition.clone())

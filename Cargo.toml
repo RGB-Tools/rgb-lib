@@ -17,7 +17,7 @@ members = [".", "migration"]
 base64 = "0.13.0"
 bdk = { version = "0.23", features = ["electrum", "keys-bip39", "sqlite-bundled"] }
 bitcoin = "0.28.1"
-electrum-client = "0.11.0"
+electrum-client = "0.10.2"
 futures = "0.3"
 rgb_lib_migration = { path = "migration", version = "0.1.0" }
 reqwest = { version = "0.11", default-features = false, features = ["json", "multipart", "native-tls", "stream"] }
@@ -37,21 +37,21 @@ tree_magic = "0.2.3"
 # RGB-related deps
 amplify = "=3.13.0"
 amplify_num = "=0.4.1"
-bp-core = { git = "https://github.com/zoedberg/bp-core", branch = "fixes", version = "0.8.0", features = ["psbt", "wallet"] }
-bp-dbc = { git = "https://github.com/zoedberg/bp-core", branch = "fixes", version = "0.8.0" }
-commit_verify = "=0.8.0"
-internet2 = "=0.8.3"
+bp-core = { version = "=0.8.1", features = ["psbt", "wallet"] }
+bp-dbc = "=0.8.1"
+commit_verify = "=0.8.1"
+internet2 = "=0.8.4"
 lnpbp = "=0.8.0"
-psbt = { git = "https://github.com/zoedberg/descriptor-wallet", branch = "fixes", version = "0.8.5" }
-rgb-std = { git = "https://github.com/zoedberg/rgb-std", branch = "fixes", version = "0.8.0" }
-rgb20 = { git = "https://github.com/zoedberg/rust-rgb20", branch = "fixes", version = "0.8.0-rc.4" }
-rgb21 = { git = "https://github.com/RGB-Tools/rust-rgb21", branch = "master", version = "0.1.0" }
-rgb_core = { package = "rgb-core", git = "https://github.com/zoedberg/rgb-core", branch = "fixes", version = "0.8.0" }
-rgb_node = { git = "https://github.com/zoedberg/rgb-node", branch = "fixes", version = "0.8.0-rc.1", features = ["server", "embedded"] }
-rgb_rpc = { git = "https://github.com/zoedberg/rgb-node", branch = "fixes", version = "0.8.0-rc.1" }
+psbt = "=0.8.5"
+rgb-std = "=0.8.1"
+rgb20 = "=0.8.0"
+rgb21 = { git = "https://github.com/RGB-Tools/rust-rgb21", branch = "update", version = "0.1.0" }
+rgb_core = { package = "rgb-core", version = "=0.8.1" }
+rgb_node = { version = "=0.8.1", features = ["server", "embedded"] }
+rgb_rpc = { version = "=0.8.1" }
 stens = "=0.7.1"
 store_daemon = "=0.8.0"
-strict_encoding = "=0.8.1"
+strict_encoding = "=0.8.2"
 
 [dev-dependencies]
 tempdir = "0.3"
