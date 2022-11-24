@@ -2,7 +2,7 @@
 //!
 //! This module defines the [`Wallet`] structure and all its related data.
 
-use amplify::{bmap, bset, empty, s};
+use amplify::{bmap, bset, empty, s, Wrapper};
 use amplify_num::hex::FromHex;
 use bdk::bitcoin::secp256k1::Secp256k1;
 use bdk::bitcoin::Network as BdkNetwork;
@@ -53,8 +53,8 @@ use rgb_core::vm::embedded::constants::{
     STATE_TYPE_OWNERSHIP_RIGHT, TRANSITION_TYPE_VALUE_TRANSFER,
 };
 use rgb_core::{
-    Assignment, AttachmentId, NodeId, OwnedRights, ParentOwnedRights, SealEndpoint, Transition,
-    TypedAssignments, Validator, Validity,
+    Assignment, AttachmentId, Metadata as RgbMetadata, NodeId, OwnedRights, ParentOwnedRights,
+    SealEndpoint, Transition, TypedAssignments, Validator, Validity,
 };
 use rgb_lib_migration::{Migrator, MigratorTrait};
 use rgb_node::{rgbd, Config};
@@ -76,7 +76,7 @@ use std::thread;
 use std::time::Duration;
 use stens::AsciiString;
 use stored::Config as StoreConfig;
-use strict_encoding::{StrictDecode, StrictEncode};
+use strict_encoding::{strict_deserialize, strict_serialize, StrictDecode, StrictEncode};
 
 use crate::api::proxy::AckResponse;
 use crate::api::Proxy;
@@ -168,6 +168,27 @@ pub struct Media {
     pub file_path: String,
     /// Mime of the media file
     pub mime: String,
+}
+
+/// Metadata of an asset
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Metadata {
+    /// Asset schema type
+    pub asset_type: AssetType,
+    /// Total issued amount
+    pub issued_supply: u64,
+    /// Timestamp of asset genesis
+    pub timestamp: i64,
+    /// Assset name
+    pub name: String,
+    /// Assset precision
+    pub precision: u8,
+    /// Assset ticker
+    pub ticker: Option<String>,
+    /// Assset description
+    pub description: Option<String>,
+    /// Assset parent ID
+    pub parent_id: Option<String>,
 }
 
 /// An RGB121 collectible asset
@@ -1463,6 +1484,102 @@ impl Wallet {
             .get_asset_balance(asset_id, None, None, None, None)
     }
 
+    /// Return the [`Metadata`] for the requested asset
+    pub fn get_asset_metadata(
+        &mut self,
+        online: Online,
+        asset_id: String,
+    ) -> Result<Metadata, Error> {
+        info!(self.logger, "Getting metadata for asset '{}'...", asset_id);
+        self._check_online(online)?;
+        self.database.get_asset_or_fail(asset_id.clone())?;
+
+        let contract_id = ContractId::from_str(&asset_id).map_err(InternalError::from)?;
+        let contract_state = self
+            ._rgb_client()?
+            .contract_state(contract_id)
+            .map_err(InternalError::from)?;
+        let node_id = NodeId::from_inner(contract_id.into_inner());
+        let metadata = match contract_state.metadata.get(&node_id) {
+            Some(m) => Ok(RgbMetadata::from_inner(m.clone())),
+            None => Err(InternalError::Unexpected),
+        }?;
+
+        let schema_id = contract_state.schema_id.to_string();
+        let asset_metadata = match &schema_id[..] {
+            rgb20::schema::SCHEMA_ID_BECH32 => {
+                let issued_supply = *metadata
+                    .u64(Rgb20FieldType::IssuedSupply)
+                    .first()
+                    .expect("valid consignment should contain the issued supply");
+                let timestamp = *metadata
+                    .i64(Rgb20FieldType::Timestamp)
+                    .first()
+                    .expect("valid consignment should contain the genesis timestamp");
+                let name = metadata
+                    .ascii_string(Rgb20FieldType::Name)
+                    .first()
+                    .expect("valid consignment should contain the asset name")
+                    .to_string();
+                let precision = *metadata
+                    .u8(Rgb20FieldType::Precision)
+                    .first()
+                    .expect("valid consignment should contain the asset precision");
+                let ticker = metadata
+                    .ascii_string(Rgb20FieldType::Ticker)
+                    .first()
+                    .expect("valid consignment should contain the asset ticker")
+                    .to_string();
+                Metadata {
+                    asset_type: AssetType::Rgb20,
+                    issued_supply,
+                    timestamp,
+                    name,
+                    precision,
+                    ticker: Some(ticker),
+                    description: None,
+                    parent_id: None,
+                }
+            }
+            RGB121_SCHEMA_ID => {
+                let issued_supply = *metadata
+                    .u64(Rgb121FieldType::IssuedSupply)
+                    .first()
+                    .expect("valid consignment should contain the issued supply");
+                let timestamp = *metadata
+                    .i64(Rgb121FieldType::Timestamp)
+                    .first()
+                    .expect("valid consignment should contain the genesis timestamp");
+                let name = metadata
+                    .ascii_string(Rgb121FieldType::Name)
+                    .first()
+                    .expect("valid consignment should contain the asset name")
+                    .to_string();
+                let precision = *metadata
+                    .u8(Rgb121FieldType::Precision)
+                    .first()
+                    .expect("valid consignment should contain the asset precision");
+                let description = metadata.ascii_string(Rgb121FieldType::Description);
+                let description = description.first().map(|desc| desc.to_string());
+                let parent_id = metadata.ascii_string(Rgb121FieldType::ParentId);
+                let parent_id = parent_id.first().map(|pid| pid.to_string());
+                Metadata {
+                    asset_type: AssetType::Rgb121,
+                    issued_supply,
+                    timestamp,
+                    name,
+                    precision,
+                    ticker: None,
+                    description,
+                    parent_id,
+                }
+            }
+            _ => return Err(Error::UnknownRgbSchema(schema_id)),
+        };
+
+        Ok(asset_metadata)
+    }
+
     /// Return the wallet data provided by the user
     pub fn get_wallet_data(&self) -> WalletData {
         self.wallet_data.clone()
@@ -2169,6 +2286,18 @@ impl Wallet {
             }
         }
 
+        let ser_cons = strict_serialize(&consignment).map_err(InternalError::from)?;
+        let contract_consignment: Contract =
+            strict_deserialize(ser_cons).map_err(InternalError::from)?;
+
+        let status = self
+            ._rgb_client()?
+            .register_contract(contract_consignment, true, |_| ())
+            .map_err(InternalError::from)?;
+        if !matches!(status, ContractValidity::Valid) {
+            valid = false;
+        }
+
         if !valid {
             let nack_res = self
                 .rest_client
@@ -2773,11 +2902,15 @@ impl Wallet {
                 .map(|v| (v.seal_confidential.into(), v.value))
                 .collect();
             asset_beneficiaries.insert(asset_id, beneficiaries.clone());
-            let change: Vec<AllocatedValue> = vec![AllocatedValue {
-                value: asset_spend.change_amount,
-                seal: ExplicitSeal::from_str(&format!("opret1st:{}", change_utxo.outpoint(),))
-                    .map_err(InternalError::from)?,
-            }];
+            let change: Vec<AllocatedValue> = if asset_spend.change_amount > 0 {
+                vec![AllocatedValue {
+                    value: asset_spend.change_amount,
+                    seal: ExplicitSeal::from_str(&format!("opret1st:{}", change_utxo.outpoint(),))
+                        .map_err(InternalError::from)?,
+                }]
+            } else {
+                vec![]
+            };
             let revealed_seal = change
                 .into_iter()
                 .map(|v| (v.into_revealed_seal(), v.value))
@@ -3059,14 +3192,16 @@ impl Wallet {
                 };
                 self.database.set_coloring(db_coloring)?;
             }
-            let db_coloring = DbColoringActMod {
-                txo_idx: ActiveValue::Set(change_utxo_idx),
-                asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
-                coloring_type: ActiveValue::Set(ColoringType::Change),
-                amount: ActiveValue::Set(asset_spend.change_amount.to_string()),
-                ..Default::default()
-            };
-            self.database.set_coloring(db_coloring)?;
+            if asset_spend.change_amount > 0 {
+                let db_coloring = DbColoringActMod {
+                    txo_idx: ActiveValue::Set(change_utxo_idx),
+                    asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
+                    coloring_type: ActiveValue::Set(ColoringType::Change),
+                    amount: ActiveValue::Set(asset_spend.change_amount.to_string()),
+                    ..Default::default()
+                };
+                self.database.set_coloring(db_coloring)?;
+            }
 
             for recipient in recipients.clone() {
                 let transfer = DbTransferActMod {

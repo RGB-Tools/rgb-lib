@@ -17,6 +17,7 @@ type DatabaseType = rgb_lib::wallet::DatabaseType;
 type RgbLibInvoice = rgb_lib::wallet::Invoice;
 type Keys = rgb_lib::keys::Keys;
 type Media = rgb_lib::wallet::Media;
+type Metadata = rgb_lib::wallet::Metadata;
 type Online = rgb_lib::wallet::Online;
 type Outpoint = rgb_lib::wallet::Outpoint;
 type Recipient = rgb_lib::wallet::Recipient;
@@ -176,6 +177,14 @@ impl Wallet {
 
     fn get_asset_balance(&self, asset_id: String) -> Result<Balance, RgbLibError> {
         self._get_wallet().get_asset_balance(asset_id)
+    }
+
+    fn get_asset_metadata(
+        &self,
+        online: Online,
+        asset_id: String,
+    ) -> Result<Metadata, RgbLibError> {
+        self._get_wallet().get_asset_metadata(online, asset_id)
     }
 
     fn go_online(

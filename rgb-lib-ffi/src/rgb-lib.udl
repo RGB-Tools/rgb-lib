@@ -135,6 +135,17 @@ dictionary Keys {
   string xpub_fingerprint;
 };
 
+dictionary Metadata {
+  AssetType asset_type;
+  u64 issued_supply;
+  i64 timestamp;
+  string name;
+  u8 precision;
+  string? ticker;
+  string? description;
+  string? parent_id;
+};
+
 dictionary Online {
   u64 id;
   string electrum_url;
@@ -233,6 +244,9 @@ interface Wallet {
 
   [Throws=RgbLibError]
   Balance get_asset_balance(string asset_id);
+
+  [Throws=RgbLibError]
+  Metadata get_asset_metadata(Online online, string asset_id);
 
   [Throws=RgbLibError]
   Online go_online(boolean skip_consistency_check, string electrum_url, string proxy_url);
