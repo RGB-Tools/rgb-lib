@@ -59,7 +59,6 @@ use std::cmp::min;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt;
-use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -69,6 +68,7 @@ use std::time::Duration;
 use stens::AsciiString;
 use stored::Config as StoreConfig;
 use strict_encoding::{StrictDecode, StrictEncode};
+use tokio::fs;
 
 use crate::api::proxy::AckResponse;
 use crate::api::Proxy;
@@ -86,8 +86,8 @@ use crate::database::entities::txo::{ActiveModel as DbTxoActMod, Model as DbTxo}
 use crate::database::{ColoringType, LocalUnspent, RgbLibDatabase, TransferData};
 use crate::error::{Error, InternalError};
 use crate::utils::{
-    calculate_descriptor_from_xprv, calculate_descriptor_from_xpub, get_txid, now, setup_logger,
-    BitcoinNetwork,
+    calculate_descriptor_from_xprv, calculate_descriptor_from_xpub, get_runtime_handle, get_txid,
+    now, setup_logger, BitcoinNetwork,
 };
 
 const RGB_DB_NAME: &str = "rgb_db";
@@ -190,12 +190,16 @@ impl AssetRgb21 {
         let mut data_paths = vec![];
         let asset_dir = assets_dir.join(x.asset_id.clone());
         if asset_dir.is_dir() {
-            for fp in fs::read_dir(asset_dir)? {
-                let fpath = fp?.path();
-                let file_path = fpath.join(MEDIA_FNAME).to_string_lossy().to_string();
-                let mime = fs::read_to_string(fpath.join(MIME_FNAME))?;
-                data_paths.push(Media { file_path, mime });
-            }
+            get_runtime_handle()?.block_on(async {
+                let mut entries = tokio::fs::read_dir(asset_dir).await?;
+                while let Some(fp) = entries.next_entry().await? {
+                    let fpath = fp.path();
+                    let file_path = fpath.join(MEDIA_FNAME).to_string_lossy().to_string();
+                    let mime = tokio::fs::read_to_string(fpath.join(MIME_FNAME)).await?;
+                    data_paths.push(Media { file_path, mime });
+                }
+                Ok::<(), Error>(())
+            });
         }
         Ok(AssetRgb21 {
             asset_id: x.asset_id,
@@ -493,14 +497,15 @@ impl Wallet {
         let bdk_network = BdkNetwork::from(wdata.bitcoin_network);
         let xpub = extended_key.into_xpub(bdk_network, &Secp256k1::new());
         let fingerprint = xpub.fingerprint().to_string();
-        let absolute_data_dir = fs::canonicalize(wdata.data_dir)?;
+        let absolute_data_dir = get_runtime_handle()?
+            .block_on(async { tokio::fs::canonicalize(wdata.data_dir).await })?;
         let data_dir_path = Path::new(&absolute_data_dir);
         let wallet_dir = data_dir_path.join(fingerprint);
         if !data_dir_path.exists() {
             return Err(Error::InexistentDataDir)?;
         }
         if !wallet_dir.exists() {
-            fs::create_dir(wallet_dir.clone())?;
+            get_runtime_handle()?.block_on(async { tokio::fs::create_dir(wallet_dir.clone()) });
         }
         let logger = setup_logger(wallet_dir.clone())?;
         info!(logger, "Creating wallet in '{:?}'", wallet_dir);
@@ -1665,20 +1670,22 @@ impl Wallet {
         debug!(self.logger, "Issued asset with ID '{:?}'", asset_id);
 
         if let Some(fp) = file_path {
-            let file_bytes = std::fs::read(fp.clone())?;
-            let file_hash: sha256::Hash = Sha256Hash::hash(&file_bytes[..]);
-            let attachment_id = AttachmentId::commit(&file_hash).to_string();
-            let media_dir = self
-                .wallet_dir
-                .join(ASSETS_DIR)
-                .join(asset_id.clone())
-                .join(attachment_id);
-            fs::create_dir_all(&media_dir)?;
-            let media_path = media_dir.join(MEDIA_FNAME);
-            fs::copy(fp, &media_path)?;
-            let mime = AsciiString::from_str(&tree_magic::from_filepath(media_path.as_path()))
-                .expect("valid mime");
-            fs::write(media_dir.join(MIME_FNAME), mime.to_string())?;
+            get_runtime_handle()?.block_on(async {
+                let file_bytes = tokio::fs::read(fp.clone()).await?;
+                let file_hash: sha256::Hash = Sha256Hash::hash(&file_bytes[..]);
+                let attachment_id = AttachmentId::commit(&file_hash).to_string();
+                let media_dir = self
+                    .wallet_dir
+                    .join(ASSETS_DIR)
+                    .join(asset_id.clone())
+                    .join(attachment_id);
+                tokio::fs::create_dir_all(&media_dir).await;
+                let media_path = media_dir.join(MEDIA_FNAME);
+                tokio::fs::copy(fp, &media_path).await;
+                let mime = AsciiString::from_str(&tree_magic::from_filepath(media_path.as_path()))
+                    .expect("valid mime");
+                tokio::fs::write(media_dir.join(MIME_FNAME), mime.to_string()).await
+            });
         }
 
         let db_asset = DbAssetRgb21 {
@@ -1859,7 +1866,8 @@ impl Wallet {
 
     fn _get_signed_psbt(&self, transfer_dir: PathBuf) -> Result<PartiallySignedTransaction, Error> {
         let psbt_file = transfer_dir.join(SIGNED_PSBT_FILE);
-        let psbt_str = fs::read_to_string(&psbt_file)?;
+        let psbt_str = get_runtime_handle()?
+            .block_on(async { tokio::fs::read_to_string(&psbt_file).await })?;
         PartiallySignedTransaction::from_str(&psbt_str).map_err(Error::InvalidPsbt)
     }
 
@@ -1898,9 +1906,14 @@ impl Wallet {
             .join(TRANSFER_DIR)
             .join(blinded_utxo.clone());
         let consignment_path = transfer_dir.join(CONSIGNMENT_RCV_FILE);
-        fs::create_dir_all(transfer_dir)?;
-        let consignment_bytes = base64::decode(consignment).map_err(InternalError::from)?;
-        fs::write(consignment_path.clone(), consignment_bytes).expect("Unable to write file");
+        get_runtime_handle()?.block_on(async {
+            tokio::fs::create_dir_all(transfer_dir).await;
+            let consignment_bytes = base64::decode(consignment).map_err(InternalError::from)?;
+            match tokio::fs::write(consignment_path.clone(), consignment_bytes).await {
+                Err(_) => panic!("Unable to write file"),
+                _ => Ok::<(), Error>(()),
+            }
+        });
         let consignment =
             StateTransfer::strict_file_load(&consignment_path).map_err(InternalError::from)?;
         let cid = consignment.contract_id().to_string();
@@ -1954,9 +1967,16 @@ impl Wallet {
                                 .join(ASSETS_DIR)
                                 .join(cid.clone())
                                 .join(attachment_id.to_string());
-                            fs::create_dir_all(&media_dir)?;
-                            fs::write(media_dir.join(MEDIA_FNAME), file_bytes)?;
-                            fs::write(media_dir.join(MIME_FNAME), state.mime.to_string())?;
+                            get_runtime_handle()?.block_on(async {
+                                tokio::fs::create_dir_all(&media_dir).await?;
+                                tokio::fs::write(media_dir.join(MEDIA_FNAME), file_bytes).await?;
+                                tokio::fs::write(
+                                    media_dir.join(MIME_FNAME),
+                                    state.mime.to_string(),
+                                )
+                                .await?;
+                                Ok::<(), Error>(())
+                            });
                         } else {
                             valid = false;
                             break;
@@ -2520,15 +2540,18 @@ impl Wallet {
                 .consign(rgb_asset_id, vec![], input_outpoints_bt.clone(), |_| ())
                 .map_err(InternalError::from)?;
             let asset_transfer_dir = transfer_dir.join(asset_id.clone());
-            if asset_transfer_dir.is_dir() {
-                fs::remove_dir_all(asset_transfer_dir.clone())?;
-            }
-            fs::create_dir_all(asset_transfer_dir.clone())?;
-            let consignment_path = asset_transfer_dir.join(CONSIGNMENT_FILE);
-            let consignment_file = fs::File::create(consignment_path.clone())?;
-            transfer
-                .strict_encode(&consignment_file)
-                .map_err(InternalError::from)?;
+            get_runtime_handle()?.block_on(async {
+                if asset_transfer_dir.is_dir() {
+                    tokio::fs::remove_dir_all(asset_transfer_dir.clone()).await?;
+                }
+                tokio::fs::create_dir_all(asset_transfer_dir.clone()).await?;
+                let consignment_path = asset_transfer_dir.join(CONSIGNMENT_FILE);
+                let consignment_file = std::fs::File::create(consignment_path.clone())?;
+                transfer
+                    .strict_encode(&consignment_file)
+                    .map_err(InternalError::from)?;
+                Ok::<(), Error>(())
+            });
 
             // RGB node contract embed
             let contract = self
@@ -2703,7 +2726,10 @@ impl Wallet {
             let serialized_info =
                 serde_json::to_string(&transfer_info).map_err(InternalError::from)?;
             let info_file = asset_transfer_dir.join(TRANSFER_DATA_FILE);
-            fs::write(info_file, serialized_info)?;
+            get_runtime_handle()?.block_on(async {
+                tokio::fs::write(info_file, serialized_info).await?;
+                Ok::<(), Error>(())
+            });
         }
 
         let transfer_consignment = self
@@ -2733,7 +2759,10 @@ impl Wallet {
         };
         let serialized_info = serde_json::to_string(&info_contents).map_err(InternalError::from)?;
         let info_file = transfer_dir.join(TRANSFER_DATA_FILE);
-        fs::write(info_file, serialized_info)?;
+        get_runtime_handle()?.block_on(async move {
+            tokio::fs::write(info_file, serialized_info).await?;
+            Ok::<(), Error>(())
+        });
 
         Ok(())
     }
@@ -2746,14 +2775,18 @@ impl Wallet {
     ) -> Result<(), Error> {
         let mut attachments = vec![];
         if let Some(ass_dir) = &asset_dir {
-            for fp in fs::read_dir(ass_dir)? {
-                let fpath = fp?.path();
-                let file_path = fpath.join(MEDIA_FNAME);
-                let file_bytes = std::fs::read(file_path.clone())?;
-                let file_hash: sha256::Hash = Sha256Hash::hash(&file_bytes[..]);
-                let attachment_id = AttachmentId::commit(&file_hash).to_string();
-                attachments.push((attachment_id, file_path))
-            }
+            get_runtime_handle()?.block_on(async {
+                let mut entries = tokio::fs::read_dir(ass_dir).await?;
+                while let Some(fp) = entries.next_entry().await? {
+                    let fpath = fp.path();
+                    let file_path = fpath.join(MEDIA_FNAME);
+                    let file_bytes = tokio::fs::read(file_path.clone()).await?;
+                    let file_hash: sha256::Hash = Sha256Hash::hash(&file_bytes[..]);
+                    let attachment_id = AttachmentId::commit(&file_hash).to_string();
+                    attachments.push((attachment_id, file_path))
+                }
+                Ok::<(), Error>(())
+            });
         }
 
         let consignment_path = asset_transfer_dir.join(CONSIGNMENT_FILE);
@@ -3031,7 +3064,10 @@ impl Wallet {
         // rename transfer directory
         let txid = psbt.clone().extract_tx().txid().to_string();
         let new_transfer_dir = self.wallet_dir.join(TRANSFER_DIR).join(txid);
-        fs::rename(transfer_dir, new_transfer_dir)?;
+        get_runtime_handle()?.block_on(async {
+            tokio::fs::rename(transfer_dir, new_transfer_dir).await?;
+            Ok::<(), Error>(())
+        });
 
         Ok(psbt.to_string())
     }
@@ -3053,63 +3089,70 @@ impl Wallet {
         let txid = psbt.clone().extract_tx().txid().to_string();
         let transfer_dir = self.wallet_dir.join(TRANSFER_DIR).join(txid.clone());
         let psbt_out = transfer_dir.join(SIGNED_PSBT_FILE);
-        fs::write(psbt_out, psbt.to_string())?;
+        get_runtime_handle()?.block_on(async {
+            tokio::fs::write(psbt_out, psbt.to_string()).await?;
+            Ok::<(), Error>(())
+        });
 
         // restore transfer data
-        let info_file = transfer_dir.join(TRANSFER_DATA_FILE);
-        let serialized_info = fs::read_to_string(info_file)?;
-        let info_contents: InfoBatchTransfer =
-            serde_json::from_str(&serialized_info).map_err(InternalError::from)?;
-        let blank_allocations = info_contents.blank_allocations;
-        let change_utxo_idx = info_contents.change_utxo_idx;
-        let donation = info_contents.donation;
-        let mut transfer_info_map: BTreeMap<String, InfoAssetTransfer> = BTreeMap::new();
-        for ass_transf_dir in fs::read_dir(transfer_dir)? {
-            let asset_transfer_dir = ass_transf_dir?.path();
-            if !asset_transfer_dir.is_dir() {
-                continue;
-            }
-            let info_file = asset_transfer_dir.join(TRANSFER_DATA_FILE);
-            let serialized_info = fs::read_to_string(info_file)?;
-            let info_contents: InfoAssetTransfer =
+        get_runtime_handle()?.block_on(async {
+            let info_file = transfer_dir.join(TRANSFER_DATA_FILE);
+            let serialized_info = tokio::fs::read_to_string(info_file).await?;
+            let info_contents: InfoBatchTransfer =
                 serde_json::from_str(&serialized_info).map_err(InternalError::from)?;
-            let asset_id: String = asset_transfer_dir
-                .file_name()
-                .expect("valid directory name")
-                .to_str()
-                .expect("should be possible to convert path to a string")
-                .to_string();
-            transfer_info_map.insert(asset_id.clone(), info_contents.clone());
+            let blank_allocations = info_contents.blank_allocations;
+            let change_utxo_idx = info_contents.change_utxo_idx;
+            let donation = info_contents.donation;
+            let mut transfer_info_map: BTreeMap<String, InfoAssetTransfer> = BTreeMap::new();
+            let mut entries = tokio::fs::read_dir(transfer_dir).await?;
+            while let Some(ass_transf_dir) = entries.next_entry().await? {
+                let asset_transfer_dir = ass_transf_dir.path();
+                if !asset_transfer_dir.is_dir() {
+                    continue;
+                }
+                let info_file = asset_transfer_dir.join(TRANSFER_DATA_FILE);
+                let serialized_info = tokio::fs::read_to_string(info_file).await?;
+                let info_contents: InfoAssetTransfer =
+                    serde_json::from_str(&serialized_info).map_err(InternalError::from)?;
+                let asset_id: String = asset_transfer_dir
+                    .file_name()
+                    .expect("valid directory name")
+                    .to_str()
+                    .expect("should be possible to convert path to a string")
+                    .to_string();
+                transfer_info_map.insert(asset_id.clone(), info_contents.clone());
 
-            // post consignment(s) and optional media
-            let asset_dir = if info_contents.asset_type == AssetType::Rgb21 {
-                let ass_dir = self.wallet_dir.join(ASSETS_DIR).join(asset_id);
-                if ass_dir.is_dir() {
-                    Some(ass_dir)
+                // post consignment(s) and optional media
+                let asset_dir = if info_contents.asset_type == AssetType::Rgb21 {
+                    let ass_dir = self.wallet_dir.join(ASSETS_DIR).join(asset_id);
+                    if ass_dir.is_dir() {
+                        Some(ass_dir)
+                    } else {
+                        None
+                    }
                 } else {
                     None
-                }
+                };
+                self._post_transfer_data(info_contents.recipients, asset_transfer_dir, asset_dir)?;
+            }
+
+            // broadcast PSBT if donation and finally save transfer to DB
+            let status = if donation {
+                self._broadcast_psbt(psbt)?;
+                TransferStatus::WaitingConfirmations
             } else {
-                None
+                TransferStatus::WaitingCounterparty
             };
-            self._post_transfer_data(info_contents.recipients, asset_transfer_dir, asset_dir)?;
-        }
+            self._save_transfers(
+                txid.clone(),
+                transfer_info_map,
+                blank_allocations,
+                change_utxo_idx,
+                status,
+            )?;
 
-        // broadcast PSBT if donation and finally save transfer to DB
-        let status = if donation {
-            self._broadcast_psbt(psbt)?;
-            TransferStatus::WaitingConfirmations
-        } else {
-            TransferStatus::WaitingCounterparty
-        };
-        self._save_transfers(
-            txid.clone(),
-            transfer_info_map,
-            blank_allocations,
-            change_utxo_idx,
-            status,
-        )?;
-
+            Ok::<(), Error>(())
+        })?;
         Ok(txid)
     }
 }

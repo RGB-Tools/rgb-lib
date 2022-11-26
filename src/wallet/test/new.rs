@@ -34,9 +34,9 @@ fn success() {
     get_test_wallet(false);
 }
 
-#[test]
-fn testnet_success() {
-    fs::create_dir_all(TEST_DATA_DIR).unwrap();
+#[tokio::test]
+async fn testnet_success() {
+    fs::create_dir_all(TEST_DATA_DIR).await.unwrap();
 
     let bitcoin_network = BitcoinNetwork::Testnet;
     let keys = generate_keys(bitcoin_network);
@@ -54,9 +54,9 @@ fn testnet_success() {
     assert_eq!(wallet.wallet_data.mnemonic, Some(keys.mnemonic));
 }
 
-#[test]
-fn mainnet_success() {
-    fs::create_dir_all(TEST_DATA_DIR).unwrap();
+#[tokio::test]
+async fn mainnet_success() {
+    fs::create_dir_all(TEST_DATA_DIR).await.unwrap();
 
     let bitcoin_network = BitcoinNetwork::Mainnet;
     let keys = generate_keys(bitcoin_network);

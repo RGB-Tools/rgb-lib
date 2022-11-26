@@ -10,6 +10,11 @@ license = "MIT"
 description = "RGB wallet library"
 exclude = ["migration"]
 
+[features]
+default = [ "sync" ]
+sync = []
+tokio = []
+
 [workspace]
 members = [".", "migration"]
 
@@ -32,6 +37,7 @@ thiserror = "1.0"
 time = { version = "0.3.13", features = ["std"] }
 tokio = { version = "1.21.2", features = ["macros", "rt-multi-thread"] }
 tokio-util = { version = "0.7.4", features = ["codec"] }
+tokio-stream = { version = "0.1.11", features = [ "fs" ] }
 tree_magic = "0.2.3"
 
 # RGB-related deps

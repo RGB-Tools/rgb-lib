@@ -75,8 +75,14 @@ pub fn initialize() {
 // return a regtest wallet for testing.
 fn get_test_wallet(private_keys: bool) -> Wallet {
     let tests_data = TEST_DATA_DIR;
-    fs::create_dir_all(tests_data).unwrap();
-
+    if let Ok(runtime) = get_runtime_handle() {
+        runtime.block_on(async {
+            fs::create_dir_all(tests_data).await.unwrap();
+            Ok::<(), Error>(())
+        });
+    } else {
+        panic!("Couldn't get runtime");
+    }
     let bitcoin_network = BitcoinNetwork::Regtest;
     let keys = generate_keys(bitcoin_network);
     let mut mnemonic = None;

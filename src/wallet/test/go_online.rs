@@ -50,8 +50,8 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidOnline())));
 }
 
-#[test]
-fn consistency_check_fail_utxos() {
+#[tokio::test]
+async fn consistency_check_fail_utxos() {
     initialize();
 
     // prepare test wallet with UTXOs + an asset
@@ -88,9 +88,9 @@ fn consistency_check_fail_utxos() {
         &wallet_dir_prefill_2,
     ] {
         if PathBuf::from(dir).is_dir() {
-            fs::remove_dir_all(dir.clone()).unwrap();
+            fs::remove_dir_all(dir.clone()).await.unwrap();
         }
-        fs::create_dir_all(dir).unwrap();
+        fs::create_dir_all(dir).await.unwrap();
     }
     // prepare wallet data objects
     let wallet_data_empty = WalletData {
@@ -115,9 +115,9 @@ fn consistency_check_fail_utxos() {
         mnemonic: wallet_data_orig.mnemonic,
     };
     // copy original wallet's db data to prefilled wallet data dir
-    let wallet_dir_entries = fs::read_dir(&wallet_dir_orig).unwrap();
+    let wallet_dir_entries =
+        ::tokio_stream::wrappers::ReadDirStream::new(fs::read_dir(&wallet_dir_orig).await.unwrap());
     let db_files: Vec<OsString> = wallet_dir_entries
-        .into_iter()
         .filter(|e| {
             e.as_ref()
                 .unwrap()
@@ -131,7 +131,7 @@ fn consistency_check_fail_utxos() {
     for file in &db_files {
         let src = PathBuf::from(&wallet_dir_orig).join(file);
         let dst = PathBuf::from(&wallet_dir_prefill).join(file);
-        fs::copy(&src, &dst).unwrap();
+        fs::copy(&src, &dst).await.unwrap();
     }
 
     // introduce asset inconsistency by spending UTXOs from other instance of the same wallet,
@@ -156,14 +156,14 @@ fn consistency_check_fail_utxos() {
     for file in &db_files {
         let src = PathBuf::from(&wallet_dir_prefill).join(file);
         let dst = PathBuf::from(&wallet_dir_prefill_2).join(file);
-        fs::copy(&src, &dst).unwrap();
+        fs::copy(&src, &dst).await.unwrap();
     }
     let result = wallet_prefill_2.go_online(false, ELECTRUM_URL.to_string(), PROXY_URL.to_string());
     assert!(matches!(result, Err(Error::Inconsistency(_))));
 }
 
-#[test]
-fn consistency_check_fail_asset_ids() {
+#[tokio::test]
+async fn consistency_check_fail_asset_ids() {
     initialize();
 
     // prepare test wallet with UTXOs + an asset
@@ -200,9 +200,9 @@ fn consistency_check_fail_asset_ids() {
         &data_dir_prefill_3,
     ] {
         if PathBuf::from(dir).is_dir() {
-            fs::remove_dir_all(dir.clone()).unwrap();
+            fs::remove_dir_all(dir.clone()).await.unwrap();
         }
-        fs::create_dir_all(dir).unwrap();
+        fs::create_dir_all(dir).await.unwrap();
     }
     // prepare wallet data objects
     let wallet_data_prefill_1 = WalletData {
@@ -245,7 +245,9 @@ fn consistency_check_fail_asset_ids() {
     assert!(result.is_ok());
 
     // introduce asset id inconsistency by removing RGB data from wallet dir
-    fs::remove_dir_all(wallet_dir_prefill_2.join("sled.db")).unwrap();
+    fs::remove_dir_all(wallet_dir_prefill_2.join("sled.db"))
+        .await
+        .unwrap();
 
     // detect inconsistency
     let mut wallet_prefill_2 = Wallet::new(wallet_data_prefill_2).unwrap();
