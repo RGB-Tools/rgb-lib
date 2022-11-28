@@ -40,12 +40,12 @@ use rgb::{
     seal, Consignment, Contract, ContractId, IntoRevealedSeal, Node, OutpointState, StateTransfer,
     TransitionBundle,
 };
+use rgb121::{
+    Asset as Rgb121Asset, FieldType as Rgb121FieldType, FileAttachment,
+    OwnedRightType as Rgb121OwnedRightType, Rgb121, SCHEMA_ID_BECH32 as RGB121_SCHEMA_ID,
+};
 use rgb20::schema::FieldType as Rgb20FieldType;
 use rgb20::{Asset as Rgb20Asset, Rgb20};
-use rgb21::{
-    Asset as Rgb21Asset, FieldType as Rgb21FieldType, FileAttachment,
-    OwnedRightType as Rgb21OwnedRightType, Rgb21, SCHEMA_ID_BECH32 as RGB21_SCHEMA_ID,
-};
 use rgb_core::schema::OwnedRightType;
 use rgb_core::vm::embedded::constants::{
     STATE_TYPE_OWNERSHIP_RIGHT, TRANSITION_TYPE_VALUE_TRANSFER,
@@ -78,8 +78,8 @@ use strict_encoding::{StrictDecode, StrictEncode};
 
 use crate::api::proxy::AckResponse;
 use crate::api::Proxy;
+use crate::database::entities::asset_rgb121::Model as DbAssetRgb121;
 use crate::database::entities::asset_rgb20::Model as DbAssetRgb20;
-use crate::database::entities::asset_rgb21::Model as DbAssetRgb21;
 use crate::database::entities::asset_transfer::{
     ActiveModel as DbAssetTransferActMod, Model as DbAssetTransfer,
 };
@@ -128,8 +128,8 @@ const PROXY_TIMEOUT: u8 = 90;
 pub enum AssetType {
     /// Rgb20 schema for fungible assets
     Rgb20,
-    /// Rgb21 schema for non-fungible assets
-    Rgb21,
+    /// Rgb121 schema for non-fungible assets
+    Rgb121,
 }
 
 /// An RGB20 fungible asset
@@ -168,9 +168,9 @@ pub struct Media {
     pub mime: String,
 }
 
-/// An RGB21 collectible asset
+/// An RGB121 collectible asset
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct AssetRgb21 {
+pub struct AssetRgb121 {
     /// ID of the asset
     pub asset_id: String,
     /// Name of the asset
@@ -187,12 +187,12 @@ pub struct AssetRgb21 {
     pub parent_id: Option<String>,
 }
 
-impl AssetRgb21 {
+impl AssetRgb121 {
     fn from_db_asset(
-        x: DbAssetRgb21,
+        x: DbAssetRgb121,
         balance: Balance,
         assets_dir: PathBuf,
-    ) -> Result<AssetRgb21, Error> {
+    ) -> Result<AssetRgb121, Error> {
         let mut data_paths = vec![];
         let asset_dir = assets_dir.join(x.asset_id.clone());
         if asset_dir.is_dir() {
@@ -203,7 +203,7 @@ impl AssetRgb21 {
                 data_paths.push(Media { file_path, mime });
             }
         }
-        Ok(AssetRgb21 {
+        Ok(AssetRgb121 {
             asset_id: x.asset_id,
             description: x.description,
             name: x.name,
@@ -219,8 +219,8 @@ impl AssetRgb21 {
 pub struct Assets {
     /// List of Rgb20 assets
     pub rgb20: Option<Vec<AssetRgb20>>,
-    /// List of Rgb21 assets
-    pub rgb21: Option<Vec<AssetRgb21>>,
+    /// List of Rgb121 assets
+    pub rgb121: Option<Vec<AssetRgb121>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -248,15 +248,15 @@ pub struct Balance {
     pub spendable: u64,
 }
 
-trait BlankBundleRgb21 {
-    fn blank_rgb21(
+trait BlankBundleRgb121 {
+    fn blank_rgb121(
         prev_state: &BTreeMap<OutPoint, BTreeSet<OutpointState>>,
         new_outpoints: &BTreeMap<OwnedRightType, (OutPoint, CloseMethod)>,
     ) -> Result<TransitionBundle, BlankError>;
 }
 
-impl BlankBundleRgb21 for TransitionBundle {
-    fn blank_rgb21(
+impl BlankBundleRgb121 for TransitionBundle {
+    fn blank_rgb121(
         prev_state: &BTreeMap<OutPoint, BTreeSet<OutpointState>>,
         new_outpoints: &BTreeMap<OwnedRightType, (OutPoint, CloseMethod)>,
     ) -> Result<TransitionBundle, BlankError> {
@@ -878,7 +878,7 @@ impl Wallet {
             let cid = asset_id.expect("asset ID");
             match at {
                 AssetType::Rgb20 => asset_transfer.asset_rgb20_id = ActiveValue::Set(Some(cid)),
-                AssetType::Rgb21 => asset_transfer.asset_rgb21_id = ActiveValue::Set(Some(cid)),
+                AssetType::Rgb121 => asset_transfer.asset_rgb121_id = ActiveValue::Set(Some(cid)),
             }
         }
         let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
@@ -1629,8 +1629,8 @@ impl Wallet {
         ))
     }
 
-    /// Issue a new RGB [`AssetRgb21`] and return it
-    pub fn issue_asset_rgb21(
+    /// Issue a new RGB [`AssetRgb121`] and return it
+    pub fn issue_asset_rgb121(
         &mut self,
         online: Online,
         name: String,
@@ -1639,13 +1639,13 @@ impl Wallet {
         amounts: Vec<u64>,
         parent_id: Option<String>,
         file_path: Option<String>,
-    ) -> Result<AssetRgb21, Error> {
+    ) -> Result<AssetRgb121, Error> {
         if amounts.is_empty() {
             return Err(Error::NoIssuanceAmounts);
         }
         info!(
             self.logger,
-            "Issuing RGB21 asset with name '{}' precision '{}' amounts '{:?}'...",
+            "Issuing RGB121 asset with name '{}' precision '{}' amounts '{:?}'...",
             name,
             precision,
             amounts
@@ -1699,7 +1699,7 @@ impl Wallet {
             vec![]
         };
 
-        let asset = Contract::create_rgb21(
+        let asset = Contract::create_rgb121(
             RgbNetwork::from(self.bitcoin_network),
             AsciiString::from_str(&name).map_err(|e| Error::InvalidName(e.to_string()))?,
             desc,
@@ -1712,7 +1712,7 @@ impl Wallet {
         )
         .map_err(InternalError::from)?;
         let _rgb_asset =
-            Rgb21Asset::try_from(&asset).expect("create_rgb21 does not match RGB21 schema");
+            Rgb121Asset::try_from(&asset).expect("create_rgb121 does not match RGB121 schema");
         let force = true;
         let status = self
             ._rgb_client()?
@@ -1741,7 +1741,7 @@ impl Wallet {
             fs::write(media_dir.join(MIME_FNAME), mime.to_string())?;
         }
 
-        let db_asset = DbAssetRgb21 {
+        let db_asset = DbAssetRgb121 {
             idx: 0,
             asset_id: asset_id.clone(),
             name,
@@ -1749,7 +1749,7 @@ impl Wallet {
             description,
             parent_id,
         };
-        self.database.set_asset_rgb21(db_asset.clone())?;
+        self.database.set_asset_rgb121(db_asset.clone())?;
         let batch_transfer = DbBatchTransferActMod {
             status: ActiveValue::Set(TransferStatus::Settled),
             expiration: ActiveValue::Set(None),
@@ -1759,7 +1759,7 @@ impl Wallet {
         let asset_transfer = DbAssetTransferActMod {
             user_driven: ActiveValue::Set(true),
             batch_transfer_idx: ActiveValue::Set(batch_transfer_idx),
-            asset_rgb21_id: ActiveValue::Set(Some(asset_id.clone())),
+            asset_rgb121_id: ActiveValue::Set(Some(asset_id.clone())),
             ..Default::default()
         };
         let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
@@ -1781,7 +1781,7 @@ impl Wallet {
             self.database.set_coloring(db_coloring)?;
         }
 
-        AssetRgb21::from_db_asset(
+        AssetRgb121::from_db_asset(
             db_asset,
             self.database.get_asset_balance(asset_id)?,
             self.wallet_dir.join(ASSETS_DIR),
@@ -1792,10 +1792,10 @@ impl Wallet {
     pub fn list_assets(&self, mut filter_asset_types: Vec<AssetType>) -> Result<Assets, Error> {
         info!(self.logger, "Listing assets...");
         if filter_asset_types.is_empty() {
-            filter_asset_types = vec![AssetType::Rgb20, AssetType::Rgb21];
+            filter_asset_types = vec![AssetType::Rgb20, AssetType::Rgb121];
         }
         let mut rgb20 = None;
-        let mut rgb21 = None;
+        let mut rgb121 = None;
         for asset_type in filter_asset_types {
             match asset_type {
                 AssetType::Rgb20 => {
@@ -1812,26 +1812,26 @@ impl Wallet {
                             .collect::<Result<Vec<AssetRgb20>, Error>>()?,
                     );
                 }
-                AssetType::Rgb21 => {
+                AssetType::Rgb121 => {
                     let assets_dir = self.wallet_dir.join(ASSETS_DIR);
-                    rgb21 = Some(
+                    rgb121 = Some(
                         self.database
-                            .iter_assets_rgb21()?
+                            .iter_assets_rgb121()?
                             .iter()
                             .map(|c| {
-                                AssetRgb21::from_db_asset(
+                                AssetRgb121::from_db_asset(
                                     c.clone(),
                                     self.database.get_asset_balance(c.asset_id.clone())?,
                                     assets_dir.clone(),
                                 )
                             })
-                            .collect::<Result<Vec<AssetRgb21>, Error>>()?,
+                            .collect::<Result<Vec<AssetRgb121>, Error>>()?,
                     );
                 }
             }
         }
 
-        Ok(Assets { rgb20, rgb21 })
+        Ok(Assets { rgb20, rgb121 })
     }
 
     /// List the [`Transfer`]s known to the RGB wallet
@@ -1970,7 +1970,7 @@ impl Wallet {
         let ass_id = if let Some(aid) = asset_transfer.asset_rgb20_id.clone() {
             Some(aid)
         } else {
-            asset_transfer.asset_rgb21_id.clone()
+            asset_transfer.asset_rgb121_id.clone()
         };
         if let Some(aid) = ass_id {
             if aid != cid {
@@ -1990,7 +1990,7 @@ impl Wallet {
         } else if valid {
             let genesis_media_file = consignment
                 .genesis()
-                .owned_rights_by_type(Rgb21OwnedRightType::Engraving as u16);
+                .owned_rights_by_type(Rgb121OwnedRightType::Engraving as u16);
 
             if let Some(TypedAssignments::Attachment(assigments)) = genesis_media_file {
                 for ass in assigments {
@@ -2052,7 +2052,7 @@ impl Wallet {
         debug!(self.logger, "Consignment ACK response: {:?}", ack_res);
 
         // add asset info to transfer if missing
-        if asset_transfer.asset_rgb20_id.is_none() && asset_transfer.asset_rgb21_id.is_none() {
+        if asset_transfer.asset_rgb20_id.is_none() && asset_transfer.asset_rgb121_id.is_none() {
             // save asset in DB if unknown
             let asset_type = self.database.get_asset_or_fail(cid.clone());
             let asset_type: AssetType = if asset_type.is_err() {
@@ -2085,21 +2085,21 @@ impl Wallet {
                         self.database.set_asset_rgb20(db_asset)?;
                         AssetType::Rgb20
                     }
-                    RGB21_SCHEMA_ID => {
+                    RGB121_SCHEMA_ID => {
                         let name = metadata
-                            .ascii_string(Rgb21FieldType::Name)
+                            .ascii_string(Rgb121FieldType::Name)
                             .first()
                             .expect("valid consignment should contain the asset name")
                             .to_string();
                         let precision = *metadata
-                            .u8(Rgb21FieldType::Precision)
+                            .u8(Rgb121FieldType::Precision)
                             .first()
                             .expect("valid consignment should contain the asset precision");
-                        let description = metadata.ascii_string(Rgb21FieldType::Description);
+                        let description = metadata.ascii_string(Rgb121FieldType::Description);
                         let description = description.first().map(|desc| desc.to_string());
-                        let parent_id = metadata.ascii_string(Rgb21FieldType::ParentId);
+                        let parent_id = metadata.ascii_string(Rgb121FieldType::ParentId);
                         let parent_id = parent_id.first().map(|pid| pid.to_string());
-                        let db_asset = DbAssetRgb21 {
+                        let db_asset = DbAssetRgb121 {
                             idx: 0,
                             asset_id: cid.clone(),
                             name,
@@ -2107,8 +2107,8 @@ impl Wallet {
                             description,
                             parent_id,
                         };
-                        self.database.set_asset_rgb21(db_asset)?;
-                        AssetType::Rgb21
+                        self.database.set_asset_rgb121(db_asset)?;
+                        AssetType::Rgb121
                     }
                     _ => return Err(Error::UnknownRgbSchema(schema_id)),
                 }
@@ -2119,7 +2119,7 @@ impl Wallet {
             let db_asset_id = ActiveValue::Set(Some(cid.clone()));
             match asset_type {
                 AssetType::Rgb20 => updated_asset_transfer.asset_rgb20_id = db_asset_id,
-                AssetType::Rgb21 => updated_asset_transfer.asset_rgb21_id = db_asset_id,
+                AssetType::Rgb121 => updated_asset_transfer.asset_rgb121_id = db_asset_id,
             }
             self.database
                 .update_asset_transfer(&mut updated_asset_transfer)?;
@@ -2341,7 +2341,7 @@ impl Wallet {
                 .map(|t| {
                     let ass_id = if let Some(aid) = t.asset_rgb20_id.clone() {
                         aid
-                    } else if let Some(aid) = t.asset_rgb21_id.clone() {
+                    } else if let Some(aid) = t.asset_rgb121_id.clone() {
                         aid
                     } else {
                         unreachable!("corrupt DB or broken code");
@@ -2600,7 +2600,7 @@ impl Wallet {
             psbt.set_rgb_contract(contract)
                 .map_err(InternalError::from)?;
 
-            // RGB20-RGB21 transfer
+            // RGB20-RGB121 transfer
             let mut out_allocations: Vec<UtxobValue> = vec![];
             for recipient in recipients.clone() {
                 if existing_transfers
@@ -2639,8 +2639,8 @@ impl Wallet {
                         .transfer(input_outpoints_bt.clone(), beneficiaries, revealed_seal)
                         .expect("transfer should succeed")
                 }
-                RGB21_SCHEMA_ID => {
-                    let rgb_asset = Rgb21Asset::try_from(&transfer)
+                RGB121_SCHEMA_ID => {
+                    let rgb_asset = Rgb121Asset::try_from(&transfer)
                         .expect("to have provided a valid consignment");
                     rgb_asset
                         .transfer(input_outpoints_bt.clone(), beneficiaries, revealed_seal)
@@ -2715,18 +2715,18 @@ impl Wallet {
                     TransitionBundle::blank(&outpoint_map, &new_outpoints)
                         .map_err(InternalError::from)?
                 }
-                RGB21_SCHEMA_ID => {
+                RGB121_SCHEMA_ID => {
                     for inputs in &mut outpoint_map.values_mut() {
                         inputs.retain(
                             |OutpointState {
                                  node_outpoint: input,
                                  state: _,
                              }| {
-                                input.ty != Rgb21OwnedRightType::Engraving as u16
+                                input.ty != Rgb121OwnedRightType::Engraving as u16
                             },
                         );
                     }
-                    TransitionBundle::blank_rgb21(&outpoint_map, &new_outpoints)
+                    TransitionBundle::blank_rgb121(&outpoint_map, &new_outpoints)
                         .map_err(InternalError::from)?
                 }
                 _ => return Err(Error::UnknownRgbSchema(schema_id)),
@@ -2891,8 +2891,8 @@ impl Wallet {
                 AssetType::Rgb20 => {
                     asset_transfer.asset_rgb20_id = ActiveValue::Set(Some(asset_id))
                 }
-                AssetType::Rgb21 => {
-                    asset_transfer.asset_rgb21_id = ActiveValue::Set(Some(asset_id))
+                AssetType::Rgb121 => {
+                    asset_transfer.asset_rgb121_id = ActiveValue::Set(Some(asset_id))
                 }
             }
             let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
@@ -2937,8 +2937,8 @@ impl Wallet {
                 AssetType::Rgb20 => {
                     asset_transfer.asset_rgb20_id = ActiveValue::Set(Some(asset_id))
                 }
-                AssetType::Rgb21 => {
-                    asset_transfer.asset_rgb21_id = ActiveValue::Set(Some(asset_id))
+                AssetType::Rgb121 => {
+                    asset_transfer.asset_rgb121_id = ActiveValue::Set(Some(asset_id))
                 }
             }
             let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
@@ -3160,7 +3160,7 @@ impl Wallet {
             transfer_info_map.insert(asset_id.clone(), info_contents.clone());
 
             // post consignment(s) and optional media
-            let asset_dir = if info_contents.asset_type == AssetType::Rgb21 {
+            let asset_dir = if info_contents.asset_type == AssetType::Rgb121 {
                 let ass_dir = self.wallet_dir.join(ASSETS_DIR).join(asset_id);
                 if ass_dir.is_dir() {
                     Some(ass_dir)

@@ -264,7 +264,7 @@ fn get_test_transfers_sender(
         let asset_id = if asset_transfer.asset_rgb20_id.is_some() {
             asset_transfer.asset_rgb20_id
         } else {
-            asset_transfer.asset_rgb21_id
+            asset_transfer.asset_rgb121_id
         }
         .unwrap();
         let transfers_for_asset = get_test_transfers(wallet, asset_transfer.idx);
@@ -342,7 +342,7 @@ fn show_unspent_colorings(wallet: &Wallet, msg: &str) {
                 if db_asset_transfer.asset_rgb20_id.is_some() {
                     &db_asset_transfer.asset_rgb20_id
                 } else {
-                    &db_asset_transfer.asset_rgb21_id
+                    &db_asset_transfer.asset_rgb121_id
                 },
             );
         }
@@ -357,8 +357,8 @@ mod fail_transfers;
 mod get_address;
 mod get_asset_balance;
 mod go_online;
+mod issue_asset_rgb121;
 mod issue_asset_rgb20;
-mod issue_asset_rgb21;
 mod list_assets;
 mod list_transfers;
 mod list_unspents;

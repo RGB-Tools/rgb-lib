@@ -17,7 +17,7 @@ pub struct Model {
     pub user_driven: bool,
     pub batch_transfer_idx: i64,
     pub asset_rgb20_id: Option<String>,
-    pub asset_rgb21_id: Option<String>,
+    pub asset_rgb121_id: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
@@ -26,7 +26,7 @@ pub enum Column {
     UserDriven,
     BatchTransferIdx,
     AssetRgb20Id,
-    AssetRgb21Id,
+    AssetRgb121Id,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DerivePrimaryKey)]
@@ -44,7 +44,7 @@ impl PrimaryKeyTrait for PrimaryKey {
 #[derive(Copy, Clone, Debug, EnumIter)]
 pub enum Relation {
     AssetRgb20,
-    AssetRgb21,
+    AssetRgb121,
     BatchTransfer,
     Transfer,
     Coloring,
@@ -58,7 +58,7 @@ impl ColumnTrait for Column {
             Self::UserDriven => ColumnType::Boolean.def(),
             Self::BatchTransferIdx => ColumnType::BigInteger.def(),
             Self::AssetRgb20Id => ColumnType::String(None).def().null(),
-            Self::AssetRgb21Id => ColumnType::String(None).def().null(),
+            Self::AssetRgb121Id => ColumnType::String(None).def().null(),
         }
     }
 }
@@ -70,9 +70,9 @@ impl RelationTrait for Relation {
                 .from(Column::AssetRgb20Id)
                 .to(super::asset_rgb20::Column::AssetId)
                 .into(),
-            Self::AssetRgb21 => Entity::belongs_to(super::asset_rgb21::Entity)
-                .from(Column::AssetRgb21Id)
-                .to(super::asset_rgb21::Column::AssetId)
+            Self::AssetRgb121 => Entity::belongs_to(super::asset_rgb121::Entity)
+                .from(Column::AssetRgb121Id)
+                .to(super::asset_rgb121::Column::AssetId)
                 .into(),
             Self::BatchTransfer => Entity::belongs_to(super::batch_transfer::Entity)
                 .from(Column::BatchTransferIdx)
@@ -90,9 +90,9 @@ impl Related<super::asset_rgb20::Entity> for Entity {
     }
 }
 
-impl Related<super::asset_rgb21::Entity> for Entity {
+impl Related<super::asset_rgb121::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::AssetRgb21.def()
+        Relation::AssetRgb121.def()
     }
 }
 

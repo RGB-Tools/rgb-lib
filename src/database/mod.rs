@@ -23,12 +23,14 @@ use crate::database::entities::asset_transfer::{
 use crate::database::entities::batch_transfer::{
     ActiveModel as DbBatchTransferActMod, Model as DbBatchTransfer,
 };
+use entities::asset_rgb121::{ActiveModel as DbAssetRgb121ActMod, Model as DbAssetRgb121};
 use entities::asset_rgb20::{ActiveModel as DbAssetRgb20ActMod, Model as DbAssetRgb20};
-use entities::asset_rgb21::{ActiveModel as DbAssetRgb21ActMod, Model as DbAssetRgb21};
 use entities::coloring::{ActiveModel as DbColoringActMod, Model as DbColoring};
 use entities::transfer::{ActiveModel as DbTransferActMod, Model as DbTransfer};
 use entities::txo::{ActiveModel as DbTxoActMod, Model as DbTxo};
-use entities::{asset_rgb20, asset_rgb21, asset_transfer, batch_transfer, coloring, transfer, txo};
+use entities::{
+    asset_rgb121, asset_rgb20, asset_transfer, batch_transfer, coloring, transfer, txo,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
 #[sea_orm(rs_type = "u16", db_type = "Integer")]
@@ -185,10 +187,13 @@ impl RgbLibDatabase {
         Ok(res.last_insert_id)
     }
 
-    pub(crate) fn set_asset_rgb21(&self, asset_rgb21: DbAssetRgb21) -> Result<i64, InternalError> {
-        let mut asset: DbAssetRgb21ActMod = asset_rgb21.into();
+    pub(crate) fn set_asset_rgb121(
+        &self,
+        asset_rgb121: DbAssetRgb121,
+    ) -> Result<i64, InternalError> {
+        let mut asset: DbAssetRgb121ActMod = asset_rgb121.into();
         asset.idx = ActiveValue::NotSet;
-        let res = block_on(asset_rgb21::Entity::insert(asset).exec(self.get_connection()))?;
+        let res = block_on(asset_rgb121::Entity::insert(asset).exec(self.get_connection()))?;
         Ok(res.last_insert_id)
     }
 
@@ -323,9 +328,9 @@ impl RgbLibDatabase {
         )?)
     }
 
-    pub(crate) fn iter_assets_rgb21(&self) -> Result<Vec<DbAssetRgb21>, InternalError> {
+    pub(crate) fn iter_assets_rgb121(&self) -> Result<Vec<DbAssetRgb121>, InternalError> {
         Ok(block_on(
-            asset_rgb21::Entity::find().all(self.get_connection()),
+            asset_rgb121::Entity::find().all(self.get_connection()),
         )?)
     }
 
@@ -344,7 +349,7 @@ impl RgbLibDatabase {
                 .filter(
                     Condition::any()
                         .add(asset_transfer::Column::AssetRgb20Id.eq(asset_id.clone()))
-                        .add(asset_transfer::Column::AssetRgb21Id.eq(asset_id)),
+                        .add(asset_transfer::Column::AssetRgb121Id.eq(asset_id)),
                 )
                 .all(self.get_connection()),
         )?)
@@ -557,7 +562,11 @@ impl RgbLibDatabase {
             .iter_assets_rgb20()?
             .iter()
             .map(|a| a.asset_id.clone())
-            .chain(self.iter_assets_rgb21()?.iter().map(|a| a.asset_id.clone()))
+            .chain(
+                self.iter_assets_rgb121()?
+                    .iter()
+                    .map(|a| a.asset_id.clone()),
+            )
             .collect())
     }
 
@@ -572,14 +581,14 @@ impl RgbLibDatabase {
         {
             Ok(AssetType::Rgb20)
         } else if block_on(
-            asset_rgb21::Entity::find()
-                .filter(asset_rgb21::Column::AssetId.eq(asset_id.clone()))
+            asset_rgb121::Entity::find()
+                .filter(asset_rgb121::Column::AssetId.eq(asset_id.clone()))
                 .one(self.get_connection()),
         )
         .map_err(InternalError::from)?
         .is_some()
         {
-            Ok(AssetType::Rgb21)
+            Ok(AssetType::Rgb121)
         } else {
             Err(Error::AssetNotFound(asset_id))
         }
@@ -754,7 +763,7 @@ impl RgbLibDatabase {
                     .expect("DB should contain a valid u64 value");
                 let mut asset_id = asset_transfer.asset_rgb20_id.clone();
                 if asset_id.is_none() {
-                    asset_id = asset_transfer.asset_rgb21_id.clone()
+                    asset_id = asset_transfer.asset_rgb121_id.clone()
                 };
                 allocations.push(RgbAllocation {
                     asset_id,
@@ -774,7 +783,7 @@ impl RgbLibDatabase {
                     .expect("DB should contain a valid u64 value");
                 let mut asset_id = asset_transfer.asset_rgb20_id.clone();
                 if asset_id.is_none() {
-                    asset_id = asset_transfer.asset_rgb21_id.clone()
+                    asset_id = asset_transfer.asset_rgb121_id.clone()
                 };
                 allocations.push(RgbAllocation {
                     asset_id,

@@ -26,14 +26,14 @@ fn rgb20_success() {
 }
 
 #[test]
-fn rgb21_success() {
+fn rgb121_success() {
     initialize();
 
     let (mut wallet, online) = get_funded_wallet!();
 
     // issue asset
     let asset = wallet
-        .issue_asset_rgb21(
+        .issue_asset_rgb121(
             online,
             NAME.to_string(),
             Some(DESCRIPTION.to_string()),

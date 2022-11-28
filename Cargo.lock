@@ -3505,8 +3505,8 @@ dependencies = [
  "reqwest",
  "rgb-core",
  "rgb-std",
+ "rgb121",
  "rgb20",
- "rgb21",
  "rgb_lib_migration",
  "rgb_node",
  "rgb_rpc",
@@ -3551,6 +3551,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "rgb121"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "573fb6d41ef141db4595c8e27bdfc6ec8c26b7b8ff45a1b79e0b11a24d7eb466"
+dependencies = [
+ "amplify",
+ "bitcoin",
+ "bp-seals",
+ "chrono",
+ "colored",
+ "commit_verify",
+ "lnpbp",
+ "rgb-std",
+ "stens",
+ "strict_encoding",
+ "url",
+]
+
+[[package]]
 name = "rgb20"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3561,24 +3580,6 @@ dependencies = [
  "bp-seals",
  "chrono",
  "colored",
- "lnpbp",
- "rgb-std",
- "stens",
- "strict_encoding",
- "url",
-]
-
-[[package]]
-name = "rgb21"
-version = "0.1.0"
-source = "git+https://github.com/RGB-Tools/rust-rgb21?branch=update#804b9899f93f812411bb605e3ed4790a1c264e2e"
-dependencies = [
- "amplify",
- "bitcoin",
- "bp-seals",
- "chrono",
- "colored",
- "commit_verify",
  "lnpbp",
  "rgb-std",
  "stens",

@@ -14,7 +14,7 @@ fn success() {
     // required fields only
     println!("asset 1");
     let asset_1 = wallet
-        .issue_asset_rgb21(
+        .issue_asset_rgb121(
             online.clone(),
             NAME.to_string(),
             Some(DESCRIPTION.to_string()),
@@ -45,12 +45,12 @@ fn success() {
         .database
         .get_asset_or_fail(asset_1.asset_id.clone())
         .unwrap();
-    assert_eq!(asset_type, AssetType::Rgb21);
+    assert_eq!(asset_type, AssetType::Rgb121);
 
     // include a parent_id and a file
     println!("asset 2");
     let asset_2 = wallet
-        .issue_asset_rgb21(
+        .issue_asset_rgb121(
             online,
             NAME.to_string(),
             Some(DESCRIPTION.to_string()),
@@ -104,7 +104,7 @@ fn multi_success() {
     let (mut wallet, online) = get_funded_wallet!();
 
     let asset = wallet
-        .issue_asset_rgb21(
+        .issue_asset_rgb121(
             online,
             NAME.to_string(),
             Some(DESCRIPTION.to_string()),
@@ -143,12 +143,12 @@ fn multi_success() {
         }));
 
     // check the allocated asset has one attachment
-    let rgb21_asset_list = wallet.list_assets(vec![]).unwrap().rgb21.unwrap();
-    let rgb21_asset = rgb21_asset_list
+    let rgb121_asset_list = wallet.list_assets(vec![]).unwrap().rgb121.unwrap();
+    let rgb121_asset = rgb121_asset_list
         .into_iter()
         .find(|a| a.asset_id == asset.asset_id)
         .unwrap();
-    assert_eq!(rgb21_asset.data_paths.len(), 1);
+    assert_eq!(rgb121_asset.data_paths.len(), 1);
 }
 
 #[test]
@@ -159,7 +159,7 @@ fn fail() {
 
     // bad online object
     let (_other_wallet, other_online) = get_funded_wallet!();
-    let result = wallet.issue_asset_rgb21(
+    let result = wallet.issue_asset_rgb121(
         other_online,
         NAME.to_string(),
         Some(DESCRIPTION.to_string()),
@@ -171,7 +171,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidOnline())));
 
     // invalid name: too short
-    let result = wallet.issue_asset_rgb21(
+    let result = wallet.issue_asset_rgb121(
         online.clone(),
         s!(""),
         Some(DESCRIPTION.to_string()),
@@ -183,7 +183,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::FailedIssuance(_))));
 
     // invalid name: too long
-    let result = wallet.issue_asset_rgb21(
+    let result = wallet.issue_asset_rgb121(
         online.clone(),
         ("a").repeat(257),
         Some(DESCRIPTION.to_string()),
@@ -195,7 +195,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::FailedIssuance(_))));
 
     // invalid name: unicode characters
-    let result = wallet.issue_asset_rgb21(
+    let result = wallet.issue_asset_rgb121(
         online.clone(),
         s!("name with ℧nicode characters"),
         Some(DESCRIPTION.to_string()),
@@ -207,7 +207,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidName(_))));
 
     // invalid description: unicode characters
-    let result = wallet.issue_asset_rgb21(
+    let result = wallet.issue_asset_rgb121(
         online.clone(),
         NAME.to_string(),
         Some(s!("description with ℧nicode characters")),
@@ -219,7 +219,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidDescription(_))));
 
     // invalid precision
-    let result = wallet.issue_asset_rgb21(
+    let result = wallet.issue_asset_rgb121(
         online.clone(),
         NAME.to_string(),
         Some(DESCRIPTION.to_string()),
@@ -231,7 +231,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::FailedIssuance(_))));
 
     // invalid amount list
-    let result = wallet.issue_asset_rgb21(
+    let result = wallet.issue_asset_rgb121(
         online.clone(),
         NAME.to_string(),
         Some(DESCRIPTION.to_string()),
@@ -243,7 +243,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::NoIssuanceAmounts)));
 
     // invalid parent_id list
-    let result = wallet.issue_asset_rgb21(
+    let result = wallet.issue_asset_rgb121(
         online.clone(),
         NAME.to_string(),
         Some(DESCRIPTION.to_string()),
@@ -256,7 +256,7 @@ fn fail() {
 
     // invalid file_path
     let invalid_file_path = s!("invalid");
-    let result = wallet.issue_asset_rgb21(
+    let result = wallet.issue_asset_rgb121(
         online,
         NAME.to_string(),
         Some(DESCRIPTION.to_string()),
@@ -272,7 +272,7 @@ fn fail() {
 
     // insufficient funds
     let (mut empty_wallet, empty_online) = get_empty_wallet!();
-    let result = empty_wallet.issue_asset_rgb21(
+    let result = empty_wallet.issue_asset_rgb121(
         empty_online,
         NAME.to_string(),
         Some(DESCRIPTION.to_string()),
@@ -285,7 +285,7 @@ fn fail() {
 
     // insufficient allocations
     let (mut wallet, online) = get_funded_noutxo_wallet!();
-    let result = wallet.issue_asset_rgb21(
+    let result = wallet.issue_asset_rgb121(
         online,
         NAME.to_string(),
         Some(DESCRIPTION.to_string()),
@@ -305,7 +305,7 @@ fn zero_amount_fail() {
     let (mut wallet, online) = get_funded_wallet!();
 
     // invalid amount
-    let result = wallet.issue_asset_rgb21(
+    let result = wallet.issue_asset_rgb121(
         online,
         NAME.to_string(),
         Some(DESCRIPTION.to_string()),

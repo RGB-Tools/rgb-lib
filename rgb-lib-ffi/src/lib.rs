@@ -6,7 +6,7 @@ use std::sync::{Mutex, MutexGuard};
 uniffi_macros::include_scaffolding!("rgb-lib");
 
 type AssetRgb20 = rgb_lib::wallet::AssetRgb20;
-type AssetRgb21 = rgb_lib::wallet::AssetRgb21;
+type AssetRgb121 = rgb_lib::wallet::AssetRgb121;
 type AssetType = rgb_lib::wallet::AssetType;
 type Assets = rgb_lib::wallet::Assets;
 type Balance = rgb_lib::wallet::Balance;
@@ -75,7 +75,8 @@ impl Wallet {
         num: Option<u8>,
         size: Option<u32>,
     ) -> Result<String, RgbLibError> {
-        self._get_wallet().create_utxos_begin(online, up_to, num, size)
+        self._get_wallet()
+            .create_utxos_begin(online, up_to, num, size)
     }
 
     fn create_utxos_end(&self, online: Online, signed_psbt: String) -> Result<u8, RgbLibError> {
@@ -153,7 +154,7 @@ impl Wallet {
             .issue_asset_rgb20(online, ticker, name, precision, amounts)
     }
 
-    fn issue_asset_rgb21(
+    fn issue_asset_rgb121(
         &self,
         online: Online,
         name: String,
@@ -162,8 +163,8 @@ impl Wallet {
         amounts: Vec<u64>,
         parent_id: Option<String>,
         file_path: Option<String>,
-    ) -> Result<AssetRgb21, RgbLibError> {
-        self._get_wallet().issue_asset_rgb21(
+    ) -> Result<AssetRgb121, RgbLibError> {
+        self._get_wallet().issue_asset_rgb121(
             online,
             name,
             description,

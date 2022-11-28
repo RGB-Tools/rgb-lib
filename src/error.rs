@@ -191,8 +191,8 @@ pub enum InternalError {
     #[error("PSBT parse error: {0}")]
     PsbtParse(#[from] bitcoin::util::psbt::PsbtParseError),
 
-    #[error("Rgb 21 create error: {0}")]
-    Rgb21Creation(#[from] rgb21::CreateError),
+    #[error("Rgb 121 create error: {0}")]
+    Rgb121Creation(#[from] rgb121::CreateError),
 
     #[error("Rgb blank error: {0}")]
     RgbBlank(#[from] rgb::blank::Error),
