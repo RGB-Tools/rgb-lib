@@ -8,6 +8,7 @@ mod m20220810_132250_create_asset_transfer;
 mod m20220810_132253_create_coloring;
 mod m20220810_132256_create_transfer;
 mod m20221128_182236_rename_rgb21_to_rgb121;
+mod m20221130_152708_delete_zero_allocations;
 
 pub struct Migrator;
 
@@ -23,6 +24,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20220810_132253_create_coloring::Migration),
             Box::new(m20220810_132256_create_transfer::Migration),
             Box::new(m20221128_182236_rename_rgb21_to_rgb121::Migration),
+            Box::new(m20221130_152708_delete_zero_allocations::Migration),
         ]
     }
 }

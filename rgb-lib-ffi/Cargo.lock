@@ -1048,9 +1048,9 @@ dependencies = [
 
 [[package]]
 name = "commit_verify"
-version = "0.8.1"
+version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02e435fa675ad24cb6cf205ec9269e5ca7b650a27c39c0d0b7a20e05218a4cfa"
+checksum = "1153d1e17f820e7214a10625a019cf6e5543397925306d1e071ea37bddad49d3"
 dependencies = [
  "amplify",
  "bitcoin_hashes 0.10.0",
@@ -4910,9 +4910,9 @@ dependencies = [
 
 [[package]]
 name = "store_daemon"
-version = "0.8.0"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a5ee0a10cd4fba1143f47163f61aaacdc3e7b89ce1cb85c83430abf69faa8011"
+checksum = "21e693dd77c727f2f0777089debd8695d6fe2bab5d82b45761a78e2fc224b5e2"
 dependencies = [
  "amplify",
  "bitcoin_hashes 0.10.0",

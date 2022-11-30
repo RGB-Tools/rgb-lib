@@ -32,7 +32,8 @@ pub struct MediaResponse {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct SuccessResponse {
-    success: bool,
+    pub(crate) success: bool,
+    pub(crate) error: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

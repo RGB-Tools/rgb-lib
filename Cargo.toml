@@ -38,7 +38,7 @@ amplify = "=3.13.0"
 amplify_num = "=0.4.1"
 bp-core = { version = "=0.8.1", features = ["psbt", "wallet"] }
 bp-dbc = "=0.8.1"
-commit_verify = "=0.8.1"
+commit_verify = "=0.8.2"
 internet2 = "=0.8.4"
 lnpbp = "=0.8.0"
 lnpbp-invoice = { version = "0.8.0-rc.1", features = ["rgb"] }
@@ -50,8 +50,9 @@ rgb_core = { package = "rgb-core", version = "=0.8.1" }
 rgb_node = { version = "=0.8.1", features = ["server", "embedded"] }
 rgb_rpc = { version = "=0.8.1" }
 stens = "=0.7.1"
-store_daemon = "=0.8.0"
+store_daemon = "=0.8.1"
 strict_encoding = "=0.8.2"
 
 [dev-dependencies]
+once_cell = "1.16.0"
 tempdir = "0.3"

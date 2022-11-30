@@ -21,6 +21,8 @@ type Metadata = rgb_lib::wallet::Metadata;
 type Online = rgb_lib::wallet::Online;
 type Outpoint = rgb_lib::wallet::Outpoint;
 type Recipient = rgb_lib::wallet::Recipient;
+type RefreshFilter = rgb_lib::wallet::RefreshFilter;
+type RefreshTransferStatus = rgb_lib::wallet::RefreshTransferStatus;
 type RgbAllocation = rgb_lib::wallet::RgbAllocation;
 type RgbLibBlindedUTXO = rgb_lib::wallet::BlindedUTXO;
 type RgbLibError = rgb_lib::Error;
@@ -134,8 +136,10 @@ impl Wallet {
         &self,
         blinded_utxo: Option<String>,
         txid: Option<String>,
+        no_asset_only: bool,
     ) -> Result<(), RgbLibError> {
-        self._get_wallet().delete_transfers(blinded_utxo, txid)
+        self._get_wallet()
+            .delete_transfers(blinded_utxo, txid, no_asset_only)
     }
 
     fn drain_to(
@@ -166,9 +170,10 @@ impl Wallet {
         online: Online,
         blinded_utxo: Option<String>,
         txid: Option<String>,
+        no_asset_only: bool,
     ) -> Result<(), RgbLibError> {
         self._get_wallet()
-            .fail_transfers(online, blinded_utxo, txid)
+            .fail_transfers(online, blinded_utxo, txid, no_asset_only)
     }
 
     fn get_address(&self) -> String {
@@ -242,8 +247,13 @@ impl Wallet {
         self._get_wallet().list_unspents(settled_only)
     }
 
-    fn refresh(&self, online: Online, asset_id: Option<String>) -> Result<(), RgbLibError> {
-        self._get_wallet().refresh(online, asset_id)
+    fn refresh(
+        &self,
+        online: Online,
+        asset_id: Option<String>,
+        filter: Vec<RefreshFilter>,
+    ) -> Result<(), RgbLibError> {
+        self._get_wallet().refresh(online, asset_id, filter)
     }
 
     fn send(
