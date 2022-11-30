@@ -62,7 +62,7 @@ fn success() {
 
     // an unspent with a pending allocation
     let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
-    let blind_data = rcv_wallet.blind(None, None).unwrap();
+    let blind_data = rcv_wallet.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id,
         vec![Recipient {

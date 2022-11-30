@@ -7,7 +7,7 @@ fn success() {
     let (mut wallet, online) = get_funded_wallet!();
 
     // add a pending operation to an UTXO so spendable balance will be != settled / future
-    let _blind_data = wallet.blind(None, None);
+    let _blind_data = wallet.blind(None, None, None);
 
     let asset = wallet
         .issue_asset_rgb20(

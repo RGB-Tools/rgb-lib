@@ -4,25 +4,26 @@ use super::*;
 fn success() {
     initialize();
 
+    let amount = 69;
     let expiration = 60;
     let (mut wallet, online) = get_funded_wallet!();
 
     // default expiration
     let now_timestamp = now().unix_timestamp();
-    let blind_data = wallet.blind(None, None).unwrap();
+    let blind_data = wallet.blind(None, None, None).unwrap();
     assert!(blind_data.expiration_timestamp.is_some());
     let timestamp = now_timestamp + DURATION_RCV_TRANSFER as i64;
     assert!(blind_data.expiration_timestamp.unwrap() - timestamp <= 1);
 
     // positive expiration
     let now_timestamp = now().unix_timestamp();
-    let blind_data = wallet.blind(None, Some(expiration)).unwrap();
+    let blind_data = wallet.blind(None, None, Some(expiration)).unwrap();
     assert!(blind_data.expiration_timestamp.is_some());
     let timestamp = now_timestamp + expiration as i64;
     assert!(blind_data.expiration_timestamp.unwrap() - timestamp <= 1);
 
     // 0 expiration
-    let blind_data = wallet.blind(None, Some(0)).unwrap();
+    let blind_data = wallet.blind(None, None, Some(0)).unwrap();
     assert!(blind_data.expiration_timestamp.is_none());
 
     // asset id is set
@@ -35,7 +36,29 @@ fn success() {
             vec![AMOUNT],
         )
         .unwrap();
-    let result = wallet.blind(Some(asset.asset_id), None);
+    let asset_id = asset.asset_id;
+    let result = wallet.blind(Some(asset_id.clone()), None, None);
+    assert!(result.is_ok());
+
+    // all set
+    let now_timestamp = now().unix_timestamp();
+    let result = wallet.blind(Some(asset_id.clone()), Some(amount), Some(expiration));
+    assert!(result.is_ok());
+    let blind_data = result.unwrap();
+
+    // Invoice checks
+    let invoice = Invoice::new(blind_data.invoice).unwrap();
+    let invoice_data = invoice.invoice_data();
+    let invoice_from_data = Invoice::from_invoice_data(invoice_data.clone()).unwrap();
+    let approx_expiry = now_timestamp + expiration as i64;
+    assert_eq!(invoice.bech32_invoice(), invoice_from_data.bech32_invoice());
+    assert_eq!(invoice_data.blinded_utxo, blind_data.blinded_utxo);
+    assert_eq!(invoice_data.asset_id, Some(asset_id));
+    assert_eq!(invoice_data.amount, Some(amount));
+    assert!(invoice_data.expiration_timestamp.unwrap() - approx_expiry <= 1);
+
+    // check BlindedUTXO
+    let result = BlindedUTXO::new(blind_data.blinded_utxo);
     assert!(result.is_ok());
 }
 
@@ -48,7 +71,7 @@ fn respect_max_allocations() {
     // generate MAX_ALLOCATIONS_PER_UTXO + 1 blinded UTXOs and save selected TXOs
     let mut txo_list: HashSet<DbTxo> = HashSet::new();
     for _ in 0..=MAX_ALLOCATIONS_PER_UTXO {
-        let blind_data = wallet.blind(None, None).unwrap();
+        let blind_data = wallet.blind(None, None, None).unwrap();
         let transfer = get_test_transfer_recipient(&wallet, &blind_data.blinded_utxo);
         let coloring = get_test_coloring(&wallet, transfer.asset_transfer_idx);
         let txo = get_test_txo(&wallet, coloring.txo_idx);
@@ -68,7 +91,7 @@ fn expire() {
 
     // check expiration
     let now_timestamp = now().unix_timestamp();
-    let blind_data_1 = wallet.blind(None, Some(expiration)).unwrap();
+    let blind_data_1 = wallet.blind(None, None, Some(expiration)).unwrap();
     let timestamp = now_timestamp + expiration as i64;
     assert!(blind_data_1.expiration_timestamp.unwrap() - timestamp <= 1);
 
@@ -98,16 +121,34 @@ fn expire() {
 fn fail() {
     initialize();
 
-    let (mut wallet, _online) = get_funded_wallet!();
+    let (mut wallet, _online) = get_empty_wallet!();
 
     // bad asset id
-    let result = wallet.blind(Some(s!("rgb1inexistent")), None);
+    let result = wallet.blind(Some(s!("rgb1inexistent")), None, None);
     assert!(matches!(result, Err(Error::AssetNotFound(_))));
 
     // insufficient funds
-    let (mut wallet, _online) = get_empty_wallet!();
-    let result = wallet.blind(None, None);
+    let result = wallet.blind(None, None, None);
     assert!(matches!(result, Err(Error::InsufficientBitcoins)));
+
+    // invalid BlindedUTXO
+    let result = BlindedUTXO::new(s!("invalid"));
+    assert!(matches!(result, Err(Error::InvalidBlindedUTXO(_))));
+
+    // invalid invoice
+    let result = Invoice::new(s!("invalid"));
+    assert!(matches!(result, Err(Error::InvalidInvoice(_))));
+
+    // unsupported invoice
+    let (mut wallet, _online) = get_funded_wallet!();
+    let blind_data = wallet.blind(None, None, None).unwrap();
+    let concealed_seal = ConcealedSeal::from_str(&blind_data.blinded_utxo).unwrap();
+    let beneficiary = Beneficiary::BlindUtxo(concealed_seal);
+    let amount = AmountExt::Milli(1, 1);
+    let mut invoice = UniversalInvoice::new(beneficiary, None, None);
+    invoice.set_amount(amount);
+    let result = Invoice::new(invoice.to_string());
+    assert!(matches!(result, Err(Error::UnsupportedInvoice)));
 }
 
 #[test]
@@ -139,7 +180,7 @@ fn wrong_asset_fail() {
         )
         .unwrap();
 
-    let blind_data_a = wallet_1.blind(Some(asset_a.asset_id), None).unwrap();
+    let blind_data_a = wallet_1.blind(Some(asset_a.asset_id), None, None).unwrap();
 
     let recipient_map = HashMap::from([(
         asset_b.asset_id.clone(),

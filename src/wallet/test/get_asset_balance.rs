@@ -105,7 +105,7 @@ fn transfer_balances() {
     //
 
     // send some assets
-    let blind_data_1 = wallet_recv.blind(None, None).unwrap();
+    let blind_data_1 = wallet_recv.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -217,7 +217,7 @@ fn transfer_balances() {
     //
 
     // send some assets
-    let blind_data_2 = wallet_recv.blind(None, None).unwrap();
+    let blind_data_2 = wallet_recv.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {

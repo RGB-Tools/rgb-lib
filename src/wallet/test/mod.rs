@@ -356,6 +356,7 @@ mod drain_to;
 mod fail_transfers;
 mod get_address;
 mod get_asset_balance;
+mod get_asset_metadata;
 mod go_online;
 mod issue_asset_rgb121;
 mod issue_asset_rgb20;

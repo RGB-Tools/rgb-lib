@@ -21,7 +21,7 @@ fn success() {
         .unwrap();
 
     // fail single transfer
-    let blind_data = rcv_wallet.blind(None, None).unwrap();
+    let blind_data = rcv_wallet.blind(None, None, None).unwrap();
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
         &blind_data.blinded_utxo,
@@ -32,9 +32,9 @@ fn success() {
         .unwrap();
 
     // fail all WaitingCounterparty transfers
-    let blind_data_1 = rcv_wallet.blind(None, None).unwrap();
-    let blind_data_2 = rcv_wallet.blind(None, None).unwrap();
-    let blind_data_3 = rcv_wallet.blind(None, None).unwrap();
+    let blind_data_1 = rcv_wallet.blind(None, None, None).unwrap();
+    let blind_data_2 = rcv_wallet.blind(None, None, None).unwrap();
+    let blind_data_3 = rcv_wallet.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id,
         vec![Recipient {
@@ -101,8 +101,8 @@ fn batch_success() {
     let asset_id = asset.asset_id;
 
     // transfer is in WaitingCounterparty status and can be failed, using both blinded_utxo + txid
-    let blind_data_1 = rcv_wallet_1.blind(None, None).unwrap();
-    let blind_data_2 = rcv_wallet_2.blind(None, None).unwrap();
+    let blind_data_1 = rcv_wallet_1.blind(None, None, None).unwrap();
+    let blind_data_2 = rcv_wallet_2.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset_id.clone(),
         vec![
@@ -138,8 +138,8 @@ fn batch_success() {
         .unwrap();
 
     // ...and can be failed using txid only
-    let blind_data_1 = rcv_wallet_1.blind(None, None).unwrap();
-    let blind_data_2 = rcv_wallet_2.blind(None, None).unwrap();
+    let blind_data_1 = rcv_wallet_1.blind(None, None, None).unwrap();
+    let blind_data_2 = rcv_wallet_2.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset_id.clone(),
         vec![
@@ -160,8 +160,8 @@ fn batch_success() {
         .unwrap();
 
     // transfer is still in WaitingCounterparty status after some recipients (but not all) replied with an ACK
-    let blind_data_1 = rcv_wallet_1.blind(None, None).unwrap();
-    let blind_data_2 = rcv_wallet_2.blind(None, None).unwrap();
+    let blind_data_1 = rcv_wallet_1.blind(None, None, None).unwrap();
+    let blind_data_2 = rcv_wallet_2.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset_id,
         vec![
@@ -218,7 +218,7 @@ fn fail() {
         .unwrap();
     let asset_id = asset.asset_id;
     // blind
-    let blind_data = rcv_wallet.blind(None, None).unwrap();
+    let blind_data = rcv_wallet.blind(None, None, None).unwrap();
     let blinded_utxo = blind_data.blinded_utxo;
     // send
     let recipient_map = HashMap::from([(
@@ -330,8 +330,8 @@ fn batch_fail() {
     let asset_id = asset.asset_id;
 
     // only blinded utxo given but multiple transfers in batch
-    let blind_data_1 = rcv_wallet_1.blind(None, None).unwrap();
-    let blind_data_2 = rcv_wallet_2.blind(None, None).unwrap();
+    let blind_data_1 = rcv_wallet_1.blind(None, None, None).unwrap();
+    let blind_data_2 = rcv_wallet_2.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset_id.clone(),
         vec![
@@ -353,8 +353,8 @@ fn batch_fail() {
     assert!(result.is_ok());
 
     // blinded utxo + txid given but blinded utxo transfer not part of batch transfer
-    let blind_data_1 = rcv_wallet_1.blind(None, None).unwrap();
-    let blind_data_2 = rcv_wallet_2.blind(None, None).unwrap();
+    let blind_data_1 = rcv_wallet_1.blind(None, None, None).unwrap();
+    let blind_data_2 = rcv_wallet_2.blind(None, None, None).unwrap();
     let recipient_map_1 = HashMap::from([(
         asset_id.clone(),
         vec![
@@ -369,7 +369,7 @@ fn batch_fail() {
         ],
     )]);
     let txid_1 = wallet.send(online.clone(), recipient_map_1, false).unwrap();
-    let blind_data_3 = rcv_wallet_2.blind(None, None).unwrap();
+    let blind_data_3 = rcv_wallet_2.blind(None, None, None).unwrap();
     let recipient_map_2 = HashMap::from([(
         asset_id.clone(),
         vec![Recipient {
@@ -393,8 +393,8 @@ fn batch_fail() {
         .unwrap();
 
     // batch send as donation (doesn't wait for recipient confirmations)
-    let blind_data_1 = rcv_wallet_1.blind(None, None).unwrap();
-    let blind_data_2 = rcv_wallet_2.blind(None, None).unwrap();
+    let blind_data_1 = rcv_wallet_1.blind(None, None, None).unwrap();
+    let blind_data_2 = rcv_wallet_2.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset_id,
         vec![

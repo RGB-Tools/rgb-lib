@@ -24,7 +24,7 @@ fn success() {
         .unwrap();
 
     // send
-    let blind_data = rcv_wallet.blind(None, None).unwrap();
+    let blind_data = rcv_wallet.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -179,6 +179,166 @@ fn success() {
 }
 
 #[test]
+fn spend_all() {
+    initialize();
+
+    let file_str = "README.md";
+
+    // wallets
+    let (mut wallet, online) = get_funded_wallet!();
+    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
+
+    // issue
+    let asset = wallet
+        .issue_asset_rgb20(
+            online.clone(),
+            TICKER.to_string(),
+            NAME.to_string(),
+            PRECISION,
+            vec![AMOUNT],
+        )
+        .unwrap();
+    let asset_blank = wallet
+        .issue_asset_rgb121(
+            online.clone(),
+            s!("NAME2"),
+            Some(DESCRIPTION.to_string()),
+            PRECISION,
+            vec![AMOUNT * 2],
+            None,
+            Some(file_str.to_string()),
+        )
+        .unwrap();
+
+    // check both assets are allocated to the same UTXO
+    wallet._sync_db_txos().unwrap();
+    let unspents = wallet.list_unspents(true).unwrap();
+    let unspents_with_rgb_allocations: Vec<Unspent> = unspents
+        .into_iter()
+        .filter(|u| !u.rgb_allocations.is_empty())
+        .collect();
+    assert!(unspents_with_rgb_allocations.len() == 1);
+    let allocation_asset_ids: Vec<String> = unspents_with_rgb_allocations
+        .first()
+        .unwrap()
+        .rgb_allocations
+        .clone()
+        .into_iter()
+        .map(|a| a.asset_id.unwrap_or_else(|| s!("")))
+        .collect();
+    assert!(allocation_asset_ids.contains(&asset.asset_id));
+    assert!(allocation_asset_ids.contains(&asset_blank.asset_id));
+
+    // send
+    let blind_data = rcv_wallet.blind(None, None, None).unwrap();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            amount: AMOUNT,
+            blinded_utxo: blind_data.blinded_utxo.clone(),
+        }],
+    )]);
+    let txid = wallet.send(online.clone(), recipient_map, false).unwrap();
+    assert!(!txid.is_empty());
+
+    let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &blind_data.blinded_utxo);
+    let rcv_transfer_data = rcv_wallet
+        .database
+        .get_transfer_data(&rcv_transfer)
+        .unwrap();
+    let rcv_asset_transfer = get_test_asset_transfer(&rcv_wallet, rcv_transfer.asset_transfer_idx);
+    let (transfers, asset_transfers, _) = get_test_transfers_sender(&wallet, &txid);
+    let transfers_for_asset = transfers.get(&asset.asset_id).unwrap();
+    assert_eq!(transfers_for_asset.len(), 1);
+    let transfer = transfers_for_asset.first().unwrap();
+    let transfer_data = wallet.database.get_transfer_data(transfer).unwrap();
+    assert_eq!(asset_transfers.len(), 2);
+    let asset_transfer = asset_transfers
+        .iter()
+        .find(|a| a.asset_rgb20_id == Some(asset.asset_id.clone()))
+        .unwrap();
+    let asset_blank_transfer = asset_transfers
+        .iter()
+        .find(|a| a.asset_rgb121_id == Some(asset_blank.asset_id.clone()))
+        .unwrap();
+
+    // change_utxo is not set (sender has no asset change)
+    assert!(rcv_transfer_data.change_utxo.is_none());
+    assert!(transfer_data.change_utxo.is_none());
+    // transfers start in WaitingCounterparty status
+    assert_eq!(
+        rcv_transfer_data.status,
+        TransferStatus::WaitingCounterparty
+    );
+    assert_eq!(transfer_data.status, TransferStatus::WaitingCounterparty);
+
+    // asset transfers are user-driven on both sides
+    assert!(rcv_asset_transfer.user_driven);
+    assert!(asset_transfer.user_driven);
+    // asset_blank asset transfer is not user driven
+    assert!(!asset_blank_transfer.user_driven);
+
+    // transfers progress to status WaitingConfirmations after a refresh
+    rcv_wallet.refresh(rcv_online.clone(), None).unwrap();
+    let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &blind_data.blinded_utxo);
+    let rcv_transfer_data = rcv_wallet
+        .database
+        .get_transfer_data(&rcv_transfer)
+        .unwrap();
+    wallet
+        .refresh(online.clone(), Some(asset.asset_id.clone()))
+        .unwrap();
+    let (transfers, _, _) = get_test_transfers_sender(&wallet, &txid);
+    let transfers_for_asset = transfers.get(&asset.asset_id).unwrap();
+    assert_eq!(transfers_for_asset.len(), 1);
+    let transfer = transfers_for_asset.first().unwrap();
+    let transfer_data = wallet.database.get_transfer_data(transfer).unwrap();
+    assert_eq!(
+        rcv_transfer_data.status,
+        TransferStatus::WaitingConfirmations
+    );
+    assert_eq!(transfer_data.status, TransferStatus::WaitingConfirmations);
+
+    // transfers progress to status Settled after tx mining + refresh
+    mine();
+    rcv_wallet.refresh(rcv_online, None).unwrap();
+    wallet
+        .refresh(online, Some(asset.asset_id.clone()))
+        .unwrap();
+
+    let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &blind_data.blinded_utxo);
+    let rcv_transfer_data = rcv_wallet
+        .database
+        .get_transfer_data(&rcv_transfer)
+        .unwrap();
+    let (transfers, _, _) = get_test_transfers_sender(&wallet, &txid);
+    let transfers_for_asset = transfers.get(&asset.asset_id).unwrap();
+    assert_eq!(transfers_for_asset.len(), 1);
+    let transfer = transfers_for_asset.first().unwrap();
+    let transfer_data = wallet.database.get_transfer_data(transfer).unwrap();
+    assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
+    assert_eq!(transfer_data.status, TransferStatus::Settled);
+
+    // check the completely spent asset dosn't show up in unspents anymore
+    wallet._sync_db_txos().unwrap();
+    let unspents = wallet.list_unspents(true).unwrap();
+    let found = unspents.iter().any(|u| {
+        u.rgb_allocations
+            .iter()
+            .any(|a| a.asset_id == Some(asset.asset_id.clone()))
+    });
+    assert!(!found);
+    // check the blank asset shows up in unspents
+    let unspents = wallet.list_unspents(true).unwrap();
+    let found = unspents.iter().any(|u| {
+        u.rgb_allocations
+            .iter()
+            .any(|a| a.asset_id == Some(asset_blank.asset_id.clone()))
+    });
+    assert!(found);
+}
+
+#[test]
 fn send_twice_success() {
     initialize();
 
@@ -205,7 +365,7 @@ fn send_twice_success() {
     //
 
     // send
-    let blind_data_1 = rcv_wallet.blind(None, None).unwrap();
+    let blind_data_1 = rcv_wallet.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -257,7 +417,7 @@ fn send_twice_success() {
     //
 
     // send
-    let blind_data_2 = rcv_wallet.blind(None, None).unwrap();
+    let blind_data_2 = rcv_wallet.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -390,7 +550,7 @@ fn send_blank_success() {
 
     // send
     println!("\n=== send 1");
-    let blind_data_1 = wallet_2.blind(None, None).unwrap();
+    let blind_data_1 = wallet_2.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset_rgb20.asset_id.clone(),
         vec![Recipient {
@@ -481,7 +641,7 @@ fn send_blank_success() {
     //
 
     // send
-    let blind_data_2 = wallet_2.blind(None, None).unwrap();
+    let blind_data_2 = wallet_2.blind(None, None, None).unwrap();
     println!("\n=== send 2");
     let recipient_map = HashMap::from([(
         asset_rgb121.asset_id.clone(),
@@ -611,8 +771,8 @@ fn send_received_success() {
     //
 
     // send
-    let blind_data_a20 = wallet_2.blind(None, None).unwrap();
-    let blind_data_a121 = wallet_2.blind(None, None).unwrap();
+    let blind_data_a20 = wallet_2.blind(None, None, None).unwrap();
+    let blind_data_a121 = wallet_2.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([
         (
             asset_rgb20.asset_id.clone(),
@@ -687,8 +847,8 @@ fn send_received_success() {
     //
 
     // send
-    let blind_data_b20 = wallet_3.blind(None, None).unwrap();
-    let blind_data_b121 = wallet_3.blind(None, None).unwrap();
+    let blind_data_b20 = wallet_3.blind(None, None, None).unwrap();
+    let blind_data_b121 = wallet_3.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([
         (
             asset_rgb20.asset_id.clone(),
@@ -813,7 +973,7 @@ fn send_received_rgb121_success() {
     //
 
     // send
-    let blind_data_1 = wallet_2.blind(None, None).unwrap();
+    let blind_data_1 = wallet_2.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -864,7 +1024,7 @@ fn send_received_rgb121_success() {
     //
 
     // send
-    let blind_data_2 = wallet_3.blind(None, None).unwrap();
+    let blind_data_2 = wallet_3.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -970,8 +1130,8 @@ fn receive_multiple_same_asset_success() {
         .unwrap();
 
     // send
-    let blind_data_1 = rcv_wallet.blind(None, None).unwrap();
-    let blind_data_2 = rcv_wallet.blind(None, None).unwrap();
+    let blind_data_1 = rcv_wallet.blind(None, None, None).unwrap();
+    let blind_data_2 = rcv_wallet.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![
@@ -1288,8 +1448,8 @@ fn receive_multiple_different_assets_success() {
         .unwrap();
 
     // send
-    let blind_data_1 = rcv_wallet.blind(None, None).unwrap();
-    let blind_data_2 = rcv_wallet.blind(None, None).unwrap();
+    let blind_data_1 = rcv_wallet.blind(None, None, None).unwrap();
+    let blind_data_2 = rcv_wallet.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([
         (
             asset_1.asset_id.clone(),
@@ -1679,10 +1839,10 @@ fn batch_donation_success() {
     assert!(allocation_asset_ids.contains(&asset_c.asset_id));
 
     // blind
-    let blind_data_a1 = rcv_wallet_1.blind(None, None).unwrap();
-    let blind_data_a2 = rcv_wallet_2.blind(None, None).unwrap();
-    let blind_data_b1 = rcv_wallet_1.blind(None, None).unwrap();
-    let blind_data_b2 = rcv_wallet_2.blind(None, None).unwrap();
+    let blind_data_a1 = rcv_wallet_1.blind(None, None, None).unwrap();
+    let blind_data_a2 = rcv_wallet_2.blind(None, None, None).unwrap();
+    let blind_data_b1 = rcv_wallet_1.blind(None, None, None).unwrap();
+    let blind_data_b2 = rcv_wallet_2.blind(None, None, None).unwrap();
 
     // send multiple assets to multiple recipients
     let recipient_map = HashMap::from([
@@ -1795,7 +1955,7 @@ fn reuse_failed_blinded_success() {
         .unwrap();
 
     // 1st transfer
-    let blind_data = rcv_wallet.blind(None, Some(60)).unwrap();
+    let blind_data = rcv_wallet.blind(None, None, Some(60)).unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id,
         vec![Recipient {
@@ -1841,8 +2001,8 @@ fn ack() {
         .unwrap();
 
     // send with donation set to false
-    let blind_data_1 = rcv_wallet_1.blind(None, None).unwrap();
-    let blind_data_2 = rcv_wallet_2.blind(None, None).unwrap();
+    let blind_data_1 = rcv_wallet_1.blind(None, None, None).unwrap();
+    let blind_data_2 = rcv_wallet_2.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![
@@ -1928,7 +2088,7 @@ fn nack() {
         .unwrap();
 
     // send with donation set to false
-    let blind_data = rcv_wallet.blind(None, None).unwrap();
+    let blind_data = rcv_wallet.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -1988,7 +2148,7 @@ fn expire() {
         .unwrap();
 
     // send
-    let blind_data = rcv_wallet.blind(None, None).unwrap();
+    let blind_data = rcv_wallet.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id,
         vec![Recipient {
@@ -2042,7 +2202,7 @@ fn fail() {
         )
         .unwrap();
     // blind
-    let blind_data = rcv_wallet.blind(None, Some(60)).unwrap();
+    let blind_data = rcv_wallet.blind(None, None, Some(60)).unwrap();
 
     // invalid input (asset id)
     let recipient_map = HashMap::from([(
@@ -2106,7 +2266,7 @@ fn pending_incoming_transfer_fail() {
     //
 
     // send
-    let blind_data_1 = rcv_wallet.blind(None, None).unwrap();
+    let blind_data_1 = rcv_wallet.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -2133,7 +2293,7 @@ fn pending_incoming_transfer_fail() {
     //
 
     // send
-    let blind_data_2 = rcv_wallet.blind(None, None).unwrap();
+    let blind_data_2 = rcv_wallet.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -2145,7 +2305,7 @@ fn pending_incoming_transfer_fail() {
     assert!(!txid_2.is_empty());
 
     // send from receiving wallet, 1st receive Settled, 2nd one still pending
-    let blind_data = wallet.blind(None, None).unwrap();
+    let blind_data = wallet.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -2179,7 +2339,7 @@ fn pending_outgoing_transfer_fail() {
         .unwrap();
 
     // 1st send
-    let blind_data = rcv_wallet.blind(None, None).unwrap();
+    let blind_data = rcv_wallet.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -2191,7 +2351,7 @@ fn pending_outgoing_transfer_fail() {
     assert!(!txid.is_empty());
 
     // 2nd send (1st still pending)
-    let blind_data = rcv_wallet.blind(None, None).unwrap();
+    let blind_data = rcv_wallet.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id,
         vec![Recipient {
@@ -2225,10 +2385,10 @@ fn pending_transfer_input_fail() {
         .unwrap();
 
     // blind with sender wallet to create a pending transfer
-    wallet.blind(None, None).unwrap();
+    wallet.blind(None, None, None).unwrap();
 
     // send and check it fails as the issuance UTXO is "blocked" by the pending receive operation
-    let blind_data = rcv_wallet.blind(None, None).unwrap();
+    let blind_data = rcv_wallet.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -2262,7 +2422,7 @@ fn already_used_fail() {
         .unwrap();
 
     // 1st transfer
-    let blind_data = rcv_wallet.blind(None, Some(60)).unwrap();
+    let blind_data = rcv_wallet.blind(None, None, Some(60)).unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id,
         vec![Recipient {
@@ -2315,7 +2475,7 @@ fn rgb121_blank_success() {
         )
         .unwrap();
 
-    let blind_data = rcv_wallet.blind(None, None).unwrap();
+    let blind_data = rcv_wallet.blind(None, None, None).unwrap();
 
     // try sending RGB20
     let recipient_map = HashMap::from([(
@@ -2367,7 +2527,7 @@ fn psbt_rgb_consumer_success() {
 
     // try to send it
     println!("send_begin 1");
-    let blind_data_1 = rcv_wallet.blind(None, None).unwrap();
+    let blind_data_1 = rcv_wallet.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset_rgb20_a.asset_id,
         vec![Recipient {
@@ -2392,7 +2552,7 @@ fn psbt_rgb_consumer_success() {
 
     // try to send the second asset
     println!("send_begin 2");
-    let blind_data_2 = rcv_wallet.blind(None, None).unwrap();
+    let blind_data_2 = rcv_wallet.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset_rgb20_b.asset_id.clone(),
         vec![Recipient {
@@ -2407,7 +2567,7 @@ fn psbt_rgb_consumer_success() {
     println!("exhaust allocations on current UTXO");
     let new_allocation_count = (MAX_ALLOCATIONS_PER_UTXO - 2).max(0);
     for _ in 0..new_allocation_count {
-        let _blind_data = wallet.blind(None, None).unwrap();
+        let _blind_data = wallet.blind(None, None, None).unwrap();
     }
     println!("issue 3");
     let asset_rgb20_c = wallet
@@ -2431,8 +2591,8 @@ fn psbt_rgb_consumer_success() {
 
     // try to send the second asset to a recipient and the third to different one
     println!("send_begin 3");
-    let blind_data_3a = rcv_wallet.blind(None, None).unwrap();
-    let blind_data_3b = rcv_wallet.blind(None, None).unwrap();
+    let blind_data_3a = rcv_wallet.blind(None, None, None).unwrap();
+    let blind_data_3b = rcv_wallet.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([
         (
             asset_rgb20_b.asset_id,
@@ -2486,7 +2646,7 @@ fn insufficient_bitcoins() {
     // send with no colorable UTXOs available as additional bitcoin inputs and no other funds
     let unspents = wallet.list_unspents(false).unwrap();
     assert_eq!(unspents.len(), 1);
-    let blind_data_1 = rcv_wallet.blind(None, None).unwrap();
+    let blind_data_1 = rcv_wallet.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset_rgb20_a.asset_id,
         vec![Recipient {
@@ -2541,7 +2701,7 @@ fn insufficient_allocations_fail() {
         .unwrap();
 
     // send with no colorable UTXOs available as change
-    let blind_data_1 = rcv_wallet.blind(None, None).unwrap();
+    let blind_data_1 = rcv_wallet.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset_rgb20_a.asset_id,
         vec![Recipient {
@@ -2596,7 +2756,7 @@ fn insufficient_allocations_success() {
     assert_eq!(num_utxos_created, 2);
 
     // send with 1 colorable UTXOs available as additional bitcoin input
-    let blind_data_1 = rcv_wallet.blind(None, None).unwrap();
+    let blind_data_1 = rcv_wallet.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset_rgb20_a.asset_id,
         vec![Recipient {
