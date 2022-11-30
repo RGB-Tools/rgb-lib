@@ -1,6 +1,6 @@
 [package]
 name = "rgb-lib"
-version = "0.1.0-alpha.1"
+version = "0.1.3"
 authors = ["Zoe Faltibà <zoefaltiba@gmail.com>", "Nicola Busanello <nicola.busanello@gmail.com>"]
 edition = "2021"
 rust-version = "1.59.0"
@@ -20,7 +20,7 @@ bitcoin = "0.28.1"
 chrono = "0.4.23"
 electrum-client = "0.10.2"
 futures = "0.3"
-rgb_lib_migration = { path = "migration", version = "0.1.0" }
+rgb-lib-migration = { path = "migration", version = "0.1.3" }
 reqwest = { version = "0.11", default-features = false, features = ["json", "multipart", "native-tls", "stream"] }
 sea-orm = { version = "^0.8.0", features = ["sqlx-mysql", "sqlx-postgres", "sqlx-sqlite", "runtime-async-std-native-tls", "macros"] }
 sea-query = "=0.24.6"
