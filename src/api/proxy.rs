@@ -1,14 +1,9 @@
-use reqwest::{multipart, Body, Client};
+use reqwest::blocking::{multipart, Client};
 use serde::{Deserialize, Serialize};
-use tokio::fs::File;
-use tokio_util::codec::{BytesCodec, FramedRead};
 
 use std::path::PathBuf;
 
-use crate::{
-    error::{Error, InternalError},
-    utils::get_runtime_handle,
-};
+use crate::error::{Error, InternalError};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct InfoResponse {
@@ -75,85 +70,61 @@ pub trait Proxy {
 
 impl Proxy for Client {
     fn get_info(self, url: &str) -> Result<InfoResponse, Error> {
-        get_runtime_handle()?.block_on(async {
-            Ok(self
-                .get(format!("{}/getinfo", url))
-                .send()
-                .await
-                .map_err(Error::Proxy)?
-                .json::<InfoResponse>()
-                .await
-                .map_err(InternalError::from)?)
-        })
+        Ok(self
+            .get(format!("{}/getinfo", url))
+            .send()
+            .map_err(Error::Proxy)?
+            .json::<InfoResponse>()
+            .map_err(InternalError::from)?)
     }
 
     fn get_ack(self, url: &str, blindedutxo: String) -> Result<AckResponse, Error> {
-        get_runtime_handle()?.block_on(async {
-            Ok(self
-                .get(format!("{}/ack/{}", url, blindedutxo))
-                .send()
-                .await
-                .map_err(Error::Proxy)?
-                .json::<AckResponse>()
-                .await
-                .map_err(InternalError::from)?)
-        })
+        Ok(self
+            .get(format!("{}/ack/{}", url, blindedutxo))
+            .send()
+            .map_err(Error::Proxy)?
+            .json::<AckResponse>()
+            .map_err(InternalError::from)?)
     }
 
     fn get_consignment(self, url: &str, blindedutxo: String) -> Result<ConsignmentResponse, Error> {
-        get_runtime_handle()?.block_on(async {
-            Ok(self
-                .get(format!("{}/consignment/{}", url, blindedutxo))
-                .send()
-                .await
-                .map_err(Error::Proxy)?
-                .json::<ConsignmentResponse>()
-                .await
-                .map_err(InternalError::from)?)
-        })
+        Ok(self
+            .get(format!("{}/consignment/{}", url, blindedutxo))
+            .send()
+            .map_err(Error::Proxy)?
+            .json::<ConsignmentResponse>()
+            .map_err(InternalError::from)?)
     }
 
     fn get_media(self, url: &str, attachment_id: String) -> Result<MediaResponse, Error> {
-        get_runtime_handle()?.block_on(async {
-            Ok(self
-                .get(format!("{}/media/{}", url, attachment_id))
-                .send()
-                .await
-                .map_err(Error::Proxy)?
-                .json::<MediaResponse>()
-                .await
-                .map_err(InternalError::from)?)
-        })
+        Ok(self
+            .get(format!("{}/media/{}", url, attachment_id))
+            .send()
+            .map_err(Error::Proxy)?
+            .json::<MediaResponse>()
+            .map_err(InternalError::from)?)
     }
 
     fn post_nack(self, url: &str, blindedutxo: String) -> Result<SuccessResponse, Error> {
         let body = AckNackRequest { blindedutxo };
-        get_runtime_handle()?.block_on(async {
-            Ok(self
-                .post(format!("{}/nack", url))
-                .json(&body)
-                .send()
-                .await
-                .map_err(Error::Proxy)?
-                .json::<SuccessResponse>()
-                .await
-                .map_err(InternalError::from)?)
-        })
+        Ok(self
+            .post(format!("{}/nack", url))
+            .json(&body)
+            .send()
+            .map_err(Error::Proxy)?
+            .json::<SuccessResponse>()
+            .map_err(InternalError::from)?)
     }
 
     fn post_ack(self, url: &str, blindedutxo: String) -> Result<SuccessResponse, Error> {
         let body = AckNackRequest { blindedutxo };
-        get_runtime_handle()?.block_on(async {
-            Ok(self
-                .post(format!("{}/ack", url))
-                .json(&body)
-                .send()
-                .await
-                .map_err(Error::Proxy)?
-                .json::<SuccessResponse>()
-                .await
-                .map_err(InternalError::from)?)
-        })
+        Ok(self
+            .post(format!("{}/ack", url))
+            .json(&body)
+            .send()
+            .map_err(Error::Proxy)?
+            .json::<SuccessResponse>()
+            .map_err(InternalError::from)?)
     }
 
     fn post_consignment(
@@ -162,29 +133,16 @@ impl Proxy for Client {
         blindedutxo: String,
         consignment_path: PathBuf,
     ) -> Result<SuccessResponse, Error> {
-        get_runtime_handle()?.block_on(async {
-            let file = File::open(consignment_path.clone()).await?;
-            let stream = FramedRead::new(file, BytesCodec::new());
-            let file_name = consignment_path
-                .clone()
-                .file_name()
-                .map(|filename| filename.to_string_lossy().into_owned())
-                .expect("valid file name");
-            let consignment_file =
-                multipart::Part::stream(Body::wrap_stream(stream)).file_name(file_name);
-            let form = multipart::Form::new()
-                .text("blindedutxo", blindedutxo)
-                .part("consignment", consignment_file);
-            Ok(self
-                .post(format!("{}/consignment", url))
-                .multipart(form)
-                .send()
-                .await
-                .map_err(Error::Proxy)?
-                .json::<SuccessResponse>()
-                .await
-                .map_err(InternalError::from)?)
-        })
+        let form = multipart::Form::new()
+            .text("blindedutxo", blindedutxo)
+            .file("consignment", consignment_path)?;
+        Ok(self
+            .post(format!("{}/consignment", url))
+            .multipart(form)
+            .send()
+            .map_err(Error::Proxy)?
+            .json::<SuccessResponse>()
+            .map_err(InternalError::from)?)
     }
 
     fn post_media(
@@ -193,27 +151,15 @@ impl Proxy for Client {
         attachment_id: String,
         media_path: PathBuf,
     ) -> Result<SuccessResponse, Error> {
-        get_runtime_handle()?.block_on(async {
-            let file = File::open(media_path.clone()).await?;
-            let stream = FramedRead::new(file, BytesCodec::new());
-            let file_name = media_path
-                .file_name()
-                .map(|filename| filename.to_string_lossy().into_owned())
-                .expect("valid file name");
-            let media_file =
-                multipart::Part::stream(Body::wrap_stream(stream)).file_name(file_name);
-            let form = multipart::Form::new()
-                .text("attachment_id", attachment_id)
-                .part("media", media_file);
-            Ok(self
-                .post(format!("{}/media", url))
-                .multipart(form)
-                .send()
-                .await
-                .map_err(Error::Proxy)?
-                .json::<SuccessResponse>()
-                .await
-                .map_err(InternalError::from)?)
-        })
+        let form = multipart::Form::new()
+            .text("attachment_id", attachment_id)
+            .file("media", media_path)?;
+        Ok(self
+            .post(format!("{}/media", url))
+            .multipart(form)
+            .send()
+            .map_err(Error::Proxy)?
+            .json::<SuccessResponse>()
+            .map_err(InternalError::from)?)
     }
 }

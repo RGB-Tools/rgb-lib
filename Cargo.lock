@@ -3564,7 +3564,6 @@ dependencies = [
  "serde_urlencoded",
  "tokio",
  "tokio-native-tls",
- "tokio-util",
  "tower-service",
  "url",
  "wasm-bindgen",
@@ -3635,8 +3634,6 @@ dependencies = [
  "tempdir",
  "thiserror",
  "time 0.3.17",
- "tokio",
- "tokio-util",
  "tree_magic",
 ]
 
@@ -5152,19 +5149,7 @@ dependencies = [
  "num_cpus",
  "pin-project-lite",
  "socket2",
- "tokio-macros",
  "winapi",
-]
-
-[[package]]
-name = "tokio-macros"
-version = "1.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9724f9a975fb987ef7a3cd9be0350edcbe130698af5b8f7a631e23d42d052484"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]

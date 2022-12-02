@@ -34,7 +34,7 @@ use internet2::addr::ServiceAddr;
 use invoice::{AmountExt, Beneficiary, Invoice as UniversalInvoice};
 use lnpbp::chain::{AssetId, Chain as RgbNetwork};
 use psbt::Psbt;
-use reqwest::Client as RestClient;
+use reqwest::blocking::Client as RestClient;
 use rgb::blank::{BlankBundle, Error as BlankError};
 use rgb::fungible::allocation::{AllocatedValue, OutpointValue as RgbOutpointValue, UtxobValue};
 use rgb::psbt::{RgbExt, RgbInExt};
