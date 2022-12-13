@@ -12,6 +12,7 @@ fn success() {
     let (mut wallet, online) = get_funded_wallet!();
 
     // default expiration
+    _ = wallet.create_utxos(online.clone(), true, Some(1), None, FEE_RATE);
     let now_timestamp = now().unix_timestamp();
     let blind_data = wallet
         .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
@@ -21,6 +22,7 @@ fn success() {
     assert!(blind_data.expiration_timestamp.unwrap() - timestamp <= 1);
 
     // positive expiration
+    _ = wallet.create_utxos(online.clone(), true, Some(1), None, FEE_RATE);
     let now_timestamp = now().unix_timestamp();
     let blind_data = wallet
         .blind(None, None, Some(expiration), CONSIGNMENT_ENDPOINTS.clone())
@@ -30,15 +32,17 @@ fn success() {
     assert!(blind_data.expiration_timestamp.unwrap() - timestamp <= 1);
 
     // 0 expiration
+    _ = wallet.create_utxos(online.clone(), true, Some(1), None, FEE_RATE);
     let blind_data = wallet
         .blind(None, None, Some(0), CONSIGNMENT_ENDPOINTS.clone())
         .unwrap();
     assert!(blind_data.expiration_timestamp.is_none());
 
     // asset id is set
+    _ = wallet.create_utxos(online.clone(), true, Some(1), None, FEE_RATE);
     let asset = wallet
         .issue_asset_rgb20(
-            online,
+            online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
@@ -55,6 +59,7 @@ fn success() {
     assert!(result.is_ok());
 
     // all set
+    _ = wallet.create_utxos(online.clone(), true, Some(1), None, FEE_RATE);
     let now_timestamp = now().unix_timestamp();
     let result = wallet.blind(
         Some(asset_id.clone()),
@@ -81,6 +86,7 @@ fn success() {
     assert!(result.is_ok());
 
     // consignment endpoints: multiple endpoints
+    _ = wallet.create_utxos(online, true, Some(1), None, FEE_RATE);
     let consignment_endpoints = vec![
         format!("rgbhttpjsonrpc:{}", "127.0.0.1:3000/json-rpc"),
         format!("rgbhttpjsonrpc:{}", "127.0.0.1:3001/json-rpc"),
@@ -97,6 +103,7 @@ fn success() {
 }
 
 #[test]
+#[ignore = "requires MAX_ALLOCATIONS_PER_UTXO > 1"]
 fn respect_max_allocations() {
     initialize();
 

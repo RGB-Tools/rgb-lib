@@ -360,6 +360,7 @@ fn success() {
 }
 
 #[test]
+#[ignore = "requires MAX_ALLOCATIONS_PER_UTXO > 1"]
 fn spend_all() {
     initialize();
 
@@ -653,6 +654,7 @@ fn send_twice_success() {
 }
 
 #[test]
+#[ignore = "requires MAX_ALLOCATIONS_PER_UTXO > 1"]
 fn send_blank_success() {
     initialize();
 
@@ -2465,6 +2467,9 @@ fn no_change_on_pending_send() {
 
     // send asset_2 (send_1 in WaitingCounterparty)
     show_unspent_colorings(&wallet, "before 2nd send");
+    wallet
+        .create_utxos(online.clone(), true, Some(1), None, FEE_RATE)
+        .unwrap();
     let blind_data = rcv_wallet
         .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
         .unwrap();
@@ -2688,6 +2693,7 @@ fn fail() {
 }
 
 #[test]
+#[ignore = "requires MAX_ALLOCATIONS_PER_UTXO > 1"]
 fn pending_incoming_transfer_fail() {
     initialize();
 
@@ -2865,6 +2871,7 @@ fn pending_outgoing_transfer_fail() {
 }
 
 #[test]
+#[ignore = "requires MAX_ALLOCATIONS_PER_UTXO > 1"]
 fn pending_transfer_input_fail() {
     initialize();
 
@@ -3004,6 +3011,7 @@ fn rgb121_blank_success() {
 }
 
 #[test]
+#[ignore = "requires MAX_ALLOCATIONS_PER_UTXO > 1"]
 fn psbt_rgb_consumer_success() {
     initialize();
 
@@ -3083,7 +3091,7 @@ fn psbt_rgb_consumer_success() {
 
     // exhaust allocations + issue 3rd asset, on a different UTXO
     println!("exhaust allocations on current UTXO");
-    let new_allocation_count = (MAX_ALLOCATIONS_PER_UTXO - 2).max(0);
+    let new_allocation_count = (MAX_ALLOCATIONS_PER_UTXO as i32 - 2).max(0);
     for _ in 0..new_allocation_count {
         let _blind_data = wallet
             .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
