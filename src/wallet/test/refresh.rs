@@ -106,10 +106,12 @@ fn success() {
     let txid_1b = test_send_default(&mut wallet_1, &online_1, recipient_map_1b);
     assert!(!txid_1b.is_empty());
     // wallet 2 > 1, WaitingCounterparty
+    _ = wallet_1.create_utxos(online_1.clone(), true, Some(1), None, FEE_RATE);
     let blind_data_1b = wallet_1
         .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     show_unspent_colorings(&wallet_1, "wallet 1 after blind 1b");
+    _ = wallet_2.create_utxos(online_2.clone(), true, Some(1), None, FEE_RATE);
     let recipient_map_2b = HashMap::from([(
         asset_2.asset_id,
         vec![Recipient {

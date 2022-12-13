@@ -119,6 +119,9 @@ fn success() {
     wallet.refresh(online.clone(), None, vec![]).unwrap();
 
     // fail all expired WaitingCounterparty transfers with no asset_id
+    rcv_wallet
+        .create_utxos(rcv_online.clone(), true, Some(4), None, FEE_RATE)
+        .unwrap();
     let blind_data_1 = rcv_wallet
         .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
