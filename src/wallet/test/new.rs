@@ -75,6 +75,34 @@ fn mainnet_success() {
 }
 
 #[test]
+fn mainnet_with_online_success() {
+    fs::create_dir_all(TEST_DATA_DIR).unwrap();
+
+    let bitcoin_network = BitcoinNetwork::Mainnet;
+    let keys = generate_keys(bitcoin_network);
+    let wallet = Wallet::new_with_online(
+        WalletData {
+            data_dir: TEST_DATA_DIR.to_string(),
+            bitcoin_network,
+            database_type: DatabaseType::Sqlite,
+            pubkey: keys.xpub.clone(),
+            mnemonic: Some(keys.mnemonic.clone()),
+        },
+        Some(Online {
+            id: 1,
+            electrum_url: "".to_string(),
+            proxy_url: "".to_string(),
+        }),
+    )
+    .unwrap();
+    check_wallet(&wallet, DescriptorType::Wpkh, bitcoin_network);
+    assert!(!wallet.watch_only);
+    assert_eq!(wallet.wallet_data.pubkey, keys.xpub);
+    assert_eq!(wallet.wallet_data.mnemonic, Some(keys.mnemonic));
+    assert!(wallet.online.is_some());
+}
+
+#[test]
 fn fail() {
     initialize();
 

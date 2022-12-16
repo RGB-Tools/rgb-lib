@@ -671,6 +671,11 @@ pub struct Wallet {
 impl Wallet {
     /// Create a new RGB wallet based on the provided [`WalletData`]
     pub fn new(wallet_data: WalletData) -> Result<Self, Error> {
+        Self::new_with_online(wallet_data, None)
+    }
+
+    /// Create a new RGB wallet based on the provided [`WalletData`] and [`Option<Online>`]
+    pub fn new_with_online(wallet_data: WalletData, online: Option<Online>) -> Result<Self, Error> {
         let wdata = wallet_data.clone();
 
         // wallet directory and file logging setup
@@ -768,7 +773,7 @@ impl Wallet {
             wallet_dir,
             bdk_wallet,
             rest_client,
-            online: None,
+            online,
             bdk_blockchain: None,
             electrum_client: None,
             rgb_client: None,
