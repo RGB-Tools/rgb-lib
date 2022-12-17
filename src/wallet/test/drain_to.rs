@@ -5,21 +5,24 @@ fn success() {
     initialize();
 
     // receiver wallet
-    let (rcv_wallet, _rcv_online) = get_empty_wallet!();
+    let rcv_wallet = get_test_wallet(true);
 
     // drain funded wallet with no allocation UTXOs
-    let (wallet, online) = get_funded_noutxo_wallet!();
+    let (mut wallet, online) = get_funded_noutxo_wallet!();
     wallet._sync_db_txos().unwrap();
     wallet
-        .drain_to(online, rcv_wallet.get_address(), false)
+        .drain_to(online.clone(), rcv_wallet.get_address(), false)
         .unwrap();
-    mine();
+    mine(false);
     wallet._sync_db_txos().unwrap();
     let unspents = list_test_unspents(&wallet, "funded noutxo after draining");
     assert_eq!(unspents.len(), 0);
 
     // issue asset (to produce an RGB allocation)
-    let (mut wallet, online) = get_funded_wallet!();
+    fund_wallet(wallet.get_address());
+    wallet
+        .create_utxos(online.clone(), false, None, None)
+        .unwrap();
     wallet
         .issue_asset_rgb20(
             online.clone(),
@@ -35,14 +38,14 @@ fn success() {
     wallet
         .drain_to(online.clone(), rcv_wallet.get_address(), false)
         .unwrap();
-    mine();
+    mine(false);
     wallet._sync_db_txos().unwrap();
     let unspents = list_test_unspents(&wallet, "funded with allocations after draining (false)");
     assert_eq!(unspents.len() as u8, UTXO_NUM);
     wallet
         .drain_to(online, rcv_wallet.get_address(), true)
         .unwrap();
-    mine();
+    mine(false);
     wallet._sync_db_txos().unwrap();
     let unspents = list_test_unspents(&wallet, "funded with allocations after draining (true)");
     assert_eq!(unspents.len(), 0);
@@ -52,22 +55,21 @@ fn success() {
 fn fail() {
     initialize();
 
-    // receiver wallet
+    // wallets
+    let (wallet, online) = get_empty_wallet!();
     let (rcv_wallet, rcv_online) = get_empty_wallet!();
 
     // drain empty wallet
-    let (wallet, online) = get_empty_wallet!();
-    let result = wallet.drain_to(online, rcv_wallet.get_address(), true);
+    let result = wallet.drain_to(online.clone(), rcv_wallet.get_address(), true);
     assert!(matches!(result, Err(Error::InsufficientBitcoins)));
 
     // bad online object
-    let (wallet, _online) = get_funded_noutxo_wallet!();
+    fund_wallet(wallet.get_address());
     wallet._sync_db_txos().unwrap();
     let result = wallet.drain_to(rcv_online, rcv_wallet.get_address(), false);
     assert!(matches!(result, Err(Error::InvalidOnline())));
 
     // bad address
-    let (wallet, online) = get_funded_noutxo_wallet!();
     wallet._sync_db_txos().unwrap();
     let result = wallet.drain_to(online, s!("invalid address"), false);
     assert!(matches!(result, Err(Error::InvalidAddress(_))));

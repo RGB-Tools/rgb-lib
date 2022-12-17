@@ -12,7 +12,7 @@ fn success() {
     let result_1 = wallet.go_online(false, ELECTRUM_URL.to_string(), PROXY_URL.to_string());
     assert!(result_1.is_ok());
 
-    // can go online twice with the same electrum URL
+    // can go online twice with the same electrum and proxy URLs
     let result_2 = wallet.go_online(false, ELECTRUM_URL.to_string(), PROXY_URL.to_string());
     assert!(result_2.is_ok());
     assert_eq!(result_1.unwrap(), result_2.unwrap());
@@ -45,7 +45,11 @@ fn fail() {
     assert!(matches!(result, Err(Error::CannotChangeOnline())));
 
     // bad online object
-    let (_wrong_wallet, wrong_online) = get_empty_wallet!();
+    let wrong_online = Online {
+        id: 1,
+        electrum_url: wallet.online.as_ref().unwrap().electrum_url.clone(),
+        proxy_url: wallet.online.as_ref().unwrap().proxy_url.clone(),
+    };
     let result = wallet._check_online(wrong_online);
     assert!(matches!(result, Err(Error::InvalidOnline())));
 }

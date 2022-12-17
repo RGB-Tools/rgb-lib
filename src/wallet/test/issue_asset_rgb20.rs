@@ -27,7 +27,7 @@ fn success() {
         Balance {
             settled: AMOUNT * 2,
             future: AMOUNT * 2,
-            spendable: AMOUNT,
+            spendable: AMOUNT * 2,
         }
     );
 }
@@ -80,13 +80,112 @@ fn multi_success() {
 }
 
 #[test]
+fn no_issue_on_pending_send() {
+    initialize();
+
+    let amount: u64 = 66;
+
+    let (mut wallet, online) = get_funded_wallet!();
+    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
+
+    // issue 1st asset
+    let asset_1 = wallet
+        .issue_asset_rgb20(
+            online.clone(),
+            TICKER.to_string(),
+            NAME.to_string(),
+            PRECISION,
+            vec![AMOUNT],
+        )
+        .unwrap();
+    // get 1st issuance UTXO
+    let unspents = wallet.list_unspents(false).unwrap();
+    let unspent_1 = unspents
+        .iter()
+        .find(|u| {
+            u.rgb_allocations
+                .iter()
+                .any(|a| a.asset_id == Some(asset_1.asset_id.clone()))
+        })
+        .unwrap();
+    // send 1st asset
+    let blind_data = rcv_wallet.blind(None, None, None).unwrap();
+    let recipient_map = HashMap::from([(
+        asset_1.asset_id.clone(),
+        vec![Recipient {
+            amount,
+            blinded_utxo: blind_data.blinded_utxo,
+        }],
+    )]);
+    let txid = wallet.send(online.clone(), recipient_map, false).unwrap();
+    assert!(!txid.is_empty());
+
+    // issue 2nd asset
+    let asset_2 = wallet
+        .issue_asset_rgb20(
+            online.clone(),
+            s!("TICKER2"),
+            s!("NAME2"),
+            PRECISION,
+            vec![AMOUNT * 2],
+        )
+        .unwrap();
+    show_unspent_colorings(&wallet, "after 2nd issuance");
+    // get 2nd issuance UTXO
+    let unspents = wallet.list_unspents(false).unwrap();
+    let unspent_2 = unspents
+        .iter()
+        .find(|u| {
+            u.rgb_allocations
+                .iter()
+                .any(|a| a.asset_id == Some(asset_2.asset_id.clone()))
+        })
+        .unwrap();
+    // check 2nd issuance was not allocated to the same UTXO as the 1st one (now being spent)
+    assert_ne!(unspent_1.utxo.outpoint, unspent_2.utxo.outpoint);
+
+    // progress transfer to WaitingConfirmations
+    rcv_wallet.refresh(rcv_online, None, vec![]).unwrap();
+    wallet
+        .refresh(online.clone(), Some(asset_1.asset_id.clone()), vec![])
+        .unwrap();
+    // issue 3rd asset
+    let asset_3 = wallet
+        .issue_asset_rgb20(
+            online,
+            s!("TICKER3"),
+            s!("NAME3"),
+            PRECISION,
+            vec![AMOUNT * 3],
+        )
+        .unwrap();
+    show_unspent_colorings(&wallet, "after 3rd issuance");
+    // get 3rd issuance UTXO
+    let unspents = wallet.list_unspents(false).unwrap();
+    let unspent_3 = unspents
+        .iter()
+        .find(|u| {
+            u.rgb_allocations
+                .iter()
+                .any(|a| a.asset_id == Some(asset_3.asset_id.clone()))
+        })
+        .unwrap();
+    // check 3rd issuance was not allocated to the same UTXO as the 1st one (now being spent)
+    assert_ne!(unspent_1.utxo.outpoint, unspent_3.utxo.outpoint);
+}
+
+#[test]
 fn fail() {
     initialize();
 
     let (mut wallet, online) = get_funded_wallet!();
 
     // bad online object
-    let (_other_wallet, other_online) = get_funded_wallet!();
+    let other_online = Online {
+        id: 1,
+        electrum_url: wallet.online.as_ref().unwrap().electrum_url.clone(),
+        proxy_url: wallet.online.as_ref().unwrap().proxy_url.clone(),
+    };
     let result = wallet.issue_asset_rgb20(
         other_online,
         TICKER.to_string(),
@@ -177,13 +276,20 @@ fn fail() {
     assert!(matches!(result, Err(Error::FailedIssuance(_))));
 
     // invalid amount list
-    let result = wallet.issue_asset_rgb20(online, TICKER.to_string(), NAME.to_string(), 19, vec![]);
+    let result = wallet.issue_asset_rgb20(
+        online.clone(),
+        TICKER.to_string(),
+        NAME.to_string(),
+        19,
+        vec![],
+    );
     assert!(matches!(result, Err(Error::NoIssuanceAmounts)));
 
+    drain_wallet(&wallet, online.clone());
+
     // insufficient funds
-    let (mut empty_wallet, empty_online) = get_empty_wallet!();
-    let result = empty_wallet.issue_asset_rgb20(
-        empty_online,
+    let result = wallet.issue_asset_rgb20(
+        online.clone(),
         TICKER.to_string(),
         NAME.to_string(),
         PRECISION,
@@ -191,8 +297,11 @@ fn fail() {
     );
     assert!(matches!(result, Err(Error::InsufficientBitcoins)));
 
+    fund_wallet(wallet.get_address());
+    mine(false);
+    wallet._sync_db_txos().unwrap();
+
     // insufficient allocations
-    let (mut wallet, online) = get_funded_noutxo_wallet!();
     let result = wallet.issue_asset_rgb20(
         online,
         TICKER.to_string(),

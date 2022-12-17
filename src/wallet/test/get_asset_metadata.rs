@@ -29,7 +29,9 @@ fn success() {
         }],
     )]);
     wallet.send(online.clone(), recipient_map, false).unwrap();
-    rcv_wallet.refresh(rcv_online.clone(), None).unwrap();
+    rcv_wallet
+        .refresh(rcv_online.clone(), None, vec![])
+        .unwrap();
     let rgb20_metadata = rcv_wallet
         .get_asset_metadata(rcv_online, asset_rgb20.asset_id.clone())
         .unwrap();

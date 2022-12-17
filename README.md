@@ -55,6 +55,12 @@ docker-compose -f tests/docker-compose.yml down
   default limit (e.g. 1024); should that happen, the limit needs to be
   increased (e.g. `ulimit -n 3072`); running tests in smaller batches (e.g.
   `cargo test send` is also possible)
+- while running tests, the number of open files increases with time, as spawned
+  threads for RGB services never exit and cannot be stopped at the moment; even
+  if the maximum number of open files is increased, running all tests still
+  triggers errors (e.g. `Zmq(Too many open files)`); the test process also may
+  hang when ran in parallel, to have the test process complete (although errors
+  will still happen and run time increases) call it with `--test-threads=1`
 
 ## Roadmap
 - add an API to extend `BlindData` expiration

@@ -1,15 +1,15 @@
 use super::*;
 
 #[test]
-fn rgb20_success() {
+fn success() {
     initialize();
 
     let (mut wallet, online) = get_funded_wallet!();
 
-    // issue asset
+    // issue RGB20 asset
     let asset = wallet
         .issue_asset_rgb20(
-            online,
+            online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
             PRECISION,
@@ -23,15 +23,15 @@ fn rgb20_success() {
     let transfer = transfer_list.first().unwrap();
     assert_eq!(transfer.amount, AMOUNT);
     assert_eq!(transfer.status, TransferStatus::Settled);
-}
 
-#[test]
-fn rgb121_success() {
-    initialize();
+    drain_wallet(&wallet, online.clone());
+    fund_wallet(wallet.get_address());
+    mine(false);
+    wallet
+        .create_utxos(online.clone(), false, None, None)
+        .unwrap();
 
-    let (mut wallet, online) = get_funded_wallet!();
-
-    // issue asset
+    // issue RGB121 asset
     let asset = wallet
         .issue_asset_rgb121(
             online,
@@ -56,7 +56,7 @@ fn rgb121_success() {
 fn fail() {
     initialize();
 
-    let (wallet, _online) = get_funded_wallet!();
+    let wallet = get_test_wallet(false);
 
     // asset not found
     let result = wallet.list_transfers(s!("rgb1inexistent"));

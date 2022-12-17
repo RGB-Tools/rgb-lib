@@ -1,6 +1,8 @@
 use amplify::s;
+use once_cell::sync::Lazy;
 use std::process::{Command, Stdio};
-use std::sync::Once;
+use std::sync::{Once, RwLock};
+use time::OffsetDateTime;
 
 use crate::generate_keys;
 
@@ -17,6 +19,8 @@ const AMOUNT: u64 = 666;
 
 static INIT: Once = Once::new();
 
+static MINER: Lazy<RwLock<Miner>> = Lazy::new(|| RwLock::new(Miner { no_mine_count: 0 }));
+
 fn _bitcoin_cli() -> [String; 9] {
     [
         s!("-f"),
@@ -29,6 +33,13 @@ fn _bitcoin_cli() -> [String; 9] {
         s!("bitcoin-cli"),
         s!("-regtest"),
     ]
+}
+
+fn drain_wallet(wallet: &Wallet, online: Online) {
+    let rcv_wallet = get_test_wallet(false);
+    wallet
+        .drain_to(online, rcv_wallet.get_address(), true)
+        .unwrap();
 }
 
 fn fund_wallet(address: String) {
@@ -46,18 +57,73 @@ fn fund_wallet(address: String) {
     assert!(status.success());
 }
 
-fn mine() {
-    let status = Command::new("docker-compose")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .args(_bitcoin_cli())
-        .arg("-rpcwallet=miner")
-        .arg("-generate")
-        .arg("3")
-        .status()
-        .expect("failed to mine");
-    assert!(status.success());
+#[derive(Clone, Debug)]
+struct Miner {
+    no_mine_count: u32,
+}
+
+impl Miner {
+    fn mine(&self) -> bool {
+        if self.no_mine_count > 0 {
+            return false;
+        }
+        let status = Command::new("docker-compose")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .args(_bitcoin_cli())
+            .arg("-rpcwallet=miner")
+            .arg("-generate")
+            .arg("1")
+            .status()
+            .expect("failed to mine");
+        assert!(status.success());
+        true
+    }
+
+    fn stop_mining(&mut self) {
+        self.no_mine_count += 1;
+    }
+
+    fn resume_mining(&mut self) {
+        if self.no_mine_count > 0 {
+            self.no_mine_count -= 1;
+        }
+    }
+}
+
+fn mine(resume: bool) {
+    let t_0 = OffsetDateTime::now_utc();
+    if resume {
+        resume_mining();
+    }
+    let mut last_result = false;
+    while !last_result {
+        let miner = MINER.read();
+        last_result = miner.as_ref().expect("MINER has been initialized").mine();
+        drop(miner);
+        if (OffsetDateTime::now_utc() - t_0).as_seconds_f32() > 120.0 {
+            println!("forcibly breaking mining wait");
+            resume_mining();
+        }
+        if !last_result {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+    }
+}
+
+fn stop_mining() {
+    MINER
+        .write()
+        .expect("MINER has been initialized")
+        .stop_mining()
+}
+
+fn resume_mining() {
+    MINER
+        .write()
+        .expect("MINER has been initialized")
+        .resume_mining()
 }
 
 pub fn initialize() {
@@ -116,7 +182,7 @@ macro_rules! get_empty_wallet {
 fn get_funded_noutxo_wallet(print_log: bool, private_keys: bool) -> (Wallet, Online) {
     let (wallet, online) = get_empty_wallet(print_log, private_keys);
     fund_wallet(wallet.get_address());
-    mine();
+    mine(false);
     (wallet, online)
 }
 macro_rules! get_funded_noutxo_wallet {
@@ -154,7 +220,7 @@ fn check_test_transfer_status_recipient(
         .iter()
         .find(|t| t.blinded_utxo == Some(blinded_utxo.to_string()))
         .unwrap();
-    let transfer_data = wallet.database.get_transfer_data(transfer).unwrap();
+    let (transfer_data, _) = get_test_transfer_data(wallet, transfer);
     println!(
         "receive with blinded_utxo {} is in status {:?}",
         blinded_utxo, &transfer_data.status
@@ -228,8 +294,10 @@ fn get_test_coloring(wallet: &Wallet, asset_transfer_idx: i64) -> DbColoring {
 fn get_test_transfer_recipient(wallet: &Wallet, blinded_utxo: &str) -> DbTransfer {
     wallet
         .database
-        .get_transfer(blinded_utxo.to_string())
+        .iter_transfers()
         .unwrap()
+        .into_iter()
+        .find(|t| t.blinded_utxo == Some(blinded_utxo.to_string()))
         .unwrap()
 }
 
@@ -271,6 +339,26 @@ fn get_test_transfers_sender(
         transfers.insert(asset_id, transfers_for_asset);
     }
     (transfers.clone(), asset_transfers, batch_transfer.clone())
+}
+
+fn get_test_transfer_data(
+    wallet: &Wallet,
+    transfer: &DbTransfer,
+) -> (TransferData, DbAssetTransfer) {
+    let db_data = wallet.database.get_db_data(false).unwrap();
+    let (asset_transfer, batch_transfer) = transfer
+        .related_transfers(&db_data.asset_transfers, &db_data.batch_transfers)
+        .unwrap();
+    let transfer_data = wallet
+        .database
+        .get_transfer_data(
+            &asset_transfer,
+            &batch_transfer,
+            &db_data.txos,
+            &db_data.colorings,
+        )
+        .unwrap();
+    (transfer_data, asset_transfer)
 }
 
 fn get_test_txo(wallet: &Wallet, idx: i64) -> DbTxo {

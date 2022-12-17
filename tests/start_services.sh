@@ -25,7 +25,7 @@ done
 # prepare bitcoin funds
 BCLI="$COMPOSE exec -T -u blits bitcoind bitcoin-cli -regtest"
 $BCLI createwallet miner
-$BCLI -rpcwallet=miner -generate 103
+$BCLI -rpcwallet=miner -generate 111
 
 # wait for electrs to have completed startup
 until $COMPOSE logs electrs |grep 'finished full compaction'; do

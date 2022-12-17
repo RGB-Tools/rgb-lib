@@ -36,13 +36,10 @@ fn success() {
     assert!(!txid.is_empty());
 
     let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &blind_data.blinded_utxo);
-    let rcv_transfer_data = rcv_wallet
-        .database
-        .get_transfer_data(&rcv_transfer)
-        .unwrap();
-    let rcv_asset_transfer = get_test_asset_transfer(&rcv_wallet, rcv_transfer.asset_transfer_idx);
-    let (transfer, asset_transfer, _) = get_test_transfer_sender(&wallet, &txid);
-    let transfer_data = wallet.database.get_transfer_data(&transfer).unwrap();
+    let (rcv_transfer_data, rcv_asset_transfer) =
+        get_test_transfer_data(&rcv_wallet, &rcv_transfer);
+    let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
+    let (transfer_data, asset_transfer) = get_test_transfer_data(&wallet, &transfer);
 
     // ack is None
     assert_eq!(rcv_transfer.ack, None);
@@ -98,19 +95,21 @@ fn success() {
     assert!(rcv_asset_transfer.user_driven);
     assert!(asset_transfer.user_driven);
 
+    stop_mining();
+
     // transfers progress to status WaitingConfirmations after a refresh
-    rcv_wallet.refresh(rcv_online.clone(), None).unwrap();
-    let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &blind_data.blinded_utxo);
-    let rcv_transfer_data = rcv_wallet
-        .database
-        .get_transfer_data(&rcv_transfer)
+    rcv_wallet
+        .refresh(rcv_online.clone(), None, vec![])
         .unwrap();
-    let rcv_asset_transfer = get_test_asset_transfer(&rcv_wallet, rcv_transfer.asset_transfer_idx);
+    let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &blind_data.blinded_utxo);
+    let (rcv_transfer_data, rcv_asset_transfer) =
+        get_test_transfer_data(&rcv_wallet, &rcv_transfer);
     wallet
-        .refresh(online.clone(), Some(asset.asset_id.clone()))
+        .refresh(online.clone(), Some(asset.asset_id.clone()), vec![])
         .unwrap();
     let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
-    let transfer_data = wallet.database.get_transfer_data(&transfer).unwrap();
+    let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
+
     assert_eq!(
         rcv_transfer_data.status,
         TransferStatus::WaitingConfirmations
@@ -152,17 +151,16 @@ fn success() {
     );
 
     // transfers progress to status Settled after tx mining + refresh
-    mine();
-    rcv_wallet.refresh(rcv_online, None).unwrap();
-    wallet.refresh(online, Some(asset.asset_id)).unwrap();
+    mine(true);
+    rcv_wallet.refresh(rcv_online, None, vec![]).unwrap();
+    wallet
+        .refresh(online, Some(asset.asset_id), vec![])
+        .unwrap();
 
     let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &blind_data.blinded_utxo);
-    let rcv_transfer_data = rcv_wallet
-        .database
-        .get_transfer_data(&rcv_transfer)
-        .unwrap();
+    let (rcv_transfer_data, _) = get_test_transfer_data(&rcv_wallet, &rcv_transfer);
     let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
-    let transfer_data = wallet.database.get_transfer_data(&transfer).unwrap();
+    let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
     assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
     assert_eq!(transfer_data.status, TransferStatus::Settled);
     // update timestamp has been updated
@@ -185,8 +183,11 @@ fn spend_all() {
     let file_str = "README.md";
 
     // wallets
-    let (mut wallet, online) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_noutxo_wallet!();
     let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
+    wallet
+        .create_utxos(online.clone(), false, Some(1), None)
+        .unwrap();
 
     // issue
     let asset = wallet
@@ -211,7 +212,6 @@ fn spend_all() {
         .unwrap();
 
     // check both assets are allocated to the same UTXO
-    wallet._sync_db_txos().unwrap();
     let unspents = wallet.list_unspents(true).unwrap();
     let unspents_with_rgb_allocations: Vec<Unspent> = unspents
         .into_iter()
@@ -230,6 +230,9 @@ fn spend_all() {
     assert!(allocation_asset_ids.contains(&asset_blank.asset_id));
 
     // send
+    wallet
+        .create_utxos(online.clone(), false, Some(1), None)
+        .unwrap();
     let blind_data = rcv_wallet.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -242,22 +245,19 @@ fn spend_all() {
     assert!(!txid.is_empty());
 
     let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &blind_data.blinded_utxo);
-    let rcv_transfer_data = rcv_wallet
-        .database
-        .get_transfer_data(&rcv_transfer)
-        .unwrap();
-    let rcv_asset_transfer = get_test_asset_transfer(&rcv_wallet, rcv_transfer.asset_transfer_idx);
+    let (rcv_transfer_data, rcv_asset_transfer) =
+        get_test_transfer_data(&rcv_wallet, &rcv_transfer);
     let (transfers, asset_transfers, _) = get_test_transfers_sender(&wallet, &txid);
     let transfers_for_asset = transfers.get(&asset.asset_id).unwrap();
     assert_eq!(transfers_for_asset.len(), 1);
     let transfer = transfers_for_asset.first().unwrap();
-    let transfer_data = wallet.database.get_transfer_data(transfer).unwrap();
+    let (transfer_data, _) = get_test_transfer_data(&wallet, transfer);
     assert_eq!(asset_transfers.len(), 2);
     let asset_transfer = asset_transfers
         .iter()
         .find(|a| a.asset_rgb20_id == Some(asset.asset_id.clone()))
         .unwrap();
-    let asset_blank_transfer = asset_transfers
+    let asset_blank_asset_transfer = asset_transfers
         .iter()
         .find(|a| a.asset_rgb121_id == Some(asset_blank.asset_id.clone()))
         .unwrap();
@@ -276,23 +276,25 @@ fn spend_all() {
     assert!(rcv_asset_transfer.user_driven);
     assert!(asset_transfer.user_driven);
     // asset_blank asset transfer is not user driven
-    assert!(!asset_blank_transfer.user_driven);
+    assert!(!asset_blank_asset_transfer.user_driven);
+
+    stop_mining();
 
     // transfers progress to status WaitingConfirmations after a refresh
-    rcv_wallet.refresh(rcv_online.clone(), None).unwrap();
-    let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &blind_data.blinded_utxo);
-    let rcv_transfer_data = rcv_wallet
-        .database
-        .get_transfer_data(&rcv_transfer)
+    rcv_wallet
+        .refresh(rcv_online.clone(), None, vec![])
         .unwrap();
+
+    let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &blind_data.blinded_utxo);
+    let (rcv_transfer_data, _) = get_test_transfer_data(&rcv_wallet, &rcv_transfer);
     wallet
-        .refresh(online.clone(), Some(asset.asset_id.clone()))
+        .refresh(online.clone(), Some(asset.asset_id.clone()), vec![])
         .unwrap();
     let (transfers, _, _) = get_test_transfers_sender(&wallet, &txid);
     let transfers_for_asset = transfers.get(&asset.asset_id).unwrap();
     assert_eq!(transfers_for_asset.len(), 1);
     let transfer = transfers_for_asset.first().unwrap();
-    let transfer_data = wallet.database.get_transfer_data(transfer).unwrap();
+    let (transfer_data, _) = get_test_transfer_data(&wallet, transfer);
     assert_eq!(
         rcv_transfer_data.status,
         TransferStatus::WaitingConfirmations
@@ -300,22 +302,19 @@ fn spend_all() {
     assert_eq!(transfer_data.status, TransferStatus::WaitingConfirmations);
 
     // transfers progress to status Settled after tx mining + refresh
-    mine();
-    rcv_wallet.refresh(rcv_online, None).unwrap();
+    mine(true);
+    rcv_wallet.refresh(rcv_online, None, vec![]).unwrap();
     wallet
-        .refresh(online, Some(asset.asset_id.clone()))
+        .refresh(online, Some(asset.asset_id.clone()), vec![])
         .unwrap();
 
     let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &blind_data.blinded_utxo);
-    let rcv_transfer_data = rcv_wallet
-        .database
-        .get_transfer_data(&rcv_transfer)
-        .unwrap();
+    let (rcv_transfer_data, _) = get_test_transfer_data(&rcv_wallet, &rcv_transfer);
     let (transfers, _, _) = get_test_transfers_sender(&wallet, &txid);
     let transfers_for_asset = transfers.get(&asset.asset_id).unwrap();
     assert_eq!(transfers_for_asset.len(), 1);
     let transfer = transfers_for_asset.first().unwrap();
-    let transfer_data = wallet.database.get_transfer_data(transfer).unwrap();
+    let (transfer_data, _) = get_test_transfer_data(&wallet, transfer);
     assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
     assert_eq!(transfer_data.status, TransferStatus::Settled);
 
@@ -377,24 +376,25 @@ fn send_twice_success() {
     assert!(!txid_1.is_empty());
 
     // take transfers from WaitingCounterparty to Settled
-    rcv_wallet.refresh(rcv_online.clone(), None).unwrap();
-    wallet
-        .refresh(online.clone(), Some(asset.asset_id.clone()))
+    rcv_wallet
+        .refresh(rcv_online.clone(), None, vec![])
         .unwrap();
-    mine();
-    rcv_wallet.refresh(rcv_online.clone(), None).unwrap();
     wallet
-        .refresh(online.clone(), Some(asset.asset_id.clone()))
+        .refresh(online.clone(), Some(asset.asset_id.clone()), vec![])
+        .unwrap();
+    mine(false);
+    rcv_wallet
+        .refresh(rcv_online.clone(), None, vec![])
+        .unwrap();
+    wallet
+        .refresh(online.clone(), Some(asset.asset_id.clone()), vec![])
         .unwrap();
 
     // transfer 1 checks
     let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &blind_data_1.blinded_utxo);
-    let rcv_transfer_data = rcv_wallet
-        .database
-        .get_transfer_data(&rcv_transfer)
-        .unwrap();
+    let (rcv_transfer_data, _) = get_test_transfer_data(&rcv_wallet, &rcv_transfer);
     let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid_1);
-    let transfer_data = wallet.database.get_transfer_data(&transfer).unwrap();
+    let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
     assert_eq!(rcv_transfer.amount, amount_1.to_string());
     assert_eq!(transfer.amount, amount_1.to_string());
     assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
@@ -429,22 +429,23 @@ fn send_twice_success() {
     assert!(!txid_2.is_empty());
 
     // take transfers from WaitingCounterparty to Settled
-    rcv_wallet.refresh(rcv_online.clone(), None).unwrap();
-    wallet
-        .refresh(online.clone(), Some(asset.asset_id.clone()))
+    rcv_wallet
+        .refresh(rcv_online.clone(), None, vec![])
         .unwrap();
-    mine();
-    rcv_wallet.refresh(rcv_online, None).unwrap();
-    wallet.refresh(online, Some(asset.asset_id)).unwrap();
+    wallet
+        .refresh(online.clone(), Some(asset.asset_id.clone()), vec![])
+        .unwrap();
+    mine(false);
+    rcv_wallet.refresh(rcv_online, None, vec![]).unwrap();
+    wallet
+        .refresh(online, Some(asset.asset_id), vec![])
+        .unwrap();
 
     // transfer 2 checks
     let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &blind_data_2.blinded_utxo);
-    let rcv_transfer_data = rcv_wallet
-        .database
-        .get_transfer_data(&rcv_transfer)
-        .unwrap();
+    let (rcv_transfer_data, _) = get_test_transfer_data(&rcv_wallet, &rcv_transfer);
     let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid_2);
-    let transfer_data = wallet.database.get_transfer_data(&transfer).unwrap();
+    let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
     assert_eq!(rcv_transfer.amount, amount_2.to_string());
     assert_eq!(transfer.amount, amount_2.to_string());
     assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
@@ -496,13 +497,13 @@ fn send_blank_success() {
     let file_str = "README.md";
 
     // wallets
-    println!("wallet 1");
-    let (mut wallet_1, online_1) = get_funded_wallet!(true, true);
-    println!("wallet 2");
-    let (mut wallet_2, online_2) = get_funded_wallet!(true, true);
+    let (mut wallet_1, online_1) = get_funded_noutxo_wallet!();
+    let (mut wallet_2, online_2) = get_funded_wallet!();
+    wallet_1
+        .create_utxos(online_1.clone(), false, Some(1), None)
+        .unwrap();
 
     // issue
-    println!("asset 1");
     let asset_rgb20 = wallet_1
         .issue_asset_rgb20(
             online_1.clone(),
@@ -512,7 +513,6 @@ fn send_blank_success() {
             vec![AMOUNT],
         )
         .unwrap();
-    println!("asset 2");
     let asset_rgb121 = wallet_1
         .issue_asset_rgb121(
             online_1.clone(),
@@ -526,7 +526,6 @@ fn send_blank_success() {
         .unwrap();
 
     // check both assets are allocated to the same UTXO
-    wallet_1._sync_db_txos().unwrap();
     let unspents = wallet_1.list_unspents(true).unwrap();
     let unspents_with_rgb_allocations: Vec<Unspent> = unspents
         .into_iter()
@@ -543,6 +542,7 @@ fn send_blank_success() {
         .collect();
     assert!(allocation_asset_ids.contains(&asset_rgb20.asset_id));
     assert!(allocation_asset_ids.contains(&asset_rgb121.asset_id));
+    show_unspent_colorings(&wallet_1, "wallet 1 after issuance");
 
     //
     // 1st transfer, asset_rgb20: wallet 1 > wallet 2
@@ -550,6 +550,9 @@ fn send_blank_success() {
 
     // send
     println!("\n=== send 1");
+    wallet_1
+        .create_utxos(online_1.clone(), false, Some(1), None)
+        .unwrap();
     let blind_data_1 = wallet_2.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
         asset_rgb20.asset_id.clone(),
@@ -562,21 +565,20 @@ fn send_blank_success() {
         .send(online_1.clone(), recipient_map, false)
         .unwrap();
     assert!(!txid_1.is_empty());
+    show_unspent_colorings(&wallet_1, "wallet 1 after send 1, WaitingCounterparty");
 
     // take transfers from WaitingCounterparty to Settled
-    println!("refresh");
-    wallet_2.refresh(online_2.clone(), None).unwrap();
+    wallet_2.refresh(online_2.clone(), None, vec![]).unwrap();
     wallet_1
-        .refresh(online_1.clone(), Some(asset_rgb20.asset_id.clone()))
+        .refresh(online_1.clone(), Some(asset_rgb20.asset_id.clone()), vec![])
         .unwrap();
-    mine();
-    wallet_2.refresh(online_2.clone(), None).unwrap();
+    mine(false);
+    wallet_2.refresh(online_2.clone(), None, vec![]).unwrap();
     wallet_1
-        .refresh(online_1.clone(), Some(asset_rgb20.asset_id.clone()))
+        .refresh(online_1.clone(), Some(asset_rgb20.asset_id.clone()), vec![])
         .unwrap();
 
     // transfer 1 checks
-    println!("check");
     let transfers_w1 = wallet_1
         .list_transfers(asset_rgb20.asset_id.clone())
         .unwrap();
@@ -654,21 +656,24 @@ fn send_blank_success() {
         .send(online_1.clone(), recipient_map, false)
         .unwrap();
     assert!(!txid_2.is_empty());
+    show_unspent_colorings(&wallet_1, "wallet 1 after send 2, WaitingCounterparty");
 
     // take transfers from WaitingCounterparty to Settled
-    println!("refresh");
-    wallet_2.refresh(online_2.clone(), None).unwrap();
+    wallet_2.refresh(online_2.clone(), None, vec![]).unwrap();
     wallet_1
-        .refresh(online_1.clone(), Some(asset_rgb121.asset_id.clone()))
+        .refresh(
+            online_1.clone(),
+            Some(asset_rgb121.asset_id.clone()),
+            vec![],
+        )
         .unwrap();
-    mine();
-    wallet_2.refresh(online_2, None).unwrap();
+    mine(false);
+    wallet_2.refresh(online_2, None, vec![]).unwrap();
     wallet_1
-        .refresh(online_1, Some(asset_rgb121.asset_id.clone()))
+        .refresh(online_1, Some(asset_rgb121.asset_id.clone()), vec![])
         .unwrap();
 
     // transfer 2 checks
-    println!("check");
     let transfers_w2 = wallet_2
         .list_transfers(asset_rgb121.asset_id.clone())
         .unwrap();
@@ -795,11 +800,11 @@ fn send_received_success() {
     assert!(!txid_1.is_empty());
 
     // take transfers from WaitingCounterparty to Settled
-    wallet_2.refresh(online_2.clone(), None).unwrap();
-    wallet_1.refresh(online_1.clone(), None).unwrap();
-    mine();
-    wallet_2.refresh(online_2.clone(), None).unwrap();
-    wallet_1.refresh(online_1, None).unwrap();
+    wallet_2.refresh(online_2.clone(), None, vec![]).unwrap();
+    wallet_1.refresh(online_1.clone(), None, vec![]).unwrap();
+    mine(false);
+    wallet_2.refresh(online_2.clone(), None, vec![]).unwrap();
+    wallet_1.refresh(online_1, None, vec![]).unwrap();
 
     // transfer 1 checks
     let (transfers_w1, _, _) = get_test_transfers_sender(&wallet_1, &txid_1);
@@ -811,10 +816,10 @@ fn send_received_success() {
     let transfer_w1b = transfers_for_asset_rgb121.first().unwrap();
     let transfer_w2a = get_test_transfer_recipient(&wallet_2, &blind_data_a20.blinded_utxo);
     let transfer_w2b = get_test_transfer_recipient(&wallet_2, &blind_data_a121.blinded_utxo);
-    let transfer_data_w1a = wallet_1.database.get_transfer_data(transfer_w1a).unwrap();
-    let transfer_data_w1b = wallet_1.database.get_transfer_data(transfer_w1b).unwrap();
-    let transfer_data_w2a = wallet_2.database.get_transfer_data(&transfer_w2a).unwrap();
-    let transfer_data_w2b = wallet_2.database.get_transfer_data(&transfer_w2b).unwrap();
+    let (transfer_data_w1a, _) = get_test_transfer_data(&wallet_1, transfer_w1a);
+    let (transfer_data_w1b, _) = get_test_transfer_data(&wallet_1, transfer_w1b);
+    let (transfer_data_w2a, _) = get_test_transfer_data(&wallet_2, &transfer_w2a);
+    let (transfer_data_w2b, _) = get_test_transfer_data(&wallet_2, &transfer_w2b);
     assert_eq!(transfer_w1a.amount, amount_1a.to_string());
     assert_eq!(transfer_w1b.amount, amount_1b.to_string());
     assert_eq!(transfer_w2a.amount, amount_1a.to_string());
@@ -871,11 +876,11 @@ fn send_received_success() {
     assert!(!txid_2.is_empty());
 
     // take transfers from WaitingCounterparty to Settled
-    wallet_3.refresh(online_3.clone(), None).unwrap();
-    wallet_2.refresh(online_2.clone(), None).unwrap();
-    mine();
-    wallet_3.refresh(online_3, None).unwrap();
-    wallet_2.refresh(online_2, None).unwrap();
+    wallet_3.refresh(online_3.clone(), None, vec![]).unwrap();
+    wallet_2.refresh(online_2.clone(), None, vec![]).unwrap();
+    mine(false);
+    wallet_3.refresh(online_3, None, vec![]).unwrap();
+    wallet_2.refresh(online_2, None, vec![]).unwrap();
 
     // transfer 2 checks
     let (transfers_w2, _, _) = get_test_transfers_sender(&wallet_2, &txid_2);
@@ -887,10 +892,10 @@ fn send_received_success() {
     let transfer_w2b = transfers_for_asset_rgb121.first().unwrap();
     let transfer_w3a = get_test_transfer_recipient(&wallet_3, &blind_data_b20.blinded_utxo);
     let transfer_w3b = get_test_transfer_recipient(&wallet_3, &blind_data_b121.blinded_utxo);
-    let transfer_data_w2a = wallet_2.database.get_transfer_data(transfer_w2a).unwrap();
-    let transfer_data_w2b = wallet_2.database.get_transfer_data(transfer_w2b).unwrap();
-    let transfer_data_w3a = wallet_3.database.get_transfer_data(&transfer_w3a).unwrap();
-    let transfer_data_w3b = wallet_3.database.get_transfer_data(&transfer_w3b).unwrap();
+    let (transfer_data_w2a, _) = get_test_transfer_data(&wallet_2, transfer_w2a);
+    let (transfer_data_w2b, _) = get_test_transfer_data(&wallet_2, transfer_w2b);
+    let (transfer_data_w3a, _) = get_test_transfer_data(&wallet_3, &transfer_w3a);
+    let (transfer_data_w3b, _) = get_test_transfer_data(&wallet_3, &transfer_w3b);
     assert_eq!(transfer_w2a.amount, amount_2a.to_string());
     assert_eq!(transfer_w2b.amount, amount_2b.to_string());
     assert_eq!(transfer_w3a.amount, amount_2a.to_string());
@@ -987,21 +992,21 @@ fn send_received_rgb121_success() {
     assert!(!txid_1.is_empty());
 
     // take transfers from WaitingCounterparty to Settled
-    wallet_2.refresh(online_2.clone(), None).unwrap();
+    wallet_2.refresh(online_2.clone(), None, vec![]).unwrap();
     wallet_1
-        .refresh(online_1.clone(), Some(asset.asset_id.clone()))
+        .refresh(online_1.clone(), Some(asset.asset_id.clone()), vec![])
         .unwrap();
-    mine();
-    wallet_2.refresh(online_2.clone(), None).unwrap();
+    mine(false);
+    wallet_2.refresh(online_2.clone(), None, vec![]).unwrap();
     wallet_1
-        .refresh(online_1, Some(asset.asset_id.clone()))
+        .refresh(online_1, Some(asset.asset_id.clone()), vec![])
         .unwrap();
 
     // transfer 1 checks
     let (transfer_w1, _, _) = get_test_transfer_sender(&wallet_1, &txid_1);
     let transfer_w2 = get_test_transfer_recipient(&wallet_2, &blind_data_1.blinded_utxo);
-    let transfer_data_w1 = wallet_1.database.get_transfer_data(&transfer_w1).unwrap();
-    let transfer_data_w2 = wallet_2.database.get_transfer_data(&transfer_w2).unwrap();
+    let (transfer_data_w1, _) = get_test_transfer_data(&wallet_1, &transfer_w1);
+    let (transfer_data_w2, _) = get_test_transfer_data(&wallet_2, &transfer_w2);
     assert_eq!(transfer_w1.amount, amount_1.to_string());
     assert_eq!(transfer_w2.amount, amount_1.to_string());
     assert_eq!(transfer_data_w1.status, TransferStatus::Settled);
@@ -1038,21 +1043,21 @@ fn send_received_rgb121_success() {
     assert!(!txid_2.is_empty());
 
     // take transfers from WaitingCounterparty to Settled
-    wallet_3.refresh(online_3.clone(), None).unwrap();
+    wallet_3.refresh(online_3.clone(), None, vec![]).unwrap();
     wallet_2
-        .refresh(online_2.clone(), Some(asset.asset_id.clone()))
+        .refresh(online_2.clone(), Some(asset.asset_id.clone()), vec![])
         .unwrap();
-    mine();
-    wallet_3.refresh(online_3, None).unwrap();
+    mine(false);
+    wallet_3.refresh(online_3, None, vec![]).unwrap();
     wallet_2
-        .refresh(online_2, Some(asset.asset_id.clone()))
+        .refresh(online_2, Some(asset.asset_id.clone()), vec![])
         .unwrap();
 
     // transfer 2 checks
     let transfer_w3 = get_test_transfer_recipient(&wallet_3, &blind_data_2.blinded_utxo);
     let (transfer_w2, _, _) = get_test_transfer_sender(&wallet_2, &txid_2);
-    let transfer_data_w3 = wallet_3.database.get_transfer_data(&transfer_w3).unwrap();
-    let transfer_data_w2 = wallet_2.database.get_transfer_data(&transfer_w2).unwrap();
+    let (transfer_data_w3, _) = get_test_transfer_data(&wallet_3, &transfer_w3);
+    let (transfer_data_w2, _) = get_test_transfer_data(&wallet_2, &transfer_w2);
     assert_eq!(transfer_w3.amount, amount_2.to_string());
     assert_eq!(transfer_w2.amount, amount_2.to_string());
     assert_eq!(transfer_data_w3.status, TransferStatus::Settled);
@@ -1150,18 +1155,10 @@ fn receive_multiple_same_asset_success() {
 
     let rcv_transfer_1 = get_test_transfer_recipient(&rcv_wallet, &blind_data_1.blinded_utxo);
     let rcv_transfer_2 = get_test_transfer_recipient(&rcv_wallet, &blind_data_2.blinded_utxo);
-    let rcv_transfer_data_1 = rcv_wallet
-        .database
-        .get_transfer_data(&rcv_transfer_1)
-        .unwrap();
-    let rcv_transfer_data_2 = rcv_wallet
-        .database
-        .get_transfer_data(&rcv_transfer_2)
-        .unwrap();
-    let rcv_asset_transfer_1 =
-        get_test_asset_transfer(&rcv_wallet, rcv_transfer_1.asset_transfer_idx);
-    let rcv_asset_transfer_2 =
-        get_test_asset_transfer(&rcv_wallet, rcv_transfer_2.asset_transfer_idx);
+    let (rcv_transfer_data_1, rcv_asset_transfer_1) =
+        get_test_transfer_data(&rcv_wallet, &rcv_transfer_1);
+    let (rcv_transfer_data_2, rcv_asset_transfer_2) =
+        get_test_transfer_data(&rcv_wallet, &rcv_transfer_2);
     let (transfers, asset_transfers, _) = get_test_transfers_sender(&wallet, &txid);
     assert_eq!(asset_transfers.len(), 1);
     assert_eq!(transfers.len(), 1);
@@ -1176,8 +1173,8 @@ fn receive_multiple_same_asset_success() {
         .iter()
         .find(|t| t.blinded_utxo == Some(blind_data_2.blinded_utxo.clone()))
         .unwrap();
-    let transfer_data_1 = wallet.database.get_transfer_data(transfer_1).unwrap();
-    let transfer_data_2 = wallet.database.get_transfer_data(transfer_2).unwrap();
+    let (transfer_data_1, _) = get_test_transfer_data(&wallet, transfer_1);
+    let (transfer_data_2, _) = get_test_transfer_data(&wallet, transfer_2);
 
     // ack is None
     assert_eq!(rcv_transfer_1.ack, None);
@@ -1291,26 +1288,22 @@ fn receive_multiple_same_asset_success() {
     assert!(rcv_asset_transfer_2.user_driven);
     assert!(asset_transfer.user_driven);
 
+    stop_mining();
+
     // transfers progress to status WaitingConfirmations after a refresh
-    rcv_wallet.refresh(rcv_online.clone(), None).unwrap();
+    rcv_wallet
+        .refresh(rcv_online.clone(), None, vec![])
+        .unwrap();
     wallet
-        .refresh(online.clone(), Some(asset.asset_id.clone()))
+        .refresh(online.clone(), Some(asset.asset_id.clone()), vec![])
         .unwrap();
 
     let rcv_transfer_1 = get_test_transfer_recipient(&rcv_wallet, &blind_data_1.blinded_utxo);
     let rcv_transfer_2 = get_test_transfer_recipient(&rcv_wallet, &blind_data_2.blinded_utxo);
-    let rcv_transfer_data_1 = rcv_wallet
-        .database
-        .get_transfer_data(&rcv_transfer_1)
-        .unwrap();
-    let rcv_transfer_data_2 = rcv_wallet
-        .database
-        .get_transfer_data(&rcv_transfer_2)
-        .unwrap();
-    let rcv_asset_transfer_1 =
-        get_test_asset_transfer(&rcv_wallet, rcv_transfer_1.asset_transfer_idx);
-    let rcv_asset_transfer_2 =
-        get_test_asset_transfer(&rcv_wallet, rcv_transfer_2.asset_transfer_idx);
+    let (rcv_transfer_data_1, rcv_asset_transfer_1) =
+        get_test_transfer_data(&rcv_wallet, &rcv_transfer_1);
+    let (rcv_transfer_data_2, rcv_asset_transfer_2) =
+        get_test_transfer_data(&rcv_wallet, &rcv_transfer_2);
     let (transfers, _, _) = get_test_transfers_sender(&wallet, &txid);
     assert_eq!(transfers.len(), 1);
     let transfers_for_asset = transfers.get(&asset.asset_id).unwrap();
@@ -1323,8 +1316,8 @@ fn receive_multiple_same_asset_success() {
         .iter()
         .find(|t| t.blinded_utxo == Some(blind_data_2.blinded_utxo.clone()))
         .unwrap();
-    let transfer_data_1 = wallet.database.get_transfer_data(transfer_1).unwrap();
-    let transfer_data_2 = wallet.database.get_transfer_data(transfer_2).unwrap();
+    let (transfer_data_1, _) = get_test_transfer_data(&wallet, transfer_1);
+    let (transfer_data_2, _) = get_test_transfer_data(&wallet, transfer_2);
 
     assert_eq!(
         rcv_transfer_data_1.status,
@@ -1364,22 +1357,16 @@ fn receive_multiple_same_asset_success() {
     assert!(updated_at_2 > transfer_data_2.created_at);
 
     // transfers progress to status Settled after tx mining + refresh
-    mine();
-    rcv_wallet.refresh(rcv_online, None).unwrap();
+    mine(true);
+    rcv_wallet.refresh(rcv_online, None, vec![]).unwrap();
     wallet
-        .refresh(online, Some(asset.asset_id.clone()))
+        .refresh(online, Some(asset.asset_id.clone()), vec![])
         .unwrap();
 
     let rcv_transfer_1 = get_test_transfer_recipient(&rcv_wallet, &blind_data_1.blinded_utxo);
     let rcv_transfer_2 = get_test_transfer_recipient(&rcv_wallet, &blind_data_2.blinded_utxo);
-    let rcv_transfer_data_1 = rcv_wallet
-        .database
-        .get_transfer_data(&rcv_transfer_1)
-        .unwrap();
-    let rcv_transfer_data_2 = rcv_wallet
-        .database
-        .get_transfer_data(&rcv_transfer_2)
-        .unwrap();
+    let (rcv_transfer_data_1, _) = get_test_transfer_data(&rcv_wallet, &rcv_transfer_1);
+    let (rcv_transfer_data_2, _) = get_test_transfer_data(&rcv_wallet, &rcv_transfer_2);
     let (transfers, _, _) = get_test_transfers_sender(&wallet, &txid);
     assert_eq!(transfers.len(), 1);
     let transfers_for_asset = transfers.get(&asset.asset_id).unwrap();
@@ -1392,8 +1379,8 @@ fn receive_multiple_same_asset_success() {
         .iter()
         .find(|t| t.blinded_utxo == Some(blind_data_2.blinded_utxo.clone()))
         .unwrap();
-    let transfer_data_1 = wallet.database.get_transfer_data(transfer_1).unwrap();
-    let transfer_data_2 = wallet.database.get_transfer_data(transfer_2).unwrap();
+    let (transfer_data_1, _) = get_test_transfer_data(&wallet, transfer_1);
+    let (transfer_data_2, _) = get_test_transfer_data(&wallet, transfer_2);
 
     assert_eq!(rcv_transfer_data_1.status, TransferStatus::Settled);
     assert_eq!(rcv_transfer_data_2.status, TransferStatus::Settled);
@@ -1471,18 +1458,10 @@ fn receive_multiple_different_assets_success() {
 
     let rcv_transfer_1 = get_test_transfer_recipient(&rcv_wallet, &blind_data_1.blinded_utxo);
     let rcv_transfer_2 = get_test_transfer_recipient(&rcv_wallet, &blind_data_2.blinded_utxo);
-    let rcv_transfer_data_1 = rcv_wallet
-        .database
-        .get_transfer_data(&rcv_transfer_1)
-        .unwrap();
-    let rcv_transfer_data_2 = rcv_wallet
-        .database
-        .get_transfer_data(&rcv_transfer_2)
-        .unwrap();
-    let rcv_asset_transfer_1 =
-        get_test_asset_transfer(&rcv_wallet, rcv_transfer_1.asset_transfer_idx);
-    let rcv_asset_transfer_2 =
-        get_test_asset_transfer(&rcv_wallet, rcv_transfer_2.asset_transfer_idx);
+    let (rcv_transfer_data_1, rcv_asset_transfer_1) =
+        get_test_transfer_data(&rcv_wallet, &rcv_transfer_1);
+    let (rcv_transfer_data_2, rcv_asset_transfer_2) =
+        get_test_transfer_data(&rcv_wallet, &rcv_transfer_2);
     let (transfers, asset_transfers, _) = get_test_transfers_sender(&wallet, &txid);
     assert_eq!(asset_transfers.len(), 2);
     assert_eq!(transfers.len(), 2);
@@ -1500,8 +1479,8 @@ fn receive_multiple_different_assets_success() {
     assert_eq!(transfers_for_asset_2.len(), 1);
     let transfer_1 = transfers_for_asset_1.first().unwrap();
     let transfer_2 = transfers_for_asset_2.first().unwrap();
-    let transfer_data_1 = wallet.database.get_transfer_data(transfer_1).unwrap();
-    let transfer_data_2 = wallet.database.get_transfer_data(transfer_2).unwrap();
+    let (transfer_data_1, _) = get_test_transfer_data(&wallet, transfer_1);
+    let (transfer_data_2, _) = get_test_transfer_data(&wallet, transfer_2);
 
     // ack is None
     assert_eq!(rcv_transfer_1.ack, None);
@@ -1624,26 +1603,22 @@ fn receive_multiple_different_assets_success() {
     assert!(asset_transfer_1.user_driven);
     assert!(asset_transfer_2.user_driven);
 
+    stop_mining();
+
     // transfers progress to status WaitingConfirmations after a refresh
-    rcv_wallet.refresh(rcv_online.clone(), None).unwrap();
+    rcv_wallet
+        .refresh(rcv_online.clone(), None, vec![])
+        .unwrap();
     wallet
-        .refresh(online.clone(), Some(asset_1.asset_id.clone()))
+        .refresh(online.clone(), Some(asset_1.asset_id.clone()), vec![])
         .unwrap();
 
     let rcv_transfer_1 = get_test_transfer_recipient(&rcv_wallet, &blind_data_1.blinded_utxo);
     let rcv_transfer_2 = get_test_transfer_recipient(&rcv_wallet, &blind_data_2.blinded_utxo);
-    let rcv_transfer_data_1 = rcv_wallet
-        .database
-        .get_transfer_data(&rcv_transfer_1)
-        .unwrap();
-    let rcv_transfer_data_2 = rcv_wallet
-        .database
-        .get_transfer_data(&rcv_transfer_2)
-        .unwrap();
-    let rcv_asset_transfer_1 =
-        get_test_asset_transfer(&rcv_wallet, rcv_transfer_1.asset_transfer_idx);
-    let rcv_asset_transfer_2 =
-        get_test_asset_transfer(&rcv_wallet, rcv_transfer_2.asset_transfer_idx);
+    let (rcv_transfer_data_1, rcv_asset_transfer_1) =
+        get_test_transfer_data(&rcv_wallet, &rcv_transfer_1);
+    let (rcv_transfer_data_2, rcv_asset_transfer_2) =
+        get_test_transfer_data(&rcv_wallet, &rcv_transfer_2);
     let (transfers, _, _) = get_test_transfers_sender(&wallet, &txid);
     assert_eq!(transfers.len(), 2);
     let transfers_for_asset_1 = transfers.get(&asset_1.asset_id).unwrap();
@@ -1652,8 +1627,8 @@ fn receive_multiple_different_assets_success() {
     assert_eq!(transfers_for_asset_2.len(), 1);
     let transfer_1 = transfers_for_asset_1.first().unwrap();
     let transfer_2 = transfers_for_asset_2.first().unwrap();
-    let transfer_data_1 = wallet.database.get_transfer_data(transfer_1).unwrap();
-    let transfer_data_2 = wallet.database.get_transfer_data(transfer_2).unwrap();
+    let (transfer_data_1, _) = get_test_transfer_data(&wallet, transfer_1);
+    let (transfer_data_2, _) = get_test_transfer_data(&wallet, transfer_2);
 
     assert_eq!(
         rcv_transfer_data_1.status,
@@ -1729,22 +1704,16 @@ fn receive_multiple_different_assets_success() {
     assert_eq!(rcv_asset_rgb121.data_paths, empty_data_paths);
 
     // transfers progress to status Settled after tx mining + refresh
-    mine();
-    rcv_wallet.refresh(rcv_online, None).unwrap();
+    mine(true);
+    rcv_wallet.refresh(rcv_online, None, vec![]).unwrap();
     wallet
-        .refresh(online, Some(asset_1.asset_id.clone()))
+        .refresh(online, Some(asset_1.asset_id.clone()), vec![])
         .unwrap();
 
     let rcv_transfer_1 = get_test_transfer_recipient(&rcv_wallet, &blind_data_1.blinded_utxo);
     let rcv_transfer_2 = get_test_transfer_recipient(&rcv_wallet, &blind_data_2.blinded_utxo);
-    let rcv_transfer_data_1 = rcv_wallet
-        .database
-        .get_transfer_data(&rcv_transfer_1)
-        .unwrap();
-    let rcv_transfer_data_2 = rcv_wallet
-        .database
-        .get_transfer_data(&rcv_transfer_2)
-        .unwrap();
+    let (rcv_transfer_data_1, _) = get_test_transfer_data(&rcv_wallet, &rcv_transfer_1);
+    let (rcv_transfer_data_2, _) = get_test_transfer_data(&rcv_wallet, &rcv_transfer_2);
     let (transfers, _, _) = get_test_transfers_sender(&wallet, &txid);
     assert_eq!(transfers.len(), 2);
     let transfers_for_asset_1 = transfers.get(&asset_1.asset_id).unwrap();
@@ -1753,8 +1722,8 @@ fn receive_multiple_different_assets_success() {
     assert_eq!(transfers_for_asset_2.len(), 1);
     let transfer_1 = transfers_for_asset_1.first().unwrap();
     let transfer_2 = transfers_for_asset_2.first().unwrap();
-    let transfer_data_1 = wallet.database.get_transfer_data(transfer_1).unwrap();
-    let transfer_data_2 = wallet.database.get_transfer_data(transfer_2).unwrap();
+    let (transfer_data_1, _) = get_test_transfer_data(&wallet, transfer_1);
+    let (transfer_data_2, _) = get_test_transfer_data(&wallet, transfer_2);
 
     assert_eq!(rcv_transfer_data_1.status, TransferStatus::Settled);
     assert_eq!(rcv_transfer_data_2.status, TransferStatus::Settled);
@@ -1808,7 +1777,7 @@ fn batch_donation_success() {
             vec![AMOUNT],
         )
         .unwrap();
-    let asset_c = wallet
+    let _asset_c = wallet
         .issue_asset_rgb20(
             online.clone(),
             TICKER.to_string(),
@@ -1818,25 +1787,14 @@ fn batch_donation_success() {
         )
         .unwrap();
 
-    // check all assets are allocated to the same UTXO
-    wallet._sync_db_txos().unwrap();
+    show_unspent_colorings(&wallet, "after issuances");
+
+    // check each assets is allocated to a different UTXO
     let unspents = wallet.list_unspents(true).unwrap();
-    let unspents_with_rgb_allocations: Vec<Unspent> = unspents
+    let unspents_with_rgb_allocations = unspents
         .into_iter()
-        .filter(|u| !u.rgb_allocations.is_empty())
-        .collect();
-    assert!(unspents_with_rgb_allocations.len() == 1);
-    let allocation_asset_ids: Vec<String> = unspents_with_rgb_allocations
-        .first()
-        .unwrap()
-        .rgb_allocations
-        .clone()
-        .into_iter()
-        .map(|a| a.asset_id.unwrap_or_else(|| s!("")))
-        .collect();
-    assert!(allocation_asset_ids.contains(&asset_a.asset_id));
-    assert!(allocation_asset_ids.contains(&asset_b.asset_id));
-    assert!(allocation_asset_ids.contains(&asset_c.asset_id));
+        .filter(|u| !u.rgb_allocations.is_empty());
+    assert!(unspents_with_rgb_allocations.count() == 3);
 
     // blind
     let blind_data_a1 = rcv_wallet_1.blind(None, None, None).unwrap();
@@ -1876,6 +1834,8 @@ fn batch_donation_success() {
     let txid = wallet.send(online, recipient_map, true).unwrap();
     assert!(!txid.is_empty());
 
+    show_unspent_colorings(&wallet, "after send");
+
     // check change UTXO has all the expected allocations
     let transfers_a = wallet.list_transfers(asset_a.asset_id.clone()).unwrap();
     let transfer_a = transfers_a.last().unwrap();
@@ -1886,24 +1846,24 @@ fn batch_donation_success() {
         .find(|u| u.utxo.outpoint == *change_utxo)
         .unwrap();
     let change_allocations = change_unspent.rgb_allocations;
-    assert_eq!(change_allocations.len(), 3);
+    assert_eq!(change_allocations.len(), 2);
     let allocation_a = change_allocations
         .iter()
         .find(|a| a.asset_id == Some(asset_a.asset_id.clone()));
     let allocation_b = change_allocations
         .iter()
         .find(|a| a.asset_id == Some(asset_b.asset_id.clone()));
-    let allocation_c = change_allocations
-        .iter()
-        .find(|a| a.asset_id == Some(asset_c.asset_id.clone()));
     assert_eq!(allocation_a.unwrap().amount, AMOUNT - amount_a1 - amount_a2);
     assert_eq!(allocation_b.unwrap().amount, AMOUNT - amount_b1 - amount_b2);
-    assert_eq!(allocation_c.unwrap().amount, AMOUNT);
 
     // take receiver transfers from WaitingCounterparty to Settled
     // (send_batch doesn't wait for recipient ACKs and proceeds to broadcast)
-    rcv_wallet_1.refresh(rcv_online_1.clone(), None).unwrap();
-    rcv_wallet_2.refresh(rcv_online_2.clone(), None).unwrap();
+    rcv_wallet_1
+        .refresh(rcv_online_1.clone(), None, vec![])
+        .unwrap();
+    rcv_wallet_2
+        .refresh(rcv_online_2.clone(), None, vec![])
+        .unwrap();
     rcv_wallet_1
         .list_transfers(asset_a.asset_id.clone())
         .unwrap();
@@ -1916,9 +1876,9 @@ fn batch_donation_success() {
     rcv_wallet_2
         .list_transfers(asset_b.asset_id.clone())
         .unwrap();
-    mine();
-    rcv_wallet_1.refresh(rcv_online_1, None).unwrap();
-    rcv_wallet_2.refresh(rcv_online_2, None).unwrap();
+    mine(false);
+    rcv_wallet_1.refresh(rcv_online_1, None, vec![]).unwrap();
+    rcv_wallet_2.refresh(rcv_online_2, None, vec![]).unwrap();
     rcv_wallet_1
         .list_transfers(asset_a.asset_id.clone())
         .unwrap();
@@ -1931,6 +1891,8 @@ fn batch_donation_success() {
     rcv_wallet_2
         .list_transfers(asset_b.asset_id.clone())
         .unwrap();
+
+    show_unspent_colorings(&wallet, "after send, settled");
 }
 
 #[test]
@@ -1957,7 +1919,7 @@ fn reuse_failed_blinded_success() {
     // 1st transfer
     let blind_data = rcv_wallet.blind(None, None, Some(60)).unwrap();
     let recipient_map = HashMap::from([(
-        asset.asset_id,
+        asset.asset_id.clone(),
         vec![Recipient {
             amount,
             blinded_utxo: blind_data.blinded_utxo,
@@ -1968,14 +1930,18 @@ fn reuse_failed_blinded_success() {
         .unwrap();
     assert!(!txid.is_empty());
 
+    // try to send again and check the asset is not spendable
+    let result = wallet.send(online.clone(), recipient_map.clone(), false);
+    assert!(matches!(result, Err(Error::InsufficientSpendableAssets(id)) if id == asset.asset_id));
+
     // fail transfer so asset allocation can be spent again
     wallet
-        .fail_transfers(online.clone(), None, Some(txid))
+        .fail_transfers(online.clone(), None, Some(txid), false)
         .unwrap();
 
     // 2nd transfer using the same blinded UTXO
-    let txid = wallet.send(online, recipient_map, false).unwrap();
-    assert!(!txid.is_empty());
+    let result = wallet.send(online, recipient_map, false);
+    assert!(matches!(result, Err(Error::BlindedUTXOAlreadyUsed)));
 }
 
 #[test]
@@ -2037,7 +2003,7 @@ fn ack() {
     ));
 
     // ack from recipient 1 > its transfer status changes to WaitingConfirmations
-    rcv_wallet_1.refresh(rcv_online_1, None).unwrap();
+    rcv_wallet_1.refresh(rcv_online_1, None, vec![]).unwrap();
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet_1,
         &blind_data_1.blinded_utxo,
@@ -2050,7 +2016,7 @@ fn ack() {
     ));
 
     // ack from recipient 2 > its transfer status changes to WaitingConfirmations
-    rcv_wallet_2.refresh(rcv_online_2, None).unwrap();
+    rcv_wallet_2.refresh(rcv_online_2, None, vec![]).unwrap();
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet_2,
         &blind_data_2.blinded_utxo,
@@ -2058,7 +2024,9 @@ fn ack() {
     ));
 
     // now sender can broadcast and move on to WaitingConfirmations
-    wallet.refresh(online, Some(asset.asset_id)).unwrap();
+    wallet
+        .refresh(online, Some(asset.asset_id), vec![])
+        .unwrap();
     assert!(check_test_transfer_status_sender(
         &wallet,
         &txid,
@@ -2118,7 +2086,9 @@ fn nack() {
         .unwrap();
 
     // refreshing sender transfer now has it fail
-    wallet.refresh(online, Some(asset.asset_id)).unwrap();
+    wallet
+        .refresh(online, Some(asset.asset_id), vec![])
+        .unwrap();
     assert!(check_test_transfer_status_sender(
         &wallet,
         &txid,
@@ -2161,7 +2131,7 @@ fn expire() {
 
     // check expiration is set correctly
     let (transfer, _, batch_transfer) = get_test_transfer_sender(&wallet, &txid);
-    let transfer_data = wallet.database.get_transfer_data(&transfer).unwrap();
+    let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
     assert_eq!(
         transfer_data.expiration,
         Some(transfer_data.created_at + DURATION_SEND_TRANSFER)
@@ -2177,10 +2147,116 @@ fn expire() {
     std::thread::sleep(std::time::Duration::from_millis(2000));
     //
     // expire transfer + check status goes to Failed
-    wallet._handle_expired_transfers().unwrap();
+    let mut db_data = wallet.database.get_db_data(false).unwrap();
+    wallet._handle_expired_transfers(&mut db_data).unwrap();
     let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
-    let transfer_data = wallet.database.get_transfer_data(&transfer).unwrap();
+    let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
     assert_eq!(transfer_data.status, TransferStatus::Failed);
+}
+
+#[test]
+fn no_change_on_pending_send() {
+    initialize();
+
+    let amount_1: u64 = 66;
+    let amount_2: u64 = 32;
+
+    // wallets
+    let (mut wallet, online) = get_funded_noutxo_wallet!();
+    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
+    let num_utxos_created = wallet
+        .create_utxos(online.clone(), true, Some(3), None)
+        .unwrap();
+    assert_eq!(num_utxos_created, 3);
+
+    // issue 1 + get its UTXO
+    let asset_1 = wallet
+        .issue_asset_rgb20(
+            online.clone(),
+            TICKER.to_string(),
+            NAME.to_string(),
+            PRECISION,
+            vec![AMOUNT],
+        )
+        .unwrap();
+    let unspents = wallet.list_unspents(false).unwrap();
+    let unspent_1 = unspents
+        .iter()
+        .find(|u| {
+            u.rgb_allocations
+                .iter()
+                .any(|a| a.asset_id == Some(asset_1.asset_id.clone()))
+        })
+        .unwrap();
+    // issue 2
+    let asset_2 = wallet
+        .issue_asset_rgb20(
+            online.clone(),
+            TICKER.to_string(),
+            NAME.to_string(),
+            PRECISION,
+            vec![AMOUNT * 2],
+        )
+        .unwrap();
+
+    show_unspent_colorings(&wallet, "before 1st send");
+    // send asset_1
+    let blind_data = rcv_wallet.blind(None, None, None).unwrap();
+    let recipient_map = HashMap::from([(
+        asset_1.asset_id.clone(),
+        vec![Recipient {
+            amount: amount_1,
+            blinded_utxo: blind_data.blinded_utxo,
+        }],
+    )]);
+    let txid_1 = wallet.send(online.clone(), recipient_map, false).unwrap();
+    assert!(!txid_1.is_empty());
+
+    // send asset_2 (send_1 in WaitingCounterparty)
+    show_unspent_colorings(&wallet, "before 2nd send");
+    let blind_data = rcv_wallet.blind(None, None, None).unwrap();
+    let recipient_map = HashMap::from([(
+        asset_2.asset_id.clone(),
+        vec![Recipient {
+            amount: amount_2,
+            blinded_utxo: blind_data.blinded_utxo,
+        }],
+    )]);
+    let txid_2 = wallet.send(online.clone(), recipient_map, false).unwrap();
+    assert!(!txid_2.is_empty());
+    // check change was not allocated on issue 1 UTXO (pending Input coloring)
+    assert!(!unspent_1.rgb_allocations.iter().any(|a| !a.settled));
+    // fail send asset_2
+    wallet
+        .fail_transfers(online.clone(), None, Some(txid_2), false)
+        .unwrap();
+
+    stop_mining();
+
+    // progress send_1 to WaitingConfirmations
+    show_unspent_colorings(&wallet, "before refresh");
+    rcv_wallet.refresh(rcv_online, None, vec![]).unwrap();
+    wallet
+        .refresh(online.clone(), Some(asset_1.asset_id.clone()), vec![])
+        .unwrap();
+
+    // send asset_2 (send_1 in WaitingConfirmations)
+    show_unspent_colorings(&wallet, "before 3rd send");
+    let blind_data = rcv_wallet.blind(None, None, None).unwrap();
+    let recipient_map = HashMap::from([(
+        asset_2.asset_id,
+        vec![Recipient {
+            amount: amount_2,
+            blinded_utxo: blind_data.blinded_utxo,
+        }],
+    )]);
+    let txid_3 = wallet.send(online, recipient_map, false).unwrap();
+    assert!(!txid_3.is_empty());
+    show_unspent_colorings(&wallet, "after 3rd send");
+    // check change was not allocated on issue 1 UTXO (pending Input coloring)
+    assert!(!unspent_1.rgb_allocations.iter().any(|a| !a.settled));
+
+    resume_mining();
 }
 
 #[test]
@@ -2244,11 +2320,13 @@ fn pending_incoming_transfer_fail() {
 
     let amount_1: u64 = 66;
     let amount_2: u64 = 33;
-    let amount_3: u64 = 7;
 
     // wallets
     let (mut wallet, online) = get_funded_wallet!();
-    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
+    let (mut rcv_wallet, rcv_online) = get_funded_noutxo_wallet!();
+    rcv_wallet
+        .create_utxos(rcv_online.clone(), false, Some(1), None)
+        .unwrap();
 
     // issue
     let asset = wallet
@@ -2278,31 +2356,30 @@ fn pending_incoming_transfer_fail() {
     assert!(!txid_1.is_empty());
 
     // take transfers from WaitingCounterparty to Settled
-    rcv_wallet.refresh(rcv_online.clone(), None).unwrap();
-    wallet
-        .refresh(online.clone(), Some(asset.asset_id.clone()))
+    rcv_wallet
+        .refresh(rcv_online.clone(), None, vec![])
         .unwrap();
-    mine();
-    rcv_wallet.refresh(rcv_online, None).unwrap();
     wallet
-        .refresh(online.clone(), Some(asset.asset_id.clone()))
+        .refresh(online.clone(), Some(asset.asset_id.clone()), vec![])
         .unwrap();
+    mine(false);
+    rcv_wallet
+        .refresh(rcv_online.clone(), None, vec![])
+        .unwrap();
+    wallet
+        .refresh(online.clone(), Some(asset.asset_id.clone()), vec![])
+        .unwrap();
+
+    show_unspent_colorings(&wallet, "sender after 1st send, settled");
+    show_unspent_colorings(&rcv_wallet, "receiver after 1st send, settled");
 
     //
     // 2nd transfer
     //
 
-    // send
-    let blind_data_2 = rcv_wallet.blind(None, None, None).unwrap();
-    let recipient_map = HashMap::from([(
-        asset.asset_id.clone(),
-        vec![Recipient {
-            amount: amount_2,
-            blinded_utxo: blind_data_2.blinded_utxo,
-        }],
-    )]);
-    let txid_2 = wallet.send(online.clone(), recipient_map, false).unwrap();
-    assert!(!txid_2.is_empty());
+    // add a blind to the same UTXO
+    let _blind_data_2 = rcv_wallet.blind(None, None, None).unwrap();
+    show_unspent_colorings(&rcv_wallet, "receiver after 2nd blind");
 
     // send from receiving wallet, 1st receive Settled, 2nd one still pending
     let blind_data = wallet.blind(None, None, None).unwrap();
@@ -2310,10 +2387,24 @@ fn pending_incoming_transfer_fail() {
         asset.asset_id.clone(),
         vec![Recipient {
             blinded_utxo: blind_data.blinded_utxo,
-            amount: amount_3,
+            amount: amount_2,
         }],
     )]);
-    let result = wallet.send(online, recipient_map, false);
+    show_unspent_colorings(&wallet, "sender after 2nd send, WaitingCounterparty");
+    show_unspent_colorings(&rcv_wallet, "receiver after 2nd send, WaitingCounterparty");
+    // check input allocation is blocked by pending receive
+    let result = rcv_wallet.send(rcv_online.clone(), recipient_map.clone(), false);
+    assert!(matches!(result, Err(Error::InsufficientSpendableAssets(t)) if t == asset.asset_id));
+
+    // take transfer from WaitingCounterparty to WaitingConfirmations
+    rcv_wallet
+        .refresh(rcv_online.clone(), None, vec![])
+        .unwrap();
+    wallet
+        .refresh(online, Some(asset.asset_id.clone()), vec![])
+        .unwrap();
+    // check input allocation is still blocked by pending receive
+    let result = rcv_wallet.send(rcv_online, recipient_map, false);
     assert!(matches!(result, Err(Error::InsufficientSpendableAssets(t)) if t == asset.asset_id));
 }
 
@@ -2325,7 +2416,7 @@ fn pending_outgoing_transfer_fail() {
 
     // wallets
     let (mut wallet, online) = get_funded_wallet!();
-    let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
+    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
 
     // issue asset
     let asset = wallet
@@ -2353,14 +2444,24 @@ fn pending_outgoing_transfer_fail() {
     // 2nd send (1st still pending)
     let blind_data = rcv_wallet.blind(None, None, None).unwrap();
     let recipient_map = HashMap::from([(
-        asset.asset_id,
+        asset.asset_id.clone(),
         vec![Recipient {
             blinded_utxo: blind_data.blinded_utxo,
             amount: amount / 2,
         }],
     )]);
+    // check input allocation is blocked by pending send
+    let result = wallet.send(online.clone(), recipient_map.clone(), false);
+    assert!(matches!(result, Err(Error::InsufficientSpendableAssets(t)) if t == asset.asset_id));
+
+    // take transfer from WaitingCounterparty to WaitingConfirmations
+    rcv_wallet.refresh(rcv_online, None, vec![]).unwrap();
+    wallet
+        .refresh(online.clone(), Some(asset.asset_id.clone()), vec![])
+        .unwrap();
+    // check input allocation is still blocked by pending send
     let result = wallet.send(online, recipient_map, false);
-    assert!(matches!(result, Err(_)));
+    assert!(matches!(result, Err(Error::InsufficientSpendableAssets(t)) if t == asset.asset_id));
 }
 
 #[test]
@@ -2370,8 +2471,11 @@ fn pending_transfer_input_fail() {
     let amount: u64 = 66;
 
     // wallets
-    let (mut wallet, online) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_noutxo_wallet!();
     let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
+    wallet
+        .create_utxos(online.clone(), false, Some(1), None)
+        .unwrap();
 
     // issue
     let asset = wallet
@@ -2386,6 +2490,7 @@ fn pending_transfer_input_fail() {
 
     // blind with sender wallet to create a pending transfer
     wallet.blind(None, None, None).unwrap();
+    show_unspent_colorings(&wallet, "sender after blind");
 
     // send and check it fails as the issuance UTXO is "blocked" by the pending receive operation
     let blind_data = rcv_wallet.blind(None, None, None).unwrap();
@@ -2580,7 +2685,9 @@ fn psbt_rgb_consumer_success() {
         )
         .unwrap();
     // fail transfers so 1st UTXO can be used as input
-    wallet.fail_transfers(online.clone(), None, None).unwrap();
+    wallet
+        .fail_transfers(online.clone(), None, None, false)
+        .unwrap();
 
     // create 1 more UTXO for change, up_to false or AllocationsAlreadyAvailable is returned
     println!("utxo 3");
