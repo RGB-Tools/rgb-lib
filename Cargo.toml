@@ -10,6 +10,9 @@ license = "MIT"
 description = "RGB wallet library"
 exclude = ["migration"]
 
+[package.metadata.docs.rs]
+rustc-args = ["--cfg", "docsrs"]
+
 [workspace]
 members = [".", "migration"]
 

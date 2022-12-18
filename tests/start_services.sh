@@ -10,7 +10,11 @@ else
     exit 1
 fi
 COMPOSE="$COMPOSE_CMD -f tests/docker-compose.yml"
-TEST_DIR="./tests/tmp"
+if [[ -n "$DOCS_RS" ]]; then
+    TEST_DIR="/tmp/tests/tmp"
+else
+    TEST_DIR="./tests/tmp"
+fi
 
 $COMPOSE down -v
 rm -rf $TEST_DIR

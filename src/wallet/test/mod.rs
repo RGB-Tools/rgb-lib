@@ -10,7 +10,13 @@ use super::*;
 
 const PROXY_URL: &str = "http://proxy.rgbtools.org";
 const ELECTRUM_URL: &str = "127.0.0.1:50001";
+
+#[cfg(not(docsrs))]
 const TEST_DATA_DIR: &str = "./tests/tmp";
+
+#[cfg(docsrs)]
+const TEST_DATA_DIR: &str = "/tmp/tests/tmp";
+
 const TICKER: &str = "TICKER";
 const NAME: &str = "name";
 const DESCRIPTION: &str = "DESCRIPTION";
