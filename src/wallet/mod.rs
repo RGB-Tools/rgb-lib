@@ -1981,7 +1981,7 @@ impl Wallet {
         let mut allocations = vec![];
         for amount in &amounts {
             let exclude_outpoints: Vec<Outpoint> =
-                issue_utxos.iter().map(|(txo, _)| txo.outpoint()).collect();
+                issue_utxos.keys().map(|txo| txo.outpoint()).collect();
             let utxo = self._get_utxo(exclude_outpoints, Some(unspents.clone()), false)?;
             let outpoint = utxo.outpoint().to_string();
             issue_utxos.insert(utxo, *amount);
@@ -2106,7 +2106,7 @@ impl Wallet {
         let mut allocations = vec![];
         for amount in &amounts {
             let exclude_outpoints: Vec<Outpoint> =
-                issue_utxos.iter().map(|(txo, _)| txo.outpoint()).collect();
+                issue_utxos.keys().map(|txo| txo.outpoint()).collect();
             let utxo = self._get_utxo(exclude_outpoints, Some(unspents.clone()), false)?;
             let outpoint = utxo.outpoint().to_string();
             issue_utxos.insert(utxo, *amount);
@@ -2409,7 +2409,7 @@ impl Wallet {
 
     fn _get_signed_psbt(&self, transfer_dir: PathBuf) -> Result<PartiallySignedTransaction, Error> {
         let psbt_file = transfer_dir.join(SIGNED_PSBT_FILE);
-        let psbt_str = fs::read_to_string(&psbt_file)?;
+        let psbt_str = fs::read_to_string(psbt_file)?;
         PartiallySignedTransaction::from_str(&psbt_str).map_err(Error::InvalidPsbt)
     }
 
@@ -2650,7 +2650,7 @@ impl Wallet {
             method: CloseMethod::OpretFirst,
             blinding,
             txid: Some(Txid::from_str(&unblinded_utxo.txid).expect("should be a valid TXID")),
-            vout: unblinded_utxo.vout as u32,
+            vout: unblinded_utxo.vout,
         }
         .to_concealed_seal();
         for transition in known_transitions {
@@ -2878,7 +2878,7 @@ impl Wallet {
         };
         for consignment_path in consignment_paths {
             let consignment =
-                StateTransfer::strict_file_load(&consignment_path).map_err(InternalError::from)?;
+                StateTransfer::strict_file_load(consignment_path).map_err(InternalError::from)?;
             let reveal = if let Some(dt) = detailed_transfer.clone() {
                 let blinding_factor = dt
                     .blinding_secret
@@ -3344,7 +3344,7 @@ impl Wallet {
             let asset_transfer_dir = transfer_dir.join(asset_id.clone());
             let consignment_path = asset_transfer_dir.join(CONSIGNMENT_FILE);
             let consignment =
-                StateTransfer::strict_file_load(&consignment_path).map_err(InternalError::from)?;
+                StateTransfer::strict_file_load(consignment_path).map_err(InternalError::from)?;
             transfers.push((consignment, endseals));
 
             // save asset transefer data to file (for send_end)

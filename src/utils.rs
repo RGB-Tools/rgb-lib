@@ -95,11 +95,7 @@ pub(crate) fn _get_derivation_path(
     change: bool,
 ) -> String {
     let change_num = u8::from(change);
-    let coin_type = if bitcoin_network == BitcoinNetwork::Mainnet {
-        0
-    } else {
-        1
-    };
+    let coin_type = i32::from(bitcoin_network != BitcoinNetwork::Mainnet);
     let hardened = if watch_only { "" } else { "'" };
     let child_number = if watch_only { "" } else { "/*" };
     let master = if watch_only { "m" } else { "" };
