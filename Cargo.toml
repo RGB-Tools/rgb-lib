@@ -47,8 +47,8 @@ rgb-std = "=0.8.1"
 rgb20 = "=0.8.0"
 rgb121 = "0.1.0"
 rgb_core = { package = "rgb-core", version = "=0.8.1" }
-rgb_node = { version = "=0.8.1", features = ["server", "embedded"] }
-rgb_rpc = { version = "=0.8.1" }
+rgb_node = { version = "=0.8.2", features = ["server", "embedded"] }
+rgb_rpc = { version = "=0.8.2" }
 stens = "=0.7.1"
 store_daemon = "=0.8.1"
 strict_encoding = "=0.8.2"
