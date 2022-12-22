@@ -69,6 +69,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::fs;
 use std::hash::{Hash, Hasher};
+use std::panic;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -769,7 +770,12 @@ impl Wallet {
             fs::create_dir(wallet_dir.clone())?;
         }
         let logger = setup_logger(wallet_dir.clone())?;
-        info!(logger, "New wallet in '{:?}'", wallet_dir);
+        info!(logger.clone(), "New wallet in '{:?}'", wallet_dir);
+        let panic_logger = logger.clone();
+        panic::set_hook(Box::new(move |e| {
+            println!("PANIC: {:?}", e);
+            error!(panic_logger.clone(), "PANIC: {:?}", e);
+        }));
 
         // BDK setup
         let bdk_db = wallet_dir.join(BDK_DB_NAME);
