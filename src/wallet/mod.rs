@@ -60,7 +60,7 @@ use rgb_lib_migration::{Migrator, MigratorTrait};
 use rgb_node::{rgbd, Config};
 use rgb_rpc::client::Client;
 use rgb_rpc::{ContractValidity, Reveal};
-use sea_orm::{ActiveValue, ConnectOptions, Database, DeriveActiveEnum, EnumIter};
+use sea_orm::{ActiveValue, ConnectOptions, Database};
 use serde::{Deserialize, Serialize};
 use slog::{debug, error, info, Logger};
 use std::cmp::min;
@@ -92,9 +92,8 @@ use crate::database::entities::batch_transfer::{
 use crate::database::entities::coloring::{ActiveModel as DbColoringActMod, Model as DbColoring};
 use crate::database::entities::transfer::{ActiveModel as DbTransferActMod, Model as DbTransfer};
 use crate::database::entities::txo::{ActiveModel as DbTxoActMod, Model as DbTxo};
-use crate::database::{
-    ColoringType, DbData, LocalRgbAllocation, LocalUnspent, RgbLibDatabase, TransferData,
-};
+use crate::database::enums::{ColoringType, TransferStatus};
+use crate::database::{DbData, LocalRgbAllocation, LocalUnspent, RgbLibDatabase, TransferData};
 use crate::error::{Error, InternalError};
 use crate::utils::{
     calculate_descriptor_from_xprv, calculate_descriptor_from_xpub, get_txid, now, setup_logger,
@@ -569,50 +568,6 @@ impl From<LocalRgbAllocation> for RgbAllocation {
             amount: x.amount,
             settled: x.settled(),
         }
-    }
-}
-
-/// The status of a [`Transfer`]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, PartialOrd, EnumIter, DeriveActiveEnum)]
-#[sea_orm(rs_type = "u16", db_type = "Integer")]
-pub enum TransferStatus {
-    /// Waiting for the counterparty to take action
-    #[sea_orm(num_value = 1)]
-    WaitingCounterparty = 1,
-    /// Waiting for the transfer transcation to be confirmed
-    #[sea_orm(num_value = 2)]
-    WaitingConfirmations = 2,
-    /// Settled transfer, this status is final
-    #[sea_orm(num_value = 3)]
-    Settled = 3,
-    /// Failed transfer, this status is final
-    #[sea_orm(num_value = 4)]
-    Failed = 4,
-}
-
-impl TransferStatus {
-    pub(crate) fn failed(&self) -> bool {
-        self == &TransferStatus::Failed
-    }
-
-    pub(crate) fn pending(&self) -> bool {
-        vec![
-            TransferStatus::WaitingCounterparty,
-            TransferStatus::WaitingConfirmations,
-        ]
-        .contains(self)
-    }
-
-    pub(crate) fn settled(&self) -> bool {
-        self == &TransferStatus::Settled
-    }
-
-    pub(crate) fn waiting_confirmations(&self) -> bool {
-        self == &TransferStatus::WaitingConfirmations
-    }
-
-    pub(crate) fn waiting_counterparty(&self) -> bool {
-        self == &TransferStatus::WaitingCounterparty
     }
 }
 

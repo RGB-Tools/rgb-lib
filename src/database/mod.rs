@@ -2,15 +2,12 @@ use bdk::LocalUtxo;
 use bitcoin::OutPoint;
 use futures::executor::block_on;
 use sea_orm::entity::EntityTrait;
-use sea_orm::{
-    ActiveValue, ColumnTrait, DatabaseConnection, DeriveActiveEnum, EnumIter, IntoActiveValue,
-    QueryFilter,
-};
+use sea_orm::{ActiveValue, ColumnTrait, DatabaseConnection, QueryFilter};
 use std::str::FromStr;
 
 use crate::error::InternalError;
 use crate::utils::now;
-use crate::wallet::{AssetType, Balance, Outpoint, TransferStatus};
+use crate::wallet::{AssetType, Balance, Outpoint};
 use crate::Error;
 
 pub(crate) mod entities;
@@ -30,24 +27,7 @@ use entities::{
     asset_rgb121, asset_rgb20, asset_transfer, batch_transfer, coloring, transfer, txo,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
-#[sea_orm(rs_type = "u16", db_type = "Integer")]
-pub enum ColoringType {
-    #[sea_orm(num_value = 1)]
-    Blind = 1,
-    #[sea_orm(num_value = 2)]
-    Issue = 2,
-    #[sea_orm(num_value = 3)]
-    Input = 3,
-    #[sea_orm(num_value = 4)]
-    Change = 4,
-}
-
-impl IntoActiveValue<ColoringType> for ColoringType {
-    fn into_active_value(self) -> ActiveValue<ColoringType> {
-        ActiveValue::Set(self)
-    }
-}
+use self::enums::{ColoringType, TransferStatus};
 
 impl DbAssetTransfer {
     pub(crate) fn asset_id(&self) -> Option<String> {
@@ -800,3 +780,5 @@ impl RgbLibDatabase {
             .collect()
     }
 }
+
+pub(crate) mod enums;
