@@ -21,7 +21,7 @@ impl IntoActiveValue<ColoringType> for ColoringType {
     }
 }
 
-/// The status of a [`Transfer`]
+/// The status of a [`crate::wallet::Transfer`]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, PartialOrd, EnumIter, DeriveActiveEnum)]
 #[sea_orm(rs_type = "u16", db_type = "Integer")]
 pub enum TransferStatus {

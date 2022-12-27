@@ -1303,26 +1303,30 @@ impl Wallet {
         Ok(self.database.del_batch_transfer(batch_transfer)?)
     }
 
-    /// Delete eligible transfers from the database
+    /// Delete eligible transfers from the database and return if any transfer has been deleted
     ///
     /// An optional `blinded_utxo` can be provided to operate on a single transfer.
     /// An optional `txid` can be provided to operate on a batch transfer.
     /// If both a `blinded_utxo` and a `txid` are provided, they need to belong to the same batch
     /// transfer or an error is returned.
     ///
-    /// Eligible transfers are the ones in status [`TransferStatus::Failed`]
+    /// If either `blinded_utxo` or `txid` are provided and `no_asset_only` is true, transfers with
+    /// an associated Asset ID will not be deleted and instead return an error.
+    ///
+    /// Eligible transfers are the ones in status [`TransferStatus::Failed`].
     pub fn delete_transfers(
         &self,
         blinded_utxo: Option<String>,
         txid: Option<String>,
         no_asset_only: bool,
-    ) -> Result<(), Error> {
+    ) -> Result<bool, Error> {
         info!(
             self.logger,
             "Deleting transfer with blinded UTXO {:?} and TXID {:?}...", blinded_utxo, txid
         );
 
         let db_data = self.database.get_db_data(false)?;
+        let mut transfers_changed = false;
 
         if blinded_utxo.is_some() || txid.is_some() {
             let (batch_transfer, asset_transfers) = if let Some(bu) = blinded_utxo {
@@ -1365,6 +1369,7 @@ impl Wallet {
                 }
             }
 
+            transfers_changed = true;
             self._delete_batch_transfer(&batch_transfer, &asset_transfers)?
         } else {
             // delete all failed transfers
@@ -1383,12 +1388,13 @@ impl Wallet {
                         continue;
                     }
                 }
+                transfers_changed = true;
                 self._delete_batch_transfer(batch_transfer, &asset_transfers)?
             }
         }
 
         info!(self.logger, "Delete transfer completed");
-        Ok(())
+        Ok(transfers_changed)
     }
 
     /// Send bitcoin funds to the provided address. See the
@@ -1515,22 +1521,27 @@ impl Wallet {
         Ok(())
     }
 
-    /// Set the status for eligible transfers to [`TransferStatus::Failed`]
+    /// Set the status for eligible transfers to [`TransferStatus::Failed`] and return if any
+    /// transfer has changed
     ///
     /// An optional `blinded_utxo` can be provided to operate on a single transfer.
     /// An optional `txid` can be provided to operate on a batch transfer.
     /// If both a `blinded_utxo` and a `txid` are provided, they need to belong to the same batch
     /// transfer or an error is returned.
     ///
-    /// Eligible transfer are the ones in status [`TransferStatus::WaitingCounterparty`] after a
-    /// `refresh` has been performed
+    /// If either `blinded_utxo` or `txid` are provided and `no_asset_only` is true, transfers with
+    /// an associated Asset ID will not be failed and instead return an error.
+    ///
+    /// Transfers are eligible if they remain in status [`TransferStatus::WaitingCounterparty`]
+    /// after a `refresh` has been performed. If nor `blinded_utxo` not `txid` have been provided,
+    /// only expired transfers will be failed.
     pub fn fail_transfers(
         &mut self,
         online: Online,
         blinded_utxo: Option<String>,
         txid: Option<String>,
         no_asset_only: bool,
-    ) -> Result<(), Error> {
+    ) -> Result<bool, Error> {
         info!(
             self.logger,
             "Failing transfer with blinded UTXO {:?} and TXID {:?}...", blinded_utxo, txid
@@ -1538,6 +1549,7 @@ impl Wallet {
         self._check_online(online)?;
 
         let mut db_data = self.database.get_db_data(false)?;
+        let mut transfers_changed = false;
 
         if blinded_utxo.is_some() || txid.is_some() {
             let batch_transfer = if let Some(bu) = blinded_utxo {
@@ -1579,16 +1591,18 @@ impl Wallet {
                 }
             }
 
+            transfers_changed = true;
             self._fail_batch_transfer(&batch_transfer, true, &mut db_data)?
         } else {
             // fail all transfers in status WaitingCounterparty
-            let mut batch_transfers: Vec<DbBatchTransfer> = db_data
+            let now = now().unix_timestamp();
+            let mut expired_batch_transfers: Vec<DbBatchTransfer> = db_data
                 .batch_transfers
                 .clone()
                 .into_iter()
-                .filter(|t| t.waiting_counterparty())
+                .filter(|t| t.waiting_counterparty() && t.expiration.unwrap_or(now) < now)
                 .collect();
-            for batch_transfer in batch_transfers.iter_mut() {
+            for batch_transfer in expired_batch_transfers.iter_mut() {
                 if no_asset_only {
                     let connected_assets = batch_transfer
                         .get_asset_transfers(&db_data.asset_transfers)?
@@ -1598,12 +1612,13 @@ impl Wallet {
                         continue;
                     }
                 }
+                transfers_changed = true;
                 self._fail_batch_transfer(batch_transfer, false, &mut db_data)?
             }
         }
 
         info!(self.logger, "Fail transfers completed");
-        Ok(())
+        Ok(transfers_changed)
     }
 
     fn _get_new_address(&self) -> Address {
@@ -2925,7 +2940,12 @@ impl Wallet {
         }
     }
 
-    /// Refresh the status of pending transfers, optionally filtered by Asset ID.
+    /// Refresh the status of pending transfers and return if any transfer has changed
+    ///
+    /// An optional `asset_id` can be provided to operate on a single asset.
+    /// Each item in the [`RefreshFilter`] vector defines a combination of transfer status and
+    /// direction to be refreshed, skipping any others. If the vector is empty, all combinations
+    /// are refreshed.
     ///
     /// Changes to each transfer depend on its status and whether the wallet is on the receiving or
     /// sending side.
@@ -2934,7 +2954,7 @@ impl Wallet {
         online: Online,
         asset_id: Option<String>,
         filter: Vec<RefreshFilter>,
-    ) -> Result<(), Error> {
+    ) -> Result<bool, Error> {
         if asset_id.is_some() {
             info!(self.logger, "Refreshing asset {:?}...", asset_id);
             self.database
@@ -2959,12 +2979,18 @@ impl Wallet {
         };
         db_data.batch_transfers.retain(|t| t.pending());
 
+        let mut transfers_changed = false;
         for transfer in db_data.batch_transfers.clone().into_iter() {
-            self._refresh_transfer(&transfer, &mut db_data, &filter)?;
+            if self
+                ._refresh_transfer(&transfer, &mut db_data, &filter)?
+                .is_some()
+            {
+                transfers_changed = true;
+            }
         }
 
         info!(self.logger, "Refresh completed");
-        Ok(())
+        Ok(transfers_changed)
     }
 
     fn _select_rgb_inputs(

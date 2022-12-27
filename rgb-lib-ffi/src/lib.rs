@@ -137,7 +137,7 @@ impl Wallet {
         blinded_utxo: Option<String>,
         txid: Option<String>,
         no_asset_only: bool,
-    ) -> Result<(), RgbLibError> {
+    ) -> Result<bool, RgbLibError> {
         self._get_wallet()
             .delete_transfers(blinded_utxo, txid, no_asset_only)
     }
@@ -171,7 +171,7 @@ impl Wallet {
         blinded_utxo: Option<String>,
         txid: Option<String>,
         no_asset_only: bool,
-    ) -> Result<(), RgbLibError> {
+    ) -> Result<bool, RgbLibError> {
         self._get_wallet()
             .fail_transfers(online, blinded_utxo, txid, no_asset_only)
     }
@@ -252,7 +252,7 @@ impl Wallet {
         online: Online,
         asset_id: Option<String>,
         filter: Vec<RefreshFilter>,
-    ) -> Result<(), RgbLibError> {
+    ) -> Result<bool, RgbLibError> {
         self._get_wallet().refresh(online, asset_id, filter)
     }
 

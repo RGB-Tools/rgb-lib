@@ -236,7 +236,7 @@ interface Wallet {
   u8 create_utxos_end(Online online, string signed_psbt);
 
   [Throws=RgbLibError]
-  void delete_transfers(string? blinded_utxo, string? txid, boolean no_asset_only);
+  boolean delete_transfers(string? blinded_utxo, string? txid, boolean no_asset_only);
 
   [Throws=RgbLibError]
   string drain_to(Online online, string address, boolean destroy_assets);
@@ -248,7 +248,7 @@ interface Wallet {
   string drain_to_end(Online online, string signed_psbt);
 
   [Throws=RgbLibError]
-  void fail_transfers(Online online, string? blinded_utxo, string? txid, boolean no_asset_only);
+  boolean fail_transfers(Online online, string? blinded_utxo, string? txid, boolean no_asset_only);
 
   string get_address();
 
@@ -281,7 +281,7 @@ interface Wallet {
   sequence<Unspent> list_unspents(boolean settled_only);
 
   [Throws=RgbLibError]
-  void refresh(Online online, string? asset_id, sequence<RefreshFilter> filter);
+  boolean refresh(Online online, string? asset_id, sequence<RefreshFilter> filter);
 
   [Throws=RgbLibError]
   string send(
