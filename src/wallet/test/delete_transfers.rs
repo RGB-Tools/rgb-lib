@@ -6,6 +6,9 @@ fn success() {
 
     let (mut wallet, online) = get_funded_wallet!();
 
+    // return false if no transfer has changed
+    assert!(!wallet.delete_transfers(None, None, false).unwrap());
+
     // delete single transfer
     let blind_data = wallet.blind(None, None, None).unwrap();
     wallet
@@ -21,9 +24,9 @@ fn success() {
         &blind_data.blinded_utxo,
         TransferStatus::Failed
     ));
-    wallet
+    assert!(wallet
         .delete_transfers(Some(blind_data.blinded_utxo), None, false)
-        .unwrap();
+        .unwrap());
 
     // delete all Failed transfers
     let blind_data_1 = wallet.blind(None, None, None).unwrap();
@@ -67,10 +70,19 @@ fn success() {
     ));
 
     // fail and delete remaining pending tranfers
-    wallet
-        .fail_transfers(online.clone(), None, None, false)
-        .unwrap();
-    wallet.delete_transfers(None, None, false).unwrap();
+    assert!(wallet
+        .fail_transfers(
+            online.clone(),
+            Some(blind_data_3.blinded_utxo.clone()),
+            None,
+            false,
+        )
+        .unwrap());
+    assert!(wallet
+        .delete_transfers(Some(blind_data_3.blinded_utxo), None, false)
+        .unwrap());
+    let transfers = wallet.database.iter_transfers().unwrap();
+    assert_eq!(transfers.len(), 0);
 
     // issue
     let asset = wallet
@@ -86,17 +98,17 @@ fn success() {
     // don't delete failed transfer with asset_id if no_asset_only is true
     let blind_data_1 = wallet.blind(None, None, None).unwrap();
     let blind_data_2 = wallet.blind(Some(asset.asset_id), None, None).unwrap();
-    wallet
+    assert!(wallet
         .fail_transfers(
             online.clone(),
             Some(blind_data_1.blinded_utxo.clone()),
             None,
             false,
         )
-        .unwrap();
-    wallet
+        .unwrap());
+    assert!(wallet
         .fail_transfers(online, Some(blind_data_2.blinded_utxo.clone()), None, false)
-        .unwrap();
+        .unwrap());
     assert!(check_test_transfer_status_recipient(
         &wallet,
         &blind_data_1.blinded_utxo,
@@ -108,7 +120,7 @@ fn success() {
         TransferStatus::Failed
     ));
     show_unspent_colorings(&wallet, "run 2 before delete");
-    wallet.delete_transfers(None, None, true).unwrap();
+    assert!(wallet.delete_transfers(None, None, true).unwrap());
     show_unspent_colorings(&wallet, "run 2 after delete");
     let transfers = wallet.database.iter_transfers().unwrap();
     assert_eq!(transfers.len(), 2);

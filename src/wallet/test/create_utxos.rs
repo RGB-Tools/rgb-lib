@@ -47,19 +47,23 @@ fn up_to_allocation_checks() {
         .create_utxos(online.clone(), false, Some(1), None)
         .unwrap();
     assert_eq!(num_utxos_created, 1);
+    let mut blinded_utxos: Vec<String> = vec![];
     let mut txo_list: HashSet<DbTxo> = HashSet::new();
     for _ in 0..MAX_ALLOCATIONS_PER_UTXO {
         let blind_data = wallet.blind(None, None, None).unwrap();
         let transfer = get_test_transfer_recipient(&wallet, &blind_data.blinded_utxo);
         let coloring = get_test_coloring(&wallet, transfer.asset_transfer_idx);
         let txo = get_test_txo(&wallet, coloring.txo_idx);
+        blinded_utxos.push(blind_data.blinded_utxo);
         txo_list.insert(txo);
     }
     // check all blinds are on the same UTXO + fail all of them
     assert_eq!(txo_list.len(), 1);
-    wallet
-        .fail_transfers(online.clone(), None, None, false)
-        .unwrap();
+    for blinded_utxo in blinded_utxos {
+        assert!(wallet
+            .fail_transfers(online.clone(), Some(blinded_utxo), None, false)
+            .unwrap());
+    }
     // request 1 new UTXO, expecting the existing one is still allocatable
     let result = wallet.create_utxos(online.clone(), true, Some(1), None);
     assert!(matches!(result, Err(Error::AllocationsAlreadyAvailable)));

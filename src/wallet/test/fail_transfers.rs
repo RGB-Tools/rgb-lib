@@ -5,9 +5,15 @@ fn success() {
     initialize();
 
     let amount = 66;
+    let expiration = 1;
 
     let (mut wallet, online) = get_funded_wallet!();
     let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
+
+    // return false if no transfer has changed
+    assert!(!wallet
+        .fail_transfers(online.clone(), None, None, false)
+        .unwrap());
 
     // issue
     let asset = wallet
@@ -27,19 +33,23 @@ fn success() {
         &blind_data.blinded_utxo,
         TransferStatus::WaitingCounterparty
     ));
-    rcv_wallet
+    assert!(rcv_wallet
         .fail_transfers(
             rcv_online.clone(),
             Some(blind_data.blinded_utxo),
             None,
             false,
         )
-        .unwrap();
+        .unwrap());
 
-    // fail all WaitingCounterparty transfers
-    let blind_data_1 = rcv_wallet.blind(None, None, None).unwrap();
+    // fail all expired WaitingCounterparty transfers
+    let blind_data_1 = rcv_wallet.blind(None, None, Some(expiration)).unwrap();
     let blind_data_2 = rcv_wallet.blind(None, None, None).unwrap();
     let blind_data_3 = rcv_wallet.blind(None, None, None).unwrap();
+    // wait for expiration to be in the past
+    std::thread::sleep(std::time::Duration::from_millis(
+        expiration as u64 * 1000 + 2000,
+    ));
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -70,9 +80,9 @@ fn success() {
         &blind_data_3.blinded_utxo,
         TransferStatus::WaitingConfirmations
     ));
-    rcv_wallet
-        .fail_transfers(rcv_online.clone(), None, None, false)
-        .unwrap();
+    assert!(rcv_wallet
+        .fail_transfers(rcv_online.clone(), None, None, false,)
+        .unwrap());
     show_unspent_colorings(&rcv_wallet, "receiver run 1 after fail");
     show_unspent_colorings(&wallet, "sender run 1 after fail");
     assert!(check_test_transfer_status_recipient(
@@ -83,7 +93,7 @@ fn success() {
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
         &blind_data_2.blinded_utxo,
-        TransferStatus::Failed
+        TransferStatus::WaitingCounterparty
     ));
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
@@ -99,12 +109,18 @@ fn success() {
         .unwrap();
     wallet.refresh(online.clone(), None, vec![]).unwrap();
 
-    // fail all WaitingCounterparty transfers with no asset_id
+    // fail all expired WaitingCounterparty transfers with no asset_id
     let blind_data_1 = rcv_wallet.blind(None, None, None).unwrap();
     let blind_data_2 = rcv_wallet
         .blind(Some(asset.asset_id.clone()), None, None)
         .unwrap();
     let blind_data_3 = rcv_wallet.blind(None, None, None).unwrap();
+    let blind_data_4 = rcv_wallet.blind(None, None, Some(expiration)).unwrap();
+    // wait for expiration to be in the past
+    std::thread::sleep(std::time::Duration::from_millis(
+        expiration as u64 * 1000 + 2000,
+    ));
+    // progress transfer 3 to WaitingConfirmations
     let recipient_map = HashMap::from([(
         asset.asset_id,
         vec![Recipient {
@@ -117,6 +133,7 @@ fn success() {
     rcv_wallet
         .refresh(rcv_online.clone(), None, vec![])
         .unwrap();
+
     show_unspent_colorings(&rcv_wallet, "receiver run 2 after refresh 1");
     show_unspent_colorings(&wallet, "sender run 2 no refresh");
     assert!(check_test_transfer_status_recipient(
@@ -134,6 +151,11 @@ fn success() {
         &blind_data_3.blinded_utxo,
         TransferStatus::WaitingConfirmations
     ));
+    assert!(check_test_transfer_status_recipient(
+        &rcv_wallet,
+        &blind_data_4.blinded_utxo,
+        TransferStatus::WaitingCounterparty
+    ));
     rcv_wallet
         .fail_transfers(rcv_online, None, None, true)
         .unwrap();
@@ -142,7 +164,7 @@ fn success() {
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
         &blind_data_1.blinded_utxo,
-        TransferStatus::Failed
+        TransferStatus::WaitingCounterparty
     ));
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
@@ -153,6 +175,11 @@ fn success() {
         &rcv_wallet,
         &blind_data_3.blinded_utxo,
         TransferStatus::WaitingConfirmations
+    ));
+    assert!(check_test_transfer_status_recipient(
+        &rcv_wallet,
+        &blind_data_4.blinded_utxo,
+        TransferStatus::Failed
     ));
 }
 

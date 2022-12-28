@@ -62,6 +62,8 @@ fn success() {
             blinded_utxo: blind_data_2a.blinded_utxo.clone(),
         }],
     )]);
+    // return false if no transfer has changed
+    assert!(!wallet_2.refresh(online_2.clone(), None, vec![]).unwrap());
     let txid_1a = wallet_1
         .send(online_1.clone(), recipient_map_1a, false)
         .unwrap();
@@ -78,19 +80,19 @@ fn success() {
         .send(online_2.clone(), recipient_map_2a, false)
         .unwrap();
     assert!(!txid_2a.is_empty());
-    wallet_1.refresh(online_1.clone(), None, vec![]).unwrap();
-    wallet_2.refresh(online_2.clone(), None, vec![]).unwrap();
-    wallet_1
+    assert!(wallet_1.refresh(online_1.clone(), None, vec![]).unwrap());
+    assert!(wallet_2.refresh(online_2.clone(), None, vec![]).unwrap());
+    assert!(wallet_1
         .refresh(
             online_1.clone(),
             Some(asset_1.asset_id.clone()),
             vec![filter_counter_out.clone()],
         )
-        .unwrap();
+        .unwrap());
     // wallet 1 > 2, WaitingCounterparty and vice versa
     let blind_data_2b = wallet_2.blind(None, None, None).unwrap();
     let recipient_map_1b = HashMap::from([(
-        asset_1.asset_id.clone(),
+        asset_1.asset_id,
         vec![Recipient {
             amount: amount_1,
             blinded_utxo: blind_data_2b.blinded_utxo.clone(),
@@ -104,7 +106,7 @@ fn success() {
     let blind_data_1b = wallet_1.blind(None, None, None).unwrap();
     show_unspent_colorings(&wallet_1, "wallet 1 after blind 1b");
     let recipient_map_2b = HashMap::from([(
-        asset_2.asset_id.clone(),
+        asset_2.asset_id,
         vec![Recipient {
             amount: amount_2,
             blinded_utxo: blind_data_1b.blinded_utxo.clone(),
@@ -157,9 +159,9 @@ fn success() {
     ));
 
     // refresh incoming WaitingCounterparty only (wallet 1)
-    wallet_1
+    assert!(wallet_1
         .refresh(online_1.clone(), None, vec![filter_counter_in])
-        .unwrap();
+        .unwrap());
     show_unspent_colorings(
         &wallet_1,
         "wallet 1 after refresh incoming WaitingCounterparty",
@@ -191,9 +193,9 @@ fn success() {
         &txid_2b,
         TransferStatus::WaitingCounterparty
     ));
-    wallet_2
+    assert!(wallet_2
         .refresh(online_2.clone(), None, vec![filter_counter_out])
-        .unwrap();
+        .unwrap());
     show_unspent_colorings(
         &wallet_2,
         "wallet 2 after refresh outgoing WaitingCounterparty",
@@ -222,9 +224,9 @@ fn success() {
     mine(true);
 
     // refresh incoming WaitingConfirmations only (wallet 2)
-    wallet_2
-        .refresh(online_2.clone(), None, vec![filter_confirm_in])
-        .unwrap();
+    assert!(wallet_2
+        .refresh(online_2, None, vec![filter_confirm_in])
+        .unwrap());
     show_unspent_colorings(
         &wallet_2,
         "wallet 2 after refresh incoming WaitingConfirmations",
@@ -251,9 +253,9 @@ fn success() {
     ));
 
     // refresh outgoing WaitingConfirmations only (wallet 1)
-    wallet_1
-        .refresh(online_1.clone(), None, vec![filter_confirm_out])
-        .unwrap();
+    assert!(wallet_1
+        .refresh(online_1, None, vec![filter_confirm_out])
+        .unwrap());
     show_unspent_colorings(
         &wallet_1,
         "wallet 1 after refresh outgoing WaitingConfirmations",
