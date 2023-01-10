@@ -164,7 +164,7 @@ impl AssetRgb20 {
 }
 
 /// An asset media file
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct Media {
     /// Path of the media file
     pub file_path: String,
