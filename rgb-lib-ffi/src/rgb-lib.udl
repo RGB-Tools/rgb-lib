@@ -29,6 +29,8 @@ enum RgbLibError {
   "InvalidAddress",
   "InvalidBitcoinKeys",
   "InvalidBlindedUTXO",
+  "InvalidConsignmentEndpoint",
+  "InvalidConsignmentEndpoints",
   "InvalidDescription",
   "InvalidElectrum",
   "InvalidFilePath",
@@ -41,9 +43,11 @@ enum RgbLibError {
   "InvalidPubkey",
   "InvalidTicker",
   "NoIssuanceAmounts",
+  "NoValidConsignmentEndpoint",
   "Proxy",
   "TransferNotFound",
   "UnknownRgbSchema",
+  "UnsupportedConsignmentEndpointProtocol",
   "UnsupportedInvoice",
   "WatchOnly",
 };
@@ -106,6 +110,18 @@ interface BlindedUTXO {
   constructor(string blinded_utxo);
 };
 
+interface ConsignmentEndpoint {
+  [Throws=RgbLibError]
+  constructor(string consignment_endpoint);
+
+  ConsignmentEndpointProtocol protocol();
+};
+
+enum ConsignmentEndpointProtocol {
+  "Storm",
+  "RgbHttpJsonRpc",
+};
+
 enum DatabaseType {
   "Sqlite",
 };
@@ -127,6 +143,7 @@ dictionary InvoiceData {
   string? asset_id;
   u64? amount;
   i64? expiration_timestamp;
+  sequence<string> consignment_endpoints;
 };
 
 dictionary Keys {
@@ -149,7 +166,6 @@ dictionary Metadata {
 dictionary Online {
   u64 id;
   string electrum_url;
-  string proxy_url;
 };
 
 dictionary Outpoint {
@@ -160,6 +176,7 @@ dictionary Outpoint {
 dictionary Recipient {
   string blinded_utxo;
   u64 amount;
+  sequence<string> consignment_endpoints;
 };
 
 dictionary RefreshFilter {
@@ -178,6 +195,18 @@ dictionary RgbAllocation {
   boolean settled;
 };
 
+dictionary TransferConsignmentEndpoint {
+  string endpoint;
+  ConsignmentEndpointProtocol protocol;
+  boolean used;
+};
+
+enum TransferKind {
+  "Issuance",
+  "Receive",
+  "Send",
+};
+
 enum TransferStatus {
   "WaitingCounterparty",
   "WaitingConfirmations",
@@ -191,13 +220,14 @@ dictionary Transfer {
   i64 updated_at;
   TransferStatus status;
   u64 amount;
-  boolean incoming;
+  TransferKind kind;
   string? txid;
   string? blinded_utxo;
   Outpoint? unblinded_utxo;
   Outpoint? change_utxo;
   u64? blinding_secret;
   i64? expiration;
+  sequence<TransferConsignmentEndpoint> consignment_endpoints;
 };
 
 dictionary Unspent {
@@ -224,7 +254,7 @@ interface Wallet {
   constructor(WalletData wallet_data);
 
   [Throws=RgbLibError]
-  BlindData blind(string? asset_id, u64? amount, u32? duration_seconds);
+  BlindData blind(string? asset_id, u64? amount, u32? duration_seconds, sequence<string> consignment_endpoints);
 
   [Throws=RgbLibError]
   u8 create_utxos(Online online, boolean up_to, u8? num, u32? size);
@@ -259,7 +289,7 @@ interface Wallet {
   Metadata get_asset_metadata(Online online, string asset_id);
 
   [Throws=RgbLibError]
-  Online go_online(boolean skip_consistency_check, string electrum_url, string proxy_url);
+  Online go_online(boolean skip_consistency_check, string electrum_url);
 
   [Throws=RgbLibError]
   AssetRgb20 issue_asset_rgb20(

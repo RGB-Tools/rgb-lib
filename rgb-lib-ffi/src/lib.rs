@@ -5,16 +5,16 @@ use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard};
 
 uniffi_macros::include_scaffolding!("rgb-lib");
 
-type AssetRgb20 = rgb_lib::wallet::AssetRgb20;
 type AssetRgb121 = rgb_lib::wallet::AssetRgb121;
+type AssetRgb20 = rgb_lib::wallet::AssetRgb20;
 type AssetType = rgb_lib::wallet::AssetType;
 type Assets = rgb_lib::wallet::Assets;
 type Balance = rgb_lib::wallet::Balance;
-type InvoiceData = rgb_lib::wallet::InvoiceData;
 type BitcoinNetwork = rgb_lib::BitcoinNetwork;
 type BlindData = rgb_lib::wallet::BlindData;
+type ConsignmentEndpointProtocol = rgb_lib::ConsignmentEndpointProtocol;
 type DatabaseType = rgb_lib::wallet::DatabaseType;
-type RgbLibInvoice = rgb_lib::wallet::Invoice;
+type InvoiceData = rgb_lib::wallet::InvoiceData;
 type Keys = rgb_lib::keys::Keys;
 type Media = rgb_lib::wallet::Media;
 type Metadata = rgb_lib::wallet::Metadata;
@@ -25,9 +25,13 @@ type RefreshFilter = rgb_lib::wallet::RefreshFilter;
 type RefreshTransferStatus = rgb_lib::wallet::RefreshTransferStatus;
 type RgbAllocation = rgb_lib::wallet::RgbAllocation;
 type RgbLibBlindedUTXO = rgb_lib::wallet::BlindedUTXO;
+type RgbLibConsignmentEndpoint = rgb_lib::wallet::ConsignmentEndpoint;
 type RgbLibError = rgb_lib::Error;
+type RgbLibInvoice = rgb_lib::wallet::Invoice;
 type RgbLibWallet = rgb_lib::wallet::Wallet;
 type Transfer = rgb_lib::wallet::Transfer;
+type TransferConsignmentEndpoint = rgb_lib::wallet::TransferConsignmentEndpoint;
+type TransferKind = rgb_lib::wallet::TransferKind;
 type TransferStatus = rgb_lib::TransferStatus;
 type Unspent = rgb_lib::wallet::Unspent;
 type Utxo = rgb_lib::wallet::Utxo;
@@ -50,6 +54,30 @@ impl BlindedUTXO {
         Ok(BlindedUTXO {
             _blinded_utxo: RwLock::new(RgbLibBlindedUTXO::new(blinded_utxo)?),
         })
+    }
+}
+
+struct ConsignmentEndpoint {
+    consignment_endpoint: RwLock<RgbLibConsignmentEndpoint>,
+}
+
+impl ConsignmentEndpoint {
+    fn new(consignment_endpoint: String) -> Result<Self, RgbLibError> {
+        Ok(ConsignmentEndpoint {
+            consignment_endpoint: RwLock::new(RgbLibConsignmentEndpoint::new(
+                consignment_endpoint,
+            )?),
+        })
+    }
+
+    fn _get_consignment_endpoint(&self) -> RwLockReadGuard<RgbLibConsignmentEndpoint> {
+        self.consignment_endpoint
+            .read()
+            .expect("consignment_endpoint")
+    }
+
+    fn protocol(&self) -> ConsignmentEndpointProtocol {
+        self._get_consignment_endpoint().protocol()
     }
 }
 
@@ -103,8 +131,10 @@ impl Wallet {
         asset_id: Option<String>,
         amount: Option<u64>,
         duration_seconds: Option<u32>,
+        consignment_endpoints: Vec<String>,
     ) -> Result<BlindData, RgbLibError> {
-        self._get_wallet().blind(asset_id, amount, duration_seconds)
+        self._get_wallet()
+            .blind(asset_id, amount, duration_seconds, consignment_endpoints)
     }
 
     fn create_utxos(
@@ -196,10 +226,9 @@ impl Wallet {
         &self,
         skip_consistency_check: bool,
         electrum_url: String,
-        proxy_url: String,
     ) -> Result<Online, RgbLibError> {
         self._get_wallet()
-            .go_online(skip_consistency_check, electrum_url, proxy_url)
+            .go_online(skip_consistency_check, electrum_url)
     }
 
     fn issue_asset_rgb20(

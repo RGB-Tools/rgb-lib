@@ -7,5 +7,7 @@ pub mod asset_rgb20;
 pub mod asset_transfer;
 pub mod batch_transfer;
 pub mod coloring;
+pub mod consignment_endpoint;
 pub mod transfer;
+pub mod transfer_consignment_endpoint;
 pub mod txo;

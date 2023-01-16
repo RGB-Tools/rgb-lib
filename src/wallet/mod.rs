@@ -31,7 +31,10 @@ use commit_verify::commit_verify::CommitVerify;
 use electrum_client::{Client as ElectrumClient, ConfigBuilder, ElectrumApi, Param};
 use futures::executor::block_on;
 use internet2::addr::ServiceAddr;
-use invoice::{AmountExt, Beneficiary, Invoice as UniversalInvoice};
+use invoice::{
+    AmountExt, Beneficiary, ConsignmentEndpoint as InvoiceConsignmentEndpoint,
+    Invoice as UniversalInvoice,
+};
 use lnpbp::chain::{AssetId, Chain as RgbNetwork};
 use psbt::Psbt;
 use reqwest::blocking::Client as RestClient;
@@ -79,7 +82,6 @@ use stens::AsciiString;
 use stored::Config as StoreConfig;
 use strict_encoding::{strict_deserialize, strict_serialize, StrictDecode, StrictEncode};
 
-use crate::api::proxy::AckResponse;
 use crate::api::Proxy;
 use crate::database::entities::asset_rgb121::Model as DbAssetRgb121;
 use crate::database::entities::asset_rgb20::Model as DbAssetRgb20;
@@ -90,10 +92,19 @@ use crate::database::entities::batch_transfer::{
     ActiveModel as DbBatchTransferActMod, Model as DbBatchTransfer,
 };
 use crate::database::entities::coloring::{ActiveModel as DbColoringActMod, Model as DbColoring};
+use crate::database::entities::consignment_endpoint::{
+    ActiveModel as DbConsignmentEndpointActMod, Model as DbConsignmentEndpoint,
+};
 use crate::database::entities::transfer::{ActiveModel as DbTransferActMod, Model as DbTransfer};
+use crate::database::entities::transfer_consignment_endpoint::{
+    ActiveModel as DbTransferConsignmentEndpointActMod, Model as DbTransferConsignmentEndpoint,
+};
 use crate::database::entities::txo::{ActiveModel as DbTxoActMod, Model as DbTxo};
-use crate::database::enums::{ColoringType, TransferStatus};
-use crate::database::{DbData, LocalRgbAllocation, LocalUnspent, RgbLibDatabase, TransferData};
+use crate::database::enums::{ColoringType, ConsignmentEndpointProtocol, TransferStatus};
+use crate::database::{
+    DbData, LocalConsignmentEndpoint, LocalRecipient, LocalRgbAllocation, LocalUnspent,
+    RgbLibDatabase, TransferData,
+};
 use crate::error::{Error, InternalError};
 use crate::utils::{
     calculate_descriptor_from_xprv, calculate_descriptor_from_xpub, get_txid, now, setup_logger,
@@ -121,11 +132,15 @@ const MIN_CONFIRMATIONS: u8 = 1;
 
 const MAX_ALLOCATIONS_PER_UTXO: u32 = 5;
 
+const MAX_CONSIGNMENT_ENDPOINTS: u8 = 3;
+
 const DURATION_SEND_TRANSFER: i64 = 3600;
 const DURATION_RCV_TRANSFER: u32 = 86400;
 
 const ELECTRUM_TIMEOUT: u8 = 4;
 const PROXY_TIMEOUT: u8 = 90;
+
+const PROXY_PROTOCOL_VERSION: &str = "0.1";
 
 /// The type of an asset
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -352,6 +367,47 @@ impl BlindedUTXO {
     }
 }
 
+/// An RGB consignment endpoint
+#[derive(Debug)]
+pub struct ConsignmentEndpoint {
+    /// Endpoint address
+    pub endpoint: String,
+    /// Endpoint protocol
+    pub protocol: ConsignmentEndpointProtocol,
+}
+
+impl ConsignmentEndpoint {
+    /// Check that the provided [`ConsignmentEndpoint::consignment_endpoint`] is valid
+    pub fn new(consignment_endpoint: String) -> Result<Self, Error> {
+        let invoice_consignment_endpoint =
+            InvoiceConsignmentEndpoint::from_str(&consignment_endpoint)?;
+        ConsignmentEndpoint::try_from(invoice_consignment_endpoint)
+    }
+
+    /// Return the protocol of this consignment endpoint
+    pub fn protocol(&self) -> ConsignmentEndpointProtocol {
+        self.protocol
+    }
+}
+
+impl TryFrom<InvoiceConsignmentEndpoint> for ConsignmentEndpoint {
+    type Error = Error;
+
+    fn try_from(x: InvoiceConsignmentEndpoint) -> Result<Self, Self::Error> {
+        match x {
+            InvoiceConsignmentEndpoint::Storm(addr) => Ok(ConsignmentEndpoint {
+                endpoint: addr.to_string(),
+                protocol: ConsignmentEndpointProtocol::Storm,
+            }),
+            InvoiceConsignmentEndpoint::RgbHttpJsonRpc(addr) => Ok(ConsignmentEndpoint {
+                endpoint: addr,
+                protocol: ConsignmentEndpointProtocol::RgbHttpJsonRpc,
+            }),
+            _ => Err(Error::UnsupportedConsignmentEndpointProtocol),
+        }
+    }
+}
+
 /// Supported database types
 #[derive(Clone)]
 pub enum DatabaseType {
@@ -368,7 +424,7 @@ struct InfoBatchTransfer {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct InfoAssetTransfer {
-    recipients: Vec<Recipient>,
+    recipients: Vec<LocalRecipient>,
     asset_spend: AssetSpend,
     asset_type: AssetType,
 }
@@ -397,11 +453,17 @@ impl Invoice {
             _ => return Err(Error::UnsupportedInvoice),
         };
         let expiration_timestamp = decoded.expiry().as_ref().map(|exp| exp.timestamp());
+        let consignment_endpoints: Vec<String> = decoded
+            .consignment_endpoints()
+            .iter()
+            .map(|e| e.to_string())
+            .collect();
         let invoice_data = InvoiceData {
             blinded_utxo,
             asset_id,
             amount,
             expiration_timestamp,
+            consignment_endpoints,
         };
 
         Ok(Invoice {
@@ -427,6 +489,9 @@ impl Invoice {
             if let Some(expiry) = NaiveDateTime::from_timestamp_opt(exp, 0) {
                 invoice.set_expiry(expiry);
             }
+        }
+        for endpoint in invoice_data.consignment_endpoints.clone() {
+            invoice.add_consignment_endpoint(InvoiceConsignmentEndpoint::from_str(&endpoint)?);
         }
 
         let bech32_invoice = invoice.to_string();
@@ -459,6 +524,8 @@ pub struct InvoiceData {
     pub amount: Option<u64>,
     /// Invoice expiration
     pub expiration_timestamp: Option<i64>,
+    /// Consignment endpoints
+    pub consignment_endpoints: Vec<String>,
 }
 
 /// Data for operations that require the wallet to be online
@@ -468,8 +535,6 @@ pub struct Online {
     pub id: u64,
     /// URL of the electrum server to be used for online operations
     pub electrum_url: String,
-    /// URL of the proxy server to be used for online operations
-    pub proxy_url: String,
 }
 
 /// Bitcoin transaction outpoint
@@ -518,6 +583,8 @@ pub struct Recipient {
     pub blinded_utxo: String,
     /// RGB amount
     pub amount: u64,
+    /// Consignment endpoints
+    pub consignment_endpoints: Vec<String>,
 }
 
 /// A transfer refresh filter
@@ -584,8 +651,8 @@ pub struct Transfer {
     pub status: TransferStatus,
     /// Amount
     pub amount: u64,
-    /// Whether the transfer is incoming
-    pub incoming: bool,
+    /// Type of the transfer
+    pub kind: TransferKind,
     /// Txid of the transfer
     pub txid: Option<String>,
     /// Blinded UTXO of the transfer's recipient
@@ -598,10 +665,16 @@ pub struct Transfer {
     pub blinding_secret: Option<u64>,
     /// Expiration of the transfer
     pub expiration: Option<i64>,
+    /// Consignment endpoints of the transfer
+    pub consignment_endpoints: Vec<TransferConsignmentEndpoint>,
 }
 
 impl Transfer {
-    fn from_db_transfer(x: DbTransfer, td: TransferData) -> Transfer {
+    fn from_db_transfer(
+        x: DbTransfer,
+        td: TransferData,
+        consignment_endpoints: Vec<TransferConsignmentEndpoint>,
+    ) -> Transfer {
         let blinding_secret = x.blinding_secret.map(|bs| {
             bs.parse::<u64>()
                 .expect("DB should contain a valid u64 value")
@@ -615,15 +688,51 @@ impl Transfer {
                 .amount
                 .parse::<u64>()
                 .expect("DB should contain a valid u64 value"),
-            incoming: td.incoming,
+            kind: td.kind,
             txid: td.txid,
             blinded_utxo: x.blinded_utxo,
             unblinded_utxo: td.unblinded_utxo,
             change_utxo: td.change_utxo,
             blinding_secret,
             expiration: td.expiration,
+            consignment_endpoints,
         }
     }
+}
+
+/// An RGB transfer consignment endpoint
+#[derive(Clone, Debug)]
+pub struct TransferConsignmentEndpoint {
+    /// Endpoint address
+    pub endpoint: String,
+    /// Endpoint protocol
+    pub protocol: ConsignmentEndpointProtocol,
+    /// Whether the endpoint has been used
+    pub used: bool,
+}
+
+impl TransferConsignmentEndpoint {
+    fn from_db_transfer_consignment_endpoint(
+        x: &DbTransferConsignmentEndpoint,
+        ce: &DbConsignmentEndpoint,
+    ) -> TransferConsignmentEndpoint {
+        TransferConsignmentEndpoint {
+            endpoint: ce.endpoint.clone(),
+            protocol: ce.protocol,
+            used: x.used,
+        }
+    }
+}
+
+/// The type of an RGB transfer
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TransferKind {
+    /// A transfer that issued the asset
+    Issuance,
+    /// An incoming transfer
+    Receive,
+    /// An outgoing transfer
+    Send,
 }
 
 /// A wallet unspent
@@ -727,9 +836,10 @@ impl Wallet {
         let logger = setup_logger(wallet_dir.clone())?;
         info!(logger.clone(), "New wallet in '{:?}'", wallet_dir);
         let panic_logger = logger.clone();
-        panic::set_hook(Box::new(move |e| {
-            println!("PANIC: {:?}", e);
-            error!(panic_logger.clone(), "PANIC: {:?}", e);
+        let prev_hook = panic::take_hook();
+        panic::set_hook(Box::new(move |info| {
+            error!(panic_logger.clone(), "PANIC: {:?}", info);
+            prev_hook(info);
         }));
 
         // BDK setup
@@ -846,6 +956,25 @@ impl Wallet {
             vec![Param::String(txid), Param::Bool(true)],
         );
         Ok(self._new_electrum_client()?.raw_call(&call)?)
+    }
+
+    fn _check_consignment_endpoints(
+        &self,
+        consignment_endpoints: &Vec<String>,
+    ) -> Result<(), Error> {
+        if consignment_endpoints.is_empty() {
+            return Err(Error::InvalidConsignmentEndpoints(s!(
+                "must provide at least a consignment endpoint"
+            )));
+        }
+        if consignment_endpoints.len() > MAX_CONSIGNMENT_ENDPOINTS as usize {
+            return Err(Error::InvalidConsignmentEndpoints(format!(
+                "library supports at max {} consignment endpoints",
+                MAX_CONSIGNMENT_ENDPOINTS
+            )));
+        }
+
+        Ok(())
     }
 
     fn _sync_db_txos(&self) -> Result<(), Error> {
@@ -1032,6 +1161,36 @@ impl Wallet {
         }
     }
 
+    fn _save_transfer_consignment_endpoint(
+        &self,
+        transfer_idx: i64,
+        consignment_endpoint: &LocalConsignmentEndpoint,
+    ) -> Result<(), Error> {
+        let consignment_endpoint_idx = match self
+            .database
+            .get_consignment_endpoint(consignment_endpoint.endpoint.clone())?
+        {
+            Some(ce) => ce.idx,
+            None => self
+                .database
+                .set_consignment_endpoint(DbConsignmentEndpointActMod {
+                    protocol: ActiveValue::Set(consignment_endpoint.protocol),
+                    endpoint: ActiveValue::Set(consignment_endpoint.endpoint.clone()),
+                    ..Default::default()
+                })?,
+        };
+
+        self.database
+            .set_transfer_consignment_endpoint(DbTransferConsignmentEndpointActMod {
+                transfer_idx: ActiveValue::Set(transfer_idx),
+                consignment_endpoint_idx: ActiveValue::Set(consignment_endpoint_idx),
+                used: ActiveValue::Set(consignment_endpoint.used),
+                ..Default::default()
+            })?;
+
+        Ok(())
+    }
+
     /// Blind an UTXO and return the resulting [`BlindData`]
     ///
     /// Optional Asset ID and duration (in seconds) can be specified
@@ -1040,6 +1199,7 @@ impl Wallet {
         asset_id: Option<String>,
         amount: Option<u64>,
         duration_seconds: Option<u32>,
+        consignment_endpoints: Vec<String>,
     ) -> Result<BlindData, Error> {
         info!(
             self.logger,
@@ -1085,6 +1245,35 @@ impl Wallet {
             let expiry = NaiveDateTime::from_timestamp_opt(expiration, 0);
             (Some(expiration), expiry)
         };
+
+        let beneficiary = Beneficiary::BlindUtxo(concealed_seal);
+        let mut invoice = UniversalInvoice::new(beneficiary, amount, rgb_asset_id);
+        if let Some(exp) = expiry {
+            invoice.set_expiry(exp);
+        }
+        self._check_consignment_endpoints(&consignment_endpoints)?;
+        let mut consignment_endpoints_dedup = consignment_endpoints.clone();
+        consignment_endpoints_dedup.sort();
+        consignment_endpoints_dedup.dedup();
+        if consignment_endpoints_dedup.len() != consignment_endpoints.len() {
+            return Err(Error::InvalidConsignmentEndpoints(s!(
+                "no duplicate consignment endpoints allowed"
+            )));
+        }
+        let mut endpoints: Vec<String> = vec![];
+        for endpoint_str in consignment_endpoints {
+            let consignment_endpoint = InvoiceConsignmentEndpoint::from_str(&endpoint_str)?;
+            match consignment_endpoint {
+                InvoiceConsignmentEndpoint::RgbHttpJsonRpc(ref endpoint) => {
+                    invoice.add_consignment_endpoint(consignment_endpoint.clone());
+                    endpoints.push(endpoint.clone());
+                }
+                _ => {
+                    return Err(Error::UnsupportedConsignmentEndpointProtocol);
+                }
+            }
+        }
+
         let batch_transfer = DbBatchTransferActMod {
             status: ActiveValue::Set(TransferStatus::WaitingCounterparty),
             expiration: ActiveValue::Set(expiration),
@@ -1111,7 +1300,7 @@ impl Wallet {
             blinding_secret: ActiveValue::Set(Some(seal.blinding.to_string())),
             ..Default::default()
         };
-        self.database.set_transfer(transfer)?;
+        let transfer_idx = self.database.set_transfer(transfer)?;
         let db_coloring = DbColoringActMod {
             txo_idx: ActiveValue::Set(utxo.idx),
             asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
@@ -1121,10 +1310,16 @@ impl Wallet {
         };
         self.database.set_coloring(db_coloring)?;
 
-        let beneficiary = Beneficiary::BlindUtxo(concealed_seal);
-        let mut invoice = UniversalInvoice::new(beneficiary, amount, rgb_asset_id);
-        if let Some(exp) = expiry {
-            invoice.set_expiry(exp);
+        for endpoint in endpoints {
+            self._save_transfer_consignment_endpoint(
+                transfer_idx,
+                &LocalConsignmentEndpoint {
+                    endpoint,
+                    protocol: ConsignmentEndpointProtocol::RgbHttpJsonRpc,
+                    used: false,
+                    usable: true,
+                },
+            )?;
         }
 
         info!(self.logger, "Blind completed");
@@ -1501,7 +1696,16 @@ impl Wallet {
         Ok(tx.txid().to_string())
     }
 
-    fn _fail_batch_transfer(
+    fn _fail_batch_transfer(&self, batch_transfer: &DbBatchTransfer) -> Result<(), Error> {
+        let mut updated_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
+        updated_transfer.status = ActiveValue::Set(TransferStatus::Failed);
+        updated_transfer.expiration = ActiveValue::Set(Some(now().unix_timestamp()));
+        self.database.update_batch_transfer(&mut updated_transfer)?;
+
+        Ok(())
+    }
+
+    fn _try_fail_batch_transfer(
         &mut self,
         batch_transfer: &DbBatchTransfer,
         throw_err: bool,
@@ -1510,10 +1714,7 @@ impl Wallet {
         let updated_transfer = self._refresh_transfer(batch_transfer, db_data, &vec![])?;
         // fail transfer if the status didn't change after a refresh
         if updated_transfer.is_none() {
-            let mut updated_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
-            updated_transfer.status = ActiveValue::Set(TransferStatus::Failed);
-            updated_transfer.expiration = ActiveValue::Set(Some(now().unix_timestamp()));
-            self.database.update_batch_transfer(&mut updated_transfer)?;
+            self._fail_batch_transfer(batch_transfer)?;
         } else if throw_err {
             return Err(Error::CannotFailTransfer);
         }
@@ -1592,7 +1793,7 @@ impl Wallet {
             }
 
             transfers_changed = true;
-            self._fail_batch_transfer(&batch_transfer, true, &mut db_data)?
+            self._try_fail_batch_transfer(&batch_transfer, true, &mut db_data)?
         } else {
             // fail all transfers in status WaitingCounterparty
             let now = now().unix_timestamp();
@@ -1613,7 +1814,7 @@ impl Wallet {
                     }
                 }
                 transfers_changed = true;
-                self._fail_batch_transfer(batch_transfer, false, &mut db_data)?
+                self._try_fail_batch_transfer(batch_transfer, false, &mut db_data)?
             }
         }
 
@@ -1802,13 +2003,11 @@ impl Wallet {
         &mut self,
         skip_consistency_check: bool,
         electrum_url: String,
-        proxy_url: String,
     ) -> Result<Online, Error> {
         let online_id = now().unix_timestamp_nanos() as u64;
         let online = Online {
             id: online_id,
             electrum_url: electrum_url.clone(),
-            proxy_url: proxy_url.clone(),
         };
         self.online = Some(online.clone());
 
@@ -1817,9 +2016,6 @@ impl Wallet {
             self._get_tx_details(get_txid(self.bitcoin_network))
                 .map_err(|e| Error::InvalidElectrum(e.to_string()))?;
         }
-
-        // check proxy server
-        self.rest_client.clone().get_info(&proxy_url)?;
 
         // BDK setup
         let config = ElectrumBlockchainConfig {
@@ -1895,17 +2091,16 @@ impl Wallet {
         &mut self,
         skip_consistency_check: bool,
         electrum_url: String,
-        proxy_url: String,
     ) -> Result<Online, Error> {
         info!(self.logger, "Going online...");
         let online = if let Some(online) = self.online.clone() {
-            if electrum_url == online.electrum_url && proxy_url == online.proxy_url {
+            if electrum_url == online.electrum_url {
                 Ok(online)
             } else {
                 Err(Error::CannotChangeOnline())
             }
         } else {
-            let online = self._go_online(skip_consistency_check, electrum_url, proxy_url);
+            let online = self._go_online(skip_consistency_check, electrum_url);
             if online.is_err() {
                 self.online = None;
                 self.bdk_blockchain = None;
@@ -2297,6 +2492,9 @@ impl Wallet {
             .map(|t| {
                 let (asset_transfer, batch_transfer) =
                     t.related_transfers(&db_data.asset_transfers, &db_data.batch_transfers)?;
+                let tce_data = self
+                    .database
+                    .get_transfer_consignment_endpoints_data(t.idx)?;
                 Ok(Transfer::from_db_transfer(
                     t,
                     self.database.get_transfer_data(
@@ -2305,6 +2503,14 @@ impl Wallet {
                         &db_data.txos,
                         &db_data.colorings,
                     )?,
+                    tce_data
+                        .iter()
+                        .map(|(tce, ce)| {
+                            TransferConsignmentEndpoint::from_db_transfer_consignment_endpoint(
+                                tce, ce,
+                            )
+                        })
+                        .collect(),
                 ))
             })
             .collect::<Result<Vec<Transfer>, Error>>()?;
@@ -2389,6 +2595,22 @@ impl Wallet {
         PartiallySignedTransaction::from_str(&psbt_str).map_err(Error::InvalidPsbt)
     }
 
+    fn _fail_batch_transfer_if_no_endpoints(
+        &self,
+        batch_transfer: &DbBatchTransfer,
+        transfer_consignment_endpoints_data: &Vec<(
+            DbTransferConsignmentEndpoint,
+            DbConsignmentEndpoint,
+        )>,
+    ) -> Result<bool, Error> {
+        if transfer_consignment_endpoints_data.is_empty() {
+            self._fail_batch_transfer(batch_transfer)?;
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
+
     fn _wait_consignment(
         &mut self,
         batch_transfer: &DbBatchTransfer,
@@ -2406,17 +2628,37 @@ impl Wallet {
             .expect("transfer should have a blinded UTXO");
 
         // check if a consignment has been posted
-        let proxy_url = self.online.clone().expect("should be online").proxy_url;
-        let consignment_res = self
-            .rest_client
-            .clone()
-            .get_consignment(&proxy_url, blinded_utxo.clone())?;
-        debug!(
-            self.logger,
-            "Consignment GET response: {:?}", consignment_res
-        );
-        let consignment = if let Some(cons) = consignment_res.consignment {
-            cons
+        let tce_data = self
+            .database
+            .get_transfer_consignment_endpoints_data(transfer.idx)?;
+        if self._fail_batch_transfer_if_no_endpoints(batch_transfer, &tce_data)? {
+            return Ok(None);
+        }
+        let (mut proxy_url, mut consignment) = (None, None);
+        let mut used_endpoint = None;
+        for (transfer_consignment_endpoint, consignment_endpoint) in tce_data {
+            let consignment_res = self
+                .rest_client
+                .clone()
+                .get_consignment(&consignment_endpoint.endpoint, blinded_utxo.clone())?;
+            debug!(
+                self.logger,
+                "Consignment GET response: {:?}", consignment_res
+            );
+
+            if consignment_res.result.is_some() {
+                proxy_url = Some(consignment_endpoint.endpoint);
+                consignment = consignment_res.result;
+                let mut updated_transfer_consignment_endpoint: DbTransferConsignmentEndpointActMod =
+                    transfer_consignment_endpoint.into();
+                updated_transfer_consignment_endpoint.used = ActiveValue::Set(true);
+                used_endpoint = Some(updated_transfer_consignment_endpoint);
+                break;
+            }
+        }
+
+        let (consignment, proxy_url) = if let Some(cons) = consignment {
+            (cons, proxy_url.expect("should be defined"))
         } else {
             return Ok(None);
         };
@@ -2446,7 +2688,6 @@ impl Wallet {
             }
         }
 
-        let proxy_url = self.online.clone().expect("should be online").proxy_url;
         debug!(self.logger, "Validating consignment...");
         let validation_status = Validator::validate(&consignment, &self._new_electrum_client()?);
         let validity = validation_status.validity();
@@ -2468,7 +2709,7 @@ impl Wallet {
                             .clone()
                             .get_media(&proxy_url, attachment_id.to_string().clone())?;
                         debug!(self.logger, "Media GET response: {:?}", media_res);
-                        if let Some(media) = media_res.media {
+                        if let Some(media) = media_res.result {
                             let file_bytes = base64::decode(media).map_err(InternalError::from)?;
                             let file_hash: sha256::Hash = Sha256Hash::hash(&file_bytes[..]);
                             let real_attachment_id = AttachmentId::commit(&file_hash);
@@ -2511,7 +2752,7 @@ impl Wallet {
             let nack_res = self
                 .rest_client
                 .clone()
-                .post_nack(&proxy_url, blinded_utxo)?;
+                .post_ack(&proxy_url, blinded_utxo, false)?;
             debug!(self.logger, "Consignment NACK response: {:?}", nack_res);
             updated_batch_transfer.status = ActiveValue::Set(TransferStatus::Failed);
             return Ok(Some(
@@ -2529,7 +2770,7 @@ impl Wallet {
         let ack_res = self
             .rest_client
             .clone()
-            .post_ack(&proxy_url, blinded_utxo)?;
+            .post_ack(&proxy_url, blinded_utxo, true)?;
         debug!(self.logger, "Consignment ACK response: {:?}", ack_res);
 
         // add asset info to transfer if missing
@@ -2615,7 +2856,7 @@ impl Wallet {
             &db_data.txos,
             &db_data.colorings,
         )?;
-        let detailed_transfer = Transfer::from_db_transfer(transfer.clone(), transfer_data);
+        let detailed_transfer = Transfer::from_db_transfer(transfer.clone(), transfer_data, vec![]);
         let blinding = detailed_transfer
             .blinding_secret
             .expect("incoming transfer should have a blinding secret");
@@ -2658,6 +2899,9 @@ impl Wallet {
         updated_coloring.amount = ActiveValue::Set(amount.to_string());
         self.database.update_coloring(updated_coloring)?;
 
+        self.database
+            .update_transfer_consignment_endpoint(&mut used_endpoint.expect("should be defined"))?;
+
         let mut updated_transfer: DbTransferActMod = transfer.into();
         updated_transfer.amount = ActiveValue::Set(amount.to_string());
         self.database.update_transfer(&mut updated_transfer)?;
@@ -2679,12 +2923,23 @@ impl Wallet {
 
         let mut batch_transfer_data =
             batch_transfer.get_transfers(&db_data.asset_transfers, &db_data.transfers)?;
-        let proxy_url = self.online.clone().expect("should be online").proxy_url;
         for asset_transfer_data in batch_transfer_data.asset_transfers_data.iter_mut() {
             for transfer in asset_transfer_data.transfers.iter_mut() {
                 if transfer.ack.is_some() {
                     continue;
                 }
+                let tce_data = self
+                    .database
+                    .get_transfer_consignment_endpoints_data(transfer.idx)?;
+                if self._fail_batch_transfer_if_no_endpoints(batch_transfer, &tce_data)? {
+                    return Ok(None);
+                }
+                let (_, consignment_endpoint) = tce_data
+                    .clone()
+                    .into_iter()
+                    .find(|(tce, _ce)| tce.used)
+                    .expect("there should be 1 used tce");
+                let proxy_url = consignment_endpoint.endpoint.clone();
                 let ack_res = self.rest_client.clone().get_ack(
                     &proxy_url,
                     transfer
@@ -2694,20 +2949,11 @@ impl Wallet {
                 )?;
                 debug!(self.logger, "Consignment ACK/NACK response: {:?}", ack_res);
 
-                let acked = match ack_res {
-                    AckResponse {
-                        ack: Some(true), ..
-                    } => Some(true),
-                    AckResponse {
-                        nack: Some(true), ..
-                    } => Some(false),
-                    _ => None,
-                };
-                if acked.is_some() {
+                if ack_res.result.is_some() {
                     let mut updated_transfer: DbTransferActMod = transfer.clone().into();
-                    updated_transfer.ack = ActiveValue::Set(acked);
+                    updated_transfer.ack = ActiveValue::Set(ack_res.result);
                     self.database.update_transfer(&mut updated_transfer)?;
-                    transfer.ack = acked;
+                    transfer.ack = ack_res.result;
                 }
             }
         }
@@ -2804,7 +3050,8 @@ impl Wallet {
                 &db_data.txos,
                 &db_data.colorings,
             )?;
-            let detailed_transfer = Transfer::from_db_transfer(transfer.clone(), transfer_data);
+            let detailed_transfer =
+                Transfer::from_db_transfer(transfer.clone(), transfer_data, vec![]);
             (Some(transfer), Some(detailed_transfer))
         } else {
             (None, None)
@@ -3188,14 +3435,14 @@ impl Wallet {
                         .expect("to have provided a valid consignment");
                     rgb_asset
                         .transfer(input_outpoints_bt.clone(), beneficiaries, revealed_seal)
-                        .expect("transfer should succeed")
+                        .map_err(|_| InternalError::Unexpected)?
                 }
                 RGB121_SCHEMA_ID => {
                     let rgb_asset = Rgb121Asset::try_from(&transfer)
                         .expect("to have provided a valid consignment");
                     rgb_asset
                         .transfer(input_outpoints_bt.clone(), beneficiaries, revealed_seal)
-                        .expect("transfer should succeed")
+                        .map_err(|_| InternalError::Unexpected)?
                 }
                 _ => return Err(Error::UnknownRgbSchema(schema_id)),
             };
@@ -3376,7 +3623,7 @@ impl Wallet {
 
     fn _post_transfer_data(
         &self,
-        recipients: Vec<Recipient>,
+        recipients: &mut Vec<LocalRecipient>,
         asset_transfer_dir: PathBuf,
         asset_dir: Option<PathBuf>,
     ) -> Result<(), Error> {
@@ -3393,33 +3640,56 @@ impl Wallet {
         }
 
         let consignment_path = asset_transfer_dir.join(CONSIGNMENT_FILE);
-        let proxy_url = self.online.clone().expect("should be online").proxy_url;
         for recipient in recipients {
-            let consignment_res = self.rest_client.clone().post_consignment(
-                &proxy_url,
-                recipient.blinded_utxo.clone(),
-                consignment_path.clone(),
-            )?;
-            debug!(
-                self.logger,
-                "Consignment POST response: {:?}", consignment_res
-            );
-            if !consignment_res.success {
+            let mut found_valid = false;
+            for consignment_endpoint in recipient.consignment_endpoints.iter_mut() {
+                if consignment_endpoint.protocol != ConsignmentEndpointProtocol::RgbHttpJsonRpc
+                    || !consignment_endpoint.usable
+                {
+                    debug!(
+                        self.logger,
+                        "Skipping consignment endpoint {:?}", consignment_endpoint
+                    );
+                    continue;
+                }
+                let proxy_url = consignment_endpoint.endpoint.clone();
+                let consignment_res = self.rest_client.clone().post_consignment(
+                    &proxy_url,
+                    recipient.blinded_utxo.clone(),
+                    consignment_path.clone(),
+                )?;
+                debug!(
+                    self.logger,
+                    "Consignment POST response: {:?}", consignment_res
+                );
+
                 if let Some(err) = consignment_res.error {
-                    if err.contains("Cannot change uploaded file") {
+                    if err.code == -101 {
                         return Err(Error::BlindedUTXOAlreadyUsed)?;
                     }
+                    continue;
+                } else if consignment_res.result.is_none() {
+                    continue;
+                } else {
+                    for attachment in attachments.clone() {
+                        let media_res = self.rest_client.clone().post_media(
+                            &proxy_url,
+                            attachment.0,
+                            attachment.1,
+                        )?;
+                        debug!(self.logger, "Attachment POST response: {:?}", media_res);
+                        if let Some(_err) = media_res.error {
+                            return Err(InternalError::Unexpected)?;
+                        }
+                    }
+                    consignment_endpoint.used = true;
+                    found_valid = true;
+                    break;
                 }
-                return Err(InternalError::Unexpected)?;
             }
-        }
-
-        for attachment in attachments {
-            let media_res =
-                self.rest_client
-                    .clone()
-                    .post_media(&proxy_url, attachment.0, attachment.1)?;
-            debug!(self.logger, "Attachment POST response: {:?}", media_res);
+            if !found_valid {
+                return Err(Error::NoValidConsignmentEndpoint);
+            }
         }
 
         Ok(())
@@ -3491,7 +3761,10 @@ impl Wallet {
                     blinded_utxo: ActiveValue::Set(Some(recipient.blinded_utxo.clone())),
                     ..Default::default()
                 };
-                self.database.set_transfer(transfer)?;
+                let transfer_idx = self.database.set_transfer(transfer)?;
+                for consignment_endpoint in recipient.consignment_endpoints {
+                    self._save_transfer_consignment_endpoint(transfer_idx, &consignment_endpoint)?;
+                }
             }
         }
 
@@ -3574,11 +3847,10 @@ impl Wallet {
         let mut db_data = self.database.get_db_data(false)?;
         self._handle_expired_transfers(&mut db_data)?;
 
-        let mut blinded_utxos: Vec<String> = recipient_map
+        let blinded_utxos: Vec<String> = recipient_map
             .values()
             .map(|r| r.iter().map(|r| r.blinded_utxo.clone()).collect())
             .collect();
-        blinded_utxos.sort();
         let mut hasher = DefaultHasher::new();
         blinded_utxos.hash(&mut hasher);
         let transfer_dir = self
@@ -3612,6 +3884,58 @@ impl Wallet {
 
         let mut transfer_info_map: BTreeMap<String, InfoAssetTransfer> = BTreeMap::new();
         for (asset_id, recipients) in recipient_map {
+            let mut local_recipients: Vec<LocalRecipient> = vec![];
+            for recipient in recipients.clone() {
+                self._check_consignment_endpoints(&recipient.consignment_endpoints)?;
+
+                let mut consignment_endpoints: Vec<LocalConsignmentEndpoint> = vec![];
+                let mut found_valid = false;
+                for endpoint_str in recipient.consignment_endpoints {
+                    let consignment_endpoint = InvoiceConsignmentEndpoint::from_str(&endpoint_str)?;
+
+                    match consignment_endpoint {
+                        InvoiceConsignmentEndpoint::RgbHttpJsonRpc(url) => {
+                            let mut local_consignment_endpoint = LocalConsignmentEndpoint {
+                                protocol: ConsignmentEndpointProtocol::RgbHttpJsonRpc,
+                                endpoint: url.clone(),
+                                used: false,
+                                usable: false,
+                            };
+                            if let Ok(server_info) = self.rest_client.clone().get_info(&url) {
+                                if let Some(info) = server_info.result {
+                                    if info.protocol_version == *PROXY_PROTOCOL_VERSION {
+                                        local_consignment_endpoint.usable = true;
+                                        found_valid = true;
+                                    }
+                                }
+                            };
+                            consignment_endpoints.push(local_consignment_endpoint);
+                        }
+                        InvoiceConsignmentEndpoint::Storm(addr) => {
+                            consignment_endpoints.push(LocalConsignmentEndpoint {
+                                protocol: ConsignmentEndpointProtocol::Storm,
+                                endpoint: addr.to_string(),
+                                used: false,
+                                usable: false,
+                            });
+                        }
+                        _ => return Err(Error::UnsupportedConsignmentEndpointProtocol),
+                    }
+                }
+
+                if !found_valid {
+                    return Err(Error::InvalidConsignmentEndpoints(s!(
+                        "no valid consignment endpoints"
+                    )));
+                }
+
+                local_recipients.push(LocalRecipient {
+                    blinded_utxo: recipient.blinded_utxo,
+                    amount: recipient.amount,
+                    consignment_endpoints,
+                })
+            }
+
             let asset_type = self.database.get_asset_or_fail(asset_id.clone())?;
             let amount: u64 = recipients.iter().map(|a| a.amount).sum();
             let asset_spend = self._select_rgb_inputs(
@@ -3623,7 +3947,7 @@ impl Wallet {
                 Some(db_data.colorings.clone()),
             )?;
             let transfer_info = InfoAssetTransfer {
-                recipients,
+                recipients: local_recipients.clone(),
                 asset_spend,
                 asset_type,
             };
@@ -3719,7 +4043,7 @@ impl Wallet {
             }
             let info_file = asset_transfer_dir.join(TRANSFER_DATA_FILE);
             let serialized_info = fs::read_to_string(info_file)?;
-            let info_contents: InfoAssetTransfer =
+            let mut info_contents: InfoAssetTransfer =
                 serde_json::from_str(&serialized_info).map_err(InternalError::from)?;
             let asset_id: String = asset_transfer_dir
                 .file_name()
@@ -3727,11 +4051,10 @@ impl Wallet {
                 .to_str()
                 .expect("should be possible to convert path to a string")
                 .to_string();
-            transfer_info_map.insert(asset_id.clone(), info_contents.clone());
 
             // post consignment(s) and optional media
             let asset_dir = if info_contents.asset_type == AssetType::Rgb121 {
-                let ass_dir = self.wallet_dir.join(ASSETS_DIR).join(asset_id);
+                let ass_dir = self.wallet_dir.join(ASSETS_DIR).join(asset_id.clone());
                 if ass_dir.is_dir() {
                     Some(ass_dir)
                 } else {
@@ -3740,7 +4063,9 @@ impl Wallet {
             } else {
                 None
             };
-            self._post_transfer_data(info_contents.recipients, asset_transfer_dir, asset_dir)?;
+            self._post_transfer_data(&mut info_contents.recipients, asset_transfer_dir, asset_dir)?;
+
+            transfer_info_map.insert(asset_id, info_contents.clone());
         }
 
         // broadcast PSBT if donation and finally save transfer to DB

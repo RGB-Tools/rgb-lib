@@ -1,13 +1,13 @@
 use bdk::LocalUtxo;
 use bitcoin::OutPoint;
 use futures::executor::block_on;
-use sea_orm::entity::EntityTrait;
-use sea_orm::{ActiveValue, ColumnTrait, DatabaseConnection, QueryFilter};
+use sea_orm::{ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder};
+use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
 use crate::error::InternalError;
 use crate::utils::now;
-use crate::wallet::{AssetType, Balance, Outpoint};
+use crate::wallet::{AssetType, Balance, Outpoint, TransferKind};
 use crate::Error;
 
 pub(crate) mod entities;
@@ -21,13 +21,20 @@ use crate::database::entities::batch_transfer::{
 use entities::asset_rgb121::{ActiveModel as DbAssetRgb121ActMod, Model as DbAssetRgb121};
 use entities::asset_rgb20::{ActiveModel as DbAssetRgb20ActMod, Model as DbAssetRgb20};
 use entities::coloring::{ActiveModel as DbColoringActMod, Model as DbColoring};
+use entities::consignment_endpoint::{
+    ActiveModel as DbConsignmentEndpointActMod, Model as DbConsignmentEndpoint,
+};
 use entities::transfer::{ActiveModel as DbTransferActMod, Model as DbTransfer};
+use entities::transfer_consignment_endpoint::{
+    ActiveModel as DbTransferConsignmentEndpointActMod, Model as DbTransferConsignmentEndpoint,
+};
 use entities::txo::{ActiveModel as DbTxoActMod, Model as DbTxo};
 use entities::{
-    asset_rgb121, asset_rgb20, asset_transfer, batch_transfer, coloring, transfer, txo,
+    asset_rgb121, asset_rgb20, asset_transfer, batch_transfer, coloring, consignment_endpoint,
+    transfer, transfer_consignment_endpoint, txo,
 };
 
-use self::enums::{ColoringType, TransferStatus};
+use self::enums::{ColoringType, ConsignmentEndpointProtocol, TransferStatus};
 
 impl DbAssetTransfer {
     pub(crate) fn asset_id(&self) -> Option<String> {
@@ -184,12 +191,27 @@ impl From<LocalUtxo> for DbTxoActMod {
     }
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct LocalConsignmentEndpoint {
+    pub protocol: ConsignmentEndpointProtocol,
+    pub endpoint: String,
+    pub used: bool,
+    pub usable: bool,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct LocalUnspent {
     /// Database UTXO
     pub utxo: DbTxo,
     /// RGB allocations on the UTXO
     pub rgb_allocations: Vec<LocalRgbAllocation>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct LocalRecipient {
+    pub blinded_utxo: String,
+    pub amount: u64,
+    pub consignment_endpoints: Vec<LocalConsignmentEndpoint>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -220,7 +242,7 @@ impl LocalRgbAllocation {
 
 #[derive(Debug)]
 pub(crate) struct TransferData {
-    pub(crate) incoming: bool,
+    pub(crate) kind: TransferKind,
     pub(crate) status: TransferStatus,
     pub(crate) txid: Option<String>,
     pub(crate) unblinded_utxo: Option<Outpoint>,
@@ -287,8 +309,29 @@ impl RgbLibDatabase {
         Ok(res.last_insert_id)
     }
 
+    pub(crate) fn set_consignment_endpoint(
+        &self,
+        consignment_endpoint: DbConsignmentEndpointActMod,
+    ) -> Result<i64, InternalError> {
+        let res = block_on(
+            consignment_endpoint::Entity::insert(consignment_endpoint).exec(self.get_connection()),
+        )?;
+        Ok(res.last_insert_id)
+    }
+
     pub(crate) fn set_transfer(&self, transfer: DbTransferActMod) -> Result<i64, InternalError> {
         let res = block_on(transfer::Entity::insert(transfer).exec(self.get_connection()))?;
+        Ok(res.last_insert_id)
+    }
+
+    pub(crate) fn set_transfer_consignment_endpoint(
+        &self,
+        transfer_consignment_endpoint: DbTransferConsignmentEndpointActMod,
+    ) -> Result<i64, InternalError> {
+        let res = block_on(
+            transfer_consignment_endpoint::Entity::insert(transfer_consignment_endpoint)
+                .exec(self.get_connection()),
+        )?;
         Ok(res.last_insert_id)
     }
 
@@ -332,6 +375,16 @@ impl RgbLibDatabase {
         )?)
     }
 
+    pub(crate) fn update_transfer_consignment_endpoint(
+        &self,
+        transfer_consignment_endpoint: &mut DbTransferConsignmentEndpointActMod,
+    ) -> Result<DbTransferConsignmentEndpoint, InternalError> {
+        Ok(block_on(
+            transfer_consignment_endpoint::Entity::update(transfer_consignment_endpoint.clone())
+                .exec(self.get_connection()),
+        )?)
+    }
+
     pub(crate) fn update_txo(&self, txo: DbTxoActMod) -> Result<(), InternalError> {
         block_on(txo::Entity::update(txo).exec(self.get_connection()))?;
         Ok(())
@@ -352,6 +405,17 @@ impl RgbLibDatabase {
                 .exec(self.get_connection()),
         )?;
         Ok(())
+    }
+
+    pub(crate) fn get_consignment_endpoint(
+        &self,
+        endpoint: String,
+    ) -> Result<Option<DbConsignmentEndpoint>, InternalError> {
+        Ok(block_on(
+            consignment_endpoint::Entity::find()
+                .filter(consignment_endpoint::Column::Endpoint.eq(endpoint))
+                .one(self.get_connection()),
+        )?)
     }
 
     pub(crate) fn get_txo(&self, outpoint: Outpoint) -> Result<Option<DbTxo>, InternalError> {
@@ -412,6 +476,22 @@ impl RgbLibDatabase {
 
     pub(crate) fn iter_txos(&self) -> Result<Vec<DbTxo>, InternalError> {
         Ok(block_on(txo::Entity::find().all(self.get_connection()))?)
+    }
+
+    pub(crate) fn get_transfer_consignment_endpoints_data(
+        &self,
+        transfer_idx: i64,
+    ) -> Result<Vec<(DbTransferConsignmentEndpoint, DbConsignmentEndpoint)>, InternalError> {
+        Ok(block_on(
+            transfer_consignment_endpoint::Entity::find()
+                .filter(transfer_consignment_endpoint::Column::TransferIdx.eq(transfer_idx))
+                .find_also_related(consignment_endpoint::Entity)
+                .order_by_asc(transfer_consignment_endpoint::Column::Idx)
+                .all(self.get_connection()),
+        )?
+        .into_iter()
+        .map(|(tce, ce)| (tce, ce.expect("should be connected")))
+        .collect())
     }
 
     pub(crate) fn get_db_data(&self, empty_transfers: bool) -> Result<DbData, InternalError> {
@@ -658,41 +738,59 @@ impl RgbLibDatabase {
         } else {
             received > sent
         };
+        let kind = if incoming {
+            if filtered_coloring
+                .clone()
+                .all(|c| c.coloring_type == ColoringType::Issue)
+            {
+                TransferKind::Issuance
+            } else {
+                TransferKind::Receive
+            }
+        } else {
+            TransferKind::Send
+        };
+
         let txo_ids: Vec<i64> = filtered_coloring.clone().map(|c| c.txo_idx).collect();
         let transfer_txos: Vec<DbTxo> = txos
             .iter()
             .cloned()
             .filter(|t| txo_ids.contains(&t.idx))
             .collect();
-
-        let blinded_txo_idx: Vec<i64> = filtered_coloring
-            .clone()
-            .filter(|c| c.coloring_type == ColoringType::Blind)
-            .map(|c| c.txo_idx)
-            .collect();
-        let unblinded_utxo = transfer_txos
-            .clone()
-            .into_iter()
-            .filter(|t| blinded_txo_idx.contains(&t.idx))
-            .map(|t| t.outpoint())
-            .collect::<Vec<Outpoint>>()
-            .first()
-            .cloned();
-
-        let change_txo_idx: Vec<i64> = filtered_coloring
-            .filter(|c| c.coloring_type == ColoringType::Change)
-            .map(|c| c.txo_idx)
-            .collect();
-        let change_utxo = transfer_txos
-            .into_iter()
-            .filter(|t| change_txo_idx.contains(&t.idx))
-            .map(|t| t.outpoint())
-            .collect::<Vec<Outpoint>>()
-            .first()
-            .cloned();
+        let (unblinded_utxo, change_utxo) = match kind {
+            TransferKind::Receive => {
+                let blinded_txo_idx: Vec<i64> = filtered_coloring
+                    .filter(|c| c.coloring_type == ColoringType::Blind)
+                    .map(|c| c.txo_idx)
+                    .collect();
+                let unblinded_utxo = transfer_txos
+                    .into_iter()
+                    .filter(|t| blinded_txo_idx.contains(&t.idx))
+                    .map(|t| t.outpoint())
+                    .collect::<Vec<Outpoint>>()
+                    .first()
+                    .cloned();
+                (unblinded_utxo, None)
+            }
+            TransferKind::Send => {
+                let change_txo_idx: Vec<i64> = filtered_coloring
+                    .filter(|c| c.coloring_type == ColoringType::Change)
+                    .map(|c| c.txo_idx)
+                    .collect();
+                let change_utxo = transfer_txos
+                    .into_iter()
+                    .filter(|t| change_txo_idx.contains(&t.idx))
+                    .map(|t| t.outpoint())
+                    .collect::<Vec<Outpoint>>()
+                    .first()
+                    .cloned();
+                (None, change_utxo)
+            }
+            TransferKind::Issuance => (None, None),
+        };
 
         Ok(TransferData {
-            incoming,
+            kind,
             status: batch_transfer.status,
             txid: batch_transfer.txid.clone(),
             unblinded_utxo,

@@ -1,6 +1,7 @@
 #![allow(missing_docs)]
 
 use sea_orm::{ActiveValue, DeriveActiveEnum, EnumIter, IntoActiveValue};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
 #[sea_orm(rs_type = "u16", db_type = "Integer")]
@@ -19,6 +20,15 @@ impl IntoActiveValue<ColoringType> for ColoringType {
     fn into_active_value(self) -> ActiveValue<ColoringType> {
         ActiveValue::Set(self)
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, DeriveActiveEnum, Deserialize, Serialize)]
+#[sea_orm(rs_type = "u16", db_type = "Integer")]
+pub enum ConsignmentEndpointProtocol {
+    #[sea_orm(num_value = 1)]
+    Storm = 1,
+    #[sea_orm(num_value = 2)]
+    RgbHttpJsonRpc = 2,
 }
 
 /// The status of a [`crate::wallet::Transfer`]

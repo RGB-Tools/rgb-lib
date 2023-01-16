@@ -95,6 +95,14 @@ pub enum Error {
     #[error("Invalid blinded UTXO: {0}")]
     InvalidBlindedUTXO(#[from] bp::seals::txout::blind::ParseError),
 
+    /// The provided consignment endpoint is invalid
+    #[error("Invalid consignment endpoint: {0}")]
+    InvalidConsignmentEndpoint(#[from] invoice::ConsignmentEndpointParseError),
+
+    /// The provided consignment endpoints are invalid
+    #[error("Invalid consignment endpoints: {0}")]
+    InvalidConsignmentEndpoints(String),
+
     /// The provided asset description is invalid
     #[error("Invalid description: {0}")]
     InvalidDescription(String),
@@ -143,6 +151,10 @@ pub enum Error {
     #[error("Issuance request with no provided amounts")]
     NoIssuanceAmounts,
 
+    /// No valid consignment endpoint found
+    #[error("No valid consignment endpoint found")]
+    NoValidConsignmentEndpoint,
+
     /// Error contacting the RGB proxy
     #[error("Proxy error: {0}")]
     Proxy(#[from] reqwest::Error),
@@ -154,6 +166,10 @@ pub enum Error {
     /// The detected RGB schema is unknown
     #[error("Unknown RGB schema: {0}")]
     UnknownRgbSchema(String),
+
+    /// The given consignment protocol is not supported
+    #[error("Consignment protocol is not supported")]
+    UnsupportedConsignmentEndpointProtocol,
 
     /// The given invoice type is not supported
     #[error("Invoice type is not supported")]
