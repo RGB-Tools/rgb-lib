@@ -5,11 +5,7 @@ use bdk::miniscript::descriptor::DescriptorType;
 use super::*;
 
 fn check_wallet(wallet: &Wallet, desc_type: DescriptorType, network: BitcoinNetwork) {
-    let coin_type = if network == BitcoinNetwork::Mainnet {
-        0
-    } else {
-        1
-    };
+    let coin_type = i32::from(network != BitcoinNetwork::Mainnet);
     let descriptor = &wallet
         .bdk_wallet
         .get_descriptor_for_keychain(KeychainKind::External);

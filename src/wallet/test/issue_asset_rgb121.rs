@@ -9,7 +9,7 @@ fn success() {
     let (mut wallet, online) = get_funded_wallet!();
 
     // add a pending operation to an UTXO so spendable balance will be != settled / future
-    let _blind_data = wallet.blind(None, None, None);
+    let _blind_data = wallet.blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone());
 
     // required fields only
     println!("asset 1");
@@ -183,12 +183,15 @@ fn no_issue_on_pending_send() {
         })
         .unwrap();
     // send 1st asset
-    let blind_data = rcv_wallet.blind(None, None, None).unwrap();
+    let blind_data = rcv_wallet
+        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .unwrap();
     let recipient_map = HashMap::from([(
         asset_1.asset_id.clone(),
         vec![Recipient {
             amount,
             blinded_utxo: blind_data.blinded_utxo,
+            consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
     let txid = wallet.send(online.clone(), recipient_map, false).unwrap();
@@ -262,7 +265,6 @@ fn fail() {
     let other_online = Online {
         id: 1,
         electrum_url: wallet.online.as_ref().unwrap().electrum_url.clone(),
-        proxy_url: wallet.online.as_ref().unwrap().proxy_url.clone(),
     };
     let result = wallet.issue_asset_rgb121(
         other_online,

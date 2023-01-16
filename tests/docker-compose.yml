@@ -2,13 +2,11 @@ version: '3.2'
 
 services:
   bitcoind:
-    container_name: rgb-bitcoind
     image: registry.gitlab.com/hashbeam/docker/bitcoind:23.0
     command: "-fallbackfee=0.0002"
     volumes:
       - ./tmp/bitcoin:/srv/app/.bitcoin
   electrs:
-    container_name: rgb-electrs
     image: registry.gitlab.com/hashbeam/docker/electrs:0.9.9
     volumes:
       - ./tmp/electrs:/srv/app/db
@@ -16,3 +14,21 @@ services:
       - 50001:50001
     depends_on:
       - bitcoind
+  proxy:
+    image: ghcr.io/grunch/rgb-proxy-server:0.1.0
+    ports:
+      - 3000:3000
+  proxy-mod-proto:
+    build:
+      context: ./rgb-proxy-server
+      dockerfile: ./Dockerfile.modified-proto
+    image: rgb-proxy-server:modified-proto
+    ports:
+      - 3001:3000
+  proxy-mod-api:
+    build:
+      context: ./rgb-proxy-server
+      dockerfile: ./Dockerfile.modified-api
+    image: rgb-proxy-server:modified-api
+    ports:
+      - 3002:3000

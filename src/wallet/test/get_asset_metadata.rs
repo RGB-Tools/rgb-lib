@@ -20,12 +20,15 @@ fn success() {
     assert_eq!(transfers.len(), 1);
     let issuance = transfers.first().unwrap();
     let timestamp = issuance.created_at;
-    let blind_data = rcv_wallet.blind(None, None, None).unwrap();
+    let blind_data = rcv_wallet
+        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .unwrap();
     let recipient_map = HashMap::from([(
         asset_rgb20.asset_id.clone(),
         vec![Recipient {
             amount: 10,
             blinded_utxo: blind_data.blinded_utxo,
+            consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
     wallet.send(online.clone(), recipient_map, false).unwrap();

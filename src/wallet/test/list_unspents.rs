@@ -54,7 +54,9 @@ fn success() {
         .all(|a| a.asset_id == Some(asset.asset_id.clone()) && a.amount == AMOUNT && a.settled));
 
     // multiple unspents, one failed blind, not listed
-    let blind_data_fail = rcv_wallet.blind(None, None, None).unwrap();
+    let blind_data_fail = rcv_wallet
+        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .unwrap();
     rcv_wallet
         .fail_transfers(
             rcv_online.clone(),
@@ -65,19 +67,21 @@ fn success() {
         .unwrap();
     show_unspent_colorings(&rcv_wallet, "after blind fail");
     let unspent_list_all = rcv_wallet.list_unspents(false).unwrap();
-    dbg!(&unspent_list_all);
     let mut allocations = vec![];
     unspent_list_all
         .iter()
         .for_each(|u| allocations.extend(u.rgb_allocations.clone()));
     assert_eq!(allocations.len(), 0);
     // one failed send, not listed
-    let blind_data = rcv_wallet.blind(None, None, None).unwrap();
+    let blind_data = rcv_wallet
+        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
             amount,
             blinded_utxo: blind_data.blinded_utxo,
+            consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
     let txid = wallet.send(online.clone(), recipient_map, false).unwrap();
@@ -120,12 +124,15 @@ fn success() {
             vec![AMOUNT],
         )
         .unwrap();
-    let blind_data = rcv_wallet.blind(None, None, None).unwrap();
+    let blind_data = rcv_wallet
+        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
             amount,
             blinded_utxo: blind_data.blinded_utxo,
+            consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
     let txid = wallet.send(online.clone(), recipient_map, false).unwrap();

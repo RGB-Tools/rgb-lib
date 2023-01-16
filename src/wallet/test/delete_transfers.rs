@@ -10,7 +10,9 @@ fn success() {
     assert!(!wallet.delete_transfers(None, None, false).unwrap());
 
     // delete single transfer
-    let blind_data = wallet.blind(None, None, None).unwrap();
+    let blind_data = wallet
+        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .unwrap();
     wallet
         .fail_transfers(
             online.clone(),
@@ -29,9 +31,15 @@ fn success() {
         .unwrap());
 
     // delete all Failed transfers
-    let blind_data_1 = wallet.blind(None, None, None).unwrap();
-    let blind_data_2 = wallet.blind(None, None, None).unwrap();
-    let blind_data_3 = wallet.blind(None, None, None).unwrap();
+    let blind_data_1 = wallet
+        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .unwrap();
+    let blind_data_2 = wallet
+        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .unwrap();
+    let blind_data_3 = wallet
+        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .unwrap();
     wallet
         .fail_transfers(
             online.clone(),
@@ -96,8 +104,17 @@ fn success() {
         .unwrap();
 
     // don't delete failed transfer with asset_id if no_asset_only is true
-    let blind_data_1 = wallet.blind(None, None, None).unwrap();
-    let blind_data_2 = wallet.blind(Some(asset.asset_id), None, None).unwrap();
+    let blind_data_1 = wallet
+        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .unwrap();
+    let blind_data_2 = wallet
+        .blind(
+            Some(asset.asset_id),
+            None,
+            None,
+            CONSIGNMENT_ENDPOINTS.clone(),
+        )
+        .unwrap();
     assert!(wallet
         .fail_transfers(
             online.clone(),
@@ -154,18 +171,24 @@ fn batch_success() {
     let asset_id = asset.asset_id;
 
     // failed transfer can be deleted, using both blinded_utxo + txid
-    let blind_data_1 = rcv_wallet_1.blind(None, None, None).unwrap();
-    let blind_data_2 = rcv_wallet_2.blind(None, None, None).unwrap();
+    let blind_data_1 = rcv_wallet_1
+        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .unwrap();
+    let blind_data_2 = rcv_wallet_2
+        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .unwrap();
     let recipient_map = HashMap::from([(
         asset_id.clone(),
         vec![
             Recipient {
                 blinded_utxo: blind_data_1.blinded_utxo.clone(),
                 amount,
+                consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
             },
             Recipient {
                 blinded_utxo: blind_data_2.blinded_utxo,
                 amount,
+                consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
             },
         ],
     )]);
@@ -179,18 +202,24 @@ fn batch_success() {
         .unwrap();
 
     // ...and can be deleted using txid only
-    let blind_data_1 = rcv_wallet_1.blind(None, None, None).unwrap();
-    let blind_data_2 = rcv_wallet_2.blind(None, None, None).unwrap();
+    let blind_data_1 = rcv_wallet_1
+        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .unwrap();
+    let blind_data_2 = rcv_wallet_2
+        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .unwrap();
     let recipient_map = HashMap::from([(
         asset_id,
         vec![
             Recipient {
                 blinded_utxo: blind_data_1.blinded_utxo,
                 amount,
+                consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
             },
             Recipient {
                 blinded_utxo: blind_data_2.blinded_utxo,
                 amount,
+                consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
             },
         ],
     )]);
@@ -208,7 +237,9 @@ fn fail() {
 
     let (mut wallet, online) = get_funded_wallet!();
 
-    let blind_data = wallet.blind(None, None, None).unwrap();
+    let blind_data = wallet
+        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .unwrap();
 
     // don't delete transfer not in Failed status
     assert!(!check_test_transfer_status_recipient(
@@ -236,7 +267,14 @@ fn fail() {
     show_unspent_colorings(&wallet, "after issuance");
 
     // don't delete failed transfer with asset_id if no_asset_only is true
-    let blind_data = wallet.blind(Some(asset.asset_id), None, None).unwrap();
+    let blind_data = wallet
+        .blind(
+            Some(asset.asset_id),
+            None,
+            None,
+            CONSIGNMENT_ENDPOINTS.clone(),
+        )
+        .unwrap();
     wallet.fail_transfers(online, None, None, false).unwrap();
     let result = wallet.delete_transfers(Some(blind_data.blinded_utxo), None, true);
     assert!(matches!(result, Err(Error::CannotDeleteTransfer)));
@@ -265,18 +303,24 @@ fn batch_fail() {
     let asset_id = asset.asset_id;
 
     // only blinded UTXO given but multiple transfers in batch
-    let blind_data_1 = rcv_wallet_1.blind(None, None, None).unwrap();
-    let blind_data_2 = rcv_wallet_2.blind(None, None, None).unwrap();
+    let blind_data_1 = rcv_wallet_1
+        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .unwrap();
+    let blind_data_2 = rcv_wallet_2
+        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .unwrap();
     let recipient_map = HashMap::from([(
         asset_id.clone(),
         vec![
             Recipient {
                 blinded_utxo: blind_data_1.blinded_utxo.clone(),
                 amount,
+                consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
             },
             Recipient {
                 blinded_utxo: blind_data_2.blinded_utxo,
                 amount,
+                consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
             },
         ],
     )]);
@@ -293,18 +337,24 @@ fn batch_fail() {
     assert!(matches!(result, Err(Error::CannotDeleteTransfer)));
 
     // blinded UTXO + txid given but blinded UTXO transfer not part of batch transfer
-    let blind_data_1 = rcv_wallet_1.blind(None, None, None).unwrap();
-    let blind_data_2 = rcv_wallet_2.blind(None, None, None).unwrap();
+    let blind_data_1 = rcv_wallet_1
+        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .unwrap();
+    let blind_data_2 = rcv_wallet_2
+        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .unwrap();
     let recipient_map_1 = HashMap::from([(
         asset_id.clone(),
         vec![
             Recipient {
                 blinded_utxo: blind_data_1.blinded_utxo,
                 amount,
+                consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
             },
             Recipient {
                 blinded_utxo: blind_data_2.blinded_utxo,
                 amount,
+                consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
             },
         ],
     )]);
@@ -317,12 +367,15 @@ fn batch_fail() {
         &txid_1,
         TransferStatus::Failed
     ));
-    let blind_data_3 = rcv_wallet_2.blind(None, None, None).unwrap();
+    let blind_data_3 = rcv_wallet_2
+        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .unwrap();
     let recipient_map_2 = HashMap::from([(
         asset_id,
         vec![Recipient {
             blinded_utxo: blind_data_3.blinded_utxo.clone(),
             amount,
+            consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
     let txid_2 = wallet.send(online.clone(), recipient_map_2, false).unwrap();

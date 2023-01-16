@@ -50,7 +50,9 @@ fn up_to_allocation_checks() {
     let mut blinded_utxos: Vec<String> = vec![];
     let mut txo_list: HashSet<DbTxo> = HashSet::new();
     for _ in 0..MAX_ALLOCATIONS_PER_UTXO {
-        let blind_data = wallet.blind(None, None, None).unwrap();
+        let blind_data = wallet
+            .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+            .unwrap();
         let transfer = get_test_transfer_recipient(&wallet, &blind_data.blinded_utxo);
         let coloring = get_test_coloring(&wallet, transfer.asset_transfer_idx);
         let txo = get_test_txo(&wallet, coloring.txo_idx);
@@ -82,7 +84,9 @@ fn up_to_allocation_checks() {
     // create MAX_ALLOCATIONS_PER_UTXO blinds on the same UTXO
     let mut txo_list: HashSet<DbTxo> = HashSet::new();
     for _ in 0..MAX_ALLOCATIONS_PER_UTXO {
-        let blind_data = wallet.blind(None, None, None).unwrap();
+        let blind_data = wallet
+            .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+            .unwrap();
         let transfer = get_test_transfer_recipient(&wallet, &blind_data.blinded_utxo);
         let coloring = get_test_coloring(&wallet, transfer.asset_transfer_idx);
         let txo = get_test_txo(&wallet, coloring.txo_idx);
@@ -123,12 +127,15 @@ fn up_to_allocation_checks() {
             )
             .unwrap();
         // send
-        let blind_data = rcv_wallet.blind(None, None, None).unwrap();
+        let blind_data = rcv_wallet
+            .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+            .unwrap();
         let recipient_map = HashMap::from([(
             asset.asset_id.clone(),
             vec![Recipient {
                 amount,
                 blinded_utxo: blind_data.blinded_utxo,
+                consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
             }],
         )]);
         let txid = wallet.send(online.clone(), recipient_map, false).unwrap();

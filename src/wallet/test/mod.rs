@@ -8,7 +8,12 @@ use crate::generate_keys;
 
 use super::*;
 
-const PROXY_URL: &str = "http://proxy.rgbtools.org";
+const PROXY_URL: &str = "http://127.0.0.1:3000/json-rpc";
+const PROXY_URL_MOD_PROTO: &str = "http://127.0.0.1:3001/json-rpc";
+const PROXY_URL_MOD_API: &str = "http://127.0.0.1:3002/json-rpc";
+const STORM_ID: &str = "03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c366597a3f8f";
+static PROXY_ENDPOINT: Lazy<String> = Lazy::new(|| format!("rgbhttpjsonrpc:{}", PROXY_URL));
+static CONSIGNMENT_ENDPOINTS: Lazy<Vec<String>> = Lazy::new(|| vec![PROXY_ENDPOINT.clone()]);
 const ELECTRUM_URL: &str = "127.0.0.1:50001";
 const TEST_DATA_DIR: &str = "./tests/tmp";
 const TICKER: &str = "TICKER";
@@ -165,9 +170,7 @@ fn get_empty_wallet(print_log: bool, private_keys: bool) -> (Wallet, Online) {
     if print_log {
         println!("wallet directory: {:?}", wallet.get_wallet_dir());
     }
-    let online = wallet
-        .go_online(true, ELECTRUM_URL.to_string(), PROXY_URL.to_string())
-        .unwrap();
+    let online = wallet.go_online(true, ELECTRUM_URL.to_string()).unwrap();
     (wallet, online)
 }
 macro_rules! get_empty_wallet {

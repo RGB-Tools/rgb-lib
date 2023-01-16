@@ -1,0 +1,8 @@
+FROM ghcr.io/grunch/rgb-proxy-server:0.1.0
+
+# change protocol version
+RUN sed -i 's/const PROTOCOL_VERSION = "0.1";/const PROTOCOL_VERSION = "0.0";/' src/controllers/api.ts
+
+
+# rebuild app
+RUN npm run build
