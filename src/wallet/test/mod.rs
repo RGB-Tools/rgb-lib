@@ -199,9 +199,7 @@ macro_rules! get_funded_noutxo_wallet {
 
 fn get_funded_wallet(print_log: bool, private_keys: bool) -> (Wallet, Online) {
     let (mut wallet, online) = get_funded_noutxo_wallet(print_log, private_keys);
-    wallet
-        .create_utxos(online.clone(), false, None, None)
-        .unwrap();
+    test_create_utxos_default(&mut wallet, online.clone());
     (wallet, online)
 }
 macro_rules! get_funded_wallet {
@@ -211,6 +209,53 @@ macro_rules! get_funded_wallet {
     () => {
         get_funded_wallet(false, true)
     };
+}
+
+fn test_create_utxos_default(wallet: &mut Wallet, online: Online) -> u8 {
+    _test_create_utxos(wallet, online, false, None, None)
+}
+
+fn test_create_utxos(
+    wallet: &mut Wallet,
+    online: Online,
+    up_to: bool,
+    num: Option<u8>,
+    size: Option<u32>,
+) -> u8 {
+    _test_create_utxos(wallet, online, up_to, num, size)
+}
+
+fn _test_create_utxos(
+    wallet: &mut Wallet,
+    online: Online,
+    up_to: bool,
+    num: Option<u8>,
+    size: Option<u32>,
+) -> u8 {
+    let delay = 200;
+    let mut retries = 3;
+    let mut num_utxos_created = 0;
+    while retries > 0 {
+        retries -= 1;
+        let result = wallet.create_utxos(online.clone(), up_to, num, size);
+        match result {
+            Ok(_) => {
+                num_utxos_created = result.unwrap();
+                break;
+            }
+            Err(Error::InsufficientBitcoins) => {
+                std::thread::sleep(Duration::from_millis(delay));
+                continue;
+            }
+            Err(error) => {
+                panic!("error creating UTXOs for wallet: {:?}", error);
+            }
+        }
+    }
+    if num_utxos_created == 0 {
+        panic!("error creating UTXOs for wallet: insufficient bitcoins");
+    }
+    num_utxos_created
 }
 
 fn check_test_transfer_status_recipient(

@@ -26,10 +26,7 @@ fn success() {
 
     drain_wallet(&wallet, online.clone());
     fund_wallet(wallet.get_address());
-    mine(false);
-    wallet
-        .create_utxos(online.clone(), false, None, None)
-        .unwrap();
+    test_create_utxos_default(&mut wallet, online.clone());
 
     // issue RGB121 asset
     let asset = wallet

@@ -338,9 +338,7 @@ fn spend_all() {
     // wallets
     let (mut wallet, online) = get_funded_noutxo_wallet!();
     let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
-    wallet
-        .create_utxos(online.clone(), false, Some(1), None)
-        .unwrap();
+    test_create_utxos(&mut wallet, online.clone(), false, Some(1), None);
 
     // issue
     let asset = wallet
@@ -383,9 +381,7 @@ fn spend_all() {
     assert!(allocation_asset_ids.contains(&asset_blank.asset_id));
 
     // send
-    wallet
-        .create_utxos(online.clone(), false, Some(1), None)
-        .unwrap();
+    test_create_utxos(&mut wallet, online.clone(), false, Some(1), None);
     let blind_data = rcv_wallet
         .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
         .unwrap();
@@ -661,9 +657,7 @@ fn send_blank_success() {
     // wallets
     let (mut wallet_1, online_1) = get_funded_noutxo_wallet!();
     let (mut wallet_2, online_2) = get_funded_wallet!();
-    wallet_1
-        .create_utxos(online_1.clone(), false, Some(1), None)
-        .unwrap();
+    test_create_utxos(&mut wallet_1, online_1.clone(), false, Some(1), None);
 
     // issue
     let asset_rgb20 = wallet_1
@@ -712,9 +706,7 @@ fn send_blank_success() {
 
     // send
     println!("\n=== send 1");
-    wallet_1
-        .create_utxos(online_1.clone(), false, Some(1), None)
-        .unwrap();
+    test_create_utxos(&mut wallet_1, online_1.clone(), false, Some(1), None);
     let blind_data_1 = wallet_2
         .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
         .unwrap();
@@ -2389,9 +2381,7 @@ fn no_change_on_pending_send() {
     // wallets
     let (mut wallet, online) = get_funded_noutxo_wallet!();
     let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
-    let num_utxos_created = wallet
-        .create_utxos(online.clone(), true, Some(3), None)
-        .unwrap();
+    let num_utxos_created = test_create_utxos(&mut wallet, online.clone(), true, Some(3), None);
     assert_eq!(num_utxos_created, 3);
 
     // issue 1 + get its UTXO
@@ -2649,9 +2639,7 @@ fn pending_incoming_transfer_fail() {
     // wallets
     let (mut wallet, online) = get_funded_wallet!();
     let (mut rcv_wallet, rcv_online) = get_funded_noutxo_wallet!();
-    rcv_wallet
-        .create_utxos(rcv_online.clone(), false, Some(1), None)
-        .unwrap();
+    test_create_utxos(&mut rcv_wallet, rcv_online.clone(), false, Some(1), None);
 
     // issue
     let asset = wallet
@@ -2812,9 +2800,7 @@ fn pending_transfer_input_fail() {
     // wallets
     let (mut wallet, online) = get_funded_noutxo_wallet!();
     let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
-    wallet
-        .create_utxos(online.clone(), false, Some(1), None)
-        .unwrap();
+    test_create_utxos(&mut wallet, online.clone(), false, Some(1), None);
 
     // issue
     let asset = wallet
@@ -2956,9 +2942,7 @@ fn psbt_rgb_consumer_success() {
 
     // create 1 UTXO
     println!("utxo 1");
-    let num_utxos_created = wallet
-        .create_utxos(online.clone(), true, Some(1), None)
-        .unwrap();
+    let num_utxos_created = test_create_utxos(&mut wallet, online.clone(), true, Some(1), None);
     assert_eq!(num_utxos_created, 1);
 
     // issue an RGB20 asset
@@ -2975,9 +2959,7 @@ fn psbt_rgb_consumer_success() {
 
     // create 1 more UTXO for change, up_to false or AllocationsAlreadyAvailable is returned
     println!("utxo 2");
-    let num_utxos_created = wallet
-        .create_utxos(online.clone(), false, Some(1), None)
-        .unwrap();
+    let num_utxos_created = test_create_utxos(&mut wallet, online.clone(), false, Some(1), None);
     assert_eq!(num_utxos_created, 1);
 
     // try to send it
@@ -3049,9 +3031,7 @@ fn psbt_rgb_consumer_success() {
 
     // create 1 more UTXO for change, up_to false or AllocationsAlreadyAvailable is returned
     println!("utxo 3");
-    let num_utxos_created = wallet
-        .create_utxos(online.clone(), false, Some(1), None)
-        .unwrap();
+    let num_utxos_created = test_create_utxos(&mut wallet, online.clone(), false, Some(1), None);
     assert_eq!(num_utxos_created, 1);
 
     // try to send the second asset to a recipient and the third to different one
@@ -3095,9 +3075,13 @@ fn insufficient_bitcoins() {
     let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
 
     // create 1 UTXO with not enough bitcoins for a send and drain the rest
-    let num_utxos_created = wallet
-        .create_utxos(online.clone(), false, Some(1), Some(tiny_btc_amount))
-        .unwrap();
+    let num_utxos_created = test_create_utxos(
+        &mut wallet,
+        online.clone(),
+        false,
+        Some(1),
+        Some(tiny_btc_amount),
+    );
     assert_eq!(num_utxos_created, 1);
     wallet
         .drain_to(online.clone(), rcv_wallet.get_address(), false)
@@ -3133,10 +3117,13 @@ fn insufficient_bitcoins() {
 
     // create 1 UTXO for change (add funds, create UTXO, drain the rest)
     fund_wallet(wallet.get_address());
-    wallet._sync_db_txos().unwrap();
-    let num_utxos_created = wallet
-        .create_utxos(online.clone(), false, Some(1), Some(tiny_btc_amount))
-        .unwrap();
+    let num_utxos_created = test_create_utxos(
+        &mut wallet,
+        online.clone(),
+        false,
+        Some(1),
+        Some(tiny_btc_amount),
+    );
     assert_eq!(num_utxos_created, 1);
     wallet
         .drain_to(online.clone(), rcv_wallet.get_address(), false)
@@ -3158,9 +3145,8 @@ fn insufficient_allocations_fail() {
     let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
 
     // create 1 UTXO with not enough bitcoins for a send
-    let num_utxos_created = wallet
-        .create_utxos(online.clone(), false, Some(1), Some(300))
-        .unwrap();
+    let num_utxos_created =
+        test_create_utxos(&mut wallet, online.clone(), false, Some(1), Some(300));
     assert_eq!(num_utxos_created, 1);
 
     // issue an RGB20 asset
@@ -3191,9 +3177,7 @@ fn insufficient_allocations_fail() {
 
     // create 1 more UTXO for change, up_to false or AllocationsAlreadyAvailable is returned
     println!("utxo 2");
-    let num_utxos_created = wallet
-        .create_utxos(online.clone(), false, Some(1), None)
-        .unwrap();
+    let num_utxos_created = test_create_utxos(&mut wallet, online.clone(), false, Some(1), None);
     assert_eq!(num_utxos_created, 1);
 
     // send with no colorable UTXOs available as additional bitcoin inputs, uncolorable available
@@ -3210,9 +3194,8 @@ fn insufficient_allocations_success() {
     let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
 
     // create 1 UTXO with not enough bitcoins for a send
-    let num_utxos_created = wallet
-        .create_utxos(online.clone(), false, Some(1), Some(300))
-        .unwrap();
+    let num_utxos_created =
+        test_create_utxos(&mut wallet, online.clone(), false, Some(1), Some(300));
     assert_eq!(num_utxos_created, 1);
 
     // issue an RGB20 asset on the unspendable UTXO
@@ -3227,9 +3210,7 @@ fn insufficient_allocations_success() {
         .unwrap();
 
     // create 2 more UTXOs, 1 for change + 1 as additional bitcoin input
-    let num_utxos_created = wallet
-        .create_utxos(online.clone(), false, Some(2), None)
-        .unwrap();
+    let num_utxos_created = test_create_utxos(&mut wallet, online.clone(), false, Some(2), None);
     assert_eq!(num_utxos_created, 2);
 
     // send with 1 colorable UTXOs available as additional bitcoin input

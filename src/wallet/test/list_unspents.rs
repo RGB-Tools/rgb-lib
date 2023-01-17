@@ -26,9 +26,7 @@ fn success() {
     let unspent_list_all = wallet.list_unspents(false).unwrap();
     assert_eq!(unspent_list_all.len(), 1);
 
-    wallet
-        .create_utxos(online.clone(), false, None, None)
-        .unwrap();
+    test_create_utxos_default(&mut wallet, online.clone());
 
     // multiple unspents, one settled RGB allocation
     let asset = wallet
@@ -104,15 +102,11 @@ fn success() {
     drain_wallet(&wallet, online.clone());
     fund_wallet(wallet.get_address());
     mine(false);
-    wallet
-        .create_utxos(online.clone(), false, None, None)
-        .unwrap();
+    test_create_utxos_default(&mut wallet, online.clone());
     drain_wallet(&rcv_wallet, rcv_online.clone());
     fund_wallet(rcv_wallet.get_address());
     mine(false);
-    rcv_wallet
-        .create_utxos(rcv_online.clone(), false, None, None)
-        .unwrap();
+    test_create_utxos_default(&mut rcv_wallet, rcv_online.clone());
 
     // issue + send some asset
     let asset = wallet
