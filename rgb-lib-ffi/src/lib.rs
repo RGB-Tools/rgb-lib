@@ -143,8 +143,10 @@ impl Wallet {
         up_to: bool,
         num: Option<u8>,
         size: Option<u32>,
+        fee_rate: f32,
     ) -> Result<u8, RgbLibError> {
-        self._get_wallet().create_utxos(online, up_to, num, size)
+        self._get_wallet()
+            .create_utxos(online, up_to, num, size, fee_rate)
     }
 
     fn create_utxos_begin(
@@ -153,9 +155,10 @@ impl Wallet {
         up_to: bool,
         num: Option<u8>,
         size: Option<u32>,
+        fee_rate: f32,
     ) -> Result<String, RgbLibError> {
         self._get_wallet()
-            .create_utxos_begin(online, up_to, num, size)
+            .create_utxos_begin(online, up_to, num, size, fee_rate)
     }
 
     fn create_utxos_end(&self, online: Online, signed_psbt: String) -> Result<u8, RgbLibError> {
@@ -177,8 +180,10 @@ impl Wallet {
         online: Online,
         address: String,
         destroy_assets: bool,
+        fee_rate: f32,
     ) -> Result<String, RgbLibError> {
-        self._get_wallet().drain_to(online, address, destroy_assets)
+        self._get_wallet()
+            .drain_to(online, address, destroy_assets, fee_rate)
     }
 
     fn drain_to_begin(
@@ -186,9 +191,10 @@ impl Wallet {
         online: Online,
         address: String,
         destroy_assets: bool,
+        fee_rate: f32,
     ) -> Result<String, RgbLibError> {
         self._get_wallet()
-            .drain_to_begin(online, address, destroy_assets)
+            .drain_to_begin(online, address, destroy_assets, fee_rate)
     }
 
     fn drain_to_end(&self, online: Online, signed_psbt: String) -> Result<String, RgbLibError> {
@@ -290,8 +296,10 @@ impl Wallet {
         online: Online,
         recipient_map: HashMap<String, Vec<Recipient>>,
         donation: bool,
+        fee_rate: f32,
     ) -> Result<String, RgbLibError> {
-        self._get_wallet().send(online, recipient_map, donation)
+        self._get_wallet()
+            .send(online, recipient_map, donation, fee_rate)
     }
 
     fn send_begin(
@@ -299,9 +307,10 @@ impl Wallet {
         online: Online,
         recipient_map: HashMap<String, Vec<Recipient>>,
         donation: bool,
+        fee_rate: f32,
     ) -> Result<String, RgbLibError> {
         self._get_wallet()
-            .send_begin(online, recipient_map, donation)
+            .send_begin(online, recipient_map, donation, fee_rate)
     }
 
     fn send_end(&self, online: Online, signed_psbt: String) -> Result<String, RgbLibError> {

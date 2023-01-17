@@ -50,7 +50,6 @@ docker-compose -f tests/docker-compose.yml down
 ```
 
 ## Known issues
-- the library doesn't currently work when built in release mode
 - running all tests in parallel opens a lot of file descriptors and may hit the
   default limit (e.g. 1024); should that happen, the limit needs to be
   increased (e.g. `ulimit -n 3072`); running tests in smaller batches (e.g.

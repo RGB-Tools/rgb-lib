@@ -652,7 +652,7 @@ impl RgbLibDatabase {
         {
             Ok(AssetType::Rgb121)
         } else {
-            Err(Error::AssetNotFound(asset_id))
+            Err(Error::AssetNotFound { asset_id })
         }
     }
 
@@ -667,7 +667,7 @@ impl RgbLibDatabase {
         {
             Ok(batch_transfer.clone())
         } else {
-            Err(Error::BatchTransferNotFound(txid))
+            Err(Error::BatchTransferNotFound { txid })
         }
     }
 
@@ -682,7 +682,7 @@ impl RgbLibDatabase {
         {
             Ok(transfer.clone())
         } else {
-            Err(Error::TransferNotFound(blinded_utxo))
+            Err(Error::TransferNotFound { blinded_utxo })
         }
     }
 

@@ -153,8 +153,7 @@ pub(crate) fn setup_logger(log_path: PathBuf) -> Result<Logger, Error> {
         .create(true)
         .write(true)
         .truncate(true)
-        .open(log_filepath)
-        .map_err(Error::IO)?;
+        .open(log_filepath)?;
 
     let decorator = PlainDecorator::new(file);
     let drain = FullFormat::new(decorator)

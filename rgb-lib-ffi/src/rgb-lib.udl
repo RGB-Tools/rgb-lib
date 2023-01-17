@@ -6,50 +6,53 @@ namespace rgb_lib {
 };
 
 [Error]
-enum RgbLibError {
-  "AllocationsAlreadyAvailable",
-  "AssetNotFound",
-  "BatchTransferNotFound",
-  "BlindedUTXOAlreadyUsed",
-  "CannotChangeOnline",
-  "CannotDeleteTransfer",
-  "CannotFailTransfer",
-  "Electrum",
-  "FailedBdkSync",
-  "FailedBroadcast",
-  "FailedIssuance",
-  "IO",
-  "Inconsistency",
-  "InexistentDataDir",
-  "InsufficientAllocationSlots",
-  "InsufficientBitcoins",
-  "InsufficientSpendableAssets",
-  "InsufficientTotalAssets",
-  "Internal",
-  "InvalidAddress",
-  "InvalidBitcoinKeys",
-  "InvalidBlindedUTXO",
-  "InvalidConsignmentEndpoint",
-  "InvalidConsignmentEndpoints",
-  "InvalidDescription",
-  "InvalidElectrum",
-  "InvalidFilePath",
-  "InvalidInvoice",
-  "InvalidMnemonic",
-  "InvalidName",
-  "InvalidOnline",
-  "InvalidParentId",
-  "InvalidPsbt",
-  "InvalidPubkey",
-  "InvalidTicker",
-  "NoIssuanceAmounts",
-  "NoValidConsignmentEndpoint",
-  "Proxy",
-  "TransferNotFound",
-  "UnknownRgbSchema",
-  "UnsupportedConsignmentEndpointProtocol",
-  "UnsupportedInvoice",
-  "WatchOnly",
+interface RgbLibError {
+  AllocationsAlreadyAvailable();
+  AssetNotFound(string asset_id);
+  BatchTransferNotFound(string txid);
+  BlindedUTXOAlreadyUsed();
+  CannotChangeOnline();
+  CannotDeleteTransfer();
+  CannotFailTransfer();
+  CannotSendToSelf();
+  Electrum(string details);
+  FailedBdkSync(string details);
+  FailedBroadcast(string details);
+  FailedIssuance(string details);
+  IO(string details);
+  Inconsistency(string details);
+  InexistentDataDir();
+  InsufficientAllocationSlots();
+  InsufficientBitcoins(u64 needed, u64 available);
+  InsufficientSpendableAssets(string asset_id);
+  InsufficientTotalAssets(string asset_id);
+  Internal(string details);
+  InvalidAddress(string details);
+  InvalidBitcoinKeys();
+  InvalidBlindedUTXO(string details);
+  InvalidConsignmentEndpoint(string details);
+  InvalidConsignmentEndpoints(string details);
+  InvalidDescription(string details);
+  InvalidElectrum(string details);
+  InvalidFeeRate(string details);
+  InvalidFilePath(string file_path);
+  InvalidInvoice(string details);
+  InvalidMnemonic(string details);
+  InvalidName(string details);
+  InvalidOnline();
+  InvalidParentId(string details);
+  InvalidPrecision(string details);
+  InvalidPsbt(string details);
+  InvalidPubkey(string details);
+  InvalidTicker(string details);
+  NoIssuanceAmounts();
+  NoValidConsignmentEndpoint();
+  Proxy(string details);
+  TransferNotFound(string blinded_utxo);
+  UnknownRgbSchema(string schema_id);
+  UnsupportedConsignmentEndpointProtocol();
+  UnsupportedInvoice();
+  WatchOnly();
 };
 
 enum AssetType {
@@ -257,10 +260,10 @@ interface Wallet {
   BlindData blind(string? asset_id, u64? amount, u32? duration_seconds, sequence<string> consignment_endpoints);
 
   [Throws=RgbLibError]
-  u8 create_utxos(Online online, boolean up_to, u8? num, u32? size);
+  u8 create_utxos(Online online, boolean up_to, u8? num, u32? size, f32 fee_rate);
 
   [Throws=RgbLibError]
-  string create_utxos_begin(Online online, boolean up_to, u8? num, u32? size);
+  string create_utxos_begin(Online online, boolean up_to, u8? num, u32? size, f32 fee_rate);
 
   [Throws=RgbLibError]
   u8 create_utxos_end(Online online, string signed_psbt);
@@ -269,10 +272,10 @@ interface Wallet {
   boolean delete_transfers(string? blinded_utxo, string? txid, boolean no_asset_only);
 
   [Throws=RgbLibError]
-  string drain_to(Online online, string address, boolean destroy_assets);
+  string drain_to(Online online, string address, boolean destroy_assets, f32 fee_rate);
 
   [Throws=RgbLibError]
-  string drain_to_begin(Online online, string address, boolean destroy_assets);
+  string drain_to_begin(Online online, string address, boolean destroy_assets, f32 fee_rate);
 
   [Throws=RgbLibError]
   string drain_to_end(Online online, string signed_psbt);
@@ -316,12 +319,12 @@ interface Wallet {
   [Throws=RgbLibError]
   string send(
     Online online, record<DOMString, sequence<Recipient>> recipient_map,
-    boolean donation);
+    boolean donation, f32 fee_rate);
 
   [Throws=RgbLibError]
   string send_begin(
     Online online, record<DOMString, sequence<Recipient>> recipient_map,
-    boolean donation);
+    boolean donation, f32 fee_rate);
 
   [Throws=RgbLibError]
   string send_end(Online online, string signed_psbt);

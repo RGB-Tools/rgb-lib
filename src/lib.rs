@@ -42,7 +42,7 @@
 //! use rgb_lib::{generate_keys, BitcoinNetwork};
 //!
 //! fn main() -> Result<(), rgb_lib::Error> {
-//!     let data_dir = tempdir::TempDir::new("rgb_wallet")?;
+//!     let data_dir = tempfile::tempdir()?;
 //!     let keys = generate_keys(BitcoinNetwork::Regtest);
 //!     let wallet_data = WalletData {
 //!         data_dir: data_dir.path().to_str().unwrap().to_string(),

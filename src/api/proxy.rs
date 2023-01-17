@@ -110,8 +110,7 @@ impl Proxy for Client {
             .post(url)
             .header(CONTENT_TYPE, JSON)
             .json(&body)
-            .send()
-            .map_err(Error::Proxy)?
+            .send()?
             .json::<JsonRpcResponse<ServerInfoResponse>>()
             .map_err(InternalError::from)?)
     }
@@ -127,8 +126,7 @@ impl Proxy for Client {
             .post(url)
             .header(CONTENT_TYPE, JSON)
             .json(&body)
-            .send()
-            .map_err(Error::Proxy)?
+            .send()?
             .json::<JsonRpcResponse<bool>>()
             .map_err(InternalError::from)?)
     }
@@ -148,8 +146,7 @@ impl Proxy for Client {
             .post(url)
             .header(CONTENT_TYPE, JSON)
             .json(&body)
-            .send()
-            .map_err(Error::Proxy)?
+            .send()?
             .json::<JsonRpcResponse<String>>()
             .map_err(InternalError::from)?)
     }
@@ -165,8 +162,7 @@ impl Proxy for Client {
             .post(url)
             .header(CONTENT_TYPE, JSON)
             .json(&body)
-            .send()
-            .map_err(Error::Proxy)?
+            .send()?
             .json::<JsonRpcResponse<String>>()
             .map_err(InternalError::from)?)
     }
@@ -187,8 +183,7 @@ impl Proxy for Client {
             .post(url)
             .header(CONTENT_TYPE, JSON)
             .json(&body)
-            .send()
-            .map_err(Error::Proxy)?
+            .send()?
             .json::<JsonRpcResponse<bool>>()
             .map_err(InternalError::from)?)
     }
@@ -210,8 +205,7 @@ impl Proxy for Client {
         Ok(self
             .post(url)
             .multipart(form)
-            .send()
-            .map_err(Error::Proxy)?
+            .send()?
             .json::<JsonRpcResponse<bool>>()
             .map_err(InternalError::from)?)
     }
@@ -235,8 +229,7 @@ impl Proxy for Client {
         Ok(self
             .post(url)
             .multipart(form)
-            .send()
-            .map_err(Error::Proxy)?
+            .send()?
             .json::<JsonRpcResponse<bool>>()
             .map_err(InternalError::from)?)
     }

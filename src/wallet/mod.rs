@@ -125,6 +125,12 @@ const MIME_FNAME: &str = "mime";
 
 const MIN_BTC_REQUIRED: u64 = 2000;
 
+const OPRET_VBYTES: f32 = 43.0;
+
+const MAX_LEN_NAME: u16 = 256;
+const MAX_LEN_TICKER: u16 = 8;
+const MAX_PRECISION: u8 = 18;
+
 const UTXO_SIZE: u32 = 1000;
 const UTXO_NUM: u8 = 5;
 
@@ -133,6 +139,9 @@ const MIN_CONFIRMATIONS: u8 = 1;
 const MAX_ALLOCATIONS_PER_UTXO: u32 = 5;
 
 const MAX_CONSIGNMENT_ENDPOINTS: u8 = 3;
+
+const MIN_FEE_RATE: f32 = 1.0;
+const MAX_FEE_RATE: f32 = 1000.0;
 
 const DURATION_SEND_TRANSFER: i64 = 3600;
 const DURATION_RCV_TRANSFER: u32 = 86400;
@@ -861,7 +870,7 @@ impl Wallet {
                 .expect("a valid key should have been provided");
             let xpub_from_mnemonic = &xkey.into_xpub(bdk_network, &Secp256k1::new());
             if *xpub_from_mnemonic != xpub {
-                return Err(Error::InvalidBitcoinKeys());
+                return Err(Error::InvalidBitcoinKeys);
             }
             let xkey: ExtendedKey = mnemonic
                 .into_extended_key()
@@ -937,10 +946,14 @@ impl Wallet {
         let stored_online = self.online.clone().expect("wallet should be online");
         let electrum_url = stored_online.electrum_url;
         let electrum_config = ConfigBuilder::new()
-            .timeout(Some(ELECTRUM_TIMEOUT))?
+            .timeout(Some(ELECTRUM_TIMEOUT))
+            .expect("cannot fail since socks5 is unset")
             .build();
-        ElectrumClient::from_config(&electrum_url, electrum_config)
-            .map_err(|e| Error::InvalidElectrum(e.to_string()))
+        ElectrumClient::from_config(&electrum_url, electrum_config).map_err(|e| {
+            Error::InvalidElectrum {
+                details: e.to_string(),
+            }
+        })
     }
 
     fn _rgb_client(&mut self) -> Result<&mut Client, Error> {
@@ -963,17 +976,32 @@ impl Wallet {
         consignment_endpoints: &Vec<String>,
     ) -> Result<(), Error> {
         if consignment_endpoints.is_empty() {
-            return Err(Error::InvalidConsignmentEndpoints(s!(
-                "must provide at least a consignment endpoint"
-            )));
+            return Err(Error::InvalidConsignmentEndpoints {
+                details: s!("must provide at least a consignment endpoint"),
+            });
         }
         if consignment_endpoints.len() > MAX_CONSIGNMENT_ENDPOINTS as usize {
-            return Err(Error::InvalidConsignmentEndpoints(format!(
-                "library supports at max {} consignment endpoints",
-                MAX_CONSIGNMENT_ENDPOINTS
-            )));
+            return Err(Error::InvalidConsignmentEndpoints {
+                details: format!(
+                    "library supports at max {} consignment endpoints",
+                    MAX_CONSIGNMENT_ENDPOINTS
+                ),
+            });
         }
 
+        Ok(())
+    }
+
+    fn _check_fee_rate(&self, fee_rate: f32) -> Result<(), Error> {
+        if fee_rate < MIN_FEE_RATE {
+            return Err(Error::InvalidFeeRate {
+                details: format!("value under minimum {}", MIN_FEE_RATE),
+            });
+        } else if fee_rate > MAX_FEE_RATE {
+            return Err(Error::InvalidFeeRate {
+                details: format!("value above maximum {}", MAX_FEE_RATE),
+            });
+        }
         Ok(())
     }
 
@@ -981,7 +1009,9 @@ impl Wallet {
         debug!(self.logger, "Syncing TXOs...");
         self.bdk_wallet
             .sync(self._bdk_blockchain()?, SyncOptions { progress: None })
-            .map_err(|e| Error::FailedBdkSync(e.to_string()))?;
+            .map_err(|e| Error::FailedBdkSync {
+                details: e.to_string(),
+            })?;
 
         let db_outpoints: Vec<String> = self
             .database
@@ -1013,7 +1043,9 @@ impl Wallet {
         let tx = signed_psbt.extract_tx();
         self._bdk_blockchain()?
             .broadcast(&tx)
-            .map_err(|e| Error::FailedBroadcast(e.to_string()))?;
+            .map_err(|e| Error::FailedBroadcast {
+                details: e.to_string(),
+            })?;
         debug!(self.logger, "Broadcasted TX with ID '{}'", tx.txid());
 
         for input in tx.clone().input {
@@ -1038,7 +1070,7 @@ impl Wallet {
         let stored_online = self.online.clone();
         if stored_online.is_none() || Some(online) != stored_online {
             error!(self.logger, "Invalid online object");
-            return Err(Error::InvalidOnline());
+            return Err(Error::InvalidOnline);
         }
         Ok(())
     }
@@ -1046,12 +1078,12 @@ impl Wallet {
     fn _check_xprv(&self) -> Result<(), Error> {
         if self.watch_only {
             error!(self.logger, "Invalid operation for a watch only wallet");
-            return Err(Error::WatchOnly());
+            return Err(Error::WatchOnly);
         }
         Ok(())
     }
 
-    fn _get_uncolorable_btc_sum(&self, unspents: Vec<LocalUnspent>) -> u64 {
+    fn _get_uncolorable_btc_sum(&self, unspents: &Vec<LocalUnspent>) -> u64 {
         unspents
             .iter()
             .filter(|u| !u.utxo.colorable)
@@ -1110,9 +1142,13 @@ impl Wallet {
             .collect())
     }
 
-    fn _detect_btc_unspendable_err(&self, unspents: Vec<LocalUnspent>) -> Error {
-        if self._get_uncolorable_btc_sum(unspents) < MIN_BTC_REQUIRED {
-            Error::InsufficientBitcoins
+    fn _detect_btc_unspendable_err(&self, unspents: &Vec<LocalUnspent>) -> Error {
+        let available = self._get_uncolorable_btc_sum(unspents);
+        if available < MIN_BTC_REQUIRED {
+            Error::InsufficientBitcoins {
+                needed: MIN_BTC_REQUIRED,
+                available,
+            }
         } else {
             Error::InsufficientAllocationSlots
         }
@@ -1157,7 +1193,7 @@ impl Wallet {
                 }
                 Ok(selected.clone().utxo)
             }
-            None => Err(self._detect_btc_unspendable_err(unspents)),
+            None => Err(self._detect_btc_unspendable_err(&unspents)),
         }
     }
 
@@ -1256,9 +1292,9 @@ impl Wallet {
         consignment_endpoints_dedup.sort();
         consignment_endpoints_dedup.dedup();
         if consignment_endpoints_dedup.len() != consignment_endpoints.len() {
-            return Err(Error::InvalidConsignmentEndpoints(s!(
-                "no duplicate consignment endpoints allowed"
-            )));
+            return Err(Error::InvalidConsignmentEndpoints {
+                details: s!("no duplicate consignment endpoints allowed"),
+            });
         }
         let mut endpoints: Vec<String> = vec![];
         for endpoint_str in consignment_endpoints {
@@ -1336,10 +1372,13 @@ impl Wallet {
         inputs: &[OutPoint],
         num_utxos_to_create: u8,
         size: u32,
+        fee_rate: f32,
     ) -> Result<PartiallySignedTransaction, bdk::Error> {
         let mut tx_builder = self.bdk_wallet.build_tx();
-        tx_builder.add_utxos(inputs)?;
-        tx_builder.manually_selected_only();
+        tx_builder
+            .add_utxos(inputs)?
+            .manually_selected_only()
+            .fee_rate(FeeRate::from_sat_per_vb(fee_rate));
         for _i in 0..num_utxos_to_create {
             tx_builder.add_recipient(self._get_new_address().script_pubkey(), size as u64);
         }
@@ -1356,11 +1395,12 @@ impl Wallet {
         up_to: bool,
         num: Option<u8>,
         size: Option<u32>,
+        fee_rate: f32,
     ) -> Result<u8, Error> {
         info!(self.logger, "Creating UTXOs...");
         self._check_xprv()?;
 
-        let unsigned_psbt = self.create_utxos_begin(online.clone(), up_to, num, size)?;
+        let unsigned_psbt = self.create_utxos_begin(online.clone(), up_to, num, size, fee_rate)?;
 
         let mut psbt =
             PartiallySignedTransaction::from_str(&unsigned_psbt).map_err(InternalError::from)?;
@@ -1398,9 +1438,11 @@ impl Wallet {
         up_to: bool,
         num: Option<u8>,
         size: Option<u32>,
+        fee_rate: f32,
     ) -> Result<String, Error> {
         info!(self.logger, "Creating UTXOs (begin)...");
         self._check_online(online)?;
+        self._check_fee_rate(fee_rate)?;
 
         self._sync_db_txos()?;
 
@@ -1428,23 +1470,34 @@ impl Wallet {
             .map(OutPoint::from)
             .collect();
         let inputs: &[OutPoint] = &inputs;
-        let new_btc_amount = self._get_uncolorable_btc_sum(unspents);
+        let new_btc_amount = self._get_uncolorable_btc_sum(&unspents);
         let utxo_size = size.unwrap_or(UTXO_SIZE);
         let max_possible_utxos = new_btc_amount / utxo_size as u64;
+        let mut btc_needed: u64 = 0;
+        let mut btc_available: u64 = 0;
         let mut num_try_creating = min(utxos_to_create, max_possible_utxos as u8);
         while num_try_creating > 0 {
-            match self._create_split_tx(inputs, num_try_creating, utxo_size) {
+            match self._create_split_tx(inputs, num_try_creating, utxo_size, fee_rate) {
                 Ok(_v) => break,
-                Err(_e) => num_try_creating -= 1,
+                Err(e) => {
+                    (btc_needed, btc_available) = match e {
+                        bdk::Error::InsufficientFunds { needed, available } => (needed, available),
+                        _ => (0, 0),
+                    };
+                    num_try_creating -= 1
+                }
             };
         }
 
         if num_try_creating == 0 {
-            Err(Error::InsufficientBitcoins)
+            Err(Error::InsufficientBitcoins {
+                needed: btc_needed,
+                available: btc_available,
+            })
         } else {
             info!(self.logger, "Create UTXOs completed");
             Ok(self
-                ._create_split_tx(inputs, num_try_creating, utxo_size)
+                ._create_split_tx(inputs, num_try_creating, utxo_size, fee_rate)
                 .map_err(InternalError::from)?
                 .to_string())
         }
@@ -1461,8 +1514,7 @@ impl Wallet {
         info!(self.logger, "Creating UTXOs (end)...");
         self._check_online(online)?;
 
-        let signed_psbt =
-            PartiallySignedTransaction::from_str(&signed_psbt).map_err(Error::InvalidPsbt)?;
+        let signed_psbt = PartiallySignedTransaction::from_str(&signed_psbt)?;
         let tx = self._broadcast_psbt(signed_psbt)?;
 
         let mut num_utxos_created = 0;
@@ -1601,6 +1653,7 @@ impl Wallet {
         online: Online,
         address: String,
         destroy_assets: bool,
+        fee_rate: f32,
     ) -> Result<String, Error> {
         info!(
             self.logger,
@@ -1608,7 +1661,8 @@ impl Wallet {
         );
         self._check_xprv()?;
 
-        let unsigned_psbt = self.drain_to_begin(online.clone(), address, destroy_assets)?;
+        let unsigned_psbt =
+            self.drain_to_begin(online.clone(), address, destroy_assets, fee_rate)?;
 
         let mut psbt =
             PartiallySignedTransaction::from_str(&unsigned_psbt).map_err(InternalError::from)?;
@@ -1635,17 +1689,22 @@ impl Wallet {
         online: Online,
         address: String,
         destroy_assets: bool,
+        fee_rate: f32,
     ) -> Result<String, Error> {
         info!(
             self.logger,
             "Draining (begin) to '{}' destroying asset '{}'...", address, destroy_assets
         );
         self._check_online(online)?;
+        self._check_fee_rate(fee_rate)?;
 
         let address = Address::from_str(&address).map(|x| x.script_pubkey())?;
 
         let mut tx_builder = self.bdk_wallet.build_tx();
-        tx_builder.drain_wallet().drain_to(address);
+        tx_builder
+            .drain_wallet()
+            .drain_to(address)
+            .fee_rate(FeeRate::from_sat_per_vb(fee_rate));
 
         if !destroy_assets {
             let colored_txos: Vec<i64> = self
@@ -1667,7 +1726,9 @@ impl Wallet {
         let psbt = tx_builder
             .finish()
             .map_err(|e| match e {
-                bdk::Error::InsufficientFunds { .. } => Error::InsufficientBitcoins,
+                bdk::Error::InsufficientFunds { needed, available } => {
+                    Error::InsufficientBitcoins { needed, available }
+                }
                 _ => Error::from(InternalError::from(e)),
             })?
             .0
@@ -1688,8 +1749,7 @@ impl Wallet {
         info!(self.logger, "Draining (end)...");
         self._check_online(online)?;
 
-        let signed_psbt =
-            PartiallySignedTransaction::from_str(&signed_psbt).map_err(Error::InvalidPsbt)?;
+        let signed_psbt = PartiallySignedTransaction::from_str(&signed_psbt)?;
         let tx = self._broadcast_psbt(signed_psbt)?;
 
         info!(self.logger, "Drain (end) completed");
@@ -1938,7 +1998,7 @@ impl Wallet {
                     parent_id,
                 }
             }
-            _ => return Err(Error::UnknownRgbSchema(schema_id)),
+            _ => return Err(Error::UnknownRgbSchema { schema_id }),
         };
 
         info!(self.logger, "Get asset metadata completed");
@@ -1976,9 +2036,9 @@ impl Wallet {
             .collect();
         let db_utxos: HashSet<String> = HashSet::from_iter(db_utxos);
         if db_utxos.difference(&bdk_utxos).count() > 0 {
-            return Err(Error::Inconsistency(s!(
-                "spent bitcoins with another wallet"
-            )));
+            return Err(Error::Inconsistency {
+                details: s!("spent bitcoins with another wallet"),
+            });
         }
 
         let asset_ids: Vec<String> = self
@@ -1990,9 +2050,9 @@ impl Wallet {
             .collect();
         let db_asset_ids: Vec<String> = self.database.get_asset_ids()?;
         if !db_asset_ids.iter().all(|i| asset_ids.contains(i)) {
-            return Err(Error::Inconsistency(s!(
-                "DB assets do not match with ones stored in RGB"
-            )));
+            return Err(Error::Inconsistency {
+                details: s!("DB assets do not match with ones stored in RGB"),
+            });
         }
 
         info!(self.logger, "Consistency check completed");
@@ -2014,7 +2074,9 @@ impl Wallet {
         // check electrum server
         if self.bitcoin_network != BitcoinNetwork::Regtest {
             self._get_tx_details(get_txid(self.bitcoin_network))
-                .map_err(|e| Error::InvalidElectrum(e.to_string()))?;
+                .map_err(|e| Error::InvalidElectrum {
+                    details: e.to_string(),
+                })?;
         }
 
         // BDK setup
@@ -2025,10 +2087,12 @@ impl Wallet {
             timeout: Some(5),
             stop_gap: 20,
         };
-        self.bdk_blockchain = Some(
-            ElectrumBlockchain::from_config(&config)
-                .map_err(|e| Error::InvalidElectrum(e.to_string()))?,
-        );
+        self.bdk_blockchain =
+            Some(
+                ElectrumBlockchain::from_config(&config).map_err(|e| Error::InvalidElectrum {
+                    details: e.to_string(),
+                })?,
+            );
 
         // RGB setup
         let rgb_network = RgbNetwork::from(self.bitcoin_network);
@@ -2097,7 +2161,7 @@ impl Wallet {
             if electrum_url == online.electrum_url {
                 Ok(online)
             } else {
-                Err(Error::CannotChangeOnline())
+                Err(Error::CannotChangeOnline)
             }
         } else {
             let online = self._go_online(skip_consistency_check, electrum_url);
@@ -2110,6 +2174,54 @@ impl Wallet {
         };
         info!(self.logger, "Go online completed");
         online
+    }
+
+    fn _check_name(&self, name: &str) -> Result<AsciiString, Error> {
+        let name_ascii = AsciiString::from_str(name).map_err(|e| Error::InvalidName {
+            details: e.to_string(),
+        })?;
+        if name_ascii.is_empty() {
+            return Err(Error::InvalidName {
+                details: s!("name cannot be empty"),
+            });
+        }
+        if name_ascii.len() > MAX_LEN_NAME {
+            return Err(Error::InvalidName {
+                details: s!("name too long"),
+            });
+        }
+        Ok(name_ascii)
+    }
+
+    fn _check_precision(&self, precision: u8) -> Result<u8, Error> {
+        if precision > MAX_PRECISION {
+            return Err(Error::InvalidPrecision {
+                details: s!("precision is too high"),
+            });
+        }
+        Ok(precision)
+    }
+
+    fn _check_ticker(&self, ticker: &str) -> Result<AsciiString, Error> {
+        let ticker_ascii = AsciiString::from_str(ticker).map_err(|e| Error::InvalidTicker {
+            details: e.to_string(),
+        })?;
+        if ticker_ascii.is_empty() {
+            return Err(Error::InvalidTicker {
+                details: s!("ticker cannot be empty"),
+            });
+        }
+        if ticker_ascii.len() > MAX_LEN_TICKER {
+            return Err(Error::InvalidTicker {
+                details: s!("ticker too long"),
+            });
+        }
+        if ticker_ascii.to_ascii_uppercase() != ticker_ascii.to_string() {
+            return Err(Error::InvalidTicker {
+                details: s!("ticker needs to be all uppercase"),
+            });
+        }
+        Ok(ticker_ascii)
     }
 
     /// Issue a new RGB [`AssetRgb20`] and return it
@@ -2163,9 +2275,9 @@ impl Wallet {
         debug!(self.logger, "Issuing asset allocations '{:?}'", allocations);
         let asset = Contract::create_rgb20(
             RgbNetwork::from(self.bitcoin_network),
-            AsciiString::from_str(&ticker).map_err(|e| Error::InvalidTicker(e.to_string()))?,
-            AsciiString::from_str(&name).map_err(|e| Error::InvalidName(e.to_string()))?,
-            precision,
+            self._check_ticker(&ticker)?,
+            self._check_name(&name)?,
+            self._check_precision(precision)?,
             allocations,
             BTreeMap::new(),
             CloseMethod::OpretFirst,
@@ -2182,7 +2294,9 @@ impl Wallet {
             .map_err(InternalError::from)?;
         debug!(self.logger, "Contract registered");
         if !matches!(status, ContractValidity::Valid) {
-            return Err(Error::FailedIssuance(format!("{:?}", status)));
+            return Err(Error::FailedIssuance {
+                details: format!("{:?}", status),
+            });
         }
         let asset_id = asset.contract_id().to_string();
         debug!(self.logger, "Issued asset with ID '{:?}'", asset_id);
@@ -2288,21 +2402,36 @@ impl Wallet {
         debug!(self.logger, "Issuing asset allocations '{:?}'", allocations);
         let desc = if let Some(desc) = description.clone() {
             Some(
-                AsciiString::from_str(&desc)
-                    .map_err(|e| Error::InvalidDescription(e.to_string()))?,
+                AsciiString::from_str(&desc).map_err(|e| Error::InvalidDescription {
+                    details: e.to_string(),
+                })?,
             )
         } else {
             None
         };
         let pid = if let Some(pid) = &parent_id {
-            Some(AsciiString::from_str(pid).map_err(|e| Error::InvalidParentId(e.to_string()))?)
+            if pid.is_empty() {
+                return Err(Error::InvalidParentId {
+                    details: s!("parent_id cannot be empty"),
+                });
+            }
+            ContractId::from_str(pid).map_err(|e| Error::InvalidParentId {
+                details: e.to_string(),
+            })?;
+            Some(
+                AsciiString::from_str(pid).map_err(|e| Error::InvalidParentId {
+                    details: e.to_string(),
+                })?,
+            )
         } else {
             None
         };
         let attachments = if let Some(fp) = &file_path {
             let fpath = std::path::Path::new(fp);
             if !fpath.exists() {
-                return Err(Error::InvalidFilePath(fp.clone()));
+                return Err(Error::InvalidFilePath {
+                    file_path: fp.clone(),
+                });
             }
             vec![FileAttachment {
                 file_path: PathBuf::from(fp),
@@ -2315,9 +2444,9 @@ impl Wallet {
 
         let asset = Contract::create_rgb121(
             RgbNetwork::from(self.bitcoin_network),
-            AsciiString::from_str(&name).map_err(|e| Error::InvalidName(e.to_string()))?,
+            self._check_name(&name)?,
             desc,
-            precision,
+            self._check_precision(precision)?,
             pid,
             attachments,
             vec![],
@@ -2335,7 +2464,9 @@ impl Wallet {
             .map_err(InternalError::from)?;
         debug!(self.logger, "Contract registered");
         if !matches!(status, ContractValidity::Valid) {
-            return Err(Error::FailedIssuance(format!("{:?}", status)));
+            return Err(Error::FailedIssuance {
+                details: format!("{:?}", status),
+            });
         }
         let asset_id = asset.contract_id().to_string();
         debug!(self.logger, "Issued asset with ID '{:?}'", asset_id);
@@ -2592,7 +2723,7 @@ impl Wallet {
     fn _get_signed_psbt(&self, transfer_dir: PathBuf) -> Result<PartiallySignedTransaction, Error> {
         let psbt_file = transfer_dir.join(SIGNED_PSBT_FILE);
         let psbt_str = fs::read_to_string(psbt_file)?;
-        PartiallySignedTransaction::from_str(&psbt_str).map_err(Error::InvalidPsbt)
+        Ok(PartiallySignedTransaction::from_str(&psbt_str)?)
     }
 
     fn _fail_batch_transfer_if_no_endpoints(
@@ -2640,7 +2771,19 @@ impl Wallet {
             let consignment_res = self
                 .rest_client
                 .clone()
-                .get_consignment(&consignment_endpoint.endpoint, blinded_utxo.clone())?;
+                .get_consignment(&consignment_endpoint.endpoint, blinded_utxo.clone());
+            if consignment_res.is_err() {
+                debug!(
+                    self.logger,
+                    "Consignment GET response error: {:?}", &consignment_res
+                );
+                info!(
+                    self.logger,
+                    "Skipping consignment endpoint: {:?}", &consignment_endpoint
+                );
+                continue;
+            }
+            let consignment_res = consignment_res.unwrap();
             debug!(
                 self.logger,
                 "Consignment GET response: {:?}", consignment_res
@@ -2734,20 +2877,6 @@ impl Wallet {
             }
         }
 
-        let ser_cons = strict_serialize(&consignment).map_err(InternalError::from)?;
-        let contract_consignment: Contract =
-            strict_deserialize(ser_cons).map_err(InternalError::from)?;
-
-        debug!(self.logger, "Registering contract...");
-        let status = self
-            ._rgb_client()?
-            .register_contract(contract_consignment, true, |_| ())
-            .map_err(InternalError::from)?;
-        debug!(self.logger, "Contract registered");
-        if !matches!(status, ContractValidity::Valid) {
-            valid = false;
-        }
-
         if !valid {
             let nack_res = self
                 .rest_client
@@ -2775,9 +2904,19 @@ impl Wallet {
 
         // add asset info to transfer if missing
         if asset_id.is_none() {
-            // save asset in DB if unknown
+            // check if asset is known
             let asset_type = self.database.get_asset_or_fail(cid.clone());
             let asset_type: AssetType = if asset_type.is_err() {
+                // unknown asset, registering contract
+                let ser_cons = strict_serialize(&consignment).map_err(InternalError::from)?;
+                let contract_consignment: Contract =
+                    strict_deserialize(ser_cons).map_err(InternalError::from)?;
+                debug!(self.logger, "Registering contract...");
+                self._rgb_client()?
+                    .register_contract(contract_consignment, true, |_| ())
+                    .map_err(InternalError::from)?;
+                debug!(self.logger, "Contract registered");
+
                 // extract asset data from consignment
                 let metadata = consignment.genesis().metadata();
                 let schema_id = consignment.schema_id().to_string();
@@ -2832,7 +2971,7 @@ impl Wallet {
                         self.database.set_asset_rgb121(db_asset)?;
                         AssetType::Rgb121
                     }
-                    _ => return Err(Error::UnknownRgbSchema(schema_id)),
+                    _ => return Err(Error::UnknownRgbSchema { schema_id }),
                 }
             } else {
                 asset_type?
@@ -3278,9 +3417,9 @@ impl Wallet {
                 None,
             )?;
             if ass_balance.future < amount_needed {
-                return Err(Error::InsufficientTotalAssets(asset_id));
+                return Err(Error::InsufficientTotalAssets { asset_id });
             }
-            return Err(Error::InsufficientSpendableAssets(asset_id));
+            return Err(Error::InsufficientSpendableAssets { asset_id });
         }
         debug!(self.logger, "Asset input amount {:?}", amount_input_asset);
         let inputs: Vec<DbTxo> = input_allocations.clone().into_keys().collect();
@@ -3304,21 +3443,56 @@ impl Wallet {
     fn _prepare_psbt(
         &self,
         input_outpoints: Vec<OutPoint>,
+        fee_rate: f32,
     ) -> Result<PartiallySignedTransaction, Error> {
         let mut builder = self.bdk_wallet.build_tx();
         builder
             .add_utxos(&input_outpoints)
             .map_err(InternalError::from)?
             .manually_selected_only()
-            .drain_to(self._get_new_address().script_pubkey())
-            .fee_rate(FeeRate::from_sat_per_vb(1.5));
+            .fee_rate(FeeRate::from_sat_per_vb(fee_rate))
+            .drain_to(self._get_new_address().script_pubkey());
         Ok(builder
             .finish()
             .map_err(|e| match e {
-                bdk::Error::InsufficientFunds { .. } => Error::InsufficientBitcoins,
+                bdk::Error::InsufficientFunds { needed, available } => {
+                    Error::InsufficientBitcoins { needed, available }
+                }
                 _ => Error::from(InternalError::from(e)),
             })?
             .0)
+    }
+
+    fn _try_prepare_psbt(
+        &self,
+        input_unspents: &Vec<LocalUnspent>,
+        all_inputs: &mut Vec<OutPoint>,
+        fee_rate: f32,
+    ) -> Result<PartiallySignedTransaction, Error> {
+        let psbt = loop {
+            break match self._prepare_psbt(all_inputs.clone(), fee_rate) {
+                Ok(psbt) => psbt,
+                Err(Error::InsufficientBitcoins { .. }) => {
+                    let used_txos: Vec<Outpoint> =
+                        all_inputs.clone().into_iter().map(|o| o.into()).collect();
+                    if let Some(a) = self
+                        ._get_available_allocations(
+                            input_unspents.clone(),
+                            used_txos.clone(),
+                            Some(0),
+                        )?
+                        .pop()
+                    {
+                        all_inputs.push(a.utxo.into());
+                        continue;
+                    } else {
+                        return Err(self._detect_btc_unspendable_err(&input_unspents));
+                    }
+                }
+                Err(e) => return Err(e),
+            };
+        };
+        Ok(psbt)
     }
 
     fn _prepare_rgb_psbt(
@@ -3329,8 +3503,7 @@ impl Wallet {
         transfer_dir: PathBuf,
         donation: bool,
         unspents: Vec<LocalUnspent>,
-        batch_transfers: Vec<DbBatchTransfer>,
-        asset_transfers: Vec<DbAssetTransfer>,
+        db_data: &DbData,
     ) -> Result<(), Error> {
         let change_utxo = self._get_utxo(
             input_outpoints.into_iter().map(|t| t.into()).collect(),
@@ -3343,17 +3516,20 @@ impl Wallet {
             change_utxo.outpoint().to_string()
         );
 
-        let failed_batch_transfer_ids: Vec<i64> = batch_transfers
+        let failed_batch_transfer_ids: Vec<i64> = db_data
+            .batch_transfers
+            .clone()
             .into_iter()
             .filter(|t| t.failed())
             .map(|t| t.idx)
             .collect();
-        let failed_asset_transfer_ids: Vec<i64> = asset_transfers
+        let failed_asset_transfer_ids: Vec<i64> = db_data
+            .asset_transfers
+            .clone()
             .into_iter()
             .filter(|t| failed_batch_transfer_ids.contains(&t.batch_transfer_idx))
             .map(|t| t.idx)
             .collect();
-        let existing_transfers = self.database.iter_transfers()?;
         let mut asset_beneficiaries: BTreeMap<String, BTreeMap<SealEndpoint, u64>> = bmap![];
         for (asset_id, transfer_info) in transfer_info_map.clone() {
             let asset_spend = transfer_info.asset_spend;
@@ -3396,17 +3572,20 @@ impl Wallet {
             // RGB20-RGB121 transfer
             let mut out_allocations: Vec<UtxobValue> = vec![];
             for recipient in recipients.clone() {
-                if existing_transfers
+                if let Some(existing_transfer) = db_data
+                    .transfers
                     .iter()
                     .filter(|t| !failed_asset_transfer_ids.contains(&t.asset_transfer_idx))
-                    .any(|t| t.blinded_utxo == Some(recipient.blinded_utxo.clone()))
+                    .find(|t| t.blinded_utxo == Some(recipient.blinded_utxo.clone()))
                 {
+                    if existing_transfer.blinding_secret.is_some() {
+                        return Err(Error::CannotSendToSelf);
+                    }
                     return Err(Error::BlindedUTXOAlreadyUsed)?;
                 }
                 out_allocations.push(UtxobValue {
                     value: recipient.amount,
-                    seal_confidential: ConcealedSeal::from_str(&recipient.blinded_utxo)
-                        .map_err(Error::InvalidBlindedUTXO)?,
+                    seal_confidential: ConcealedSeal::from_str(&recipient.blinded_utxo)?,
                 });
             }
             let beneficiaries: BTreeMap<SealEndpoint, u64> = out_allocations
@@ -3444,7 +3623,7 @@ impl Wallet {
                         .transfer(input_outpoints_bt.clone(), beneficiaries, revealed_seal)
                         .map_err(|_| InternalError::Unexpected)?
                 }
-                _ => return Err(Error::UnknownRgbSchema(schema_id)),
+                _ => return Err(Error::UnknownRgbSchema { schema_id }),
             };
             debug!(self.logger, "Created RGB transition");
 
@@ -3532,7 +3711,7 @@ impl Wallet {
                     TransitionBundle::blank_rgb121(&outpoint_map, &new_outpoints)
                         .map_err(InternalError::from)?
                 }
-                _ => return Err(Error::UnknownRgbSchema(schema_id)),
+                _ => return Err(Error::UnknownRgbSchema { schema_id }),
             };
 
             for (transition, _indexes) in blank_bundle.revealed_iter() {
@@ -3804,11 +3983,12 @@ impl Wallet {
         online: Online,
         recipient_map: HashMap<String, Vec<Recipient>>,
         donation: bool,
+        fee_rate: f32,
     ) -> Result<String, Error> {
         info!(self.logger, "Sending to: {:?}...", recipient_map);
         self._check_xprv()?;
 
-        let unsigned_psbt = self.send_begin(online.clone(), recipient_map, donation)?;
+        let unsigned_psbt = self.send_begin(online.clone(), recipient_map, donation, fee_rate)?;
 
         let mut psbt =
             PartiallySignedTransaction::from_str(&unsigned_psbt).map_err(InternalError::from)?;
@@ -3840,9 +4020,11 @@ impl Wallet {
         online: Online,
         recipient_map: HashMap<String, Vec<Recipient>>,
         donation: bool,
+        fee_rate: f32,
     ) -> Result<String, Error> {
         info!(self.logger, "Sending (begin) to: {:?}...", recipient_map);
         self._check_online(online)?;
+        self._check_fee_rate(fee_rate)?;
 
         let mut db_data = self.database.get_db_data(false)?;
         self._handle_expired_transfers(&mut db_data)?;
@@ -3862,7 +4044,7 @@ impl Wallet {
         }
 
         // input selection
-        let utxos = self.database.get_unspent_txos(db_data.txos)?;
+        let utxos = self.database.get_unspent_txos(db_data.txos.clone())?;
 
         let unspents = self.database.get_rgb_allocations(
             utxos,
@@ -3924,9 +4106,9 @@ impl Wallet {
                 }
 
                 if !found_valid {
-                    return Err(Error::InvalidConsignmentEndpoints(s!(
-                        "no valid consignment endpoints"
-                    )));
+                    return Err(Error::InvalidConsignmentEndpoints {
+                        details: s!("no valid consignment endpoints"),
+                    });
                 }
 
                 local_recipients.push(LocalRecipient {
@@ -3963,40 +4145,21 @@ impl Wallet {
             .concat();
         all_inputs.sort();
         all_inputs.dedup();
-        let mut psbt = loop {
-            break match self._prepare_psbt(all_inputs.clone()) {
-                Ok(psbt) => psbt,
-                Err(Error::InsufficientBitcoins) => {
-                    let used_txos: Vec<Outpoint> =
-                        all_inputs.clone().into_iter().map(|o| o.into()).collect();
-                    if let Some(a) = self
-                        ._get_available_allocations(
-                            input_unspents.clone(),
-                            used_txos.clone(),
-                            Some(0),
-                        )?
-                        .pop()
-                    {
-                        all_inputs.push(a.utxo.into());
-                        continue;
-                    } else {
-                        return Err(self._detect_btc_unspendable_err(input_unspents));
-                    }
-                }
-                Err(e) => return Err(e),
-            };
-        };
+        let psbt = self._try_prepare_psbt(&input_unspents, &mut all_inputs, fee_rate)?;
+        let vbytes = psbt.clone().extract_tx().vsize() as f32;
+        let updated_fee_rate = ((vbytes + OPRET_VBYTES) / vbytes) * fee_rate;
+        let mut psbt =
+            self._try_prepare_psbt(&input_unspents, &mut all_inputs, updated_fee_rate)?;
 
         // prepare RGB PSBT
         self._prepare_rgb_psbt(
             &mut psbt,
-            all_inputs,
+            all_inputs.clone(),
             transfer_info_map.clone(),
             transfer_dir.clone(),
             donation,
-            unspents,
-            db_data.batch_transfers,
-            db_data.asset_transfers,
+            unspents.clone(),
+            &db_data,
         )?;
 
         // rename transfer directory
@@ -4020,8 +4183,7 @@ impl Wallet {
         self._check_online(online)?;
 
         // save signed PSBT
-        let psbt =
-            PartiallySignedTransaction::from_str(&signed_psbt).map_err(Error::InvalidPsbt)?;
+        let psbt = PartiallySignedTransaction::from_str(&signed_psbt)?;
         let txid = psbt.clone().extract_tx().txid().to_string();
         let transfer_dir = self.wallet_dir.join(TRANSFER_DIR).join(txid.clone());
         let psbt_out = transfer_dir.join(SIGNED_PSBT_FILE);
