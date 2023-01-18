@@ -15,11 +15,11 @@ name = "rgblibffi"
 
 [dependencies]
 rgb-lib = { version = "0.1.6", path = "../" }
-uniffi = { version = "0.19.2", features = ["builtin-bindgen"] }
-uniffi_macros = { version = "0.19.2", features = ["builtin-bindgen"] }
+uniffi = { version = "0.22.0", features = ["builtin-bindgen"] }
+uniffi_macros = { version = "0.22.0", features = ["builtin-bindgen"] }
 
 [build-dependencies]
-uniffi_build = { version = "0.19.2", features = ["builtin-bindgen"] }
+uniffi_build = { version = "0.22.0", features = ["builtin-bindgen"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 openssl = { version = "0.10", features = ["vendored"] }
