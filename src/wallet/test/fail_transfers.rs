@@ -66,7 +66,7 @@ fn success() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = wallet.send(online.clone(), recipient_map, false).unwrap();
+    let txid = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid.is_empty());
     stop_mining();
     rcv_wallet
@@ -149,7 +149,7 @@ fn success() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = wallet.send(online, recipient_map, false).unwrap();
+    let txid = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid.is_empty());
     rcv_wallet
         .refresh(rcv_online.clone(), None, vec![])
@@ -248,7 +248,7 @@ fn batch_success() {
             },
         ],
     )]);
-    let txid = wallet.send(online.clone(), recipient_map, false).unwrap();
+    let txid = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid.is_empty());
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet_1,
@@ -296,7 +296,7 @@ fn batch_success() {
             },
         ],
     )]);
-    let txid = wallet.send(online.clone(), recipient_map, false).unwrap();
+    let txid = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid.is_empty());
     wallet
         .fail_transfers(online.clone(), None, Some(txid), false)
@@ -324,7 +324,7 @@ fn batch_success() {
             },
         ],
     )]);
-    let txid = wallet.send(online.clone(), recipient_map, false).unwrap();
+    let txid = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid.is_empty());
     rcv_wallet_1.refresh(rcv_online_1, None, vec![]).unwrap();
     assert!(check_test_transfer_status_recipient(
@@ -406,7 +406,7 @@ fn fail() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    wallet.send(online.clone(), recipient_map, false).unwrap();
+    test_send_default(&mut wallet, &online, recipient_map);
 
     // check starting transfer status
     assert!(check_test_transfer_status_recipient(
@@ -425,7 +425,10 @@ fn fail() {
     // don't fail unknown blinded UTXO
     let result =
         rcv_wallet.fail_transfers(rcv_online.clone(), Some(s!("txob1inexistent")), None, false);
-    assert!(matches!(result, Err(Error::TransferNotFound(_))));
+    assert!(matches!(
+        result,
+        Err(Error::TransferNotFound { blinded_utxo: _ })
+    ));
 
     // don't fail incoming transfer: waiting counterparty -> confirmations
     let result =
@@ -534,7 +537,7 @@ fn batch_fail() {
             },
         ],
     )]);
-    let txid = wallet.send(online.clone(), recipient_map, false).unwrap();
+    let txid = test_send_default(&mut wallet, &online, recipient_map);
     let result =
         wallet.fail_transfers(online.clone(), Some(blind_data_1.blinded_utxo), None, false);
     assert!(matches!(result, Err(Error::CannotFailTransfer)));
@@ -564,7 +567,7 @@ fn batch_fail() {
             },
         ],
     )]);
-    let txid_1 = wallet.send(online.clone(), recipient_map_1, false).unwrap();
+    let txid_1 = test_send_default(&mut wallet, &online, recipient_map_1);
     let blind_data_3 = rcv_wallet_2
         .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
         .unwrap();
@@ -576,7 +579,7 @@ fn batch_fail() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid_2 = wallet.send(online.clone(), recipient_map_2, false).unwrap();
+    let txid_2 = test_send_default(&mut wallet, &online, recipient_map_2);
     let result = wallet.fail_transfers(
         online.clone(),
         Some(blind_data_3.blinded_utxo),
@@ -614,7 +617,9 @@ fn batch_fail() {
             },
         ],
     )]);
-    wallet.send(online.clone(), recipient_map, true).unwrap();
+    wallet
+        .send(online.clone(), recipient_map, true, FEE_RATE)
+        .unwrap();
 
     // transfer is in WaitingConfirmations status and cannot be failed
     assert!(check_test_transfer_status_recipient(

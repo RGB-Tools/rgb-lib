@@ -205,7 +205,7 @@ fn pending_outgoing_transfer_fail() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = wallet.send(online.clone(), recipient_map, false).unwrap();
+    let txid = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid.is_empty());
 
     // check blind doesn't get allocated to UTXO being spent
@@ -263,19 +263,28 @@ fn fail() {
         None,
         CONSIGNMENT_ENDPOINTS.clone(),
     );
-    assert!(matches!(result, Err(Error::AssetNotFound(_))));
+    assert!(matches!(result, Err(Error::AssetNotFound { asset_id: _ })));
 
     // insufficient funds
     let result = wallet.blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone());
-    assert!(matches!(result, Err(Error::InsufficientBitcoins)));
+    assert!(matches!(
+        result,
+        Err(Error::InsufficientBitcoins {
+            needed: _,
+            available: _
+        })
+    ));
 
     // invalid BlindedUTXO
     let result = BlindedUTXO::new(s!("invalid"));
-    assert!(matches!(result, Err(Error::InvalidBlindedUTXO(_))));
+    assert!(matches!(
+        result,
+        Err(Error::InvalidBlindedUTXO { details: _ })
+    ));
 
     // invalid invoice
     let result = Invoice::new(s!("invalid"));
-    assert!(matches!(result, Err(Error::InvalidInvoice(_))));
+    assert!(matches!(result, Err(Error::InvalidInvoice { details: _ })));
 
     // unsupported invoice
     fund_wallet(wallet.get_address());
@@ -293,24 +302,30 @@ fn fail() {
 
     // consignment endpoints: malformed string
     let consignment_endpoints = vec![
-        format!("rgbhttpjsonrpc:{}", PROXY_URL),
+        format!("rgbhttpjsonrpc:{PROXY_URL}"),
         "malformed".to_string(),
     ];
     let result = wallet.blind(None, None, Some(0), consignment_endpoints);
-    assert!(matches!(result, Err(Error::InvalidConsignmentEndpoint(_))));
+    assert!(matches!(
+        result,
+        Err(Error::InvalidConsignmentEndpoint { details: _ })
+    ));
 
     // consignment endpoints: unkonown protocol
     let consignment_endpoints = vec![
-        format!("rgbhttpjsonrpc:{}", PROXY_URL),
-        format!("unknown:{}", PROXY_URL),
+        format!("rgbhttpjsonrpc:{PROXY_URL}"),
+        format!("unknown:{PROXY_URL}"),
     ];
     let result = wallet.blind(None, None, Some(0), consignment_endpoints);
-    assert!(matches!(result, Err(Error::InvalidConsignmentEndpoint(_))));
+    assert!(matches!(
+        result,
+        Err(Error::InvalidConsignmentEndpoint { details: _ })
+    ));
 
     // consignment endpoints: storm (currently unsupported)
     let consignment_endpoints = vec![
-        format!("rgbhttpjsonrpc:{}", PROXY_URL),
-        format!("storm:{}@{}", STORM_ID, "127.0.0.1:1234"),
+        format!("rgbhttpjsonrpc:{PROXY_URL}"),
+        format!("storm:{STORM_ID}@127.0.0.1:1234"),
     ];
     let result = wallet.blind(None, None, Some(0), consignment_endpoints);
     assert!(matches!(
@@ -324,25 +339,25 @@ fn fail() {
     let msg = s!("must provide at least a consignment endpoint");
     assert!(matches!(
         result,
-        Err(Error::InvalidConsignmentEndpoints(m)) if m == msg
+        Err(Error::InvalidConsignmentEndpoints { details: m }) if m == msg
     ));
 
     // consignment endpoints: too many endpoints
     let consignment_endpoints = vec![
-        format!("rgbhttpjsonrpc:{}", "127.0.0.1:3000/json-rpc"),
-        format!("rgbhttpjsonrpc:{}", "127.0.0.1:3001/json-rpc"),
-        format!("rgbhttpjsonrpc:{}", "127.0.0.1:3002/json-rpc"),
-        format!("rgbhttpjsonrpc:{}", "127.0.0.1:3003/json-rpc"),
+        format!("rgbhttpjsonrpc:127.0.0.1:3000/json-rpc"),
+        format!("rgbhttpjsonrpc:127.0.0.1:3001/json-rpc"),
+        format!("rgbhttpjsonrpc:127.0.0.1:3002/json-rpc"),
+        format!("rgbhttpjsonrpc:127.0.0.1:3003/json-rpc"),
     ];
     let result = wallet.blind(None, None, Some(0), consignment_endpoints);
     let msg = s!("library supports at max 3 consignment endpoints");
     assert!(matches!(
         result,
-        Err(Error::InvalidConsignmentEndpoints(m)) if m == msg
+        Err(Error::InvalidConsignmentEndpoints { details: m }) if m == msg
     ));
 
     // consignment endpoints: no endpoints for transfer > Failed
-    let consignment_endpoints = vec![format!("rgbhttpjsonrpc:{}", PROXY_URL)];
+    let consignment_endpoints = vec![format!("rgbhttpjsonrpc:{PROXY_URL}")];
     let blind_data = wallet
         .blind(None, None, Some(0), consignment_endpoints)
         .unwrap();
@@ -367,15 +382,15 @@ fn fail() {
 
     // consignment endpoints: same endpoint repeated
     let consignment_endpoints = vec![
-        format!("rgbhttpjsonrpc:{}", PROXY_URL),
-        format!("rgbhttpjsonrpc:{}", PROXY_URL),
-        format!("rgbhttpjsonrpc:{}", PROXY_URL),
+        format!("rgbhttpjsonrpc:{PROXY_URL}"),
+        format!("rgbhttpjsonrpc:{PROXY_URL}"),
+        format!("rgbhttpjsonrpc:{PROXY_URL}"),
     ];
     let result = wallet.blind(None, None, Some(0), consignment_endpoints);
     let msg = s!("no duplicate consignment endpoints allowed");
     assert!(matches!(
         result,
-        Err(Error::InvalidConsignmentEndpoints(m)) if m == msg
+        Err(Error::InvalidConsignmentEndpoints { details: m }) if m == msg
     ));
 }
 
@@ -425,9 +440,7 @@ fn wrong_asset_fail() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = wallet_2
-        .send(online_2.clone(), recipient_map, false)
-        .unwrap();
+    let txid = test_send_default(&mut wallet_2, &online_2, recipient_map);
     assert!(!txid.is_empty());
 
     // transfer is pending
@@ -446,7 +459,10 @@ fn wrong_asset_fail() {
     let (rcv_transfer_data_a, _) = get_test_transfer_data(&wallet_1, &rcv_transfer_a);
     assert_eq!(rcv_transfer_data_a.status, TransferStatus::Failed);
     let rcv_transfers_b = wallet_1.list_transfers(asset_b.asset_id);
-    assert!(matches!(rcv_transfers_b, Err(Error::AssetNotFound(_))));
+    assert!(matches!(
+        rcv_transfers_b,
+        Err(Error::AssetNotFound { asset_id: _ })
+    ));
 }
 
 #[test]
@@ -458,34 +474,55 @@ fn new_consignment_endpoint() {
     assert!(result.is_ok());
 
     // correct Storm endpoint
-    let result = ConsignmentEndpoint::new(format!("storm:{}@1.2.3.4:5678", STORM_ID));
+    let result = ConsignmentEndpoint::new(format!("storm:{STORM_ID}@1.2.3.4:5678"));
     assert!(result.is_ok());
 
     // no protocol
     let result = ConsignmentEndpoint::new(PROXY_URL.to_string());
-    assert!(matches!(result, Err(Error::InvalidConsignmentEndpoint(_))));
+    assert!(matches!(
+        result,
+        Err(Error::InvalidConsignmentEndpoint { details: _ })
+    ));
 
     // unknown protocol
-    let result = ConsignmentEndpoint::new(format!("unknown:{}", PROXY_URL));
-    assert!(matches!(result, Err(Error::InvalidConsignmentEndpoint(_))));
+    let result = ConsignmentEndpoint::new(format!("unknown:{PROXY_URL}"));
+    assert!(matches!(
+        result,
+        Err(Error::InvalidConsignmentEndpoint { details: _ })
+    ));
 
     // bad storm id
     let result = ConsignmentEndpoint::new(s!("storm:abc@1.2.3.4:5678"));
-    assert!(matches!(result, Err(Error::InvalidConsignmentEndpoint(_))));
+    assert!(matches!(
+        result,
+        Err(Error::InvalidConsignmentEndpoint { details: _ })
+    ));
 
     // bad storm ip
-    let result = ConsignmentEndpoint::new(format!("storm:{}@1:5678", STORM_ID));
-    assert!(matches!(result, Err(Error::InvalidConsignmentEndpoint(_))));
+    let result = ConsignmentEndpoint::new(format!("storm:{STORM_ID}@1:5678"));
+    assert!(matches!(
+        result,
+        Err(Error::InvalidConsignmentEndpoint { details: _ })
+    ));
 
     // bad storm port
-    let result = ConsignmentEndpoint::new(format!("storm:{}@1.2.3.4:abcd", STORM_ID));
-    assert!(matches!(result, Err(Error::InvalidConsignmentEndpoint(_))));
+    let result = ConsignmentEndpoint::new(format!("storm:{STORM_ID}@1.2.3.4:abcd"));
+    assert!(matches!(
+        result,
+        Err(Error::InvalidConsignmentEndpoint { details: _ })
+    ));
 
     // bad storm NodeAddr
     let result = ConsignmentEndpoint::new(s!("storm:a:b:c:d:e"));
-    assert!(matches!(result, Err(Error::InvalidConsignmentEndpoint(_))));
+    assert!(matches!(
+        result,
+        Err(Error::InvalidConsignmentEndpoint { details: _ })
+    ));
 
     // leading ':'
-    let result = ConsignmentEndpoint::new(format!(":rgbhttpjsonrpc:{}", PROXY_URL));
-    assert!(matches!(result, Err(Error::InvalidConsignmentEndpoint(_))));
+    let result = ConsignmentEndpoint::new(format!(":rgbhttpjsonrpc:{PROXY_URL}"));
+    assert!(matches!(
+        result,
+        Err(Error::InvalidConsignmentEndpoint { details: _ })
+    ));
 }

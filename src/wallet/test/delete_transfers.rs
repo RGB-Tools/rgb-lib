@@ -192,7 +192,7 @@ fn batch_success() {
             },
         ],
     )]);
-    let txid = wallet.send(online.clone(), recipient_map, false).unwrap();
+    let txid = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid.is_empty());
     wallet
         .fail_transfers(online.clone(), None, Some(txid.clone()), false)
@@ -223,7 +223,7 @@ fn batch_success() {
             },
         ],
     )]);
-    let txid = wallet.send(online.clone(), recipient_map, false).unwrap();
+    let txid = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid.is_empty());
     wallet
         .fail_transfers(online, None, Some(txid.clone()), false)
@@ -252,7 +252,10 @@ fn fail() {
 
     // don't delete unknown blinded UTXO
     let result = wallet.delete_transfers(Some(s!("txob1inexistent")), None, false);
-    assert!(matches!(result, Err(Error::TransferNotFound(_))));
+    assert!(matches!(
+        result,
+        Err(Error::TransferNotFound { blinded_utxo: _ })
+    ));
 
     // issue
     let asset = wallet
@@ -324,7 +327,7 @@ fn batch_fail() {
             },
         ],
     )]);
-    let txid = wallet.send(online.clone(), recipient_map, false).unwrap();
+    let txid = test_send_default(&mut wallet, &online, recipient_map);
     wallet
         .fail_transfers(online.clone(), None, Some(txid.clone()), false)
         .unwrap();
@@ -358,7 +361,7 @@ fn batch_fail() {
             },
         ],
     )]);
-    let txid_1 = wallet.send(online.clone(), recipient_map_1, false).unwrap();
+    let txid_1 = test_send_default(&mut wallet, &online, recipient_map_1);
     wallet
         .fail_transfers(online.clone(), None, Some(txid_1.clone()), false)
         .unwrap();
@@ -378,7 +381,7 @@ fn batch_fail() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid_2 = wallet.send(online.clone(), recipient_map_2, false).unwrap();
+    let txid_2 = test_send_default(&mut wallet, &online, recipient_map_2);
     wallet
         .fail_transfers(online, None, Some(txid_2.clone()), false)
         .unwrap();

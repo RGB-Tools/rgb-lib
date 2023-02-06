@@ -5,6 +5,7 @@ fn success() {
     initialize();
 
     let file_str = "README.md";
+    let image_str = "tests/qrcode.png";
 
     let (mut wallet, online) = get_funded_wallet!();
 
@@ -12,7 +13,7 @@ fn success() {
     let _blind_data = wallet.blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone());
 
     // required fields only
-    println!("asset 1");
+    println!("\nasset 1");
     let asset_1 = wallet
         .issue_asset_rgb121(
             online.clone(),
@@ -47,11 +48,11 @@ fn success() {
         .unwrap();
     assert_eq!(asset_type, AssetType::Rgb121);
 
-    // include a parent_id and a file
-    println!("asset 2");
+    // include a parent_id and a text file
+    println!("\nasset 2");
     let asset_2 = wallet
         .issue_asset_rgb121(
-            online,
+            online.clone(),
             NAME.to_string(),
             Some(DESCRIPTION.to_string()),
             PRECISION,
@@ -79,6 +80,48 @@ fn success() {
     assert_eq!(media.mime, "text/plain");
     let dst_path = media.file_path.clone();
     let src_bytes = std::fs::read(PathBuf::from(file_str)).unwrap();
+    let dst_bytes = std::fs::read(PathBuf::from(dst_path.clone())).unwrap();
+    assert_eq!(src_bytes, dst_bytes);
+    // check attachment id for provided file matches
+    let src_hash: sha256::Hash = Sha256Hash::hash(&src_bytes[..]);
+    let src_attachment_id = AttachmentId::commit(&src_hash).to_string();
+    let dst_attachment_id = Path::new(&dst_path)
+        .parent()
+        .unwrap()
+        .file_name()
+        .unwrap()
+        .to_string_lossy();
+    assert_eq!(src_attachment_id, dst_attachment_id);
+
+    // include an image file
+    println!("\nasset 3");
+    let asset_3 = wallet
+        .issue_asset_rgb121(
+            online,
+            NAME.to_string(),
+            Some(DESCRIPTION.to_string()),
+            PRECISION,
+            vec![AMOUNT * 3],
+            None,
+            Some(image_str.to_string()),
+        )
+        .unwrap();
+    show_unspent_colorings(&wallet, "after issuance 3");
+    assert_eq!(
+        asset_3.balance,
+        Balance {
+            settled: AMOUNT * 3,
+            future: AMOUNT * 3,
+            spendable: AMOUNT * 3,
+        }
+    );
+    assert_eq!(asset_3.parent_id, None);
+    assert_eq!(asset_3.data_paths.len(), 1);
+    // check attached file contents match
+    let media = asset_3.data_paths.first().unwrap();
+    assert_eq!(media.mime, "image/png");
+    let dst_path = media.file_path.clone();
+    let src_bytes = std::fs::read(PathBuf::from(image_str)).unwrap();
     let dst_bytes = std::fs::read(PathBuf::from(dst_path.clone())).unwrap();
     assert_eq!(src_bytes, dst_bytes);
     // check attachment id for provided file matches
@@ -194,7 +237,7 @@ fn no_issue_on_pending_send() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = wallet.send(online.clone(), recipient_map, false).unwrap();
+    let txid = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid.is_empty());
 
     // issue 2nd asset
@@ -275,7 +318,7 @@ fn fail() {
         None,
         None,
     );
-    assert!(matches!(result, Err(Error::InvalidOnline())));
+    assert!(matches!(result, Err(Error::InvalidOnline)));
 
     // invalid name: too short
     let result = wallet.issue_asset_rgb121(
@@ -287,7 +330,7 @@ fn fail() {
         None,
         None,
     );
-    assert!(matches!(result, Err(Error::FailedIssuance(_))));
+    assert!(matches!(result, Err(Error::InvalidName { details: _ })));
 
     // invalid name: too long
     let result = wallet.issue_asset_rgb121(
@@ -299,7 +342,7 @@ fn fail() {
         None,
         None,
     );
-    assert!(matches!(result, Err(Error::FailedIssuance(_))));
+    assert!(matches!(result, Err(Error::InvalidName { details: _ })));
 
     // invalid name: unicode characters
     let result = wallet.issue_asset_rgb121(
@@ -311,7 +354,7 @@ fn fail() {
         None,
         None,
     );
-    assert!(matches!(result, Err(Error::InvalidName(_))));
+    assert!(matches!(result, Err(Error::InvalidName { details: _ })));
 
     // invalid description: unicode characters
     let result = wallet.issue_asset_rgb121(
@@ -323,7 +366,10 @@ fn fail() {
         None,
         None,
     );
-    assert!(matches!(result, Err(Error::InvalidDescription(_))));
+    assert!(matches!(
+        result,
+        Err(Error::InvalidDescription { details: _ })
+    ));
 
     // invalid precision
     let result = wallet.issue_asset_rgb121(
@@ -335,7 +381,10 @@ fn fail() {
         None,
         None,
     );
-    assert!(matches!(result, Err(Error::FailedIssuance(_))));
+    assert!(matches!(
+        result,
+        Err(Error::InvalidPrecision { details: _ })
+    ));
 
     // invalid amount list
     let result = wallet.issue_asset_rgb121(
@@ -354,12 +403,12 @@ fn fail() {
         online.clone(),
         NAME.to_string(),
         Some(DESCRIPTION.to_string()),
-        19,
+        PRECISION,
         vec![AMOUNT],
         Some(s!("")),
         None,
     );
-    assert!(matches!(result, Err(Error::FailedIssuance(_))));
+    assert!(matches!(result, Err(Error::InvalidParentId { details: _ })));
 
     // invalid file_path
     let invalid_file_path = s!("invalid");
@@ -367,14 +416,14 @@ fn fail() {
         online.clone(),
         NAME.to_string(),
         Some(DESCRIPTION.to_string()),
-        19,
+        PRECISION,
         vec![AMOUNT],
         None,
         Some(invalid_file_path.clone()),
     );
     assert!(matches!(
         result,
-        Err(Error::InvalidFilePath(t)) if t == invalid_file_path
+        Err(Error::InvalidFilePath { file_path: t }) if t == invalid_file_path
     ));
 
     drain_wallet(&wallet, online.clone());
@@ -389,7 +438,13 @@ fn fail() {
         None,
         None,
     );
-    assert!(matches!(result, Err(Error::InsufficientBitcoins)));
+    assert!(matches!(
+        result,
+        Err(Error::InsufficientBitcoins {
+            needed: _,
+            available: _
+        })
+    ));
 
     fund_wallet(wallet.get_address());
     mine(false);
@@ -425,5 +480,5 @@ fn zero_amount_fail() {
         None,
         None,
     );
-    assert!(matches!(result, Err(Error::FailedIssuance(_))));
+    assert!(matches!(result, Err(Error::FailedIssuance { details: _ })));
 }

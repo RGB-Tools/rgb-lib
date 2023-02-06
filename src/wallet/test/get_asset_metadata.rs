@@ -31,7 +31,7 @@ fn success() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    wallet.send(online.clone(), recipient_map, false).unwrap();
+    test_send_default(&mut wallet, &online, recipient_map);
     rcv_wallet
         .refresh(rcv_online.clone(), None, vec![])
         .unwrap();
@@ -89,5 +89,5 @@ fn fail() {
     let (mut wallet, online) = get_empty_wallet!();
 
     let result = wallet.get_asset_metadata(online, s!(""));
-    assert!(matches!(result, Err(Error::AssetNotFound(_))));
+    assert!(matches!(result, Err(Error::AssetNotFound { asset_id: _ })));
 }

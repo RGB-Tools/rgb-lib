@@ -57,5 +57,5 @@ fn fail() {
 
     // asset not found
     let result = wallet.list_transfers(s!("rgb1inexistent"));
-    assert!(matches!(result, Err(Error::AssetNotFound(_))));
+    assert!(matches!(result, Err(Error::AssetNotFound { asset_id: _ })));
 }

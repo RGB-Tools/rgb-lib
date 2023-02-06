@@ -67,9 +67,7 @@ fn success() {
     )]);
     // return false if no transfer has changed
     assert!(!wallet_2.refresh(online_2.clone(), None, vec![]).unwrap());
-    let txid_1a = wallet_1
-        .send(online_1.clone(), recipient_map_1a, false)
-        .unwrap();
+    let txid_1a = test_send_default(&mut wallet_1, &online_1, recipient_map_1a);
     assert!(!txid_1a.is_empty());
     let blind_data_1a = wallet_1
         .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
@@ -82,9 +80,7 @@ fn success() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid_2a = wallet_2
-        .send(online_2.clone(), recipient_map_2a, false)
-        .unwrap();
+    let txid_2a = test_send_default(&mut wallet_2, &online_2, recipient_map_2a);
     assert!(!txid_2a.is_empty());
     assert!(wallet_1.refresh(online_1.clone(), None, vec![]).unwrap());
     assert!(wallet_2.refresh(online_2.clone(), None, vec![]).unwrap());
@@ -107,9 +103,7 @@ fn success() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid_1b = wallet_1
-        .send(online_1.clone(), recipient_map_1b, false)
-        .unwrap();
+    let txid_1b = test_send_default(&mut wallet_1, &online_1, recipient_map_1b);
     assert!(!txid_1b.is_empty());
     // wallet 2 > 1, WaitingCounterparty
     let blind_data_1b = wallet_1
@@ -124,9 +118,7 @@ fn success() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid_2b = wallet_2
-        .send(online_2.clone(), recipient_map_2b, false)
-        .unwrap();
+    let txid_2b = test_send_default(&mut wallet_2, &online_2, recipient_map_2b);
     assert!(!txid_2b.is_empty());
     show_unspent_colorings(&wallet_2, "wallet 2 after send 2b");
     assert!(check_test_transfer_status_sender(
@@ -302,5 +294,5 @@ fn fail() {
 
     // asset not found
     let result = wallet.refresh(online, Some(s!("rgb1inexistent")), vec![]);
-    assert!(matches!(result, Err(Error::AssetNotFound(_))));
+    assert!(matches!(result, Err(Error::AssetNotFound { asset_id: _ })));
 }

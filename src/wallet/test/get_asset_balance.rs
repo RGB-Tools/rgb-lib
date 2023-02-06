@@ -91,7 +91,7 @@ fn transfer_balances() {
     );
     // receiver side after issuance (no asset yet)
     let result = wallet_recv.get_asset_balance(asset.asset_id.clone());
-    assert!(matches!(result, Err(Error::AssetNotFound(_))));
+    assert!(matches!(result, Err(Error::AssetNotFound { asset_id: _ })));
 
     //
     // 1st transfer
@@ -118,9 +118,7 @@ fn transfer_balances() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = wallet_send
-        .send(online_send.clone(), recipient_map, false)
-        .unwrap();
+    let txid = test_send_default(&mut wallet_send, &online_send, recipient_map);
     wallet_send
         .fail_transfers(online_send.clone(), None, Some(txid), false)
         .unwrap();
@@ -137,9 +135,7 @@ fn transfer_balances() {
         }],
     )]);
     // actual send
-    wallet_send
-        .send(online_send.clone(), recipient_map, false)
-        .unwrap();
+    test_send_default(&mut wallet_send, &online_send, recipient_map);
 
     show_unspent_colorings(&wallet_send, "send after 1st send");
     show_unspent_colorings(&wallet_recv, "recv after 1st send");
@@ -266,9 +262,7 @@ fn transfer_balances() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    wallet_send
-        .send(online_send.clone(), recipient_map, false)
-        .unwrap();
+    test_send_default(&mut wallet_send, &online_send, recipient_map);
 
     show_unspent_colorings(&wallet_send, "send after 2nd send");
     show_unspent_colorings(&wallet_recv, "recv after 2nd send");
@@ -376,5 +370,5 @@ fn fail() {
 
     // bad asset_id returns an error
     let result = wallet.get_asset_balance("rgb1inexistent".to_string());
-    assert!(matches!(result, Err(Error::AssetNotFound(_))));
+    assert!(matches!(result, Err(Error::AssetNotFound { asset_id: _ })));
 }

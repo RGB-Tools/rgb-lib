@@ -82,7 +82,7 @@ fn success() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = wallet.send(online.clone(), recipient_map, false).unwrap();
+    let txid = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid.is_empty());
     wallet
         .fail_transfers(online.clone(), None, Some(txid), false)
@@ -129,7 +129,7 @@ fn success() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = wallet.send(online.clone(), recipient_map, false).unwrap();
+    let txid = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid.is_empty());
     show_unspent_colorings(&rcv_wallet, "receiver after send - WaitingCounterparty");
     show_unspent_colorings(&wallet, "sender after send - WaitingCounterparty");

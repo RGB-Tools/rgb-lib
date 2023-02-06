@@ -120,7 +120,7 @@ fn no_issue_on_pending_send() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = wallet.send(online.clone(), recipient_map, false).unwrap();
+    let txid = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid.is_empty());
 
     // issue 2nd asset
@@ -195,7 +195,7 @@ fn fail() {
         PRECISION,
         vec![AMOUNT],
     );
-    assert!(matches!(result, Err(Error::InvalidOnline())));
+    assert!(matches!(result, Err(Error::InvalidOnline)));
 
     // invalid ticker: too short
     let result = wallet.issue_asset_rgb20(
@@ -205,7 +205,7 @@ fn fail() {
         PRECISION,
         vec![AMOUNT],
     );
-    assert!(matches!(result, Err(Error::FailedIssuance(_))));
+    assert!(matches!(result, Err(Error::InvalidTicker { details: _ })));
 
     // invalid ticker: too long
     let result = wallet.issue_asset_rgb20(
@@ -215,7 +215,7 @@ fn fail() {
         PRECISION,
         vec![AMOUNT],
     );
-    assert!(matches!(result, Err(Error::FailedIssuance(_))));
+    assert!(matches!(result, Err(Error::InvalidTicker { details: _ })));
 
     // invalid ticker: lowercase
     let result = wallet.issue_asset_rgb20(
@@ -225,7 +225,7 @@ fn fail() {
         PRECISION,
         vec![AMOUNT],
     );
-    assert!(matches!(result, Err(Error::FailedIssuance(_))));
+    assert!(matches!(result, Err(Error::InvalidTicker { details: _ })));
 
     // invalid ticker: unicode characters
     let result = wallet.issue_asset_rgb20(
@@ -235,7 +235,7 @@ fn fail() {
         PRECISION,
         vec![AMOUNT],
     );
-    assert!(matches!(result, Err(Error::InvalidTicker(_))));
+    assert!(matches!(result, Err(Error::InvalidTicker { details: _ })));
 
     // invalid name: too short
     let result = wallet.issue_asset_rgb20(
@@ -245,7 +245,7 @@ fn fail() {
         PRECISION,
         vec![AMOUNT],
     );
-    assert!(matches!(result, Err(Error::FailedIssuance(_))));
+    assert!(matches!(result, Err(Error::InvalidName { details: _ })));
 
     // invalid name: too long
     let result = wallet.issue_asset_rgb20(
@@ -255,7 +255,7 @@ fn fail() {
         PRECISION,
         vec![AMOUNT],
     );
-    assert!(matches!(result, Err(Error::FailedIssuance(_))));
+    assert!(matches!(result, Err(Error::InvalidName { details: _ })));
 
     // invalid name: unicode characters
     let result = wallet.issue_asset_rgb20(
@@ -265,7 +265,7 @@ fn fail() {
         PRECISION,
         vec![AMOUNT],
     );
-    assert!(matches!(result, Err(Error::InvalidName(_))));
+    assert!(matches!(result, Err(Error::InvalidName { details: _ })));
 
     // invalid precision
     let result = wallet.issue_asset_rgb20(
@@ -275,7 +275,10 @@ fn fail() {
         19,
         vec![AMOUNT],
     );
-    assert!(matches!(result, Err(Error::FailedIssuance(_))));
+    assert!(matches!(
+        result,
+        Err(Error::InvalidPrecision { details: _ })
+    ));
 
     // invalid amount list
     let result = wallet.issue_asset_rgb20(
@@ -297,7 +300,13 @@ fn fail() {
         PRECISION,
         vec![AMOUNT],
     );
-    assert!(matches!(result, Err(Error::InsufficientBitcoins)));
+    assert!(matches!(
+        result,
+        Err(Error::InsufficientBitcoins {
+            needed: _,
+            available: _
+        })
+    ));
 
     fund_wallet(wallet.get_address());
     mine(false);
@@ -329,5 +338,5 @@ fn zero_amount_fail() {
         PRECISION,
         vec![0],
     );
-    assert!(matches!(result, Err(Error::FailedIssuance(_))));
+    assert!(matches!(result, Err(Error::FailedIssuance { details: _ })));
 }

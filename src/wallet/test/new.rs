@@ -1,5 +1,3 @@
-use std::io::ErrorKind;
-
 use bdk::miniscript::descriptor::DescriptorType;
 
 use super::*;
@@ -81,26 +79,26 @@ fn fail() {
     let mut wallet_data_bad = wallet_data.clone();
     wallet_data_bad.data_dir = s!("");
     let result = Wallet::new(wallet_data_bad);
-    assert!(matches!(result, Err(Error::IO(_))));
-    if let Err(Error::IO(err)) = result {
-        assert_eq!(err.kind(), ErrorKind::NotFound);
+    assert!(matches!(result, Err(Error::IO { details: _ })));
+    if let Err(Error::IO { details: err }) = result {
+        assert_eq!(err, "No such file or directory (os error 2)");
     }
 
     // pubkey too short
     let mut wallet_data_bad = wallet_data.clone();
     wallet_data_bad.pubkey = s!("");
     let result = Wallet::new(wallet_data_bad);
-    assert!(matches!(result, Err(Error::InvalidPubkey(_))));
+    assert!(matches!(result, Err(Error::InvalidPubkey { details: _ })));
 
     // bad byte in pubkey
     let mut wallet_data_bad = wallet_data.clone();
     wallet_data_bad.pubkey = s!("l1iI0");
     let result = Wallet::new(wallet_data_bad);
-    assert!(matches!(result, Err(Error::InvalidPubkey(_))));
+    assert!(matches!(result, Err(Error::InvalidPubkey { details: _ })));
 
     // bad mnemonic word count
     let mut wallet_data_bad = wallet_data;
     wallet_data_bad.mnemonic = Some(s!(""));
     let result = Wallet::new(wallet_data_bad);
-    assert!(matches!(result, Err(Error::InvalidMnemonic(_))));
+    assert!(matches!(result, Err(Error::InvalidMnemonic { details: _ })));
 }

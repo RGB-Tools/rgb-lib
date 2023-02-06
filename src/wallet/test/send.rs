@@ -38,7 +38,7 @@ fn success() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = wallet.send(online.clone(), recipient_map, false).unwrap();
+    let txid = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid.is_empty());
     let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
     let tce_data = wallet
@@ -195,9 +195,9 @@ fn success() {
     // send, ignoring rgbhttpjsonrpc consignment endpoints with non-compliant APIs or unsupported
     // protocol version
     let consignment_endpoints = vec![
-        format!("rgbhttpjsonrpc:{}", PROXY_URL_MOD_API),
-        format!("rgbhttpjsonrpc:{}", PROXY_URL_MOD_PROTO),
-        format!("rgbhttpjsonrpc:{}", PROXY_URL),
+        format!("rgbhttpjsonrpc:{PROXY_URL_MOD_API}"),
+        format!("rgbhttpjsonrpc:{PROXY_URL_MOD_PROTO}"),
+        format!("rgbhttpjsonrpc:{PROXY_URL}"),
     ];
     let blind_data_api_proto = rcv_wallet
         .blind(None, None, None, consignment_endpoints.clone())
@@ -210,7 +210,9 @@ fn success() {
             consignment_endpoints,
         }],
     )]);
-    let txid = wallet.send(online.clone(), recipient_map, false).unwrap();
+    let unspents = wallet.list_unspents(false).unwrap();
+    let unspents_color_count_before = unspents.iter().filter(|u| u.utxo.colorable).count();
+    let txid = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid.is_empty());
     let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
     let tce_data = wallet
@@ -259,7 +261,9 @@ fn success() {
         .refresh(online.clone(), Some(asset.asset_id.clone()), vec![])
         .unwrap();
     mine(true);
-    rcv_wallet.refresh(rcv_online, None, vec![]).unwrap();
+    rcv_wallet
+        .refresh(rcv_online.clone(), None, vec![])
+        .unwrap();
     wallet
         .refresh(online.clone(), Some(asset.asset_id.clone()), vec![])
         .unwrap();
@@ -269,12 +273,16 @@ fn success() {
     let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
     assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
     assert_eq!(transfer_data.status, TransferStatus::Settled);
+    let unspents = wallet.list_unspents(false).unwrap();
+    let unspents_color_count_after = unspents.iter().filter(|u| u.utxo.colorable).count();
+    assert_eq!(unspents_color_count_after, unspents_color_count_before);
 
-    // send, ignoring storm and unreachable rgbhttpjsonrpc consignment endpoints
+    // send, ignoring storm and unreachable rgbhttpjsonrpc consignment endpoints and using a fee
+    // rate that requires additional inputs be added to cover fee costs
     let consignment_endpoints = vec![
-        format!("storm:{}@127.0.0.1:1234", STORM_ID),
-        format!("rgbhttpjsonrpc:{}", "127.6.6.6:7777"),
-        format!("rgbhttpjsonrpc:{}", PROXY_URL),
+        format!("storm:{STORM_ID}@127.0.0.1:1234"),
+        format!("rgbhttpjsonrpc:http://127.6.6.6:7777/json-rpc"),
+        format!("rgbhttpjsonrpc:{PROXY_URL}"),
     ];
     let blind_data_storm_unreachable = rcv_wallet
         .blind(
@@ -285,14 +293,18 @@ fn success() {
         )
         .unwrap();
     let recipient_map = HashMap::from([(
-        asset.asset_id,
+        asset.asset_id.clone(),
         vec![Recipient {
             amount,
             blinded_utxo: blind_data_storm_unreachable.blinded_utxo.clone(),
             consignment_endpoints,
         }],
     )]);
-    let txid = wallet.send(online, recipient_map, false).unwrap();
+    let unspents = wallet.list_unspents(false).unwrap();
+    let unspents_color_count_before = unspents.iter().filter(|u| u.utxo.colorable).count();
+    let txid = wallet
+        .send(online.clone(), recipient_map, false, 5.0)
+        .unwrap();
     assert!(!txid.is_empty());
     let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
     let tce_data = wallet
@@ -306,8 +318,8 @@ fn success() {
         &tce_data_iter.next().unwrap(),
         &tce_data_iter.next().unwrap(),
     );
-    assert_eq!(ce_0.1.endpoint, format!("{}@127.0.0.1:1234", STORM_ID));
-    assert_eq!(ce_1.1.endpoint, "127.6.6.6:7777");
+    assert_eq!(ce_0.1.endpoint, format!("{STORM_ID}@127.0.0.1:1234"));
+    assert_eq!(ce_1.1.endpoint, "http://127.6.6.6:7777/json-rpc");
     assert_eq!(ce_2.1.endpoint, PROXY_URL);
     assert!(!ce_0.0.used);
     assert!(!ce_1.0.used);
@@ -327,6 +339,24 @@ fn success() {
         .get_consignment(PROXY_URL, blind_data_storm_unreachable.blinded_utxo)
         .unwrap();
     assert!(consignment.result.is_some());
+    // settle transfer
+    rcv_wallet
+        .refresh(rcv_online.clone(), None, vec![])
+        .unwrap();
+    wallet
+        .refresh(online.clone(), Some(asset.asset_id.clone()), vec![])
+        .unwrap();
+    mine(true);
+    rcv_wallet.refresh(rcv_online, None, vec![]).unwrap();
+    wallet
+        .refresh(online.clone(), Some(asset.asset_id), vec![])
+        .unwrap();
+    let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
+    let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
+    assert_eq!(transfer_data.status, TransferStatus::Settled);
+    let unspents = wallet.list_unspents(false).unwrap();
+    let unspents_color_count_after = unspents.iter().filter(|u| u.utxo.colorable).count();
+    assert_eq!(unspents_color_count_after, unspents_color_count_before - 1);
 }
 
 #[test]
@@ -338,7 +368,7 @@ fn spend_all() {
     // wallets
     let (mut wallet, online) = get_funded_noutxo_wallet!();
     let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
-    test_create_utxos(&mut wallet, online.clone(), false, Some(1), None);
+    test_create_utxos(&mut wallet, online.clone(), false, Some(1), None, FEE_RATE);
 
     // issue
     let asset = wallet
@@ -381,7 +411,7 @@ fn spend_all() {
     assert!(allocation_asset_ids.contains(&asset_blank.asset_id));
 
     // send
-    test_create_utxos(&mut wallet, online.clone(), false, Some(1), None);
+    test_create_utxos(&mut wallet, online.clone(), false, Some(1), None, FEE_RATE);
     let blind_data = rcv_wallet
         .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
         .unwrap();
@@ -393,7 +423,7 @@ fn spend_all() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = wallet.send(online.clone(), recipient_map, false).unwrap();
+    let txid = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid.is_empty());
 
     let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &blind_data.blinded_utxo);
@@ -527,7 +557,7 @@ fn send_twice_success() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid_1 = wallet.send(online.clone(), recipient_map, false).unwrap();
+    let txid_1 = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid_1.is_empty());
 
     // take transfers from WaitingCounterparty to Settled
@@ -583,7 +613,7 @@ fn send_twice_success() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid_2 = wallet.send(online.clone(), recipient_map, false).unwrap();
+    let txid_2 = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid_2.is_empty());
 
     // take transfers from WaitingCounterparty to Settled
@@ -657,7 +687,14 @@ fn send_blank_success() {
     // wallets
     let (mut wallet_1, online_1) = get_funded_noutxo_wallet!();
     let (mut wallet_2, online_2) = get_funded_wallet!();
-    test_create_utxos(&mut wallet_1, online_1.clone(), false, Some(1), None);
+    test_create_utxos(
+        &mut wallet_1,
+        online_1.clone(),
+        false,
+        Some(1),
+        None,
+        FEE_RATE,
+    );
 
     // issue
     let asset_rgb20 = wallet_1
@@ -706,7 +743,14 @@ fn send_blank_success() {
 
     // send
     println!("\n=== send 1");
-    test_create_utxos(&mut wallet_1, online_1.clone(), false, Some(1), None);
+    test_create_utxos(
+        &mut wallet_1,
+        online_1.clone(),
+        false,
+        Some(1),
+        None,
+        FEE_RATE,
+    );
     let blind_data_1 = wallet_2
         .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
         .unwrap();
@@ -718,9 +762,7 @@ fn send_blank_success() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid_1 = wallet_1
-        .send(online_1.clone(), recipient_map, false)
-        .unwrap();
+    let txid_1 = test_send_default(&mut wallet_1, &online_1, recipient_map);
     assert!(!txid_1.is_empty());
     show_unspent_colorings(&wallet_1, "wallet 1 after send 1, WaitingCounterparty");
 
@@ -812,9 +854,7 @@ fn send_blank_success() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid_2 = wallet_1
-        .send(online_1.clone(), recipient_map, false)
-        .unwrap();
+    let txid_2 = test_send_default(&mut wallet_1, &online_1, recipient_map);
     assert!(!txid_2.is_empty());
     show_unspent_colorings(&wallet_1, "wallet 1 after send 2, WaitingCounterparty");
 
@@ -960,9 +1000,7 @@ fn send_received_success() {
             }],
         ),
     ]);
-    let txid_1 = wallet_1
-        .send(online_1.clone(), recipient_map, false)
-        .unwrap();
+    let txid_1 = test_send_default(&mut wallet_1, &online_1, recipient_map);
     assert!(!txid_1.is_empty());
 
     // take transfers from WaitingCounterparty to Settled
@@ -1042,9 +1080,7 @@ fn send_received_success() {
             }],
         ),
     ]);
-    let txid_2 = wallet_2
-        .send(online_2.clone(), recipient_map, false)
-        .unwrap();
+    let txid_2 = test_send_default(&mut wallet_2, &online_2, recipient_map);
     assert!(!txid_2.is_empty());
 
     // take transfers from WaitingCounterparty to Settled
@@ -1124,7 +1160,7 @@ fn send_received_rgb121_success() {
 
     let amount_1: u64 = 66;
     let amount_2: u64 = 7;
-    let parent_str = "mom|dad";
+    let parent_str = "rgb1fq7r4739249duetmvl062q2ceqrqnznrk67rzck7y7pn65gkdgtqc0z9u3";
     let file_str = "README.md";
 
     // wallets
@@ -1161,9 +1197,7 @@ fn send_received_rgb121_success() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid_1 = wallet_1
-        .send(online_1.clone(), recipient_map, false)
-        .unwrap();
+    let txid_1 = test_send_default(&mut wallet_1, &online_1, recipient_map);
     assert!(!txid_1.is_empty());
 
     // take transfers from WaitingCounterparty to Settled
@@ -1215,9 +1249,7 @@ fn send_received_rgb121_success() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid_2 = wallet_2
-        .send(online_2.clone(), recipient_map, false)
-        .unwrap();
+    let txid_2 = test_send_default(&mut wallet_2, &online_2, recipient_map);
     assert!(!txid_2.is_empty());
 
     // take transfers from WaitingCounterparty to Settled
@@ -1334,7 +1366,7 @@ fn receive_multiple_same_asset_success() {
             },
         ],
     )]);
-    let txid = wallet.send(online.clone(), recipient_map, false).unwrap();
+    let txid = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid.is_empty());
 
     let rcv_transfer_1 = get_test_transfer_recipient(&rcv_wallet, &blind_data_1.blinded_utxo);
@@ -1643,7 +1675,7 @@ fn receive_multiple_different_assets_success() {
             }],
         ),
     ]);
-    let txid = wallet.send(online.clone(), recipient_map, false).unwrap();
+    let txid = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid.is_empty());
 
     let rcv_transfer_1 = get_test_transfer_recipient(&rcv_wallet, &blind_data_1.blinded_utxo);
@@ -2033,7 +2065,7 @@ fn batch_donation_success() {
             ],
         ),
     ]);
-    let txid = wallet.send(online, recipient_map, true).unwrap();
+    let txid = wallet.send(online, recipient_map, true, FEE_RATE).unwrap();
     assert!(!txid.is_empty());
 
     show_unspent_colorings(&wallet, "after send");
@@ -2130,14 +2162,14 @@ fn reuse_failed_blinded_success() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = wallet
-        .send(online.clone(), recipient_map.clone(), false)
-        .unwrap();
+    let txid = test_send_default(&mut wallet, &online, recipient_map.clone());
     assert!(!txid.is_empty());
 
     // try to send again and check the asset is not spendable
-    let result = wallet.send(online.clone(), recipient_map.clone(), false);
-    assert!(matches!(result, Err(Error::InsufficientSpendableAssets(id)) if id == asset.asset_id));
+    let result = wallet.send(online.clone(), recipient_map.clone(), false, FEE_RATE);
+    assert!(
+        matches!(result, Err(Error::InsufficientSpendableAssets { asset_id: id }) if id == asset.asset_id)
+    );
 
     // fail transfer so asset allocation can be spent again
     wallet
@@ -2145,7 +2177,7 @@ fn reuse_failed_blinded_success() {
         .unwrap();
 
     // 2nd transfer using the same blinded UTXO
-    let result = wallet.send(online, recipient_map, false);
+    let result = wallet.send(online, recipient_map, false, FEE_RATE);
     assert!(matches!(result, Err(Error::BlindedUTXOAlreadyUsed)));
 }
 
@@ -2193,7 +2225,7 @@ fn ack() {
             },
         ],
     )]);
-    let txid = wallet.send(online.clone(), recipient_map, false).unwrap();
+    let txid = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid.is_empty());
 
     // all transfers are in WaitingCounterparty status
@@ -2278,7 +2310,7 @@ fn nack() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = wallet.send(online.clone(), recipient_map, false).unwrap();
+    let txid = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid.is_empty());
 
     // transfers are in WaitingCounterparty status
@@ -2343,7 +2375,7 @@ fn expire() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = wallet.send(online, recipient_map, false).unwrap();
+    let txid = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid.is_empty());
 
     // check expiration is set correctly
@@ -2381,7 +2413,8 @@ fn no_change_on_pending_send() {
     // wallets
     let (mut wallet, online) = get_funded_noutxo_wallet!();
     let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
-    let num_utxos_created = test_create_utxos(&mut wallet, online.clone(), true, Some(3), None);
+    let num_utxos_created =
+        test_create_utxos(&mut wallet, online.clone(), true, Some(3), None, FEE_RATE);
     assert_eq!(num_utxos_created, 3);
 
     // issue 1 + get its UTXO
@@ -2427,7 +2460,7 @@ fn no_change_on_pending_send() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid_1 = wallet.send(online.clone(), recipient_map, false).unwrap();
+    let txid_1 = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid_1.is_empty());
 
     // send asset_2 (send_1 in WaitingCounterparty)
@@ -2443,7 +2476,7 @@ fn no_change_on_pending_send() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid_2 = wallet.send(online.clone(), recipient_map, false).unwrap();
+    let txid_2 = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid_2.is_empty());
     // check change was not allocated on issue 1 UTXO (pending Input coloring)
     assert!(!unspent_1.rgb_allocations.iter().any(|a| !a.settled));
@@ -2474,7 +2507,7 @@ fn no_change_on_pending_send() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid_3 = wallet.send(online, recipient_map, false).unwrap();
+    let txid_3 = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid_3.is_empty());
     show_unspent_colorings(&wallet, "after 3rd send");
     // check change was not allocated on issue 1 UTXO (pending Input coloring)
@@ -2515,8 +2548,8 @@ fn fail() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let result = wallet.send(online.clone(), recipient_map, false);
-    assert!(matches!(result, Err(Error::AssetNotFound(_))));
+    let result = wallet.send(online.clone(), recipient_map, false, FEE_RATE);
+    assert!(matches!(result, Err(Error::AssetNotFound { asset_id: _ })));
 
     // invalid input (blinded UTXO)
     let recipient_map = HashMap::from([(
@@ -2527,8 +2560,11 @@ fn fail() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let result = wallet.send(online.clone(), recipient_map, false);
-    assert!(matches!(result, Err(Error::InvalidBlindedUTXO(_))));
+    let result = wallet.send(online.clone(), recipient_map, false, FEE_RATE);
+    assert!(matches!(
+        result,
+        Err(Error::InvalidBlindedUTXO { details: _ })
+    ));
 
     // insufficient assets (amount too big)
     let recipient_map = HashMap::from([(
@@ -2539,8 +2575,10 @@ fn fail() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let result = wallet.send(online.clone(), recipient_map, false);
-    assert!(matches!(result, Err(Error::InsufficientTotalAssets(t)) if t == asset.asset_id));
+    let result = wallet.send(online.clone(), recipient_map, false, FEE_RATE);
+    assert!(
+        matches!(result, Err(Error::InsufficientTotalAssets { asset_id: t }) if t == asset.asset_id)
+    );
 
     // consignment endpoints: not enough endpoints
     let consignment_endpoints = vec![];
@@ -2552,11 +2590,11 @@ fn fail() {
             consignment_endpoints,
         }],
     )]);
-    let result = wallet.send_begin(online.clone(), recipient_map, false);
+    let result = wallet.send_begin(online.clone(), recipient_map, false, FEE_RATE);
     let msg = s!("must provide at least a consignment endpoint");
     assert!(matches!(
         result,
-        Err(Error::InvalidConsignmentEndpoints(m)) if m == msg
+        Err(Error::InvalidConsignmentEndpoints { details: m }) if m == msg
     ));
 
     // consignment endpoints: malformed
@@ -2569,11 +2607,14 @@ fn fail() {
             consignment_endpoints,
         }],
     )]);
-    let result = wallet.send_begin(online.clone(), recipient_map, false);
-    assert!(matches!(result, Err(Error::InvalidConsignmentEndpoint(_))));
+    let result = wallet.send_begin(online.clone(), recipient_map, false, FEE_RATE);
+    assert!(matches!(
+        result,
+        Err(Error::InvalidConsignmentEndpoint { details: _ })
+    ));
 
     // consignment endpoints: unknown protocol
-    let consignment_endpoints = vec![format!("unknown:{}", PROXY_URL)];
+    let consignment_endpoints = vec![format!("unknown:{PROXY_URL}")];
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -2582,14 +2623,17 @@ fn fail() {
             consignment_endpoints,
         }],
     )]);
-    let result = wallet.send_begin(online.clone(), recipient_map, false);
-    assert!(matches!(result, Err(Error::InvalidConsignmentEndpoint(_))));
+    let result = wallet.send_begin(online.clone(), recipient_map, false, FEE_RATE);
+    assert!(matches!(
+        result,
+        Err(Error::InvalidConsignmentEndpoint { details: _ })
+    ));
 
     // consignment endpoints: no valid endpoints (unsupported, down, modified)
     let consignment_endpoints = vec![
-        format!("storm:{}@127.0.0.1:1234", STORM_ID),
-        format!("rgbhttpjsonrpc:{}", "127.6.6.6:7777/json-rpc"),
-        format!("rgbhttpjsonrpc:{}", PROXY_URL_MOD_PROTO),
+        format!("storm:{STORM_ID}@127.0.0.1:1234"),
+        format!("rgbhttpjsonrpc:127.6.6.6:7777/json-rpc"),
+        format!("rgbhttpjsonrpc:{PROXY_URL_MOD_PROTO}"),
     ];
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -2599,34 +2643,48 @@ fn fail() {
             consignment_endpoints,
         }],
     )]);
-    let result = wallet.send_begin(online.clone(), recipient_map, false);
+    let result = wallet.send_begin(online.clone(), recipient_map, false, FEE_RATE);
     let msg = s!("no valid consignment endpoints");
     assert!(matches!(
         result,
-        Err(Error::InvalidConsignmentEndpoints(m)) if m == msg
+        Err(Error::InvalidConsignmentEndpoints { details: m }) if m == msg
     ));
 
     // consignment endpoints: too many endpoints
     let consignment_endpoints = vec![
-        format!("rgbhttpjsonrpc:{}", "127.0.0.1:3000/json-rpc"),
-        format!("rgbhttpjsonrpc:{}", "127.0.0.1:3001/json-rpc"),
-        format!("rgbhttpjsonrpc:{}", "127.0.0.1:3002/json-rpc"),
-        format!("rgbhttpjsonrpc:{}", "127.0.0.1:3003/json-rpc"),
+        format!("rgbhttpjsonrpc:127.0.0.1:3000/json-rpc"),
+        format!("rgbhttpjsonrpc:127.0.0.1:3001/json-rpc"),
+        format!("rgbhttpjsonrpc:127.0.0.1:3002/json-rpc"),
+        format!("rgbhttpjsonrpc:127.0.0.1:3003/json-rpc"),
     ];
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            blinded_utxo: blind_data.blinded_utxo.clone(),
+            amount: AMOUNT / 2,
+            consignment_endpoints,
+        }],
+    )]);
+    let result = wallet.send_begin(online.clone(), recipient_map, false, FEE_RATE);
+    let msg = s!("library supports at max 3 consignment endpoints");
+    assert!(matches!(
+        result,
+        Err(Error::InvalidConsignmentEndpoints { details: m }) if m == msg
+    ));
+
+    // fee min/max
     let recipient_map = HashMap::from([(
         asset.asset_id,
         vec![Recipient {
             blinded_utxo: blind_data.blinded_utxo,
             amount: AMOUNT / 2,
-            consignment_endpoints,
+            consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let result = wallet.send_begin(online, recipient_map, false);
-    let msg = s!("library supports at max 3 consignment endpoints");
-    assert!(matches!(
-        result,
-        Err(Error::InvalidConsignmentEndpoints(m)) if m == msg
-    ));
+    let result = wallet.send_begin(online.clone(), recipient_map.clone(), false, 0.9);
+    assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_LOW));
+    let result = wallet.send_begin(online, recipient_map, false, 1000.1);
+    assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_HIGH));
 }
 
 #[test]
@@ -2639,7 +2697,14 @@ fn pending_incoming_transfer_fail() {
     // wallets
     let (mut wallet, online) = get_funded_wallet!();
     let (mut rcv_wallet, rcv_online) = get_funded_noutxo_wallet!();
-    test_create_utxos(&mut rcv_wallet, rcv_online.clone(), false, Some(1), None);
+    test_create_utxos(
+        &mut rcv_wallet,
+        rcv_online.clone(),
+        false,
+        Some(1),
+        None,
+        FEE_RATE,
+    );
 
     // issue
     let asset = wallet
@@ -2668,7 +2733,7 @@ fn pending_incoming_transfer_fail() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid_1 = wallet.send(online.clone(), recipient_map, false).unwrap();
+    let txid_1 = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid_1.is_empty());
 
     // take transfers from WaitingCounterparty to Settled
@@ -2714,8 +2779,10 @@ fn pending_incoming_transfer_fail() {
     show_unspent_colorings(&wallet, "sender after 2nd send, WaitingCounterparty");
     show_unspent_colorings(&rcv_wallet, "receiver after 2nd send, WaitingCounterparty");
     // check input allocation is blocked by pending receive
-    let result = rcv_wallet.send(rcv_online.clone(), recipient_map.clone(), false);
-    assert!(matches!(result, Err(Error::InsufficientSpendableAssets(t)) if t == asset.asset_id));
+    let result = rcv_wallet.send(rcv_online.clone(), recipient_map.clone(), false, FEE_RATE);
+    assert!(
+        matches!(result, Err(Error::InsufficientSpendableAssets { asset_id: t }) if t == asset.asset_id)
+    );
 
     // take transfer from WaitingCounterparty to WaitingConfirmations
     rcv_wallet
@@ -2725,8 +2792,10 @@ fn pending_incoming_transfer_fail() {
         .refresh(online, Some(asset.asset_id.clone()), vec![])
         .unwrap();
     // check input allocation is still blocked by pending receive
-    let result = rcv_wallet.send(rcv_online, recipient_map, false);
-    assert!(matches!(result, Err(Error::InsufficientSpendableAssets(t)) if t == asset.asset_id));
+    let result = rcv_wallet.send(rcv_online, recipient_map, false, FEE_RATE);
+    assert!(
+        matches!(result, Err(Error::InsufficientSpendableAssets { asset_id: t }) if t == asset.asset_id)
+    );
 }
 
 #[test]
@@ -2762,7 +2831,7 @@ fn pending_outgoing_transfer_fail() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = wallet.send(online.clone(), recipient_map, false).unwrap();
+    let txid = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid.is_empty());
 
     // 2nd send (1st still pending)
@@ -2778,8 +2847,10 @@ fn pending_outgoing_transfer_fail() {
         }],
     )]);
     // check input allocation is blocked by pending send
-    let result = wallet.send(online.clone(), recipient_map.clone(), false);
-    assert!(matches!(result, Err(Error::InsufficientSpendableAssets(t)) if t == asset.asset_id));
+    let result = wallet.send(online.clone(), recipient_map.clone(), false, FEE_RATE);
+    assert!(
+        matches!(result, Err(Error::InsufficientSpendableAssets { asset_id: t }) if t == asset.asset_id)
+    );
 
     // take transfer from WaitingCounterparty to WaitingConfirmations
     rcv_wallet.refresh(rcv_online, None, vec![]).unwrap();
@@ -2787,8 +2858,10 @@ fn pending_outgoing_transfer_fail() {
         .refresh(online.clone(), Some(asset.asset_id.clone()), vec![])
         .unwrap();
     // check input allocation is still blocked by pending send
-    let result = wallet.send(online, recipient_map, false);
-    assert!(matches!(result, Err(Error::InsufficientSpendableAssets(t)) if t == asset.asset_id));
+    let result = wallet.send(online, recipient_map, false, FEE_RATE);
+    assert!(
+        matches!(result, Err(Error::InsufficientSpendableAssets { asset_id: t }) if t == asset.asset_id)
+    );
 }
 
 #[test]
@@ -2800,7 +2873,7 @@ fn pending_transfer_input_fail() {
     // wallets
     let (mut wallet, online) = get_funded_noutxo_wallet!();
     let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
-    test_create_utxos(&mut wallet, online.clone(), false, Some(1), None);
+    test_create_utxos(&mut wallet, online.clone(), false, Some(1), None, FEE_RATE);
 
     // issue
     let asset = wallet
@@ -2831,8 +2904,10 @@ fn pending_transfer_input_fail() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let result = wallet.send(online, recipient_map, false);
-    assert!(matches!(result, Err(Error::InsufficientSpendableAssets(t)) if t == asset.asset_id));
+    let result = wallet.send(online, recipient_map, false, FEE_RATE);
+    assert!(
+        matches!(result, Err(Error::InsufficientSpendableAssets { asset_id: t }) if t == asset.asset_id)
+    );
 }
 
 #[test]
@@ -2868,13 +2943,11 @@ fn already_used_fail() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = wallet
-        .send(online.clone(), recipient_map.clone(), false)
-        .unwrap();
+    let txid = test_send_default(&mut wallet, &online, recipient_map.clone());
     assert!(!txid.is_empty());
 
     // 2nd transfer using the same blinded UTXO
-    let result = wallet.send(online, recipient_map, false);
+    let result = wallet.send(online, recipient_map, false, FEE_RATE);
     assert!(matches!(result, Err(Error::BlindedUTXOAlreadyUsed)));
 }
 
@@ -2926,7 +2999,7 @@ fn rgb121_blank_success() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let res = wallet.send_begin(online, recipient_map, false);
+    let res = wallet.send_begin(online, recipient_map, false, FEE_RATE);
     assert!(!res.unwrap().is_empty());
 }
 
@@ -2942,7 +3015,8 @@ fn psbt_rgb_consumer_success() {
 
     // create 1 UTXO
     println!("utxo 1");
-    let num_utxos_created = test_create_utxos(&mut wallet, online.clone(), true, Some(1), None);
+    let num_utxos_created =
+        test_create_utxos(&mut wallet, online.clone(), true, Some(1), None, FEE_RATE);
     assert_eq!(num_utxos_created, 1);
 
     // issue an RGB20 asset
@@ -2959,7 +3033,8 @@ fn psbt_rgb_consumer_success() {
 
     // create 1 more UTXO for change, up_to false or AllocationsAlreadyAvailable is returned
     println!("utxo 2");
-    let num_utxos_created = test_create_utxos(&mut wallet, online.clone(), false, Some(1), None);
+    let num_utxos_created =
+        test_create_utxos(&mut wallet, online.clone(), false, Some(1), None, FEE_RATE);
     assert_eq!(num_utxos_created, 1);
 
     // try to send it
@@ -2975,7 +3050,7 @@ fn psbt_rgb_consumer_success() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let res = wallet.send_begin(online.clone(), recipient_map, false);
+    let res = wallet.send_begin(online.clone(), recipient_map, false, FEE_RATE);
     assert!(!res.unwrap().is_empty());
 
     // issue one more RGB20 asset, should go to the same UTXO as the 1st issuance
@@ -3003,7 +3078,7 @@ fn psbt_rgb_consumer_success() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let res = wallet.send_begin(online.clone(), recipient_map, false);
+    let res = wallet.send_begin(online.clone(), recipient_map, false, FEE_RATE);
     assert!(!res.unwrap().is_empty());
 
     // exhaust allocations + issue 3rd asset, on a different UTXO
@@ -3031,7 +3106,8 @@ fn psbt_rgb_consumer_success() {
 
     // create 1 more UTXO for change, up_to false or AllocationsAlreadyAvailable is returned
     println!("utxo 3");
-    let num_utxos_created = test_create_utxos(&mut wallet, online.clone(), false, Some(1), None);
+    let num_utxos_created =
+        test_create_utxos(&mut wallet, online.clone(), false, Some(1), None, FEE_RATE);
     assert_eq!(num_utxos_created, 1);
 
     // try to send the second asset to a recipient and the third to different one
@@ -3060,7 +3136,7 @@ fn psbt_rgb_consumer_success() {
             }],
         ),
     ]);
-    let res = wallet.send_begin(online, recipient_map, false);
+    let res = wallet.send_begin(online, recipient_map, false, FEE_RATE);
     assert!(!res.unwrap().is_empty());
 }
 
@@ -3081,10 +3157,11 @@ fn insufficient_bitcoins() {
         false,
         Some(1),
         Some(tiny_btc_amount),
+        FEE_RATE,
     );
     assert_eq!(num_utxos_created, 1);
     wallet
-        .drain_to(online.clone(), rcv_wallet.get_address(), false)
+        .drain_to(online.clone(), rcv_wallet.get_address(), false, FEE_RATE)
         .unwrap();
 
     // issue an RGB20 asset
@@ -3112,8 +3189,14 @@ fn insufficient_bitcoins() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let res = wallet.send_begin(online.clone(), recipient_map.clone(), false);
-    assert!(matches!(res, Err(Error::InsufficientBitcoins)));
+    let res = wallet.send_begin(online.clone(), recipient_map.clone(), false, FEE_RATE);
+    assert!(matches!(
+        res,
+        Err(Error::InsufficientBitcoins {
+            needed: _,
+            available: _
+        })
+    ));
 
     // create 1 UTXO for change (add funds, create UTXO, drain the rest)
     fund_wallet(wallet.get_address());
@@ -3123,17 +3206,24 @@ fn insufficient_bitcoins() {
         false,
         Some(1),
         Some(tiny_btc_amount),
+        FEE_RATE,
     );
     assert_eq!(num_utxos_created, 1);
     wallet
-        .drain_to(online.clone(), rcv_wallet.get_address(), false)
+        .drain_to(online.clone(), rcv_wallet.get_address(), false, FEE_RATE)
         .unwrap();
 
     // send with only 1 colorable UTXO available, for change
     let unspents = wallet.list_unspents(false).unwrap();
     assert_eq!(unspents.len(), 2);
-    let res = wallet.send_begin(online, recipient_map, false);
-    assert!(matches!(res, Err(Error::InsufficientBitcoins)));
+    let res = wallet.send_begin(online, recipient_map, false, FEE_RATE);
+    assert!(matches!(
+        res,
+        Err(Error::InsufficientBitcoins {
+            needed: _,
+            available: _
+        })
+    ));
 }
 
 #[test]
@@ -3145,8 +3235,14 @@ fn insufficient_allocations_fail() {
     let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
 
     // create 1 UTXO with not enough bitcoins for a send
-    let num_utxos_created =
-        test_create_utxos(&mut wallet, online.clone(), false, Some(1), Some(300));
+    let num_utxos_created = test_create_utxos(
+        &mut wallet,
+        online.clone(),
+        false,
+        Some(1),
+        Some(300),
+        FEE_RATE,
+    );
     assert_eq!(num_utxos_created, 1);
 
     // issue an RGB20 asset
@@ -3172,16 +3268,17 @@ fn insufficient_allocations_fail() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let res = wallet.send_begin(online.clone(), recipient_map.clone(), false);
+    let res = wallet.send_begin(online.clone(), recipient_map.clone(), false, FEE_RATE);
     assert!(matches!(res, Err(Error::InsufficientAllocationSlots)));
 
     // create 1 more UTXO for change, up_to false or AllocationsAlreadyAvailable is returned
     println!("utxo 2");
-    let num_utxos_created = test_create_utxos(&mut wallet, online.clone(), false, Some(1), None);
+    let num_utxos_created =
+        test_create_utxos(&mut wallet, online.clone(), false, Some(1), None, FEE_RATE);
     assert_eq!(num_utxos_created, 1);
 
     // send with no colorable UTXOs available as additional bitcoin inputs, uncolorable available
-    let res = wallet.send_begin(online, recipient_map, false);
+    let res = wallet.send_begin(online, recipient_map, false, FEE_RATE);
     assert!(matches!(res, Err(Error::InsufficientAllocationSlots)));
 }
 
@@ -3194,8 +3291,14 @@ fn insufficient_allocations_success() {
     let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
 
     // create 1 UTXO with not enough bitcoins for a send
-    let num_utxos_created =
-        test_create_utxos(&mut wallet, online.clone(), false, Some(1), Some(300));
+    let num_utxos_created = test_create_utxos(
+        &mut wallet,
+        online.clone(),
+        false,
+        Some(1),
+        Some(300),
+        FEE_RATE,
+    );
     assert_eq!(num_utxos_created, 1);
 
     // issue an RGB20 asset on the unspendable UTXO
@@ -3210,7 +3313,8 @@ fn insufficient_allocations_success() {
         .unwrap();
 
     // create 2 more UTXOs, 1 for change + 1 as additional bitcoin input
-    let num_utxos_created = test_create_utxos(&mut wallet, online.clone(), false, Some(2), None);
+    let num_utxos_created =
+        test_create_utxos(&mut wallet, online.clone(), false, Some(2), None, FEE_RATE);
     assert_eq!(num_utxos_created, 2);
 
     // send with 1 colorable UTXOs available as additional bitcoin input
@@ -3225,6 +3329,42 @@ fn insufficient_allocations_success() {
             consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
         }],
     )]);
-    let res = wallet.send_begin(online, recipient_map, false);
+    let res = wallet.send_begin(online, recipient_map, false, FEE_RATE);
     assert!(!res.unwrap().is_empty());
+}
+
+#[test]
+fn send_to_oneself() {
+    initialize();
+
+    let amount: u64 = 66;
+
+    // wallets
+    let (mut wallet, online) = get_funded_wallet!();
+
+    // issue
+    let asset = wallet
+        .issue_asset_rgb20(
+            online.clone(),
+            TICKER.to_string(),
+            NAME.to_string(),
+            PRECISION,
+            vec![AMOUNT],
+        )
+        .unwrap();
+
+    // send
+    let blind_data = wallet
+        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .unwrap();
+    let recipient_map = HashMap::from([(
+        asset.asset_id,
+        vec![Recipient {
+            amount,
+            blinded_utxo: blind_data.blinded_utxo,
+            consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let result = wallet.send(online, recipient_map, false, FEE_RATE);
+    assert!(matches!(result, Err(Error::CannotSendToSelf)));
 }

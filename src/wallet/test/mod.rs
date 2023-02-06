@@ -12,7 +12,7 @@ const PROXY_URL: &str = "http://127.0.0.1:3000/json-rpc";
 const PROXY_URL_MOD_PROTO: &str = "http://127.0.0.1:3001/json-rpc";
 const PROXY_URL_MOD_API: &str = "http://127.0.0.1:3002/json-rpc";
 const STORM_ID: &str = "03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c366597a3f8f";
-static PROXY_ENDPOINT: Lazy<String> = Lazy::new(|| format!("rgbhttpjsonrpc:{}", PROXY_URL));
+static PROXY_ENDPOINT: Lazy<String> = Lazy::new(|| format!("rgbhttpjsonrpc:{PROXY_URL}"));
 static CONSIGNMENT_ENDPOINTS: Lazy<Vec<String>> = Lazy::new(|| vec![PROXY_ENDPOINT.clone()]);
 const ELECTRUM_URL: &str = "127.0.0.1:50001";
 const TEST_DATA_DIR: &str = "./tests/tmp";
@@ -21,6 +21,9 @@ const NAME: &str = "name";
 const DESCRIPTION: &str = "DESCRIPTION";
 const PRECISION: u8 = 7;
 const AMOUNT: u64 = 666;
+const FEE_RATE: f32 = 1.5;
+const FEE_MSG_LOW: &str = "value under minimum 1";
+const FEE_MSG_HIGH: &str = "value above maximum 1000";
 
 static INIT: Once = Once::new();
 
@@ -43,7 +46,7 @@ fn _bitcoin_cli() -> [String; 9] {
 fn drain_wallet(wallet: &Wallet, online: Online) {
     let rcv_wallet = get_test_wallet(false);
     wallet
-        .drain_to(online, rcv_wallet.get_address(), true)
+        .drain_to(online, rcv_wallet.get_address(), true, FEE_RATE)
         .unwrap();
 }
 
@@ -212,7 +215,7 @@ macro_rules! get_funded_wallet {
 }
 
 fn test_create_utxos_default(wallet: &mut Wallet, online: Online) -> u8 {
-    _test_create_utxos(wallet, online, false, None, None)
+    _test_create_utxos(wallet, online, false, None, None, FEE_RATE)
 }
 
 fn test_create_utxos(
@@ -221,8 +224,9 @@ fn test_create_utxos(
     up_to: bool,
     num: Option<u8>,
     size: Option<u32>,
+    fee_rate: f32,
 ) -> u8 {
-    _test_create_utxos(wallet, online, up_to, num, size)
+    _test_create_utxos(wallet, online, up_to, num, size, fee_rate)
 }
 
 fn _test_create_utxos(
@@ -231,24 +235,28 @@ fn _test_create_utxos(
     up_to: bool,
     num: Option<u8>,
     size: Option<u32>,
+    fee_rate: f32,
 ) -> u8 {
     let delay = 200;
     let mut retries = 3;
     let mut num_utxos_created = 0;
     while retries > 0 {
         retries -= 1;
-        let result = wallet.create_utxos(online.clone(), up_to, num, size);
+        let result = wallet.create_utxos(online.clone(), up_to, num, size, fee_rate);
         match result {
             Ok(_) => {
                 num_utxos_created = result.unwrap();
                 break;
             }
-            Err(Error::InsufficientBitcoins) => {
+            Err(Error::InsufficientBitcoins {
+                needed: _,
+                available: _,
+            }) => {
                 std::thread::sleep(Duration::from_millis(delay));
                 continue;
             }
             Err(error) => {
-                panic!("error creating UTXOs for wallet: {:?}", error);
+                panic!("error creating UTXOs for wallet: {error:?}");
             }
         }
     }
@@ -256,6 +264,16 @@ fn _test_create_utxos(
         panic!("error creating UTXOs for wallet: insufficient bitcoins");
     }
     num_utxos_created
+}
+
+fn test_send_default(
+    wallet: &mut Wallet,
+    online: &Online,
+    recipient_map: HashMap<String, Vec<Recipient>>,
+) -> String {
+    wallet
+        .send(online.clone(), recipient_map, false, FEE_RATE)
+        .unwrap()
 }
 
 fn check_test_transfer_status_recipient(
@@ -428,7 +446,7 @@ fn list_test_unspents(wallet: &Wallet, msg: &str) -> Vec<Unspent> {
         unspents.len()
     );
     for unspent in &unspents {
-        println!("- {:?}", unspent);
+        println!("- {unspent:?}");
     }
     unspents
 }
@@ -436,7 +454,7 @@ fn list_test_unspents(wallet: &Wallet, msg: &str) -> Vec<Unspent> {
 /// print the provided message, then get colorings for each wallet unspent and print their status,
 /// type, amount and asset
 fn show_unspent_colorings(wallet: &Wallet, msg: &str) {
-    println!("\n{}", msg);
+    println!("\n{msg}");
     let unspents = wallet.list_unspents(false).unwrap();
     for unspent in unspents {
         let outpoint = unspent.utxo.outpoint;
