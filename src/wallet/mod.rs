@@ -819,6 +819,7 @@ pub struct Wallet {
     rest_client: RestClient,
     online: Option<Online>,
     bdk_blockchain: Option<ElectrumBlockchain>,
+    electrum_client: Option<ElectrumClient>,
     rgb_client: Option<Client>,
 }
 
@@ -931,6 +932,7 @@ impl Wallet {
             rest_client,
             online: None,
             bdk_blockchain: None,
+            electrum_client: None,
             rgb_client: None,
         })
     }
@@ -942,18 +944,11 @@ impl Wallet {
         }
     }
 
-    fn _new_electrum_client(&self) -> Result<ElectrumClient, Error> {
-        let stored_online = self.online.clone().expect("wallet should be online");
-        let electrum_url = stored_online.electrum_url;
-        let electrum_config = ConfigBuilder::new()
-            .timeout(Some(ELECTRUM_TIMEOUT))
-            .expect("cannot fail since socks5 is unset")
-            .build();
-        ElectrumClient::from_config(&electrum_url, electrum_config).map_err(|e| {
-            Error::InvalidElectrum {
-                details: e.to_string(),
-            }
-        })
+    fn _electrum_client(&self) -> Result<&ElectrumClient, InternalError> {
+        match self.electrum_client {
+            Some(ref x) => Ok(x),
+            None => Err(InternalError::Unexpected),
+        }
     }
 
     fn _rgb_client(&mut self) -> Result<&mut Client, Error> {
@@ -964,11 +959,10 @@ impl Wallet {
     }
 
     fn _get_tx_details(&self, txid: String) -> Result<serde_json::Value, Error> {
-        let call = (
-            s!("blockchain.transaction.get"),
+        Ok(self._electrum_client()?.raw_call(
+            "blockchain.transaction.get",
             vec![Param::String(txid), Param::Bool(true)],
-        );
-        Ok(self._new_electrum_client()?.raw_call(&call)?)
+        )?)
     }
 
     fn _check_consignment_endpoints(
@@ -2071,6 +2065,18 @@ impl Wallet {
         };
         self.online = Some(online.clone());
 
+        // create electrum client
+        let electrum_config = ConfigBuilder::new()
+            .timeout(Some(ELECTRUM_TIMEOUT))
+            .expect("cannot fail since socks5 is unset")
+            .build();
+        self.electrum_client = Some(
+            ElectrumClient::from_config(&electrum_url, electrum_config).map_err(|e| {
+                Error::InvalidElectrum {
+                    details: e.to_string(),
+                }
+            })?,
+        );
         // check electrum server
         if self.bitcoin_network != BitcoinNetwork::Regtest {
             self._get_tx_details(get_txid(self.bitcoin_network))
@@ -2168,6 +2174,7 @@ impl Wallet {
             if online.is_err() {
                 self.online = None;
                 self.bdk_blockchain = None;
+                self.electrum_client = None;
                 self.rgb_client = None;
             }
             online
@@ -2832,7 +2839,7 @@ impl Wallet {
         }
 
         debug!(self.logger, "Validating consignment...");
-        let validation_status = Validator::validate(&consignment, &self._new_electrum_client()?);
+        let validation_status = Validator::validate(&consignment, self._electrum_client()?);
         let validity = validation_status.validity();
         debug!(self.logger, "Consignment validity: {:?}", validity);
         if valid && !vec![Validity::Valid, Validity::ValidExceptEndpoints].contains(&validity) {

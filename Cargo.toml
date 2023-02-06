@@ -15,10 +15,10 @@ members = [".", "migration"]
 
 [dependencies]
 base64 = "0.13.0"
-bdk = { version = "0.23", features = ["electrum", "keys-bip39", "sqlite-bundled"] }
-bitcoin = "0.28.1"
+bdk = { version = "0.25", features = ["electrum", "keys-bip39", "sqlite-bundled"] }
+bitcoin = "0.29.2"
 chrono = "0.4.23"
-electrum-client = "0.10.2"
+electrum-client = "0.12.0"
 futures = "0.3"
 rgb-lib-migration = { path = "migration", version = "0.1.3" }
 reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "multipart", "native-tls"] }
@@ -36,22 +36,22 @@ tree_magic = "0.2.3"
 # RGB-related deps
 amplify = "=3.13.0"
 amplify_num = "=0.4.1"
-bp-core = { version = "=0.8.1", features = ["psbt", "wallet"] }
-bp-dbc = "=0.8.1"
-commit_verify = "=0.8.3"
-internet2 = "=0.8.4"
-lnpbp = "=0.8.0"
-lnpbp-invoice = { version = "0.8.0-rc.1", features = ["rgb"] }
-psbt = "=0.8.5"
-rgb-std = "=0.8.2"
-rgb20 = "=0.8.0"
-rgb121 = "0.1.0"
-rgb_core = { package = "rgb-core", version = "=0.8.2" }
-rgb_node = { version = "=0.8.4", features = ["server", "embedded"] }
-rgb_rpc = { version = "=0.8.4" }
-stens = "=0.7.1"
-store_daemon = "=0.8.2"
-strict_encoding = "=0.8.2"
+bp-core = { version = "=0.9.0", features = ["psbt", "wallet"] }
+bp-dbc = "=0.9.0"
+commit_verify = "=0.9.0"
+internet2 = "=0.9.0"
+lnpbp = "=0.9.0"
+lnpbp-invoice = { version = "0.9.0", features = ["rgb"] }
+psbt = "=0.9.0"
+rgb-std = "=0.9.0"
+rgb20 = "=0.9.0"
+rgb121 = "0.2.0"
+rgb_core = { package = "rgb-core", version = "=0.9.0" }
+rgb_node = { version = "=0.9.1", features = ["server", "embedded"] }
+rgb_rpc = { version = "=0.9.1" }
+stens = "=0.9.0"
+store_daemon = "=0.9.0"
+strict_encoding = "=0.9.0"
 
 [dev-dependencies]
 once_cell = "1.16.0"
