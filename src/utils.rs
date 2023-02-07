@@ -127,7 +127,7 @@ pub(crate) fn calculate_descriptor_from_xpub(
         .into_descriptor_key(Some(origin_pub), DerivationPath::default())
         .expect("should be able to convert xpub in a descriptor key");
     if let Public(key, _, _) = der_xpub_desc_key {
-        Ok(format!("wpkh({})", key))
+        Ok(format!("wpkh({key})"))
     } else {
         Err(InternalError::Unexpected)?
     }

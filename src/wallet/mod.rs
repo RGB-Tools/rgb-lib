@@ -386,7 +386,7 @@ pub struct ConsignmentEndpoint {
 }
 
 impl ConsignmentEndpoint {
-    /// Check that the provided [`ConsignmentEndpoint::consignment_endpoint`] is valid
+    /// Check that the provided [`ConsignmentEndpoint::endpoint`] is valid
     pub fn new(consignment_endpoint: String) -> Result<Self, Error> {
         let invoice_consignment_endpoint =
             InvoiceConsignmentEndpoint::from_str(&consignment_endpoint)?;
@@ -977,8 +977,7 @@ impl Wallet {
         if consignment_endpoints.len() > MAX_CONSIGNMENT_ENDPOINTS as usize {
             return Err(Error::InvalidConsignmentEndpoints {
                 details: format!(
-                    "library supports at max {} consignment endpoints",
-                    MAX_CONSIGNMENT_ENDPOINTS
+                    "library supports at max {MAX_CONSIGNMENT_ENDPOINTS} consignment endpoints"
                 ),
             });
         }
@@ -989,11 +988,11 @@ impl Wallet {
     fn _check_fee_rate(&self, fee_rate: f32) -> Result<(), Error> {
         if fee_rate < MIN_FEE_RATE {
             return Err(Error::InvalidFeeRate {
-                details: format!("value under minimum {}", MIN_FEE_RATE),
+                details: format!("value under minimum {MIN_FEE_RATE}"),
             });
         } else if fee_rate > MAX_FEE_RATE {
             return Err(Error::InvalidFeeRate {
-                details: format!("value above maximum {}", MAX_FEE_RATE),
+                details: format!("value above maximum {MAX_FEE_RATE}"),
             });
         }
         Ok(())
@@ -1077,7 +1076,7 @@ impl Wallet {
         Ok(())
     }
 
-    fn _get_uncolorable_btc_sum(&self, unspents: &Vec<LocalUnspent>) -> u64 {
+    fn _get_uncolorable_btc_sum(&self, unspents: &[LocalUnspent]) -> u64 {
         unspents
             .iter()
             .filter(|u| !u.utxo.colorable)
@@ -1136,7 +1135,7 @@ impl Wallet {
             .collect())
     }
 
-    fn _detect_btc_unspendable_err(&self, unspents: &Vec<LocalUnspent>) -> Error {
+    fn _detect_btc_unspendable_err(&self, unspents: &[LocalUnspent]) -> Error {
         let available = self._get_uncolorable_btc_sum(unspents);
         if available < MIN_BTC_REQUIRED {
             Error::InsufficientBitcoins {
@@ -2102,10 +2101,10 @@ impl Wallet {
 
         // RGB setup
         let rgb_network = RgbNetwork::from(self.bitcoin_network);
-        let rpc_endpoint = ServiceAddr::Inproc(format!("rpc-endpoint-{}", online_id));
-        let ctl_endpoint = ServiceAddr::Inproc(format!("ctl-endpoint-{}", online_id));
-        let storm_endpoint = ServiceAddr::Inproc(format!("storm-endpoint-{}", online_id));
-        let store_endpoint = ServiceAddr::Inproc(format!("store-endpoint-{}", online_id));
+        let rpc_endpoint = ServiceAddr::Inproc(format!("rpc-endpoint-{online_id}"));
+        let ctl_endpoint = ServiceAddr::Inproc(format!("ctl-endpoint-{online_id}"));
+        let storm_endpoint = ServiceAddr::Inproc(format!("storm-endpoint-{online_id}"));
+        let store_endpoint = ServiceAddr::Inproc(format!("store-endpoint-{online_id}"));
         let mut config = StoreConfig {
             data_dir: self.wallet_dir.clone(),
             rpc_endpoint: store_endpoint.clone(),
@@ -2302,7 +2301,7 @@ impl Wallet {
         debug!(self.logger, "Contract registered");
         if !matches!(status, ContractValidity::Valid) {
             return Err(Error::FailedIssuance {
-                details: format!("{:?}", status),
+                details: format!("{status:?}"),
             });
         }
         let asset_id = asset.contract_id().to_string();
@@ -2472,7 +2471,7 @@ impl Wallet {
         debug!(self.logger, "Contract registered");
         if !matches!(status, ContractValidity::Valid) {
             return Err(Error::FailedIssuance {
-                details: format!("{:?}", status),
+                details: format!("{status:?}"),
             });
         }
         let asset_id = asset.contract_id().to_string();
@@ -3472,7 +3471,7 @@ impl Wallet {
 
     fn _try_prepare_psbt(
         &self,
-        input_unspents: &Vec<LocalUnspent>,
+        input_unspents: &[LocalUnspent],
         all_inputs: &mut Vec<OutPoint>,
         fee_rate: f32,
     ) -> Result<PartiallySignedTransaction, Error> {
@@ -3484,7 +3483,7 @@ impl Wallet {
                         all_inputs.clone().into_iter().map(|o| o.into()).collect();
                     if let Some(a) = self
                         ._get_available_allocations(
-                            input_unspents.clone(),
+                            input_unspents.to_vec(),
                             used_txos.clone(),
                             Some(0),
                         )?
@@ -3493,7 +3492,7 @@ impl Wallet {
                         all_inputs.push(a.utxo.into());
                         continue;
                     } else {
-                        return Err(self._detect_btc_unspendable_err(&input_unspents));
+                        return Err(self._detect_btc_unspendable_err(input_unspents));
                     }
                 }
                 Err(e) => return Err(e),
@@ -4153,7 +4152,7 @@ impl Wallet {
         all_inputs.sort();
         all_inputs.dedup();
         let psbt = self._try_prepare_psbt(&input_unspents, &mut all_inputs, fee_rate)?;
-        let vbytes = psbt.clone().extract_tx().vsize() as f32;
+        let vbytes = psbt.extract_tx().vsize() as f32;
         let updated_fee_rate = ((vbytes + OPRET_VBYTES) / vbytes) * fee_rate;
         let mut psbt =
             self._try_prepare_psbt(&input_unspents, &mut all_inputs, updated_fee_rate)?;
@@ -4165,7 +4164,7 @@ impl Wallet {
             transfer_info_map.clone(),
             transfer_dir.clone(),
             donation,
-            unspents.clone(),
+            unspents,
             &db_data,
         )?;
 
