@@ -27,16 +27,37 @@ const TIMESTAMP_FORMAT: &[time::format_description::FormatItem] = time::macros::
 const LOG_FILE: &str = "log";
 
 /// Supported Bitcoin networks
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, amplify::Display)]
 pub enum BitcoinNetwork {
     /// Bitcoin's mainnet
+    #[display("mainnet")]
     Mainnet,
+
     /// Bitcoin's testnet
+    #[display("testnet")]
     Testnet,
+
     /// Bitcoin's signet
+    #[display("signet")]
     Signet,
+
     /// Bitcoin's regtest
+    #[display("regtest")]
     Regtest,
+}
+
+impl FromStr for BitcoinNetwork {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "mainnet" => Ok(Self::Mainnet),
+            "testnet" => Ok(Self::Testnet),
+            "signet" => Ok(Self::Signet),
+            "regtest" => Ok(Self::Regtest),
+            x => Err(format!("unknown network {}", x)),
+        }
+    }
 }
 
 impl From<BdkNetwork> for BitcoinNetwork {

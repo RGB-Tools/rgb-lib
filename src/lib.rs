@@ -60,6 +60,9 @@
 #[macro_use]
 extern crate slog;
 
+#[macro_use]
+extern crate amplify;
+
 pub(crate) mod api;
 pub(crate) mod database;
 pub(crate) mod error;

@@ -69,6 +69,7 @@ use slog::{debug, error, info, Logger};
 use std::cmp::min;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
 use std::hash::{Hash, Hasher};
@@ -160,8 +161,20 @@ pub enum AssetType {
     Rgb121,
 }
 
+impl FromStr for AssetType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "rgb20" => Ok(Self::Rgb20),
+            "rgb121" => Ok(Self::Rgb121),
+            x => Err(format!("Invalid asset_type {}", x)),
+        }
+    }
+}
+
 /// An RGB20 fungible asset
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Deserialize, serde::Serialize)]
 pub struct AssetRgb20 {
     /// ID of the asset
     pub asset_id: String,
@@ -188,7 +201,7 @@ impl AssetRgb20 {
 }
 
 /// An asset media file
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Media {
     /// Path of the media file
     pub file_path: String,
@@ -197,7 +210,7 @@ pub struct Media {
 }
 
 /// Metadata of an asset
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Metadata {
     /// Asset schema type
     pub asset_type: AssetType,
@@ -218,7 +231,7 @@ pub struct Metadata {
 }
 
 /// An RGB121 collectible asset
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct AssetRgb121 {
     /// ID of the asset
     pub asset_id: String,
@@ -265,6 +278,7 @@ impl AssetRgb121 {
 }
 
 /// List of known assets, grouped by asset type
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Assets {
     /// List of Rgb20 assets
     pub rgb20: Option<Vec<AssetRgb20>>,
@@ -287,7 +301,7 @@ struct AssetSpend {
 /// reflecting what the balance will be once all pending operations will have settled.
 /// The spendable balance is a subset of the settled balance, excluding allocations on UTXOs that
 /// are supporting any pending operation.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct Balance {
     /// Settled balance
     pub settled: u64,
@@ -349,7 +363,7 @@ impl BlankBundleRgb121 for TransitionBundle {
 }
 
 /// Data for a UTXO blinding
-#[derive(Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BlindData {
     /// Bech32 invoice
     pub invoice: String,
@@ -418,10 +432,43 @@ impl TryFrom<InvoiceConsignmentEndpoint> for ConsignmentEndpoint {
 }
 
 /// Supported database types
-#[derive(Clone)]
+#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Debug, Display)]
 pub enum DatabaseType {
     /// A SQLite database
+    #[display("sqlite")]
     Sqlite,
+}
+
+/// Errors for handling db type.
+#[derive(Debug, Display, amplify::Error)]
+#[display(doc_comments)]
+pub enum DatabaseTypeError {
+    /// Unknown database type {0}
+    UnknownDatabaseType(String),
+}
+
+impl FromStr for DatabaseType {
+    type Err = DatabaseTypeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "sqlite" => Ok(Self::Sqlite),
+            x => Err(DatabaseTypeError::UnknownDatabaseType(x.to_owned())),
+        }
+    }
+}
+
+impl<T> From<T> for DatabaseType
+where
+    T: AsRef<OsStr>,
+{
+    fn from(value: T) -> Self {
+        match value.as_ref().to_str() {
+            Some("sqlite") => Self::Sqlite,
+            None => panic!("no valid os string as db type"),
+            Some(x) => panic!("Unknown db type {}", x),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -537,7 +584,7 @@ pub struct InvoiceData {
     pub consignment_endpoints: Vec<String>,
 }
 
-/// Data for operations that require the wallet to be online
+/// Data for operations that require the wallet to be online.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Online {
     /// ID to tell different Online structs apart
@@ -627,7 +674,7 @@ impl TryFrom<TransferStatus> for RefreshTransferStatus {
 }
 
 /// An RGB allocation
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 pub struct RgbAllocation {
     /// Asset ID
     pub asset_id: Option<String>,
@@ -648,7 +695,7 @@ impl From<LocalRgbAllocation> for RgbAllocation {
 }
 
 /// An RGB transfer
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Transfer {
     /// ID of the transfer
     pub idx: i64,
@@ -710,7 +757,7 @@ impl Transfer {
 }
 
 /// An RGB transfer consignment endpoint
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TransferConsignmentEndpoint {
     /// Endpoint address
     pub endpoint: String,
@@ -734,7 +781,7 @@ impl TransferConsignmentEndpoint {
 }
 
 /// The type of an RGB transfer
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TransferKind {
     /// A transfer that issued the asset
     Issuance,
@@ -745,7 +792,7 @@ pub enum TransferKind {
 }
 
 /// A wallet unspent
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Unspent {
     /// Bitcoin UTXO
     pub utxo: Utxo,
@@ -767,7 +814,7 @@ impl From<LocalUnspent> for Unspent {
 }
 
 /// An unspent transaction output
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Utxo {
     /// UTXO outpoint
     pub outpoint: Outpoint,
@@ -791,7 +838,7 @@ impl From<DbTxo> for Utxo {
 }
 
 /// Wallet data provided by the user
-#[derive(Clone)]
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub struct WalletData {
     /// Directory where the wallet directory is to be created
     pub data_dir: String,
@@ -799,9 +846,10 @@ pub struct WalletData {
     pub bitcoin_network: BitcoinNetwork,
     /// Database type for the wallet
     pub database_type: DatabaseType,
-    /// Wallet xpub
+    /// Wallet xpub, This is a so-called `master` xpub that created directly from mnemonic without
+    /// any bip32-path based derivation.
     pub pubkey: String,
-    /// Wallet mnemonic phrase
+    /// Wallet mnemonic phrase, of bip39(English).
     pub mnemonic: Option<String>,
 }
 
@@ -856,6 +904,7 @@ impl Wallet {
         let bdk_db = wallet_dir.join(BDK_DB_NAME);
         let bdk_config = BdkSqliteDbConfiguration {
             path: bdk_db
+                .clone()
                 .into_os_string()
                 .into_string()
                 .expect("should be possible to convert path to a string"),
@@ -1222,7 +1271,16 @@ impl Wallet {
 
     /// Blind an UTXO and return the resulting [`BlindData`]
     ///
-    /// Optional Asset ID and duration (in seconds) can be specified
+    /// # Arguments
+    ///
+    /// * asset_id: an asset_id that you want to receive to the blinded UTXO.
+    ///             The value will be included in the returned invoice.
+    ///             This may cause minor anonymity issue in (a rare) case that you don't
+    ///             want tell counterparty which asset you want to receive.
+    /// * amount: amount you want to specify in invoice.
+    /// * duration_seconds: a.k.a. expiry, to include in lnpbp-invoice. Note that if an expiry is
+    ///             enforceable or not is up to the protocol, In this case its not.
+    /// * consignment_endpoints: List of the nodes which can accept consignment data in return.
     pub fn blind(
         &mut self,
         asset_id: Option<String>,
@@ -2231,6 +2289,16 @@ impl Wallet {
     }
 
     /// Issue a new RGB [`AssetRgb20`] and return it
+    ///
+    /// # Arguments
+    ///
+    /// * `online` ... An info necessary for the wallet to work with electrum.
+    /// * `ticker` ... ticker symbol for the asset.
+    /// * `name` ... asset name.
+    /// * `precision` ... divisibility of the asset.
+    /// * `amounts` ... amounts to issue. Each will be placed on different UTXO.
+    ///                 Thus you probably want to specify the vec of length 1 if
+    ///                 you don't have any good reason to split the issuance.
     pub fn issue_asset_rgb20(
         &mut self,
         online: Online,
@@ -2546,6 +2614,11 @@ impl Wallet {
     }
 
     /// List the assets known by the underlying RGB node
+    ///
+    /// # Arguments
+    ///
+    /// * `filter_asset_types` ... An asset type you are interested in. Default will be both `AssetType::Rgb20` and `AssetType::Rgb121`.
+    ///
     pub fn list_assets(&self, mut filter_asset_types: Vec<AssetType>) -> Result<Assets, Error> {
         info!(self.logger, "Listing assets...");
         if filter_asset_types.is_empty() {
