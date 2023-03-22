@@ -1,0 +1,29 @@
+@startuml
+Actor User as R
+
+group Instantiate wallet
+R ->> R: <font color=red>Wallet::new</font>
+end
+
+group Get bitcoin address
+R ->> R: <font color=red>Wallet::get_address</font>
+end
+
+group Fund wallet
+R ->> R: Send on-chain BTC to generated address
+end
+
+group Enable online operations
+R ->> R: <font color=red>Wallet::go_online</font>
+note right of R: returns <font color=red>online</font> object required for online calls
+end
+
+group Prepare UTXOs to allocate RGB assets
+R ->> R: <font color=red>Wallet::create_utxos</font>
+end
+
+group Issue assets
+R ->> R: <font color=red>Wallet::issue_asset_rgb20</font>
+note right of R: or receive assets sent from another wallet
+end
+@enduml

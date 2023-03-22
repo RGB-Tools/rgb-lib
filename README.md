@@ -49,6 +49,11 @@ remove all containers, from the project root execute:
 docker compose -f tests/docker-compose.yml down
 ```
 
+## Diagrams
+The `docs/` directory contains summaries of transfer flows in the form of
+diagrams, with the goal of simplifying the initial understanding of how rgb-lib
+operates.
+
 ## Known issues
 - running all tests in parallel opens a lot of file descriptors and may hit the
   default limit (e.g. 1024); should that happen, the limit needs to be

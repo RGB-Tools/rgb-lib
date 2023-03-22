@@ -1,0 +1,33 @@
+@startuml
+Actor Sender as S
+Actor Receiver as R
+
+group Blind an UTXO
+R ->> R: <font color=red>Wallet::blind</font>
+note right of R: blinded UTXO is sort of "RGB address"
+end
+
+group Send blinded UTXO
+R ->> S: blinded UTXO
+note over R,S: through arbitrary communication channel
+end
+
+group Send RGB assets
+S <<- S: <font color=red>Wallet::send(**donation=true**)</font>
+note left of S: send consignment to the receiver
+note left of S: don't wait for receiver's ACK\nbroadcast the TX right away
+end
+
+S ->> R: consignment
+
+group Consume RGB transfer
+R ->> R: <font color=red>Wallet::refresh</font>
+note right of R: validate consignment
+note right of R: check TX confirmations
+end
+
+group Consume RGB transfer
+S <<- S: <font color=red>Wallet::refresh</font>
+note left of S: check TX confirmations
+end
+@enduml
