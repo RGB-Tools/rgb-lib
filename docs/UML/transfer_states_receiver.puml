@@ -1,0 +1,20 @@
+@startuml
+hide empty description
+
+[*] --> WaitingCounterparty : <font color=red>**Wallet::blind**</font>
+
+WaitingCounterparty --> expired¹ : expired before receiving consignment
+note on link
+    expiration can be configured
+    via <font color=red>**Wallet::blind**</font> argument
+end note
+WaitingCounterparty --> Failed : received invalid consignment
+WaitingCounterparty --> WaitingConfirmation : <font color=red>**Wallet::refresh**</font>\nreceived valid consignment
+
+WaitingConfirmation --> Settled : <font color=red>**Wallet::refresh**</font>\nenough confirmations
+
+expired¹ --> Failed : <font color=red>**Wallet::fail_transfer**</font>
+Failed --> removed¹ : <font color=red>**Wallet::delete_transfers**</font>
+
+note "¹ not an actual TransferStatus" as N1
+@enduml

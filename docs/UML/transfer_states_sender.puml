@@ -1,0 +1,23 @@
+@startuml
+hide empty description
+
+[*] --> WaitingCounterparty : <font color=red>**Wallet::send**</font>
+note on link
+    donation=false
+end note
+[*] --> WaitingConfirmation : <font color=red>**Wallet::send**</font>
+note on link
+    donation=true
+end note
+
+WaitingCounterparty --> expired¹ : expired before getting ACK
+WaitingCounterparty --> Failed : got NACK
+WaitingCounterparty --> WaitingConfirmation : got ACK
+
+WaitingConfirmation --> Settled : <font color=red>**Wallet::refresh**</font>\nenough confirmations
+
+expired¹ --> Failed : <font color=red>**Wallet::fail_transfer**</font>
+Failed --> removed¹ : <font color=red>**Wallet::delete_transfers**</font>
+
+note "¹ not an actual TransferStatus" as N1
+@enduml

@@ -50,9 +50,11 @@ docker compose -f tests/docker-compose.yml down
 ```
 
 ## Diagrams
-The `docs/` directory contains summaries of transfer flows in the form of
-diagrams, with the goal of simplifying the initial understanding of how rgb-lib
-operates.
+The [`docs/`](/docs) directory contains some documents and UML diagrams
+to simplify the initial understanding of how rgb-lib operates.
+
+These include typical flows for issuing/sending/receiving assets
+and the state transitions of an asset transfer.
 
 ## Known issues
 - running all tests in parallel opens a lot of file descriptors and may hit the

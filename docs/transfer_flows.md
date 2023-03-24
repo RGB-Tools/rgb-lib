@@ -1,8 +1,8 @@
 ## Transfer diagrams
 
 This diagrams show the typical flow for sending/receiving an asset between two
-rgb-lib wallets. Sending assets can be done in two ways. See the sections for the
-[default](#2.-asset-transfer-(non-donation)) and
+rgb-lib wallets. Sending assets can be done in two ways. See the sections for
+the [default](#2.-asset-transfer-(non-donation)) and
 [donation](#3.-asset-transfer-(donation)) ways below for details.
 
 These examples use RGB20 (fungible) assets but the same applies to RGB121
