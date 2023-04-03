@@ -51,10 +51,11 @@ fn drain_wallet(wallet: &Wallet, online: Online) {
 }
 
 fn fund_wallet(address: String) {
-    let status = Command::new("docker-compose")
+    let status = Command::new("docker")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
+        .arg("compose")
         .args(_bitcoin_cli())
         .arg("-rpcwallet=miner")
         .arg("sendtoaddress")
@@ -75,10 +76,11 @@ impl Miner {
         if self.no_mine_count > 0 {
             return false;
         }
-        let status = Command::new("docker-compose")
+        let status = Command::new("docker")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
+            .arg("compose")
             .args(_bitcoin_cli())
             .arg("-rpcwallet=miner")
             .arg("-generate")
