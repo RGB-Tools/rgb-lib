@@ -4,6 +4,7 @@
 
 use amplify::{bmap, bset, empty, s, Wrapper};
 use amplify_num::hex::FromHex;
+use base64::{engine::general_purpose, Engine as _};
 use bdk::bitcoin::secp256k1::Secp256k1;
 use bdk::bitcoin::Network as BdkNetwork;
 use bdk::blockchain::{
@@ -2091,6 +2092,7 @@ impl Wallet {
             retry: 3,
             timeout: Some(5),
             stop_gap: 20,
+            validate_domain: true,
         };
         self.bdk_blockchain =
             Some(
@@ -2821,7 +2823,9 @@ impl Wallet {
             .join(blinded_utxo.clone());
         let consignment_path = transfer_dir.join(CONSIGNMENT_RCV_FILE);
         fs::create_dir_all(transfer_dir)?;
-        let consignment_bytes = base64::decode(consignment).map_err(InternalError::from)?;
+        let consignment_bytes = general_purpose::STANDARD
+            .decode(consignment)
+            .map_err(InternalError::from)?;
         fs::write(consignment_path.clone(), consignment_bytes).expect("Unable to write file");
         let consignment =
             StateTransfer::strict_file_load(&consignment_path).map_err(InternalError::from)?;
@@ -2859,7 +2863,9 @@ impl Wallet {
                             .get_media(&proxy_url, attachment_id.to_string().clone())?;
                         debug!(self.logger, "Media GET response: {:?}", media_res);
                         if let Some(media) = media_res.result {
-                            let file_bytes = base64::decode(media).map_err(InternalError::from)?;
+                            let file_bytes = general_purpose::STANDARD
+                                .decode(media)
+                                .map_err(InternalError::from)?;
                             let file_hash: sha256::Hash = Sha256Hash::hash(&file_bytes[..]);
                             let real_attachment_id = AttachmentId::commit(&file_hash);
                             if attachment_id != real_attachment_id {

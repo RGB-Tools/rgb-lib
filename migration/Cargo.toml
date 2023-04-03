@@ -15,4 +15,4 @@ path = "src/lib.rs"
 
 [dependencies]
 async-std = { version = "^1", features = ["attributes", "tokio1"] }
-sea-orm-migration = { version = "^0.10.6", features = ["sqlx-mysql", "sqlx-postgres", "sqlx-sqlite", "runtime-async-std-native-tls"] }
+sea-orm-migration = { version = "^0.11.3", features = ["sqlx-mysql", "sqlx-postgres", "sqlx-sqlite", "runtime-async-std-native-tls"] }

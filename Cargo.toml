@@ -14,23 +14,23 @@ exclude = ["migration"]
 members = [".", "migration"]
 
 [dependencies]
-base64 = "0.13.0"
-bdk = { version = "0.25", features = ["electrum", "keys-bip39", "sqlite-bundled"] }
+base64 = "0.21.0"
+bdk = { version = "0.27", features = ["electrum", "keys-bip39", "sqlite-bundled"] }
 bitcoin = "0.29.2"
-chrono = "0.4.23"
+chrono = "0.4.24"
 electrum-client = "0.12.0"
 futures = "0.3"
 rgb-lib-migration = { path = "migration", version = "0.1.7" }
 reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "multipart", "native-tls"] }
-sea-orm = { version = "^0.10.6", features = ["sqlx-mysql", "sqlx-postgres", "sqlx-sqlite", "runtime-async-std-native-tls", "macros"] }
-sea-query = "=0.28.0"
+sea-orm = { version = "^0.11.3", features = ["sqlx-mysql", "sqlx-postgres", "sqlx-sqlite", "runtime-async-std-native-tls", "macros"] }
+sea-query = "=0.28.4"
 serde = { version = "^1.0", features = ["derive"] }
 serde_json = { version = "^1.0" }
 slog = "2.7.0"
 slog-async = "2.7.0"
 slog-term = "2.9.0"
 thiserror = "1.0"
-time = { version = "0.3.13", features = ["std"] }
+time = { version = "0.3.20", features = ["std"] }
 tree_magic = "0.2.3"
 
 # RGB-related deps
@@ -54,5 +54,5 @@ store_daemon = "=0.9.0"
 strict_encoding = "=0.9.0"
 
 [dev-dependencies]
-once_cell = "1.16.0"
-tempfile = "3.3"
+once_cell = "1.17.1"
+tempfile = "3.5"
