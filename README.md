@@ -5,7 +5,7 @@ compatible wallets in a simple fashion, without having to worry about Bitcoin
 and RGB internals.
 
 It primarily uses [bdk] to provide Bitcoin walleting functionalities, and
-several RGB libraries such as [rgb-node] to provide RGB specific
+several RGB libraries such as [rgb-core] to provide RGB specific
 functionalities.
 
 The library has been designed to offer an offline usage
@@ -67,7 +67,6 @@ and the state transitions of an asset transfer.
 - add a backup/restore system
 - add support for more databases
 - improve UTXO management
-- improve RGB services handling
 - improve the library's performance
 
 
@@ -75,4 +74,4 @@ and the state transitions of an asset transfer.
 [bitcoind]: https://github.com/bitcoin/bitcoin
 [electrs]: https://github.com/romanz/electrs
 [rgb-lib-ffi]: /rgb-lib-ffi/
-[rgb-node]: https://github.com/RGB-WG/rgb-node
+[rgb-core]: https://github.com/RGB-WG/rgb-core

@@ -1,5 +1,5 @@
+use bdk::bitcoin::OutPoint as BdkOutPoint;
 use bdk::LocalUtxo;
-use bitcoin::OutPoint;
 use futures::executor::block_on;
 use sea_orm::{ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder};
 use serde::{Deserialize, Serialize};
@@ -7,7 +7,7 @@ use std::str::FromStr;
 
 use crate::error::InternalError;
 use crate::utils::now;
-use crate::wallet::{AssetType, Balance, Outpoint, TransferKind};
+use crate::wallet::{AssetIface, Balance, Outpoint, TransferKind};
 use crate::Error;
 
 pub(crate) mod entities;
@@ -18,8 +18,8 @@ use crate::database::entities::asset_transfer::{
 use crate::database::entities::batch_transfer::{
     ActiveModel as DbBatchTransferActMod, Model as DbBatchTransfer,
 };
-use entities::asset_rgb121::{ActiveModel as DbAssetRgb121ActMod, Model as DbAssetRgb121};
 use entities::asset_rgb20::{ActiveModel as DbAssetRgb20ActMod, Model as DbAssetRgb20};
+use entities::asset_rgb25::{ActiveModel as DbAssetRgb25ActMod, Model as DbAssetRgb25};
 use entities::coloring::{ActiveModel as DbColoringActMod, Model as DbColoring};
 use entities::consignment_endpoint::{
     ActiveModel as DbConsignmentEndpointActMod, Model as DbConsignmentEndpoint,
@@ -29,9 +29,12 @@ use entities::transfer_consignment_endpoint::{
     ActiveModel as DbTransferConsignmentEndpointActMod, Model as DbTransferConsignmentEndpoint,
 };
 use entities::txo::{ActiveModel as DbTxoActMod, Model as DbTxo};
+use entities::wallet_transaction::{
+    ActiveModel as DbWalletTransactionActMod, Model as DbWalletTransaction,
+};
 use entities::{
-    asset_rgb121, asset_rgb20, asset_transfer, batch_transfer, coloring, consignment_endpoint,
-    transfer, transfer_consignment_endpoint, txo,
+    asset_rgb20, asset_rgb25, asset_transfer, batch_transfer, coloring, consignment_endpoint,
+    transfer, transfer_consignment_endpoint, txo, wallet_transaction,
 };
 
 use self::enums::{ColoringType, ConsignmentTransport, TransferStatus};
@@ -40,7 +43,7 @@ impl DbAssetTransfer {
     pub(crate) fn asset_id(&self) -> Option<String> {
         let mut asset_id = self.asset_rgb20_id.clone();
         if asset_id.is_none() {
-            asset_id = self.asset_rgb121_id.clone()
+            asset_id = self.asset_rgb25_id.clone()
         };
         asset_id
     }
@@ -172,9 +175,10 @@ impl DbTxo {
     }
 }
 
-impl From<DbTxo> for OutPoint {
-    fn from(x: DbTxo) -> OutPoint {
-        OutPoint::from_str(&x.outpoint().to_string()).expect("DB should contain a valid outpoint")
+impl From<DbTxo> for BdkOutPoint {
+    fn from(x: DbTxo) -> BdkOutPoint {
+        BdkOutPoint::from_str(&x.outpoint().to_string())
+            .expect("DB should contain a valid outpoint")
     }
 }
 
@@ -272,13 +276,10 @@ impl RgbLibDatabase {
         Ok(res.last_insert_id)
     }
 
-    pub(crate) fn set_asset_rgb121(
-        &self,
-        asset_rgb121: DbAssetRgb121,
-    ) -> Result<i64, InternalError> {
-        let mut asset: DbAssetRgb121ActMod = asset_rgb121.into();
+    pub(crate) fn set_asset_rgb25(&self, asset_rgb25: DbAssetRgb25) -> Result<i64, InternalError> {
+        let mut asset: DbAssetRgb25ActMod = asset_rgb25.into();
         asset.idx = ActiveValue::NotSet;
-        let res = block_on(asset_rgb121::Entity::insert(asset).exec(self.get_connection()))?;
+        let res = block_on(asset_rgb25::Entity::insert(asset).exec(self.get_connection()))?;
         Ok(res.last_insert_id)
     }
 
@@ -295,10 +296,8 @@ impl RgbLibDatabase {
         &self,
         batch_transfer: DbBatchTransferActMod,
     ) -> Result<i64, InternalError> {
-        let now = now().unix_timestamp();
         let mut batch_transfer = batch_transfer;
-        batch_transfer.created_at = ActiveValue::Set(now);
-        batch_transfer.updated_at = ActiveValue::Set(now);
+        batch_transfer.updated_at = batch_transfer.created_at.clone();
         let res =
             block_on(batch_transfer::Entity::insert(batch_transfer).exec(self.get_connection()))?;
         Ok(res.last_insert_id)
@@ -340,6 +339,16 @@ impl RgbLibDatabase {
         Ok(res.last_insert_id)
     }
 
+    pub(crate) fn set_wallet_transaction(
+        &self,
+        wallet_transaction: DbWalletTransactionActMod,
+    ) -> Result<i64, InternalError> {
+        let res = block_on(
+            wallet_transaction::Entity::insert(wallet_transaction).exec(self.get_connection()),
+        )?;
+        Ok(res.last_insert_id)
+    }
+
     pub(crate) fn update_coloring(&self, coloring: DbColoringActMod) -> Result<(), InternalError> {
         block_on(coloring::Entity::update(coloring).exec(self.get_connection()))?;
         Ok(())
@@ -368,7 +377,6 @@ impl RgbLibDatabase {
         batch_transfer: &mut DbBatchTransferActMod,
     ) -> Result<DbBatchTransfer, InternalError> {
         let now = now().unix_timestamp();
-        batch_transfer.updated_at = ActiveValue::Set(now);
         batch_transfer.updated_at = ActiveValue::Set(now);
         Ok(block_on(
             batch_transfer::Entity::update(batch_transfer.clone()).exec(self.get_connection()),
@@ -433,9 +441,9 @@ impl RgbLibDatabase {
         )?)
     }
 
-    pub(crate) fn iter_assets_rgb121(&self) -> Result<Vec<DbAssetRgb121>, InternalError> {
+    pub(crate) fn iter_assets_rgb25(&self) -> Result<Vec<DbAssetRgb25>, InternalError> {
         Ok(block_on(
-            asset_rgb121::Entity::find().all(self.get_connection()),
+            asset_rgb25::Entity::find().all(self.get_connection()),
         )?)
     }
 
@@ -476,6 +484,14 @@ impl RgbLibDatabase {
 
     pub(crate) fn iter_txos(&self) -> Result<Vec<DbTxo>, InternalError> {
         Ok(block_on(txo::Entity::find().all(self.get_connection()))?)
+    }
+
+    pub(crate) fn iter_wallet_transactions(
+        &self,
+    ) -> Result<Vec<DbWalletTransaction>, InternalError> {
+        Ok(block_on(
+            wallet_transaction::Entity::find().all(self.get_connection()),
+        )?)
     }
 
     pub(crate) fn get_transfer_consignment_endpoints_data(
@@ -624,15 +640,11 @@ impl RgbLibDatabase {
             .iter_assets_rgb20()?
             .iter()
             .map(|a| a.asset_id.clone())
-            .chain(
-                self.iter_assets_rgb121()?
-                    .iter()
-                    .map(|a| a.asset_id.clone()),
-            )
+            .chain(self.iter_assets_rgb25()?.iter().map(|a| a.asset_id.clone()))
             .collect())
     }
 
-    pub(crate) fn get_asset_or_fail(&self, asset_id: String) -> Result<AssetType, Error> {
+    pub(crate) fn get_asset_or_fail(&self, asset_id: String) -> Result<AssetIface, Error> {
         if block_on(
             asset_rgb20::Entity::find()
                 .filter(asset_rgb20::Column::AssetId.eq(asset_id.clone()))
@@ -641,16 +653,16 @@ impl RgbLibDatabase {
         .map_err(InternalError::from)?
         .is_some()
         {
-            Ok(AssetType::Rgb20)
+            Ok(AssetIface::RGB20)
         } else if block_on(
-            asset_rgb121::Entity::find()
-                .filter(asset_rgb121::Column::AssetId.eq(asset_id.clone()))
+            asset_rgb25::Entity::find()
+                .filter(asset_rgb25::Column::AssetId.eq(asset_id.clone()))
                 .one(self.get_connection()),
         )
         .map_err(InternalError::from)?
         .is_some()
         {
-            Ok(AssetType::Rgb121)
+            Ok(AssetIface::RGB25)
         } else {
             Err(Error::AssetNotFound { asset_id })
         }

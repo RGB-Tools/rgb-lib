@@ -26,9 +26,7 @@ impl IntoActiveValue<ColoringType> for ColoringType {
 #[sea_orm(rs_type = "u16", db_type = "Integer")]
 pub enum ConsignmentTransport {
     #[sea_orm(num_value = 1)]
-    Storm = 1,
-    #[sea_orm(num_value = 2)]
-    RgbHttpJsonRpc = 2,
+    JsonRpc = 1,
 }
 
 /// The status of a [`crate::wallet::Transfer`]
@@ -73,4 +71,13 @@ impl TransferStatus {
     pub(crate) fn waiting_counterparty(&self) -> bool {
         self == &TransferStatus::WaitingCounterparty
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[sea_orm(rs_type = "u16", db_type = "Integer")]
+pub enum WalletTransactionType {
+    #[sea_orm(num_value = 1)]
+    CreateUtxos = 1,
+    #[sea_orm(num_value = 2)]
+    Drain = 2,
 }

@@ -56,7 +56,7 @@ pub fn restore_keys(bitcoin_network: BitcoinNetwork, mnemonic: String) -> Result
 #[cfg(test)]
 mod test {
     use super::*;
-    use bitcoin::util::bip32::ExtendedPubKey;
+    use bitcoin::bip32::ExtendedPubKey;
     use std::str::FromStr;
 
     #[test]

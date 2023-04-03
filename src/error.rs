@@ -132,6 +132,13 @@ pub enum Error {
         details: String,
     },
 
+    /// An invalid asset ID has been provided
+    #[error("Invalid asset ID: {asset_id}")]
+    InvalidAssetID {
+        /// Asset ID
+        asset_id: String,
+    },
+
     /// Keys derived from the provided data do not match
     #[error("Invalid bitcoin keys")]
     InvalidBitcoinKeys,
@@ -206,17 +213,6 @@ pub enum Error {
         details: String,
     },
 
-    /// The provided online object is invalid
-    #[error("Invalid online object")]
-    InvalidOnline,
-
-    /// The provided asset parent ID is invalid
-    #[error("Invalid parent ID: {details}")]
-    InvalidParentId {
-        /// Error details
-        details: String,
-    },
-
     /// The provided asset precision is invalid
     #[error("Invalid precision: {details}")]
     InvalidPrecision {
@@ -253,6 +249,10 @@ pub enum Error {
     #[error("No valid consignment endpoint found")]
     NoValidConsignmentEndpoint,
 
+    /// Trying to perform an online operation with offline wallet
+    #[error("Wallet is offline. Hint: call go_online")]
+    Offline,
+
     /// Error contacting the RGB proxy
     #[error("Proxy error: {details}")]
     Proxy {
@@ -265,6 +265,13 @@ pub enum Error {
     TransferNotFound {
         /// Blinded UTXO
         blinded_utxo: String,
+    },
+
+    /// The detected RGB interface is unknown
+    #[error("Unknown RGB interface: {interface}")]
+    UnknownRgbInterface {
+        /// RGB interface
+        interface: String,
     },
 
     /// The detected RGB schema is unknown
@@ -289,9 +296,6 @@ pub enum Error {
 
 #[derive(Debug, thiserror::Error)]
 pub enum InternalError {
-    #[error("Anchor error: {0}")]
-    Anchor(#[from] dbc::tapret::PsbtCommitError),
-
     #[error("API error: {0}")]
     Api(#[from] reqwest::Error),
 
@@ -301,14 +305,8 @@ pub enum InternalError {
     #[error("Error from bdk: {0}")]
     Bdk(#[from] bdk::Error),
 
-    #[error("Bech32 error: {0}")]
-    Bech32(#[from] lnpbp::bech32::Error),
-
     #[error("Cannot query rgb-node")]
     CannotQueryRgbNode,
-
-    #[error("Confidential data error: {0}")]
-    ConfidentialData(#[from] rgb_core::ConfidentialDataError),
 
     #[error("Database error: {0}")]
     Database(#[from] sea_orm::DbErr),
@@ -316,29 +314,44 @@ pub enum InternalError {
     #[error("Encode error: {0}")]
     Encode(#[from] bitcoin::consensus::encode::Error),
 
-    #[error("PSBT key error: {0}")]
-    PsbtKey(#[from] rgb::psbt::KeyError),
+    #[error("Infallible error: {0}")]
+    Infallible(#[from] std::convert::Infallible),
 
     #[error("PSBT parse error: {0}")]
-    PsbtParse(#[from] bitcoin::util::psbt::PsbtParseError),
+    PsbtParse(#[from] bdk::bitcoin::util::psbt::PsbtParseError),
 
-    #[error("Rgb 121 create error: {0}")]
-    Rgb121Creation(#[from] rgb121::CreateError),
+    #[error("RGB builder error: {0}")]
+    RgbBuilder(#[from] rgbstd::interface::BuilderError),
 
-    #[error("Rgb blank error: {0}")]
-    RgbBlank(#[from] rgb::blank::Error),
+    #[error("RGB consigner error: {0}")]
+    RgbConsigner(String),
 
-    #[error("RPC error from rgb: {0}")]
-    RgbRpc(#[from] rgb_rpc::Error),
+    #[error("RGB DBC PSBT error: {0}")]
+    RgbDbcPsbtError(#[from] rgbwallet::psbt::DbcPsbtError),
+
+    #[error("RGB inventory error: {0}")]
+    RgbInventory(String),
+
+    #[error("RGB inventory data error: {0}")]
+    RgbInventoryData(String),
+
+    #[error("RGB load error: {0}")]
+    RgbLoad(#[from] rgbstd::containers::LoadError),
+
+    #[error("RGB PSBT error: {0}")]
+    RgbPsbtError(String),
+
+    #[error("RGB runtime error: {0}")]
+    RgbRuntime(#[from] rgb::RuntimeError),
+
+    #[error("RGB stash error: {0}")]
+    RgbStash(#[from] rgbstd::persistence::StashError<std::convert::Infallible>),
 
     #[error("Seal parse error: {0}")]
     SealParse(#[from] bp::seals::txout::explicit::ParseError),
 
     #[error("Serde JSON error: {0}")]
     SerdeJSON(#[from] serde_json::Error),
-
-    #[error("Strict encode error: {0}")]
-    StrictEncode(#[from] strict_encoding::Error),
 
     #[error("Strip prefix error: {0}")]
     StripPrefix(#[from] std::path::StripPrefixError),
@@ -358,33 +371,25 @@ impl From<bdk::keys::bip39::Error> for Error {
     }
 }
 
-impl From<bitcoin::util::address::Error> for Error {
-    fn from(e: bitcoin::util::address::Error) -> Self {
+impl From<bdk::bitcoin::util::address::Error> for Error {
+    fn from(e: bdk::bitcoin::util::address::Error) -> Self {
         Error::InvalidAddress {
             details: e.to_string(),
         }
     }
 }
 
-impl From<bitcoin::util::bip32::Error> for Error {
-    fn from(e: bitcoin::util::bip32::Error) -> Self {
+impl From<bdk::bitcoin::util::bip32::Error> for Error {
+    fn from(e: bdk::bitcoin::util::bip32::Error) -> Self {
         Error::InvalidPubkey {
             details: e.to_string(),
         }
     }
 }
 
-impl From<bitcoin::util::psbt::PsbtParseError> for Error {
-    fn from(e: bitcoin::util::psbt::PsbtParseError) -> Self {
+impl From<bdk::bitcoin::util::psbt::PsbtParseError> for Error {
+    fn from(e: bdk::bitcoin::util::psbt::PsbtParseError) -> Self {
         Error::InvalidPsbt {
-            details: e.to_string(),
-        }
-    }
-}
-
-impl From<bp::seals::txout::blind::ParseError> for Error {
-    fn from(e: bp::seals::txout::blind::ParseError) -> Self {
-        Error::InvalidBlindedUTXO {
             details: e.to_string(),
         }
     }
@@ -398,17 +403,37 @@ impl From<electrum_client::Error> for Error {
     }
 }
 
-impl From<invoice::ConsignmentEndpointParseError> for Error {
-    fn from(e: invoice::ConsignmentEndpointParseError) -> Self {
-        Error::InvalidConsignmentEndpoint {
-            details: e.to_string(),
-        }
+impl From<rgbstd::persistence::ConsignerError<std::convert::Infallible, std::convert::Infallible>>
+    for InternalError
+{
+    fn from(
+        e: rgbstd::persistence::ConsignerError<std::convert::Infallible, std::convert::Infallible>,
+    ) -> Self {
+        InternalError::RgbConsigner(e.to_string())
     }
 }
 
-impl From<lnpbp::bech32::Error> for Error {
-    fn from(e: lnpbp::bech32::Error) -> Self {
-        Error::InvalidInvoice {
+impl From<rgbstd::persistence::InventoryDataError<std::convert::Infallible>> for InternalError {
+    fn from(e: rgbstd::persistence::InventoryDataError<std::convert::Infallible>) -> Self {
+        InternalError::RgbInventoryData(e.to_string())
+    }
+}
+
+impl From<rgbstd::persistence::InventoryError<std::convert::Infallible>> for InternalError {
+    fn from(e: rgbstd::persistence::InventoryError<std::convert::Infallible>) -> Self {
+        InternalError::RgbInventory(e.to_string())
+    }
+}
+
+impl From<rgbwallet::psbt::RgbPsbtError> for InternalError {
+    fn from(e: rgbwallet::psbt::RgbPsbtError) -> Self {
+        InternalError::RgbPsbtError(e.to_string())
+    }
+}
+
+impl From<rgbwallet::TransportParseError> for Error {
+    fn from(e: rgbwallet::TransportParseError) -> Self {
+        Error::InvalidConsignmentEndpoint {
             details: e.to_string(),
         }
     }

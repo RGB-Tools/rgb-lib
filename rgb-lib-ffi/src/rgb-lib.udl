@@ -28,6 +28,7 @@ interface RgbLibError {
   InsufficientTotalAssets(string asset_id);
   Internal(string details);
   InvalidAddress(string details);
+  InvalidAssetID(string asset_id);
   InvalidBitcoinKeys();
   InvalidBlindedUTXO(string details);
   InvalidConsignmentEndpoint(string details);
@@ -39,25 +40,25 @@ interface RgbLibError {
   InvalidInvoice(string details);
   InvalidMnemonic(string details);
   InvalidName(string details);
-  InvalidOnline();
-  InvalidParentId(string details);
   InvalidPrecision(string details);
   InvalidPsbt(string details);
   InvalidPubkey(string details);
   InvalidTicker(string details);
   NoIssuanceAmounts();
   NoValidConsignmentEndpoint();
+  Offline();
   Proxy(string details);
   TransferNotFound(string blinded_utxo);
+  UnknownRgbInterface(string interface);
   UnknownRgbSchema(string schema_id);
   UnsupportedConsignmentTransport();
   UnsupportedInvoice();
   WatchOnly();
 };
 
-enum AssetType {
-  "Rgb20",
-  "Rgb121",
+enum AssetIface {
+  "RGB20",
+  "RGB25",
 };
 
 dictionary AssetRgb20 {
@@ -68,24 +69,28 @@ dictionary AssetRgb20 {
   Balance balance;
 };
 
+enum AssetSchema {
+  "NIA",
+  "CFA",
+};
+
 dictionary Media {
   string file_path;
   string mime;
 };
 
-dictionary AssetRgb121 {
+dictionary AssetRgb25 {
   string asset_id;
   string name;
   string? description;
   u8 precision;
   Balance balance;
   sequence<Media> data_paths;
-  string? parent_id;
 };
 
 dictionary Assets {
   sequence<AssetRgb20>? rgb20;
-  sequence<AssetRgb121>? rgb121;
+  sequence<AssetRgb25>? rgb25;
 };
 
 dictionary Balance {
@@ -121,8 +126,7 @@ interface ConsignmentEndpoint {
 };
 
 enum ConsignmentTransport {
-  "Storm",
-  "RgbHttpJsonRpc",
+  "JsonRpc",
 };
 
 enum DatabaseType {
@@ -131,18 +135,19 @@ enum DatabaseType {
 
 interface Invoice {
   [Throws=RgbLibError]
-  constructor(string bech32_invoice);
+  constructor(string invoice_string);
 
   [Name=from_invoice_data, Throws=RgbLibError]
   constructor(InvoiceData invoice_data);
 
   InvoiceData invoice_data();
 
-  string bech32_invoice();
+  string invoice_string();
 };
 
 dictionary InvoiceData {
   string blinded_utxo;
+  AssetIface? asset_iface;
   string? asset_id;
   u64? amount;
   i64? expiration_timestamp;
@@ -156,14 +161,14 @@ dictionary Keys {
 };
 
 dictionary Metadata {
-  AssetType asset_type;
+  AssetIface asset_iface;
+  AssetSchema asset_schema;
   u64 issued_supply;
   i64 timestamp;
   string name;
   u8 precision;
   string? ticker;
   string? description;
-  string? parent_id;
 };
 
 dictionary Online {
@@ -215,6 +220,27 @@ enum TransferStatus {
   "WaitingConfirmations",
   "Settled",
   "Failed",
+};
+
+dictionary Transaction {
+    TransactionType transaction_type;
+    string txid;
+    u64 received;
+    u64 sent;
+    u64? fee;
+    BlockTime? confirmation_time;
+};
+
+enum TransactionType {
+  "RgbSend",
+  "Drain",
+  "CreateUtxos",
+  "Other",
+};
+
+dictionary BlockTime {
+  u32 height;
+  u64 timestamp;
 };
 
 dictionary Transfer {
@@ -300,12 +326,15 @@ interface Wallet {
     sequence<u64> amounts);
 
   [Throws=RgbLibError]
-  AssetRgb121 issue_asset_rgb121(
+  AssetRgb25 issue_asset_rgb25(
     Online online, string name, string? description, u8 precision,
-    sequence<u64> amounts, string? parent_id, string? file_path);
+    sequence<u64> amounts, string? file_path);
 
   [Throws=RgbLibError]
-  Assets list_assets(sequence<AssetType> filter_asset_types);
+  Assets list_assets(sequence<AssetIface> filter_asset_ifaces);
+
+  [Throws=RgbLibError]
+  sequence<Transaction> list_transactions(Online? online);
 
   [Throws=RgbLibError]
   sequence<Transfer> list_transfers(string asset_id);

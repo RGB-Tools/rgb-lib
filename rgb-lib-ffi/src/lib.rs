@@ -5,13 +5,15 @@ use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard};
 
 uniffi::include_scaffolding!("rgb-lib");
 
-type AssetRgb121 = rgb_lib::wallet::AssetRgb121;
+type AssetIface = rgb_lib::wallet::AssetIface;
 type AssetRgb20 = rgb_lib::wallet::AssetRgb20;
-type AssetType = rgb_lib::wallet::AssetType;
+type AssetRgb25 = rgb_lib::wallet::AssetRgb25;
+type AssetSchema = rgb_lib::wallet::AssetSchema;
 type Assets = rgb_lib::wallet::Assets;
 type Balance = rgb_lib::wallet::Balance;
 type BitcoinNetwork = rgb_lib::BitcoinNetwork;
 type BlindData = rgb_lib::wallet::BlindData;
+type BlockTime = rgb_lib::wallet::BlockTime;
 type ConsignmentTransport = rgb_lib::ConsignmentTransport;
 type DatabaseType = rgb_lib::wallet::DatabaseType;
 type InvoiceData = rgb_lib::wallet::InvoiceData;
@@ -29,6 +31,8 @@ type RgbLibConsignmentEndpoint = rgb_lib::wallet::ConsignmentEndpoint;
 type RgbLibError = rgb_lib::Error;
 type RgbLibInvoice = rgb_lib::wallet::Invoice;
 type RgbLibWallet = rgb_lib::wallet::Wallet;
+type Transaction = rgb_lib::wallet::Transaction;
+type TransactionType = rgb_lib::wallet::TransactionType;
 type Transfer = rgb_lib::wallet::Transfer;
 type TransferConsignmentEndpoint = rgb_lib::wallet::TransferConsignmentEndpoint;
 type TransferKind = rgb_lib::wallet::TransferKind;
@@ -86,9 +90,9 @@ struct Invoice {
 }
 
 impl Invoice {
-    fn new(bech32_invoice: String) -> Result<Self, RgbLibError> {
+    fn new(invoice_string: String) -> Result<Self, RgbLibError> {
         Ok(Invoice {
-            invoice: RwLock::new(RgbLibInvoice::new(bech32_invoice)?),
+            invoice: RwLock::new(RgbLibInvoice::new(invoice_string)?),
         })
     }
 
@@ -106,8 +110,8 @@ impl Invoice {
         self._get_invoice().invoice_data()
     }
 
-    fn bech32_invoice(&self) -> String {
-        self._get_invoice().bech32_invoice()
+    fn invoice_string(&self) -> String {
+        self._get_invoice().invoice_string()
     }
 }
 
@@ -249,29 +253,31 @@ impl Wallet {
             .issue_asset_rgb20(online, ticker, name, precision, amounts)
     }
 
-    fn issue_asset_rgb121(
+    fn issue_asset_rgb25(
         &self,
         online: Online,
         name: String,
         description: Option<String>,
         precision: u8,
         amounts: Vec<u64>,
-        parent_id: Option<String>,
         file_path: Option<String>,
-    ) -> Result<AssetRgb121, RgbLibError> {
-        self._get_wallet().issue_asset_rgb121(
+    ) -> Result<AssetRgb25, RgbLibError> {
+        self._get_wallet().issue_asset_rgb25(
             online,
             name,
             description,
             precision,
             amounts,
-            parent_id,
             file_path,
         )
     }
 
-    fn list_assets(&self, filter_asset_types: Vec<AssetType>) -> Result<Assets, RgbLibError> {
-        self._get_wallet().list_assets(filter_asset_types)
+    fn list_assets(&self, filter_asset_ifaces: Vec<AssetIface>) -> Result<Assets, RgbLibError> {
+        self._get_wallet().list_assets(filter_asset_ifaces)
+    }
+
+    fn list_transactions(&self, online: Option<Online>) -> Result<Vec<Transaction>, RgbLibError> {
+        self._get_wallet().list_transactions(online)
     }
 
     fn list_transfers(&self, asset_id: String) -> Result<Vec<Transfer>, RgbLibError> {

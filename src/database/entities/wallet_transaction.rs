@@ -2,33 +2,29 @@
 
 use sea_orm::entity::prelude::*;
 
+use crate::database::enums::WalletTransactionType;
+
 #[derive(Copy, Clone, Default, Debug, DeriveEntity)]
 pub struct Entity;
 
 impl EntityName for Entity {
     fn table_name(&self) -> &str {
-        "txo"
+        "wallet_transaction"
     }
 }
 
-#[derive(Clone, Debug, PartialEq, DeriveModel, DeriveActiveModel, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, DeriveModel, DeriveActiveModel, Eq)]
 pub struct Model {
     pub idx: i64,
     pub txid: String,
-    pub vout: u32,
-    pub btc_amount: String,
-    pub colorable: bool,
-    pub spent: bool,
+    pub wallet_transaction_type: WalletTransactionType,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
 pub enum Column {
     Idx,
     Txid,
-    Vout,
-    BtcAmount,
-    Colorable,
-    Spent,
+    WalletTransactionType,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DerivePrimaryKey)]
@@ -44,9 +40,7 @@ impl PrimaryKeyTrait for PrimaryKey {
 }
 
 #[derive(Copy, Clone, Debug, EnumIter)]
-pub enum Relation {
-    Coloring,
-}
+pub enum Relation {}
 
 impl ColumnTrait for Column {
     type EntityName = Entity;
@@ -54,25 +48,14 @@ impl ColumnTrait for Column {
         match self {
             Self::Idx => ColumnType::BigInteger.def(),
             Self::Txid => ColumnType::String(None).def(),
-            Self::Vout => ColumnType::Integer.def(),
-            Self::BtcAmount => ColumnType::String(None).def(),
-            Self::Colorable => ColumnType::Boolean.def(),
-            Self::Spent => ColumnType::Boolean.def(),
+            Self::WalletTransactionType => ColumnType::SmallInteger.def(),
         }
     }
 }
 
 impl RelationTrait for Relation {
     fn def(&self) -> RelationDef {
-        match self {
-            Self::Coloring => Entity::has_many(super::coloring::Entity).into(),
-        }
-    }
-}
-
-impl Related<super::coloring::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Coloring.def()
+        panic!("No RelationDef")
     }
 }
 

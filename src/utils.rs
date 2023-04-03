@@ -1,12 +1,12 @@
 use amplify::s;
 use bdk::bitcoin::secp256k1::Secp256k1;
 use bdk::bitcoin::util::bip32::ExtendedPrivKey;
+use bdk::bitcoin::util::bip32::{DerivationPath, ExtendedPubKey, KeySource};
 use bdk::bitcoin::Network as BdkNetwork;
 use bdk::descriptor::Segwitv0;
 use bdk::keys::DescriptorKey::Public;
 use bdk::keys::{DerivableKey, DescriptorKey};
-use bitcoin::util::bip32::{DerivationPath, ExtendedPubKey, KeySource};
-use lnpbp::chain::Chain as RgbNetwork;
+use rgbstd::Chain as RgbNetwork;
 use std::io;
 use std::str::FromStr;
 use std::{fs::OpenOptions, path::PathBuf};
@@ -18,7 +18,8 @@ use time::OffsetDateTime;
 use crate::error::InternalError;
 use crate::Error;
 
-const DERIVATION_PATH_ACCOUNT: u32 = 827166;
+const DERIVATION_EXTERNAL: u32 = 9;
+const DERIVATION_INTERNAL: u32 = 1;
 
 const TIMESTAMP_FORMAT: &[time::format_description::FormatItem] = time::macros::format_description!(
     "[year]-[month]-[day]T[hour repr:24]:[minute]:[second].[subsecond digits:3]+00"
@@ -64,12 +65,10 @@ impl From<BitcoinNetwork> for BdkNetwork {
 impl From<BitcoinNetwork> for RgbNetwork {
     fn from(x: BitcoinNetwork) -> RgbNetwork {
         match x {
-            BitcoinNetwork::Mainnet => RgbNetwork::Mainnet,
+            BitcoinNetwork::Mainnet => RgbNetwork::Bitcoin,
             BitcoinNetwork::Testnet => RgbNetwork::Testnet3,
             BitcoinNetwork::Signet => RgbNetwork::Signet,
-            BitcoinNetwork::Regtest => {
-                RgbNetwork::from_str("regtest").expect("regtest should be a valid RGB network")
-            }
+            BitcoinNetwork::Regtest => RgbNetwork::Regtest,
         }
     }
 }
@@ -94,12 +93,16 @@ pub(crate) fn _get_derivation_path(
     bitcoin_network: BitcoinNetwork,
     change: bool,
 ) -> String {
-    let change_num = u8::from(change);
+    let change_num = if change {
+        DERIVATION_INTERNAL
+    } else {
+        DERIVATION_EXTERNAL
+    };
     let coin_type = i32::from(bitcoin_network != BitcoinNetwork::Mainnet);
     let hardened = if watch_only { "" } else { "'" };
     let child_number = if watch_only { "" } else { "/*" };
     let master = if watch_only { "m" } else { "" };
-    format!("{master}/84{hardened}/{coin_type}{hardened}/{DERIVATION_PATH_ACCOUNT}{hardened}/{change_num}{child_number}")
+    format!("{master}/84{hardened}/{coin_type}{hardened}/0{hardened}/{change_num}{child_number}")
 }
 
 pub(crate) fn calculate_descriptor_from_xprv(

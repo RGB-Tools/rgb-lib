@@ -6,7 +6,7 @@
 //! ## Wallet
 //! The main component of the library is the [`Wallet`].
 //!
-//! It allows to create and operate an RGB wallet that can issue, send and receive RGB20 and RGB121
+//! It allows to create and operate an RGB wallet that can issue, send and receive RGB20 and RGB25
 //! assets. The library also manages UTXOs and asset allocations.
 //!
 //! ## Backend
