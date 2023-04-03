@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard};
 
-uniffi_macros::include_scaffolding!("rgb-lib");
+uniffi::include_scaffolding!("rgb-lib");
 
 type AssetRgb121 = rgb_lib::wallet::AssetRgb121;
 type AssetRgb20 = rgb_lib::wallet::AssetRgb20;
