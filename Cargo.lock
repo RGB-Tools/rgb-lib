@@ -3543,9 +3543,9 @@ dependencies = [
 
 [[package]]
 name = "rgb_node"
-version = "0.9.1"
+version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ac8283967d317ac03a15d599101c661fa00f37d84346f6ef2fadf4623faabb5"
+checksum = "c61a1246d43c5629722f9e61d73bbcad358dd050ec61e9dc096999c92a990e70"
 dependencies = [
  "amplify",
  "bitcoin",
