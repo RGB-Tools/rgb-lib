@@ -12,7 +12,7 @@ type Assets = rgb_lib::wallet::Assets;
 type Balance = rgb_lib::wallet::Balance;
 type BitcoinNetwork = rgb_lib::BitcoinNetwork;
 type BlindData = rgb_lib::wallet::BlindData;
-type ConsignmentEndpointProtocol = rgb_lib::ConsignmentEndpointProtocol;
+type ConsignmentTransport = rgb_lib::ConsignmentTransport;
 type DatabaseType = rgb_lib::wallet::DatabaseType;
 type InvoiceData = rgb_lib::wallet::InvoiceData;
 type Keys = rgb_lib::keys::Keys;
@@ -76,7 +76,7 @@ impl ConsignmentEndpoint {
             .expect("consignment_endpoint")
     }
 
-    fn protocol(&self) -> ConsignmentEndpointProtocol {
+    fn protocol(&self) -> ConsignmentTransport {
         self._get_consignment_endpoint().protocol()
     }
 }

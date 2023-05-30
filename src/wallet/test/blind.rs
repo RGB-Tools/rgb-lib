@@ -330,7 +330,7 @@ fn fail() {
     let result = wallet.blind(None, None, Some(0), consignment_endpoints);
     assert!(matches!(
         result,
-        Err(Error::UnsupportedConsignmentEndpointProtocol)
+        Err(Error::UnsupportedConsignmentTransport)
     ));
 
     // consignment endpoints: not enough endpoints

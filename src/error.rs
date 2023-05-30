@@ -276,7 +276,7 @@ pub enum Error {
 
     /// The given consignment protocol is not supported
     #[error("Consignment protocol is not supported")]
-    UnsupportedConsignmentEndpointProtocol,
+    UnsupportedConsignmentTransport,
 
     /// The given invoice type is not supported
     #[error("Invoice type is not supported")]

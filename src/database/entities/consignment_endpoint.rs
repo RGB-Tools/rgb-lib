@@ -2,7 +2,7 @@
 
 use sea_orm::entity::prelude::*;
 
-use crate::database::ConsignmentEndpointProtocol;
+use crate::database::ConsignmentTransport;
 
 #[derive(Copy, Clone, Default, Debug, DeriveEntity)]
 pub struct Entity;
@@ -16,7 +16,7 @@ impl EntityName for Entity {
 #[derive(Clone, Debug, PartialEq, DeriveModel, DeriveActiveModel, Eq)]
 pub struct Model {
     pub idx: i64,
-    pub protocol: ConsignmentEndpointProtocol,
+    pub protocol: ConsignmentTransport,
     pub endpoint: String,
 }
 

@@ -34,7 +34,7 @@ use entities::{
     transfer, transfer_consignment_endpoint, txo,
 };
 
-use self::enums::{ColoringType, ConsignmentEndpointProtocol, TransferStatus};
+use self::enums::{ColoringType, ConsignmentTransport, TransferStatus};
 
 impl DbAssetTransfer {
     pub(crate) fn asset_id(&self) -> Option<String> {
@@ -193,7 +193,7 @@ impl From<LocalUtxo> for DbTxoActMod {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub(crate) struct LocalConsignmentEndpoint {
-    pub protocol: ConsignmentEndpointProtocol,
+    pub protocol: ConsignmentTransport,
     pub endpoint: String,
     pub used: bool,
     pub usable: bool,

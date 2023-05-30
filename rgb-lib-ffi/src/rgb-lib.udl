@@ -50,7 +50,7 @@ interface RgbLibError {
   Proxy(string details);
   TransferNotFound(string blinded_utxo);
   UnknownRgbSchema(string schema_id);
-  UnsupportedConsignmentEndpointProtocol();
+  UnsupportedConsignmentTransport();
   UnsupportedInvoice();
   WatchOnly();
 };
@@ -117,10 +117,10 @@ interface ConsignmentEndpoint {
   [Throws=RgbLibError]
   constructor(string consignment_endpoint);
 
-  ConsignmentEndpointProtocol protocol();
+  ConsignmentTransport protocol();
 };
 
-enum ConsignmentEndpointProtocol {
+enum ConsignmentTransport {
   "Storm",
   "RgbHttpJsonRpc",
 };
@@ -200,7 +200,7 @@ dictionary RgbAllocation {
 
 dictionary TransferConsignmentEndpoint {
   string endpoint;
-  ConsignmentEndpointProtocol protocol;
+  ConsignmentTransport protocol;
   boolean used;
 };
 
