@@ -2,3 +2,7 @@
 /tests/tmp
 
 tarpaulin-report.html
+
+# Ignore migration/Cargo.lock because it creates a library.
+# More information here https://doc.rust-lang.org/cargo/guide/cargo-toml-vs-cargo-lock.html
+migration/Cargo.lock
