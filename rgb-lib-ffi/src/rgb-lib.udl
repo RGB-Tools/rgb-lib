@@ -3,6 +3,9 @@ namespace rgb_lib {
 
   [Throws=RgbLibError]
   Keys restore_keys(BitcoinNetwork bitcoin_network, string mnemonic);
+
+  [Throws=RgbLibError]
+  void restore_backup(string backup_path, string password, string data_dir);
 };
 
 [Error]
@@ -52,6 +55,7 @@ interface RgbLibError {
   UnknownRgbInterface(string interface);
   UnknownRgbSchema(string schema_id);
   UnsupportedConsignmentTransport();
+  UnsupportedBackupVersion(string version);
   UnsupportedInvoice();
   WatchOnly();
 };
@@ -281,6 +285,9 @@ dictionary WalletData {
 interface Wallet {
   [Throws=RgbLibError]
   constructor(WalletData wallet_data);
+
+  [Throws=RgbLibError]
+  void backup(string backup_path, string password);
 
   [Throws=RgbLibError]
   BlindData blind(string? asset_id, u64? amount, u32? duration_seconds, sequence<string> consignment_endpoints);

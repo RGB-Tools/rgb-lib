@@ -25,7 +25,7 @@ const TIMESTAMP_FORMAT: &[time::format_description::FormatItem] = time::macros::
     "[year]-[month]-[day]T[hour repr:24]:[minute]:[second].[subsecond digits:3]+00"
 );
 
-const LOG_FILE: &str = "log";
+pub(crate) const LOG_FILE: &str = "log";
 
 /// Supported Bitcoin networks
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -150,8 +150,9 @@ fn log_timestamp(io: &mut dyn io::Write) -> io::Result<()> {
     )
 }
 
-pub(crate) fn setup_logger(log_path: PathBuf) -> Result<Logger, Error> {
-    let log_filepath = log_path.join(LOG_FILE);
+pub(crate) fn setup_logger(log_path: PathBuf, log_name: Option<&str>) -> Result<Logger, Error> {
+    let log_file = log_name.unwrap_or(LOG_FILE);
+    let log_filepath = log_path.join(log_file);
     let file = OpenOptions::new()
         .create(true)
         .write(true)

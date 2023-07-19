@@ -262,3 +262,21 @@ fn consistency_check_fail_asset_ids() {
     let result = wallet_prefill_3.go_online(false, ELECTRUM_URL.to_string());
     assert!(matches!(result, Err(Error::Inconsistency { details: _ })));
 }
+
+#[test]
+fn on_off_online() {
+    initialize();
+
+    // create wallet and go online
+    let mut wallet = get_test_wallet(true);
+    let wallet_data = wallet.wallet_data.clone();
+    let online = wallet.go_online(false, ELECTRUM_URL.to_string()).unwrap();
+
+    // go offline and close wallet
+    drop(online);
+    drop(wallet);
+
+    // re-instantiate wallet and go back online
+    let mut wallet = Wallet::new(wallet_data).unwrap();
+    wallet.go_online(false, ELECTRUM_URL.to_string()).unwrap();
+}

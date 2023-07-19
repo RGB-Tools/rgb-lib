@@ -49,6 +49,10 @@ fn restore_keys(bitcoin_network: BitcoinNetwork, mnemonic: String) -> Result<Key
     rgb_lib::restore_keys(bitcoin_network, mnemonic)
 }
 
+fn restore_backup(backup_path: String, password: String, data_dir: String) -> Result<(), RgbLibError> {
+    rgb_lib::restore_backup(&backup_path, &password, &data_dir)
+}
+
 struct BlindedUTXO {
     _blinded_utxo: RwLock<RgbLibBlindedUTXO>,
 }
@@ -128,6 +132,10 @@ impl Wallet {
 
     fn _get_wallet(&self) -> MutexGuard<RgbLibWallet> {
         self.wallet_mutex.lock().expect("wallet")
+    }
+
+    fn backup(&self, backup_path: String, password: String) -> Result<(), RgbLibError> {
+        self._get_wallet().backup(&backup_path, &password)
     }
 
     fn blind(

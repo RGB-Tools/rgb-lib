@@ -162,21 +162,8 @@ fn re_instantiate_wallet() {
 
     // re-instantiate wallet
     let mut wallet = Wallet::new(wallet_data).unwrap();
-    let _online = wallet.go_online(true, ELECTRUM_URL.to_string()).unwrap();
+    let online = wallet.go_online(true, ELECTRUM_URL.to_string()).unwrap();
 
     // check wallet asset
-    let assets = wallet.list_assets(vec![]).unwrap();
-    let rgb20_assets = assets.rgb20.unwrap();
-    assert_eq!(rgb20_assets.len(), 1);
-    let rgb20_asset = rgb20_assets.first().unwrap();
-    assert_eq!(rgb20_asset.asset_id, asset.asset_id);
-    let balance = wallet.get_asset_balance(asset.asset_id.clone()).unwrap();
-    assert_eq!(
-        balance,
-        Balance {
-            settled: asset.balance.settled - amount,
-            future: asset.balance.future - amount,
-            spendable: asset.balance.spendable - amount,
-        }
-    );
+    check_test_wallet_data(&mut wallet, online, &asset, None, 1, amount);
 }

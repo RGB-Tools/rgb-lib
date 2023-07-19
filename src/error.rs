@@ -281,6 +281,13 @@ pub enum Error {
         schema_id: String,
     },
 
+    /// The backup version is not supported
+    #[error("Backup version not supported")]
+    UnsupportedBackupVersion {
+        /// Backup version
+        version: String,
+    },
+
     /// The given consignment protocol is not supported
     #[error("Consignment protocol is not supported")]
     UnsupportedConsignmentTransport,
@@ -296,8 +303,14 @@ pub enum Error {
 
 #[derive(Debug, thiserror::Error)]
 pub enum InternalError {
+    #[error("Aead error: {0}")]
+    AeadError(String),
+
     #[error("API error: {0}")]
     Api(#[from] reqwest::Error),
+
+    #[error("Invalid backup path")]
+    BackupInvalidPath(#[from] std::io::Error),
 
     #[error("Base64 decode error: {0}")]
     Base64Decode(#[from] base64::DecodeError),
@@ -314,11 +327,23 @@ pub enum InternalError {
     #[error("Encode error: {0}")]
     Encode(#[from] bitcoin::consensus::encode::Error),
 
+    #[error("The file already exists: {0}")]
+    FileAlreadyExists(String),
+
+    #[error("Hash error: {0}")]
+    HashError(#[from] scrypt::password_hash::Error),
+
     #[error("Infallible error: {0}")]
     Infallible(#[from] std::convert::Infallible),
 
+    #[error("No password hash returned")]
+    NoPasswordHashError,
+
     #[error("PSBT parse error: {0}")]
     PsbtParse(#[from] bdk::bitcoin::util::psbt::PsbtParseError),
+
+    #[error("Restore directory is not empty")]
+    RestoreDirNotEmpty,
 
     #[error("RGB builder error: {0}")]
     RgbBuilder(#[from] rgbstd::interface::BuilderError),
@@ -361,6 +386,9 @@ pub enum InternalError {
 
     #[error("Unexpected error")]
     Unexpected,
+
+    #[error("Zip error: {0}")]
+    ZipError(#[from] zip::result::ZipError),
 }
 
 impl From<bdk::keys::bip39::Error> for Error {

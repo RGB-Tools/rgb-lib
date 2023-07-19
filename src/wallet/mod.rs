@@ -96,7 +96,7 @@ use crate::database::{
 use crate::error::{Error, InternalError};
 use crate::utils::{
     calculate_descriptor_from_xprv, calculate_descriptor_from_xpub, get_txid, now, setup_logger,
-    BitcoinNetwork,
+    BitcoinNetwork, LOG_FILE,
 };
 
 const RGB_DB_NAME: &str = "rgb_db";
@@ -889,7 +889,7 @@ impl Wallet {
         if !wallet_dir.exists() {
             fs::create_dir(wallet_dir.clone())?;
         }
-        let logger = setup_logger(wallet_dir.clone())?;
+        let logger = setup_logger(wallet_dir.clone(), None)?;
         info!(logger.clone(), "New wallet in '{:?}'", wallet_dir);
         let panic_logger = logger.clone();
         let prev_hook = panic::take_hook();
@@ -4348,6 +4348,9 @@ impl Wallet {
         Ok(txid)
     }
 }
+
+
+pub(crate) mod backup;
 
 #[cfg(test)]
 mod test;

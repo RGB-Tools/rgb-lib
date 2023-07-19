@@ -59,7 +59,6 @@ and the state transitions of an asset transfer.
 
 ## Roadmap
 - add an API to extend `BlindData` expiration
-- add a backup/restore system
 - add support for more databases
 - improve UTXO management
 - improve the library's performance

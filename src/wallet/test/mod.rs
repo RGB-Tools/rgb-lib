@@ -1,8 +1,10 @@
 use amplify::s;
 use once_cell::sync::Lazy;
+use std::io::Read;
 use std::process::{Command, Stdio};
 use std::sync::{Once, RwLock};
 use time::OffsetDateTime;
+use walkdir::WalkDir;
 
 use crate::generate_keys;
 
@@ -27,6 +29,7 @@ const AMOUNT: u64 = 666;
 const FEE_RATE: f32 = 1.5;
 const FEE_MSG_LOW: &str = "value under minimum 1";
 const FEE_MSG_HIGH: &str = "value above maximum 1000";
+const RESTORE_DIR: &str = "./tests/tmp/restored";
 
 static INIT: Once = Once::new();
 
@@ -314,6 +317,148 @@ fn check_test_transfer_status_sender(
     batch_transfer.status == expected_status
 }
 
+fn check_test_wallet_data(
+    wallet: &mut Wallet,
+    online: Online,
+    asset: &AssetRgb20,
+    custom_issued_supply: Option<u64>,
+    transfer_num: usize,
+    spent_amount: u64,
+) {
+    println!("checking wallet data...");
+    let issued_supply = match custom_issued_supply {
+        Some(supply) => supply,
+        None => AMOUNT,
+    };
+    // asset list
+    let assets = wallet.list_assets(vec![]).unwrap();
+    let rgb20_assets = assets.rgb20.unwrap();
+    let rgb25_assets = assets.rgb25.unwrap();
+    assert_eq!(rgb20_assets.len(), 1);
+    assert_eq!(rgb25_assets.len(), 0);
+    let rgb20_asset = rgb20_assets.first().unwrap();
+    assert_eq!(rgb20_asset.asset_id, asset.asset_id);
+    // asset balance
+    let balance = wallet.get_asset_balance(asset.asset_id.clone()).unwrap();
+    assert_eq!(
+        balance,
+        Balance {
+            settled: asset.balance.settled - spent_amount,
+            future: asset.balance.future - spent_amount,
+            spendable: asset.balance.spendable - spent_amount,
+        }
+    );
+    // asset metadata
+    let metadata = wallet
+        .get_asset_metadata(online, asset.asset_id.clone())
+        .unwrap();
+    assert_eq!(metadata.asset_iface, AssetIface::RGB20);
+    assert_eq!(metadata.issued_supply, issued_supply);
+    assert_eq!(metadata.name, asset.name);
+    assert_eq!(metadata.precision, asset.precision);
+    assert_eq!(metadata.ticker.unwrap(), asset.ticker);
+    // transfer list
+    let transfers = wallet.list_transfers(asset.asset_id.clone()).unwrap();
+    assert_eq!(transfers.len(), 1 + transfer_num);
+    assert!(transfers.first().unwrap().kind == TransferKind::Issuance);
+    assert!(transfers.last().unwrap().kind == TransferKind::Send);
+    assert_eq!(transfers.last().unwrap().status, TransferStatus::Settled);
+    // unspent list
+    let unspents = wallet.list_unspents(false).unwrap();
+    assert_eq!(unspents.len(), 6);
+}
+
+fn compare_test_directories(src: &Path, dst: &Path, skip_src: Vec<&str>) -> (bool, String) {
+    const BUF_SIZE: usize = 4096;
+    let mut walk_src = WalkDir::new(src)
+        .sort_by(|a, b| a.path().cmp(b.path()))
+        .into_iter();
+    let mut walk_dst = WalkDir::new(dst)
+        .sort_by(|a, b| a.path().cmp(b.path()))
+        .into_iter();
+    let (same, msg) = loop {
+        let path_src = walk_src.next();
+        if path_src.is_some() {
+            let file_name = path_src
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .path()
+                .strip_prefix(src)
+                .unwrap()
+                .file_name();
+            if let Some(name) = file_name {
+                if skip_src.contains(&name.to_str().unwrap()) {
+                    continue;
+                }
+            }
+        }
+        let path_dst = walk_dst.next();
+        if path_src.is_none() && path_dst.is_none() {
+            break (true, s!(""));
+        }
+
+        let path_src = path_src
+            .unwrap()
+            .unwrap_or_else(|e| panic!("error walking original directory: {e}"));
+        let path_dst = path_dst
+            .unwrap()
+            .unwrap_or_else(|e| panic!("error walking restored directory: {e}"));
+        let path_src = path_src.path();
+        let path_dst = path_dst.path();
+        let path_src_str = path_src
+            .to_str()
+            .ok_or_else(|| panic!("error getting original file path string"))
+            .unwrap();
+        let path_dst_str = path_dst
+            .to_str()
+            .ok_or_else(|| panic!("error getting restored file path string"))
+            .unwrap();
+        if path_src.strip_prefix(src) != path_dst.strip_prefix(dst) {
+            break (false, s!("original and restored file paths differ: \"{path_src_str}\" != \"{path_dst_str}\""));
+        }
+        if path_src.is_dir() && path_src.is_dir() {
+            continue;
+        }
+        let file_src = std::fs::File::open(path_src);
+        let file_dst = std::fs::File::open(path_dst);
+        let file_src = file_src
+            .unwrap_or_else(|e| panic!("error opening original file \"{path_src_str}\": {e}"));
+        let file_dst = file_dst
+            .unwrap_or_else(|e| panic!("error opening restored file \"{path_dst_str}\": {e}"));
+        let mut read_src = std::io::BufReader::new(file_src);
+        let mut read_dst = std::io::BufReader::new(file_dst);
+        let mut buf_src = [0; BUF_SIZE];
+        let mut buf_dst = [0; BUF_SIZE];
+        let same = loop {
+            let bytes_read_src = read_src
+                .read(&mut buf_src)
+                .unwrap_or_else(|e| panic!("error reading from file \"{path_src_str}\": {e}"));
+            let bytes_read_dst = read_dst
+                .read(&mut buf_dst)
+                .unwrap_or_else(|e| panic!("error reading from file \"{path_dst_str}\": {e}"));
+            if bytes_read_src == 0 && bytes_read_dst == 0 {
+                break true;
+            }
+            if bytes_read_src != bytes_read_dst || buf_src != buf_dst {
+                break false;
+            } else {
+                continue;
+            }
+        };
+        if same {
+            continue;
+        } else {
+            break (
+                false,
+                s!("differing files found: \"{path_src_str}\" != \"{path_dst_str}\""),
+            );
+        }
+    };
+    (same, msg)
+}
+
 fn get_test_batch_transfers(wallet: &Wallet, txid: &str) -> Vec<DbBatchTransfer> {
     wallet
         .database
@@ -508,6 +653,7 @@ fn show_unspent_colorings(wallet: &Wallet, msg: &str) {
     }
 }
 
+mod backup;
 mod blind;
 mod create_utxos;
 mod delete_transfers;
