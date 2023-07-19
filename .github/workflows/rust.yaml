@@ -12,38 +12,31 @@ env:
 jobs:
   lint:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v3
-
-      - uses: Swatinem/rust-cache@v2
-
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: clippy
       - name: Lint
         run: cargo clippy --lib -- -D warnings
 
   format:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
     steps:
       - uses: actions/checkout@v3
-
-      - uses: Swatinem/rust-cache@v2
-
-      - run: rustup component add rustfmt
-
-      - name: fmt
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: rustfmt
+      - name: Format
         run: cargo fmt --all -- --check
 
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v3
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Run tests
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Tests
         run: cargo test
