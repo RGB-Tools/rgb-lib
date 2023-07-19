@@ -25,6 +25,7 @@ fn success() {
     assert_eq!(unspent_list_settled.len(), 1);
     let unspent_list_all = wallet.list_unspents(false).unwrap();
     assert_eq!(unspent_list_all.len(), 1);
+    assert!(unspent_list_all.iter().all(|u| !u.utxo.colorable));
 
     test_create_utxos_default(&mut wallet, online.clone());
 
@@ -42,6 +43,17 @@ fn success() {
     assert_eq!(unspent_list_settled.len(), UTXO_NUM as usize + 1);
     let unspent_list_all = wallet.list_unspents(false).unwrap();
     assert_eq!(unspent_list_all.len(), UTXO_NUM as usize + 1);
+    assert_eq!(
+        unspent_list_all.iter().filter(|u| u.utxo.colorable).count(),
+        UTXO_NUM as usize
+    );
+    assert_eq!(
+        unspent_list_all
+            .iter()
+            .filter(|u| !u.utxo.colorable)
+            .count(),
+        1
+    );
     let mut settled_allocations = vec![];
     unspent_list_settled
         .iter()
@@ -89,7 +101,17 @@ fn success() {
         .unwrap();
     show_unspent_colorings(&wallet, "after send fail");
     let unspent_list_all = wallet.list_unspents(false).unwrap();
-    dbg!(&unspent_list_all);
+    assert_eq!(
+        unspent_list_all.iter().filter(|u| u.utxo.colorable).count(),
+        UTXO_NUM as usize
+    );
+    assert_eq!(
+        unspent_list_all
+            .iter()
+            .filter(|u| !u.utxo.colorable)
+            .count(),
+        1
+    );
     let mut allocations = vec![];
     unspent_list_all
         .iter()
@@ -140,7 +162,6 @@ fn success() {
         .any(|u| !u.rgb_allocations.is_empty()));
     // check receiver lists one pending blind
     let rcv_unspent_list_all = rcv_wallet.list_unspents(false).unwrap();
-    dbg!(&rcv_unspent_list_all);
     let mut allocations = vec![];
     rcv_unspent_list_all
         .iter()
@@ -159,7 +180,17 @@ fn success() {
         .all(|a| a.asset_id == Some(asset.asset_id.clone()) && a.amount == AMOUNT && a.settled));
     // check sender lists one pending change
     let unspent_list_all = wallet.list_unspents(false).unwrap();
-    dbg!(&unspent_list_all);
+    assert_eq!(
+        unspent_list_all.iter().filter(|u| u.utxo.colorable).count(),
+        UTXO_NUM as usize
+    );
+    assert_eq!(
+        unspent_list_all
+            .iter()
+            .filter(|u| !u.utxo.colorable)
+            .count(),
+        1
+    );
     let mut pending_allocations = vec![];
     unspent_list_all
         .iter()
@@ -187,7 +218,6 @@ fn success() {
         .any(|u| !u.rgb_allocations.is_empty()));
     // check receiver lists one pending blind
     let rcv_unspent_list_all = rcv_wallet.list_unspents(false).unwrap();
-    dbg!(&rcv_unspent_list_all);
     let mut allocations = vec![];
     rcv_unspent_list_all
         .iter()
@@ -209,7 +239,6 @@ fn success() {
         .all(|a| a.asset_id == Some(asset.asset_id.clone()) && a.amount == AMOUNT && a.settled));
     // check sender lists one pending change
     let unspent_list_all = wallet.list_unspents(false).unwrap();
-    dbg!(&unspent_list_all);
     let mut pending_allocations = vec![];
     unspent_list_all
         .iter()
@@ -240,7 +269,6 @@ fn success() {
         .all(|a| a.asset_id == Some(asset.asset_id.clone()) && a.amount == amount));
     // check receiver lists no pending allocations
     let rcv_unspent_list_all = rcv_wallet.list_unspents(false).unwrap();
-    dbg!(&rcv_unspent_list_all);
     let mut allocations = vec![];
     rcv_unspent_list_all
         .iter()
@@ -260,7 +288,6 @@ fn success() {
             && a.settled));
     // check sender lists no pending allocations
     let unspent_list_all = wallet.list_unspents(false).unwrap();
-    dbg!(&unspent_list_all);
     let mut allocations = vec![];
     unspent_list_all
         .iter()

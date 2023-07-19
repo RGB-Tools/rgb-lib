@@ -19,8 +19,6 @@ fn check_wallet(wallet: &Wallet, desc_type: DescriptorType, network: BitcoinNetw
 
 #[test]
 fn success() {
-    initialize();
-
     // with private keys
     get_test_wallet(true);
 
@@ -34,7 +32,7 @@ fn testnet_success() {
 
     let bitcoin_network = BitcoinNetwork::Testnet;
     let keys = generate_keys(bitcoin_network);
-    let wallet = Wallet::new(WalletData {
+    let mut wallet = Wallet::new(WalletData {
         data_dir: TEST_DATA_DIR.to_string(),
         bitcoin_network,
         database_type: DatabaseType::Sqlite,
@@ -43,6 +41,9 @@ fn testnet_success() {
     })
     .unwrap();
     check_wallet(&wallet, DescriptorType::Wpkh, bitcoin_network);
+    wallet
+        .go_online(false, s!("ssl://electrum.iriswallet.com:50013"))
+        .unwrap();
     assert!(!wallet.watch_only);
     assert_eq!(wallet.wallet_data.pubkey, keys.xpub);
     assert_eq!(wallet.wallet_data.mnemonic, Some(keys.mnemonic));
@@ -70,8 +71,6 @@ fn mainnet_success() {
 
 #[test]
 fn fail() {
-    initialize();
-
     let wallet = get_test_wallet(true);
     let wallet_data = wallet.get_wallet_data();
 
@@ -96,9 +95,88 @@ fn fail() {
     let result = Wallet::new(wallet_data_bad);
     assert!(matches!(result, Err(Error::InvalidPubkey { details: _ })));
 
+    drop(wallet);
+
     // bad mnemonic word count
     let mut wallet_data_bad = wallet_data;
     wallet_data_bad.mnemonic = Some(s!(""));
     let result = Wallet::new(wallet_data_bad);
     assert!(matches!(result, Err(Error::InvalidMnemonic { details: _ })));
+}
+
+#[test]
+fn re_instantiate_wallet() {
+    initialize();
+
+    let amount: u64 = 66;
+
+    // create wallets
+    let (mut wallet, online) = get_funded_wallet!();
+    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
+    let wallet_data = wallet.wallet_data.clone();
+
+    // issue
+    let asset = wallet
+        .issue_asset_rgb20(
+            online.clone(),
+            TICKER.to_string(),
+            NAME.to_string(),
+            PRECISION,
+            vec![AMOUNT],
+        )
+        .unwrap();
+
+    // send
+    let blind_data = rcv_wallet
+        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .unwrap();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            amount,
+            blinded_utxo: blind_data.blinded_utxo,
+            consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid = test_send_default(&mut wallet, &online, recipient_map);
+    assert!(!txid.is_empty());
+    // take transfers from WaitingCounterparty to Settled
+    stop_mining();
+    rcv_wallet
+        .refresh(rcv_online.clone(), None, vec![])
+        .unwrap();
+    wallet
+        .refresh(online.clone(), Some(asset.asset_id.clone()), vec![])
+        .unwrap();
+    mine(true);
+    rcv_wallet
+        .refresh(rcv_online, Some(asset.asset_id.clone()), vec![])
+        .unwrap();
+    wallet
+        .refresh(online.clone(), Some(asset.asset_id.clone()), vec![])
+        .unwrap();
+
+    // drop wallet
+    drop(online);
+    drop(wallet);
+
+    // re-instantiate wallet
+    let mut wallet = Wallet::new(wallet_data).unwrap();
+    let _online = wallet.go_online(true, ELECTRUM_URL.to_string()).unwrap();
+
+    // check wallet asset
+    let assets = wallet.list_assets(vec![]).unwrap();
+    let rgb20_assets = assets.rgb20.unwrap();
+    assert_eq!(rgb20_assets.len(), 1);
+    let rgb20_asset = rgb20_assets.first().unwrap();
+    assert_eq!(rgb20_asset.asset_id, asset.asset_id);
+    let balance = wallet.get_asset_balance(asset.asset_id.clone()).unwrap();
+    assert_eq!(
+        balance,
+        Balance {
+            settled: asset.balance.settled - amount,
+            future: asset.balance.future - amount,
+            spendable: asset.balance.spendable - amount,
+        }
+    );
 }

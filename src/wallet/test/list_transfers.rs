@@ -28,15 +28,14 @@ fn success() {
     fund_wallet(wallet.get_address());
     test_create_utxos_default(&mut wallet, online.clone());
 
-    // issue RGB121 asset
+    // issue RGB25 asset
     let asset = wallet
-        .issue_asset_rgb121(
+        .issue_asset_rgb25(
             online,
             NAME.to_string(),
             Some(DESCRIPTION.to_string()),
             PRECISION,
             vec![AMOUNT],
-            None,
             None,
         )
         .unwrap();
@@ -51,8 +50,6 @@ fn success() {
 
 #[test]
 fn fail() {
-    initialize();
-
     let wallet = get_test_wallet(false);
 
     // asset not found

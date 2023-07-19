@@ -36,50 +36,46 @@ fn success() {
         .refresh(rcv_online.clone(), None, vec![])
         .unwrap();
     let rgb20_metadata = rcv_wallet
-        .get_asset_metadata(rcv_online, asset_rgb20.asset_id.clone())
+        .get_asset_metadata(rcv_online, asset_rgb20.asset_id)
         .unwrap();
 
-    assert_eq!(rgb20_metadata.asset_type, AssetType::Rgb20);
+    assert_eq!(rgb20_metadata.asset_iface, AssetIface::RGB20);
+    assert_eq!(rgb20_metadata.asset_schema, AssetSchema::NIA);
     assert_eq!(rgb20_metadata.issued_supply, AMOUNT * 2);
     assert_eq!(rgb20_metadata.name, NAME.to_string());
     assert_eq!(rgb20_metadata.precision, PRECISION);
     assert_eq!(rgb20_metadata.ticker.unwrap(), TICKER.to_string());
     assert_eq!(rgb20_metadata.description, None);
-    assert_eq!(rgb20_metadata.parent_id, None);
     assert!((timestamp - rgb20_metadata.timestamp) < 30);
 
     let file_str = "README.md";
-    let description = Some(DESCRIPTION.to_string());
-    let parent_id = Some(asset_rgb20.asset_id);
-    let asset_rgb121 = wallet
-        .issue_asset_rgb121(
+    let description = None;
+    let asset_rgb25 = wallet
+        .issue_asset_rgb25(
             online.clone(),
             NAME.to_string(),
             description.clone(),
             PRECISION,
             vec![AMOUNT, AMOUNT],
-            parent_id.clone(),
             Some(file_str.to_string()),
         )
         .unwrap();
-    let transfers = wallet
-        .list_transfers(asset_rgb121.asset_id.clone())
-        .unwrap();
+    let transfers = wallet.list_transfers(asset_rgb25.asset_id.clone()).unwrap();
     assert_eq!(transfers.len(), 1);
     let issuance = transfers.first().unwrap();
     let timestamp = issuance.created_at;
-    let rgb121_metadata = wallet
-        .get_asset_metadata(online, asset_rgb121.asset_id)
+    let rgb25_metadata = wallet
+        .get_asset_metadata(online, asset_rgb25.asset_id)
         .unwrap();
 
-    assert_eq!(rgb121_metadata.asset_type, AssetType::Rgb121);
-    assert_eq!(rgb121_metadata.issued_supply, AMOUNT * 2);
-    assert_eq!(rgb121_metadata.name, NAME.to_string());
-    assert_eq!(rgb121_metadata.precision, PRECISION);
-    assert_eq!(rgb121_metadata.ticker, None);
-    assert_eq!(rgb121_metadata.description, description);
-    assert_eq!(rgb121_metadata.parent_id, parent_id);
-    assert!((timestamp - rgb121_metadata.timestamp) < 30);
+    assert_eq!(rgb25_metadata.asset_iface, AssetIface::RGB25);
+    assert_eq!(rgb25_metadata.asset_schema, AssetSchema::CFA);
+    assert_eq!(rgb25_metadata.issued_supply, AMOUNT * 2);
+    assert_eq!(rgb25_metadata.name, NAME.to_string());
+    assert_eq!(rgb25_metadata.precision, PRECISION);
+    assert_eq!(rgb25_metadata.ticker, None);
+    assert_eq!(rgb25_metadata.description, description);
+    assert!((timestamp - rgb25_metadata.timestamp) < 30);
 }
 
 #[test]

@@ -40,8 +40,9 @@ In order to run the available tests, execute:
 cargo test
 ```
 
-This command will run a [bitcoind] node and an [electrs] node in order to
-perform integration tests in a regtest environment.
+This command will run a [bitcoind] node, two [electrs] nodes and three [RGB
+proxy] instances, in order to perform integration tests in a regtest
+environment.
 
 Services will not be stopped automatically after the test run. To stop them and
 remove all containers, from the project root execute:
@@ -56,12 +57,6 @@ to simplify the initial understanding of how rgb-lib operates.
 These include typical flows for issuing/sending/receiving assets
 and the state transitions of an asset transfer.
 
-## Known issues
-- running all tests in parallel opens a lot of file descriptors and may hit the
-  default limit (e.g. 1024); should that happen, the limit needs to be
-  increased (e.g. `ulimit -n 3072`); running tests in smaller batches (e.g.
-  `cargo test send` is also possible)
-
 ## Roadmap
 - add an API to extend `BlindData` expiration
 - add a backup/restore system
@@ -73,5 +68,6 @@ and the state transitions of an asset transfer.
 [bdk]: https://github.com/bitcoindevkit/bdk
 [bitcoind]: https://github.com/bitcoin/bitcoin
 [electrs]: https://github.com/romanz/electrs
+[RGB proxy]: https://github.com/grunch/rgb-proxy-server
 [rgb-lib-ffi]: /rgb-lib-ffi/
 [rgb-core]: https://github.com/RGB-WG/rgb-core

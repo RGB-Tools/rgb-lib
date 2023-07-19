@@ -12,10 +12,14 @@ fn success() {
     let result_1 = wallet.go_online(false, ELECTRUM_URL.to_string());
     assert!(result_1.is_ok());
 
-    // can go online twice with the same electrum and proxy URLs
+    // can go online again with the same electrum URL
     let result_2 = wallet.go_online(false, ELECTRUM_URL.to_string());
     assert!(result_2.is_ok());
     assert_eq!(result_1.unwrap(), result_2.unwrap());
+
+    // can go online again with a different electrum URL
+    let result_3 = wallet.go_online(false, ELECTRUM_2_URL.to_string());
+    assert!(result_3.is_ok());
 }
 
 #[test]
@@ -28,18 +32,18 @@ fn fail() {
     let result = wallet.go_online(false, s!("other:50001"));
     assert!(matches!(result, Err(Error::InvalidElectrum { details: _ })));
 
-    // cannot go online twice with different electrum URLs
+    // cannot go online again with broken electrum URL
     wallet.go_online(false, ELECTRUM_URL.to_string()).unwrap();
     let result = wallet.go_online(false, s!("other:50001"));
-    assert!(matches!(result, Err(Error::CannotChangeOnline)));
+    assert!(matches!(result, Err(Error::InvalidElectrum { details: _ })));
 
     // bad online object
     let wrong_online = Online {
         id: 1,
-        electrum_url: wallet.online.as_ref().unwrap().electrum_url.clone(),
+        electrum_url: wallet.online_data.as_ref().unwrap().electrum_url.clone(),
     };
     let result = wallet._check_online(wrong_online);
-    assert!(matches!(result, Err(Error::InvalidOnline)));
+    assert!(matches!(result, Err(Error::CannotChangeOnline)));
 }
 
 #[test]
@@ -237,7 +241,7 @@ fn consistency_check_fail_asset_ids() {
     assert!(result.is_ok());
 
     // introduce asset id inconsistency by removing RGB data from wallet dir
-    fs::remove_dir_all(wallet_dir_prefill_2.join("sled.db")).unwrap();
+    fs::remove_dir_all(wallet_dir_prefill_2.join("regtest")).unwrap();
 
     // detect inconsistency
     let mut wallet_prefill_2 = Wallet::new(wallet_data_prefill_2).unwrap();

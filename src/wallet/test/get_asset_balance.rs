@@ -28,15 +28,14 @@ fn success() {
         }
     );
 
-    // issue an RGB121 asset
+    // issue an RGB25 asset
     let asset = wallet
-        .issue_asset_rgb121(
+        .issue_asset_rgb25(
             online,
             NAME.to_string(),
             Some(DESCRIPTION.to_string()),
             PRECISION,
             vec![AMOUNT],
-            None,
             None,
         )
         .unwrap();
@@ -364,9 +363,7 @@ fn transfer_balances() {
 
 #[test]
 fn fail() {
-    initialize();
-
-    let (wallet, _online) = get_funded_wallet!();
+    let (wallet, _online) = get_empty_wallet!();
 
     // bad asset_id returns an error
     let result = wallet.get_asset_balance("rgb1inexistent".to_string());

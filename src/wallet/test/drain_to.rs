@@ -70,7 +70,7 @@ fn fail() {
     // bad online object
     fund_wallet(wallet.get_address());
     let result = wallet.drain_to(rcv_online, rcv_wallet.get_address(), false, FEE_RATE);
-    assert!(matches!(result, Err(Error::InvalidOnline)));
+    assert!(matches!(result, Err(Error::CannotChangeOnline)));
 
     // bad address
     let result = wallet.drain_to(online.clone(), s!("invalid address"), false, FEE_RATE);

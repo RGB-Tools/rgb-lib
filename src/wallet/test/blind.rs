@@ -1,4 +1,6 @@
 use crate::database::entities::transfer_consignment_endpoint;
+use crate::wallet::MAX_CONSIGNMENT_ENDPOINTS;
+use rgbwallet::RgbInvoice;
 use sea_orm::EntityTrait;
 
 use super::*;
@@ -37,12 +39,13 @@ fn success() {
 
     // asset id is set
     let asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_rgb25(
             online,
-            TICKER.to_string(),
             NAME.to_string(),
+            Some(DESCRIPTION.to_string()),
             PRECISION,
             vec![AMOUNT],
+            None,
         )
         .unwrap();
     let asset_id = asset.asset_id;
@@ -67,14 +70,18 @@ fn success() {
 
     // Invoice checks
     let invoice = Invoice::new(blind_data.invoice).unwrap();
-    let invoice_data = invoice.invoice_data();
+    let mut invoice_data = invoice.invoice_data();
     let invoice_from_data = Invoice::from_invoice_data(invoice_data.clone()).unwrap();
     let approx_expiry = now_timestamp + expiration as i64;
-    assert_eq!(invoice.bech32_invoice(), invoice_from_data.bech32_invoice());
+    assert_eq!(invoice.invoice_string(), invoice_from_data.invoice_string());
     assert_eq!(invoice_data.blinded_utxo, blind_data.blinded_utxo);
     assert_eq!(invoice_data.asset_id, Some(asset_id));
     assert_eq!(invoice_data.amount, Some(amount));
     assert!(invoice_data.expiration_timestamp.unwrap() - approx_expiry <= 1);
+    let invalid_asset_id = s!("invalid");
+    invoice_data.asset_id = Some(invalid_asset_id.clone());
+    let result = Invoice::from_invoice_data(invoice_data);
+    assert!(matches!(result, Err(Error::InvalidAssetID { asset_id: a }) if a == invalid_asset_id));
 
     // check BlindedUTXO
     let result = BlindedUTXO::new(blind_data.blinded_utxo);
@@ -82,9 +89,9 @@ fn success() {
 
     // consignment endpoints: multiple endpoints
     let consignment_endpoints = vec![
-        format!("rgbhttpjsonrpc:{}", "127.0.0.1:3000/json-rpc"),
-        format!("rgbhttpjsonrpc:{}", "127.0.0.1:3001/json-rpc"),
-        format!("rgbhttpjsonrpc:{}", "127.0.0.1:3002/json-rpc"),
+        format!("rpc://{}", "127.0.0.1:3000/json-rpc"),
+        format!("rpc://{}", "127.0.0.1:3001/json-rpc"),
+        format!("rpc://{}", "127.0.0.1:3002/json-rpc"),
     ];
     let result = wallet.blind(None, None, Some(0), consignment_endpoints.clone());
     assert!(result.is_ok());
@@ -287,46 +294,44 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidInvoice { details: _ })));
 
     // unsupported invoice
-    fund_wallet(wallet.get_address());
-    test_create_utxos_default(&mut wallet, online.clone());
-    let blind_data = wallet
-        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
-        .unwrap();
-    let concealed_seal = ConcealedSeal::from_str(&blind_data.blinded_utxo).unwrap();
-    let beneficiary = Beneficiary::BlindUtxo(concealed_seal);
-    let amount = AmountExt::Milli(1, 1);
-    let mut invoice = UniversalInvoice::new(beneficiary, None, None);
-    invoice.set_amount(amount);
+    use bitcoin::Address as BitcoinAddress;
+    let address = BitcoinAddress::from_str(&wallet.get_address()).unwrap();
+    let owned_state = TypedState::Amount(0);
+    let invoice = RgbInvoice {
+        transports: vec![RgbTransport::UnspecifiedMeans],
+        contract: None,
+        iface: Some(TypeName::try_from("RGB20").unwrap()),
+        operation: None,
+        assignment: None,
+        beneficiary: Beneficiary::WitnessUtxo(address.assume_checked()),
+        owned_state,
+        chain: None,
+        expiry: None,
+        unknown_query: none!(),
+    };
     let result = Invoice::new(invoice.to_string());
     assert!(matches!(result, Err(Error::UnsupportedInvoice)));
 
     // consignment endpoints: malformed string
-    let consignment_endpoints = vec![
-        format!("rgbhttpjsonrpc:{PROXY_URL}"),
-        "malformed".to_string(),
-    ];
+    fund_wallet(wallet.get_address());
+    test_create_utxos_default(&mut wallet, online.clone());
+    let consignment_endpoints = vec!["malformed".to_string()];
     let result = wallet.blind(None, None, Some(0), consignment_endpoints);
     assert!(matches!(
         result,
         Err(Error::InvalidConsignmentEndpoint { details: _ })
     ));
 
-    // consignment endpoints: unkonown protocol
-    let consignment_endpoints = vec![
-        format!("rgbhttpjsonrpc:{PROXY_URL}"),
-        format!("unknown:{PROXY_URL}"),
-    ];
+    // consignment endpoints: unknown protocol
+    let consignment_endpoints = vec![format!("unknown://{PROXY_HOST}")];
     let result = wallet.blind(None, None, Some(0), consignment_endpoints);
     assert!(matches!(
         result,
         Err(Error::InvalidConsignmentEndpoint { details: _ })
     ));
 
-    // consignment endpoints: storm (currently unsupported)
-    let consignment_endpoints = vec![
-        format!("rgbhttpjsonrpc:{PROXY_URL}"),
-        format!("storm:{STORM_ID}@127.0.0.1:1234"),
-    ];
+    // consignment endpoints: protocol supported by RgbInvoice but unsupported by rgb-lib
+    let consignment_endpoints = vec![format!("ws://{PROXY_HOST}")];
     let result = wallet.blind(None, None, Some(0), consignment_endpoints);
     assert!(matches!(
         result,
@@ -344,20 +349,23 @@ fn fail() {
 
     // consignment endpoints: too many endpoints
     let consignment_endpoints = vec![
-        format!("rgbhttpjsonrpc:127.0.0.1:3000/json-rpc"),
-        format!("rgbhttpjsonrpc:127.0.0.1:3001/json-rpc"),
-        format!("rgbhttpjsonrpc:127.0.0.1:3002/json-rpc"),
-        format!("rgbhttpjsonrpc:127.0.0.1:3003/json-rpc"),
+        format!("rpc://127.0.0.1:3000/json-rpc"),
+        format!("rpc://127.0.0.1:3001/json-rpc"),
+        format!("rpc://127.0.0.1:3002/json-rpc"),
+        format!("rpc://127.0.0.1:3003/json-rpc"),
     ];
     let result = wallet.blind(None, None, Some(0), consignment_endpoints);
-    let msg = s!("library supports at max 3 consignment endpoints");
+    let msg = format!(
+        "library supports at max {} consignment endpoints",
+        MAX_CONSIGNMENT_ENDPOINTS
+    );
     assert!(matches!(
         result,
         Err(Error::InvalidConsignmentEndpoints { details: m }) if m == msg
     ));
 
     // consignment endpoints: no endpoints for transfer > Failed
-    let consignment_endpoints = vec![format!("rgbhttpjsonrpc:{PROXY_URL}")];
+    let consignment_endpoints = vec![format!("rpc://{PROXY_HOST}")];
     let blind_data = wallet
         .blind(None, None, Some(0), consignment_endpoints)
         .unwrap();
@@ -382,9 +390,9 @@ fn fail() {
 
     // consignment endpoints: same endpoint repeated
     let consignment_endpoints = vec![
-        format!("rgbhttpjsonrpc:{PROXY_URL}"),
-        format!("rgbhttpjsonrpc:{PROXY_URL}"),
-        format!("rgbhttpjsonrpc:{PROXY_URL}"),
+        format!("rpc://{PROXY_HOST}"),
+        format!("rpc://{PROXY_HOST}"),
+        format!("rpc://{PROXY_HOST}"),
     ];
     let result = wallet.blind(None, None, Some(0), consignment_endpoints);
     let msg = s!("no duplicate consignment endpoints allowed");
@@ -467,60 +475,33 @@ fn wrong_asset_fail() {
 
 #[test]
 fn new_consignment_endpoint() {
-    initialize();
-
-    // correct RgbHttpJsonRpc endpoint
+    // correct JsonRpc endpoint
     let result = ConsignmentEndpoint::new(PROXY_ENDPOINT.clone());
     assert!(result.is_ok());
 
-    // correct Storm endpoint
-    let result = ConsignmentEndpoint::new(format!("storm:{STORM_ID}@1.2.3.4:5678"));
-    assert!(result.is_ok());
+    // unsupported endpoint
+    let result = ConsignmentEndpoint::new(format!("ws://{PROXY_HOST}"));
+    assert!(matches!(
+        result,
+        Err(Error::UnsupportedConsignmentTransport)
+    ));
 
     // no protocol
-    let result = ConsignmentEndpoint::new(PROXY_URL.to_string());
+    let result = ConsignmentEndpoint::new(PROXY_HOST.to_string());
     assert!(matches!(
         result,
         Err(Error::InvalidConsignmentEndpoint { details: _ })
     ));
 
     // unknown protocol
-    let result = ConsignmentEndpoint::new(format!("unknown:{PROXY_URL}"));
-    assert!(matches!(
-        result,
-        Err(Error::InvalidConsignmentEndpoint { details: _ })
-    ));
-
-    // bad storm id
-    let result = ConsignmentEndpoint::new(s!("storm:abc@1.2.3.4:5678"));
-    assert!(matches!(
-        result,
-        Err(Error::InvalidConsignmentEndpoint { details: _ })
-    ));
-
-    // bad storm ip
-    let result = ConsignmentEndpoint::new(format!("storm:{STORM_ID}@1:5678"));
-    assert!(matches!(
-        result,
-        Err(Error::InvalidConsignmentEndpoint { details: _ })
-    ));
-
-    // bad storm port
-    let result = ConsignmentEndpoint::new(format!("storm:{STORM_ID}@1.2.3.4:abcd"));
-    assert!(matches!(
-        result,
-        Err(Error::InvalidConsignmentEndpoint { details: _ })
-    ));
-
-    // bad storm NodeAddr
-    let result = ConsignmentEndpoint::new(s!("storm:a:b:c:d:e"));
+    let result = ConsignmentEndpoint::new(format!("unknown:{PROXY_HOST}"));
     assert!(matches!(
         result,
         Err(Error::InvalidConsignmentEndpoint { details: _ })
     ));
 
     // leading ':'
-    let result = ConsignmentEndpoint::new(format!(":rgbhttpjsonrpc:{PROXY_URL}"));
+    let result = ConsignmentEndpoint::new(format!(":rpc://{PROXY_HOST}"));
     assert!(matches!(
         result,
         Err(Error::InvalidConsignmentEndpoint { details: _ })

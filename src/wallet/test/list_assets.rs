@@ -22,9 +22,9 @@ fn success() {
         .unwrap();
     let assets = wallet.list_assets(vec![]).unwrap();
     let rgb20_assets = assets.rgb20.unwrap();
-    let rgb121_assets = assets.rgb121.unwrap();
+    let rgb25_assets = assets.rgb25.unwrap();
     assert_eq!(rgb20_assets.len(), 1);
-    assert_eq!(rgb121_assets.len(), 0);
+    assert_eq!(rgb25_assets.len(), 0);
     let asset = rgb20_assets.first().unwrap();
     assert_eq!(asset.asset_id, asset_1.asset_id);
     assert_eq!(asset.ticker, TICKER.to_string());
@@ -51,9 +51,9 @@ fn success() {
         .unwrap();
     let assets = wallet.list_assets(vec![]).unwrap();
     let rgb20_assets = assets.rgb20.unwrap();
-    let rgb121_assets = assets.rgb121.unwrap();
+    let rgb25_assets = assets.rgb25.unwrap();
     assert_eq!(rgb20_assets.len(), 2);
-    assert_eq!(rgb121_assets.len(), 0);
+    assert_eq!(rgb25_assets.len(), 0);
     let asset = rgb20_assets.last().unwrap();
     assert_eq!(asset.asset_id, asset_2.asset_id);
     assert_eq!(asset.ticker, "TICKER2".to_string());
@@ -68,24 +68,23 @@ fn success() {
         }
     );
 
-    // three issued assets: 2x RGB20 + 1x RGB121
+    // three issued assets: 2x RGB20 + 1x RGB25
     let asset_3 = wallet
-        .issue_asset_rgb121(
+        .issue_asset_rgb25(
             online,
             NAME.to_string(),
             Some(DESCRIPTION.to_string()),
             PRECISION,
             vec![AMOUNT * 3],
             None,
-            None,
         )
         .unwrap();
     let assets = wallet.list_assets(vec![]).unwrap();
     let rgb20_assets = assets.rgb20.unwrap();
-    let rgb121_assets = assets.rgb121.unwrap();
+    let rgb25_assets = assets.rgb25.unwrap();
     assert_eq!(rgb20_assets.len(), 2);
-    assert_eq!(rgb121_assets.len(), 1);
-    let asset = rgb121_assets.last().unwrap();
+    assert_eq!(rgb25_assets.len(), 1);
+    let asset = rgb25_assets.last().unwrap();
     assert_eq!(asset.asset_id, asset_3.asset_id);
     assert_eq!(asset.name, NAME.to_string());
     assert_eq!(asset.description, Some(DESCRIPTION.to_string()));
@@ -98,16 +97,15 @@ fn success() {
             spendable: AMOUNT * 3,
         }
     );
-    assert!(asset.parent_id.is_none());
     let empty_data_paths = vec![];
     assert_eq!(asset.data_paths, empty_data_paths);
 
     // test filter by asset type
-    let assets = wallet.list_assets(vec![AssetType::Rgb20]).unwrap();
+    let assets = wallet.list_assets(vec![AssetIface::RGB20]).unwrap();
     assert_eq!(assets.rgb20.unwrap().len(), 2);
-    assert!(assets.rgb121.is_none());
+    assert!(assets.rgb25.is_none());
 
-    let assets = wallet.list_assets(vec![AssetType::Rgb121]).unwrap();
+    let assets = wallet.list_assets(vec![AssetIface::RGB25]).unwrap();
     assert!(assets.rgb20.is_none());
-    assert_eq!(assets.rgb121.unwrap().len(), 1);
+    assert_eq!(assets.rgb25.unwrap().len(), 1);
 }

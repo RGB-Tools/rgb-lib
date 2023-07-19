@@ -15,19 +15,18 @@ fn success() {
     // required fields only
     println!("\nasset 1");
     let asset_1 = wallet
-        .issue_asset_rgb121(
+        .issue_asset_rgb25(
             online.clone(),
             NAME.to_string(),
-            Some(DESCRIPTION.to_string()),
+            None,
             PRECISION,
             vec![AMOUNT, AMOUNT],
-            None,
             None,
         )
         .unwrap();
     show_unspent_colorings(&wallet, "after issuance 1");
     assert_eq!(asset_1.name, NAME.to_string());
-    assert_eq!(asset_1.description, Some(DESCRIPTION.to_string()));
+    assert_eq!(asset_1.description, None);
     assert_eq!(asset_1.precision, PRECISION);
     assert_eq!(
         asset_1.balance,
@@ -37,27 +36,22 @@ fn success() {
             spendable: AMOUNT * 2,
         }
     );
-    assert!(asset_1.parent_id.is_none());
     let empty_data_paths = vec![];
     assert_eq!(asset_1.data_paths, empty_data_paths);
 
     // check the asset type is correct
-    let asset_type = wallet
-        .database
-        .get_asset_or_fail(asset_1.asset_id.clone())
-        .unwrap();
-    assert_eq!(asset_type, AssetType::Rgb121);
+    let asset_iface = wallet.database.get_asset_or_fail(asset_1.asset_id).unwrap();
+    assert_eq!(asset_iface, AssetIface::RGB25);
 
-    // include a parent_id and a text file
+    // include a text file
     println!("\nasset 2");
     let asset_2 = wallet
-        .issue_asset_rgb121(
+        .issue_asset_rgb25(
             online.clone(),
             NAME.to_string(),
             Some(DESCRIPTION.to_string()),
             PRECISION,
             vec![AMOUNT * 2],
-            Some(asset_1.asset_id.clone()),
             Some(file_str.to_string()),
         )
         .unwrap();
@@ -73,7 +67,6 @@ fn success() {
             spendable: AMOUNT * 2,
         }
     );
-    assert_eq!(asset_2.parent_id, Some(asset_1.asset_id));
     assert_eq!(asset_2.data_paths.len(), 1);
     // check attached file contents match
     let media = asset_2.data_paths.first().unwrap();
@@ -84,7 +77,7 @@ fn success() {
     assert_eq!(src_bytes, dst_bytes);
     // check attachment id for provided file matches
     let src_hash: sha256::Hash = Sha256Hash::hash(&src_bytes[..]);
-    let src_attachment_id = AttachmentId::commit(&src_hash).to_string();
+    let src_attachment_id = src_hash.to_string();
     let dst_attachment_id = Path::new(&dst_path)
         .parent()
         .unwrap()
@@ -96,13 +89,12 @@ fn success() {
     // include an image file
     println!("\nasset 3");
     let asset_3 = wallet
-        .issue_asset_rgb121(
+        .issue_asset_rgb25(
             online,
             NAME.to_string(),
             Some(DESCRIPTION.to_string()),
             PRECISION,
             vec![AMOUNT * 3],
-            None,
             Some(image_str.to_string()),
         )
         .unwrap();
@@ -115,7 +107,6 @@ fn success() {
             spendable: AMOUNT * 3,
         }
     );
-    assert_eq!(asset_3.parent_id, None);
     assert_eq!(asset_3.data_paths.len(), 1);
     // check attached file contents match
     let media = asset_3.data_paths.first().unwrap();
@@ -126,7 +117,7 @@ fn success() {
     assert_eq!(src_bytes, dst_bytes);
     // check attachment id for provided file matches
     let src_hash: sha256::Hash = Sha256Hash::hash(&src_bytes[..]);
-    let src_attachment_id = AttachmentId::commit(&src_hash).to_string();
+    let src_attachment_id = src_hash.to_string();
     let dst_attachment_id = Path::new(&dst_path)
         .parent()
         .unwrap()
@@ -147,13 +138,12 @@ fn multi_success() {
     let (mut wallet, online) = get_funded_wallet!();
 
     let asset = wallet
-        .issue_asset_rgb121(
+        .issue_asset_rgb25(
             online,
             NAME.to_string(),
             Some(DESCRIPTION.to_string()),
             PRECISION,
             amounts.clone(),
-            None,
             Some(file_str.to_string()),
         )
         .unwrap();
@@ -186,12 +176,12 @@ fn multi_success() {
         }));
 
     // check the allocated asset has one attachment
-    let rgb121_asset_list = wallet.list_assets(vec![]).unwrap().rgb121.unwrap();
-    let rgb121_asset = rgb121_asset_list
+    let rgb25_asset_list = wallet.list_assets(vec![]).unwrap().rgb25.unwrap();
+    let rgb25_asset = rgb25_asset_list
         .into_iter()
         .find(|a| a.asset_id == asset.asset_id)
         .unwrap();
-    assert_eq!(rgb121_asset.data_paths.len(), 1);
+    assert_eq!(rgb25_asset.data_paths.len(), 1);
 }
 
 #[test]
@@ -205,13 +195,12 @@ fn no_issue_on_pending_send() {
 
     // issue 1st asset
     let asset_1 = wallet
-        .issue_asset_rgb121(
+        .issue_asset_rgb25(
             online.clone(),
             NAME.to_string(),
             Some(DESCRIPTION.to_string()),
             PRECISION,
             vec![AMOUNT],
-            None,
             None,
         )
         .unwrap();
@@ -242,13 +231,12 @@ fn no_issue_on_pending_send() {
 
     // issue 2nd asset
     let asset_2 = wallet
-        .issue_asset_rgb121(
+        .issue_asset_rgb25(
             online.clone(),
             s!("NAME2"),
             Some(s!("DESCRIPTION2")),
             PRECISION,
             vec![AMOUNT * 2],
-            None,
             None,
         )
         .unwrap();
@@ -273,13 +261,12 @@ fn no_issue_on_pending_send() {
         .unwrap();
     // issue 3rd asset
     let asset_3 = wallet
-        .issue_asset_rgb121(
+        .issue_asset_rgb25(
             online,
             s!("NAME3"),
             Some(s!("DESCRIPTION3")),
             PRECISION,
             vec![AMOUNT * 3],
-            None,
             None,
         )
         .unwrap();
@@ -307,78 +294,58 @@ fn fail() {
     // bad online object
     let other_online = Online {
         id: 1,
-        electrum_url: wallet.online.as_ref().unwrap().electrum_url.clone(),
+        electrum_url: wallet.online_data.as_ref().unwrap().electrum_url.clone(),
     };
-    let result = wallet.issue_asset_rgb121(
+    let result = wallet.issue_asset_rgb25(
         other_online,
         NAME.to_string(),
         Some(DESCRIPTION.to_string()),
         PRECISION,
         vec![AMOUNT],
         None,
-        None,
     );
-    assert!(matches!(result, Err(Error::InvalidOnline)));
+    assert!(matches!(result, Err(Error::CannotChangeOnline)));
 
     // invalid name: too short
-    let result = wallet.issue_asset_rgb121(
+    let result = wallet.issue_asset_rgb25(
         online.clone(),
         s!(""),
         Some(DESCRIPTION.to_string()),
         PRECISION,
         vec![AMOUNT],
         None,
-        None,
     );
     assert!(matches!(result, Err(Error::InvalidName { details: _ })));
 
     // invalid name: too long
-    let result = wallet.issue_asset_rgb121(
+    let result = wallet.issue_asset_rgb25(
         online.clone(),
         ("a").repeat(257),
         Some(DESCRIPTION.to_string()),
         PRECISION,
         vec![AMOUNT],
         None,
-        None,
     );
     assert!(matches!(result, Err(Error::InvalidName { details: _ })));
 
     // invalid name: unicode characters
-    let result = wallet.issue_asset_rgb121(
+    let result = wallet.issue_asset_rgb25(
         online.clone(),
         s!("name with ℧nicode characters"),
         Some(DESCRIPTION.to_string()),
         PRECISION,
         vec![AMOUNT],
         None,
-        None,
     );
     assert!(matches!(result, Err(Error::InvalidName { details: _ })));
 
-    // invalid description: unicode characters
-    let result = wallet.issue_asset_rgb121(
-        online.clone(),
-        NAME.to_string(),
-        Some(s!("description with ℧nicode characters")),
-        PRECISION,
-        vec![AMOUNT],
-        None,
-        None,
-    );
-    assert!(matches!(
-        result,
-        Err(Error::InvalidDescription { details: _ })
-    ));
-
     // invalid precision
-    let result = wallet.issue_asset_rgb121(
+    let result = wallet.issue_asset_rgb25(
         online.clone(),
         NAME.to_string(),
         Some(DESCRIPTION.to_string()),
         19,
         vec![AMOUNT],
-        None,
         None,
     );
     assert!(matches!(
@@ -387,38 +354,24 @@ fn fail() {
     ));
 
     // invalid amount list
-    let result = wallet.issue_asset_rgb121(
+    let result = wallet.issue_asset_rgb25(
         online.clone(),
         NAME.to_string(),
         Some(DESCRIPTION.to_string()),
         19,
         vec![],
         None,
-        None,
     );
     assert!(matches!(result, Err(Error::NoIssuanceAmounts)));
 
-    // invalid parent_id list
-    let result = wallet.issue_asset_rgb121(
-        online.clone(),
-        NAME.to_string(),
-        Some(DESCRIPTION.to_string()),
-        PRECISION,
-        vec![AMOUNT],
-        Some(s!("")),
-        None,
-    );
-    assert!(matches!(result, Err(Error::InvalidParentId { details: _ })));
-
     // invalid file_path
     let invalid_file_path = s!("invalid");
-    let result = wallet.issue_asset_rgb121(
+    let result = wallet.issue_asset_rgb25(
         online.clone(),
         NAME.to_string(),
         Some(DESCRIPTION.to_string()),
         PRECISION,
         vec![AMOUNT],
-        None,
         Some(invalid_file_path.clone()),
     );
     assert!(matches!(
@@ -429,13 +382,12 @@ fn fail() {
     drain_wallet(&wallet, online.clone());
 
     // insufficient funds
-    let result = wallet.issue_asset_rgb121(
+    let result = wallet.issue_asset_rgb25(
         online.clone(),
         NAME.to_string(),
         Some(DESCRIPTION.to_string()),
         PRECISION,
         vec![AMOUNT],
-        None,
         None,
     );
     assert!(matches!(
@@ -451,13 +403,12 @@ fn fail() {
     wallet._sync_db_txos().unwrap();
 
     // insufficient allocations
-    let result = wallet.issue_asset_rgb121(
+    let result = wallet.issue_asset_rgb25(
         online,
         NAME.to_string(),
         Some(DESCRIPTION.to_string()),
         PRECISION,
         vec![AMOUNT],
-        None,
         None,
     );
     assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
@@ -471,13 +422,12 @@ fn zero_amount_fail() {
     let (mut wallet, online) = get_funded_wallet!();
 
     // invalid amount
-    let result = wallet.issue_asset_rgb121(
+    let result = wallet.issue_asset_rgb25(
         online,
         NAME.to_string(),
         Some(DESCRIPTION.to_string()),
         PRECISION,
         vec![0],
-        None,
         None,
     );
     assert!(matches!(result, Err(Error::FailedIssuance { details: _ })));

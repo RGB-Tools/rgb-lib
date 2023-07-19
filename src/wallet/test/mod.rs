@@ -8,17 +8,20 @@ use crate::generate_keys;
 
 use super::*;
 
+const PROXY_HOST: &str = "127.0.0.1:3000/json-rpc";
+const PROXY_HOST_MOD_API: &str = "127.0.0.1:3002/json-rpc";
+const PROXY_HOST_MOD_PROTO: &str = "127.0.0.1:3001/json-rpc";
 const PROXY_URL: &str = "http://127.0.0.1:3000/json-rpc";
-const PROXY_URL_MOD_PROTO: &str = "http://127.0.0.1:3001/json-rpc";
 const PROXY_URL_MOD_API: &str = "http://127.0.0.1:3002/json-rpc";
-const STORM_ID: &str = "03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c366597a3f8f";
-static PROXY_ENDPOINT: Lazy<String> = Lazy::new(|| format!("rgbhttpjsonrpc:{PROXY_URL}"));
+const PROXY_URL_MOD_PROTO: &str = "http://127.0.0.1:3001/json-rpc";
+static PROXY_ENDPOINT: Lazy<String> = Lazy::new(|| format!("rpc://{PROXY_HOST}"));
 static CONSIGNMENT_ENDPOINTS: Lazy<Vec<String>> = Lazy::new(|| vec![PROXY_ENDPOINT.clone()]);
 const ELECTRUM_URL: &str = "127.0.0.1:50001";
+const ELECTRUM_2_URL: &str = "127.0.0.1:50002";
 const TEST_DATA_DIR: &str = "./tests/tmp";
 const TICKER: &str = "TICKER";
-const NAME: &str = "name";
-const DESCRIPTION: &str = "DESCRIPTION";
+const NAME: &str = "asset name";
+const DESCRIPTION: &str = "description with ℧nicode characters";
 const PRECISION: u8 = 7;
 const AMOUNT: u64 = 666;
 const FEE_RATE: f32 = 1.5;
@@ -400,7 +403,7 @@ fn get_test_transfers_sender(
         let asset_id = if asset_transfer.asset_rgb20_id.is_some() {
             asset_transfer.asset_rgb20_id
         } else {
-            asset_transfer.asset_rgb121_id
+            asset_transfer.asset_rgb25_id
         }
         .unwrap();
         let transfers_for_asset = get_test_transfers(wallet, asset_transfer.idx);
@@ -498,7 +501,7 @@ fn show_unspent_colorings(wallet: &Wallet, msg: &str) {
                 if db_asset_transfer.asset_rgb20_id.is_some() {
                     &db_asset_transfer.asset_rgb20_id
                 } else {
-                    &db_asset_transfer.asset_rgb121_id
+                    &db_asset_transfer.asset_rgb25_id
                 },
             );
         }
@@ -514,9 +517,10 @@ mod get_address;
 mod get_asset_balance;
 mod get_asset_metadata;
 mod go_online;
-mod issue_asset_rgb121;
 mod issue_asset_rgb20;
+mod issue_asset_rgb25;
 mod list_assets;
+mod list_transactions;
 mod list_transfers;
 mod list_unspents;
 mod new;

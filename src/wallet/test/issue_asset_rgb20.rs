@@ -186,7 +186,7 @@ fn fail() {
     // bad online object
     let other_online = Online {
         id: 1,
-        electrum_url: wallet.online.as_ref().unwrap().electrum_url.clone(),
+        electrum_url: wallet.online_data.as_ref().unwrap().electrum_url.clone(),
     };
     let result = wallet.issue_asset_rgb20(
         other_online,
@@ -195,7 +195,7 @@ fn fail() {
         PRECISION,
         vec![AMOUNT],
     );
-    assert!(matches!(result, Err(Error::InvalidOnline)));
+    assert!(matches!(result, Err(Error::CannotChangeOnline)));
 
     // invalid ticker: too short
     let result = wallet.issue_asset_rgb20(
