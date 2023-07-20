@@ -174,7 +174,7 @@ impl TryFrom<TypeName> for AssetIface {
 }
 
 /// An RGB20 fungible asset
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct AssetRgb20 {
     /// ID of the asset
     pub asset_id: String,
@@ -210,7 +210,7 @@ pub enum AssetSchema {
 }
 
 /// An asset media file
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct Media {
     /// Path of the media file
     pub file_path: String,
@@ -240,7 +240,7 @@ pub struct Metadata {
 }
 
 /// An RGB25 collectible asset
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct AssetRgb25 {
     /// ID of the asset
     pub asset_id: String,
@@ -284,6 +284,7 @@ impl AssetRgb25 {
 }
 
 /// List of known assets, grouped by asset interface
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Assets {
     /// List of RGB20 assets
     pub rgb20: Option<Vec<AssetRgb20>>,
@@ -306,7 +307,7 @@ struct AssetSpend {
 /// reflecting what the balance will be once all pending operations will have settled.
 /// The spendable balance is a subset of the settled balance, excluding allocations on UTXOs that
 /// are supporting any pending operation.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct Balance {
     /// Settled balance
     pub settled: u64,
@@ -524,7 +525,7 @@ pub struct InvoiceData {
 }
 
 /// Data for operations that require the wallet to be online
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct Online {
     /// ID to tell different Online structs apart
     pub id: u64,
@@ -540,7 +541,7 @@ struct OnlineData {
 }
 
 /// Bitcoin transaction outpoint
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct Outpoint {
     /// ID of the transaction
     pub txid: String,
