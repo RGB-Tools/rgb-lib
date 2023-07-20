@@ -49,7 +49,11 @@ fn restore_keys(bitcoin_network: BitcoinNetwork, mnemonic: String) -> Result<Key
     rgb_lib::restore_keys(bitcoin_network, mnemonic)
 }
 
-fn restore_backup(backup_path: String, password: String, data_dir: String) -> Result<(), RgbLibError> {
+fn restore_backup(
+    backup_path: String,
+    password: String,
+    data_dir: String,
+) -> Result<(), RgbLibError> {
     rgb_lib::restore_backup(&backup_path, &password, &data_dir)
 }
 

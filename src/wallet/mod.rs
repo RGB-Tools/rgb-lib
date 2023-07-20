@@ -3041,10 +3041,7 @@ impl Wallet {
             Ok(consignment) => consignment,
             Err(consignment) => consignment,
         };
-        let validation_status = validated_consignment
-            .clone()
-            .into_validation_status()
-            .unwrap();
+        let validation_status = validated_consignment.into_validation_status().unwrap();
         let validity = validation_status.validity();
         debug!(self.logger, "Consignment validity: {:?}", validity);
 
@@ -3064,11 +3061,11 @@ impl Wallet {
                 let mut minimal_contract = consignment.clone().into_contract();
                 minimal_contract.bundles = none!();
                 minimal_contract.terminals = none!();
-                let minimal_contract_validated =
-                    match minimal_contract.clone().validate(runtime.resolver()) {
-                        Ok(consignment) => consignment,
-                        Err(consignment) => consignment,
-                    };
+                let minimal_contract_validated = match minimal_contract.validate(runtime.resolver())
+                {
+                    Ok(consignment) => consignment,
+                    Err(consignment) => consignment,
+                };
                 runtime
                     .import_contract(minimal_contract_validated)
                     .expect("failure importing issued contract");
@@ -3198,8 +3195,7 @@ impl Wallet {
         let known_concealed =
             SecretSeal::from_str(&blinded_utxo).expect("saved blinded UTXO is invalid");
         let mut txid: Option<BpTxid> = None;
-        let binding = consignment.clone();
-        let anchored_bundles = binding.anchored_bundles();
+        let anchored_bundles = consignment.anchored_bundles();
         for bundle in anchored_bundles {
             for bundle_item in bundle.bundle.values() {
                 if let Some(transition) = &bundle_item.transition {
@@ -3395,12 +3391,12 @@ impl Wallet {
                 .join(TRANSFER_DIR)
                 .join(t.blinded_utxo.expect("transfer should have a blinded UTXO"))
         } else {
-            self.wallet_dir.join(TRANSFER_DIR).join(txid.clone())
+            self.wallet_dir.join(TRANSFER_DIR).join(txid)
         };
 
         if !incoming {
             // set change outpoints as colorable
-            let tx = self._get_signed_psbt(transfer_dir.clone())?.extract_tx();
+            let tx = self._get_signed_psbt(transfer_dir)?.extract_tx();
             let txid = tx.txid().to_string();
             for (vout, output) in tx.output.iter().enumerate() {
                 if output.value == 0 {
@@ -4253,7 +4249,7 @@ impl Wallet {
         // prepare RGB PSBT
         self._prepare_rgb_psbt(
             &mut psbt,
-            all_inputs.clone(),
+            all_inputs,
             transfer_info_map.clone(),
             transfer_dir.clone(),
             donation,
@@ -4348,7 +4344,6 @@ impl Wallet {
         Ok(txid)
     }
 }
-
 
 pub(crate) mod backup;
 
