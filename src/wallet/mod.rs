@@ -77,20 +77,18 @@ use crate::database::entities::batch_transfer::{
     ActiveModel as DbBatchTransferActMod, Model as DbBatchTransfer,
 };
 use crate::database::entities::coloring::{ActiveModel as DbColoringActMod, Model as DbColoring};
-use crate::database::entities::consignment_endpoint::{
-    ActiveModel as DbConsignmentEndpointActMod, Model as DbConsignmentEndpoint,
-};
 use crate::database::entities::transfer::{ActiveModel as DbTransferActMod, Model as DbTransfer};
-use crate::database::entities::transfer_consignment_endpoint::{
-    ActiveModel as DbTransferConsignmentEndpointActMod, Model as DbTransferConsignmentEndpoint,
+use crate::database::entities::transfer_transport_endpoint::{
+    ActiveModel as DbTransferTransportEndpointActMod, Model as DbTransferTransportEndpoint,
+};
+use crate::database::entities::transport_endpoint::{
+    ActiveModel as DbTransportEndpointActMod, Model as DbTransportEndpoint,
 };
 use crate::database::entities::txo::{ActiveModel as DbTxoActMod, Model as DbTxo};
 use crate::database::entities::wallet_transaction::ActiveModel as DbWalletTransactionActMod;
-use crate::database::enums::{
-    ColoringType, ConsignmentTransport, TransferStatus, WalletTransactionType,
-};
+use crate::database::enums::{ColoringType, TransferStatus, TransportType, WalletTransactionType};
 use crate::database::{
-    DbData, LocalConsignmentEndpoint, LocalRecipient, LocalRgbAllocation, LocalUnspent,
+    DbData, LocalRecipient, LocalRgbAllocation, LocalTransportEndpoint, LocalUnspent,
     RgbLibDatabase, TransferData,
 };
 use crate::error::{Error, InternalError};
@@ -130,7 +128,7 @@ const MIN_CONFIRMATIONS: u8 = 1;
 
 const MAX_ALLOCATIONS_PER_UTXO: u32 = 5;
 
-const MAX_CONSIGNMENT_ENDPOINTS: u8 = 3;
+const MAX_TRANSPORT_ENDPOINTS: u8 = 3;
 
 const MIN_FEE_RATE: f32 = 1.0;
 const MAX_FEE_RATE: f32 = 1000.0;
@@ -348,38 +346,38 @@ impl BlindedUTXO {
     }
 }
 
-/// An RGB consignment endpoint
+/// An RGB transport endpoint
 #[derive(Debug)]
-pub struct ConsignmentEndpoint {
+pub struct TransportEndpoint {
     /// Endpoint address
     pub endpoint: String,
-    /// Endpoint protocol
-    pub protocol: ConsignmentTransport,
+    /// Endpoint transport type
+    pub transport_type: TransportType,
 }
 
-impl ConsignmentEndpoint {
-    /// Check that the provided [`ConsignmentEndpoint::endpoint`] is valid
-    pub fn new(consignment_endpoint: String) -> Result<Self, Error> {
-        let rgb_transport = RgbTransport::from_str(&consignment_endpoint)?;
-        ConsignmentEndpoint::try_from(rgb_transport)
+impl TransportEndpoint {
+    /// Check that the provided [`TransportEndpoint::endpoint`] is valid
+    pub fn new(transport_endpoint: String) -> Result<Self, Error> {
+        let rgb_transport = RgbTransport::from_str(&transport_endpoint)?;
+        TransportEndpoint::try_from(rgb_transport)
     }
 
-    /// Return the protocol of this consignment endpoint
-    pub fn protocol(&self) -> ConsignmentTransport {
-        self.protocol
+    /// Return the transport type of this transport endpoint
+    pub fn transport_type(&self) -> TransportType {
+        self.transport_type
     }
 }
 
-impl TryFrom<RgbTransport> for ConsignmentEndpoint {
+impl TryFrom<RgbTransport> for TransportEndpoint {
     type Error = Error;
 
     fn try_from(x: RgbTransport) -> Result<Self, Self::Error> {
         match x {
-            RgbTransport::JsonRpc { tls, host } => Ok(ConsignmentEndpoint {
+            RgbTransport::JsonRpc { tls, host } => Ok(TransportEndpoint {
                 endpoint: format!("http{}://{host}", if tls { "s" } else { "" }),
-                protocol: ConsignmentTransport::JsonRpc,
+                transport_type: TransportType::JsonRpc,
             }),
-            _ => Err(Error::UnsupportedConsignmentTransport),
+            _ => Err(Error::UnsupportedTransportType),
         }
     }
 }
@@ -435,7 +433,7 @@ impl Invoice {
         } else {
             None
         };
-        let consignment_endpoints: Vec<String> =
+        let transport_endpoints: Vec<String> =
             decoded.transports.iter().map(|t| t.to_string()).collect();
         let invoice_data = InvoiceData {
             blinded_utxo,
@@ -443,7 +441,7 @@ impl Invoice {
             asset_id,
             amount,
             expiration_timestamp: decoded.expiry,
-            consignment_endpoints,
+            transport_endpoints,
         };
 
         Ok(Invoice {
@@ -468,7 +466,7 @@ impl Invoice {
             None
         };
         let mut transports = vec![];
-        for endpoint in invoice_data.consignment_endpoints.clone() {
+        for endpoint in invoice_data.transport_endpoints.clone() {
             transports.push(RgbTransport::from_str(&endpoint)?);
         }
         let owned_state = if let Some(value) = invoice_data.amount {
@@ -521,8 +519,8 @@ pub struct InvoiceData {
     pub amount: Option<u64>,
     /// Invoice expiration
     pub expiration_timestamp: Option<i64>,
-    /// Consignment endpoints
-    pub consignment_endpoints: Vec<String>,
+    /// Transport endpoints
+    pub transport_endpoints: Vec<String>,
 }
 
 /// Data for operations that require the wallet to be online
@@ -608,8 +606,8 @@ pub struct Recipient {
     pub blinded_utxo: String,
     /// RGB amount
     pub amount: u64,
-    /// Consignment endpoints
-    pub consignment_endpoints: Vec<String>,
+    /// Transport endpoints
+    pub transport_endpoints: Vec<String>,
 }
 
 /// A transfer refresh filter
@@ -723,15 +721,15 @@ pub struct Transfer {
     pub blinding_secret: Option<u64>,
     /// Expiration of the transfer
     pub expiration: Option<i64>,
-    /// Consignment endpoints of the transfer
-    pub consignment_endpoints: Vec<TransferConsignmentEndpoint>,
+    /// Transport endpoints of the transfer
+    pub transport_endpoints: Vec<TransferTransportEndpoint>,
 }
 
 impl Transfer {
     fn from_db_transfer(
         x: DbTransfer,
         td: TransferData,
-        consignment_endpoints: Vec<TransferConsignmentEndpoint>,
+        transport_endpoints: Vec<TransferTransportEndpoint>,
     ) -> Transfer {
         let blinding_secret = x.blinding_secret.map(|bs| {
             bs.parse::<u64>()
@@ -753,30 +751,30 @@ impl Transfer {
             change_utxo: td.change_utxo,
             blinding_secret,
             expiration: td.expiration,
-            consignment_endpoints,
+            transport_endpoints,
         }
     }
 }
 
-/// An RGB transfer consignment endpoint
+/// An RGB transfer transport endpoint
 #[derive(Clone, Debug)]
-pub struct TransferConsignmentEndpoint {
+pub struct TransferTransportEndpoint {
     /// Endpoint address
     pub endpoint: String,
-    /// Endpoint protocol
-    pub protocol: ConsignmentTransport,
+    /// Endpoint transport type
+    pub transport_type: TransportType,
     /// Whether the endpoint has been used
     pub used: bool,
 }
 
-impl TransferConsignmentEndpoint {
-    fn from_db_transfer_consignment_endpoint(
-        x: &DbTransferConsignmentEndpoint,
-        ce: &DbConsignmentEndpoint,
-    ) -> TransferConsignmentEndpoint {
-        TransferConsignmentEndpoint {
+impl TransferTransportEndpoint {
+    fn from_db_transfer_transport_endpoint(
+        x: &DbTransferTransportEndpoint,
+        ce: &DbTransportEndpoint,
+    ) -> TransferTransportEndpoint {
+        TransferTransportEndpoint {
             endpoint: ce.endpoint.clone(),
-            protocol: ce.protocol,
+            transport_type: ce.transport_type,
             used: x.used,
         }
     }
@@ -1028,19 +1026,16 @@ impl Wallet {
             })
     }
 
-    fn _check_consignment_endpoints(
-        &self,
-        consignment_endpoints: &Vec<String>,
-    ) -> Result<(), Error> {
-        if consignment_endpoints.is_empty() {
-            return Err(Error::InvalidConsignmentEndpoints {
-                details: s!("must provide at least a consignment endpoint"),
+    fn _check_transport_endpoints(&self, transport_endpoints: &Vec<String>) -> Result<(), Error> {
+        if transport_endpoints.is_empty() {
+            return Err(Error::InvalidTransportEndpoints {
+                details: s!("must provide at least a transport endpoint"),
             });
         }
-        if consignment_endpoints.len() > MAX_CONSIGNMENT_ENDPOINTS as usize {
-            return Err(Error::InvalidConsignmentEndpoints {
+        if transport_endpoints.len() > MAX_TRANSPORT_ENDPOINTS as usize {
+            return Err(Error::InvalidTransportEndpoints {
                 details: format!(
-                    "library supports at max {MAX_CONSIGNMENT_ENDPOINTS} consignment endpoints"
+                    "library supports at max {MAX_TRANSPORT_ENDPOINTS} transport endpoints"
                 ),
             });
         }
@@ -1262,30 +1257,30 @@ impl Wallet {
         }
     }
 
-    fn _save_transfer_consignment_endpoint(
+    fn _save_transfer_transport_endpoint(
         &self,
         transfer_idx: i64,
-        consignment_endpoint: &LocalConsignmentEndpoint,
+        transport_endpoint: &LocalTransportEndpoint,
     ) -> Result<(), Error> {
-        let consignment_endpoint_idx = match self
+        let transport_endpoint_idx = match self
             .database
-            .get_consignment_endpoint(consignment_endpoint.endpoint.clone())?
+            .get_transport_endpoint(transport_endpoint.endpoint.clone())?
         {
             Some(ce) => ce.idx,
             None => self
                 .database
-                .set_consignment_endpoint(DbConsignmentEndpointActMod {
-                    protocol: ActiveValue::Set(consignment_endpoint.protocol),
-                    endpoint: ActiveValue::Set(consignment_endpoint.endpoint.clone()),
+                .set_transport_endpoint(DbTransportEndpointActMod {
+                    transport_type: ActiveValue::Set(transport_endpoint.transport_type),
+                    endpoint: ActiveValue::Set(transport_endpoint.endpoint.clone()),
                     ..Default::default()
                 })?,
         };
 
         self.database
-            .set_transfer_consignment_endpoint(DbTransferConsignmentEndpointActMod {
+            .set_transfer_transport_endpoint(DbTransferTransportEndpointActMod {
                 transfer_idx: ActiveValue::Set(transfer_idx),
-                consignment_endpoint_idx: ActiveValue::Set(consignment_endpoint_idx),
-                used: ActiveValue::Set(consignment_endpoint.used),
+                transport_endpoint_idx: ActiveValue::Set(transport_endpoint_idx),
+                used: ActiveValue::Set(transport_endpoint.used),
                 ..Default::default()
             })?;
 
@@ -1300,7 +1295,7 @@ impl Wallet {
         asset_id: Option<String>,
         amount: Option<u64>,
         duration_seconds: Option<u32>,
-        consignment_endpoints: Vec<String>,
+        transport_endpoints: Vec<String>,
     ) -> Result<BlindData, Error> {
         info!(
             self.logger,
@@ -1342,31 +1337,31 @@ impl Wallet {
             Some(expiry)
         };
 
-        self._check_consignment_endpoints(&consignment_endpoints)?;
-        let mut consignment_endpoints_dedup = consignment_endpoints.clone();
-        consignment_endpoints_dedup.sort();
-        consignment_endpoints_dedup.dedup();
-        if consignment_endpoints_dedup.len() != consignment_endpoints.len() {
-            return Err(Error::InvalidConsignmentEndpoints {
-                details: s!("no duplicate consignment endpoints allowed"),
+        self._check_transport_endpoints(&transport_endpoints)?;
+        let mut transport_endpoints_dedup = transport_endpoints.clone();
+        transport_endpoints_dedup.sort();
+        transport_endpoints_dedup.dedup();
+        if transport_endpoints_dedup.len() != transport_endpoints.len() {
+            return Err(Error::InvalidTransportEndpoints {
+                details: s!("no duplicate transport endpoints allowed"),
             });
         }
         let mut endpoints: Vec<String> = vec![];
         let mut transports = vec![];
-        for endpoint_str in consignment_endpoints {
+        for endpoint_str in transport_endpoints {
             let rgb_transport = RgbTransport::from_str(&endpoint_str)?;
             transports.push(rgb_transport.clone());
             match &rgb_transport {
                 RgbTransport::JsonRpc { .. } => {
                     endpoints.push(
-                        ConsignmentEndpoint::try_from(rgb_transport)
+                        TransportEndpoint::try_from(rgb_transport)
                             .unwrap()
                             .endpoint
                             .clone(),
                     );
                 }
                 _ => {
-                    return Err(Error::UnsupportedConsignmentTransport);
+                    return Err(Error::UnsupportedTransportType);
                 }
             }
         }
@@ -1439,11 +1434,11 @@ impl Wallet {
         self.database.set_coloring(db_coloring)?;
 
         for endpoint in endpoints {
-            self._save_transfer_consignment_endpoint(
+            self._save_transfer_transport_endpoint(
                 transfer_idx,
-                &LocalConsignmentEndpoint {
+                &LocalTransportEndpoint {
                     endpoint,
-                    protocol: ConsignmentTransport::JsonRpc,
+                    transport_type: TransportType::JsonRpc,
                     used: false,
                     usable: true,
                 },
@@ -2801,9 +2796,7 @@ impl Wallet {
             .map(|t| {
                 let (asset_transfer, batch_transfer) =
                     t.related_transfers(&db_data.asset_transfers, &db_data.batch_transfers)?;
-                let tce_data = self
-                    .database
-                    .get_transfer_consignment_endpoints_data(t.idx)?;
+                let tce_data = self.database.get_transfer_transport_endpoints_data(t.idx)?;
                 Ok(Transfer::from_db_transfer(
                     t,
                     self.database.get_transfer_data(
@@ -2815,9 +2808,7 @@ impl Wallet {
                     tce_data
                         .iter()
                         .map(|(tce, ce)| {
-                            TransferConsignmentEndpoint::from_db_transfer_consignment_endpoint(
-                                tce, ce,
-                            )
+                            TransferTransportEndpoint::from_db_transfer_transport_endpoint(tce, ce)
                         })
                         .collect(),
                 ))
@@ -2907,12 +2898,9 @@ impl Wallet {
     fn _fail_batch_transfer_if_no_endpoints(
         &self,
         batch_transfer: &DbBatchTransfer,
-        transfer_consignment_endpoints_data: &Vec<(
-            DbTransferConsignmentEndpoint,
-            DbConsignmentEndpoint,
-        )>,
+        transfer_transport_endpoints_data: &Vec<(DbTransferTransportEndpoint, DbTransportEndpoint)>,
     ) -> Result<bool, Error> {
-        if transfer_consignment_endpoints_data.is_empty() {
+        if transfer_transport_endpoints_data.is_empty() {
             self._fail_batch_transfer(batch_transfer)?;
             return Ok(true);
         }
@@ -2958,17 +2946,17 @@ impl Wallet {
         // check if a consignment has been posted
         let tce_data = self
             .database
-            .get_transfer_consignment_endpoints_data(transfer.idx)?;
+            .get_transfer_transport_endpoints_data(transfer.idx)?;
         if self._fail_batch_transfer_if_no_endpoints(batch_transfer, &tce_data)? {
             return Ok(None);
         }
         let (mut proxy_url, mut consignment) = (None, None);
         let mut used_endpoint = None;
-        for (transfer_consignment_endpoint, consignment_endpoint) in tce_data {
+        for (transfer_transport_endpoint, transport_endpoint) in tce_data {
             let consignment_res = self
                 .rest_client
                 .clone()
-                .get_consignment(&consignment_endpoint.endpoint, blinded_utxo.clone());
+                .get_consignment(&transport_endpoint.endpoint, blinded_utxo.clone());
             if consignment_res.is_err() {
                 debug!(
                     self.logger,
@@ -2976,7 +2964,7 @@ impl Wallet {
                 );
                 info!(
                     self.logger,
-                    "Skipping consignment endpoint: {:?}", &consignment_endpoint
+                    "Skipping transport endpoint: {:?}", &transport_endpoint
                 );
                 continue;
             }
@@ -2987,12 +2975,12 @@ impl Wallet {
             );
 
             if consignment_res.result.is_some() {
-                proxy_url = Some(consignment_endpoint.endpoint);
+                proxy_url = Some(transport_endpoint.endpoint);
                 consignment = consignment_res.result;
-                let mut updated_transfer_consignment_endpoint: DbTransferConsignmentEndpointActMod =
-                    transfer_consignment_endpoint.into();
-                updated_transfer_consignment_endpoint.used = ActiveValue::Set(true);
-                used_endpoint = Some(updated_transfer_consignment_endpoint);
+                let mut updated_transfer_transport_endpoint: DbTransferTransportEndpointActMod =
+                    transfer_transport_endpoint.into();
+                updated_transfer_transport_endpoint.used = ActiveValue::Set(true);
+                used_endpoint = Some(updated_transfer_transport_endpoint);
                 break;
             }
         }
@@ -3244,7 +3232,7 @@ impl Wallet {
         self.database.update_coloring(updated_coloring)?;
 
         self.database
-            .update_transfer_consignment_endpoint(&mut used_endpoint.expect("should be defined"))?;
+            .update_transfer_transport_endpoint(&mut used_endpoint.expect("should be defined"))?;
 
         let mut updated_transfer: DbTransferActMod = transfer.into();
         updated_transfer.amount = ActiveValue::Set(amount.to_string());
@@ -3274,16 +3262,16 @@ impl Wallet {
                 }
                 let tce_data = self
                     .database
-                    .get_transfer_consignment_endpoints_data(transfer.idx)?;
+                    .get_transfer_transport_endpoints_data(transfer.idx)?;
                 if self._fail_batch_transfer_if_no_endpoints(batch_transfer, &tce_data)? {
                     return Ok(None);
                 }
-                let (_, consignment_endpoint) = tce_data
+                let (_, transport_endpoint) = tce_data
                     .clone()
                     .into_iter()
                     .find(|(tce, _ce)| tce.used)
                     .expect("there should be 1 used tce");
-                let proxy_url = consignment_endpoint.endpoint.clone();
+                let proxy_url = transport_endpoint.endpoint.clone();
                 let ack_res = self.rest_client.clone().get_ack(
                     &proxy_url,
                     transfer
@@ -3919,17 +3907,17 @@ impl Wallet {
         let consignment_path = asset_transfer_dir.join(CONSIGNMENT_FILE);
         for recipient in recipients {
             let mut found_valid = false;
-            for consignment_endpoint in recipient.consignment_endpoints.iter_mut() {
-                if consignment_endpoint.protocol != ConsignmentTransport::JsonRpc
-                    || !consignment_endpoint.usable
+            for transport_endpoint in recipient.transport_endpoints.iter_mut() {
+                if transport_endpoint.transport_type != TransportType::JsonRpc
+                    || !transport_endpoint.usable
                 {
                     debug!(
                         self.logger,
-                        "Skipping consignment endpoint {:?}", consignment_endpoint
+                        "Skipping transport endpoint {:?}", transport_endpoint
                     );
                     continue;
                 }
-                let proxy_url = consignment_endpoint.endpoint.clone();
+                let proxy_url = transport_endpoint.endpoint.clone();
                 let consignment_res = self.rest_client.clone().post_consignment(
                     &proxy_url,
                     recipient.blinded_utxo.clone(),
@@ -3959,13 +3947,13 @@ impl Wallet {
                             return Err(InternalError::Unexpected)?;
                         }
                     }
-                    consignment_endpoint.used = true;
+                    transport_endpoint.used = true;
                     found_valid = true;
                     break;
                 }
             }
             if !found_valid {
-                return Err(Error::NoValidConsignmentEndpoint);
+                return Err(Error::NoValidTransportEndpoint);
             }
         }
 
@@ -4040,8 +4028,8 @@ impl Wallet {
                     ..Default::default()
                 };
                 let transfer_idx = self.database.set_transfer(transfer)?;
-                for consignment_endpoint in recipient.consignment_endpoints {
-                    self._save_transfer_consignment_endpoint(transfer_idx, &consignment_endpoint)?;
+                for transport_endpoint in recipient.transport_endpoints {
+                    self._save_transfer_transport_endpoint(transfer_idx, &transport_endpoint)?;
                 }
             }
         }
@@ -4166,43 +4154,43 @@ impl Wallet {
         for (asset_id, recipients) in recipient_map {
             let mut local_recipients: Vec<LocalRecipient> = vec![];
             for recipient in recipients.clone() {
-                self._check_consignment_endpoints(&recipient.consignment_endpoints)?;
+                self._check_transport_endpoints(&recipient.transport_endpoints)?;
 
-                let mut consignment_endpoints: Vec<LocalConsignmentEndpoint> = vec![];
+                let mut transport_endpoints: Vec<LocalTransportEndpoint> = vec![];
                 let mut found_valid = false;
-                for endpoint_str in recipient.consignment_endpoints {
-                    let consignment_endpoint = ConsignmentEndpoint::new(endpoint_str)?;
-                    let mut local_consignment_endpoint = LocalConsignmentEndpoint {
-                        protocol: consignment_endpoint.protocol,
-                        endpoint: consignment_endpoint.endpoint.clone(),
+                for endpoint_str in recipient.transport_endpoints {
+                    let transport_endpoint = TransportEndpoint::new(endpoint_str)?;
+                    let mut local_transport_endpoint = LocalTransportEndpoint {
+                        transport_type: transport_endpoint.transport_type,
+                        endpoint: transport_endpoint.endpoint.clone(),
                         used: false,
                         usable: false,
                     };
                     if let Ok(server_info) = self
                         .rest_client
                         .clone()
-                        .get_info(&consignment_endpoint.endpoint)
+                        .get_info(&transport_endpoint.endpoint)
                     {
                         if let Some(info) = server_info.result {
                             if info.protocol_version == *PROXY_PROTOCOL_VERSION {
-                                local_consignment_endpoint.usable = true;
+                                local_transport_endpoint.usable = true;
                                 found_valid = true;
                             }
                         }
                     };
-                    consignment_endpoints.push(local_consignment_endpoint);
+                    transport_endpoints.push(local_transport_endpoint);
                 }
 
                 if !found_valid {
-                    return Err(Error::InvalidConsignmentEndpoints {
-                        details: s!("no valid consignment endpoints"),
+                    return Err(Error::InvalidTransportEndpoints {
+                        details: s!("no valid transport endpoints"),
                     });
                 }
 
                 local_recipients.push(LocalRecipient {
                     blinded_utxo: recipient.blinded_utxo,
                     amount: recipient.amount,
-                    consignment_endpoints,
+                    transport_endpoints,
                 })
             }
 

@@ -55,14 +55,14 @@ fn success() {
 
     // wallet 1 > wallet 2 WaitingConfirmations and vice versa
     let blind_data_2a = wallet_2
-        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map_1a = HashMap::from([(
         asset_1.asset_id.clone(),
         vec![Recipient {
             amount: amount_1,
             blinded_utxo: blind_data_2a.blinded_utxo.clone(),
-            consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
     // return false if no transfer has changed
@@ -70,14 +70,14 @@ fn success() {
     let txid_1a = test_send_default(&mut wallet_1, &online_1, recipient_map_1a);
     assert!(!txid_1a.is_empty());
     let blind_data_1a = wallet_1
-        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map_2a = HashMap::from([(
         asset_2.asset_id.clone(),
         vec![Recipient {
             amount: amount_2,
             blinded_utxo: blind_data_1a.blinded_utxo.clone(),
-            consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
     let txid_2a = test_send_default(&mut wallet_2, &online_2, recipient_map_2a);
@@ -93,21 +93,21 @@ fn success() {
         .unwrap());
     // wallet 1 > 2, WaitingCounterparty and vice versa
     let blind_data_2b = wallet_2
-        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map_1b = HashMap::from([(
         asset_1.asset_id,
         vec![Recipient {
             amount: amount_1,
             blinded_utxo: blind_data_2b.blinded_utxo.clone(),
-            consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
     let txid_1b = test_send_default(&mut wallet_1, &online_1, recipient_map_1b);
     assert!(!txid_1b.is_empty());
     // wallet 2 > 1, WaitingCounterparty
     let blind_data_1b = wallet_1
-        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     show_unspent_colorings(&wallet_1, "wallet 1 after blind 1b");
     let recipient_map_2b = HashMap::from([(
@@ -115,7 +115,7 @@ fn success() {
         vec![Recipient {
             amount: amount_2,
             blinded_utxo: blind_data_1b.blinded_utxo.clone(),
-            consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
     let txid_2b = test_send_default(&mut wallet_2, &online_2, recipient_map_2b);

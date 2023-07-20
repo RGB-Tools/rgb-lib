@@ -46,7 +46,7 @@ impl PrimaryKeyTrait for PrimaryKey {
 #[derive(Copy, Clone, Debug, EnumIter)]
 pub enum Relation {
     AssetTransfer,
-    TransferConsignmentEndpoint,
+    TransferTransportEndpoint,
 }
 
 impl ColumnTrait for Column {
@@ -70,8 +70,8 @@ impl RelationTrait for Relation {
                 .from(Column::AssetTransferIdx)
                 .to(super::asset_transfer::Column::Idx)
                 .into(),
-            Self::TransferConsignmentEndpoint => {
-                Entity::has_many(super::transfer_consignment_endpoint::Entity).into()
+            Self::TransferTransportEndpoint => {
+                Entity::has_many(super::transfer_transport_endpoint::Entity).into()
             }
         }
     }
@@ -83,9 +83,9 @@ impl Related<super::asset_transfer::Entity> for Entity {
     }
 }
 
-impl Related<super::transfer_consignment_endpoint::Entity> for Entity {
+impl Related<super::transfer_transport_endpoint::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::TransferConsignmentEndpoint.def()
+        Relation::TransferTransportEndpoint.def()
     }
 }
 

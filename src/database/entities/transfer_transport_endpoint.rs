@@ -2,29 +2,29 @@
 
 use sea_orm::entity::prelude::*;
 
-use crate::database::ConsignmentTransport;
-
 #[derive(Copy, Clone, Default, Debug, DeriveEntity)]
 pub struct Entity;
 
 impl EntityName for Entity {
     fn table_name(&self) -> &str {
-        "consignment_endpoint"
+        "transfer_transport_endpoint"
     }
 }
 
 #[derive(Clone, Debug, PartialEq, DeriveModel, DeriveActiveModel, Eq)]
 pub struct Model {
     pub idx: i64,
-    pub protocol: ConsignmentTransport,
-    pub endpoint: String,
+    pub transfer_idx: i64,
+    pub transport_endpoint_idx: i64,
+    pub used: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
 pub enum Column {
     Idx,
-    Protocol,
-    Endpoint,
+    TransferIdx,
+    TransportEndpointIdx,
+    Used,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DerivePrimaryKey)]
@@ -41,7 +41,8 @@ impl PrimaryKeyTrait for PrimaryKey {
 
 #[derive(Copy, Clone, Debug, EnumIter)]
 pub enum Relation {
-    TransferConsignmentEndpoint,
+    TransportEndpoint,
+    Transfer,
 }
 
 impl ColumnTrait for Column {
@@ -49,8 +50,9 @@ impl ColumnTrait for Column {
     fn def(&self) -> ColumnDef {
         match self {
             Self::Idx => ColumnType::BigInteger.def(),
-            Self::Protocol => ColumnType::SmallInteger.def(),
-            Self::Endpoint => ColumnType::String(None).def(),
+            Self::TransferIdx => ColumnType::BigInteger.def(),
+            Self::TransportEndpointIdx => ColumnType::BigInteger.def(),
+            Self::Used => ColumnType::Boolean.def(),
         }
     }
 }
@@ -58,16 +60,27 @@ impl ColumnTrait for Column {
 impl RelationTrait for Relation {
     fn def(&self) -> RelationDef {
         match self {
-            Self::TransferConsignmentEndpoint => {
-                Entity::has_many(super::transfer_consignment_endpoint::Entity).into()
-            }
+            Self::TransportEndpoint => Entity::belongs_to(super::transport_endpoint::Entity)
+                .from(Column::TransportEndpointIdx)
+                .to(super::transport_endpoint::Column::Idx)
+                .into(),
+            Self::Transfer => Entity::belongs_to(super::transfer::Entity)
+                .from(Column::TransferIdx)
+                .to(super::transfer::Column::Idx)
+                .into(),
         }
     }
 }
 
-impl Related<super::transfer_consignment_endpoint::Entity> for Entity {
+impl Related<super::transport_endpoint::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::TransferConsignmentEndpoint.def()
+        Relation::TransportEndpoint.def()
+    }
+}
+
+impl Related<super::transfer::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Transfer.def()
     }
 }
 

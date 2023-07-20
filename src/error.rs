@@ -150,16 +150,16 @@ pub enum Error {
         details: String,
     },
 
-    /// The provided consignment endpoint is invalid
-    #[error("Invalid consignment endpoint: {details}")]
-    InvalidConsignmentEndpoint {
+    /// The provided transport endpoint is invalid
+    #[error("Invalid transport endpoint: {details}")]
+    InvalidTransportEndpoint {
         /// Error details
         details: String,
     },
 
-    /// The provided consignment endpoints are invalid
-    #[error("Invalid consignment endpoints: {details}")]
-    InvalidConsignmentEndpoints {
+    /// The provided transport endpoints are invalid
+    #[error("Invalid transport endpoints: {details}")]
+    InvalidTransportEndpoints {
         /// Error details
         details: String,
     },
@@ -245,9 +245,9 @@ pub enum Error {
     #[error("Issuance request with no provided amounts")]
     NoIssuanceAmounts,
 
-    /// No valid consignment endpoint found
-    #[error("No valid consignment endpoint found")]
-    NoValidConsignmentEndpoint,
+    /// No valid transport endpoint found
+    #[error("No valid transport endpoint found")]
+    NoValidTransportEndpoint,
 
     /// Trying to perform an online operation with offline wallet
     #[error("Wallet is offline. Hint: call go_online")]
@@ -288,9 +288,9 @@ pub enum Error {
         version: String,
     },
 
-    /// The given consignment protocol is not supported
-    #[error("Consignment protocol is not supported")]
-    UnsupportedConsignmentTransport,
+    /// The given transport type is not supported
+    #[error("Transport type is not supported")]
+    UnsupportedTransportType,
 
     /// The given invoice type is not supported
     #[error("Invoice type is not supported")]
@@ -461,7 +461,7 @@ impl From<rgbwallet::psbt::RgbPsbtError> for InternalError {
 
 impl From<rgbwallet::TransportParseError> for Error {
     fn from(e: rgbwallet::TransportParseError) -> Self {
-        Error::InvalidConsignmentEndpoint {
+        Error::InvalidTransportEndpoint {
             details: e.to_string(),
         }
     }

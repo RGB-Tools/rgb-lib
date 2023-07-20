@@ -21,14 +21,14 @@ fn success() {
     let issuance = transfers.first().unwrap();
     let timestamp = issuance.created_at;
     let blind_data = rcv_wallet
-        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_rgb20.asset_id.clone(),
         vec![Recipient {
             amount: 10,
             blinded_utxo: blind_data.blinded_utxo,
-            consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
     test_send_default(&mut wallet, &online, recipient_map);

@@ -261,22 +261,22 @@ impl MigrationTrait for Migration {
         manager
             .create_table(
                 Table::create()
-                    .table(ConsignmentEndpoint::Table)
+                    .table(TransportEndpoint::Table)
                     .if_not_exists()
                     .col(
-                        ColumnDef::new(ConsignmentEndpoint::Idx)
+                        ColumnDef::new(TransportEndpoint::Idx)
                             .big_integer()
                             .not_null()
                             .auto_increment()
                             .primary_key(),
                     )
                     .col(
-                        ColumnDef::new(ConsignmentEndpoint::Protocol)
+                        ColumnDef::new(TransportEndpoint::TransportType)
                             .tiny_unsigned()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(ConsignmentEndpoint::Endpoint)
+                        ColumnDef::new(TransportEndpoint::Endpoint)
                             .string()
                             .not_null(),
                     )
@@ -286,10 +286,10 @@ impl MigrationTrait for Migration {
         manager
             .create_index(
                 sea_query::Index::create()
-                    .name("idx-ce-protocol-endpoint")
-                    .table(ConsignmentEndpoint::Table)
-                    .col(ConsignmentEndpoint::Protocol)
-                    .col(ConsignmentEndpoint::Endpoint)
+                    .name("idx-ce-transport-type-endpoint")
+                    .table(TransportEndpoint::Table)
+                    .col(TransportEndpoint::TransportType)
+                    .col(TransportEndpoint::Endpoint)
                     .unique()
                     .clone(),
             )
@@ -298,37 +298,37 @@ impl MigrationTrait for Migration {
         manager
             .create_table(
                 Table::create()
-                    .table(TransferConsignmentEndpoint::Table)
+                    .table(TransferTransportEndpoint::Table)
                     .if_not_exists()
                     .col(
-                        ColumnDef::new(TransferConsignmentEndpoint::Idx)
+                        ColumnDef::new(TransferTransportEndpoint::Idx)
                             .big_integer()
                             .not_null()
                             .auto_increment()
                             .primary_key(),
                     )
                     .col(
-                        ColumnDef::new(TransferConsignmentEndpoint::TransferIdx)
+                        ColumnDef::new(TransferTransportEndpoint::TransferIdx)
                             .big_integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(TransferConsignmentEndpoint::ConsignmentEndpointIdx)
+                        ColumnDef::new(TransferTransportEndpoint::TransportEndpointIdx)
                             .big_integer()
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(TransferConsignmentEndpoint::Used)
+                        ColumnDef::new(TransferTransportEndpoint::Used)
                             .boolean()
                             .not_null()
                             .default(false),
                     )
                     .foreign_key(
                         ForeignKey::create()
-                            .name("fk-transferconsignmentendpoint-transfer")
+                            .name("fk-transferTransportEndpoint-transfer")
                             .from(
-                                TransferConsignmentEndpoint::Table,
-                                TransferConsignmentEndpoint::TransferIdx,
+                                TransferTransportEndpoint::Table,
+                                TransferTransportEndpoint::TransferIdx,
                             )
                             .to(Transfer::Table, Transfer::Idx)
                             .on_delete(ForeignKeyAction::Cascade)
@@ -336,12 +336,12 @@ impl MigrationTrait for Migration {
                     )
                     .foreign_key(
                         ForeignKey::create()
-                            .name("fk-transferconsignmentendpoint-consignmentendpoint")
+                            .name("fk-transferTransportEndpoint-TransportEndpoint")
                             .from(
-                                TransferConsignmentEndpoint::Table,
-                                TransferConsignmentEndpoint::ConsignmentEndpointIdx,
+                                TransferTransportEndpoint::Table,
+                                TransferTransportEndpoint::TransportEndpointIdx,
                             )
-                            .to(ConsignmentEndpoint::Table, ConsignmentEndpoint::Idx)
+                            .to(TransportEndpoint::Table, TransportEndpoint::Idx)
                             .on_delete(ForeignKeyAction::Restrict)
                             .on_update(ForeignKeyAction::Restrict),
                     )
@@ -351,10 +351,10 @@ impl MigrationTrait for Migration {
         manager
             .create_index(
                 sea_query::Index::create()
-                    .name("idx-tce-transfer_idx-consignment_endpoint_idx")
-                    .table(TransferConsignmentEndpoint::Table)
-                    .col(TransferConsignmentEndpoint::TransferIdx)
-                    .col(TransferConsignmentEndpoint::ConsignmentEndpointIdx)
+                    .name("idx-tce-transfer_idx-transport_endpoint_idx")
+                    .table(TransferTransportEndpoint::Table)
+                    .col(TransferTransportEndpoint::TransferIdx)
+                    .col(TransferTransportEndpoint::TransportEndpointIdx)
                     .unique()
                     .clone(),
             )
@@ -425,13 +425,13 @@ impl MigrationTrait for Migration {
             .await?;
 
         manager
-            .drop_table(Table::drop().table(ConsignmentEndpoint::Table).to_owned())
+            .drop_table(Table::drop().table(TransportEndpoint::Table).to_owned())
             .await?;
 
         manager
             .drop_table(
                 Table::drop()
-                    .table(TransferConsignmentEndpoint::Table)
+                    .table(TransferTransportEndpoint::Table)
                     .to_owned(),
             )
             .await?;
@@ -524,20 +524,20 @@ pub enum Transfer {
 
 /// Learn more at https://docs.rs/sea-query#iden
 #[derive(Iden)]
-pub enum ConsignmentEndpoint {
+pub enum TransportEndpoint {
     Table,
     Idx,
-    Protocol,
+    TransportType,
     Endpoint,
 }
 
 /// Learn more at https://docs.rs/sea-query#iden
 #[derive(Iden)]
-pub enum TransferConsignmentEndpoint {
+pub enum TransferTransportEndpoint {
     Table,
     Idx,
     TransferIdx,
-    ConsignmentEndpointIdx,
+    TransportEndpointIdx,
     Used,
 }
 

@@ -98,7 +98,7 @@ fn transfer_balances() {
 
     // blind + fail to check failed blinds are not counted in balance
     let blind_data_fail = wallet_recv
-        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     wallet_recv
         .fail_transfers(
@@ -114,7 +114,7 @@ fn transfer_balances() {
         vec![Recipient {
             blinded_utxo: blind_data_fail.blinded_utxo,
             amount: amount_1,
-            consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
     let txid = test_send_default(&mut wallet_send, &online_send, recipient_map);
@@ -123,14 +123,14 @@ fn transfer_balances() {
         .unwrap();
     // send some assets
     let blind_data_1 = wallet_recv
-        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
             blinded_utxo: blind_data_1.blinded_utxo,
             amount: amount_1,
-            consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
     // actual send
@@ -251,14 +251,14 @@ fn transfer_balances() {
 
     // send some assets
     let blind_data_2 = wallet_recv
-        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
             blinded_utxo: blind_data_2.blinded_utxo,
             amount: amount_2,
-            consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
     test_send_default(&mut wallet_send, &online_send, recipient_map);

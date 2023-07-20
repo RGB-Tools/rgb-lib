@@ -1,5 +1,5 @@
-use crate::database::entities::transfer_consignment_endpoint;
-use crate::wallet::MAX_CONSIGNMENT_ENDPOINTS;
+use crate::database::entities::transfer_transport_endpoint;
+use crate::wallet::MAX_TRANSPORT_ENDPOINTS;
 use rgbwallet::RgbInvoice;
 use sea_orm::EntityTrait;
 
@@ -16,7 +16,7 @@ fn success() {
     // default expiration
     let now_timestamp = now().unix_timestamp();
     let blind_data = wallet
-        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     assert!(blind_data.expiration_timestamp.is_some());
     let timestamp = now_timestamp + DURATION_RCV_TRANSFER as i64;
@@ -25,7 +25,7 @@ fn success() {
     // positive expiration
     let now_timestamp = now().unix_timestamp();
     let blind_data = wallet
-        .blind(None, None, Some(expiration), CONSIGNMENT_ENDPOINTS.clone())
+        .blind(None, None, Some(expiration), TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     assert!(blind_data.expiration_timestamp.is_some());
     let timestamp = now_timestamp + expiration as i64;
@@ -33,7 +33,7 @@ fn success() {
 
     // 0 expiration
     let blind_data = wallet
-        .blind(None, None, Some(0), CONSIGNMENT_ENDPOINTS.clone())
+        .blind(None, None, Some(0), TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     assert!(blind_data.expiration_timestamp.is_none());
 
@@ -53,7 +53,7 @@ fn success() {
         Some(asset_id.clone()),
         None,
         None,
-        CONSIGNMENT_ENDPOINTS.clone(),
+        TRANSPORT_ENDPOINTS.clone(),
     );
     assert!(result.is_ok());
 
@@ -63,7 +63,7 @@ fn success() {
         Some(asset_id.clone()),
         Some(amount),
         Some(expiration),
-        CONSIGNMENT_ENDPOINTS.clone(),
+        TRANSPORT_ENDPOINTS.clone(),
     );
     assert!(result.is_ok());
     let blind_data = result.unwrap();
@@ -87,20 +87,20 @@ fn success() {
     let result = BlindedUTXO::new(blind_data.blinded_utxo);
     assert!(result.is_ok());
 
-    // consignment endpoints: multiple endpoints
-    let consignment_endpoints = vec![
+    // transport endpoints: multiple endpoints
+    let transport_endpoints = vec![
         format!("rpc://{}", "127.0.0.1:3000/json-rpc"),
         format!("rpc://{}", "127.0.0.1:3001/json-rpc"),
         format!("rpc://{}", "127.0.0.1:3002/json-rpc"),
     ];
-    let result = wallet.blind(None, None, Some(0), consignment_endpoints.clone());
+    let result = wallet.blind(None, None, Some(0), transport_endpoints.clone());
     assert!(result.is_ok());
     let transfer = get_test_transfer_recipient(&wallet, &result.unwrap().blinded_utxo);
     let tce_data = wallet
         .database
-        .get_transfer_consignment_endpoints_data(transfer.idx)
+        .get_transfer_transport_endpoints_data(transfer.idx)
         .unwrap();
-    assert_eq!(tce_data.len(), consignment_endpoints.len());
+    assert_eq!(tce_data.len(), transport_endpoints.len());
 }
 
 #[test]
@@ -115,7 +115,7 @@ fn respect_max_allocations() {
         let mut txo_list: HashSet<DbTxo> = HashSet::new();
         for _ in 0..MAX_ALLOCATIONS_PER_UTXO {
             let blind_data = wallet
-                .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+                .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
                 .unwrap();
             created_allocations += 1;
             let transfer = get_test_transfer_recipient(&wallet, &blind_data.blinded_utxo);
@@ -129,7 +129,7 @@ fn respect_max_allocations() {
     }
     assert_eq!(available_allocations, created_allocations);
 
-    let result = wallet.blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone());
+    let result = wallet.blind(None, None, None, TRANSPORT_ENDPOINTS.clone());
     assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 }
 
@@ -143,7 +143,7 @@ fn expire() {
     // check expiration
     let now_timestamp = now().unix_timestamp();
     let blind_data_1 = wallet
-        .blind(None, None, Some(expiration), CONSIGNMENT_ENDPOINTS.clone())
+        .blind(None, None, Some(expiration), TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let timestamp = now_timestamp + expiration as i64;
     assert!(blind_data_1.expiration_timestamp.unwrap() - timestamp <= 1);
@@ -202,14 +202,14 @@ fn pending_outgoing_transfer_fail() {
         .unwrap();
     // send
     let blind_data = rcv_wallet
-        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_id.clone(),
         vec![Recipient {
             blinded_utxo: blind_data.blinded_utxo,
             amount,
-            consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
     let txid = test_send_default(&mut wallet, &online, recipient_map);
@@ -217,7 +217,7 @@ fn pending_outgoing_transfer_fail() {
 
     // check blind doesn't get allocated to UTXO being spent
     let blind_data = wallet
-        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     show_unspent_colorings(&wallet, "after 1st blind");
     let unspents = wallet.list_unspents(false).unwrap();
@@ -246,7 +246,7 @@ fn pending_outgoing_transfer_fail() {
         .unwrap();
     // check blind doesn't get allocated to UTXO being spent
     let _result = wallet
-        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     show_unspent_colorings(&wallet, "after 2nd blind");
     let unspents = wallet.list_unspents(false).unwrap();
@@ -268,12 +268,12 @@ fn fail() {
         Some(s!("rgb1inexistent")),
         None,
         None,
-        CONSIGNMENT_ENDPOINTS.clone(),
+        TRANSPORT_ENDPOINTS.clone(),
     );
     assert!(matches!(result, Err(Error::AssetNotFound { asset_id: _ })));
 
     // insufficient funds
-    let result = wallet.blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone());
+    let result = wallet.blind(None, None, None, TRANSPORT_ENDPOINTS.clone());
     assert!(matches!(
         result,
         Err(Error::InsufficientBitcoins {
@@ -312,72 +312,70 @@ fn fail() {
     let result = Invoice::new(invoice.to_string());
     assert!(matches!(result, Err(Error::UnsupportedInvoice)));
 
-    // consignment endpoints: malformed string
+    // transport endpoints: malformed string
     fund_wallet(wallet.get_address());
     test_create_utxos_default(&mut wallet, online.clone());
-    let consignment_endpoints = vec!["malformed".to_string()];
-    let result = wallet.blind(None, None, Some(0), consignment_endpoints);
+    let transport_endpoints = vec!["malformed".to_string()];
+    let result = wallet.blind(None, None, Some(0), transport_endpoints);
     assert!(matches!(
         result,
-        Err(Error::InvalidConsignmentEndpoint { details: _ })
+        Err(Error::InvalidTransportEndpoint { details: _ })
     ));
 
-    // consignment endpoints: unknown protocol
-    let consignment_endpoints = vec![format!("unknown://{PROXY_HOST}")];
-    let result = wallet.blind(None, None, Some(0), consignment_endpoints);
+    // transport endpoints: unknown transport type
+    let transport_endpoints = vec![format!("unknown://{PROXY_HOST}")];
+    let result = wallet.blind(None, None, Some(0), transport_endpoints);
     assert!(matches!(
         result,
-        Err(Error::InvalidConsignmentEndpoint { details: _ })
+        Err(Error::InvalidTransportEndpoint { details: _ })
     ));
 
-    // consignment endpoints: protocol supported by RgbInvoice but unsupported by rgb-lib
-    let consignment_endpoints = vec![format!("ws://{PROXY_HOST}")];
-    let result = wallet.blind(None, None, Some(0), consignment_endpoints);
+    // transport endpoints: transport type supported by RgbInvoice but unsupported by rgb-lib
+    let transport_endpoints = vec![format!("ws://{PROXY_HOST}")];
+    let result = wallet.blind(None, None, Some(0), transport_endpoints);
+    assert!(matches!(result, Err(Error::UnsupportedTransportType)));
+
+    // transport endpoints: not enough endpoints
+    let transport_endpoints = vec![];
+    let result = wallet.blind(None, None, Some(0), transport_endpoints);
+    let msg = s!("must provide at least a transport endpoint");
     assert!(matches!(
         result,
-        Err(Error::UnsupportedConsignmentTransport)
+        Err(Error::InvalidTransportEndpoints { details: m }) if m == msg
     ));
 
-    // consignment endpoints: not enough endpoints
-    let consignment_endpoints = vec![];
-    let result = wallet.blind(None, None, Some(0), consignment_endpoints);
-    let msg = s!("must provide at least a consignment endpoint");
-    assert!(matches!(
-        result,
-        Err(Error::InvalidConsignmentEndpoints { details: m }) if m == msg
-    ));
-
-    // consignment endpoints: too many endpoints
-    let consignment_endpoints = vec![
+    // transport endpoints: too many endpoints
+    let transport_endpoints = vec![
         format!("rpc://127.0.0.1:3000/json-rpc"),
         format!("rpc://127.0.0.1:3001/json-rpc"),
         format!("rpc://127.0.0.1:3002/json-rpc"),
         format!("rpc://127.0.0.1:3003/json-rpc"),
     ];
-    let result = wallet.blind(None, None, Some(0), consignment_endpoints);
+    let result = wallet.blind(None, None, Some(0), transport_endpoints);
+    println!("RES: {result:?}");
     let msg = format!(
-        "library supports at max {} consignment endpoints",
-        MAX_CONSIGNMENT_ENDPOINTS
+        "library supports at max {} transport endpoints",
+        MAX_TRANSPORT_ENDPOINTS
     );
     assert!(matches!(
         result,
-        Err(Error::InvalidConsignmentEndpoints { details: m }) if m == msg
+        Err(Error::InvalidTransportEndpoints { details: m }) if m == msg
     ));
 
-    // consignment endpoints: no endpoints for transfer > Failed
-    let consignment_endpoints = vec![format!("rpc://{PROXY_HOST}")];
+    // transport endpoints: no endpoints for transfer > Failed
+    let transport_endpoints = vec![format!("rpc://{PROXY_HOST}")];
     let blind_data = wallet
-        .blind(None, None, Some(0), consignment_endpoints)
+        .blind(None, None, Some(0), transport_endpoints)
         .unwrap();
     let transfer = get_test_transfer_recipient(&wallet, &blind_data.blinded_utxo);
     let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
     let tce_data = wallet
         .database
-        .get_transfer_consignment_endpoints_data(transfer.idx)
+        .get_transfer_transport_endpoints_data(transfer.idx)
         .unwrap();
     for (tce, _) in tce_data {
         block_on(
-            transfer_consignment_endpoint::Entity::delete_by_id(tce.idx)
+            transfer_transport_endpoint::Entity::delete_by_id(tce.idx)
                 .exec(wallet.database.get_connection()),
         )
         .unwrap();
@@ -388,17 +386,17 @@ fn fail() {
     let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
     assert_eq!(transfer_data.status, TransferStatus::Failed);
 
-    // consignment endpoints: same endpoint repeated
-    let consignment_endpoints = vec![
+    // transport endpoints: same endpoint repeated
+    let transport_endpoints = vec![
         format!("rpc://{PROXY_HOST}"),
         format!("rpc://{PROXY_HOST}"),
         format!("rpc://{PROXY_HOST}"),
     ];
-    let result = wallet.blind(None, None, Some(0), consignment_endpoints);
-    let msg = s!("no duplicate consignment endpoints allowed");
+    let result = wallet.blind(None, None, Some(0), transport_endpoints);
+    let msg = s!("no duplicate transport endpoints allowed");
     assert!(matches!(
         result,
-        Err(Error::InvalidConsignmentEndpoints { details: m }) if m == msg
+        Err(Error::InvalidTransportEndpoints { details: m }) if m == msg
     ));
 }
 
@@ -436,7 +434,7 @@ fn wrong_asset_fail() {
             Some(asset_a.asset_id),
             None,
             None,
-            CONSIGNMENT_ENDPOINTS.clone(),
+            TRANSPORT_ENDPOINTS.clone(),
         )
         .unwrap();
 
@@ -445,7 +443,7 @@ fn wrong_asset_fail() {
         vec![Recipient {
             amount,
             blinded_utxo: blind_data_a.blinded_utxo.clone(),
-            consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
     let txid = test_send_default(&mut wallet_2, &online_2, recipient_map);
@@ -474,36 +472,33 @@ fn wrong_asset_fail() {
 }
 
 #[test]
-fn new_consignment_endpoint() {
+fn new_transport_endpoint() {
     // correct JsonRpc endpoint
-    let result = ConsignmentEndpoint::new(PROXY_ENDPOINT.clone());
+    let result = TransportEndpoint::new(PROXY_ENDPOINT.clone());
     assert!(result.is_ok());
 
     // unsupported endpoint
-    let result = ConsignmentEndpoint::new(format!("ws://{PROXY_HOST}"));
+    let result = TransportEndpoint::new(format!("ws://{PROXY_HOST}"));
+    assert!(matches!(result, Err(Error::UnsupportedTransportType)));
+
+    // no transport type
+    let result = TransportEndpoint::new(PROXY_HOST.to_string());
     assert!(matches!(
         result,
-        Err(Error::UnsupportedConsignmentTransport)
+        Err(Error::InvalidTransportEndpoint { details: _ })
     ));
 
-    // no protocol
-    let result = ConsignmentEndpoint::new(PROXY_HOST.to_string());
+    // unknown transport type
+    let result = TransportEndpoint::new(format!("unknown:{PROXY_HOST}"));
     assert!(matches!(
         result,
-        Err(Error::InvalidConsignmentEndpoint { details: _ })
-    ));
-
-    // unknown protocol
-    let result = ConsignmentEndpoint::new(format!("unknown:{PROXY_HOST}"));
-    assert!(matches!(
-        result,
-        Err(Error::InvalidConsignmentEndpoint { details: _ })
+        Err(Error::InvalidTransportEndpoint { details: _ })
     ));
 
     // leading ':'
-    let result = ConsignmentEndpoint::new(format!(":rpc://{PROXY_HOST}"));
+    let result = TransportEndpoint::new(format!(":rpc://{PROXY_HOST}"));
     assert!(matches!(
         result,
-        Err(Error::InvalidConsignmentEndpoint { details: _ })
+        Err(Error::InvalidTransportEndpoint { details: _ })
     ));
 }

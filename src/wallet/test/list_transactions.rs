@@ -17,14 +17,14 @@ fn success() {
         )
         .unwrap();
     let blind_data = rcv_wallet
-        .blind(None, None, None, CONSIGNMENT_ENDPOINTS.clone())
+        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id,
         vec![Recipient {
             blinded_utxo: blind_data.blinded_utxo,
             amount: AMOUNT,
-            consignment_endpoints: CONSIGNMENT_ENDPOINTS.clone(),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
     test_send_default(&mut wallet, &online, recipient_map);

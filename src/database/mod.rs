@@ -21,23 +21,23 @@ use crate::database::entities::batch_transfer::{
 use entities::asset_rgb20::{ActiveModel as DbAssetRgb20ActMod, Model as DbAssetRgb20};
 use entities::asset_rgb25::{ActiveModel as DbAssetRgb25ActMod, Model as DbAssetRgb25};
 use entities::coloring::{ActiveModel as DbColoringActMod, Model as DbColoring};
-use entities::consignment_endpoint::{
-    ActiveModel as DbConsignmentEndpointActMod, Model as DbConsignmentEndpoint,
-};
 use entities::transfer::{ActiveModel as DbTransferActMod, Model as DbTransfer};
-use entities::transfer_consignment_endpoint::{
-    ActiveModel as DbTransferConsignmentEndpointActMod, Model as DbTransferConsignmentEndpoint,
+use entities::transfer_transport_endpoint::{
+    ActiveModel as DbTransferTransportEndpointActMod, Model as DbTransferTransportEndpoint,
+};
+use entities::transport_endpoint::{
+    ActiveModel as DbTransportEndpointActMod, Model as DbTransportEndpoint,
 };
 use entities::txo::{ActiveModel as DbTxoActMod, Model as DbTxo};
 use entities::wallet_transaction::{
     ActiveModel as DbWalletTransactionActMod, Model as DbWalletTransaction,
 };
 use entities::{
-    asset_rgb20, asset_rgb25, asset_transfer, batch_transfer, coloring, consignment_endpoint,
-    transfer, transfer_consignment_endpoint, txo, wallet_transaction,
+    asset_rgb20, asset_rgb25, asset_transfer, batch_transfer, coloring, transfer,
+    transfer_transport_endpoint, transport_endpoint, txo, wallet_transaction,
 };
 
-use self::enums::{ColoringType, ConsignmentTransport, TransferStatus};
+use self::enums::{ColoringType, TransferStatus, TransportType};
 
 impl DbAssetTransfer {
     pub(crate) fn asset_id(&self) -> Option<String> {
@@ -196,8 +196,8 @@ impl From<LocalUtxo> for DbTxoActMod {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub(crate) struct LocalConsignmentEndpoint {
-    pub protocol: ConsignmentTransport,
+pub(crate) struct LocalTransportEndpoint {
+    pub transport_type: TransportType,
     pub endpoint: String,
     pub used: bool,
     pub usable: bool,
@@ -215,7 +215,7 @@ pub(crate) struct LocalUnspent {
 pub(crate) struct LocalRecipient {
     pub blinded_utxo: String,
     pub amount: u64,
-    pub consignment_endpoints: Vec<LocalConsignmentEndpoint>,
+    pub transport_endpoints: Vec<LocalTransportEndpoint>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -308,12 +308,12 @@ impl RgbLibDatabase {
         Ok(res.last_insert_id)
     }
 
-    pub(crate) fn set_consignment_endpoint(
+    pub(crate) fn set_transport_endpoint(
         &self,
-        consignment_endpoint: DbConsignmentEndpointActMod,
+        transport_endpoint: DbTransportEndpointActMod,
     ) -> Result<i64, InternalError> {
         let res = block_on(
-            consignment_endpoint::Entity::insert(consignment_endpoint).exec(self.get_connection()),
+            transport_endpoint::Entity::insert(transport_endpoint).exec(self.get_connection()),
         )?;
         Ok(res.last_insert_id)
     }
@@ -323,12 +323,12 @@ impl RgbLibDatabase {
         Ok(res.last_insert_id)
     }
 
-    pub(crate) fn set_transfer_consignment_endpoint(
+    pub(crate) fn set_transfer_transport_endpoint(
         &self,
-        transfer_consignment_endpoint: DbTransferConsignmentEndpointActMod,
+        transfer_transport_endpoint: DbTransferTransportEndpointActMod,
     ) -> Result<i64, InternalError> {
         let res = block_on(
-            transfer_consignment_endpoint::Entity::insert(transfer_consignment_endpoint)
+            transfer_transport_endpoint::Entity::insert(transfer_transport_endpoint)
                 .exec(self.get_connection()),
         )?;
         Ok(res.last_insert_id)
@@ -383,12 +383,12 @@ impl RgbLibDatabase {
         )?)
     }
 
-    pub(crate) fn update_transfer_consignment_endpoint(
+    pub(crate) fn update_transfer_transport_endpoint(
         &self,
-        transfer_consignment_endpoint: &mut DbTransferConsignmentEndpointActMod,
-    ) -> Result<DbTransferConsignmentEndpoint, InternalError> {
+        transfer_transport_endpoint: &mut DbTransferTransportEndpointActMod,
+    ) -> Result<DbTransferTransportEndpoint, InternalError> {
         Ok(block_on(
-            transfer_consignment_endpoint::Entity::update(transfer_consignment_endpoint.clone())
+            transfer_transport_endpoint::Entity::update(transfer_transport_endpoint.clone())
                 .exec(self.get_connection()),
         )?)
     }
@@ -415,13 +415,13 @@ impl RgbLibDatabase {
         Ok(())
     }
 
-    pub(crate) fn get_consignment_endpoint(
+    pub(crate) fn get_transport_endpoint(
         &self,
         endpoint: String,
-    ) -> Result<Option<DbConsignmentEndpoint>, InternalError> {
+    ) -> Result<Option<DbTransportEndpoint>, InternalError> {
         Ok(block_on(
-            consignment_endpoint::Entity::find()
-                .filter(consignment_endpoint::Column::Endpoint.eq(endpoint))
+            transport_endpoint::Entity::find()
+                .filter(transport_endpoint::Column::Endpoint.eq(endpoint))
                 .one(self.get_connection()),
         )?)
     }
@@ -494,15 +494,15 @@ impl RgbLibDatabase {
         )?)
     }
 
-    pub(crate) fn get_transfer_consignment_endpoints_data(
+    pub(crate) fn get_transfer_transport_endpoints_data(
         &self,
         transfer_idx: i64,
-    ) -> Result<Vec<(DbTransferConsignmentEndpoint, DbConsignmentEndpoint)>, InternalError> {
+    ) -> Result<Vec<(DbTransferTransportEndpoint, DbTransportEndpoint)>, InternalError> {
         Ok(block_on(
-            transfer_consignment_endpoint::Entity::find()
-                .filter(transfer_consignment_endpoint::Column::TransferIdx.eq(transfer_idx))
-                .find_also_related(consignment_endpoint::Entity)
-                .order_by_asc(transfer_consignment_endpoint::Column::Idx)
+            transfer_transport_endpoint::Entity::find()
+                .filter(transfer_transport_endpoint::Column::TransferIdx.eq(transfer_idx))
+                .find_also_related(transport_endpoint::Entity)
+                .order_by_asc(transfer_transport_endpoint::Column::Idx)
                 .all(self.get_connection()),
         )?
         .into_iter()

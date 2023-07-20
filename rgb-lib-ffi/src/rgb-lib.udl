@@ -34,8 +34,8 @@ interface RgbLibError {
   InvalidAssetID(string asset_id);
   InvalidBitcoinKeys();
   InvalidBlindedUTXO(string details);
-  InvalidConsignmentEndpoint(string details);
-  InvalidConsignmentEndpoints(string details);
+  InvalidTransportEndpoint(string details);
+  InvalidTransportEndpoints(string details);
   InvalidDescription(string details);
   InvalidElectrum(string details);
   InvalidFeeRate(string details);
@@ -48,13 +48,13 @@ interface RgbLibError {
   InvalidPubkey(string details);
   InvalidTicker(string details);
   NoIssuanceAmounts();
-  NoValidConsignmentEndpoint();
+  NoValidTransportEndpoint();
   Offline();
   Proxy(string details);
   TransferNotFound(string blinded_utxo);
   UnknownRgbInterface(string interface);
   UnknownRgbSchema(string schema_id);
-  UnsupportedConsignmentTransport();
+  UnsupportedTransportType();
   UnsupportedBackupVersion(string version);
   UnsupportedInvoice();
   WatchOnly();
@@ -122,14 +122,14 @@ interface BlindedUTXO {
   constructor(string blinded_utxo);
 };
 
-interface ConsignmentEndpoint {
+interface TransportEndpoint {
   [Throws=RgbLibError]
-  constructor(string consignment_endpoint);
+  constructor(string transport_endpoint);
 
-  ConsignmentTransport protocol();
+  TransportType transport_type();
 };
 
-enum ConsignmentTransport {
+enum TransportType {
   "JsonRpc",
 };
 
@@ -155,7 +155,7 @@ dictionary InvoiceData {
   string? asset_id;
   u64? amount;
   i64? expiration_timestamp;
-  sequence<string> consignment_endpoints;
+  sequence<string> transport_endpoints;
 };
 
 dictionary Keys {
@@ -188,7 +188,7 @@ dictionary Outpoint {
 dictionary Recipient {
   string blinded_utxo;
   u64 amount;
-  sequence<string> consignment_endpoints;
+  sequence<string> transport_endpoints;
 };
 
 dictionary RefreshFilter {
@@ -207,9 +207,9 @@ dictionary RgbAllocation {
   boolean settled;
 };
 
-dictionary TransferConsignmentEndpoint {
+dictionary TransferTransportEndpoint {
   string endpoint;
-  ConsignmentTransport protocol;
+  TransportType transport_type;
   boolean used;
 };
 
@@ -260,7 +260,7 @@ dictionary Transfer {
   Outpoint? change_utxo;
   u64? blinding_secret;
   i64? expiration;
-  sequence<TransferConsignmentEndpoint> consignment_endpoints;
+  sequence<TransferTransportEndpoint> transport_endpoints;
 };
 
 dictionary Unspent {
@@ -290,7 +290,8 @@ interface Wallet {
   void backup(string backup_path, string password);
 
   [Throws=RgbLibError]
-  BlindData blind(string? asset_id, u64? amount, u32? duration_seconds, sequence<string> consignment_endpoints);
+  BlindData blind(string? asset_id, u64? amount, u32? duration_seconds,
+  sequence<string> transport_endpoints);
 
   [Throws=RgbLibError]
   u8 create_utxos(Online online, boolean up_to, u8? num, u32? size, f32 fee_rate);

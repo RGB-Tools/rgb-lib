@@ -24,7 +24,7 @@ impl IntoActiveValue<ColoringType> for ColoringType {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, DeriveActiveEnum, Deserialize, Serialize)]
 #[sea_orm(rs_type = "u16", db_type = "Integer")]
-pub enum ConsignmentTransport {
+pub enum TransportType {
     #[sea_orm(num_value = 1)]
     JsonRpc = 1,
 }
