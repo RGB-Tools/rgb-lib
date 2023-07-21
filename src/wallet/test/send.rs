@@ -1276,6 +1276,9 @@ fn send_received_rgb25_success() {
             spendable: amount_2,
         }
     );
+    // check attachment mime-type
+    let media = recv_asset.data_paths.first().unwrap();
+    assert_eq!(media.mime, "text/plain");
     // check attachment data matches
     let dst_path = recv_asset.data_paths.first().unwrap().file_path.clone();
     let src_bytes = std::fs::read(PathBuf::from(file_str)).unwrap();
