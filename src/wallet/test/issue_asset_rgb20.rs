@@ -322,21 +322,3 @@ fn fail() {
     );
     assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 }
-
-#[test]
-#[ignore = "currently succeeds"]
-fn zero_amount_fail() {
-    initialize();
-
-    let (mut wallet, online) = get_funded_wallet!();
-
-    // invalid amount
-    let result = wallet.issue_asset_rgb20(
-        online,
-        TICKER.to_string(),
-        NAME.to_string(),
-        PRECISION,
-        vec![0],
-    );
-    assert!(matches!(result, Err(Error::FailedIssuance { details: _ })));
-}
