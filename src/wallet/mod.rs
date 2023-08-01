@@ -141,8 +141,10 @@ const PROXY_TIMEOUT: u8 = 90;
 
 const PROXY_PROTOCOL_VERSION: &str = "0.1";
 
-const SCHEMA_ID_NIA: &str = "12vPR9qthiLpPgoytGBbeerVYFKvdCXEUmbg891HVyHV";
-const SCHEMA_ID_CFA: &str = "GAGoA5UivUeSSN5HK23Y83Qq3k2dFrCsjo87ZZLNyPh3";
+const SCHEMA_ID_NIA: &str =
+    "urn:lnp-bp:sc:BEiLYE-am9WhTW1-oK8cpvw4-FEMtzMrf-mKocuGZn-qWK6YF#ginger-parking-nirvana";
+const SCHEMA_ID_CFA: &str =
+    "urn:lnp-bp:sc:4nfgJ2-jkeTRQuG-uTet6NSW-Fy1sFTU8-qqrN2uY2-j6S5rv#ravioli-justin-brave";
 
 /// The interface of an asset
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
@@ -2350,7 +2352,7 @@ impl Wallet {
         });
 
         let created_at = now().unix_timestamp();
-        let created = Timestamp::from(i32::try_from(created_at).unwrap());
+        let created = Timestamp::from(created_at);
         let settled: u64 = amounts.iter().sum();
         let terms = RicardianContract::default();
         let data = ContractData { terms, media: None };
@@ -2496,7 +2498,7 @@ impl Wallet {
         });
 
         let created_at = now().unix_timestamp();
-        let created = Timestamp::from(i32::try_from(created_at).unwrap());
+        let created = Timestamp::from(created_at);
         let settled: u64 = amounts.iter().sum();
         let terms = RicardianContract::default();
         let (media, mime) = if let Some(fp) = &file_path {
