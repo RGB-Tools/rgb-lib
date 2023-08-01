@@ -70,6 +70,7 @@ dictionary AssetRgb20 {
   string ticker;
   string name;
   u8 precision;
+  u64 issued_supply;
   Balance balance;
 };
 
@@ -88,6 +89,7 @@ dictionary AssetRgb25 {
   string name;
   string? description;
   u8 precision;
+  u64 issued_supply;
   Balance balance;
   sequence<Media> data_paths;
 };
@@ -248,7 +250,7 @@ dictionary BlockTime {
 };
 
 dictionary Transfer {
-  i64 idx;
+  i32 idx;
   i64 created_at;
   i64 updated_at;
   TransferStatus status;
@@ -323,7 +325,7 @@ interface Wallet {
   Balance get_asset_balance(string asset_id);
 
   [Throws=RgbLibError]
-  Metadata get_asset_metadata(Online online, string asset_id);
+  Metadata get_asset_metadata(string asset_id);
 
   [Throws=RgbLibError]
   Online go_online(boolean skip_consistency_check, string electrum_url);

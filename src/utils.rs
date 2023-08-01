@@ -6,6 +6,7 @@ use bdk::bitcoin::Network as BdkNetwork;
 use bdk::descriptor::Segwitv0;
 use bdk::keys::DescriptorKey::Public;
 use bdk::keys::{DerivableKey, DescriptorKey};
+use rgb::Runtime;
 use rgbstd::Chain as RgbNetwork;
 use std::io;
 use std::str::FromStr;
@@ -138,6 +139,16 @@ pub(crate) fn calculate_descriptor_from_xpub(
 
 fn convert_time_fmt_error(cause: time::error::Format) -> io::Error {
     io::Error::new(io::ErrorKind::Other, cause)
+}
+
+pub(crate) fn create_rgb_runtime(
+    wallet_dir: PathBuf,
+    bitcoin_network: BitcoinNetwork,
+) -> Result<Runtime, Error> {
+    Ok(
+        Runtime::load(wallet_dir, RgbNetwork::from(bitcoin_network))
+            .map_err(InternalError::from)?,
+    )
 }
 
 fn log_timestamp(io: &mut dyn io::Write) -> io::Result<()> {

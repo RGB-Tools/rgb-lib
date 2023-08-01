@@ -106,8 +106,8 @@ fn success() {
     assert!(transfer_data.unblinded_utxo.is_none());
 
     // asset id is set only for the sender
-    assert!(rcv_asset_transfer.asset_rgb20_id.is_none());
-    assert_eq!(asset_transfer.asset_rgb20_id, Some(asset.asset_id.clone()));
+    assert!(rcv_asset_transfer.asset_id.is_none());
+    assert_eq!(asset_transfer.asset_id, Some(asset.asset_id.clone()));
     // transfers are user-driven on both sides
     assert!(rcv_asset_transfer.user_driven);
     assert!(asset_transfer.user_driven);
@@ -138,10 +138,7 @@ fn success() {
     // amount is now set on the receiver side
     assert_eq!(rcv_transfer.amount, amount.to_string());
     // asset id is now set on the receiver side
-    assert_eq!(
-        rcv_asset_transfer.asset_rgb20_id,
-        Some(asset.asset_id.clone())
-    );
+    assert_eq!(rcv_asset_transfer.asset_id, Some(asset.asset_id.clone()));
     // update timestamp has been updated
     let rcv_updated_at = rcv_transfer_data.updated_at;
     let updated_at = transfer_data.updated_at;
@@ -440,11 +437,11 @@ fn spend_all() {
     assert_eq!(asset_transfers.len(), 2);
     let asset_transfer = asset_transfers
         .iter()
-        .find(|a| a.asset_rgb20_id == Some(asset.asset_id.clone()))
+        .find(|a| a.asset_id == Some(asset.asset_id.clone()))
         .unwrap();
     let asset_blank_asset_transfer = asset_transfers
         .iter()
-        .find(|a| a.asset_rgb25_id == Some(asset_blank.asset_id.clone()))
+        .find(|a| a.asset_id == Some(asset_blank.asset_id.clone()))
         .unwrap();
 
     // change_utxo is not set (sender has no asset change)
@@ -1467,12 +1464,11 @@ fn receive_multiple_same_asset_success() {
     assert!(transfer_data_2.unblinded_utxo.is_none());
 
     // asset id is set only for the sender
-    assert!(rcv_asset_transfer_1.asset_rgb20_id.is_none());
-    assert!(rcv_asset_transfer_1.asset_rgb25_id.is_none());
-    assert!(rcv_asset_transfer_2.asset_rgb20_id.is_none());
-    assert!(rcv_asset_transfer_2.asset_rgb25_id.is_none());
-    assert_eq!(asset_transfer.asset_rgb20_id, Some(asset.asset_id.clone()));
-    assert_eq!(asset_transfer.asset_rgb25_id, None);
+    assert!(rcv_asset_transfer_1.asset_id.is_none());
+    assert!(rcv_asset_transfer_1.asset_id.is_none());
+    assert!(rcv_asset_transfer_2.asset_id.is_none());
+    assert!(rcv_asset_transfer_2.asset_id.is_none());
+    assert_eq!(asset_transfer.asset_id, Some(asset.asset_id.clone()));
     // transfers are user-driven on both sides
     assert!(rcv_asset_transfer_1.user_driven);
     assert!(rcv_asset_transfer_2.user_driven);
@@ -1527,16 +1523,8 @@ fn receive_multiple_same_asset_success() {
     assert_eq!(rcv_transfer_1.amount, amount_1.to_string());
     assert_eq!(rcv_transfer_2.amount, amount_2.to_string());
     // asset id is now set on the receiver side
-    assert_eq!(
-        rcv_asset_transfer_1.asset_rgb20_id,
-        Some(asset.asset_id.clone())
-    );
-    assert_eq!(
-        rcv_asset_transfer_2.asset_rgb20_id,
-        Some(asset.asset_id.clone())
-    );
-    assert_eq!(rcv_asset_transfer_1.asset_rgb25_id, None);
-    assert_eq!(rcv_asset_transfer_2.asset_rgb25_id, None);
+    assert_eq!(rcv_asset_transfer_1.asset_id, Some(asset.asset_id.clone()));
+    assert_eq!(rcv_asset_transfer_2.asset_id, Some(asset.asset_id.clone()));
     // update timestamp has been updated
     let rcv_updated_at_1 = rcv_transfer_data_1.updated_at;
     let rcv_updated_at_2 = rcv_transfer_data_2.updated_at;
@@ -1664,11 +1652,11 @@ fn receive_multiple_different_assets_success() {
     assert_eq!(transfers.len(), 2);
     let asset_transfer_1 = asset_transfers
         .iter()
-        .find(|a| a.asset_rgb20_id == Some(asset_1.asset_id.clone()))
+        .find(|a| a.asset_id == Some(asset_1.asset_id.clone()))
         .unwrap();
     let asset_transfer_2 = asset_transfers
         .iter()
-        .find(|a| a.asset_rgb25_id == Some(asset_2.asset_id.clone()))
+        .find(|a| a.asset_id == Some(asset_2.asset_id.clone()))
         .unwrap();
     let transfers_for_asset_1 = transfers.get(&asset_1.asset_id).unwrap();
     let transfers_for_asset_2 = transfers.get(&asset_2.asset_id).unwrap();
@@ -1780,20 +1768,12 @@ fn receive_multiple_different_assets_success() {
     assert!(transfer_data_2.unblinded_utxo.is_none());
 
     // asset id is set only for the sender
-    assert!(rcv_asset_transfer_1.asset_rgb20_id.is_none());
-    assert!(rcv_asset_transfer_1.asset_rgb25_id.is_none());
-    assert!(rcv_asset_transfer_2.asset_rgb20_id.is_none());
-    assert!(rcv_asset_transfer_2.asset_rgb25_id.is_none());
-    assert_eq!(
-        asset_transfer_1.asset_rgb20_id,
-        Some(asset_1.asset_id.clone())
-    );
-    assert_eq!(asset_transfer_1.asset_rgb25_id, None);
-    assert_eq!(asset_transfer_2.asset_rgb20_id, None);
-    assert_eq!(
-        asset_transfer_2.asset_rgb25_id,
-        Some(asset_2.asset_id.clone())
-    );
+    assert!(rcv_asset_transfer_1.asset_id.is_none());
+    assert!(rcv_asset_transfer_1.asset_id.is_none());
+    assert!(rcv_asset_transfer_2.asset_id.is_none());
+    assert!(rcv_asset_transfer_2.asset_id.is_none());
+    assert_eq!(asset_transfer_1.asset_id, Some(asset_1.asset_id.clone()));
+    assert_eq!(asset_transfer_2.asset_id, Some(asset_2.asset_id.clone()));
     // transfers are user-driven on both sides
     assert!(rcv_asset_transfer_1.user_driven);
     assert!(rcv_asset_transfer_2.user_driven);
@@ -1846,13 +1826,11 @@ fn receive_multiple_different_assets_success() {
     assert_eq!(rcv_transfer_2.amount, amount_2.to_string());
     // asset id is now set on the receiver side
     assert_eq!(
-        rcv_asset_transfer_1.asset_rgb20_id,
+        rcv_asset_transfer_1.asset_id,
         Some(asset_1.asset_id.clone())
     );
-    assert_eq!(rcv_asset_transfer_1.asset_rgb25_id, None);
-    assert_eq!(rcv_asset_transfer_2.asset_rgb20_id, None);
     assert_eq!(
-        rcv_asset_transfer_2.asset_rgb25_id,
+        rcv_asset_transfer_2.asset_id,
         Some(asset_2.asset_id.clone())
     );
     // update timestamp has been updated

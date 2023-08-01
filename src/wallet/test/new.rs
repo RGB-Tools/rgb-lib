@@ -162,8 +162,8 @@ fn re_instantiate_wallet() {
 
     // re-instantiate wallet
     let mut wallet = Wallet::new(wallet_data).unwrap();
-    let online = wallet.go_online(true, ELECTRUM_URL.to_string()).unwrap();
+    let _online = wallet.go_online(true, ELECTRUM_URL.to_string()).unwrap();
 
     // check wallet asset
-    check_test_wallet_data(&mut wallet, online, &asset, None, 1, amount);
+    check_test_wallet_data(&mut wallet, &asset, None, 1, amount);
 }

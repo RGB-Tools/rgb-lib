@@ -232,12 +232,8 @@ impl Wallet {
         self._get_wallet().get_asset_balance(asset_id)
     }
 
-    fn get_asset_metadata(
-        &self,
-        online: Online,
-        asset_id: String,
-    ) -> Result<Metadata, RgbLibError> {
-        self._get_wallet().get_asset_metadata(online, asset_id)
+    fn get_asset_metadata(&self, asset_id: String) -> Result<Metadata, RgbLibError> {
+        self._get_wallet().get_asset_metadata(asset_id)
     }
 
     fn go_online(

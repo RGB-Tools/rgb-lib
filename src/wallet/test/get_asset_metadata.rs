@@ -35,9 +35,7 @@ fn success() {
     rcv_wallet
         .refresh(rcv_online.clone(), None, vec![])
         .unwrap();
-    let rgb20_metadata = rcv_wallet
-        .get_asset_metadata(rcv_online, asset_rgb20.asset_id)
-        .unwrap();
+    let rgb20_metadata = rcv_wallet.get_asset_metadata(asset_rgb20.asset_id).unwrap();
 
     assert_eq!(rgb20_metadata.asset_iface, AssetIface::RGB20);
     assert_eq!(rgb20_metadata.asset_schema, AssetSchema::NIA);
@@ -64,9 +62,7 @@ fn success() {
     assert_eq!(transfers.len(), 1);
     let issuance = transfers.first().unwrap();
     let timestamp = issuance.created_at;
-    let rgb25_metadata = wallet
-        .get_asset_metadata(online, asset_rgb25.asset_id)
-        .unwrap();
+    let rgb25_metadata = wallet.get_asset_metadata(asset_rgb25.asset_id).unwrap();
 
     assert_eq!(rgb25_metadata.asset_iface, AssetIface::RGB25);
     assert_eq!(rgb25_metadata.asset_schema, AssetSchema::CFA);
@@ -82,8 +78,8 @@ fn success() {
 fn fail() {
     initialize();
 
-    let (mut wallet, online) = get_empty_wallet!();
+    let (mut wallet, _online) = get_empty_wallet!();
 
-    let result = wallet.get_asset_metadata(online, s!(""));
+    let result = wallet.get_asset_metadata(s!(""));
     assert!(matches!(result, Err(Error::AssetNotFound { asset_id: _ })));
 }

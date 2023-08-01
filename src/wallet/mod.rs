@@ -30,7 +30,7 @@ use bp::Txid as BpTxid;
 use electrum_client::{Client as ElectrumClient, ConfigBuilder, ElectrumApi, Param};
 use futures::executor::block_on;
 use reqwest::blocking::Client as RestClient;
-use rgb::Runtime;
+use rgb::{BlockchainResolver, Runtime};
 use rgb_core::validation::Validity;
 use rgb_core::{Assign, Operation, Opout, SecretSeal, Transition};
 use rgb_lib_migration::{Migrator, MigratorTrait};
@@ -45,7 +45,7 @@ use rgbstd::stl::{
     Precision, RicardianContract, Ticker, Timestamp,
 };
 use rgbstd::validation::ConsignmentApi;
-use rgbstd::{Chain as RgbNetwork, Txid as RgbTxid};
+use rgbstd::Txid as RgbTxid;
 use rgbwallet::psbt::opret::OutputOpret;
 use rgbwallet::psbt::{PsbtDbc, RgbExt, RgbInExt};
 use rgbwallet::{Beneficiary, RgbInvoice, RgbTransport};
@@ -68,8 +68,7 @@ use strict_types::value::StrictNum;
 use strict_types::StrictVal;
 
 use crate::api::Proxy;
-use crate::database::entities::asset_rgb20::Model as DbAssetRgb20;
-use crate::database::entities::asset_rgb25::Model as DbAssetRgb25;
+use crate::database::entities::asset::Model as DbAsset;
 use crate::database::entities::asset_transfer::{
     ActiveModel as DbAssetTransferActMod, Model as DbAssetTransfer,
 };
@@ -93,8 +92,8 @@ use crate::database::{
 };
 use crate::error::{Error, InternalError};
 use crate::utils::{
-    calculate_descriptor_from_xprv, calculate_descriptor_from_xpub, get_txid, now, setup_logger,
-    BitcoinNetwork, LOG_FILE,
+    calculate_descriptor_from_xprv, calculate_descriptor_from_xpub, create_rgb_runtime, get_txid,
+    now, setup_logger, BitcoinNetwork, LOG_FILE,
 };
 
 const RGB_DB_NAME: &str = "rgb_db";
@@ -186,19 +185,36 @@ pub struct AssetRgb20 {
     pub name: String,
     /// Precision, also known as divisibility, of the asset
     pub precision: u8,
+    /// Total issued amount
+    pub issued_supply: u64,
     /// Current balance of the asset
     pub balance: Balance,
 }
 
 impl AssetRgb20 {
-    fn from_db_asset(x: DbAssetRgb20, balance: Balance) -> AssetRgb20 {
-        AssetRgb20 {
+    fn get_asset_details(
+        wallet: &Wallet,
+        x: DbAsset,
+        balance: Balance,
+        runtime: &mut Runtime,
+    ) -> Result<AssetRgb20, Error> {
+        let iface = runtime
+            .iface_by_name(&AssetIface::RGB20.to_typename())
+            .map_err(InternalError::from)?
+            .clone();
+        let contract_id = ContractId::from_str(&x.asset_id).expect("invalid contract ID");
+        let contract = runtime
+            .contract_iface(contract_id, iface.iface_id())
+            .map_err(InternalError::from)?;
+        let (name, precision, issued_supply, ticker) = wallet._get_rgb20_asset_metadata(contract);
+        Ok(AssetRgb20 {
             asset_id: x.asset_id,
-            ticker: x.ticker,
-            name: x.name,
-            precision: x.precision,
+            ticker,
+            name,
+            precision,
+            issued_supply,
             balance,
-        }
+        })
     }
 }
 
@@ -252,6 +268,8 @@ pub struct AssetRgb25 {
     pub description: Option<String>,
     /// Precision, also known as divisibility, of the asset
     pub precision: u8,
+    /// Total issued amount
+    pub issued_supply: u64,
     /// Current balance of the asset
     pub balance: Balance,
     /// List of asset data file paths
@@ -259,11 +277,23 @@ pub struct AssetRgb25 {
 }
 
 impl AssetRgb25 {
-    fn from_db_asset(
-        x: DbAssetRgb25,
+    fn get_asset_details(
+        wallet: &Wallet,
+        x: DbAsset,
         balance: Balance,
+        runtime: &mut Runtime,
         assets_dir: PathBuf,
     ) -> Result<AssetRgb25, Error> {
+        let iface = runtime
+            .iface_by_name(&AssetIface::RGB25.to_typename())
+            .map_err(InternalError::from)?
+            .clone();
+        let contract_id = ContractId::from_str(&x.asset_id).expect("invalid contract ID");
+        let contract = runtime
+            .contract_iface(contract_id, iface.iface_id())
+            .map_err(InternalError::from)?;
+        let (name, precision, issued_supply, description) =
+            wallet._get_rgb25_asset_metadata(contract);
         let mut data_paths = vec![];
         let asset_dir = assets_dir.join(x.asset_id.clone());
         if asset_dir.is_dir() {
@@ -276,9 +306,10 @@ impl AssetRgb25 {
         }
         Ok(AssetRgb25 {
             asset_id: x.asset_id,
-            description: x.description,
-            name: x.name,
-            precision: x.precision,
+            description,
+            name,
+            precision,
+            issued_supply,
             balance,
             data_paths,
         })
@@ -296,7 +327,7 @@ pub struct Assets {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct AssetSpend {
-    txo_map: HashMap<i64, u64>,
+    txo_map: HashMap<i32, u64>,
     input_outpoints: Vec<BdkOutPoint>,
     change_amount: u64,
 }
@@ -394,7 +425,7 @@ pub enum DatabaseType {
 
 #[derive(Debug, Deserialize, Serialize)]
 struct InfoBatchTransfer {
-    change_utxo_idx: i64,
+    change_utxo_idx: i32,
     blank_allocations: HashMap<String, u64>,
     donation: bool,
 }
@@ -701,7 +732,7 @@ pub enum TransactionType {
 #[derive(Clone, Debug)]
 pub struct Transfer {
     /// ID of the transfer
-    pub idx: i64,
+    pub idx: i32,
     /// Timestamp of the transfer creation
     pub created_at: i64,
     /// Timestamp of the transfer last update
@@ -951,6 +982,26 @@ impl Wallet {
             .map_err(InternalError::from)?
         };
 
+        // RGB setup
+        let mut runtime = create_rgb_runtime(wallet_dir.clone(), wdata.bitcoin_network)?;
+        if runtime.schema_ids().map_err(InternalError::from)?.len() < NUM_KNOWN_SCHEMAS {
+            runtime.import_iface(rgb20()).map_err(InternalError::from)?;
+            runtime
+                .import_schema(nia_schema())
+                .map_err(InternalError::from)?;
+            runtime
+                .import_iface_impl(nia_rgb20())
+                .map_err(InternalError::from)?;
+
+            runtime.import_iface(rgb25()).map_err(InternalError::from)?;
+            runtime
+                .import_schema(cfa_schema())
+                .map_err(InternalError::from)?;
+            runtime
+                .import_iface_impl(cfa_rgb25())
+                .map_err(InternalError::from)?;
+        }
+
         // RGB-LIB setup
         let db_path = wallet_dir.join(RGB_DB_NAME);
         let connection_string = format!("sqlite://{}?mode=rwc", db_path.as_path().display());
@@ -996,17 +1047,14 @@ impl Wallet {
         }
     }
 
-    fn _create_rgb_runtime(&mut self, electrum_url: String) -> Result<Runtime, Error> {
-        Ok(Runtime::load(
-            self.wallet_dir.clone(),
-            RgbNetwork::from(self.bitcoin_network),
-            &electrum_url,
-        )
-        .map_err(InternalError::from)?)
+    fn _blockchain_resolver(&mut self) -> Result<BlockchainResolver, Error> {
+        Ok(BlockchainResolver::with(
+            &self.online_data.as_ref().unwrap().electrum_url,
+        )?)
     }
 
     fn _rgb_runtime(&mut self) -> Result<Runtime, Error> {
-        self._create_rgb_runtime(self.online_data.as_ref().unwrap().electrum_url.to_string())
+        create_rgb_runtime(self.wallet_dir.clone(), self.bitcoin_network)
     }
 
     fn _get_tx_details(
@@ -1262,7 +1310,7 @@ impl Wallet {
 
     fn _save_transfer_transport_endpoint(
         &self,
-        transfer_idx: i64,
+        transfer_idx: i32,
         transport_endpoint: &LocalTransportEndpoint,
     ) -> Result<(), Error> {
         let transport_endpoint_idx = match self
@@ -1290,6 +1338,20 @@ impl Wallet {
         Ok(())
     }
 
+    pub(crate) fn _get_asset_iface(
+        &self,
+        contract_id: ContractId,
+        runtime: &Runtime,
+    ) -> Result<AssetIface, Error> {
+        let genesis = runtime.genesis(contract_id).map_err(InternalError::from)?;
+        let schema_id = genesis.schema_id.to_string();
+        Ok(match &schema_id[..] {
+            SCHEMA_ID_NIA => AssetIface::RGB20,
+            SCHEMA_ID_CFA => AssetIface::RGB25,
+            _ => return Err(Error::UnknownRgbSchema { schema_id }),
+        })
+    }
+
     /// Blind an UTXO and return the resulting [`BlindData`]
     ///
     /// Optional Asset ID and duration (in seconds) can be specified
@@ -1304,13 +1366,15 @@ impl Wallet {
             self.logger,
             "Blinding for asset '{:?}' with duration '{:?}'...", asset_id, duration_seconds
         );
-        let (asset_iface, iface, contract_id) = if let Some(cid) = asset_id.clone() {
-            let asset_iface = self.database.get_asset_or_fail(cid.clone())?;
+        let mut runtime = self._rgb_runtime()?;
+        let (iface, contract_id) = if let Some(aid) = asset_id.clone() {
+            self.database.check_asset_exists(aid.clone())?;
+            let contract_id = ContractId::from_str(&aid).expect("invalid contract ID");
+            let asset_iface = self._get_asset_iface(contract_id, &runtime)?;
             let iface = asset_iface.to_typename();
-            let contract_id = ContractId::from_str(&cid).expect("invalid contract ID");
-            (Some(asset_iface), Some(iface), Some(contract_id))
+            (Some(iface), Some(contract_id))
         } else {
-            (None, None, None)
+            (None, None)
         };
 
         let mut unspents: Vec<LocalUnspent> = self.database.get_rgb_allocations(
@@ -1394,7 +1458,6 @@ impl Wallet {
             expiry,
             unknown_query: none!(),
         };
-        let mut runtime = self._rgb_runtime()?;
         runtime
             .store_seal_secret(seal)
             .map_err(InternalError::from)?;
@@ -1406,18 +1469,12 @@ impl Wallet {
             ..Default::default()
         };
         let batch_transfer_idx = self.database.set_batch_transfer(batch_transfer)?;
-        let mut asset_transfer = DbAssetTransferActMod {
+        let asset_transfer = DbAssetTransferActMod {
             user_driven: ActiveValue::Set(true),
             batch_transfer_idx: ActiveValue::Set(batch_transfer_idx),
+            asset_id: ActiveValue::Set(asset_id),
             ..Default::default()
         };
-        if let Some(at) = asset_iface {
-            let cid = asset_id.expect("asset ID");
-            match at {
-                AssetIface::RGB20 => asset_transfer.asset_rgb20_id = ActiveValue::Set(Some(cid)),
-                AssetIface::RGB25 => asset_transfer.asset_rgb25_id = ActiveValue::Set(Some(cid)),
-            }
-        }
         let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
         let transfer = DbTransferActMod {
             asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
@@ -1680,7 +1737,7 @@ impl Wallet {
                     .related_transfers(&db_data.asset_transfers, &db_data.batch_transfers)?;
                 let asset_transfers =
                     batch_transfer.get_asset_transfers(&db_data.asset_transfers)?;
-                let asset_transfer_ids: Vec<i64> = asset_transfers.iter().map(|t| t.idx).collect();
+                let asset_transfer_ids: Vec<i32> = asset_transfers.iter().map(|t| t.idx).collect();
                 if (db_data
                     .transfers
                     .into_iter()
@@ -1707,7 +1764,7 @@ impl Wallet {
             }
 
             if no_asset_only {
-                let connected_assets = asset_transfers.iter().any(|t| t.asset_id().is_some());
+                let connected_assets = asset_transfers.iter().any(|t| t.asset_id.is_some());
                 if connected_assets {
                     return Err(Error::CannotDeleteTransfer);
                 }
@@ -1727,7 +1784,7 @@ impl Wallet {
                 let asset_transfers =
                     batch_transfer.get_asset_transfers(&db_data.asset_transfers)?;
                 if no_asset_only {
-                    let connected_assets = asset_transfers.iter().any(|t| t.asset_id().is_some());
+                    let connected_assets = asset_transfers.iter().any(|t| t.asset_id.is_some());
                     if connected_assets {
                         continue;
                     }
@@ -1803,7 +1860,7 @@ impl Wallet {
             .fee_rate(FeeRate::from_sat_per_vb(fee_rate));
 
         if !destroy_assets {
-            let colored_txos: Vec<i64> = self
+            let colored_txos: Vec<i32> = self
                 .database
                 .iter_colorings()?
                 .into_iter()
@@ -1923,7 +1980,7 @@ impl Wallet {
                     .related_transfers(&db_data.asset_transfers, &db_data.batch_transfers)?;
                 let asset_transfers =
                     batch_transfer.get_asset_transfers(&db_data.asset_transfers)?;
-                let asset_transfer_ids: Vec<i64> = asset_transfers.iter().map(|t| t.idx).collect();
+                let asset_transfer_ids: Vec<i32> = asset_transfers.iter().map(|t| t.idx).collect();
                 if (db_data
                     .transfers
                     .clone()
@@ -1949,7 +2006,7 @@ impl Wallet {
             if no_asset_only {
                 let asset_transfers =
                     batch_transfer.get_asset_transfers(&db_data.asset_transfers)?;
-                let connected_assets = asset_transfers.iter().any(|t| t.asset_id().is_some());
+                let connected_assets = asset_transfers.iter().any(|t| t.asset_id.is_some());
                 if connected_assets {
                     return Err(Error::CannotFailTransfer);
                 }
@@ -1971,7 +2028,7 @@ impl Wallet {
                     let connected_assets = batch_transfer
                         .get_asset_transfers(&db_data.asset_transfers)?
                         .iter()
-                        .any(|t| t.asset_id().is_some());
+                        .any(|t| t.asset_id.is_some());
                     if connected_assets {
                         continue;
                     }
@@ -2003,7 +2060,7 @@ impl Wallet {
     /// Return the [`Balance`] for the requested asset
     pub fn get_asset_balance(&self, asset_id: String) -> Result<Balance, Error> {
         info!(self.logger, "Getting balance for asset '{}'...", asset_id);
-        self.database.get_asset_or_fail(asset_id.clone())?;
+        self.database.check_asset_exists(asset_id.clone())?;
         let balance = self
             .database
             .get_asset_balance(asset_id, None, None, None, None);
@@ -2037,21 +2094,17 @@ impl Wallet {
     }
 
     /// Return the [`Metadata`] for the requested asset
-    pub fn get_asset_metadata(
-        &mut self,
-        online: Online,
-        asset_id: String,
-    ) -> Result<Metadata, Error> {
+    pub fn get_asset_metadata(&mut self, asset_id: String) -> Result<Metadata, Error> {
         info!(self.logger, "Getting metadata for asset '{}'...", asset_id);
-        self._check_online(online)?;
-        let asset_iface = self.database.get_asset_or_fail(asset_id.clone())?;
-        let iface_name = asset_iface.to_typename();
+        self.database.check_asset_exists(asset_id.clone())?;
+        let contract_id = ContractId::from_str(&asset_id).expect("invalid contract ID");
         let mut runtime = self._rgb_runtime()?;
+        let asset_iface = self._get_asset_iface(contract_id, &runtime)?;
+        let iface_name = asset_iface.to_typename();
         let iface = runtime
             .iface_by_name(&iface_name)
             .map_err(InternalError::from)?
             .clone();
-        let contract_id = ContractId::from_str(&asset_id).expect("invalid contract ID");
         let contract = runtime
             .contract_iface(contract_id, iface.iface_id())
             .map_err(InternalError::from)?;
@@ -2195,26 +2248,8 @@ impl Wallet {
         }
 
         // RGB setup
-        let mut runtime = self._create_rgb_runtime(electrum_url.clone())?;
-        if runtime.schema_ids().map_err(InternalError::from)?.len() < NUM_KNOWN_SCHEMAS {
-            runtime.import_iface(rgb20()).map_err(InternalError::from)?;
-            runtime
-                .import_schema(nia_schema())
-                .map_err(InternalError::from)?;
-            runtime
-                .import_iface_impl(nia_rgb20())
-                .map_err(InternalError::from)?;
-
-            runtime.import_iface(rgb25()).map_err(InternalError::from)?;
-            runtime
-                .import_schema(cfa_schema())
-                .map_err(InternalError::from)?;
-            runtime
-                .import_iface_impl(cfa_rgb25())
-                .map_err(InternalError::from)?;
-        }
-
         if !skip_consistency_check {
+            let runtime = self._rgb_runtime()?;
             self._check_consistency(&bdk_blockchain, &runtime)?;
         }
 
@@ -2405,20 +2440,17 @@ impl Wallet {
         let contract = builder.issue_contract().expect("failure issuing contract");
         let asset_id = contract.contract_id().to_string();
         let validated_contract = contract
-            .validate(runtime.resolver())
+            .validate(&mut self._blockchain_resolver()?)
             .expect("internal error: failed validating self-issued contract");
         runtime
-            .import_contract(validated_contract)
+            .import_contract(validated_contract, &mut self._blockchain_resolver()?)
             .expect("failure importing issued contract");
 
-        let db_asset = DbAssetRgb20 {
+        let db_asset = DbAsset {
             idx: 0,
             asset_id: asset_id.clone(),
-            ticker,
-            name,
-            precision,
         };
-        self.database.set_asset_rgb20(db_asset.clone())?;
+        self.database.set_asset(db_asset.clone())?;
         let batch_transfer = DbBatchTransferActMod {
             status: ActiveValue::Set(TransferStatus::Settled),
             expiration: ActiveValue::Set(None),
@@ -2429,7 +2461,7 @@ impl Wallet {
         let asset_transfer = DbAssetTransferActMod {
             user_driven: ActiveValue::Set(true),
             batch_transfer_idx: ActiveValue::Set(batch_transfer_idx),
-            asset_rgb20_id: ActiveValue::Set(Some(asset_id.clone())),
+            asset_id: ActiveValue::Set(Some(asset_id.clone())),
             ..Default::default()
         };
         let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
@@ -2450,11 +2482,13 @@ impl Wallet {
             self.database.set_coloring(db_coloring)?;
         }
 
-        let asset = AssetRgb20::from_db_asset(
+        let asset = AssetRgb20::get_asset_details(
+            self,
             db_asset,
             self.database
                 .get_asset_balance(asset_id, None, None, None, None)?,
-        );
+            &mut runtime,
+        )?;
 
         info!(self.logger, "Issue asset RGB20 completed");
         Ok(asset)
@@ -2549,7 +2583,7 @@ impl Wallet {
             .add_global_state("issuedSupply", Amount::from(settled))
             .expect("invalid issuedSupply");
 
-        if let Some(desc) = description.clone() {
+        if let Some(desc) = description {
             if desc.len() < MIN_LEN_DETAILS {
                 return Err(Error::InvalidDescription {
                     details: s!("description too short"),
@@ -2589,10 +2623,10 @@ impl Wallet {
         let contract = builder.issue_contract().expect("failure issuing contract");
         let asset_id = contract.contract_id().to_string();
         let validated_contract = contract
-            .validate(runtime.resolver())
+            .validate(&mut self._blockchain_resolver()?)
             .expect("internal error: failed validating self-issued contract");
         runtime
-            .import_contract(validated_contract)
+            .import_contract(validated_contract, &mut self._blockchain_resolver()?)
             .expect("failure importing issued contract");
 
         if let Some(fp) = file_path {
@@ -2609,14 +2643,11 @@ impl Wallet {
             fs::write(media_dir.join(MIME_FNAME), mime)?;
         }
 
-        let db_asset = DbAssetRgb25 {
+        let db_asset = DbAsset {
             idx: 0,
             asset_id: asset_id.clone(),
-            name,
-            precision,
-            description,
         };
-        self.database.set_asset_rgb25(db_asset.clone())?;
+        self.database.set_asset(db_asset.clone())?;
         let batch_transfer = DbBatchTransferActMod {
             status: ActiveValue::Set(TransferStatus::Settled),
             expiration: ActiveValue::Set(None),
@@ -2627,7 +2658,7 @@ impl Wallet {
         let asset_transfer = DbAssetTransferActMod {
             user_driven: ActiveValue::Set(true),
             batch_transfer_idx: ActiveValue::Set(batch_transfer_idx),
-            asset_rgb25_id: ActiveValue::Set(Some(asset_id.clone())),
+            asset_id: ActiveValue::Set(Some(asset_id.clone())),
             ..Default::default()
         };
         let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
@@ -2648,10 +2679,12 @@ impl Wallet {
             self.database.set_coloring(db_coloring)?;
         }
 
-        let asset = AssetRgb25::from_db_asset(
+        let asset = AssetRgb25::get_asset_details(
+            self,
             db_asset,
             self.database
                 .get_asset_balance(asset_id, None, None, None, None)?,
+            &mut runtime,
             self.wallet_dir.join(ASSETS_DIR),
         )?;
 
@@ -2660,7 +2693,10 @@ impl Wallet {
     }
 
     /// List the assets known by the underlying RGB node
-    pub fn list_assets(&self, mut filter_asset_ifaces: Vec<AssetIface>) -> Result<Assets, Error> {
+    pub fn list_assets(
+        &mut self,
+        mut filter_asset_ifaces: Vec<AssetIface>,
+    ) -> Result<Assets, Error> {
         info!(self.logger, "Listing assets...");
         if filter_asset_ifaces.is_empty() {
             filter_asset_ifaces = vec![AssetIface::RGB20, AssetIface::RGB25];
@@ -2671,17 +2707,26 @@ impl Wallet {
         let txos = Some(self.database.iter_txos()?);
         let asset_transfers = Some(self.database.iter_asset_transfers()?);
 
+        let mut runtime = self._rgb_runtime()?;
+        let assets = self.database.iter_assets()?;
         let mut rgb20 = None;
         let mut rgb25 = None;
         for asset_iface in filter_asset_ifaces {
             match asset_iface {
                 AssetIface::RGB20 => {
+                    let rgb20_ids: Vec<String> = runtime
+                        .contract_ids_by_iface(&TypeName::try_from("RGB20").unwrap())
+                        .map_err(InternalError::from)?
+                        .iter()
+                        .map(|c| c.to_string())
+                        .collect();
                     rgb20 = Some(
-                        self.database
-                            .iter_assets_rgb20()?
+                        assets
                             .iter()
+                            .filter(|a| rgb20_ids.contains(&a.asset_id))
                             .map(|c| {
-                                Ok(AssetRgb20::from_db_asset(
+                                AssetRgb20::get_asset_details(
+                                    self,
                                     c.clone(),
                                     self.database.get_asset_balance(
                                         c.asset_id.clone(),
@@ -2690,19 +2735,27 @@ impl Wallet {
                                         colorings.clone(),
                                         txos.clone(),
                                     )?,
-                                ))
+                                    &mut runtime,
+                                )
                             })
                             .collect::<Result<Vec<AssetRgb20>, Error>>()?,
                     );
                 }
                 AssetIface::RGB25 => {
+                    let rgb25_ids: Vec<String> = runtime
+                        .contract_ids_by_iface(&TypeName::try_from("RGB25").unwrap())
+                        .map_err(InternalError::from)?
+                        .iter()
+                        .map(|c| c.to_string())
+                        .collect();
                     let assets_dir = self.wallet_dir.join(ASSETS_DIR);
                     rgb25 = Some(
-                        self.database
-                            .iter_assets_rgb25()?
+                        assets
                             .iter()
+                            .filter(|a| rgb25_ids.contains(&a.asset_id))
                             .map(|c| {
-                                AssetRgb25::from_db_asset(
+                                AssetRgb25::get_asset_details(
+                                    self,
                                     c.clone(),
                                     self.database.get_asset_balance(
                                         c.asset_id.clone(),
@@ -2711,6 +2764,7 @@ impl Wallet {
                                         colorings.clone(),
                                         txos.clone(),
                                     )?,
+                                    &mut runtime,
                                     assets_dir.clone(),
                                 )
                             })
@@ -2783,9 +2837,9 @@ impl Wallet {
     /// List the [`Transfer`]s known to the RGB wallet
     pub fn list_transfers(&self, asset_id: String) -> Result<Vec<Transfer>, Error> {
         info!(self.logger, "Listing transfers for asset '{}'...", asset_id);
-        self.database.get_asset_or_fail(asset_id.clone())?;
+        self.database.check_asset_exists(asset_id.clone())?;
         let db_data = self.database.get_db_data(false)?;
-        let asset_transfer_ids: Vec<i64> = self
+        let asset_transfer_ids: Vec<i32> = self
             .database
             .iter_asset_asset_transfers(asset_id, db_data.asset_transfers.clone())
             .iter()
@@ -2831,28 +2885,28 @@ impl Wallet {
         let db_data = self.database.get_db_data(true)?;
 
         let mut allocation_txos = self.database.get_unspent_txos(db_data.txos.clone())?;
-        let spent_txos_ids: Vec<i64> = db_data
+        let spent_txos_ids: Vec<i32> = db_data
             .txos
             .clone()
             .into_iter()
             .filter(|t| t.spent)
             .map(|u| u.idx)
             .collect();
-        let waiting_confs_batch_transfer_ids: Vec<i64> = db_data
+        let waiting_confs_batch_transfer_ids: Vec<i32> = db_data
             .batch_transfers
             .clone()
             .into_iter()
             .filter(|t| t.waiting_confirmations())
             .map(|t| t.idx)
             .collect();
-        let waiting_confs_transfer_ids: Vec<i64> = db_data
+        let waiting_confs_transfer_ids: Vec<i32> = db_data
             .asset_transfers
             .clone()
             .into_iter()
             .filter(|t| waiting_confs_batch_transfer_ids.contains(&t.batch_transfer_idx))
             .map(|t| t.idx)
             .collect();
-        let almost_spent_txos_ids: Vec<i64> = db_data
+        let almost_spent_txos_ids: Vec<i32> = db_data
             .colorings
             .clone()
             .into_iter()
@@ -3015,8 +3069,7 @@ impl Wallet {
         let asset_id = contract_id.to_string();
 
         // validate consignment
-        let transfer_asset_id = asset_transfer.asset_id();
-        if let Some(aid) = transfer_asset_id.clone() {
+        if let Some(aid) = asset_transfer.asset_id.clone() {
             // check if blinded is connected to the correct asset
             if aid != asset_id {
                 return self._refuse_consignment(
@@ -3028,7 +3081,10 @@ impl Wallet {
         }
 
         debug!(self.logger, "Validating consignment...");
-        let validated_consignment = match consignment.clone().validate(runtime.resolver()) {
+        let validated_consignment = match consignment
+            .clone()
+            .validate(&mut self._blockchain_resolver()?)
+        {
             Ok(consignment) => consignment,
             Err(consignment) => consignment,
         };
@@ -3043,80 +3099,42 @@ impl Wallet {
         let schema_id = consignment.schema_id().to_string();
 
         // add asset info to transfer if missing
-        if transfer_asset_id.is_none() {
+        if asset_transfer.asset_id.is_none() {
             // check if asset is known
-            let asset_iface = self.database.get_asset_or_fail(asset_id.clone());
-            let asset_iface: AssetIface = if asset_iface.is_err() {
-                // unknown asset, registering contract
+            let exists_check = self.database.check_asset_exists(asset_id.clone());
+            if exists_check.is_err() {
+                // unknown asset
+                // check if asset schema is known
+                match &schema_id[..] {
+                    SCHEMA_ID_NIA | SCHEMA_ID_CFA => {}
+                    _ => return Err(Error::UnknownRgbSchema { schema_id }),
+                }
+
                 debug!(self.logger, "Registering contract...");
                 let mut minimal_contract = consignment.clone().into_contract();
                 minimal_contract.bundles = none!();
                 minimal_contract.terminals = none!();
-                let minimal_contract_validated = match minimal_contract.validate(runtime.resolver())
-                {
-                    Ok(consignment) => consignment,
-                    Err(consignment) => consignment,
-                };
+                let minimal_contract_validated =
+                    match minimal_contract.validate(&mut self._blockchain_resolver()?) {
+                        Ok(consignment) => consignment,
+                        Err(consignment) => consignment,
+                    };
                 runtime
-                    .import_contract(minimal_contract_validated)
+                    .import_contract(
+                        minimal_contract_validated,
+                        &mut self._blockchain_resolver()?,
+                    )
                     .expect("failure importing issued contract");
                 debug!(self.logger, "Contract registered");
 
-                // extract asset data from consignment
-                match &schema_id[..] {
-                    SCHEMA_ID_NIA => {
-                        let iface_name = AssetIface::RGB20.to_typename();
-                        let iface = runtime
-                            .iface_by_name(&iface_name)
-                            .map_err(InternalError::from)?
-                            .clone();
-                        let contract = runtime
-                            .contract_iface(contract_id, iface.iface_id())
-                            .map_err(InternalError::from)?;
-                        let (name, precision, _, ticker) = self._get_rgb20_asset_metadata(contract);
-                        let db_asset = DbAssetRgb20 {
-                            idx: 0,
-                            asset_id: asset_id.clone(),
-                            ticker,
-                            name,
-                            precision,
-                        };
-                        self.database.set_asset_rgb20(db_asset)?;
-
-                        AssetIface::RGB20
-                    }
-                    SCHEMA_ID_CFA => {
-                        let iface_name = AssetIface::RGB25.to_typename();
-                        let iface = runtime
-                            .iface_by_name(&iface_name)
-                            .map_err(InternalError::from)?
-                            .clone();
-                        let contract = runtime
-                            .contract_iface(contract_id, iface.iface_id())
-                            .map_err(InternalError::from)?;
-                        let (name, precision, _, details) =
-                            self._get_rgb25_asset_metadata(contract);
-                        let db_asset = DbAssetRgb25 {
-                            idx: 0,
-                            asset_id: asset_id.clone(),
-                            name,
-                            precision,
-                            description: details,
-                        };
-                        self.database.set_asset_rgb25(db_asset)?;
-                        AssetIface::RGB25
-                    }
-                    _ => return Err(Error::UnknownRgbSchema { schema_id }),
-                }
-            } else {
-                asset_iface?
-            };
-            let mut updated_asset_transfer: DbAssetTransferActMod = asset_transfer.clone().into();
-            let db_asset_id = ActiveValue::Set(Some(asset_id.clone()));
-            match asset_iface {
-                AssetIface::RGB20 => updated_asset_transfer.asset_rgb20_id = db_asset_id,
-                AssetIface::RGB25 => updated_asset_transfer.asset_rgb25_id = db_asset_id,
+                let db_asset = DbAsset {
+                    idx: 0,
+                    asset_id: asset_id.clone(),
+                };
+                self.database.set_asset(db_asset)?;
             }
+            let mut updated_asset_transfer: DbAssetTransferActMod = asset_transfer.clone().into();
+            updated_asset_transfer.asset_id = ActiveValue::Set(Some(asset_id.clone()));
             self.database
                 .update_asset_transfer(&mut updated_asset_transfer)?;
         }
@@ -3413,11 +3431,11 @@ impl Wallet {
                     Bindle::<RgbTransfer>::load(consignment_path).map_err(InternalError::from)?;
                 let transfer = bindle
                     .unbindle()
-                    .validate(runtime.resolver())
+                    .validate(&mut self._blockchain_resolver()?)
                     .unwrap_or_else(|c| c);
                 let force = true;
                 let validation_status = runtime
-                    .accept_transfer(transfer, force)
+                    .accept_transfer(transfer, &mut self._blockchain_resolver()?, force)
                     .map_err(InternalError::from)?;
                 let validity = validation_status.validity();
                 if !matches!(validity, Validity::Valid) {
@@ -3489,10 +3507,9 @@ impl Wallet {
         asset_id: Option<String>,
         filter: Vec<RefreshFilter>,
     ) -> Result<bool, Error> {
-        if asset_id.is_some() {
-            info!(self.logger, "Refreshing asset {:?}...", asset_id);
-            self.database
-                .get_asset_or_fail(asset_id.clone().expect("asset ID"))?;
+        if let Some(aid) = asset_id.clone() {
+            info!(self.logger, "Refreshing asset {}...", aid);
+            self.database.check_asset_exists(aid)?;
         } else {
             info!(self.logger, "Refreshing assets...");
         }
@@ -3501,7 +3518,7 @@ impl Wallet {
         let mut db_data = self.database.get_db_data(false)?;
 
         if let Some(aid) = asset_id {
-            let batch_transfers_ids: Vec<i64> = self
+            let batch_transfers_ids: Vec<i32> = self
                 .database
                 .iter_asset_asset_transfers(aid, db_data.asset_transfers.clone())
                 .into_iter()
@@ -3574,7 +3591,7 @@ impl Wallet {
         inputs
             .iter()
             .for_each(|t| debug!(self.logger, "Input outpoint '{}'", t.outpoint().to_string()));
-        let txo_map: HashMap<i64, u64> = input_allocations
+        let txo_map: HashMap<i32, u64> = input_allocations
             .into_iter()
             .map(|(k, v)| (k.idx, v))
             .collect();
@@ -3653,6 +3670,7 @@ impl Wallet {
         donation: bool,
         unspents: Vec<LocalUnspent>,
         db_data: &DbData,
+        runtime: &mut Runtime,
     ) -> Result<(), Error> {
         let change_utxo = self._get_utxo(
             input_outpoints.into_iter().map(|t| t.into()).collect(),
@@ -3665,14 +3683,14 @@ impl Wallet {
             change_utxo.outpoint().to_string()
         );
 
-        let failed_batch_transfer_ids: Vec<i64> = db_data
+        let failed_batch_transfer_ids: Vec<i32> = db_data
             .batch_transfers
             .clone()
             .into_iter()
             .filter(|t| t.failed())
             .map(|t| t.idx)
             .collect();
-        let failed_asset_transfer_ids: Vec<i64> = db_data
+        let failed_asset_transfer_ids: Vec<i32> = db_data
             .asset_transfers
             .clone()
             .into_iter()
@@ -3690,7 +3708,6 @@ impl Wallet {
         let mut all_transitions: HashMap<ContractId, Transition> = HashMap::new();
         let mut asset_beneficiaries: BTreeMap<String, Vec<SecretSeal>> = bmap![];
         let assignment_name = FieldName::from("beneficiary");
-        let mut runtime = self._rgb_runtime()?;
         for (asset_id, transfer_info) in transfer_info_map.clone() {
             let change_amount = transfer_info.asset_spend.change_amount;
             let iface = transfer_info.asset_iface.to_typename();
@@ -3790,7 +3807,7 @@ impl Wallet {
 
         let mut blank_allocations: HashMap<String, u64> = HashMap::new();
         for (cid, opouts) in blank_state {
-            let asset_iface = self.database.get_asset_or_fail(cid.to_string())?;
+            let asset_iface = self._get_asset_iface(cid, runtime)?;
             let iface = asset_iface.to_typename();
             let mut blank_builder = runtime
                 .blank_builder(cid, iface.clone())
@@ -3968,7 +3985,7 @@ impl Wallet {
         txid: String,
         transfer_info_map: BTreeMap<String, InfoAssetTransfer>,
         blank_allocations: HashMap<String, u64>,
-        change_utxo_idx: i64,
+        change_utxo_idx: i32,
         status: TransferStatus,
     ) -> Result<(), Error> {
         let created_at = now().unix_timestamp();
@@ -3987,19 +4004,12 @@ impl Wallet {
             let asset_spend = transfer_info.asset_spend;
             let recipients = transfer_info.recipients;
 
-            let mut asset_transfer = DbAssetTransferActMod {
+            let asset_transfer = DbAssetTransferActMod {
                 user_driven: ActiveValue::Set(true),
                 batch_transfer_idx: ActiveValue::Set(batch_transfer_idx),
+                asset_id: ActiveValue::Set(Some(asset_id)),
                 ..Default::default()
             };
-            match transfer_info.asset_iface {
-                AssetIface::RGB20 => {
-                    asset_transfer.asset_rgb20_id = ActiveValue::Set(Some(asset_id))
-                }
-                AssetIface::RGB25 => {
-                    asset_transfer.asset_rgb25_id = ActiveValue::Set(Some(asset_id))
-                }
-            }
             let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
 
             for (input_idx, amount) in asset_spend.txo_map.clone().into_iter() {
@@ -4038,19 +4048,12 @@ impl Wallet {
         }
 
         for (asset_id, amt) in blank_allocations {
-            let mut asset_transfer = DbAssetTransferActMod {
+            let asset_transfer = DbAssetTransferActMod {
                 user_driven: ActiveValue::Set(false),
                 batch_transfer_idx: ActiveValue::Set(batch_transfer_idx),
+                asset_id: ActiveValue::Set(Some(asset_id)),
                 ..Default::default()
             };
-            match self.database.get_asset_or_fail(asset_id.clone())? {
-                AssetIface::RGB20 => {
-                    asset_transfer.asset_rgb20_id = ActiveValue::Set(Some(asset_id))
-                }
-                AssetIface::RGB25 => {
-                    asset_transfer.asset_rgb25_id = ActiveValue::Set(Some(asset_id))
-                }
-            }
             let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
             let db_coloring = DbColoringActMod {
                 txo_idx: ActiveValue::Set(change_utxo_idx),
@@ -4153,8 +4156,11 @@ impl Wallet {
                     .any(|a| !a.incoming && a.status.waiting_counterparty())))
         });
 
+        let mut runtime = self._rgb_runtime()?;
         let mut transfer_info_map: BTreeMap<String, InfoAssetTransfer> = BTreeMap::new();
         for (asset_id, recipients) in recipient_map {
+            self.database.check_asset_exists(asset_id.clone())?;
+
             let mut local_recipients: Vec<LocalRecipient> = vec![];
             for recipient in recipients.clone() {
                 self._check_transport_endpoints(&recipient.transport_endpoints)?;
@@ -4197,7 +4203,8 @@ impl Wallet {
                 })
             }
 
-            let asset_iface = self.database.get_asset_or_fail(asset_id.clone())?;
+            let contract_id = ContractId::from_str(&asset_id).expect("invalid contract ID");
+            let asset_iface = self._get_asset_iface(contract_id, &runtime)?;
             let amount: u64 = recipients.iter().map(|a| a.amount).sum();
             let asset_spend = self._select_rgb_inputs(
                 asset_id.clone(),
@@ -4246,6 +4253,7 @@ impl Wallet {
             donation,
             unspents,
             &db_data,
+            &mut runtime,
         )?;
 
         // rename transfer directory

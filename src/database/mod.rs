@@ -7,7 +7,7 @@ use std::str::FromStr;
 
 use crate::error::InternalError;
 use crate::utils::now;
-use crate::wallet::{AssetIface, Balance, Outpoint, TransferKind};
+use crate::wallet::{Balance, Outpoint, TransferKind};
 use crate::Error;
 
 pub(crate) mod entities;
@@ -18,8 +18,7 @@ use crate::database::entities::asset_transfer::{
 use crate::database::entities::batch_transfer::{
     ActiveModel as DbBatchTransferActMod, Model as DbBatchTransfer,
 };
-use entities::asset_rgb20::{ActiveModel as DbAssetRgb20ActMod, Model as DbAssetRgb20};
-use entities::asset_rgb25::{ActiveModel as DbAssetRgb25ActMod, Model as DbAssetRgb25};
+use entities::asset::{ActiveModel as DbAssetActMod, Model as DbAsset};
 use entities::coloring::{ActiveModel as DbColoringActMod, Model as DbColoring};
 use entities::transfer::{ActiveModel as DbTransferActMod, Model as DbTransfer};
 use entities::transfer_transport_endpoint::{
@@ -33,21 +32,11 @@ use entities::wallet_transaction::{
     ActiveModel as DbWalletTransactionActMod, Model as DbWalletTransaction,
 };
 use entities::{
-    asset_rgb20, asset_rgb25, asset_transfer, batch_transfer, coloring, transfer,
-    transfer_transport_endpoint, transport_endpoint, txo, wallet_transaction,
+    asset, asset_transfer, batch_transfer, coloring, transfer, transfer_transport_endpoint,
+    transport_endpoint, txo, wallet_transaction,
 };
 
 use self::enums::{ColoringType, TransferStatus, TransportType};
-
-impl DbAssetTransfer {
-    pub(crate) fn asset_id(&self) -> Option<String> {
-        let mut asset_id = self.asset_rgb20_id.clone();
-        if asset_id.is_none() {
-            asset_id = self.asset_rgb25_id.clone()
-        };
-        asset_id
-    }
-}
 
 #[derive(Clone, Debug)]
 pub(crate) struct DbAssetTransferData {
@@ -61,7 +50,7 @@ impl DbBatchTransfer {
         asset_transfers: &[DbAssetTransfer],
         transfers: &[DbTransfer],
     ) -> Result<bool, Error> {
-        let asset_transfer_ids: Vec<i64> = asset_transfers
+        let asset_transfer_ids: Vec<i32> = asset_transfers
             .iter()
             .filter(|t| t.batch_transfer_idx == self.idx)
             .map(|t| t.idx)
@@ -269,24 +258,17 @@ impl RgbLibDatabase {
         &self.connection
     }
 
-    pub(crate) fn set_asset_rgb20(&self, asset_rgb20: DbAssetRgb20) -> Result<i64, InternalError> {
-        let mut asset: DbAssetRgb20ActMod = asset_rgb20.into();
+    pub(crate) fn set_asset(&self, asset: DbAsset) -> Result<i32, InternalError> {
+        let mut asset: DbAssetActMod = asset.into();
         asset.idx = ActiveValue::NotSet;
-        let res = block_on(asset_rgb20::Entity::insert(asset).exec(self.get_connection()))?;
-        Ok(res.last_insert_id)
-    }
-
-    pub(crate) fn set_asset_rgb25(&self, asset_rgb25: DbAssetRgb25) -> Result<i64, InternalError> {
-        let mut asset: DbAssetRgb25ActMod = asset_rgb25.into();
-        asset.idx = ActiveValue::NotSet;
-        let res = block_on(asset_rgb25::Entity::insert(asset).exec(self.get_connection()))?;
+        let res = block_on(asset::Entity::insert(asset).exec(self.get_connection()))?;
         Ok(res.last_insert_id)
     }
 
     pub(crate) fn set_asset_transfer(
         &self,
         asset_transfer: DbAssetTransferActMod,
-    ) -> Result<i64, InternalError> {
+    ) -> Result<i32, InternalError> {
         let res =
             block_on(asset_transfer::Entity::insert(asset_transfer).exec(self.get_connection()))?;
         Ok(res.last_insert_id)
@@ -295,7 +277,7 @@ impl RgbLibDatabase {
     pub(crate) fn set_batch_transfer(
         &self,
         batch_transfer: DbBatchTransferActMod,
-    ) -> Result<i64, InternalError> {
+    ) -> Result<i32, InternalError> {
         let mut batch_transfer = batch_transfer;
         batch_transfer.updated_at = batch_transfer.created_at.clone();
         let res =
@@ -303,7 +285,7 @@ impl RgbLibDatabase {
         Ok(res.last_insert_id)
     }
 
-    pub(crate) fn set_coloring(&self, coloring: DbColoringActMod) -> Result<i64, InternalError> {
+    pub(crate) fn set_coloring(&self, coloring: DbColoringActMod) -> Result<i32, InternalError> {
         let res = block_on(coloring::Entity::insert(coloring).exec(self.get_connection()))?;
         Ok(res.last_insert_id)
     }
@@ -311,14 +293,14 @@ impl RgbLibDatabase {
     pub(crate) fn set_transport_endpoint(
         &self,
         transport_endpoint: DbTransportEndpointActMod,
-    ) -> Result<i64, InternalError> {
+    ) -> Result<i32, InternalError> {
         let res = block_on(
             transport_endpoint::Entity::insert(transport_endpoint).exec(self.get_connection()),
         )?;
         Ok(res.last_insert_id)
     }
 
-    pub(crate) fn set_transfer(&self, transfer: DbTransferActMod) -> Result<i64, InternalError> {
+    pub(crate) fn set_transfer(&self, transfer: DbTransferActMod) -> Result<i32, InternalError> {
         let res = block_on(transfer::Entity::insert(transfer).exec(self.get_connection()))?;
         Ok(res.last_insert_id)
     }
@@ -326,7 +308,7 @@ impl RgbLibDatabase {
     pub(crate) fn set_transfer_transport_endpoint(
         &self,
         transfer_transport_endpoint: DbTransferTransportEndpointActMod,
-    ) -> Result<i64, InternalError> {
+    ) -> Result<i32, InternalError> {
         let res = block_on(
             transfer_transport_endpoint::Entity::insert(transfer_transport_endpoint)
                 .exec(self.get_connection()),
@@ -334,7 +316,7 @@ impl RgbLibDatabase {
         Ok(res.last_insert_id)
     }
 
-    pub(crate) fn set_txo(&self, txo: DbTxoActMod) -> Result<i64, InternalError> {
+    pub(crate) fn set_txo(&self, txo: DbTxoActMod) -> Result<i32, InternalError> {
         let res = block_on(txo::Entity::insert(txo).exec(self.get_connection()))?;
         Ok(res.last_insert_id)
     }
@@ -342,7 +324,7 @@ impl RgbLibDatabase {
     pub(crate) fn set_wallet_transaction(
         &self,
         wallet_transaction: DbWalletTransactionActMod,
-    ) -> Result<i64, InternalError> {
+    ) -> Result<i32, InternalError> {
         let res = block_on(
             wallet_transaction::Entity::insert(wallet_transaction).exec(self.get_connection()),
         )?;
@@ -406,7 +388,7 @@ impl RgbLibDatabase {
         Ok(())
     }
 
-    pub(crate) fn del_coloring(&self, asset_transfer_idx: i64) -> Result<(), InternalError> {
+    pub(crate) fn del_coloring(&self, asset_transfer_idx: i32) -> Result<(), InternalError> {
         block_on(
             coloring::Entity::delete_many()
                 .filter(coloring::Column::AssetTransferIdx.eq(asset_transfer_idx))
@@ -435,16 +417,8 @@ impl RgbLibDatabase {
         )?)
     }
 
-    pub(crate) fn iter_assets_rgb20(&self) -> Result<Vec<DbAssetRgb20>, InternalError> {
-        Ok(block_on(
-            asset_rgb20::Entity::find().all(self.get_connection()),
-        )?)
-    }
-
-    pub(crate) fn iter_assets_rgb25(&self) -> Result<Vec<DbAssetRgb25>, InternalError> {
-        Ok(block_on(
-            asset_rgb25::Entity::find().all(self.get_connection()),
-        )?)
+    pub(crate) fn iter_assets(&self) -> Result<Vec<DbAsset>, InternalError> {
+        Ok(block_on(asset::Entity::find().all(self.get_connection()))?)
     }
 
     pub(crate) fn iter_asset_transfers(&self) -> Result<Vec<DbAssetTransfer>, InternalError> {
@@ -460,7 +434,7 @@ impl RgbLibDatabase {
     ) -> Vec<DbAssetTransfer> {
         asset_transfers
             .into_iter()
-            .filter(|t| t.asset_id() == Some(asset_id.clone()))
+            .filter(|t| t.asset_id == Some(asset_id.clone()))
             .collect()
     }
 
@@ -496,7 +470,7 @@ impl RgbLibDatabase {
 
     pub(crate) fn get_transfer_transport_endpoints_data(
         &self,
-        transfer_idx: i64,
+        transfer_idx: i32,
     ) -> Result<Vec<(DbTransferTransportEndpoint, DbTransportEndpoint)>, InternalError> {
         Ok(block_on(
             transfer_transport_endpoint::Entity::find()
@@ -637,32 +611,22 @@ impl RgbLibDatabase {
 
     pub(crate) fn get_asset_ids(&self) -> Result<Vec<String>, InternalError> {
         Ok(self
-            .iter_assets_rgb20()?
+            .iter_assets()?
             .iter()
             .map(|a| a.asset_id.clone())
-            .chain(self.iter_assets_rgb25()?.iter().map(|a| a.asset_id.clone()))
             .collect())
     }
 
-    pub(crate) fn get_asset_or_fail(&self, asset_id: String) -> Result<AssetIface, Error> {
+    pub(crate) fn check_asset_exists(&self, asset_id: String) -> Result<(), Error> {
         if block_on(
-            asset_rgb20::Entity::find()
-                .filter(asset_rgb20::Column::AssetId.eq(asset_id.clone()))
+            asset::Entity::find()
+                .filter(asset::Column::AssetId.eq(asset_id.clone()))
                 .one(self.get_connection()),
         )
         .map_err(InternalError::from)?
         .is_some()
         {
-            Ok(AssetIface::RGB20)
-        } else if block_on(
-            asset_rgb25::Entity::find()
-                .filter(asset_rgb25::Column::AssetId.eq(asset_id.clone()))
-                .one(self.get_connection()),
-        )
-        .map_err(InternalError::from)?
-        .is_some()
-        {
-            Ok(AssetIface::RGB25)
+            Ok(())
         } else {
             Err(Error::AssetNotFound { asset_id })
         }
@@ -763,7 +727,7 @@ impl RgbLibDatabase {
             TransferKind::Send
         };
 
-        let txo_ids: Vec<i64> = filtered_coloring.clone().map(|c| c.txo_idx).collect();
+        let txo_ids: Vec<i32> = filtered_coloring.clone().map(|c| c.txo_idx).collect();
         let transfer_txos: Vec<DbTxo> = txos
             .iter()
             .cloned()
@@ -771,7 +735,7 @@ impl RgbLibDatabase {
             .collect();
         let (unblinded_utxo, change_utxo) = match kind {
             TransferKind::Receive => {
-                let blinded_txo_idx: Vec<i64> = filtered_coloring
+                let blinded_txo_idx: Vec<i32> = filtered_coloring
                     .filter(|c| c.coloring_type == ColoringType::Blind)
                     .map(|c| c.txo_idx)
                     .collect();
@@ -785,7 +749,7 @@ impl RgbLibDatabase {
                 (unblinded_utxo, None)
             }
             TransferKind::Send => {
-                let change_txo_idx: Vec<i64> = filtered_coloring
+                let change_txo_idx: Vec<i32> = filtered_coloring
                     .filter(|c| c.coloring_type == ColoringType::Change)
                     .map(|c| c.txo_idx)
                     .collect();
@@ -840,7 +804,7 @@ impl RgbLibDatabase {
                 .expect("DB should contain a valid u64 value");
 
             allocations.push(LocalRgbAllocation {
-                asset_id: asset_transfer.asset_id(),
+                asset_id: asset_transfer.asset_id.clone(),
                 amount: coloring_amount,
                 status: batch_transfer.status,
                 incoming: c.incoming(),

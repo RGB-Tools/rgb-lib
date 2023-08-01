@@ -319,7 +319,6 @@ fn check_test_transfer_status_sender(
 
 fn check_test_wallet_data(
     wallet: &mut Wallet,
-    online: Online,
     asset: &AssetRgb20,
     custom_issued_supply: Option<u64>,
     transfer_num: usize,
@@ -349,9 +348,7 @@ fn check_test_wallet_data(
         }
     );
     // asset metadata
-    let metadata = wallet
-        .get_asset_metadata(online, asset.asset_id.clone())
-        .unwrap();
+    let metadata = wallet.get_asset_metadata(asset.asset_id.clone()).unwrap();
     assert_eq!(metadata.asset_iface, AssetIface::RGB20);
     assert_eq!(metadata.issued_supply, issued_supply);
     assert_eq!(metadata.name, asset.name);
@@ -469,7 +466,7 @@ fn get_test_batch_transfers(wallet: &Wallet, txid: &str) -> Vec<DbBatchTransfer>
         .collect()
 }
 
-fn get_test_asset_transfers(wallet: &Wallet, batch_transfer_idx: i64) -> Vec<DbAssetTransfer> {
+fn get_test_asset_transfers(wallet: &Wallet, batch_transfer_idx: i32) -> Vec<DbAssetTransfer> {
     wallet
         .database
         .iter_asset_transfers()
@@ -479,7 +476,7 @@ fn get_test_asset_transfers(wallet: &Wallet, batch_transfer_idx: i64) -> Vec<DbA
         .collect()
 }
 
-fn get_test_transfers(wallet: &Wallet, asset_transfer_idx: i64) -> Vec<DbTransfer> {
+fn get_test_transfers(wallet: &Wallet, asset_transfer_idx: i32) -> Vec<DbTransfer> {
     wallet
         .database
         .iter_transfers()
@@ -489,13 +486,13 @@ fn get_test_transfers(wallet: &Wallet, asset_transfer_idx: i64) -> Vec<DbTransfe
         .collect()
 }
 
-fn get_test_asset_transfer(wallet: &Wallet, batch_transfer_idx: i64) -> DbAssetTransfer {
+fn get_test_asset_transfer(wallet: &Wallet, batch_transfer_idx: i32) -> DbAssetTransfer {
     let asset_transfers = get_test_asset_transfers(wallet, batch_transfer_idx);
     assert_eq!(asset_transfers.len(), 1);
     asset_transfers.first().unwrap().clone()
 }
 
-fn get_test_coloring(wallet: &Wallet, asset_transfer_idx: i64) -> DbColoring {
+fn get_test_coloring(wallet: &Wallet, asset_transfer_idx: i32) -> DbColoring {
     let colorings: Vec<DbColoring> = wallet
         .database
         .iter_colorings()
@@ -545,10 +542,10 @@ fn get_test_transfers_sender(
     let asset_transfers = get_test_asset_transfers(wallet, batch_transfer.idx);
     let mut transfers: HashMap<String, Vec<DbTransfer>> = HashMap::new();
     for asset_transfer in asset_transfers.clone() {
-        let asset_id = if asset_transfer.asset_rgb20_id.is_some() {
-            asset_transfer.asset_rgb20_id
+        let asset_id = if asset_transfer.asset_id.is_some() {
+            asset_transfer.asset_id
         } else {
-            asset_transfer.asset_rgb25_id
+            asset_transfer.asset_id
         }
         .unwrap();
         let transfers_for_asset = get_test_transfers(wallet, asset_transfer.idx);
@@ -577,7 +574,7 @@ fn get_test_transfer_data(
     (transfer_data, asset_transfer)
 }
 
-fn get_test_txo(wallet: &Wallet, idx: i64) -> DbTxo {
+fn get_test_txo(wallet: &Wallet, idx: i32) -> DbTxo {
     wallet
         .database
         .iter_txos()
@@ -643,10 +640,10 @@ fn show_unspent_colorings(wallet: &Wallet, msg: &str) {
                 db_batch_transfer.status,
                 db_coloring.coloring_type,
                 db_coloring.amount,
-                if db_asset_transfer.asset_rgb20_id.is_some() {
-                    &db_asset_transfer.asset_rgb20_id
+                if db_asset_transfer.asset_id.is_some() {
+                    &db_asset_transfer.asset_id
                 } else {
-                    &db_asset_transfer.asset_rgb25_id
+                    &db_asset_transfer.asset_id
                 },
             );
         }

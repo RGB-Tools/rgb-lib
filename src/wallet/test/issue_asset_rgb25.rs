@@ -40,7 +40,9 @@ fn success() {
     assert_eq!(asset_1.data_paths, empty_data_paths);
 
     // check the asset type is correct
-    let asset_iface = wallet.database.get_asset_or_fail(asset_1.asset_id).unwrap();
+    let runtime = wallet._rgb_runtime().unwrap();
+    let contract_id = ContractId::from_str(&asset_1.asset_id).unwrap();
+    let asset_iface = wallet._get_asset_iface(contract_id, &runtime).unwrap();
     assert_eq!(asset_iface, AssetIface::RGB25);
 
     // include a text file

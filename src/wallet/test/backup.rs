@@ -58,7 +58,7 @@ fn success() {
         .unwrap();
 
     // pre-backup wallet data
-    check_test_wallet_data(&mut wallet, online.clone(), &asset, None, 1, amount);
+    check_test_wallet_data(&mut wallet, &asset, None, 1, amount);
 
     // backup
     println!("\nbacking up...");
@@ -84,7 +84,7 @@ fn success() {
     wallet_data.data_dir = RESTORE_DIR.to_string();
     let mut wallet = Wallet::new(wallet_data).unwrap();
     let online = wallet.go_online(true, ELECTRUM_URL.to_string()).unwrap();
-    check_test_wallet_data(&mut wallet, online.clone(), &asset, None, 1, amount);
+    check_test_wallet_data(&mut wallet, &asset, None, 1, amount);
 
     // spend asset once more and check wallet data again
     let blind_data = rcv_wallet
@@ -115,7 +115,7 @@ fn success() {
     wallet
         .refresh(online.clone(), Some(asset.asset_id.clone()), vec![])
         .unwrap();
-    check_test_wallet_data(&mut wallet, online.clone(), &asset, None, 2, amount * 2);
+    check_test_wallet_data(&mut wallet, &asset, None, 2, amount * 2);
 
     // issue a second asset with the restored wallet
     let _asset = wallet
@@ -246,15 +246,8 @@ fn double_restore() {
         .unwrap();
 
     // pre-backup wallet data
-    check_test_wallet_data(&mut wallet_1, online_1.clone(), &asset_1, None, 1, amount);
-    check_test_wallet_data(
-        &mut wallet_2,
-        online_2.clone(),
-        &asset_2,
-        Some(asset_2_supply),
-        1,
-        amount * 2,
-    );
+    check_test_wallet_data(&mut wallet_1, &asset_1, None, 1, amount);
+    check_test_wallet_data(&mut wallet_2, &asset_2, Some(asset_2_supply), 1, amount * 2);
 
     // backup
     println!("\nbacking up...");
@@ -292,15 +285,8 @@ fn double_restore() {
     let mut wallet_2 = Wallet::new(wallet_2_data).unwrap();
     let online_1 = wallet_1.go_online(true, ELECTRUM_URL.to_string()).unwrap();
     let online_2 = wallet_2.go_online(true, ELECTRUM_URL.to_string()).unwrap();
-    check_test_wallet_data(&mut wallet_1, online_1.clone(), &asset_1, None, 1, amount);
-    check_test_wallet_data(
-        &mut wallet_2,
-        online_2.clone(),
-        &asset_2,
-        Some(asset_2_supply),
-        1,
-        amount * 2,
-    );
+    check_test_wallet_data(&mut wallet_1, &asset_1, None, 1, amount);
+    check_test_wallet_data(&mut wallet_2, &asset_2, Some(asset_2_supply), 1, amount * 2);
 
     // issue a second asset with the restored wallets
     wallet_1
