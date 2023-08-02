@@ -2,12 +2,12 @@ version: '3.2'
 
 services:
   bitcoind:
-    image: registry.gitlab.com/hashbeam/docker/bitcoind:23.0
+    image: registry.gitlab.com/hashbeam/docker/bitcoind:25.0
     command: "-fallbackfee=0.0002"
     volumes:
       - ./tmp/bitcoin:/srv/app/.bitcoin
   electrs:
-    image: registry.gitlab.com/hashbeam/docker/electrs:0.9.9
+    image: registry.gitlab.com/hashbeam/docker/electrs:0.9.14
     volumes:
       - ./tmp/electrs:/srv/app/db
     ports:
@@ -15,7 +15,7 @@ services:
     depends_on:
       - bitcoind
   electrs-2:
-    image: registry.gitlab.com/hashbeam/docker/electrs:0.9.9
+    image: registry.gitlab.com/hashbeam/docker/electrs:0.9.14
     ports:
       - 50002:50001
     depends_on:
