@@ -280,6 +280,7 @@ dictionary WalletData {
   string data_dir;
   BitcoinNetwork bitcoin_network;
   DatabaseType database_type;
+  u32 max_allocations_per_utxo;
   string pubkey;
   string? mnemonic;
 };

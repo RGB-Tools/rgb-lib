@@ -30,6 +30,7 @@ const FEE_RATE: f32 = 1.5;
 const FEE_MSG_LOW: &str = "value under minimum 1";
 const FEE_MSG_HIGH: &str = "value above maximum 1000";
 const RESTORE_DIR: &str = "./tests/tmp/restored";
+const MAX_ALLOCATIONS_PER_UTXO: u32 = 5;
 
 static INIT: Once = Once::new();
 
@@ -169,6 +170,7 @@ fn get_test_wallet(private_keys: bool) -> Wallet {
         data_dir: tests_data.to_string(),
         bitcoin_network,
         database_type: DatabaseType::Sqlite,
+        max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
         pubkey: keys.xpub,
         mnemonic,
     })

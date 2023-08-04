@@ -125,8 +125,6 @@ const UTXO_NUM: u8 = 5;
 
 const MIN_CONFIRMATIONS: u8 = 1;
 
-const MAX_ALLOCATIONS_PER_UTXO: u32 = 5;
-
 const MAX_TRANSPORT_ENDPOINTS: u8 = 3;
 
 const MIN_FEE_RATE: f32 = 1.0;
@@ -880,6 +878,8 @@ pub struct WalletData {
     pub bitcoin_network: BitcoinNetwork,
     /// Database type for the wallet
     pub database_type: DatabaseType,
+    /// The max number of RGB allocations allowed per UTXO
+    pub max_allocations_per_utxo: u32,
     /// Wallet xpub
     pub pubkey: String,
     /// Wallet mnemonic phrase
@@ -898,6 +898,7 @@ pub struct Wallet {
     wallet_dir: PathBuf,
     bdk_wallet: BdkWallet<AnyDatabase>,
     rest_client: RestClient,
+    max_allocations_per_utxo: u32,
     online_data: Option<OnlineData>,
 }
 
@@ -1029,6 +1030,7 @@ impl Wallet {
             wallet_dir,
             bdk_wallet,
             rest_client,
+            max_allocations_per_utxo: wdata.max_allocations_per_utxo,
             online_data: None,
         })
     }
@@ -1237,7 +1239,7 @@ impl Wallet {
         mut_unspents
             .iter_mut()
             .for_each(|u| u.rgb_allocations.retain(|a| !a.status.failed()));
-        let max_allocs = max_allocations.unwrap_or(MAX_ALLOCATIONS_PER_UTXO - 1);
+        let max_allocs = max_allocations.unwrap_or(self.max_allocations_per_utxo - 1);
         Ok(mut_unspents
             .iter()
             .filter(|u| !exclude_utxos.contains(&u.utxo.outpoint()))

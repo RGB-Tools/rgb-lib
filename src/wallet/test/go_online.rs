@@ -93,6 +93,7 @@ fn consistency_check_fail_utxos() {
         data_dir: data_dir_empty.into_os_string().into_string().unwrap(),
         bitcoin_network,
         database_type: DatabaseType::Sqlite,
+        max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
         pubkey: wallet_data_orig.pubkey.clone(),
         mnemonic: wallet_data_orig.mnemonic.clone(),
     };
@@ -100,6 +101,7 @@ fn consistency_check_fail_utxos() {
         data_dir: data_dir_prefill.into_os_string().into_string().unwrap(),
         bitcoin_network,
         database_type: DatabaseType::Sqlite,
+        max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
         pubkey: wallet_data_orig.pubkey.clone(),
         mnemonic: wallet_data_orig.mnemonic.clone(),
     };
@@ -107,6 +109,7 @@ fn consistency_check_fail_utxos() {
         data_dir: data_dir_prefill_2.into_os_string().into_string().unwrap(),
         bitcoin_network,
         database_type: DatabaseType::Sqlite,
+        max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
         pubkey: wallet_data_orig.pubkey.clone(),
         mnemonic: wallet_data_orig.mnemonic,
     };
@@ -205,6 +208,7 @@ fn consistency_check_fail_asset_ids() {
         data_dir: data_dir_prefill_1.to_str().unwrap().to_string(),
         bitcoin_network,
         database_type: DatabaseType::Sqlite,
+        max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
         pubkey: wallet_data_orig.pubkey.clone(),
         mnemonic: wallet_data_orig.mnemonic.clone(),
     };
@@ -212,6 +216,7 @@ fn consistency_check_fail_asset_ids() {
         data_dir: data_dir_prefill_2.to_str().unwrap().to_string(),
         bitcoin_network,
         database_type: DatabaseType::Sqlite,
+        max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
         pubkey: wallet_data_orig.pubkey.clone(),
         mnemonic: wallet_data_orig.mnemonic.clone(),
     };
@@ -219,6 +224,7 @@ fn consistency_check_fail_asset_ids() {
         data_dir: data_dir_prefill_3.to_str().unwrap().to_string(),
         bitcoin_network,
         database_type: DatabaseType::Sqlite,
+        max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
         pubkey: wallet_data_orig.pubkey.clone(),
         mnemonic: wallet_data_orig.mnemonic,
     };

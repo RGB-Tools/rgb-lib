@@ -48,6 +48,7 @@
 //!         data_dir: data_dir.path().to_str().unwrap().to_string(),
 //!         bitcoin_network: BitcoinNetwork::Regtest,
 //!         database_type: DatabaseType::Sqlite,
+//!         max_allocations_per_utxo: 5,
 //!         pubkey: keys.xpub,
 //!         mnemonic: Some(keys.mnemonic),
 //!     };

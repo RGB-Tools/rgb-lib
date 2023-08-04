@@ -36,6 +36,7 @@ fn testnet_success() {
         data_dir: TEST_DATA_DIR.to_string(),
         bitcoin_network,
         database_type: DatabaseType::Sqlite,
+        max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
         pubkey: keys.xpub.clone(),
         mnemonic: Some(keys.mnemonic.clone()),
     })
@@ -59,6 +60,7 @@ fn mainnet_success() {
         data_dir: TEST_DATA_DIR.to_string(),
         bitcoin_network,
         database_type: DatabaseType::Sqlite,
+        max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
         pubkey: keys.xpub.clone(),
         mnemonic: Some(keys.mnemonic.clone()),
     })
