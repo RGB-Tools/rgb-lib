@@ -8,12 +8,12 @@ use bdk::keys::DescriptorKey::Public;
 use bdk::keys::{DerivableKey, DescriptorKey};
 use rgb::Runtime;
 use rgbstd::Chain as RgbNetwork;
+use serde::{Deserialize, Serialize};
+use slog::{Drain, Logger};
+use slog_term::{FullFormat, PlainDecorator};
 use std::io;
 use std::str::FromStr;
 use std::{fs::OpenOptions, path::PathBuf};
-
-use slog::{Drain, Logger};
-use slog_term::{FullFormat, PlainDecorator};
 use time::OffsetDateTime;
 
 use crate::error::InternalError;
@@ -29,7 +29,7 @@ const TIMESTAMP_FORMAT: &[time::format_description::FormatItem] = time::macros::
 pub(crate) const LOG_FILE: &str = "log";
 
 /// Supported Bitcoin networks
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum BitcoinNetwork {
     /// Bitcoin's mainnet
     Mainnet,

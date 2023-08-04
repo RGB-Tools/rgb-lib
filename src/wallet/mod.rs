@@ -237,7 +237,7 @@ pub struct Media {
 }
 
 /// Metadata of an asset
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Metadata {
     /// Asset interface type
     pub asset_iface: AssetIface,
@@ -351,7 +351,7 @@ pub struct Balance {
 }
 
 /// Data for a UTXO blinding
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct BlindData {
     /// Invoice string
     pub invoice: String,
@@ -417,7 +417,7 @@ impl TryFrom<RgbTransport> for TransportEndpoint {
 }
 
 /// Supported database types
-#[derive(Clone)]
+#[derive(Clone, Deserialize, Serialize)]
 pub enum DatabaseType {
     /// A SQLite database
     Sqlite,
@@ -645,7 +645,7 @@ pub struct Recipient {
 }
 
 /// A transfer refresh filter
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct RefreshFilter {
     /// Transfer status
     pub status: RefreshTransferStatus,
@@ -654,7 +654,7 @@ pub struct RefreshFilter {
 }
 
 /// The pending status of a [`Transfer`] (eligible for refresh)
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub enum RefreshTransferStatus {
     /// Waiting for the counterparty to take action
     WaitingCounterparty = 1,
@@ -675,7 +675,7 @@ impl TryFrom<TransferStatus> for RefreshTransferStatus {
 }
 
 /// An RGB allocation
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize)]
 pub struct RgbAllocation {
     /// Asset ID
     pub asset_id: Option<String>,
@@ -696,7 +696,7 @@ impl From<LocalRgbAllocation> for RgbAllocation {
 }
 
 /// A bitcoin transaction
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Transaction {
     /// Type of transaction
     pub transaction_type: TransactionType,
@@ -716,7 +716,7 @@ pub struct Transaction {
 }
 
 /// The type of a transaction
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum TransactionType {
     /// Transaction used to perform an RGB send
     RgbSend,
@@ -729,7 +729,7 @@ pub enum TransactionType {
 }
 
 /// An RGB transfer
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Transfer {
     /// ID of the transfer
     pub idx: i32,
@@ -791,7 +791,7 @@ impl Transfer {
 }
 
 /// An RGB transfer transport endpoint
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TransferTransportEndpoint {
     /// Endpoint address
     pub endpoint: String,
@@ -815,7 +815,7 @@ impl TransferTransportEndpoint {
 }
 
 /// The type of an RGB transfer
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum TransferKind {
     /// A transfer that issued the asset
     Issuance,
@@ -826,7 +826,7 @@ pub enum TransferKind {
 }
 
 /// A wallet unspent
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Unspent {
     /// Bitcoin UTXO
     pub utxo: Utxo,
@@ -848,7 +848,7 @@ impl From<LocalUnspent> for Unspent {
 }
 
 /// An unspent transaction output
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Utxo {
     /// UTXO outpoint
     pub outpoint: Outpoint,
@@ -872,7 +872,7 @@ impl From<DbTxo> for Utxo {
 }
 
 /// Wallet data provided by the user
-#[derive(Clone)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct WalletData {
     /// Directory where the wallet directory is to be created
     pub data_dir: String,

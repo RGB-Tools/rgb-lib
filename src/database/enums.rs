@@ -30,7 +30,19 @@ pub enum TransportType {
 }
 
 /// The status of a [`crate::wallet::Transfer`]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, PartialOrd, EnumIter, DeriveActiveEnum)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Ord,
+    PartialOrd,
+    EnumIter,
+    DeriveActiveEnum,
+    Deserialize,
+    Serialize,
+)]
 #[sea_orm(rs_type = "u16", db_type = "Integer")]
 pub enum TransferStatus {
     /// Waiting for the counterparty to take action
