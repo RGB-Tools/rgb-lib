@@ -3433,7 +3433,7 @@ impl Wallet {
                     .unbindle()
                     .validate(&mut self._blockchain_resolver()?)
                     .unwrap_or_else(|c| c);
-                let force = true;
+                let force = false;
                 let validation_status = runtime
                     .accept_transfer(transfer, &mut self._blockchain_resolver()?, force)
                     .map_err(InternalError::from)?;
