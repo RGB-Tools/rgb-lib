@@ -2477,6 +2477,44 @@ fn fail() {
     // wallets
     let (mut wallet, online) = get_funded_wallet!();
     let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
+    let mut wallet_1_alloc = get_test_wallet(true, Some(1));
+    let online_1_alloc = wallet_1_alloc
+        .go_online(true, ELECTRUM_URL.to_string())
+        .unwrap();
+
+    // cannot send if no available allocations for change (max 1 allocation per UTXO)
+    fund_wallet(wallet_1_alloc.get_address());
+    mine(false);
+    test_create_utxos(
+        &mut wallet_1_alloc,
+        online_1_alloc.clone(),
+        true,
+        Some(1),
+        None,
+        FEE_RATE,
+    );
+    let asset_1_alloc = wallet_1_alloc
+        .issue_asset_rgb20(
+            online_1_alloc.clone(),
+            TICKER.to_string(),
+            NAME.to_string(),
+            PRECISION,
+            vec![AMOUNT],
+        )
+        .unwrap();
+    let blind_data = rcv_wallet
+        .blind(None, None, Some(60), TRANSPORT_ENDPOINTS.clone())
+        .unwrap();
+    let recipient_map = HashMap::from([(
+        asset_1_alloc.asset_id,
+        vec![Recipient {
+            amount: AMOUNT / 2,
+            blinded_utxo: blind_data.blinded_utxo,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let result = wallet_1_alloc.send(online_1_alloc, recipient_map, false, FEE_RATE);
+    assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 
     // issue asset
     let asset = wallet

@@ -261,7 +261,8 @@ fn pending_outgoing_transfer_fail() {
 fn fail() {
     initialize();
 
-    let (mut wallet, online) = get_empty_wallet!();
+    let mut wallet = get_test_wallet(true, Some(1)); // using 1 max allocation per utxo
+    let online = wallet.go_online(true, ELECTRUM_URL.to_string()).unwrap();
 
     // bad asset id
     let result = wallet.blind(
@@ -311,6 +312,22 @@ fn fail() {
     };
     let result = Invoice::new(invoice.to_string());
     assert!(matches!(result, Err(Error::UnsupportedInvoice)));
+
+    // cannot blind if all UTXOS already have an allocation
+    fund_wallet(wallet.get_address());
+    mine(false);
+    test_create_utxos(&mut wallet, online.clone(), true, Some(1), None, FEE_RATE);
+    let _asset = wallet
+        .issue_asset_rgb20(
+            online.clone(),
+            TICKER.to_string(),
+            NAME.to_string(),
+            PRECISION,
+            vec![AMOUNT],
+        )
+        .unwrap();
+    let result = wallet.blind(None, None, None, TRANSPORT_ENDPOINTS.clone());
+    assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 
     // transport endpoints: malformed string
     fund_wallet(wallet.get_address());

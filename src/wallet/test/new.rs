@@ -20,10 +20,10 @@ fn check_wallet(wallet: &Wallet, desc_type: DescriptorType, network: BitcoinNetw
 #[test]
 fn success() {
     // with private keys
-    get_test_wallet(true);
+    get_test_wallet(true, None);
 
     // without private keys
-    get_test_wallet(false);
+    get_test_wallet(false, None);
 }
 
 #[test]
@@ -73,7 +73,7 @@ fn mainnet_success() {
 
 #[test]
 fn fail() {
-    let wallet = get_test_wallet(true);
+    let wallet = get_test_wallet(true, None);
     let wallet_data = wallet.get_wallet_data();
 
     // inexistent data dir

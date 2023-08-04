@@ -5,7 +5,7 @@ fn success() {
     initialize();
 
     // receiver wallet
-    let rcv_wallet = get_test_wallet(true);
+    let rcv_wallet = get_test_wallet(true, None);
 
     // drain funded wallet with no allocation UTXOs
     let (mut wallet, online) = get_funded_noutxo_wallet!();

@@ -6,7 +6,7 @@ use super::*;
 fn success() {
     initialize();
 
-    let mut wallet = get_test_wallet(true);
+    let mut wallet = get_test_wallet(true, None);
 
     // go online
     let result_1 = wallet.go_online(false, ELECTRUM_URL.to_string());
@@ -26,7 +26,7 @@ fn success() {
 fn fail() {
     initialize();
 
-    let mut wallet = get_test_wallet(true);
+    let mut wallet = get_test_wallet(true, None);
 
     // cannot go online with a broken electrum URL
     let result = wallet.go_online(false, s!("other:50001"));
@@ -274,7 +274,7 @@ fn on_off_online() {
     initialize();
 
     // create wallet and go online
-    let mut wallet = get_test_wallet(true);
+    let mut wallet = get_test_wallet(true, None);
     let wallet_data = wallet.wallet_data.clone();
     let online = wallet.go_online(false, ELECTRUM_URL.to_string()).unwrap();
 

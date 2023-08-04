@@ -51,7 +51,7 @@ fn _bitcoin_cli() -> [String; 9] {
 }
 
 fn drain_wallet(wallet: &Wallet, online: Online) {
-    let rcv_wallet = get_test_wallet(false);
+    let rcv_wallet = get_test_wallet(false, None);
     wallet
         .drain_to(online, rcv_wallet.get_address(), true, FEE_RATE)
         .unwrap();
@@ -156,7 +156,7 @@ pub fn initialize() {
 }
 
 // return a regtest wallet for testing.
-fn get_test_wallet(private_keys: bool) -> Wallet {
+fn get_test_wallet(private_keys: bool, max_allocations_per_utxo: Option<u32>) -> Wallet {
     let tests_data = TEST_DATA_DIR;
     fs::create_dir_all(tests_data).unwrap();
 
@@ -170,7 +170,7 @@ fn get_test_wallet(private_keys: bool) -> Wallet {
         data_dir: tests_data.to_string(),
         bitcoin_network,
         database_type: DatabaseType::Sqlite,
-        max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
+        max_allocations_per_utxo: max_allocations_per_utxo.unwrap_or(MAX_ALLOCATIONS_PER_UTXO),
         pubkey: keys.xpub,
         mnemonic,
     })
@@ -179,7 +179,7 @@ fn get_test_wallet(private_keys: bool) -> Wallet {
 
 // the get_*_wallet! macros can be called with no arguments to use defaults
 fn get_empty_wallet(print_log: bool, private_keys: bool) -> (Wallet, Online) {
-    let mut wallet = get_test_wallet(private_keys);
+    let mut wallet = get_test_wallet(private_keys, None);
     if print_log {
         println!("wallet directory: {:?}", wallet.get_wallet_dir());
     }

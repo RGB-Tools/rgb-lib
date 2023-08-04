@@ -50,7 +50,7 @@ fn success() {
 
 #[test]
 fn fail() {
-    let wallet = get_test_wallet(false);
+    let wallet = get_test_wallet(false, None);
 
     // asset not found
     let result = wallet.list_transfers(s!("rgb1inexistent"));
