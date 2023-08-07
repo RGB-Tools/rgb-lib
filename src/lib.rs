@@ -65,7 +65,7 @@ pub(crate) mod api;
 pub(crate) mod database;
 pub(crate) mod error;
 pub mod keys;
-pub(crate) mod utils;
+pub mod utils;
 pub mod wallet;
 
 pub use crate::database::enums::{TransferStatus, TransportType};

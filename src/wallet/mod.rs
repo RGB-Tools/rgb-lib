@@ -31,7 +31,7 @@ use bp::Txid as BpTxid;
 use electrum_client::{Client as ElectrumClient, ConfigBuilder, ElectrumApi, Param};
 use futures::executor::block_on;
 use reqwest::blocking::Client as RestClient;
-use rgb::{BlockchainResolver, Runtime};
+use rgb::BlockchainResolver;
 use rgb_core::validation::Validity;
 use rgb_core::{Assign, Operation, Opout, SecretSeal, Transition};
 use rgb_lib_migration::{Migrator, MigratorTrait};
@@ -40,7 +40,6 @@ use rgbstd::containers::{Bindle, BuilderSeal, Transfer as RgbTransfer};
 use rgbstd::contract::{ContractId, GenesisSeal, GraphSeal};
 use rgbstd::interface::rgb20::Rgb20;
 use rgbstd::interface::{rgb20, rgb25, ContractBuilder, ContractIface, Rgb25, TypedState};
-use rgbstd::persistence::{Inventory, Stash};
 use rgbstd::stl::{
     Amount, AssetNaming, Attachment, ContractData, Details, DivisibleAssetSpec, MediaType, Name,
     Precision, RicardianContract, Ticker, Timestamp,
@@ -95,8 +94,8 @@ use crate::database::{
 };
 use crate::error::{Error, InternalError};
 use crate::utils::{
-    calculate_descriptor_from_xprv, calculate_descriptor_from_xpub, create_rgb_runtime, get_txid,
-    now, setup_logger, BitcoinNetwork, LOG_FILE,
+    calculate_descriptor_from_xprv, calculate_descriptor_from_xpub, get_txid, load_rgb_runtime,
+    now, setup_logger, BitcoinNetwork, RgbRuntime, LOG_FILE,
 };
 
 const RGB_DB_NAME: &str = "rgb_db";
@@ -197,16 +196,13 @@ impl AssetRgb20 {
         wallet: &Wallet,
         x: DbAsset,
         balance: Balance,
-        runtime: &mut Runtime,
+        runtime: &mut RgbRuntime,
     ) -> Result<AssetRgb20, Error> {
         let iface = runtime
-            .iface_by_name(&AssetIface::RGB20.to_typename())
-            .map_err(InternalError::from)?
+            .iface_by_name(&AssetIface::RGB20.to_typename())?
             .clone();
         let contract_id = ContractId::from_str(&x.asset_id).expect("invalid contract ID");
-        let contract = runtime
-            .contract_iface(contract_id, iface.iface_id())
-            .map_err(InternalError::from)?;
+        let contract = runtime.contract_iface(contract_id, iface.iface_id())?;
         let timestamp = wallet._get_asset_timestamp(&contract)?;
         let (name, precision, issued_supply, ticker) = wallet._get_rgb20_asset_metadata(contract);
         Ok(AssetRgb20 {
@@ -286,17 +282,14 @@ impl AssetRgb25 {
         wallet: &Wallet,
         x: DbAsset,
         balance: Balance,
-        runtime: &mut Runtime,
+        runtime: &mut RgbRuntime,
         assets_dir: PathBuf,
     ) -> Result<AssetRgb25, Error> {
         let iface = runtime
-            .iface_by_name(&AssetIface::RGB25.to_typename())
-            .map_err(InternalError::from)?
+            .iface_by_name(&AssetIface::RGB25.to_typename())?
             .clone();
         let contract_id = ContractId::from_str(&x.asset_id).expect("invalid contract ID");
-        let contract = runtime
-            .contract_iface(contract_id, iface.iface_id())
-            .map_err(InternalError::from)?;
+        let contract = runtime.contract_iface(contract_id, iface.iface_id())?;
         let timestamp = wallet._get_asset_timestamp(&contract)?;
         let (name, precision, issued_supply, description) =
             wallet._get_rgb25_asset_metadata(contract);
@@ -1040,23 +1033,15 @@ impl Wallet {
         };
 
         // RGB setup
-        let mut runtime = create_rgb_runtime(wallet_dir.clone(), wdata.bitcoin_network)?;
-        if runtime.schema_ids().map_err(InternalError::from)?.len() < NUM_KNOWN_SCHEMAS {
-            runtime.import_iface(rgb20()).map_err(InternalError::from)?;
-            runtime
-                .import_schema(nia_schema())
-                .map_err(InternalError::from)?;
-            runtime
-                .import_iface_impl(nia_rgb20())
-                .map_err(InternalError::from)?;
+        let mut runtime = load_rgb_runtime(wallet_dir.clone(), wdata.bitcoin_network)?;
+        if runtime.schema_ids()?.len() < NUM_KNOWN_SCHEMAS {
+            runtime.import_iface(rgb20())?;
+            runtime.import_schema(nia_schema())?;
+            runtime.import_iface_impl(nia_rgb20())?;
 
-            runtime.import_iface(rgb25()).map_err(InternalError::from)?;
-            runtime
-                .import_schema(cfa_schema())
-                .map_err(InternalError::from)?;
-            runtime
-                .import_iface_impl(cfa_rgb25())
-                .map_err(InternalError::from)?;
+            runtime.import_iface(rgb25())?;
+            runtime.import_schema(cfa_schema())?;
+            runtime.import_iface_impl(cfa_rgb25())?;
         }
 
         // RGB-LIB setup
@@ -1105,14 +1090,14 @@ impl Wallet {
         }
     }
 
-    fn _blockchain_resolver(&mut self) -> Result<BlockchainResolver, Error> {
+    fn _blockchain_resolver(&self) -> Result<BlockchainResolver, Error> {
         Ok(BlockchainResolver::with(
             &self.online_data.as_ref().unwrap().electrum_url,
         )?)
     }
 
-    fn _rgb_runtime(&mut self) -> Result<Runtime, Error> {
-        create_rgb_runtime(self.wallet_dir.clone(), self.bitcoin_network)
+    fn _rgb_runtime(&self) -> Result<RgbRuntime, Error> {
+        load_rgb_runtime(self.wallet_dir.clone(), self.bitcoin_network)
     }
 
     fn _get_tx_details(
@@ -1325,7 +1310,7 @@ impl Wallet {
     }
 
     fn _get_utxo(
-        &mut self,
+        &self,
         exclude_utxos: Vec<Outpoint>,
         unspents: Option<Vec<LocalUnspent>>,
         pending_operation: bool,
@@ -1400,9 +1385,9 @@ impl Wallet {
     pub(crate) fn _get_asset_iface(
         &self,
         contract_id: ContractId,
-        runtime: &Runtime,
+        runtime: &RgbRuntime,
     ) -> Result<AssetIface, Error> {
-        let genesis = runtime.genesis(contract_id).map_err(InternalError::from)?;
+        let genesis = runtime.genesis(contract_id)?;
         let schema_id = genesis.schema_id.to_string();
         Ok(match &schema_id[..] {
             SCHEMA_ID_NIA => AssetIface::RGB20,
@@ -1418,7 +1403,7 @@ impl Wallet {
         duration_seconds: Option<u32>,
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
-        runtime: &Runtime,
+        runtime: &RgbRuntime,
         beneficiary: Beneficiary,
         recipient_type: RecipientType,
         recipient_id: String,
@@ -1588,9 +1573,7 @@ impl Wallet {
             blinded_utxo.clone(),
         )?;
 
-        runtime
-            .store_seal_secret(seal)
-            .map_err(InternalError::from)?;
+        runtime.store_seal_secret(seal)?;
 
         let db_coloring = DbColoringActMod {
             txo_idx: ActiveValue::Set(utxo.idx),
@@ -2254,13 +2237,8 @@ impl Wallet {
         let mut runtime = self._rgb_runtime()?;
         let asset_iface = self._get_asset_iface(contract_id, &runtime)?;
         let iface_name = asset_iface.to_typename();
-        let iface = runtime
-            .iface_by_name(&iface_name)
-            .map_err(InternalError::from)?
-            .clone();
-        let contract = runtime
-            .contract_iface(contract_id, iface.iface_id())
-            .map_err(InternalError::from)?;
+        let iface = runtime.iface_by_name(&iface_name)?.clone();
+        let contract = runtime.contract_iface(contract_id, iface.iface_id())?;
 
         let timestamp = self._get_asset_timestamp(&contract)?;
         let schema_id = contract.iface.schema_id.to_string();
@@ -2305,9 +2283,9 @@ impl Wallet {
     }
 
     fn _check_consistency(
-        &mut self,
+        &self,
         bdk_blockchain: &ElectrumBlockchain,
-        runtime: &Runtime,
+        runtime: &RgbRuntime,
     ) -> Result<(), Error> {
         info!(self.logger, "Doing a consistency check...");
 
@@ -2335,8 +2313,7 @@ impl Wallet {
         }
 
         let asset_ids: Vec<String> = runtime
-            .contract_ids()
-            .map_err(InternalError::from)?
+            .contract_ids()?
             .iter()
             .map(|id| id.to_string())
             .collect();
@@ -2351,11 +2328,7 @@ impl Wallet {
         Ok(())
     }
 
-    fn _go_online(
-        &mut self,
-        skip_consistency_check: bool,
-        electrum_url: String,
-    ) -> Result<(Online, OnlineData), Error> {
+    fn _go_online(&self, electrum_url: String) -> Result<(Online, OnlineData), Error> {
         let online_id = now().unix_timestamp_nanos() as u64;
         let online = Online {
             id: online_id,
@@ -2390,12 +2363,6 @@ impl Wallet {
             self._get_tx_details(get_txid(self.bitcoin_network), Some(&electrum_client))?;
         }
 
-        // RGB setup
-        if !skip_consistency_check {
-            let runtime = self._rgb_runtime()?;
-            self._check_consistency(&bdk_blockchain, &runtime)?;
-        }
-
         let online_data = OnlineData {
             id: online.id,
             bdk_blockchain,
@@ -2416,14 +2383,14 @@ impl Wallet {
         electrum_url: String,
     ) -> Result<Online, Error> {
         info!(self.logger, "Going online...");
+
         let online = if let Some(online_data) = &self.online_data {
             let online = Online {
                 id: online_data.id,
                 electrum_url,
             };
             if online_data.electrum_url != online.electrum_url {
-                let (online, online_data) =
-                    self._go_online(skip_consistency_check, online.electrum_url)?;
+                let (online, online_data) = self._go_online(online.electrum_url)?;
                 self.online_data = Some(online_data);
                 info!(self.logger, "Went online with new electrum URL");
                 online
@@ -2432,10 +2399,16 @@ impl Wallet {
                 online
             }
         } else {
-            let (online, online_data) = self._go_online(skip_consistency_check, electrum_url)?;
+            let (online, online_data) = self._go_online(electrum_url)?;
             self.online_data = Some(online_data);
             online
         };
+
+        if !skip_consistency_check {
+            let runtime = self._rgb_runtime()?;
+            self._check_consistency(self._bdk_blockchain()?, &runtime)?;
+        }
+
         info!(self.logger, "Go online completed");
         Ok(online)
     }
@@ -2862,8 +2835,7 @@ impl Wallet {
             match asset_iface {
                 AssetIface::RGB20 => {
                     let rgb20_ids: Vec<String> = runtime
-                        .contract_ids_by_iface(&TypeName::try_from("RGB20").unwrap())
-                        .map_err(InternalError::from)?
+                        .contract_ids_by_iface(&TypeName::try_from("RGB20").unwrap())?
                         .iter()
                         .map(|c| c.to_string())
                         .collect();
@@ -2890,8 +2862,7 @@ impl Wallet {
                 }
                 AssetIface::RGB25 => {
                     let rgb25_ids: Vec<String> = runtime
-                        .contract_ids_by_iface(&TypeName::try_from("RGB25").unwrap())
-                        .map_err(InternalError::from)?
+                        .contract_ids_by_iface(&TypeName::try_from("RGB25").unwrap())?
                         .iter()
                         .map(|c| c.to_string())
                         .collect();
@@ -3127,7 +3098,7 @@ impl Wallet {
     }
 
     fn _refuse_consignment(
-        &mut self,
+        &self,
         proxy_url: String,
         recipient_id: String,
         updated_batch_transfer: &mut DbBatchTransferActMod,
@@ -3306,13 +3277,8 @@ impl Wallet {
 
         if matches!(&schema_id[..], SCHEMA_ID_CFA) {
             let iface_name = AssetIface::RGB25.to_typename();
-            let iface = runtime
-                .iface_by_name(&iface_name)
-                .map_err(InternalError::from)?
-                .clone();
-            let contract = runtime
-                .contract_iface(contract_id, iface.iface_id())
-                .map_err(InternalError::from)?;
+            let iface = runtime.iface_by_name(&iface_name)?.clone();
+            let contract = runtime.contract_iface(contract_id, iface.iface_id())?;
             let iface_rgb25 = Rgb25::from(contract);
             let contract_data = iface_rgb25.contract_data();
 
@@ -3427,6 +3393,7 @@ impl Wallet {
 
         updated_batch_transfer.txid = ActiveValue::Set(Some(txid));
         updated_batch_transfer.status = ActiveValue::Set(TransferStatus::WaitingConfirmations);
+
         Ok(Some(
             self.database
                 .update_batch_transfer(&mut updated_batch_transfer)?,
@@ -3593,9 +3560,8 @@ impl Wallet {
                 .unwrap_or_else(|c| c);
             let mut runtime = self._rgb_runtime()?;
             let force = false;
-            let validation_status = runtime
-                .accept_transfer(consignment, &mut self._blockchain_resolver()?, force)
-                .map_err(InternalError::from)?;
+            let validation_status =
+                runtime.accept_transfer(consignment, &mut self._blockchain_resolver()?, force)?;
             let validity = validation_status.validity();
             if !matches!(validity, Validity::Valid) {
                 return Err(InternalError::Unexpected)?;
@@ -3831,7 +3797,7 @@ impl Wallet {
     }
 
     fn _prepare_rgb_psbt(
-        &mut self,
+        &self,
         psbt: &mut PartiallySignedTransaction,
         input_outpoints: Vec<OutPoint>,
         transfer_info_map: BTreeMap<String, InfoAssetTransfer>,
@@ -3839,7 +3805,7 @@ impl Wallet {
         donation: bool,
         unspents: Vec<LocalUnspent>,
         db_data: &DbData,
-        runtime: &mut Runtime,
+        runtime: &mut RgbRuntime,
         min_confirmations: u8,
     ) -> Result<(), Error> {
         let change_utxo = self._get_utxo(
@@ -3883,16 +3849,14 @@ impl Wallet {
             let change_amount = transfer_info.asset_spend.change_amount;
             let iface = transfer_info.asset_iface.to_typename();
             let contract_id = ContractId::from_str(&asset_id).expect("invalid contract ID");
-            let mut asset_transition_builder = runtime
-                .transition_builder(contract_id, iface.clone(), None::<&str>)
-                .map_err(InternalError::from)?;
+            let mut asset_transition_builder =
+                runtime.transition_builder(contract_id, iface.clone(), None::<&str>)?;
 
             let assignment_id = asset_transition_builder.assignments_type(&assignment_name);
             let assignment_id = assignment_id.ok_or(InternalError::Unexpected)?;
 
-            for (opout, _state) in runtime
-                .state_for_outpoints(contract_id, prev_outputs.iter().copied())
-                .map_err(InternalError::from)?
+            for (opout, _state) in
+                runtime.state_for_outpoints(contract_id, prev_outputs.iter().copied())?
             {
                 asset_transition_builder = asset_transition_builder
                     .add_input(opout)
@@ -3978,20 +3942,16 @@ impl Wallet {
         let mut contract_inputs = HashMap::<ContractId, Vec<RgbOutpoint>>::new();
         let mut blank_state = HashMap::<ContractId, BTreeMap<Opout, TypedState>>::new();
         for outpoint in prev_outputs {
-            for id in runtime
-                .contracts_by_outpoints([outpoint])
-                .map_err(InternalError::from)?
-            {
+            for id in runtime.contracts_by_outpoints([outpoint])? {
                 contract_inputs.entry(id).or_default().push(outpoint);
                 let cid_str = id.to_string();
                 if transfer_info_map.contains_key(&cid_str) {
                     continue;
                 }
-                blank_state.entry(id).or_default().extend(
-                    runtime
-                        .state_for_outpoints(id, [outpoint])
-                        .map_err(InternalError::from)?,
-                );
+                blank_state
+                    .entry(id)
+                    .or_default()
+                    .extend(runtime.state_for_outpoints(id, [outpoint])?);
             }
         }
 
@@ -3999,9 +3959,7 @@ impl Wallet {
         for (cid, opouts) in blank_state {
             let asset_iface = self._get_asset_iface(cid, runtime)?;
             let iface = asset_iface.to_typename();
-            let mut blank_builder = runtime
-                .blank_builder(cid, iface.clone())
-                .map_err(InternalError::from)?;
+            let mut blank_builder = runtime.blank_builder(cid, iface.clone())?;
             let mut moved_amount = 0;
             for (opout, state) in opouts {
                 if let TypedState::Amount(amt) = &state {
@@ -4063,13 +4021,9 @@ impl Wallet {
             .dbc_conclude(CloseMethod::OpretFirst)
             .map_err(InternalError::from)?;
         let witness_txid = psbt.unsigned_tx.txid();
-        runtime
-            .consume_anchor(anchor)
-            .map_err(InternalError::from)?;
+        runtime.consume_anchor(anchor)?;
         for (id, bundle) in bundles {
-            runtime
-                .consume_bundle(id, bundle, witness_txid.to_byte_array().into())
-                .map_err(InternalError::from)?;
+            runtime.consume_bundle(id, bundle, witness_txid.to_byte_array().into())?;
         }
 
         for (asset_id, _transfer_info) in transfer_info_map {
@@ -4087,9 +4041,7 @@ impl Wallet {
                 };
                 beneficiaries_with_txid.push(beneficiary_with_txid);
             }
-            let transfer = runtime
-                .transfer(contract_id, beneficiaries_with_txid)
-                .map_err(InternalError::from)?;
+            let transfer = runtime.transfer(contract_id, beneficiaries_with_txid)?;
             transfer.save(&consignment_path)?;
         }
 
