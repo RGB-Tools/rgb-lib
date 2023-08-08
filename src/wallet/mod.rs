@@ -188,6 +188,8 @@ pub struct AssetRgb20 {
     pub precision: u8,
     /// Total issued amount
     pub issued_supply: u64,
+    /// Timestamp of asset genesis
+    pub timestamp: i64,
     /// Current balance of the asset
     pub balance: Balance,
 }
@@ -207,6 +209,7 @@ impl AssetRgb20 {
         let contract = runtime
             .contract_iface(contract_id, iface.iface_id())
             .map_err(InternalError::from)?;
+        let timestamp = wallet._get_asset_timestamp(&contract)?;
         let (name, precision, issued_supply, ticker) = wallet._get_rgb20_asset_metadata(contract);
         Ok(AssetRgb20 {
             asset_id: x.asset_id,
@@ -214,6 +217,7 @@ impl AssetRgb20 {
             name,
             precision,
             issued_supply,
+            timestamp,
             balance,
         })
     }
@@ -271,6 +275,8 @@ pub struct AssetRgb25 {
     pub precision: u8,
     /// Total issued amount
     pub issued_supply: u64,
+    /// Timestamp of asset genesis
+    pub timestamp: i64,
     /// Current balance of the asset
     pub balance: Balance,
     /// List of asset data file paths
@@ -293,6 +299,7 @@ impl AssetRgb25 {
         let contract = runtime
             .contract_iface(contract_id, iface.iface_id())
             .map_err(InternalError::from)?;
+        let timestamp = wallet._get_asset_timestamp(&contract)?;
         let (name, precision, issued_supply, description) =
             wallet._get_rgb25_asset_metadata(contract);
         let mut data_paths = vec![];
@@ -311,6 +318,7 @@ impl AssetRgb25 {
             name,
             precision,
             issued_supply,
+            timestamp,
             balance,
             data_paths,
         })
@@ -2215,6 +2223,21 @@ impl Wallet {
         (name, precision, issued_supply, details)
     }
 
+    fn _get_asset_timestamp(&self, contract: &ContractIface) -> Result<i64, Error> {
+        let timestamp = if let Ok(created) = contract.global("created") {
+            match &created[0] {
+                StrictVal::Tuple(fields) => match &fields[0] {
+                    StrictVal::Number(StrictNum::Int(num)) => Ok::<i64, Error>(*num as i64),
+                    _ => Err(InternalError::Unexpected.into()),
+                },
+                _ => Err(InternalError::Unexpected.into()),
+            }
+        } else {
+            return Err(InternalError::Unexpected.into());
+        }?;
+        Ok(timestamp)
+    }
+
     /// Return the [`Metadata`] for the requested asset
     pub fn get_asset_metadata(&mut self, asset_id: String) -> Result<Metadata, Error> {
         info!(self.logger, "Getting metadata for asset '{}'...", asset_id);
@@ -2231,17 +2254,7 @@ impl Wallet {
             .contract_iface(contract_id, iface.iface_id())
             .map_err(InternalError::from)?;
 
-        let timestamp = if let Ok(created) = contract.global("created") {
-            match &created[0] {
-                StrictVal::Tuple(fields) => match &fields[0] {
-                    StrictVal::Number(StrictNum::Int(num)) => Ok::<i64, Error>(*num as i64),
-                    _ => Err(InternalError::Unexpected.into()),
-                },
-                _ => Err(InternalError::Unexpected.into()),
-            }
-        } else {
-            return Err(InternalError::Unexpected.into());
-        }?;
+        let timestamp = self._get_asset_timestamp(&contract)?;
         let schema_id = contract.iface.schema_id.to_string();
         let asset_schema = match &schema_id[..] {
             SCHEMA_ID_NIA => AssetSchema::NIA,

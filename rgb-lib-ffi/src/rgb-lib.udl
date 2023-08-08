@@ -75,6 +75,7 @@ dictionary AssetRgb20 {
   string name;
   u8 precision;
   u64 issued_supply;
+  i64 timestamp;
   Balance balance;
 };
 
@@ -94,6 +95,7 @@ dictionary AssetRgb25 {
   string? description;
   u8 precision;
   u64 issued_supply;
+  i64 timestamp;
   Balance balance;
   sequence<Media> data_paths;
 };
