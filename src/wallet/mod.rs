@@ -1354,10 +1354,10 @@ impl Wallet {
         })
     }
 
-    /// Blind an UTXO and return the resulting [`BlindData`]
+    /// Blind an UTXO to receive RGB assets and return the resulting [`BlindData`]
     ///
     /// Optional Asset ID and duration (in seconds) can be specified
-    pub fn blind(
+    pub fn blind_receive(
         &mut self,
         asset_id: Option<String>,
         amount: Option<u64>,
@@ -1366,7 +1366,9 @@ impl Wallet {
     ) -> Result<BlindData, Error> {
         info!(
             self.logger,
-            "Blinding for asset '{:?}' with duration '{:?}'...", asset_id, duration_seconds
+            "Receive via blind for asset '{:?}' with duration '{:?}'...",
+            asset_id,
+            duration_seconds
         );
         let mut runtime = self._rgb_runtime()?;
         let (iface, contract_id) = if let Some(aid) = asset_id.clone() {
@@ -1507,7 +1509,7 @@ impl Wallet {
             )?;
         }
 
-        info!(self.logger, "Blind completed");
+        info!(self.logger, "Blind receive completed");
         Ok(BlindData {
             invoice: invoice.to_string(),
             blinded_utxo,

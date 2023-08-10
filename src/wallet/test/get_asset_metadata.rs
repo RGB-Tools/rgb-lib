@@ -21,7 +21,7 @@ fn success() {
     let issuance = transfers.first().unwrap();
     let timestamp = issuance.created_at;
     let blind_data = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_rgb20.asset_id.clone(),

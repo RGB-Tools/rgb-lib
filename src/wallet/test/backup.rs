@@ -29,7 +29,7 @@ fn success() {
 
     // send
     let blind_data = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -88,7 +88,7 @@ fn success() {
 
     // spend asset once more and check wallet data again
     let blind_data = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -198,10 +198,10 @@ fn double_restore() {
 
     // send
     let blind_data_1 = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let blind_data_2 = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map_1 = HashMap::from([(
         asset_1.asset_id.clone(),

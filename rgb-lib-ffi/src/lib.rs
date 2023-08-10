@@ -138,7 +138,7 @@ impl Wallet {
         self._get_wallet().backup(&backup_path, &password)
     }
 
-    fn blind(
+    fn blind_receive(
         &self,
         asset_id: Option<String>,
         amount: Option<u64>,
@@ -146,7 +146,7 @@ impl Wallet {
         transport_endpoints: Vec<String>,
     ) -> Result<BlindData, RgbLibError> {
         self._get_wallet()
-            .blind(asset_id, amount, duration_seconds, transport_endpoints)
+            .blind_receive(asset_id, amount, duration_seconds, transport_endpoints)
     }
 
     fn create_utxos(

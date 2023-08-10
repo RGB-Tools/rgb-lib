@@ -28,7 +28,7 @@ fn success() {
 
     // fail single transfer
     let blind_data = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
@@ -46,13 +46,13 @@ fn success() {
 
     // fail all expired WaitingCounterparty transfers
     let blind_data_1 = rcv_wallet
-        .blind(None, None, Some(expiration), TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, Some(expiration), TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let blind_data_2 = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let blind_data_3 = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     // wait for expiration to be in the past
     std::thread::sleep(std::time::Duration::from_millis(
@@ -120,10 +120,10 @@ fn success() {
 
     // fail all expired WaitingCounterparty transfers with no asset_id
     let blind_data_1 = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let blind_data_2 = rcv_wallet
-        .blind(
+        .blind_receive(
             Some(asset.asset_id.clone()),
             None,
             None,
@@ -131,10 +131,10 @@ fn success() {
         )
         .unwrap();
     let blind_data_3 = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let blind_data_4 = rcv_wallet
-        .blind(None, None, Some(expiration), TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, Some(expiration), TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     // wait for expiration to be in the past
     std::thread::sleep(std::time::Duration::from_millis(
@@ -228,10 +228,10 @@ fn batch_success() {
 
     // transfer is in WaitingCounterparty status and can be failed, using both blinded_utxo + txid
     let blind_data_1 = rcv_wallet_1
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let blind_data_2 = rcv_wallet_2
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_id.clone(),
@@ -276,10 +276,10 @@ fn batch_success() {
 
     // ...and can be failed using txid only
     let blind_data_1 = rcv_wallet_1
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let blind_data_2 = rcv_wallet_2
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_id.clone(),
@@ -304,10 +304,10 @@ fn batch_success() {
 
     // transfer is still in WaitingCounterparty status after some recipients (but not all) replied with an ACK
     let blind_data_1 = rcv_wallet_1
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let blind_data_2 = rcv_wallet_2
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_id,
@@ -369,7 +369,7 @@ fn fail() {
 
     // don't fail transfer with asset_id if no_asset_only is true
     let blind_data = wallet
-        .blind(
+        .blind_receive(
             Some(asset.asset_id),
             None,
             None,
@@ -394,7 +394,7 @@ fn fail() {
 
     // blind
     let blind_data = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let blinded_utxo = blind_data.blinded_utxo;
     // send
@@ -517,10 +517,10 @@ fn batch_fail() {
 
     // only blinded utxo given but multiple transfers in batch
     let blind_data_1 = rcv_wallet_1
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let blind_data_2 = rcv_wallet_2
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_id.clone(),
@@ -547,10 +547,10 @@ fn batch_fail() {
 
     // blinded utxo + txid given but blinded utxo transfer not part of batch transfer
     let blind_data_1 = rcv_wallet_1
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let blind_data_2 = rcv_wallet_2
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map_1 = HashMap::from([(
         asset_id.clone(),
@@ -569,7 +569,7 @@ fn batch_fail() {
     )]);
     let txid_1 = test_send_default(&mut wallet, &online, recipient_map_1);
     let blind_data_3 = rcv_wallet_2
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map_2 = HashMap::from([(
         asset_id.clone(),
@@ -597,10 +597,10 @@ fn batch_fail() {
 
     // batch send as donation (doesn't wait for recipient confirmations)
     let blind_data_1 = rcv_wallet_1
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let blind_data_2 = rcv_wallet_2
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_id,

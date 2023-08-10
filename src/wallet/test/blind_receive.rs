@@ -16,7 +16,7 @@ fn success() {
     // default expiration
     let now_timestamp = now().unix_timestamp();
     let blind_data = wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     assert!(blind_data.expiration_timestamp.is_some());
     let timestamp = now_timestamp + DURATION_RCV_TRANSFER as i64;
@@ -25,7 +25,7 @@ fn success() {
     // positive expiration
     let now_timestamp = now().unix_timestamp();
     let blind_data = wallet
-        .blind(None, None, Some(expiration), TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, Some(expiration), TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     assert!(blind_data.expiration_timestamp.is_some());
     let timestamp = now_timestamp + expiration as i64;
@@ -33,7 +33,7 @@ fn success() {
 
     // 0 expiration
     let blind_data = wallet
-        .blind(None, None, Some(0), TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, Some(0), TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     assert!(blind_data.expiration_timestamp.is_none());
 
@@ -49,7 +49,7 @@ fn success() {
         )
         .unwrap();
     let asset_id = asset.asset_id;
-    let result = wallet.blind(
+    let result = wallet.blind_receive(
         Some(asset_id.clone()),
         None,
         None,
@@ -59,7 +59,7 @@ fn success() {
 
     // all set
     let now_timestamp = now().unix_timestamp();
-    let result = wallet.blind(
+    let result = wallet.blind_receive(
         Some(asset_id.clone()),
         Some(amount),
         Some(expiration),
@@ -93,7 +93,7 @@ fn success() {
         format!("rpc://{}", "127.0.0.1:3001/json-rpc"),
         format!("rpc://{}", "127.0.0.1:3002/json-rpc"),
     ];
-    let result = wallet.blind(None, None, Some(0), transport_endpoints.clone());
+    let result = wallet.blind_receive(None, None, Some(0), transport_endpoints.clone());
     assert!(result.is_ok());
     let transfer = get_test_transfer_recipient(&wallet, &result.unwrap().blinded_utxo);
     let tce_data = wallet
@@ -115,7 +115,7 @@ fn respect_max_allocations() {
         let mut txo_list: HashSet<DbTxo> = HashSet::new();
         for _ in 0..MAX_ALLOCATIONS_PER_UTXO {
             let blind_data = wallet
-                .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+                .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
                 .unwrap();
             created_allocations += 1;
             let transfer = get_test_transfer_recipient(&wallet, &blind_data.blinded_utxo);
@@ -129,7 +129,7 @@ fn respect_max_allocations() {
     }
     assert_eq!(available_allocations, created_allocations);
 
-    let result = wallet.blind(None, None, None, TRANSPORT_ENDPOINTS.clone());
+    let result = wallet.blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone());
     assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 }
 
@@ -143,7 +143,7 @@ fn expire() {
     // check expiration
     let now_timestamp = now().unix_timestamp();
     let blind_data_1 = wallet
-        .blind(None, None, Some(expiration), TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, Some(expiration), TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let timestamp = now_timestamp + expiration as i64;
     assert!(blind_data_1.expiration_timestamp.unwrap() - timestamp <= 1);
@@ -202,7 +202,7 @@ fn pending_outgoing_transfer_fail() {
         .unwrap();
     // send
     let blind_data = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_id.clone(),
@@ -217,7 +217,7 @@ fn pending_outgoing_transfer_fail() {
 
     // check blind doesn't get allocated to UTXO being spent
     let blind_data = wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     show_unspent_colorings(&wallet, "after 1st blind");
     let unspents = wallet.list_unspents(false).unwrap();
@@ -246,7 +246,7 @@ fn pending_outgoing_transfer_fail() {
         .unwrap();
     // check blind doesn't get allocated to UTXO being spent
     let _result = wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     show_unspent_colorings(&wallet, "after 2nd blind");
     let unspents = wallet.list_unspents(false).unwrap();
@@ -265,7 +265,7 @@ fn fail() {
     let online = wallet.go_online(true, ELECTRUM_URL.to_string()).unwrap();
 
     // bad asset id
-    let result = wallet.blind(
+    let result = wallet.blind_receive(
         Some(s!("rgb1inexistent")),
         None,
         None,
@@ -274,7 +274,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::AssetNotFound { asset_id: _ })));
 
     // insufficient funds
-    let result = wallet.blind(None, None, None, TRANSPORT_ENDPOINTS.clone());
+    let result = wallet.blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone());
     assert!(matches!(
         result,
         Err(Error::InsufficientBitcoins {
@@ -326,14 +326,14 @@ fn fail() {
             vec![AMOUNT],
         )
         .unwrap();
-    let result = wallet.blind(None, None, None, TRANSPORT_ENDPOINTS.clone());
+    let result = wallet.blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone());
     assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 
     // transport endpoints: malformed string
     fund_wallet(wallet.get_address());
     test_create_utxos_default(&mut wallet, online.clone());
     let transport_endpoints = vec!["malformed".to_string()];
-    let result = wallet.blind(None, None, Some(0), transport_endpoints);
+    let result = wallet.blind_receive(None, None, Some(0), transport_endpoints);
     assert!(matches!(
         result,
         Err(Error::InvalidTransportEndpoint { details: _ })
@@ -341,7 +341,7 @@ fn fail() {
 
     // transport endpoints: unknown transport type
     let transport_endpoints = vec![format!("unknown://{PROXY_HOST}")];
-    let result = wallet.blind(None, None, Some(0), transport_endpoints);
+    let result = wallet.blind_receive(None, None, Some(0), transport_endpoints);
     assert!(matches!(
         result,
         Err(Error::InvalidTransportEndpoint { details: _ })
@@ -349,12 +349,12 @@ fn fail() {
 
     // transport endpoints: transport type supported by RgbInvoice but unsupported by rgb-lib
     let transport_endpoints = vec![format!("ws://{PROXY_HOST}")];
-    let result = wallet.blind(None, None, Some(0), transport_endpoints);
+    let result = wallet.blind_receive(None, None, Some(0), transport_endpoints);
     assert!(matches!(result, Err(Error::UnsupportedTransportType)));
 
     // transport endpoints: not enough endpoints
     let transport_endpoints = vec![];
-    let result = wallet.blind(None, None, Some(0), transport_endpoints);
+    let result = wallet.blind_receive(None, None, Some(0), transport_endpoints);
     let msg = s!("must provide at least a transport endpoint");
     assert!(matches!(
         result,
@@ -368,7 +368,7 @@ fn fail() {
         format!("rpc://127.0.0.1:3002/json-rpc"),
         format!("rpc://127.0.0.1:3003/json-rpc"),
     ];
-    let result = wallet.blind(None, None, Some(0), transport_endpoints);
+    let result = wallet.blind_receive(None, None, Some(0), transport_endpoints);
     println!("RES: {result:?}");
     let msg = format!(
         "library supports at max {} transport endpoints",
@@ -382,7 +382,7 @@ fn fail() {
     // transport endpoints: no endpoints for transfer > Failed
     let transport_endpoints = vec![format!("rpc://{PROXY_HOST}")];
     let blind_data = wallet
-        .blind(None, None, Some(0), transport_endpoints)
+        .blind_receive(None, None, Some(0), transport_endpoints)
         .unwrap();
     let transfer = get_test_transfer_recipient(&wallet, &blind_data.blinded_utxo);
     let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
@@ -409,7 +409,7 @@ fn fail() {
         format!("rpc://{PROXY_HOST}"),
         format!("rpc://{PROXY_HOST}"),
     ];
-    let result = wallet.blind(None, None, Some(0), transport_endpoints);
+    let result = wallet.blind_receive(None, None, Some(0), transport_endpoints);
     let msg = s!("no duplicate transport endpoints allowed");
     assert!(matches!(
         result,
@@ -447,7 +447,7 @@ fn wrong_asset_fail() {
         .unwrap();
 
     let blind_data_a = wallet_1
-        .blind(
+        .blind_receive(
             Some(asset_a.asset_id),
             None,
             None,

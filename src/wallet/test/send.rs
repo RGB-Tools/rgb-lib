@@ -30,7 +30,7 @@ fn success() {
 
     // send
     let blind_data = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -201,7 +201,7 @@ fn success() {
         format!("rpc://{PROXY_HOST}"),
     ];
     let blind_data_api_proto = rcv_wallet
-        .blind(None, None, None, transport_endpoints.clone())
+        .blind_receive(None, None, None, transport_endpoints.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -286,7 +286,7 @@ fn success() {
         format!("rpc://{PROXY_HOST}"),
     ];
     let blind_data_invalid_unreachable = rcv_wallet
-        .blind(
+        .blind_receive(
             None,
             None,
             None,
@@ -413,7 +413,7 @@ fn spend_all() {
     // send
     test_create_utxos(&mut wallet, online.clone(), false, Some(1), None, FEE_RATE);
     let blind_data = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -547,7 +547,7 @@ fn send_twice_success() {
 
     // send
     let blind_data_1 = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -603,7 +603,7 @@ fn send_twice_success() {
 
     // send
     let blind_data_2 = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -738,7 +738,7 @@ fn send_blank_success() {
         FEE_RATE,
     );
     let blind_data_1 = wallet_2
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_rgb20.asset_id.clone(),
@@ -824,7 +824,7 @@ fn send_blank_success() {
 
     // send
     let blind_data_2 = wallet_2
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     println!("\n=== send 2");
     let recipient_map = HashMap::from([(
@@ -948,10 +948,10 @@ fn send_received_success() {
 
     // send
     let blind_data_a20 = wallet_2
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let blind_data_a25 = wallet_2
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([
         (
@@ -1028,10 +1028,10 @@ fn send_received_success() {
 
     // send
     let blind_data_b20 = wallet_3
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let blind_data_b25 = wallet_3
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([
         (
@@ -1156,7 +1156,7 @@ fn send_received_rgb25_success() {
 
     // send
     let blind_data_1 = wallet_2
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -1208,7 +1208,7 @@ fn send_received_rgb25_success() {
 
     // send
     let blind_data_2 = wallet_3
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -1317,10 +1317,10 @@ fn receive_multiple_same_asset_success() {
 
     // send
     let blind_data_1 = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let blind_data_2 = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -1615,10 +1615,10 @@ fn receive_multiple_different_assets_success() {
 
     // send
     let blind_data_1 = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let blind_data_2 = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([
         (
@@ -1974,16 +1974,16 @@ fn batch_donation_success() {
 
     // blind
     let blind_data_a1 = rcv_wallet_1
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let blind_data_a2 = rcv_wallet_2
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let blind_data_b1 = rcv_wallet_1
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let blind_data_b2 = rcv_wallet_2
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
 
     // send multiple assets to multiple recipients
@@ -2106,7 +2106,7 @@ fn reuse_failed_blinded_success() {
 
     // 1st transfer
     let blind_data = rcv_wallet
-        .blind(None, None, Some(60), TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, Some(60), TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -2159,10 +2159,10 @@ fn ack() {
 
     // send with donation set to false
     let blind_data_1 = rcv_wallet_1
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let blind_data_2 = rcv_wallet_2
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -2254,7 +2254,7 @@ fn nack() {
 
     // send with donation set to false
     let blind_data = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -2319,7 +2319,7 @@ fn expire() {
 
     // send
     let blind_data = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id,
@@ -2404,7 +2404,7 @@ fn no_change_on_pending_send() {
     show_unspent_colorings(&wallet, "before 1st send");
     // send asset_1
     let blind_data = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_1.asset_id.clone(),
@@ -2420,7 +2420,7 @@ fn no_change_on_pending_send() {
     // send asset_2 (send_1 in WaitingCounterparty)
     show_unspent_colorings(&wallet, "before 2nd send");
     let blind_data = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_2.asset_id.clone(),
@@ -2451,7 +2451,7 @@ fn no_change_on_pending_send() {
     // send asset_2 (send_1 in WaitingConfirmations)
     show_unspent_colorings(&wallet, "before 3rd send");
     let blind_data = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_2.asset_id,
@@ -2503,7 +2503,7 @@ fn fail() {
         )
         .unwrap();
     let blind_data = rcv_wallet
-        .blind(None, None, Some(60), TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, Some(60), TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_1_alloc.asset_id,
@@ -2528,7 +2528,7 @@ fn fail() {
         .unwrap();
     // blind
     let blind_data = rcv_wallet
-        .blind(None, None, Some(60), TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, Some(60), TRANSPORT_ENDPOINTS.clone())
         .unwrap();
 
     // invalid input (asset id)
@@ -2714,7 +2714,7 @@ fn pending_incoming_transfer_fail() {
 
     // send
     let blind_data_1 = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -2751,13 +2751,13 @@ fn pending_incoming_transfer_fail() {
 
     // add a blind to the same UTXO
     let _blind_data_2 = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     show_unspent_colorings(&rcv_wallet, "receiver after 2nd blind");
 
     // send from receiving wallet, 1st receive Settled, 2nd one still pending
     let blind_data = wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -2812,7 +2812,7 @@ fn pending_outgoing_transfer_fail() {
 
     // 1st send
     let blind_data = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -2827,7 +2827,7 @@ fn pending_outgoing_transfer_fail() {
 
     // 2nd send (1st still pending)
     let blind_data = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -2879,13 +2879,13 @@ fn pending_transfer_input_fail() {
 
     // blind with sender wallet to create a pending transfer
     wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     show_unspent_colorings(&wallet, "sender after blind");
 
     // send and check it fails as the issuance UTXO is "blocked" by the pending receive operation
     let blind_data = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -2924,7 +2924,7 @@ fn already_used_fail() {
 
     // 1st transfer
     let blind_data = rcv_wallet
-        .blind(None, None, Some(60), TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, Some(60), TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id,
@@ -2977,7 +2977,7 @@ fn rgb25_blank_success() {
         .unwrap();
 
     let blind_data = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
 
     // try sending RGB20
@@ -3030,7 +3030,7 @@ fn psbt_rgb_consumer_success() {
     // try to send it
     println!("send_begin 1");
     let blind_data_1 = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_rgb20_a.asset_id,
@@ -3058,7 +3058,7 @@ fn psbt_rgb_consumer_success() {
     // try to send the second asset
     println!("send_begin 2");
     let blind_data_2 = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_rgb20_b.asset_id.clone(),
@@ -3076,7 +3076,7 @@ fn psbt_rgb_consumer_success() {
     let new_allocation_count = (MAX_ALLOCATIONS_PER_UTXO - 2).max(0);
     for _ in 0..new_allocation_count {
         let _blind_data = wallet
-            .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+            .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
             .unwrap();
     }
     println!("issue 3");
@@ -3103,10 +3103,10 @@ fn psbt_rgb_consumer_success() {
     // try to send the second asset to a recipient and the third to different one
     println!("send_begin 3");
     let blind_data_3a = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let blind_data_3b = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([
         (
@@ -3167,7 +3167,7 @@ fn insufficient_bitcoins() {
     let unspents = wallet.list_unspents(false).unwrap();
     assert_eq!(unspents.len(), 1);
     let blind_data_1 = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_rgb20_a.asset_id,
@@ -3242,7 +3242,7 @@ fn insufficient_allocations_fail() {
     let unspents = wallet.list_unspents(false).unwrap();
     assert_eq!(unspents.len(), 2);
     let blind_data_1 = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_rgb20_a.asset_id,
@@ -3305,7 +3305,7 @@ fn insufficient_allocations_success() {
 
     // send with 1 colorable UTXOs available as additional bitcoin input
     let blind_data_1 = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_rgb20_a.asset_id,
@@ -3341,7 +3341,7 @@ fn send_to_oneself() {
 
     // send
     let blind_data = wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id,
@@ -3383,7 +3383,7 @@ fn send_received_back_success() {
 
     // send
     let blind_data_1 = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -3439,7 +3439,7 @@ fn send_received_back_success() {
 
     // send
     let blind_data_2 = wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -3493,7 +3493,7 @@ fn send_received_back_success() {
     show_unspent_colorings(&rcv_wallet, "rcv_wallet before 3rd transfer");
     // send
     let blind_data_3 = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let change_3 = 5;
     let amount_3 = wallet

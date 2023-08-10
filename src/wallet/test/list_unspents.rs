@@ -65,7 +65,7 @@ fn success() {
 
     // multiple unspents, one failed blind, not listed
     let blind_data_fail = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     rcv_wallet
         .fail_transfers(
@@ -84,7 +84,7 @@ fn success() {
     assert_eq!(allocations.len(), 0);
     // one failed send, not listed
     let blind_data = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -141,7 +141,7 @@ fn success() {
         )
         .unwrap();
     let blind_data = rcv_wallet
-        .blind(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),

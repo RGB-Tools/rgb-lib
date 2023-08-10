@@ -653,7 +653,7 @@ fn show_unspent_colorings(wallet: &Wallet, msg: &str) {
 }
 
 mod backup;
-mod blind;
+mod blind_receive;
 mod create_utxos;
 mod delete_transfers;
 mod drain_to;
