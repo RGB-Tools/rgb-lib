@@ -64,13 +64,13 @@ fn success() {
         .all(|a| a.asset_id == Some(asset.asset_id.clone()) && a.amount == AMOUNT && a.settled));
 
     // multiple unspents, one failed blind, not listed
-    let blind_data_fail = rcv_wallet
+    let receive_data_fail = rcv_wallet
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     rcv_wallet
         .fail_transfers(
             rcv_online.clone(),
-            Some(blind_data_fail.blinded_utxo),
+            Some(receive_data_fail.recipient_id),
             None,
             false,
         )
@@ -83,14 +83,16 @@ fn success() {
         .for_each(|u| allocations.extend(u.rgb_allocations.clone()));
     assert_eq!(allocations.len(), 0);
     // one failed send, not listed
-    let blind_data = rcv_wallet
+    let receive_data = rcv_wallet
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
             amount,
-            blinded_utxo: blind_data.blinded_utxo,
+            recipient_data: RecipientData::BlindedUTXO(
+                SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
+            ),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -140,14 +142,16 @@ fn success() {
             vec![AMOUNT],
         )
         .unwrap();
-    let blind_data = rcv_wallet
+    let receive_data = rcv_wallet
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
             amount,
-            blinded_utxo: blind_data.blinded_utxo,
+            recipient_data: RecipientData::BlindedUTXO(
+                SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
+            ),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);

@@ -28,14 +28,16 @@ fn success() {
         .unwrap();
 
     // send
-    let blind_data = rcv_wallet
+    let receive_data = rcv_wallet
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
             amount,
-            blinded_utxo: blind_data.blinded_utxo,
+            recipient_data: RecipientData::BlindedUTXO(
+                SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
+            ),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -87,14 +89,16 @@ fn success() {
     check_test_wallet_data(&mut wallet, &asset, None, 1, amount);
 
     // spend asset once more and check wallet data again
-    let blind_data = rcv_wallet
+    let receive_data = rcv_wallet
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
             amount,
-            blinded_utxo: blind_data.blinded_utxo,
+            recipient_data: RecipientData::BlindedUTXO(
+                SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
+            ),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -197,17 +201,19 @@ fn double_restore() {
         .unwrap();
 
     // send
-    let blind_data_1 = rcv_wallet
+    let receive_data_1 = rcv_wallet
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
-    let blind_data_2 = rcv_wallet
+    let receive_data_2 = rcv_wallet
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map_1 = HashMap::from([(
         asset_1.asset_id.clone(),
         vec![Recipient {
             amount,
-            blinded_utxo: blind_data_1.blinded_utxo,
+            recipient_data: RecipientData::BlindedUTXO(
+                SecretSeal::from_str(&receive_data_1.recipient_id).unwrap(),
+            ),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -215,7 +221,9 @@ fn double_restore() {
         asset_2.asset_id.clone(),
         vec![Recipient {
             amount: amount * 2,
-            blinded_utxo: blind_data_2.blinded_utxo,
+            recipient_data: RecipientData::BlindedUTXO(
+                SecretSeal::from_str(&receive_data_2.recipient_id).unwrap(),
+            ),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);

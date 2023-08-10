@@ -27,31 +27,31 @@ fn success() {
         .unwrap();
 
     // fail single transfer
-    let blind_data = rcv_wallet
+    let receive_data = rcv_wallet
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
-        &blind_data.blinded_utxo,
+        &receive_data.recipient_id,
         TransferStatus::WaitingCounterparty
     ));
     assert!(rcv_wallet
         .fail_transfers(
             rcv_online.clone(),
-            Some(blind_data.blinded_utxo),
+            Some(receive_data.recipient_id),
             None,
             false,
         )
         .unwrap());
 
     // fail all expired WaitingCounterparty transfers
-    let blind_data_1 = rcv_wallet
+    let receive_data_1 = rcv_wallet
         .blind_receive(None, None, Some(expiration), TRANSPORT_ENDPOINTS.clone())
         .unwrap();
-    let blind_data_2 = rcv_wallet
+    let receive_data_2 = rcv_wallet
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
-    let blind_data_3 = rcv_wallet
+    let receive_data_3 = rcv_wallet
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     // wait for expiration to be in the past
@@ -61,7 +61,9 @@ fn success() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            blinded_utxo: blind_data_3.blinded_utxo.clone(),
+            recipient_data: RecipientData::BlindedUTXO(
+                SecretSeal::from_str(&receive_data_3.recipient_id.clone()).unwrap(),
+            ),
             amount,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -76,17 +78,17 @@ fn success() {
     show_unspent_colorings(&wallet, "sender run 1 no refresh");
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
-        &blind_data_1.blinded_utxo,
+        &receive_data_1.recipient_id,
         TransferStatus::WaitingCounterparty
     ));
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
-        &blind_data_2.blinded_utxo,
+        &receive_data_2.recipient_id,
         TransferStatus::WaitingCounterparty
     ));
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
-        &blind_data_3.blinded_utxo,
+        &receive_data_3.recipient_id,
         TransferStatus::WaitingConfirmations
     ));
     assert!(rcv_wallet
@@ -96,17 +98,17 @@ fn success() {
     show_unspent_colorings(&wallet, "sender run 1 after fail");
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
-        &blind_data_1.blinded_utxo,
+        &receive_data_1.recipient_id,
         TransferStatus::Failed
     ));
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
-        &blind_data_2.blinded_utxo,
+        &receive_data_2.recipient_id,
         TransferStatus::WaitingCounterparty
     ));
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
-        &blind_data_3.blinded_utxo,
+        &receive_data_3.recipient_id,
         TransferStatus::WaitingConfirmations
     ));
 
@@ -119,10 +121,10 @@ fn success() {
     wallet.refresh(online.clone(), None, vec![]).unwrap();
 
     // fail all expired WaitingCounterparty transfers with no asset_id
-    let blind_data_1 = rcv_wallet
+    let receive_data_1 = rcv_wallet
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
-    let blind_data_2 = rcv_wallet
+    let receive_data_2 = rcv_wallet
         .blind_receive(
             Some(asset.asset_id.clone()),
             None,
@@ -130,10 +132,10 @@ fn success() {
             TRANSPORT_ENDPOINTS.clone(),
         )
         .unwrap();
-    let blind_data_3 = rcv_wallet
+    let receive_data_3 = rcv_wallet
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
-    let blind_data_4 = rcv_wallet
+    let receive_data_4 = rcv_wallet
         .blind_receive(None, None, Some(expiration), TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     // wait for expiration to be in the past
@@ -144,7 +146,9 @@ fn success() {
     let recipient_map = HashMap::from([(
         asset.asset_id,
         vec![Recipient {
-            blinded_utxo: blind_data_3.blinded_utxo.clone(),
+            recipient_data: RecipientData::BlindedUTXO(
+                SecretSeal::from_str(&receive_data_3.recipient_id.clone()).unwrap(),
+            ),
             amount,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -159,22 +163,22 @@ fn success() {
     show_unspent_colorings(&wallet, "sender run 2 no refresh");
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
-        &blind_data_1.blinded_utxo,
+        &receive_data_1.recipient_id,
         TransferStatus::WaitingCounterparty
     ));
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
-        &blind_data_2.blinded_utxo,
+        &receive_data_2.recipient_id,
         TransferStatus::WaitingCounterparty
     ));
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
-        &blind_data_3.blinded_utxo,
+        &receive_data_3.recipient_id,
         TransferStatus::WaitingConfirmations
     ));
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
-        &blind_data_4.blinded_utxo,
+        &receive_data_4.recipient_id,
         TransferStatus::WaitingCounterparty
     ));
     rcv_wallet
@@ -184,22 +188,22 @@ fn success() {
     show_unspent_colorings(&wallet, "sender run 2 after fail");
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
-        &blind_data_1.blinded_utxo,
+        &receive_data_1.recipient_id,
         TransferStatus::WaitingCounterparty
     ));
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
-        &blind_data_2.blinded_utxo,
+        &receive_data_2.recipient_id,
         TransferStatus::WaitingCounterparty
     ));
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
-        &blind_data_3.blinded_utxo,
+        &receive_data_3.recipient_id,
         TransferStatus::WaitingConfirmations
     ));
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
-        &blind_data_4.blinded_utxo,
+        &receive_data_4.recipient_id,
         TransferStatus::Failed
     ));
 }
@@ -227,22 +231,26 @@ fn batch_success() {
     let asset_id = asset.asset_id;
 
     // transfer is in WaitingCounterparty status and can be failed, using both blinded_utxo + txid
-    let blind_data_1 = rcv_wallet_1
+    let receive_data_1 = rcv_wallet_1
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
-    let blind_data_2 = rcv_wallet_2
+    let receive_data_2 = rcv_wallet_2
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_id.clone(),
         vec![
             Recipient {
-                blinded_utxo: blind_data_1.blinded_utxo.clone(),
+                recipient_data: RecipientData::BlindedUTXO(
+                    SecretSeal::from_str(&receive_data_1.recipient_id.clone()).unwrap(),
+                ),
                 amount,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
             Recipient {
-                blinded_utxo: blind_data_2.blinded_utxo.clone(),
+                recipient_data: RecipientData::BlindedUTXO(
+                    SecretSeal::from_str(&receive_data_2.recipient_id.clone()).unwrap(),
+                ),
                 amount,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
@@ -252,12 +260,12 @@ fn batch_success() {
     assert!(!txid.is_empty());
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet_1,
-        &blind_data_1.blinded_utxo,
+        &receive_data_1.recipient_id,
         TransferStatus::WaitingCounterparty
     ));
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet_2,
-        &blind_data_2.blinded_utxo,
+        &receive_data_2.recipient_id,
         TransferStatus::WaitingCounterparty
     ));
     assert!(check_test_transfer_status_sender(
@@ -268,29 +276,33 @@ fn batch_success() {
     wallet
         .fail_transfers(
             online.clone(),
-            Some(blind_data_1.blinded_utxo),
+            Some(receive_data_1.recipient_id),
             Some(txid),
             false,
         )
         .unwrap();
 
     // ...and can be failed using txid only
-    let blind_data_1 = rcv_wallet_1
+    let receive_data_1 = rcv_wallet_1
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
-    let blind_data_2 = rcv_wallet_2
+    let receive_data_2 = rcv_wallet_2
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_id.clone(),
         vec![
             Recipient {
-                blinded_utxo: blind_data_1.blinded_utxo,
+                recipient_data: RecipientData::BlindedUTXO(
+                    SecretSeal::from_str(&receive_data_1.recipient_id).unwrap(),
+                ),
                 amount,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
             Recipient {
-                blinded_utxo: blind_data_2.blinded_utxo,
+                recipient_data: RecipientData::BlindedUTXO(
+                    SecretSeal::from_str(&receive_data_2.recipient_id).unwrap(),
+                ),
                 amount,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
@@ -303,22 +315,26 @@ fn batch_success() {
         .unwrap();
 
     // transfer is still in WaitingCounterparty status after some recipients (but not all) replied with an ACK
-    let blind_data_1 = rcv_wallet_1
+    let receive_data_1 = rcv_wallet_1
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
-    let blind_data_2 = rcv_wallet_2
+    let receive_data_2 = rcv_wallet_2
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_id,
         vec![
             Recipient {
-                blinded_utxo: blind_data_1.blinded_utxo.clone(),
+                recipient_data: RecipientData::BlindedUTXO(
+                    SecretSeal::from_str(&receive_data_1.recipient_id.clone()).unwrap(),
+                ),
                 amount,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
             Recipient {
-                blinded_utxo: blind_data_2.blinded_utxo.clone(),
+                recipient_data: RecipientData::BlindedUTXO(
+                    SecretSeal::from_str(&receive_data_2.recipient_id.clone()).unwrap(),
+                ),
                 amount,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
@@ -329,12 +345,12 @@ fn batch_success() {
     rcv_wallet_1.refresh(rcv_online_1, None, vec![]).unwrap();
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet_1,
-        &blind_data_1.blinded_utxo,
+        &receive_data_1.recipient_id,
         TransferStatus::WaitingConfirmations
     ));
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet_2,
-        &blind_data_2.blinded_utxo,
+        &receive_data_2.recipient_id,
         TransferStatus::WaitingCounterparty
     ));
     assert!(check_test_transfer_status_sender(
@@ -343,7 +359,7 @@ fn batch_success() {
         TransferStatus::WaitingCounterparty
     ));
     wallet
-        .fail_transfers(online, Some(blind_data_2.blinded_utxo), Some(txid), false)
+        .fail_transfers(online, Some(receive_data_2.recipient_id), Some(txid), false)
         .unwrap();
 }
 
@@ -368,7 +384,7 @@ fn fail() {
     let asset_id = asset.asset_id.clone();
 
     // don't fail transfer with asset_id if no_asset_only is true
-    let blind_data = wallet
+    let receive_data = wallet
         .blind_receive(
             Some(asset.asset_id),
             None,
@@ -378,30 +394,33 @@ fn fail() {
         .unwrap();
     let result = wallet.fail_transfers(
         online.clone(),
-        Some(blind_data.blinded_utxo.clone()),
+        Some(receive_data.recipient_id.clone()),
         None,
         true,
     );
     assert!(matches!(result, Err(Error::CannotFailTransfer)));
     assert!(check_test_transfer_status_recipient(
         &wallet,
-        &blind_data.blinded_utxo,
+        &receive_data.recipient_id,
         TransferStatus::WaitingCounterparty
     ));
     // fail pending blind
-    let result = wallet.fail_transfers(online.clone(), Some(blind_data.blinded_utxo), None, false);
+    let result =
+        wallet.fail_transfers(online.clone(), Some(receive_data.recipient_id), None, false);
     assert!(result.is_ok());
 
     // blind
-    let blind_data = rcv_wallet
+    let receive_data = rcv_wallet
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
-    let blinded_utxo = blind_data.blinded_utxo;
+    let blinded_utxo = receive_data.recipient_id;
     // send
     let recipient_map = HashMap::from([(
         asset_id.clone(),
         vec![Recipient {
-            blinded_utxo: blinded_utxo.clone(),
+            recipient_data: RecipientData::BlindedUTXO(
+                SecretSeal::from_str(&blinded_utxo.clone()).unwrap(),
+            ),
             amount: 66,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -427,7 +446,7 @@ fn fail() {
         rcv_wallet.fail_transfers(rcv_online.clone(), Some(s!("txob1inexistent")), None, false);
     assert!(matches!(
         result,
-        Err(Error::TransferNotFound { blinded_utxo: _ })
+        Err(Error::TransferNotFound { recipient_id: _ })
     ));
 
     // don't fail incoming transfer: waiting counterparty -> confirmations
@@ -516,65 +535,79 @@ fn batch_fail() {
     let asset_id = asset.asset_id;
 
     // only blinded utxo given but multiple transfers in batch
-    let blind_data_1 = rcv_wallet_1
+    let receive_data_1 = rcv_wallet_1
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
-    let blind_data_2 = rcv_wallet_2
+    let receive_data_2 = rcv_wallet_2
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_id.clone(),
         vec![
             Recipient {
-                blinded_utxo: blind_data_1.blinded_utxo.clone(),
+                recipient_data: RecipientData::BlindedUTXO(
+                    SecretSeal::from_str(&receive_data_1.recipient_id.clone()).unwrap(),
+                ),
                 amount,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
             Recipient {
-                blinded_utxo: blind_data_2.blinded_utxo,
+                recipient_data: RecipientData::BlindedUTXO(
+                    SecretSeal::from_str(&receive_data_2.recipient_id).unwrap(),
+                ),
                 amount,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
         ],
     )]);
     let txid = test_send_default(&mut wallet, &online, recipient_map);
-    let result =
-        wallet.fail_transfers(online.clone(), Some(blind_data_1.blinded_utxo), None, false);
+    let result = wallet.fail_transfers(
+        online.clone(),
+        Some(receive_data_1.recipient_id),
+        None,
+        false,
+    );
     assert!(matches!(result, Err(Error::CannotFailTransfer)));
     // successfully fail transfer so asset can be spent again
     let result = wallet.fail_transfers(online.clone(), None, Some(txid), false);
     assert!(result.is_ok());
 
     // blinded utxo + txid given but blinded utxo transfer not part of batch transfer
-    let blind_data_1 = rcv_wallet_1
+    let receive_data_1 = rcv_wallet_1
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
-    let blind_data_2 = rcv_wallet_2
+    let receive_data_2 = rcv_wallet_2
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map_1 = HashMap::from([(
         asset_id.clone(),
         vec![
             Recipient {
-                blinded_utxo: blind_data_1.blinded_utxo,
+                recipient_data: RecipientData::BlindedUTXO(
+                    SecretSeal::from_str(&receive_data_1.recipient_id).unwrap(),
+                ),
                 amount,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
             Recipient {
-                blinded_utxo: blind_data_2.blinded_utxo,
+                recipient_data: RecipientData::BlindedUTXO(
+                    SecretSeal::from_str(&receive_data_2.recipient_id).unwrap(),
+                ),
                 amount,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
         ],
     )]);
     let txid_1 = test_send_default(&mut wallet, &online, recipient_map_1);
-    let blind_data_3 = rcv_wallet_2
+    let receive_data_3 = rcv_wallet_2
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map_2 = HashMap::from([(
         asset_id.clone(),
         vec![Recipient {
-            blinded_utxo: blind_data_3.blinded_utxo.clone(),
+            recipient_data: RecipientData::BlindedUTXO(
+                SecretSeal::from_str(&receive_data_3.recipient_id.clone()).unwrap(),
+            ),
             amount,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -582,7 +615,7 @@ fn batch_fail() {
     let txid_2 = test_send_default(&mut wallet, &online, recipient_map_2);
     let result = wallet.fail_transfers(
         online.clone(),
-        Some(blind_data_3.blinded_utxo),
+        Some(receive_data_3.recipient_id),
         Some(txid_1.clone()),
         false,
     );
@@ -596,22 +629,26 @@ fn batch_fail() {
         .unwrap();
 
     // batch send as donation (doesn't wait for recipient confirmations)
-    let blind_data_1 = rcv_wallet_1
+    let receive_data_1 = rcv_wallet_1
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
-    let blind_data_2 = rcv_wallet_2
+    let receive_data_2 = rcv_wallet_2
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_id,
         vec![
             Recipient {
-                blinded_utxo: blind_data_1.blinded_utxo,
+                recipient_data: RecipientData::BlindedUTXO(
+                    SecretSeal::from_str(&receive_data_1.recipient_id).unwrap(),
+                ),
                 amount,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
             Recipient {
-                blinded_utxo: blind_data_2.blinded_utxo.clone(),
+                recipient_data: RecipientData::BlindedUTXO(
+                    SecretSeal::from_str(&receive_data_2.recipient_id.clone()).unwrap(),
+                ),
                 amount,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
@@ -624,9 +661,9 @@ fn batch_fail() {
     // transfer is in WaitingConfirmations status and cannot be failed
     assert!(check_test_transfer_status_recipient(
         &wallet,
-        &blind_data_2.blinded_utxo,
+        &receive_data_2.recipient_id,
         TransferStatus::WaitingConfirmations
     ));
-    let result = wallet.fail_transfers(online, Some(blind_data_2.blinded_utxo), None, false);
+    let result = wallet.fail_transfers(online, Some(receive_data_2.recipient_id), None, false);
     assert!(matches!(result, Err(Error::CannotFailTransfer)));
 }

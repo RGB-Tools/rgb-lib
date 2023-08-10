@@ -48,14 +48,34 @@ pub struct AckResponse {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct GetConsignmentResponse {
+    pub(crate) consignment: String,
+    pub(crate) txid: String,
+    pub(crate) vout: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct PostAckParams {
-    blinded_utxo: String,
+    recipient_id: String,
     ack: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct BlindedUtxoParam {
-    blinded_utxo: String,
+pub struct PostConsignmentParams {
+    recipient_id: String,
+    txid: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct PostConsignmentWithVoutParams {
+    recipient_id: String,
+    txid: String,
+    vout: u32,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct RecipientIDParam {
+    recipient_id: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -66,28 +86,30 @@ pub struct AttachmentIdParam {
 pub trait Proxy {
     fn get_info(self, url: &str) -> Result<JsonRpcResponse<ServerInfoResponse>, Error>;
 
-    fn get_ack(self, url: &str, blindedutxo: String) -> Result<JsonRpcResponse<bool>, Error>;
+    fn get_ack(self, url: &str, recipient_id: String) -> Result<JsonRpcResponse<bool>, Error>;
 
     fn get_consignment(
         self,
         url: &str,
-        blindedutxo: String,
-    ) -> Result<JsonRpcResponse<String>, Error>;
+        recipient_id: String,
+    ) -> Result<JsonRpcResponse<GetConsignmentResponse>, Error>;
 
     fn get_media(self, url: &str, attachment_id: String) -> Result<JsonRpcResponse<String>, Error>;
 
     fn post_ack(
         self,
         url: &str,
-        blindedutxo: String,
+        recipient_id: String,
         ack: bool,
     ) -> Result<JsonRpcResponse<bool>, Error>;
 
     fn post_consignment(
         self,
         url: &str,
-        blindedutxo: String,
+        recipient_id: String,
         consignment_path: PathBuf,
+        txid: String,
+        vout: Option<u32>,
     ) -> Result<JsonRpcResponse<bool>, Error>;
 
     fn post_media(
@@ -115,12 +137,12 @@ impl Proxy for Client {
             .map_err(InternalError::from)?)
     }
 
-    fn get_ack(self, url: &str, blinded_utxo: String) -> Result<JsonRpcResponse<bool>, Error> {
+    fn get_ack(self, url: &str, recipient_id: String) -> Result<JsonRpcResponse<bool>, Error> {
         let body = JsonRpcRequest {
             method: s!("ack.get"),
             jsonrpc: s!("2.0"),
             id: None,
-            params: Some(BlindedUtxoParam { blinded_utxo }),
+            params: Some(RecipientIDParam { recipient_id }),
         };
         Ok(self
             .post(url)
@@ -134,20 +156,20 @@ impl Proxy for Client {
     fn get_consignment(
         self,
         url: &str,
-        blinded_utxo: String,
-    ) -> Result<JsonRpcResponse<String>, Error> {
+        recipient_id: String,
+    ) -> Result<JsonRpcResponse<GetConsignmentResponse>, Error> {
         let body = JsonRpcRequest {
             method: s!("consignment.get"),
             jsonrpc: s!("2.0"),
             id: None,
-            params: Some(BlindedUtxoParam { blinded_utxo }),
+            params: Some(RecipientIDParam { recipient_id }),
         };
         Ok(self
             .post(url)
             .header(CONTENT_TYPE, JSON)
             .json(&body)
             .send()?
-            .json::<JsonRpcResponse<String>>()
+            .json::<JsonRpcResponse<GetConsignmentResponse>>()
             .map_err(InternalError::from)?)
     }
 
@@ -170,14 +192,14 @@ impl Proxy for Client {
     fn post_ack(
         self,
         url: &str,
-        blinded_utxo: String,
+        recipient_id: String,
         ack: bool,
     ) -> Result<JsonRpcResponse<bool>, Error> {
         let body = JsonRpcRequest {
             method: s!("ack.post"),
             jsonrpc: s!("2.0"),
             id: None,
-            params: Some(PostAckParams { blinded_utxo, ack }),
+            params: Some(PostAckParams { recipient_id, ack }),
         };
         Ok(self
             .post(url)
@@ -191,11 +213,22 @@ impl Proxy for Client {
     fn post_consignment(
         self,
         url: &str,
-        blinded_utxo: String,
+        recipient_id: String,
         consignment_path: PathBuf,
+        txid: String,
+        vout: Option<u32>,
     ) -> Result<JsonRpcResponse<bool>, Error> {
-        let params = serde_json::to_string(&BlindedUtxoParam { blinded_utxo })
-            .map_err(InternalError::from)?;
+        let params = if let Some(vout) = vout {
+            serde_json::to_string(&PostConsignmentWithVoutParams {
+                recipient_id,
+                txid,
+                vout,
+            })
+            .map_err(InternalError::from)?
+        } else {
+            serde_json::to_string(&PostConsignmentParams { recipient_id, txid })
+                .map_err(InternalError::from)?
+        };
         let form = multipart::Form::new()
             .text("method", "consignment.post")
             .text("jsonrpc", "2.0")

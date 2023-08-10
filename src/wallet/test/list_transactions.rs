@@ -16,13 +16,15 @@ fn success() {
             vec![AMOUNT],
         )
         .unwrap();
-    let blind_data = rcv_wallet
+    let receive_data = rcv_wallet
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id,
         vec![Recipient {
-            blinded_utxo: blind_data.blinded_utxo,
+            recipient_data: RecipientData::BlindedUTXO(
+                SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
+            ),
             amount: AMOUNT,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],

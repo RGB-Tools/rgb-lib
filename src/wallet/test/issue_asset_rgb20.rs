@@ -7,7 +7,7 @@ fn success() {
     let (mut wallet, online) = get_funded_wallet!();
 
     // add a pending operation to an UTXO so spendable balance will be != settled / future
-    let _blind_data = wallet.blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone());
+    let _receive_data = wallet.blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone());
 
     let asset = wallet
         .issue_asset_rgb20(
@@ -109,14 +109,16 @@ fn no_issue_on_pending_send() {
         })
         .unwrap();
     // send 1st asset
-    let blind_data = rcv_wallet
+    let receive_data = rcv_wallet
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_1.asset_id.clone(),
         vec![Recipient {
             amount,
-            blinded_utxo: blind_data.blinded_utxo,
+            recipient_data: RecipientData::BlindedUTXO(
+                SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
+            ),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);

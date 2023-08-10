@@ -53,13 +53,13 @@ fn up_to_allocation_checks() {
     let mut blinded_utxos: Vec<String> = vec![];
     let mut txo_list: HashSet<DbTxo> = HashSet::new();
     for _ in 0..MAX_ALLOCATIONS_PER_UTXO {
-        let blind_data = wallet
+        let receive_data = wallet
             .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
             .unwrap();
-        let transfer = get_test_transfer_recipient(&wallet, &blind_data.blinded_utxo);
+        let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
         let coloring = get_test_coloring(&wallet, transfer.asset_transfer_idx);
         let txo = get_test_txo(&wallet, coloring.txo_idx);
-        blinded_utxos.push(blind_data.blinded_utxo);
+        blinded_utxos.push(receive_data.recipient_id);
         txo_list.insert(txo);
     }
     // check all blinds are on the same UTXO + fail all of them
@@ -86,10 +86,10 @@ fn up_to_allocation_checks() {
     // create MAX_ALLOCATIONS_PER_UTXO blinds on the same UTXO
     let mut txo_list: HashSet<DbTxo> = HashSet::new();
     for _ in 0..MAX_ALLOCATIONS_PER_UTXO {
-        let blind_data = wallet
+        let receive_data = wallet
             .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
             .unwrap();
-        let transfer = get_test_transfer_recipient(&wallet, &blind_data.blinded_utxo);
+        let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
         let coloring = get_test_coloring(&wallet, transfer.asset_transfer_idx);
         let txo = get_test_txo(&wallet, coloring.txo_idx);
         txo_list.insert(txo);
@@ -130,14 +130,16 @@ fn up_to_allocation_checks() {
             )
             .unwrap();
         // send
-        let blind_data = rcv_wallet
+        let receive_data = rcv_wallet
             .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
             .unwrap();
         let recipient_map = HashMap::from([(
             asset.asset_id.clone(),
             vec![Recipient {
                 amount,
-                blinded_utxo: blind_data.blinded_utxo,
+                recipient_data: RecipientData::BlindedUTXO(
+                    SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
+                ),
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             }],
         )]);

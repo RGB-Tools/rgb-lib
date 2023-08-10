@@ -198,9 +198,11 @@ impl MigrationTrait for Migration {
                             .not_null(),
                     )
                     .col(ColumnDef::new(Transfer::Amount).string().not_null())
-                    .col(ColumnDef::new(Transfer::BlindedUtxo).string())
-                    .col(ColumnDef::new(Transfer::BlindingSecret).string())
+                    .col(ColumnDef::new(Transfer::Incoming).boolean().not_null())
+                    .col(ColumnDef::new(Transfer::RecipientType).tiny_unsigned())
+                    .col(ColumnDef::new(Transfer::RecipientID).string())
                     .col(ColumnDef::new(Transfer::Ack).boolean())
+                    .col(ColumnDef::new(Transfer::Vout).unsigned())
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk-transfer-assettransfer")
@@ -447,9 +449,11 @@ pub enum Transfer {
     Idx,
     AssetTransferIdx,
     Amount,
-    BlindedUtxo,
-    BlindingSecret,
+    Incoming,
+    RecipientType,
+    RecipientID,
     Ack,
+    Vout,
 }
 
 #[derive(DeriveIden)]

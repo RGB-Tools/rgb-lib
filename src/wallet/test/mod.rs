@@ -288,18 +288,18 @@ fn test_send_default(
 
 fn check_test_transfer_status_recipient(
     wallet: &Wallet,
-    blinded_utxo: &str,
+    recipient_id: &str,
     expected_status: TransferStatus,
 ) -> bool {
     let transfers = wallet.database.iter_transfers().unwrap();
     let transfer = transfers
         .iter()
-        .find(|t| t.blinded_utxo == Some(blinded_utxo.to_string()))
+        .find(|t| t.recipient_id == Some(recipient_id.to_string()))
         .unwrap();
     let (transfer_data, _) = get_test_transfer_data(wallet, transfer);
     println!(
-        "receive with blinded_utxo {} is in status {:?}",
-        blinded_utxo, &transfer_data.status
+        "receive with recipient_id {} is in status {:?}",
+        recipient_id, &transfer_data.status
     );
     transfer_data.status == expected_status
 }
@@ -506,13 +506,13 @@ fn get_test_coloring(wallet: &Wallet, asset_transfer_idx: i32) -> DbColoring {
     colorings.first().unwrap().clone()
 }
 
-fn get_test_transfer_recipient(wallet: &Wallet, blinded_utxo: &str) -> DbTransfer {
+fn get_test_transfer_recipient(wallet: &Wallet, recipient_id: &str) -> DbTransfer {
     wallet
         .database
         .iter_transfers()
         .unwrap()
         .into_iter()
-        .find(|t| t.blinded_utxo == Some(blinded_utxo.to_string()))
+        .find(|t| t.recipient_id == Some(recipient_id.to_string()))
         .unwrap()
 }
 
@@ -567,6 +567,7 @@ fn get_test_transfer_data(
     let transfer_data = wallet
         .database
         .get_transfer_data(
+            transfer,
             &asset_transfer,
             &batch_transfer,
             &db_data.txos,

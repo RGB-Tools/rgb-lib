@@ -97,13 +97,13 @@ fn transfer_balances() {
     //
 
     // blind + fail to check failed blinds are not counted in balance
-    let blind_data_fail = wallet_recv
+    let receive_data_fail = wallet_recv
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     wallet_recv
         .fail_transfers(
             online_recv.clone(),
-            Some(blind_data_fail.blinded_utxo.clone()),
+            Some(receive_data_fail.recipient_id.clone()),
             None,
             false,
         )
@@ -112,7 +112,9 @@ fn transfer_balances() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            blinded_utxo: blind_data_fail.blinded_utxo,
+            recipient_data: RecipientData::BlindedUTXO(
+                SecretSeal::from_str(&receive_data_fail.recipient_id).unwrap(),
+            ),
             amount: amount_1,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -122,13 +124,15 @@ fn transfer_balances() {
         .fail_transfers(online_send.clone(), None, Some(txid), false)
         .unwrap();
     // send some assets
-    let blind_data_1 = wallet_recv
+    let receive_data_1 = wallet_recv
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            blinded_utxo: blind_data_1.blinded_utxo,
+            recipient_data: RecipientData::BlindedUTXO(
+                SecretSeal::from_str(&receive_data_1.recipient_id).unwrap(),
+            ),
             amount: amount_1,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -250,13 +254,15 @@ fn transfer_balances() {
     //
 
     // send some assets
-    let blind_data_2 = wallet_recv
+    let receive_data_2 = wallet_recv
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            blinded_utxo: blind_data_2.blinded_utxo,
+            recipient_data: RecipientData::BlindedUTXO(
+                SecretSeal::from_str(&receive_data_2.recipient_id).unwrap(),
+            ),
             amount: amount_2,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],

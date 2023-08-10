@@ -29,7 +29,7 @@ const TIMESTAMP_FORMAT: &[time::format_description::FormatItem] = time::macros::
 pub(crate) const LOG_FILE: &str = "log";
 
 /// Supported Bitcoin networks
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub enum BitcoinNetwork {
     /// Bitcoin's mainnet
     Mainnet,
@@ -48,6 +48,28 @@ impl From<BdkNetwork> for BitcoinNetwork {
             BdkNetwork::Testnet => BitcoinNetwork::Testnet,
             BdkNetwork::Signet => BitcoinNetwork::Signet,
             BdkNetwork::Regtest => BitcoinNetwork::Regtest,
+        }
+    }
+}
+
+impl From<RgbNetwork> for BitcoinNetwork {
+    fn from(x: RgbNetwork) -> BitcoinNetwork {
+        match x {
+            RgbNetwork::Bitcoin => BitcoinNetwork::Mainnet,
+            RgbNetwork::Testnet3 => BitcoinNetwork::Testnet,
+            RgbNetwork::Signet => BitcoinNetwork::Signet,
+            RgbNetwork::Regtest => BitcoinNetwork::Regtest,
+        }
+    }
+}
+
+impl From<BitcoinNetwork> for bitcoin::Network {
+    fn from(x: BitcoinNetwork) -> bitcoin::Network {
+        match x {
+            BitcoinNetwork::Mainnet => bitcoin::Network::Bitcoin,
+            BitcoinNetwork::Testnet => bitcoin::Network::Testnet,
+            BitcoinNetwork::Signet => bitcoin::Network::Signet,
+            BitcoinNetwork::Regtest => bitcoin::Network::Regtest,
         }
     }
 }

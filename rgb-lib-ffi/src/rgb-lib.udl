@@ -41,17 +41,21 @@ interface RgbLibError {
   InvalidFeeRate(string details);
   InvalidFilePath(string file_path);
   InvalidInvoice(string details);
+  InvalidInvoiceData(string details);
   InvalidMnemonic(string details);
   InvalidName(string details);
   InvalidPrecision(string details);
   InvalidPsbt(string details);
   InvalidPubkey(string details);
+  InvalidRecipientID();
+  InvalidScript(string details);
   InvalidTicker(string details);
   NoIssuanceAmounts();
   NoValidTransportEndpoint();
   Offline();
   Proxy(string details);
-  TransferNotFound(string blinded_utxo);
+  ScriptAlreadyUsed();
+  TransferNotFound(string recipient_id);
   UnknownRgbInterface(string interface);
   UnknownRgbSchema(string schema_id);
   UnsupportedTransportType();
@@ -112,10 +116,9 @@ enum BitcoinNetwork {
   "Regtest",
 };
 
-dictionary BlindData {
+dictionary ReceiveData {
   string invoice;
-  string blinded_utxo;
-  u64 blinding_secret;
+  string recipient_id;
   i64? expiration_timestamp;
 };
 
@@ -152,10 +155,11 @@ interface Invoice {
 };
 
 dictionary InvoiceData {
-  string blinded_utxo;
+  string recipient_id;
   AssetIface? asset_iface;
   string? asset_id;
   u64? amount;
+  BitcoinNetwork? network;
   i64? expiration_timestamp;
   sequence<string> transport_endpoints;
 };
@@ -187,8 +191,15 @@ dictionary Outpoint {
   u32 vout;
 };
 
+dictionary ScriptData {
+  string script;
+  u64 amount_sat;
+  u64? blinding;
+};
+
 dictionary Recipient {
-  string blinded_utxo;
+  string? blinded_utxo;
+  ScriptData? script_data;
   u64 amount;
   sequence<string> transport_endpoints;
 };
@@ -217,7 +228,8 @@ dictionary TransferTransportEndpoint {
 
 enum TransferKind {
   "Issuance",
-  "Receive",
+  "ReceiveBlind",
+  "ReceiveWitness",
   "Send",
 };
 
@@ -257,10 +269,9 @@ dictionary Transfer {
   u64 amount;
   TransferKind kind;
   string? txid;
-  string? blinded_utxo;
-  Outpoint? unblinded_utxo;
+  string? recipient_id;
+  Outpoint? receive_utxo;
   Outpoint? change_utxo;
-  u64? blinding_secret;
   i64? expiration;
   sequence<TransferTransportEndpoint> transport_endpoints;
 };
@@ -293,7 +304,11 @@ interface Wallet {
   void backup(string backup_path, string password);
 
   [Throws=RgbLibError]
-  BlindData blind_receive(string? asset_id, u64? amount, u32? duration_seconds,
+  ReceiveData blind_receive(string? asset_id, u64? amount, u32? duration_seconds,
+  sequence<string> transport_endpoints);
+
+  [Throws=RgbLibError]
+  ReceiveData witness_receive(string? asset_id, u64? amount, u32? duration_seconds,
   sequence<string> transport_endpoints);
 
   [Throws=RgbLibError]

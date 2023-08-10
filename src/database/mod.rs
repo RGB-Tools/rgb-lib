@@ -1,5 +1,5 @@
 use bdk::bitcoin::OutPoint as BdkOutPoint;
-use bdk::LocalUtxo;
+use bdk::{KeychainKind, LocalUtxo};
 use futures::executor::block_on;
 use sea_orm::{ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder};
 use serde::{Deserialize, Serialize};
@@ -7,7 +7,7 @@ use std::str::FromStr;
 
 use crate::error::InternalError;
 use crate::utils::now;
-use crate::wallet::{Balance, Outpoint, TransferKind};
+use crate::wallet::{Balance, Outpoint, RecipientData, TransferKind};
 use crate::Error;
 
 pub(crate) mod entities;
@@ -36,7 +36,7 @@ use entities::{
     transport_endpoint, txo, wallet_transaction,
 };
 
-use self::enums::{ColoringType, TransferStatus, TransportType};
+use self::enums::{ColoringType, RecipientType, TransferStatus, TransportType};
 
 #[derive(Clone, Debug)]
 pub(crate) struct DbAssetTransferData {
@@ -58,7 +58,7 @@ impl DbBatchTransfer {
         Ok(transfers
             .iter()
             .filter(|t| asset_transfer_ids.contains(&t.asset_transfer_idx))
-            .all(|t| t.blinding_secret.is_some()))
+            .all(|t| t.incoming))
     }
 
     pub(crate) fn get_asset_transfers(
@@ -120,7 +120,7 @@ pub(crate) struct DbBatchTransferData {
 impl DbColoring {
     pub(crate) fn incoming(&self) -> bool {
         vec![
-            ColoringType::Blind,
+            ColoringType::Receive,
             ColoringType::Change,
             ColoringType::Issue,
         ]
@@ -173,12 +173,16 @@ impl From<DbTxo> for BdkOutPoint {
 
 impl From<LocalUtxo> for DbTxoActMod {
     fn from(x: LocalUtxo) -> DbTxoActMod {
+        let colorable = match x.keychain {
+            KeychainKind::External => true,
+            KeychainKind::Internal => false,
+        };
         DbTxoActMod {
             idx: ActiveValue::NotSet,
             txid: ActiveValue::Set(x.outpoint.txid.to_string()),
             vout: ActiveValue::Set(x.outpoint.vout),
             btc_amount: ActiveValue::Set(x.txout.value.to_string()),
-            colorable: ActiveValue::Set(false),
+            colorable: ActiveValue::Set(colorable),
             spent: ActiveValue::Set(false),
         }
     }
@@ -202,9 +206,20 @@ pub(crate) struct LocalUnspent {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub(crate) struct LocalRecipient {
-    pub blinded_utxo: String,
+    pub recipient_data: RecipientData,
     pub amount: u64,
     pub transport_endpoints: Vec<LocalTransportEndpoint>,
+    pub vout: Option<u32>,
+}
+
+impl LocalRecipient {
+    pub(crate) fn recipient_id(&self) -> String {
+        self.recipient_data.recipient_id()
+    }
+
+    pub(crate) fn recipient_type(&self) -> RecipientType {
+        self.recipient_data.recipient_type()
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -238,7 +253,7 @@ pub(crate) struct TransferData {
     pub(crate) kind: TransferKind,
     pub(crate) status: TransferStatus,
     pub(crate) txid: Option<String>,
-    pub(crate) unblinded_utxo: Option<Outpoint>,
+    pub(crate) receive_utxo: Option<Outpoint>,
     pub(crate) change_utxo: Option<Outpoint>,
     pub(crate) created_at: i64,
     pub(crate) updated_at: i64,
@@ -649,16 +664,16 @@ impl RgbLibDatabase {
 
     pub(crate) fn get_transfer_or_fail(
         &self,
-        blinded_utxo: String,
+        recipient_id: String,
         transfers: &[DbTransfer],
     ) -> Result<DbTransfer, Error> {
         if let Some(transfer) = transfers
             .iter()
-            .find(|t| t.blinded_utxo == Some(blinded_utxo.clone()))
+            .find(|t| t.recipient_id == Some(recipient_id.clone()))
         {
             Ok(transfer.clone())
         } else {
-            Err(Error::TransferNotFound { blinded_utxo })
+            Err(Error::TransferNotFound { recipient_id })
         }
     }
 
@@ -679,6 +694,7 @@ impl RgbLibDatabase {
 
     pub(crate) fn get_transfer_data(
         &self,
+        transfer: &DbTransfer,
         asset_transfer: &DbAssetTransfer,
         batch_transfer: &DbBatchTransfer,
         txos: &[DbTxo],
@@ -721,7 +737,10 @@ impl RgbLibDatabase {
             {
                 TransferKind::Issuance
             } else {
-                TransferKind::Receive
+                match transfer.recipient_type.unwrap() {
+                    RecipientType::Blind => TransferKind::ReceiveBlind,
+                    RecipientType::Witness => TransferKind::ReceiveWitness,
+                }
             }
         } else {
             TransferKind::Send
@@ -733,20 +752,20 @@ impl RgbLibDatabase {
             .cloned()
             .filter(|t| txo_ids.contains(&t.idx))
             .collect();
-        let (unblinded_utxo, change_utxo) = match kind {
-            TransferKind::Receive => {
-                let blinded_txo_idx: Vec<i32> = filtered_coloring
-                    .filter(|c| c.coloring_type == ColoringType::Blind)
+        let (receive_utxo, change_utxo) = match kind {
+            TransferKind::ReceiveBlind | TransferKind::ReceiveWitness => {
+                let received_txo_idx: Vec<i32> = filtered_coloring
+                    .filter(|c| c.coloring_type == ColoringType::Receive)
                     .map(|c| c.txo_idx)
                     .collect();
-                let unblinded_utxo = transfer_txos
+                let receive_utxo = transfer_txos
                     .into_iter()
-                    .filter(|t| blinded_txo_idx.contains(&t.idx))
+                    .filter(|t| received_txo_idx.contains(&t.idx))
                     .map(|t| t.outpoint())
                     .collect::<Vec<Outpoint>>()
                     .first()
                     .cloned();
-                (unblinded_utxo, None)
+                (receive_utxo, None)
             }
             TransferKind::Send => {
                 let change_txo_idx: Vec<i32> = filtered_coloring
@@ -769,7 +788,7 @@ impl RgbLibDatabase {
             kind,
             status: batch_transfer.status,
             txid: batch_transfer.txid.clone(),
-            unblinded_utxo,
+            receive_utxo,
             change_utxo,
             created_at: batch_transfer.created_at,
             updated_at: batch_transfer.updated_at,

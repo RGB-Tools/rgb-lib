@@ -150,6 +150,10 @@ pub enum Error {
         details: String,
     },
 
+    /// The provided recipient ID is neither a blinded UTXO or a script
+    #[error("The provided recipient ID is neither a blinded UTXO or a script")]
+    InvalidRecipientID,
+
     /// The provided transport endpoint is invalid
     #[error("Invalid transport endpoint: {details}")]
     InvalidTransportEndpoint {
@@ -199,6 +203,13 @@ pub enum Error {
         details: String,
     },
 
+    /// The provided invoice data is invalid
+    #[error("Invalid invoice data: {details}")]
+    InvalidInvoiceData {
+        /// Error details
+        details: String,
+    },
+
     /// The provided mnemonic phrase is invalid
     #[error("Invalid mnemonic error: {details}")]
     InvalidMnemonic {
@@ -234,6 +245,13 @@ pub enum Error {
         details: String,
     },
 
+    /// The provided script is invalid
+    #[error("Invalid script: {details}")]
+    InvalidScript {
+        /// Error details
+        details: String,
+    },
+
     /// The provided asset ticker is invalid
     #[error("Invalid ticker: {details}")]
     InvalidTicker {
@@ -260,11 +278,15 @@ pub enum Error {
         details: String,
     },
 
+    /// Provided script has already been used for another transfer
+    #[error("Script already used")]
+    ScriptAlreadyUsed,
+
     /// The requested transfer was not found
-    #[error("Transfer with blinded UTXO {blinded_utxo} not found")]
+    #[error("Transfer with recipient ID {recipient_id} not found")]
     TransferNotFound {
-        /// Blinded UTXO
-        blinded_utxo: String,
+        /// Recipient ID
+        recipient_id: String,
     },
 
     /// The detected RGB interface is unknown

@@ -74,4 +74,6 @@ pub use crate::keys::generate_keys;
 pub use crate::keys::restore_keys;
 pub use crate::utils::BitcoinNetwork;
 pub use crate::wallet::backup::restore_backup;
-pub use crate::wallet::Wallet;
+pub use crate::wallet::{TransferKind, Wallet};
+pub use bitcoin::ScriptBuf;
+pub use rgb_core::SecretSeal;

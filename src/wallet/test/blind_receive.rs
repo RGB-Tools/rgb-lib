@@ -1,6 +1,5 @@
 use crate::database::entities::transfer_transport_endpoint;
 use crate::wallet::MAX_TRANSPORT_ENDPOINTS;
-use rgbwallet::RgbInvoice;
 use sea_orm::EntityTrait;
 
 use super::*;
@@ -15,27 +14,27 @@ fn success() {
 
     // default expiration
     let now_timestamp = now().unix_timestamp();
-    let blind_data = wallet
+    let receive_data = wallet
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
-    assert!(blind_data.expiration_timestamp.is_some());
+    assert!(receive_data.expiration_timestamp.is_some());
     let timestamp = now_timestamp + DURATION_RCV_TRANSFER as i64;
-    assert!(blind_data.expiration_timestamp.unwrap() - timestamp <= 1);
+    assert!(receive_data.expiration_timestamp.unwrap() - timestamp <= 1);
 
     // positive expiration
     let now_timestamp = now().unix_timestamp();
-    let blind_data = wallet
+    let receive_data = wallet
         .blind_receive(None, None, Some(expiration), TRANSPORT_ENDPOINTS.clone())
         .unwrap();
-    assert!(blind_data.expiration_timestamp.is_some());
+    assert!(receive_data.expiration_timestamp.is_some());
     let timestamp = now_timestamp + expiration as i64;
-    assert!(blind_data.expiration_timestamp.unwrap() - timestamp <= 1);
+    assert!(receive_data.expiration_timestamp.unwrap() - timestamp <= 1);
 
     // 0 expiration
-    let blind_data = wallet
+    let receive_data = wallet
         .blind_receive(None, None, Some(0), TRANSPORT_ENDPOINTS.clone())
         .unwrap();
-    assert!(blind_data.expiration_timestamp.is_none());
+    assert!(receive_data.expiration_timestamp.is_none());
 
     // asset id is set
     let asset = wallet
@@ -66,15 +65,15 @@ fn success() {
         TRANSPORT_ENDPOINTS.clone(),
     );
     assert!(result.is_ok());
-    let blind_data = result.unwrap();
+    let receive_data = result.unwrap();
 
     // Invoice checks
-    let invoice = Invoice::new(blind_data.invoice).unwrap();
+    let invoice = Invoice::new(receive_data.invoice).unwrap();
     let mut invoice_data = invoice.invoice_data();
     let invoice_from_data = Invoice::from_invoice_data(invoice_data.clone()).unwrap();
     let approx_expiry = now_timestamp + expiration as i64;
     assert_eq!(invoice.invoice_string(), invoice_from_data.invoice_string());
-    assert_eq!(invoice_data.blinded_utxo, blind_data.blinded_utxo);
+    assert_eq!(invoice_data.recipient_id, receive_data.recipient_id);
     assert_eq!(invoice_data.asset_id, Some(asset_id));
     assert_eq!(invoice_data.amount, Some(amount));
     assert!(invoice_data.expiration_timestamp.unwrap() - approx_expiry <= 1);
@@ -84,7 +83,7 @@ fn success() {
     assert!(matches!(result, Err(Error::InvalidAssetID { asset_id: a }) if a == invalid_asset_id));
 
     // check BlindedUTXO
-    let result = BlindedUTXO::new(blind_data.blinded_utxo);
+    let result = BlindedUTXO::new(receive_data.recipient_id);
     assert!(result.is_ok());
 
     // transport endpoints: multiple endpoints
@@ -95,7 +94,7 @@ fn success() {
     ];
     let result = wallet.blind_receive(None, None, Some(0), transport_endpoints.clone());
     assert!(result.is_ok());
-    let transfer = get_test_transfer_recipient(&wallet, &result.unwrap().blinded_utxo);
+    let transfer = get_test_transfer_recipient(&wallet, &result.unwrap().recipient_id);
     let tce_data = wallet
         .database
         .get_transfer_transport_endpoints_data(transfer.idx)
@@ -114,11 +113,11 @@ fn respect_max_allocations() {
     for _ in 0..UTXO_NUM {
         let mut txo_list: HashSet<DbTxo> = HashSet::new();
         for _ in 0..MAX_ALLOCATIONS_PER_UTXO {
-            let blind_data = wallet
+            let receive_data = wallet
                 .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
                 .unwrap();
             created_allocations += 1;
-            let transfer = get_test_transfer_recipient(&wallet, &blind_data.blinded_utxo);
+            let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
             let coloring = get_test_coloring(&wallet, transfer.asset_transfer_idx);
             let txo = get_test_txo(&wallet, coloring.txo_idx);
             txo_list.insert(txo);
@@ -142,11 +141,11 @@ fn expire() {
 
     // check expiration
     let now_timestamp = now().unix_timestamp();
-    let blind_data_1 = wallet
+    let receive_data_1 = wallet
         .blind_receive(None, None, Some(expiration), TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let timestamp = now_timestamp + expiration as i64;
-    assert!(blind_data_1.expiration_timestamp.unwrap() - timestamp <= 1);
+    assert!(receive_data_1.expiration_timestamp.unwrap() - timestamp <= 1);
 
     // wait for expiration to be in the past
     std::thread::sleep(std::time::Duration::from_millis(
@@ -165,7 +164,7 @@ fn expire() {
         .unwrap();
 
     // check transfer is now in status Failed
-    let transfer = get_test_transfer_recipient(&wallet, &blind_data_1.blinded_utxo);
+    let transfer = get_test_transfer_recipient(&wallet, &receive_data_1.recipient_id);
     let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
     assert_eq!(transfer_data.status, TransferStatus::Failed);
 }
@@ -201,13 +200,15 @@ fn pending_outgoing_transfer_fail() {
         })
         .unwrap();
     // send
-    let blind_data = rcv_wallet
+    let receive_data = rcv_wallet
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_id.clone(),
         vec![Recipient {
-            blinded_utxo: blind_data.blinded_utxo,
+            recipient_data: RecipientData::BlindedUTXO(
+                SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
+            ),
             amount,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -216,7 +217,7 @@ fn pending_outgoing_transfer_fail() {
     assert!(!txid.is_empty());
 
     // check blind doesn't get allocated to UTXO being spent
-    let blind_data = wallet
+    let receive_data = wallet
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     show_unspent_colorings(&wallet, "after 1st blind");
@@ -230,13 +231,13 @@ fn pending_outgoing_transfer_fail() {
     wallet
         .fail_transfers(
             online.clone(),
-            Some(blind_data.blinded_utxo.clone()),
+            Some(receive_data.recipient_id.clone()),
             None,
             false,
         )
         .unwrap();
     wallet
-        .delete_transfers(Some(blind_data.blinded_utxo), None, false)
+        .delete_transfers(Some(receive_data.recipient_id), None, false)
         .unwrap();
 
     // take transfer from WaitingCounterparty to WaitingConfirmations
@@ -263,15 +264,6 @@ fn fail() {
 
     let mut wallet = get_test_wallet(true, Some(1)); // using 1 max allocation per utxo
     let online = wallet.go_online(true, ELECTRUM_URL.to_string()).unwrap();
-
-    // bad asset id
-    let result = wallet.blind_receive(
-        Some(s!("rgb1inexistent")),
-        None,
-        None,
-        TRANSPORT_ENDPOINTS.clone(),
-    );
-    assert!(matches!(result, Err(Error::AssetNotFound { asset_id: _ })));
 
     // insufficient funds
     let result = wallet.blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone());
@@ -313,10 +305,20 @@ fn fail() {
     let result = Invoice::new(invoice.to_string());
     assert!(matches!(result, Err(Error::UnsupportedInvoice)));
 
-    // cannot blind if all UTXOS already have an allocation
     fund_wallet(wallet.get_address());
     mine(false);
     test_create_utxos(&mut wallet, online.clone(), true, Some(1), None, FEE_RATE);
+
+    // bad asset id
+    let result = wallet.blind_receive(
+        Some(s!("rgb1inexistent")),
+        None,
+        None,
+        TRANSPORT_ENDPOINTS.clone(),
+    );
+    assert!(matches!(result, Err(Error::AssetNotFound { asset_id: _ })));
+
+    // cannot blind if all UTXOS already have an allocation
     let _asset = wallet
         .issue_asset_rgb20(
             online.clone(),
@@ -369,7 +371,6 @@ fn fail() {
         format!("rpc://127.0.0.1:3003/json-rpc"),
     ];
     let result = wallet.blind_receive(None, None, Some(0), transport_endpoints);
-    println!("RES: {result:?}");
     let msg = format!(
         "library supports at max {} transport endpoints",
         MAX_TRANSPORT_ENDPOINTS
@@ -381,10 +382,10 @@ fn fail() {
 
     // transport endpoints: no endpoints for transfer > Failed
     let transport_endpoints = vec![format!("rpc://{PROXY_HOST}")];
-    let blind_data = wallet
+    let receive_data = wallet
         .blind_receive(None, None, Some(0), transport_endpoints)
         .unwrap();
-    let transfer = get_test_transfer_recipient(&wallet, &blind_data.blinded_utxo);
+    let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
     let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
     let tce_data = wallet
         .database
@@ -399,7 +400,7 @@ fn fail() {
     }
     assert_eq!(transfer_data.status, TransferStatus::WaitingCounterparty);
     wallet.refresh(online, None, vec![]).unwrap();
-    let transfer = get_test_transfer_recipient(&wallet, &blind_data.blinded_utxo);
+    let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
     let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
     assert_eq!(transfer_data.status, TransferStatus::Failed);
 
@@ -446,7 +447,7 @@ fn wrong_asset_fail() {
         )
         .unwrap();
 
-    let blind_data_a = wallet_1
+    let receive_data_a = wallet_1
         .blind_receive(
             Some(asset_a.asset_id),
             None,
@@ -459,7 +460,9 @@ fn wrong_asset_fail() {
         asset_b.asset_id.clone(),
         vec![Recipient {
             amount,
-            blinded_utxo: blind_data_a.blinded_utxo.clone(),
+            recipient_data: RecipientData::BlindedUTXO(
+                SecretSeal::from_str(&receive_data_a.recipient_id.clone()).unwrap(),
+            ),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -467,7 +470,7 @@ fn wrong_asset_fail() {
     assert!(!txid.is_empty());
 
     // transfer is pending
-    let rcv_transfer_a = get_test_transfer_recipient(&wallet_1, &blind_data_a.blinded_utxo);
+    let rcv_transfer_a = get_test_transfer_recipient(&wallet_1, &receive_data_a.recipient_id);
     let (rcv_transfer_data_a, _) = get_test_transfer_data(&wallet_1, &rcv_transfer_a);
     assert_eq!(
         rcv_transfer_data_a.status,

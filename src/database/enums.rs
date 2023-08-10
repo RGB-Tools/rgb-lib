@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 #[sea_orm(rs_type = "u16", db_type = "Integer")]
 pub enum ColoringType {
     #[sea_orm(num_value = 1)]
-    Blind = 1,
+    Receive = 1,
     #[sea_orm(num_value = 2)]
     Issue = 2,
     #[sea_orm(num_value = 3)]
@@ -20,6 +20,17 @@ impl IntoActiveValue<ColoringType> for ColoringType {
     fn into_active_value(self) -> ActiveValue<ColoringType> {
         ActiveValue::Set(self)
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, DeriveActiveEnum, Deserialize, Serialize)]
+#[sea_orm(rs_type = "u16", db_type = "Integer")]
+pub enum RecipientType {
+    /// Receive via blinded UTXO
+    #[sea_orm(num_value = 1)]
+    Blind = 1,
+    /// Receive via witness TX
+    #[sea_orm(num_value = 2)]
+    Witness = 2,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, DeriveActiveEnum, Deserialize, Serialize)]
