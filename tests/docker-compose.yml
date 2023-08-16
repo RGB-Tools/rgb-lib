@@ -25,10 +25,7 @@ services:
     ports:
       - 3000:3000
   proxy-mod-proto:
-    build:
-      context: ./rgb-proxy-server
-      dockerfile: ./Dockerfile.modified-proto
-    image: rgb-proxy-server:modified-proto
+    image: ghcr.io/grunch/rgb-proxy-server:0.1.0
     ports:
       - 3001:3000
   proxy-mod-api:

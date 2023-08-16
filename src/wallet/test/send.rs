@@ -26,7 +26,7 @@ fn success() {
         .unwrap();
     let transfers = wallet.list_transfers(asset.asset_id.clone()).unwrap();
     assert_eq!(transfers.len(), 1);
-    assert!(transfers.first().unwrap().kind == TransferKind::Issuance);
+    assert_eq!(transfers.first().unwrap().kind, TransferKind::Issuance);
 
     // send
     let receive_data = rcv_wallet
@@ -37,7 +37,7 @@ fn success() {
         vec![Recipient {
             amount,
             recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data.recipient_id.clone()).unwrap(),
+                SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
             ),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -95,8 +95,8 @@ fn success() {
         Some(transfer_data.created_at + DURATION_SEND_TRANSFER)
     );
     // transfer is incoming for receiver and outgoing for sender
-    assert!(rcv_transfer_data.kind == TransferKind::ReceiveBlind);
-    assert!(transfer_data.kind == TransferKind::Send);
+    assert_eq!(rcv_transfer_data.kind, TransferKind::ReceiveBlind);
+    assert_eq!(transfer_data.kind, TransferKind::Send);
     // transfers start in WaitingCounterparty status
     assert_eq!(
         rcv_transfer_data.status,
@@ -213,7 +213,7 @@ fn success() {
         vec![Recipient {
             amount,
             recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data_api_proto.recipient_id.clone()).unwrap(),
+                SecretSeal::from_str(&receive_data_api_proto.recipient_id).unwrap(),
             ),
             transport_endpoints,
         }],
@@ -309,8 +309,7 @@ fn success() {
         vec![Recipient {
             amount,
             recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data_invalid_unreachable.recipient_id.clone())
-                    .unwrap(),
+                SecretSeal::from_str(&receive_data_invalid_unreachable.recipient_id).unwrap(),
             ),
             transport_endpoints,
         }],
@@ -412,7 +411,7 @@ fn spend_all() {
         .into_iter()
         .filter(|u| !u.rgb_allocations.is_empty())
         .collect();
-    assert!(unspents_with_rgb_allocations.len() == 1);
+    assert_eq!(unspents_with_rgb_allocations.len(), 1);
     let allocation_asset_ids: Vec<String> = unspents_with_rgb_allocations
         .first()
         .unwrap()
@@ -434,7 +433,7 @@ fn spend_all() {
         vec![Recipient {
             amount: AMOUNT,
             recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data.recipient_id.clone()).unwrap(),
+                SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
             ),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -570,7 +569,7 @@ fn send_twice_success() {
         vec![Recipient {
             amount: amount_1,
             recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data_1.recipient_id.clone()).unwrap(),
+                SecretSeal::from_str(&receive_data_1.recipient_id).unwrap(),
             ),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -628,7 +627,7 @@ fn send_twice_success() {
         vec![Recipient {
             amount: amount_2,
             recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data_2.recipient_id.clone()).unwrap(),
+                SecretSeal::from_str(&receive_data_2.recipient_id).unwrap(),
             ),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -730,7 +729,7 @@ fn send_blank_success() {
         .into_iter()
         .filter(|u| !u.rgb_allocations.is_empty())
         .collect();
-    assert!(unspents_with_rgb_allocations.len() == 1);
+    assert_eq!(unspents_with_rgb_allocations.len(), 1);
     let allocation_asset_ids: Vec<String> = unspents_with_rgb_allocations
         .first()
         .unwrap()
@@ -797,10 +796,10 @@ fn send_blank_success() {
     // transfers data
     assert_eq!(transfer_w1.status, TransferStatus::Settled);
     assert_eq!(transfer_w1.amount, amount_1);
-    assert!(transfer_w1.kind == TransferKind::Send);
+    assert_eq!(transfer_w1.kind, TransferKind::Send);
     assert_eq!(transfer_w2.status, TransferStatus::Settled);
     assert_eq!(transfer_w2.amount, amount_1);
-    assert!(transfer_w2.kind == TransferKind::ReceiveBlind);
+    assert_eq!(transfer_w2.kind, TransferKind::ReceiveBlind);
     // sender change
     let change_utxo = transfer_w1.change_utxo.as_ref().unwrap();
     let unspents = wallet_1.list_unspents(true).unwrap();
@@ -886,10 +885,10 @@ fn send_blank_success() {
     // transfers data
     assert_eq!(transfer_w1.status, TransferStatus::Settled);
     assert_eq!(transfer_w1.amount, amount_2);
-    assert!(transfer_w1.kind == TransferKind::Send);
+    assert_eq!(transfer_w1.kind, TransferKind::Send);
     assert_eq!(transfer_w2.status, TransferStatus::Settled);
     assert_eq!(transfer_w2.amount, amount_2);
-    assert!(transfer_w2.kind == TransferKind::ReceiveBlind);
+    assert_eq!(transfer_w2.kind, TransferKind::ReceiveBlind);
     // sender change
     let change_utxo = transfer_w1.change_utxo.as_ref().unwrap();
     let unspents = wallet_1.list_unspents(true).unwrap();
@@ -982,7 +981,7 @@ fn send_received_success() {
             asset_rgb20.asset_id.clone(),
             vec![Recipient {
                 recipient_data: RecipientData::BlindedUTXO(
-                    SecretSeal::from_str(&receive_data_a20.recipient_id.clone()).unwrap(),
+                    SecretSeal::from_str(&receive_data_a20.recipient_id).unwrap(),
                 ),
                 amount: amount_1a,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -992,7 +991,7 @@ fn send_received_success() {
             asset_rgb25.asset_id.clone(),
             vec![Recipient {
                 recipient_data: RecipientData::BlindedUTXO(
-                    SecretSeal::from_str(&receive_data_a25.recipient_id.clone()).unwrap(),
+                    SecretSeal::from_str(&receive_data_a25.recipient_id).unwrap(),
                 ),
                 amount: amount_1b,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -1066,7 +1065,7 @@ fn send_received_success() {
             asset_rgb20.asset_id.clone(),
             vec![Recipient {
                 recipient_data: RecipientData::BlindedUTXO(
-                    SecretSeal::from_str(&receive_data_b20.recipient_id.clone()).unwrap(),
+                    SecretSeal::from_str(&receive_data_b20.recipient_id).unwrap(),
                 ),
                 amount: amount_2a,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -1076,7 +1075,7 @@ fn send_received_success() {
             asset_rgb25.asset_id.clone(),
             vec![Recipient {
                 recipient_data: RecipientData::BlindedUTXO(
-                    SecretSeal::from_str(&receive_data_b25.recipient_id.clone()).unwrap(),
+                    SecretSeal::from_str(&receive_data_b25.recipient_id).unwrap(),
                 ),
                 amount: amount_2b,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -1194,7 +1193,7 @@ fn send_received_rgb25_success() {
         asset.asset_id.clone(),
         vec![Recipient {
             recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data_1.recipient_id.clone()).unwrap(),
+                SecretSeal::from_str(&receive_data_1.recipient_id).unwrap(),
             ),
             amount: amount_1,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -1248,7 +1247,7 @@ fn send_received_rgb25_success() {
         asset.asset_id.clone(),
         vec![Recipient {
             recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data_2.recipient_id.clone()).unwrap(),
+                SecretSeal::from_str(&receive_data_2.recipient_id).unwrap(),
             ),
             amount: amount_2,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -1364,14 +1363,14 @@ fn receive_multiple_same_asset_success() {
             Recipient {
                 amount: amount_1,
                 recipient_data: RecipientData::BlindedUTXO(
-                    SecretSeal::from_str(&receive_data_1.recipient_id.clone()).unwrap(),
+                    SecretSeal::from_str(&receive_data_1.recipient_id).unwrap(),
                 ),
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
             Recipient {
                 amount: amount_2,
                 recipient_data: RecipientData::BlindedUTXO(
-                    SecretSeal::from_str(&receive_data_2.recipient_id.clone()).unwrap(),
+                    SecretSeal::from_str(&receive_data_2.recipient_id).unwrap(),
                 ),
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
@@ -1466,10 +1465,10 @@ fn receive_multiple_same_asset_success() {
         Some(transfer_data_2.created_at + DURATION_SEND_TRANSFER)
     );
     // transfer is incoming for receiver and outgoing for sender
-    assert!(rcv_transfer_data_1.kind == TransferKind::ReceiveBlind);
-    assert!(rcv_transfer_data_2.kind == TransferKind::ReceiveBlind);
-    assert!(transfer_data_1.kind == TransferKind::Send);
-    assert!(transfer_data_2.kind == TransferKind::Send);
+    assert_eq!(rcv_transfer_data_1.kind, TransferKind::ReceiveBlind);
+    assert_eq!(rcv_transfer_data_2.kind, TransferKind::ReceiveBlind);
+    assert_eq!(transfer_data_1.kind, TransferKind::Send);
+    assert_eq!(transfer_data_2.kind, TransferKind::Send);
     // transfers start in WaitingCounterparty status
     assert_eq!(
         rcv_transfer_data_1.status,
@@ -1655,7 +1654,7 @@ fn receive_multiple_different_assets_success() {
             vec![Recipient {
                 amount: amount_1,
                 recipient_data: RecipientData::BlindedUTXO(
-                    SecretSeal::from_str(&receive_data_1.recipient_id.clone()).unwrap(),
+                    SecretSeal::from_str(&receive_data_1.recipient_id).unwrap(),
                 ),
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             }],
@@ -1665,7 +1664,7 @@ fn receive_multiple_different_assets_success() {
             vec![Recipient {
                 amount: amount_2,
                 recipient_data: RecipientData::BlindedUTXO(
-                    SecretSeal::from_str(&receive_data_2.recipient_id.clone()).unwrap(),
+                    SecretSeal::from_str(&receive_data_2.recipient_id).unwrap(),
                 ),
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             }],
@@ -1763,10 +1762,10 @@ fn receive_multiple_different_assets_success() {
         Some(transfer_data_2.created_at + DURATION_SEND_TRANSFER)
     );
     // transfers are incoming for receiver and outgoing for sender
-    assert!(rcv_transfer_data_1.kind == TransferKind::ReceiveBlind);
-    assert!(rcv_transfer_data_2.kind == TransferKind::ReceiveBlind);
-    assert!(transfer_data_1.kind == TransferKind::Send);
-    assert!(transfer_data_2.kind == TransferKind::Send);
+    assert_eq!(rcv_transfer_data_1.kind, TransferKind::ReceiveBlind);
+    assert_eq!(rcv_transfer_data_2.kind, TransferKind::ReceiveBlind);
+    assert_eq!(transfer_data_1.kind, TransferKind::Send);
+    assert_eq!(transfer_data_2.kind, TransferKind::Send);
     // transfers start in WaitingCounterparty status
     assert_eq!(
         rcv_transfer_data_1.status,
@@ -1992,7 +1991,7 @@ fn batch_donation_success() {
     let unspents_with_rgb_allocations = unspents
         .into_iter()
         .filter(|u| !u.rgb_allocations.is_empty());
-    assert!(unspents_with_rgb_allocations.count() == 3);
+    assert_eq!(unspents_with_rgb_allocations.count(), 3);
 
     // blind
     let receive_data_a1 = rcv_wallet_1
@@ -2201,14 +2200,14 @@ fn ack() {
         vec![
             Recipient {
                 recipient_data: RecipientData::BlindedUTXO(
-                    SecretSeal::from_str(&receive_data_1.recipient_id.clone()).unwrap(),
+                    SecretSeal::from_str(&receive_data_1.recipient_id).unwrap(),
                 ),
                 amount,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
             Recipient {
                 recipient_data: RecipientData::BlindedUTXO(
-                    SecretSeal::from_str(&receive_data_2.recipient_id.clone()).unwrap(),
+                    SecretSeal::from_str(&receive_data_2.recipient_id).unwrap(),
                 ),
                 amount,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -2296,7 +2295,7 @@ fn nack() {
         asset.asset_id.clone(),
         vec![Recipient {
             recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data.recipient_id.clone()).unwrap(),
+                SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
             ),
             amount,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -2584,7 +2583,7 @@ fn fail() {
         s!("rgb1inexistent"),
         vec![Recipient {
             recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data.recipient_id.clone()).unwrap(),
+                SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
             ),
             amount: AMOUNT / 2,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -2598,7 +2597,7 @@ fn fail() {
         asset.asset_id.clone(),
         vec![Recipient {
             recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data.recipient_id.clone()).unwrap(),
+                SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
             ),
             amount: AMOUNT + 1,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -2615,7 +2614,7 @@ fn fail() {
         asset.asset_id.clone(),
         vec![Recipient {
             recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data.recipient_id.clone()).unwrap(),
+                SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
             ),
             amount: AMOUNT / 2,
             transport_endpoints,
@@ -2634,7 +2633,7 @@ fn fail() {
         asset.asset_id.clone(),
         vec![Recipient {
             recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data.recipient_id.clone()).unwrap(),
+                SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
             ),
             amount: AMOUNT / 2,
             transport_endpoints,
@@ -2652,7 +2651,7 @@ fn fail() {
         asset.asset_id.clone(),
         vec![Recipient {
             recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data.recipient_id.clone()).unwrap(),
+                SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
             ),
             amount: AMOUNT / 2,
             transport_endpoints,
@@ -2673,7 +2672,7 @@ fn fail() {
         asset.asset_id.clone(),
         vec![Recipient {
             recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data.recipient_id.clone()).unwrap(),
+                SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
             ),
             amount: AMOUNT / 2,
             transport_endpoints,
@@ -2697,7 +2696,7 @@ fn fail() {
         asset.asset_id.clone(),
         vec![Recipient {
             recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data.recipient_id.clone()).unwrap(),
+                SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
             ),
             amount: AMOUNT / 2,
             transport_endpoints,
@@ -3469,7 +3468,7 @@ fn send_received_back_success() {
         vec![Recipient {
             amount: amount_1,
             recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data_1.recipient_id.clone()).unwrap(),
+                SecretSeal::from_str(&receive_data_1.recipient_id).unwrap(),
             ),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -3527,7 +3526,7 @@ fn send_received_back_success() {
         vec![Recipient {
             amount: amount_2,
             recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data_2.recipient_id.clone()).unwrap(),
+                SecretSeal::from_str(&receive_data_2.recipient_id).unwrap(),
             ),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -3589,7 +3588,7 @@ fn send_received_back_success() {
         vec![Recipient {
             amount: amount_3, // make sure to spend received transfer allocation
             recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data_3.recipient_id.clone()).unwrap(),
+                SecretSeal::from_str(&receive_data_3.recipient_id).unwrap(),
             ),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -3630,4 +3629,113 @@ fn send_received_back_success() {
     let change_allocations = change_unspent.rgb_allocations;
     assert_eq!(change_allocations.len(), 1);
     assert_eq!(change_allocations.first().unwrap().amount, change_3);
+}
+
+#[test]
+fn witness_success() {
+    initialize();
+
+    let amount: u64 = 66;
+
+    // wallets
+    let (mut wallet, online) = get_funded_wallet!();
+    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
+
+    // issue
+    let asset = wallet
+        .issue_asset_rgb20(
+            online.clone(),
+            TICKER.to_string(),
+            NAME.to_string(),
+            PRECISION,
+            vec![AMOUNT],
+        )
+        .unwrap();
+
+    // send
+    let receive_data = rcv_wallet
+        .witness_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .unwrap();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            amount,
+            recipient_data: RecipientData::WitnessData {
+                script_buf: ScriptBuf::from_hex(&receive_data.recipient_id).unwrap(),
+                amount_sat: 1000,
+                blinding: None,
+            },
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid = test_send_default(&mut wallet, &online, recipient_map);
+    assert!(!txid.is_empty());
+
+    stop_mining();
+
+    // transfers progress to status WaitingConfirmations after a refresh
+    rcv_wallet
+        .refresh(rcv_online.clone(), None, vec![])
+        .unwrap();
+    let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &receive_data.recipient_id);
+    let (rcv_transfer_data, rcv_asset_transfer) =
+        get_test_transfer_data(&rcv_wallet, &rcv_transfer);
+    wallet
+        .refresh(online.clone(), Some(asset.asset_id.clone()), vec![])
+        .unwrap();
+    let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
+    let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
+
+    assert_eq!(
+        rcv_transfer_data.status,
+        TransferStatus::WaitingConfirmations
+    );
+    assert_eq!(transfer_data.status, TransferStatus::WaitingConfirmations);
+    assert_eq!(rcv_transfer.amount, amount.to_string());
+    // ack is now true on the sender side
+    assert_eq!(transfer.ack, Some(true));
+    // asset id is now set on the receiver side
+    assert_eq!(rcv_asset_transfer.asset_id, Some(asset.asset_id.clone()));
+
+    // asset has been received correctly
+    let rcv_assets = rcv_wallet.list_assets(vec![]).unwrap();
+    let rgb20_assets = rcv_assets.rgb20.unwrap();
+    let rgb25_assets = rcv_assets.rgb25.unwrap();
+    assert_eq!(rgb20_assets.len(), 1);
+    assert_eq!(rgb25_assets.len(), 0);
+    let rcv_asset = rgb20_assets.last().unwrap();
+    assert_eq!(rcv_asset.asset_id, asset.asset_id);
+    assert_eq!(rcv_asset.ticker, TICKER);
+    assert_eq!(rcv_asset.name, NAME);
+    assert_eq!(rcv_asset.precision, PRECISION);
+    assert_eq!(
+        rcv_asset.balance,
+        Balance {
+            settled: 0,
+            future: 0, // still 0 for witness transfers
+            spendable: 0,
+        }
+    );
+
+    // transfers progress to status Settled after tx mining + refresh
+    mine(true);
+    rcv_wallet.refresh(rcv_online, None, vec![]).unwrap();
+    wallet
+        .refresh(online.clone(), Some(asset.asset_id), vec![])
+        .unwrap();
+
+    let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &receive_data.recipient_id);
+    let (rcv_transfer_data, _) = get_test_transfer_data(&rcv_wallet, &rcv_transfer);
+    let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
+    let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
+    assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
+    assert_eq!(transfer_data.status, TransferStatus::Settled);
+
+    // change is unspent once transfer is Settled
+    wallet._sync_db_txos().unwrap();
+    let unspents = wallet.list_unspents(true).unwrap();
+    let change_unspent = unspents
+        .into_iter()
+        .find(|u| Some(u.utxo.outpoint.clone()) == transfer_data.change_utxo);
+    assert!(change_unspent.is_some());
 }

@@ -34,9 +34,7 @@ fn success() {
         }],
     )]);
     test_send_default(&mut wallet, &online, recipient_map);
-    rcv_wallet
-        .refresh(rcv_online.clone(), None, vec![])
-        .unwrap();
+    rcv_wallet.refresh(rcv_online, None, vec![]).unwrap();
     let rgb20_metadata = rcv_wallet.get_asset_metadata(asset_rgb20.asset_id).unwrap();
 
     assert_eq!(rgb20_metadata.asset_iface, AssetIface::RGB20);

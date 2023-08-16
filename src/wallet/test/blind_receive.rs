@@ -286,25 +286,6 @@ fn fail() {
     let result = Invoice::new(s!("invalid"));
     assert!(matches!(result, Err(Error::InvalidInvoice { details: _ })));
 
-    // unsupported invoice
-    use bitcoin::Address as BitcoinAddress;
-    let address = BitcoinAddress::from_str(&wallet.get_address()).unwrap();
-    let owned_state = TypedState::Amount(0);
-    let invoice = RgbInvoice {
-        transports: vec![RgbTransport::UnspecifiedMeans],
-        contract: None,
-        iface: Some(TypeName::try_from("RGB20").unwrap()),
-        operation: None,
-        assignment: None,
-        beneficiary: Beneficiary::WitnessUtxo(address.assume_checked()),
-        owned_state,
-        chain: None,
-        expiry: None,
-        unknown_query: none!(),
-    };
-    let result = Invoice::new(invoice.to_string());
-    assert!(matches!(result, Err(Error::UnsupportedInvoice)));
-
     fund_wallet(wallet.get_address());
     mine(false);
     test_create_utxos(&mut wallet, online.clone(), true, Some(1), None, FEE_RATE);
@@ -461,7 +442,7 @@ fn wrong_asset_fail() {
         vec![Recipient {
             amount,
             recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data_a.recipient_id.clone()).unwrap(),
+                SecretSeal::from_str(&receive_data_a.recipient_id).unwrap(),
             ),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],

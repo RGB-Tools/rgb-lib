@@ -95,6 +95,7 @@ impl Miner {
             .status()
             .expect("failed to mine");
         assert!(status.success());
+        wait_electrs_sync();
         true
     }
 
@@ -141,6 +142,42 @@ fn resume_mining() {
         .write()
         .expect("MINER has been initialized")
         .resume_mining()
+}
+
+fn wait_electrs_sync() {
+    let t_0 = OffsetDateTime::now_utc();
+    let output = Command::new("docker")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .arg("compose")
+        .args(_bitcoin_cli())
+        .arg("getblockcount")
+        .output()
+        .expect("failed to call getblockcount");
+    assert!(output.status.success());
+    let blockcount_str =
+        std::str::from_utf8(&output.stdout).expect("could not parse blockcount output");
+    let blockcount = blockcount_str
+        .trim()
+        .parse::<u32>()
+        .expect("could not parte blockcount");
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let mut all_synced = true;
+        for electrum_url in [ELECTRUM_URL, ELECTRUM_2_URL] {
+            let electrum =
+                electrum_client::Client::new(electrum_url).expect("cannot get electrum client");
+            if electrum.block_header(blockcount as usize).is_err() {
+                all_synced = false;
+            }
+        }
+        if all_synced {
+            break;
+        };
+        if (OffsetDateTime::now_utc() - t_0).as_seconds_f32() > 10.0 {
+            panic!("electrs not syncing with bitcoind");
+        }
+    }
 }
 
 pub fn initialize() {
@@ -359,8 +396,8 @@ fn check_test_wallet_data(
     // transfer list
     let transfers = wallet.list_transfers(asset.asset_id.clone()).unwrap();
     assert_eq!(transfers.len(), 1 + transfer_num);
-    assert!(transfers.first().unwrap().kind == TransferKind::Issuance);
-    assert!(transfers.last().unwrap().kind == TransferKind::Send);
+    assert_eq!(transfers.first().unwrap().kind, TransferKind::Issuance);
+    assert_eq!(transfers.last().unwrap().kind, TransferKind::Send);
     assert_eq!(transfers.last().unwrap().status, TransferStatus::Settled);
     // unspent list
     let unspents = wallet.list_unspents(false).unwrap();
@@ -544,12 +581,7 @@ fn get_test_transfers_sender(
     let asset_transfers = get_test_asset_transfers(wallet, batch_transfer.idx);
     let mut transfers: HashMap<String, Vec<DbTransfer>> = HashMap::new();
     for asset_transfer in asset_transfers.clone() {
-        let asset_id = if asset_transfer.asset_id.is_some() {
-            asset_transfer.asset_id
-        } else {
-            asset_transfer.asset_id
-        }
-        .unwrap();
+        let asset_id = asset_transfer.asset_id.unwrap();
         let transfers_for_asset = get_test_transfers(wallet, asset_transfer.idx);
         transfers.insert(asset_id, transfers_for_asset);
     }
@@ -643,11 +675,7 @@ fn show_unspent_colorings(wallet: &Wallet, msg: &str) {
                 db_batch_transfer.status,
                 db_coloring.coloring_type,
                 db_coloring.amount,
-                if db_asset_transfer.asset_id.is_some() {
-                    &db_asset_transfer.asset_id
-                } else {
-                    &db_asset_transfer.asset_id
-                },
+                db_asset_transfer.asset_id.as_ref(),
             );
         }
     }
@@ -672,3 +700,4 @@ mod list_unspents;
 mod new;
 mod refresh;
 mod send;
+mod witness_receive;

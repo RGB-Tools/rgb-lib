@@ -187,7 +187,7 @@ fn batch_success() {
         vec![
             Recipient {
                 recipient_data: RecipientData::BlindedUTXO(
-                    SecretSeal::from_str(&receive_data_1.recipient_id.clone()).unwrap(),
+                    SecretSeal::from_str(&receive_data_1.recipient_id).unwrap(),
                 ),
                 amount,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -330,7 +330,7 @@ fn batch_fail() {
         vec![
             Recipient {
                 recipient_data: RecipientData::BlindedUTXO(
-                    SecretSeal::from_str(&receive_data_1.recipient_id.clone()).unwrap(),
+                    SecretSeal::from_str(&receive_data_1.recipient_id).unwrap(),
                 ),
                 amount,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -398,7 +398,7 @@ fn batch_fail() {
         asset_id,
         vec![Recipient {
             recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data_3.recipient_id.clone()).unwrap(),
+                SecretSeal::from_str(&receive_data_3.recipient_id).unwrap(),
             ),
             amount,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
