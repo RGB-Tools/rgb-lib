@@ -155,7 +155,7 @@ fn multi_success() {
 
     // check each allocation ends up on a different UTXO
     let unspents: Vec<Unspent> = wallet
-        .list_unspents(true)
+        .list_unspents(None, true)
         .unwrap()
         .into_iter()
         .filter(|u| !u.rgb_allocations.is_empty())
@@ -207,7 +207,7 @@ fn no_issue_on_pending_send() {
         )
         .unwrap();
     // get 1st issuance UTXO
-    let unspents = wallet.list_unspents(false).unwrap();
+    let unspents = wallet.list_unspents(None, false).unwrap();
     let unspent_1 = unspents
         .iter()
         .find(|u| {
@@ -246,7 +246,7 @@ fn no_issue_on_pending_send() {
         .unwrap();
     show_unspent_colorings(&wallet, "after 2nd issuance");
     // get 2nd issuance UTXO
-    let unspents = wallet.list_unspents(false).unwrap();
+    let unspents = wallet.list_unspents(None, false).unwrap();
     let unspent_2 = unspents
         .iter()
         .find(|u| {
@@ -276,7 +276,7 @@ fn no_issue_on_pending_send() {
         .unwrap();
     show_unspent_colorings(&wallet, "after 3rd issuance");
     // get 3rd issuance UTXO
-    let unspents = wallet.list_unspents(false).unwrap();
+    let unspents = wallet.list_unspents(None, false).unwrap();
     let unspent_3 = unspents
         .iter()
         .find(|u| {

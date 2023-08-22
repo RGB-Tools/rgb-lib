@@ -368,7 +368,7 @@ interface Wallet {
   sequence<Transfer> list_transfers(string asset_id);
 
   [Throws=RgbLibError]
-  sequence<Unspent> list_unspents(boolean settled_only);
+  sequence<Unspent> list_unspents(Online? online, boolean settled_only);
 
   [Throws=RgbLibError]
   boolean refresh(Online online, string? asset_id, sequence<RefreshFilter> filter);

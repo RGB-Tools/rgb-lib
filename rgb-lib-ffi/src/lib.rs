@@ -322,8 +322,12 @@ impl Wallet {
         self._get_wallet().list_transfers(asset_id)
     }
 
-    fn list_unspents(&self, settled_only: bool) -> Result<Vec<Unspent>, RgbLibError> {
-        self._get_wallet().list_unspents(settled_only)
+    fn list_unspents(
+        &self,
+        online: Option<Online>,
+        settled_only: bool,
+    ) -> Result<Vec<Unspent>, RgbLibError> {
+        self._get_wallet().list_unspents(online, settled_only)
     }
 
     fn refresh(

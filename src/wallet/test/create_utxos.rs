@@ -10,7 +10,7 @@ fn success() {
     let num_utxos_created =
         test_create_utxos(&mut wallet, online.clone(), true, None, None, FEE_RATE);
     assert_eq!(num_utxos_created, UTXO_NUM);
-    let unspents = wallet.list_unspents(false).unwrap();
+    let unspents = wallet.list_unspents(None, false).unwrap();
     assert_eq!(unspents.len(), (UTXO_NUM + 1) as usize);
 
     // up_to version with allocatable UTXOs partially available (1 missing)
@@ -24,14 +24,14 @@ fn success() {
         FEE_RATE,
     );
     assert_eq!(num_utxos_created, 1);
-    let unspents = wallet.list_unspents(false).unwrap();
+    let unspents = wallet.list_unspents(None, false).unwrap();
     assert_eq!(unspents.len(), (UTXO_NUM + 2) as usize);
 
     // forced version always creates UTXOs
     println!("\n=== up_to false");
     let num_utxos_created = test_create_utxos_default(&mut wallet, online);
     assert_eq!(num_utxos_created, UTXO_NUM);
-    let unspents = wallet.list_unspents(false).unwrap();
+    let unspents = wallet.list_unspents(None, false).unwrap();
     assert_eq!(unspents.len(), (UTXO_NUM * 2 + 2) as usize);
 }
 
@@ -72,7 +72,7 @@ fn up_to_allocation_checks() {
     // request 1 new UTXO, expecting the existing one is still allocatable
     let result = wallet.create_utxos(online.clone(), true, Some(1), None, FEE_RATE);
     assert!(matches!(result, Err(Error::AllocationsAlreadyAvailable)));
-    let unspents = wallet.list_unspents(false).unwrap();
+    let unspents = wallet.list_unspents(None, false).unwrap();
     assert_eq!(unspents.len(), 2);
 
     drain_wallet(&wallet, online.clone());
@@ -99,7 +99,7 @@ fn up_to_allocation_checks() {
     let num_utxos_created =
         test_create_utxos(&mut wallet, online.clone(), true, Some(1), None, FEE_RATE);
     assert_eq!(num_utxos_created, 1);
-    let unspents = wallet.list_unspents(false).unwrap();
+    let unspents = wallet.list_unspents(None, false).unwrap();
     assert_eq!(unspents.len(), 3);
 
     if MAX_ALLOCATIONS_PER_UTXO > 2 {

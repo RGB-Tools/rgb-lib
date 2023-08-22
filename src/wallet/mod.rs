@@ -2915,9 +2915,7 @@ impl Wallet {
         Ok(Assets { rgb20, rgb25 })
     }
 
-    /// List the [`Transaction`]s known to the RGB wallet
-    pub fn list_transactions(&self, online: Option<Online>) -> Result<Vec<Transaction>, Error> {
-        info!(self.logger, "Listing transactions...");
+    fn _sync_if_online(&self, online: Option<Online>) -> Result<(), Error> {
         if let Some(online) = online {
             self._check_online(online)?;
             self.bdk_wallet
@@ -2926,6 +2924,15 @@ impl Wallet {
                     details: e.to_string(),
                 })?;
         }
+        Ok(())
+    }
+
+    /// List the [`Transaction`]s known to the RGB wallet
+    pub fn list_transactions(&self, online: Option<Online>) -> Result<Vec<Transaction>, Error> {
+        info!(self.logger, "Listing transactions...");
+
+        self._sync_if_online(online)?;
+
         let mut create_utxos_txids = vec![];
         let mut drain_txids = vec![];
         let wallet_transactions = self.database.iter_wallet_transactions()?;
@@ -3017,8 +3024,14 @@ impl Wallet {
     /// List the [`Unspent`]s known to the RGB wallet,
     /// if `settled` is true only show settled allocations
     /// if `settled` is false also show pending allocations
-    pub fn list_unspents(&self, settled_only: bool) -> Result<Vec<Unspent>, Error> {
+    pub fn list_unspents(
+        &self,
+        online: Option<Online>,
+        settled_only: bool,
+    ) -> Result<Vec<Unspent>, Error> {
         info!(self.logger, "Listing unspents...");
+
+        self._sync_if_online(online)?;
 
         let db_data = self.database.get_db_data(true)?;
 

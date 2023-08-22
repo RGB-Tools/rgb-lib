@@ -190,7 +190,7 @@ fn pending_outgoing_transfer_fail() {
         .unwrap();
     let asset_id = asset.asset_id;
     // get issuance UTXO
-    let unspents = wallet.list_unspents(false).unwrap();
+    let unspents = wallet.list_unspents(None, false).unwrap();
     let unspent_issue = unspents
         .iter()
         .find(|u| {
@@ -221,7 +221,7 @@ fn pending_outgoing_transfer_fail() {
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     show_unspent_colorings(&wallet, "after 1st blind");
-    let unspents = wallet.list_unspents(false).unwrap();
+    let unspents = wallet.list_unspents(None, false).unwrap();
     let unspent_blind_1 = unspents
         .iter()
         .find(|u| u.rgb_allocations.iter().any(|a| a.asset_id.is_none()))
@@ -250,7 +250,7 @@ fn pending_outgoing_transfer_fail() {
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
         .unwrap();
     show_unspent_colorings(&wallet, "after 2nd blind");
-    let unspents = wallet.list_unspents(false).unwrap();
+    let unspents = wallet.list_unspents(None, false).unwrap();
     let unspent_blind_2 = unspents
         .iter()
         .find(|u| u.rgb_allocations.iter().any(|a| a.asset_id.is_none()))

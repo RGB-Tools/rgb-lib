@@ -400,7 +400,7 @@ fn check_test_wallet_data(
     assert_eq!(transfers.last().unwrap().kind, TransferKind::Send);
     assert_eq!(transfers.last().unwrap().status, TransferStatus::Settled);
     // unspent list
-    let unspents = wallet.list_unspents(false).unwrap();
+    let unspents = wallet.list_unspents(None, false).unwrap();
     assert_eq!(unspents.len(), 6);
 }
 
@@ -620,7 +620,7 @@ fn get_test_txo(wallet: &Wallet, idx: i32) -> DbTxo {
 }
 
 fn list_test_unspents(wallet: &Wallet, msg: &str) -> Vec<Unspent> {
-    let unspents = wallet.list_unspents(false).unwrap();
+    let unspents = wallet.list_unspents(None, false).unwrap();
     println!(
         "unspents for wallet {:?} {}: {}",
         wallet.get_wallet_dir(),
@@ -637,7 +637,7 @@ fn list_test_unspents(wallet: &Wallet, msg: &str) -> Vec<Unspent> {
 /// type, amount and asset
 fn show_unspent_colorings(wallet: &Wallet, msg: &str) {
     println!("\n{msg}");
-    let unspents = wallet.list_unspents(false).unwrap();
+    let unspents = wallet.list_unspents(None, false).unwrap();
     for unspent in unspents {
         let outpoint = unspent.utxo.outpoint;
         let db_txos = wallet.database.iter_txos().unwrap();

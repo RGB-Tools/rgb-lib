@@ -192,7 +192,7 @@ fn success() {
 
     // change is unspent once transfer is Settled
     wallet._sync_db_txos().unwrap();
-    let unspents = wallet.list_unspents(true).unwrap();
+    let unspents = wallet.list_unspents(None, true).unwrap();
     let change_unspent = unspents
         .into_iter()
         .find(|u| Some(u.utxo.outpoint.clone()) == transfer_data.change_utxo);
@@ -218,7 +218,7 @@ fn success() {
             transport_endpoints,
         }],
     )]);
-    let unspents = wallet.list_unspents(false).unwrap();
+    let unspents = wallet.list_unspents(None, false).unwrap();
     let unspents_color_count_before = unspents.iter().filter(|u| u.utxo.colorable).count();
     let txid = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid.is_empty());
@@ -285,7 +285,7 @@ fn success() {
     let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
     assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
     assert_eq!(transfer_data.status, TransferStatus::Settled);
-    let unspents = wallet.list_unspents(false).unwrap();
+    let unspents = wallet.list_unspents(None, false).unwrap();
     let unspents_color_count_after = unspents.iter().filter(|u| u.utxo.colorable).count();
     assert_eq!(unspents_color_count_after, unspents_color_count_before);
 
@@ -314,7 +314,7 @@ fn success() {
             transport_endpoints,
         }],
     )]);
-    let unspents = wallet.list_unspents(false).unwrap();
+    let unspents = wallet.list_unspents(None, false).unwrap();
     let unspents_color_count_before = unspents.iter().filter(|u| u.utxo.colorable).count();
     let txid = wallet
         .send(online.clone(), recipient_map, false, 5.0)
@@ -368,7 +368,7 @@ fn success() {
     let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
     let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
     assert_eq!(transfer_data.status, TransferStatus::Settled);
-    let unspents = wallet.list_unspents(false).unwrap();
+    let unspents = wallet.list_unspents(None, false).unwrap();
     let unspents_color_count_after = unspents.iter().filter(|u| u.utxo.colorable).count();
     assert_eq!(unspents_color_count_after, unspents_color_count_before - 1);
 }
@@ -406,7 +406,7 @@ fn spend_all() {
         .unwrap();
 
     // check both assets are allocated to the same UTXO
-    let unspents = wallet.list_unspents(true).unwrap();
+    let unspents = wallet.list_unspents(None, true).unwrap();
     let unspents_with_rgb_allocations: Vec<Unspent> = unspents
         .into_iter()
         .filter(|u| !u.rgb_allocations.is_empty())
@@ -517,7 +517,7 @@ fn spend_all() {
 
     // check the completely spent asset doesn't show up in unspents anymore
     wallet._sync_db_txos().unwrap();
-    let unspents = wallet.list_unspents(true).unwrap();
+    let unspents = wallet.list_unspents(None, true).unwrap();
     let found = unspents.iter().any(|u| {
         u.rgb_allocations
             .iter()
@@ -525,7 +525,7 @@ fn spend_all() {
     });
     assert!(!found);
     // check the blank asset shows up in unspents
-    let unspents = wallet.list_unspents(true).unwrap();
+    let unspents = wallet.list_unspents(None, true).unwrap();
     let found = unspents.iter().any(|u| {
         u.rgb_allocations
             .iter()
@@ -602,7 +602,7 @@ fn send_twice_success() {
     assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
     assert_eq!(transfer_data.status, TransferStatus::Settled);
 
-    let unspents = wallet.list_unspents(true).unwrap();
+    let unspents = wallet.list_unspents(None, true).unwrap();
     let change_unspent = unspents
         .into_iter()
         .find(|u| Some(u.utxo.outpoint.clone()) == transfer_data.change_utxo)
@@ -658,7 +658,7 @@ fn send_twice_success() {
     assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
     assert_eq!(transfer_data.status, TransferStatus::Settled);
 
-    let unspents = wallet.list_unspents(true).unwrap();
+    let unspents = wallet.list_unspents(None, true).unwrap();
     let change_unspent = unspents
         .into_iter()
         .find(|u| Some(u.utxo.outpoint.clone()) == transfer_data.change_utxo)
@@ -724,7 +724,7 @@ fn send_blank_success() {
     let asset_rgb25_cid = ContractId::from_str(&asset_rgb25.asset_id).unwrap();
 
     // check both assets are allocated to the same UTXO
-    let unspents = wallet_1.list_unspents(true).unwrap();
+    let unspents = wallet_1.list_unspents(None, true).unwrap();
     let unspents_with_rgb_allocations: Vec<Unspent> = unspents
         .into_iter()
         .filter(|u| !u.rgb_allocations.is_empty())
@@ -802,7 +802,7 @@ fn send_blank_success() {
     assert_eq!(transfer_w2.kind, TransferKind::ReceiveBlind);
     // sender change
     let change_utxo = transfer_w1.change_utxo.as_ref().unwrap();
-    let unspents = wallet_1.list_unspents(true).unwrap();
+    let unspents = wallet_1.list_unspents(None, true).unwrap();
     let change_unspent = unspents
         .into_iter()
         .find(|u| u.utxo.outpoint == *change_utxo)
@@ -891,7 +891,7 @@ fn send_blank_success() {
     assert_eq!(transfer_w2.kind, TransferKind::ReceiveBlind);
     // sender change
     let change_utxo = transfer_w1.change_utxo.as_ref().unwrap();
-    let unspents = wallet_1.list_unspents(true).unwrap();
+    let unspents = wallet_1.list_unspents(None, true).unwrap();
     let change_unspent = unspents
         .into_iter()
         .find(|u| u.utxo.outpoint == *change_utxo)
@@ -1031,7 +1031,7 @@ fn send_received_success() {
     assert_eq!(transfer_data_w2a.status, TransferStatus::Settled);
     assert_eq!(transfer_data_w2b.status, TransferStatus::Settled);
 
-    let unspents = wallet_1.list_unspents(true).unwrap();
+    let unspents = wallet_1.list_unspents(None, true).unwrap();
     let change_unspent = unspents
         .into_iter()
         .find(|u| Some(u.utxo.outpoint.clone()) == transfer_data_w1a.change_utxo)
@@ -1115,7 +1115,7 @@ fn send_received_success() {
     assert_eq!(transfer_data_w3a.status, TransferStatus::Settled);
     assert_eq!(transfer_data_w3b.status, TransferStatus::Settled);
 
-    let unspents = wallet_2.list_unspents(true).unwrap();
+    let unspents = wallet_2.list_unspents(None, true).unwrap();
     let change_unspent = unspents
         .into_iter()
         .find(|u| Some(u.utxo.outpoint.clone()) == transfer_data_w2a.change_utxo)
@@ -1223,7 +1223,7 @@ fn send_received_rgb25_success() {
     assert_eq!(transfer_data_w1.status, TransferStatus::Settled);
     assert_eq!(transfer_data_w2.status, TransferStatus::Settled);
 
-    let unspents = wallet_1.list_unspents(true).unwrap();
+    let unspents = wallet_1.list_unspents(None, true).unwrap();
     let change_unspent = unspents
         .into_iter()
         .find(|u| Some(u.utxo.outpoint.clone()) == transfer_data_w1.change_utxo)
@@ -1277,7 +1277,7 @@ fn send_received_rgb25_success() {
     assert_eq!(transfer_data_w3.status, TransferStatus::Settled);
     assert_eq!(transfer_data_w2.status, TransferStatus::Settled);
 
-    let unspents = wallet_2.list_unspents(true).unwrap();
+    let unspents = wallet_2.list_unspents(None, true).unwrap();
     let change_unspent = unspents
         .into_iter()
         .find(|u| Some(u.utxo.outpoint.clone()) == transfer_data_w2.change_utxo)
@@ -1602,7 +1602,7 @@ fn receive_multiple_same_asset_success() {
 
     // change is unspent once transfer is Settled
     wallet._sync_db_txos().unwrap();
-    let unspents = wallet.list_unspents(true).unwrap();
+    let unspents = wallet.list_unspents(None, true).unwrap();
     let change_unspent = unspents
         .into_iter()
         .find(|u| Some(u.utxo.outpoint.clone()) == transfer_data_1.change_utxo);
@@ -1934,7 +1934,7 @@ fn receive_multiple_different_assets_success() {
 
     // change is unspent once transfer is Settled
     wallet._sync_db_txos().unwrap();
-    let unspents = wallet.list_unspents(true).unwrap();
+    let unspents = wallet.list_unspents(None, true).unwrap();
     let change_unspent = unspents
         .into_iter()
         .find(|u| Some(u.utxo.outpoint.clone()) == transfer_data_1.change_utxo);
@@ -1987,7 +1987,7 @@ fn batch_donation_success() {
     show_unspent_colorings(&wallet, "after issuances");
 
     // check each assets is allocated to a different UTXO
-    let unspents = wallet.list_unspents(true).unwrap();
+    let unspents = wallet.list_unspents(None, true).unwrap();
     let unspents_with_rgb_allocations = unspents
         .into_iter()
         .filter(|u| !u.rgb_allocations.is_empty());
@@ -2057,7 +2057,7 @@ fn batch_donation_success() {
     let transfers_a = wallet.list_transfers(asset_a.asset_id.clone()).unwrap();
     let transfer_a = transfers_a.last().unwrap();
     let change_utxo = transfer_a.change_utxo.as_ref().unwrap();
-    let unspents = wallet.list_unspents(false).unwrap();
+    let unspents = wallet.list_unspents(None, false).unwrap();
     let change_unspent = unspents
         .into_iter()
         .find(|u| u.utxo.outpoint == *change_utxo)
@@ -2420,7 +2420,7 @@ fn no_change_on_pending_send() {
             vec![AMOUNT],
         )
         .unwrap();
-    let unspents = wallet.list_unspents(false).unwrap();
+    let unspents = wallet.list_unspents(None, false).unwrap();
     let unspent_1 = unspents
         .iter()
         .find(|u| {
@@ -3234,7 +3234,7 @@ fn insufficient_bitcoins() {
         .unwrap();
 
     // send with no colorable UTXOs available as additional bitcoin inputs and no other funds
-    let unspents = wallet.list_unspents(false).unwrap();
+    let unspents = wallet.list_unspents(None, false).unwrap();
     assert_eq!(unspents.len(), 1);
     let receive_data_1 = rcv_wallet
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
@@ -3274,7 +3274,7 @@ fn insufficient_bitcoins() {
         .unwrap();
 
     // send works with no colorable UTXOs available as additional bitcoin inputs
-    let unspents = wallet.list_unspents(false).unwrap();
+    let unspents = wallet.list_unspents(None, false).unwrap();
     assert_eq!(unspents.len(), 2);
     let txid = wallet.send(online, recipient_map, false, FEE_RATE).unwrap();
     assert!(!txid.is_empty());
@@ -3311,7 +3311,7 @@ fn insufficient_allocations_fail() {
         .unwrap();
 
     // send with no colorable UTXOs available as change
-    let unspents = wallet.list_unspents(false).unwrap();
+    let unspents = wallet.list_unspents(None, false).unwrap();
     assert_eq!(unspents.len(), 2);
     let receive_data_1 = rcv_wallet
         .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
@@ -3336,7 +3336,7 @@ fn insufficient_allocations_fail() {
     assert_eq!(num_utxos_created, 1);
 
     // send works with no colorable UTXOs available as additional bitcoin inputs
-    let unspents = wallet.list_unspents(false).unwrap();
+    let unspents = wallet.list_unspents(None, false).unwrap();
     assert_eq!(unspents.len(), 3);
     let txid = wallet.send(online, recipient_map, false, FEE_RATE).unwrap();
     assert!(!txid.is_empty());
@@ -3501,7 +3501,7 @@ fn send_received_back_success() {
     assert_eq!(rcv_transfer.amount, amount_1.to_string());
     assert_eq!(transfer.amount, amount_1.to_string());
 
-    let unspents = wallet.list_unspents(true).unwrap();
+    let unspents = wallet.list_unspents(None, true).unwrap();
     let change_unspent = unspents
         .into_iter()
         .find(|u| Some(u.utxo.outpoint.clone()) == transfer_data.change_utxo)
@@ -3555,7 +3555,7 @@ fn send_received_back_success() {
     assert_eq!(rcv_transfer.amount, amount_2.to_string());
     assert_eq!(transfer.amount, amount_2.to_string());
 
-    let unspents = rcv_wallet.list_unspents(true).unwrap();
+    let unspents = rcv_wallet.list_unspents(None, true).unwrap();
     let change_unspent = unspents
         .into_iter()
         .find(|u| Some(u.utxo.outpoint.clone()) == transfer_data.change_utxo)
@@ -3621,7 +3621,7 @@ fn send_received_back_success() {
     assert_eq!(rcv_transfer.amount, amount_3.to_string());
     assert_eq!(transfer.amount, amount_3.to_string());
 
-    let unspents = wallet.list_unspents(true).unwrap();
+    let unspents = wallet.list_unspents(None, true).unwrap();
     let change_unspent = unspents
         .into_iter()
         .find(|u| Some(u.utxo.outpoint.clone()) == transfer_data.change_utxo)
@@ -3734,7 +3734,7 @@ fn witness_success() {
 
     // change is unspent once transfer is Settled
     wallet._sync_db_txos().unwrap();
-    let unspents = wallet.list_unspents(true).unwrap();
+    let unspents = wallet.list_unspents(None, true).unwrap();
     let change_unspent = unspents
         .into_iter()
         .find(|u| Some(u.utxo.outpoint.clone()) == transfer_data.change_utxo);
