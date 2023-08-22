@@ -3686,6 +3686,7 @@ fn witness_success() {
     let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
     let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
 
+    assert_eq!(rcv_transfer_data.kind, TransferKind::ReceiveWitness);
     assert_eq!(
         rcv_transfer_data.status,
         TransferStatus::WaitingConfirmations

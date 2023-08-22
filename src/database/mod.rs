@@ -731,9 +731,10 @@ impl RgbLibDatabase {
             received > sent
         };
         let kind = if incoming {
-            if filtered_coloring
-                .clone()
-                .all(|c| c.coloring_type == ColoringType::Issue)
+            if filtered_coloring.clone().count() > 0
+                && filtered_coloring
+                    .clone()
+                    .all(|c| c.coloring_type == ColoringType::Issue)
             {
                 TransferKind::Issuance
             } else {
