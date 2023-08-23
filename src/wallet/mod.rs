@@ -1649,6 +1649,15 @@ impl Wallet {
         })
     }
 
+    /// Sign a PSBT
+    pub fn sign_psbt(&self, unsigned_psbt: String) -> Result<String, Error> {
+        let mut psbt = BdkPsbt::from_str(&unsigned_psbt).map_err(InternalError::from)?;
+        self.bdk_wallet
+            .sign(&mut psbt, SignOptions::default())
+            .map_err(InternalError::from)?;
+        Ok(psbt.to_string())
+    }
+
     fn _create_split_tx(
         &self,
         inputs: &[BdkOutPoint],
@@ -1684,12 +1693,9 @@ impl Wallet {
 
         let unsigned_psbt = self.create_utxos_begin(online.clone(), up_to, num, size, fee_rate)?;
 
-        let mut psbt = BdkPsbt::from_str(&unsigned_psbt).map_err(InternalError::from)?;
-        self.bdk_wallet
-            .sign(&mut psbt, SignOptions::default())
-            .map_err(InternalError::from)?;
+        let psbt = self.sign_psbt(unsigned_psbt)?;
 
-        self.create_utxos_end(online, psbt.to_string())
+        self.create_utxos_end(online, psbt)
     }
 
     /// Prepare the PSBT to create new UTXOs to hold RGB allocations.
@@ -1947,12 +1953,9 @@ impl Wallet {
         let unsigned_psbt =
             self.drain_to_begin(online.clone(), address, destroy_assets, fee_rate)?;
 
-        let mut psbt = BdkPsbt::from_str(&unsigned_psbt).map_err(InternalError::from)?;
-        self.bdk_wallet
-            .sign(&mut psbt, SignOptions::default())
-            .map_err(InternalError::from)?;
+        let psbt = self.sign_psbt(unsigned_psbt)?;
 
-        self.drain_to_end(online, psbt.to_string())
+        self.drain_to_end(online, psbt)
     }
 
     /// Prepare the PSBT to send bitcoin funds not in use for RGB allocations, or all if
@@ -4276,12 +4279,9 @@ impl Wallet {
 
         let unsigned_psbt = self.send_begin(online.clone(), recipient_map, donation, fee_rate)?;
 
-        let mut psbt = BdkPsbt::from_str(&unsigned_psbt).map_err(InternalError::from)?;
-        self.bdk_wallet
-            .sign(&mut psbt, SignOptions::default())
-            .map_err(InternalError::from)?;
+        let psbt = self.sign_psbt(unsigned_psbt)?;
 
-        self.send_end(online, psbt.to_string())
+        self.send_end(online, psbt)
     }
 
     /// Prepare the PSBT to send tokens according to the given recipient map.

@@ -183,6 +183,10 @@ impl Wallet {
             .witness_receive(asset_id, amount, duration_seconds, transport_endpoints)
     }
 
+    fn sign_psbt(&self, unsigned_psbt: String) -> Result<String, RgbLibError> {
+        self._get_wallet().sign_psbt(unsigned_psbt)
+    }
+
     fn create_utxos(
         &self,
         online: Online,

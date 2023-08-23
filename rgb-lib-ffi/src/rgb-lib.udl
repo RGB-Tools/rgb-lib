@@ -314,6 +314,9 @@ interface Wallet {
   sequence<string> transport_endpoints);
 
   [Throws=RgbLibError]
+  string sign_psbt(string unsigned_psbt);
+
+  [Throws=RgbLibError]
   u8 create_utxos(Online online, boolean up_to, u8? num, u32? size, f32 fee_rate);
 
   [Throws=RgbLibError]
