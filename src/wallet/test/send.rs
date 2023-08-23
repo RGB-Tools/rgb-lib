@@ -1,7 +1,7 @@
 const TINY_BTC_AMOUNT: u32 = 294;
 
 use super::*;
-use serial_test::parallel;
+use serial_test::{parallel, serial};
 use std::collections::BTreeSet;
 
 #[test]
@@ -3474,6 +3474,7 @@ fn witness_success() {
 }
 
 #[test]
+#[parallel]
 fn min_confirmations() {
     initialize();
 
@@ -3568,4 +3569,207 @@ fn min_confirmations() {
     let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
     assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
     assert_eq!(transfer_data.status, TransferStatus::Settled);
+}
+
+#[test]
+#[serial]
+fn spend_double_receive() {
+    initialize();
+
+    let amount_1 = 100;
+    let amount_2 = 200;
+
+    // wallets
+    let (wallet_1, online_1) = get_funded_wallet!();
+    let (wallet_3, online_3) = get_funded_wallet!();
+    // create bigger UTXOs for wallet_2 so a single one can support a witness transfer
+    let (wallet_2, online_2) = get_funded_noutxo_wallet!();
+    let created = test_create_utxos(&wallet_2, &online_2, false, None, Some(5000), FEE_RATE);
+    assert_eq!(created, UTXO_NUM);
+
+    // issue
+    println!("issue");
+    let asset = test_issue_asset_nia(&wallet_1, &online_1, None);
+
+    // send a first time 1->2 (blind)
+    println!("send blind 1->2");
+    let receive_data = test_blind_receive(&wallet_2);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            amount: amount_1,
+            recipient_data: RecipientData::BlindedUTXO(
+                SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
+            ),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid_1 = wallet_1
+        .send(
+            online_1.clone(),
+            recipient_map,
+            true,
+            FEE_RATE,
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+    assert!(!txid_1.is_empty());
+    // settle transfer
+    mine(false);
+    test_refresh_all(&wallet_2, &online_2);
+    test_refresh_all(&wallet_2, &online_2);
+    test_refresh_asset(&wallet_1, &online_1, &asset.asset_id);
+    // check transfer status
+    let rcv_transfer = get_test_transfer_recipient(&wallet_2, &receive_data.recipient_id);
+    let (rcv_transfer_data, _) = get_test_transfer_data(&wallet_2, &rcv_transfer);
+    let (transfer, _, _) = get_test_transfer_sender(&wallet_1, &txid_1);
+    let (transfer_data, _) = get_test_transfer_data(&wallet_1, &transfer);
+    assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
+    assert_eq!(transfer_data.status, TransferStatus::Settled);
+
+    // send a second time 1->2 (witness, so the 2 allocations can't be on the same UTXO)
+    println!("send witness 1->2");
+    let receive_data = test_witness_receive(&wallet_2);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            amount: amount_2,
+            recipient_data: RecipientData::WitnessData {
+                script_buf: ScriptBuf::from_hex(&receive_data.recipient_id).unwrap(),
+                amount_sat: 1000,
+                blinding: Some(777),
+            },
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid_2 = wallet_1
+        .send(
+            online_1.clone(),
+            recipient_map,
+            true,
+            FEE_RATE,
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+    assert!(!txid_2.is_empty());
+    // settle transfer
+    mine(false);
+    test_refresh_all(&wallet_2, &online_2);
+    test_refresh_all(&wallet_2, &online_2);
+    test_refresh_asset(&wallet_1, &online_1, &asset.asset_id);
+    // check transfer status
+    let rcv_transfer = get_test_transfer_recipient(&wallet_2, &receive_data.recipient_id);
+    let (rcv_transfer_data, _) = get_test_transfer_data(&wallet_2, &rcv_transfer);
+    let (transfer, _, _) = get_test_transfer_sender(&wallet_1, &txid_2);
+    let (transfer_data, _) = get_test_transfer_data(&wallet_1, &transfer);
+    assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
+    assert_eq!(transfer_data.status, TransferStatus::Settled);
+
+    // check wallet_2 has the 2 expected allocations
+    let unspents = test_list_unspents(&wallet_2, None, true);
+    let asset_unspents: Vec<&Unspent> = unspents
+        .iter()
+        .filter(|u| {
+            u.rgb_allocations
+                .iter()
+                .any(|a| a.asset_id == Some(asset.asset_id.clone()))
+        })
+        .collect();
+    assert_eq!(asset_unspents.len(), 2);
+    assert!(asset_unspents
+        .first()
+        .unwrap()
+        .rgb_allocations
+        .iter()
+        .any(|a| a.amount == amount_1));
+    assert!(asset_unspents
+        .last()
+        .unwrap()
+        .rgb_allocations
+        .iter()
+        .any(|a| a.amount == amount_2));
+
+    // send 2->3, manually selecting the 1st allocation (blind, amount_1) only
+    println!("send witness 2->3");
+    let receive_data = test_witness_receive(&wallet_3);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            amount: amount_1, // amount of the 1st received allocation
+            recipient_data: RecipientData::WitnessData {
+                script_buf: ScriptBuf::from_hex(&receive_data.recipient_id).unwrap(),
+                amount_sat: 1000,
+                blinding: None,
+            },
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    // manually set the input unspents to the UTXO of the 1st allocation
+    let db_data = wallet_2.database.get_db_data(false).unwrap();
+    let utxos = wallet_2
+        .database
+        .get_unspent_txos(db_data.txos.clone())
+        .unwrap();
+    let mut input_unspents = wallet_2
+        .database
+        .get_rgb_allocations(
+            utxos,
+            Some(db_data.colorings.clone()),
+            Some(db_data.batch_transfers.clone()),
+            Some(db_data.asset_transfers.clone()),
+        )
+        .unwrap();
+    input_unspents.retain(|u| {
+        !u.rgb_allocations.is_empty() && u.rgb_allocations.iter().all(|a| a.amount == amount_1)
+    });
+    assert_eq!(input_unspents.len(), 1);
+    MOCK_INPUT_UNSPENTS
+        .lock()
+        .unwrap()
+        .push(input_unspents.first().unwrap().clone());
+    // send (will use the manually-selected input unspent)
+    let txid_3 = test_send(&wallet_2, &online_2, &recipient_map);
+    assert!(!txid_3.is_empty());
+    // settle transfer
+    test_refresh_all(&wallet_3, &online_3);
+    test_refresh_asset(&wallet_2, &online_2, &asset.asset_id);
+    mine(false);
+    test_refresh_all(&wallet_3, &online_3);
+    test_refresh_asset(&wallet_2, &online_2, &asset.asset_id);
+    // check transfer status
+    let rcv_transfer = get_test_transfer_recipient(&wallet_3, &receive_data.recipient_id);
+    let (rcv_transfer_data, _) = get_test_transfer_data(&wallet_3, &rcv_transfer);
+    let (transfer, _, _) = get_test_transfer_sender(&wallet_2, &txid_3);
+    let (transfer_data, _) = get_test_transfer_data(&wallet_2, &transfer);
+    assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
+    assert_eq!(transfer_data.status, TransferStatus::Settled);
+
+    // check final balances
+    let balance_1 = test_get_asset_balance(&wallet_1, &asset.asset_id);
+    let balance_2 = test_get_asset_balance(&wallet_2, &asset.asset_id);
+    let balance_3 = test_get_asset_balance(&wallet_3, &asset.asset_id);
+    assert_eq!(
+        balance_1,
+        Balance {
+            settled: AMOUNT - amount_1 - amount_2,
+            future: AMOUNT - amount_1 - amount_2,
+            spendable: AMOUNT - amount_1 - amount_2,
+        }
+    );
+    assert_eq!(
+        balance_2,
+        Balance {
+            settled: amount_2,
+            future: amount_2,
+            spendable: amount_2,
+        }
+    );
+    assert_eq!(
+        balance_3,
+        Balance {
+            settled: amount_1,
+            future: amount_1,
+            spendable: amount_1,
+        }
+    );
 }
