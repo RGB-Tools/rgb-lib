@@ -11,7 +11,13 @@ fn success() {
 
     // delete single transfer
     let receive_data = wallet
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     wallet
         .fail_transfers(
@@ -32,13 +38,31 @@ fn success() {
 
     // delete all Failed transfers
     let receive_data_1 = wallet
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let receive_data_2 = wallet
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let receive_data_3 = wallet
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     wallet
         .fail_transfers(
@@ -105,7 +129,13 @@ fn success() {
 
     // don't delete failed transfer with asset_id if no_asset_only is true
     let receive_data_1 = wallet
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let receive_data_2 = wallet
         .blind_receive(
@@ -113,6 +143,7 @@ fn success() {
             None,
             None,
             TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
         )
         .unwrap();
     assert!(wallet
@@ -177,10 +208,22 @@ fn batch_success() {
 
     // failed transfer can be deleted, using both blinded_utxo + txid
     let receive_data_1 = rcv_wallet_1
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let receive_data_2 = rcv_wallet_2
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_id.clone(),
@@ -212,10 +255,22 @@ fn batch_success() {
 
     // ...and can be deleted using txid only
     let receive_data_1 = rcv_wallet_1
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let receive_data_2 = rcv_wallet_2
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_id,
@@ -251,7 +306,13 @@ fn fail() {
     let (mut wallet, online) = get_funded_wallet!();
 
     let receive_data = wallet
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
 
     // don't delete transfer not in Failed status
@@ -289,6 +350,7 @@ fn fail() {
             None,
             None,
             TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
         )
         .unwrap();
     wallet.fail_transfers(online, None, None, false).unwrap();
@@ -320,10 +382,22 @@ fn batch_fail() {
 
     // only blinded UTXO given but multiple transfers in batch
     let receive_data_1 = rcv_wallet_1
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let receive_data_2 = rcv_wallet_2
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_id.clone(),
@@ -358,10 +432,22 @@ fn batch_fail() {
 
     // blinded UTXO + txid given but blinded UTXO transfer not part of batch transfer
     let receive_data_1 = rcv_wallet_1
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let receive_data_2 = rcv_wallet_2
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let recipient_map_1 = HashMap::from([(
         asset_id.clone(),
@@ -392,7 +478,13 @@ fn batch_fail() {
         TransferStatus::Failed
     ));
     let receive_data_3 = rcv_wallet_2
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let recipient_map_2 = HashMap::from([(
         asset_id,

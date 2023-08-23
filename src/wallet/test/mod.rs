@@ -31,6 +31,7 @@ const FEE_MSG_LOW: &str = "value under minimum 1";
 const FEE_MSG_HIGH: &str = "value above maximum 1000";
 const RESTORE_DIR: &str = "./tests/tmp/restored";
 const MAX_ALLOCATIONS_PER_UTXO: u32 = 5;
+const MIN_CONFIRMATIONS: u8 = 1;
 
 static INIT: Once = Once::new();
 
@@ -319,7 +320,13 @@ fn test_send_default(
     recipient_map: HashMap<String, Vec<Recipient>>,
 ) -> String {
     wallet
-        .send(online.clone(), recipient_map, false, FEE_RATE)
+        .send(
+            online.clone(),
+            recipient_map,
+            false,
+            FEE_RATE,
+            MIN_CONFIRMATIONS,
+        )
         .unwrap()
 }
 

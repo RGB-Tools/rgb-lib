@@ -54,7 +54,13 @@ fn up_to_allocation_checks() {
     let mut txo_list: HashSet<DbTxo> = HashSet::new();
     for _ in 0..MAX_ALLOCATIONS_PER_UTXO {
         let receive_data = wallet
-            .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+            .blind_receive(
+                None,
+                None,
+                None,
+                TRANSPORT_ENDPOINTS.clone(),
+                MIN_CONFIRMATIONS,
+            )
             .unwrap();
         let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
         let coloring = get_test_coloring(&wallet, transfer.asset_transfer_idx);
@@ -87,7 +93,13 @@ fn up_to_allocation_checks() {
     let mut txo_list: HashSet<DbTxo> = HashSet::new();
     for _ in 0..MAX_ALLOCATIONS_PER_UTXO {
         let receive_data = wallet
-            .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+            .blind_receive(
+                None,
+                None,
+                None,
+                TRANSPORT_ENDPOINTS.clone(),
+                MIN_CONFIRMATIONS,
+            )
             .unwrap();
         let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
         let coloring = get_test_coloring(&wallet, transfer.asset_transfer_idx);
@@ -131,7 +143,13 @@ fn up_to_allocation_checks() {
             .unwrap();
         // send
         let receive_data = rcv_wallet
-            .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+            .blind_receive(
+                None,
+                None,
+                None,
+                TRANSPORT_ENDPOINTS.clone(),
+                MIN_CONFIRMATIONS,
+            )
             .unwrap();
         let recipient_map = HashMap::from([(
             asset.asset_id.clone(),

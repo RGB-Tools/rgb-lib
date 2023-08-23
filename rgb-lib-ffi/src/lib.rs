@@ -167,9 +167,15 @@ impl Wallet {
         amount: Option<u64>,
         duration_seconds: Option<u32>,
         transport_endpoints: Vec<String>,
+        min_confirmations: u8,
     ) -> Result<ReceiveData, RgbLibError> {
-        self._get_wallet()
-            .blind_receive(asset_id, amount, duration_seconds, transport_endpoints)
+        self._get_wallet().blind_receive(
+            asset_id,
+            amount,
+            duration_seconds,
+            transport_endpoints,
+            min_confirmations,
+        )
     }
 
     fn witness_receive(
@@ -178,9 +184,15 @@ impl Wallet {
         amount: Option<u64>,
         duration_seconds: Option<u32>,
         transport_endpoints: Vec<String>,
+        min_confirmations: u8,
     ) -> Result<ReceiveData, RgbLibError> {
-        self._get_wallet()
-            .witness_receive(asset_id, amount, duration_seconds, transport_endpoints)
+        self._get_wallet().witness_receive(
+            asset_id,
+            amount,
+            duration_seconds,
+            transport_endpoints,
+            min_confirmations,
+        )
     }
 
     fn sign_psbt(&self, unsigned_psbt: String) -> Result<String, RgbLibError> {
@@ -349,12 +361,14 @@ impl Wallet {
         recipient_map: HashMap<String, Vec<Recipient>>,
         donation: bool,
         fee_rate: f32,
+        min_confirmations: u8,
     ) -> Result<String, RgbLibError> {
         self._get_wallet().send(
             online,
             _convert_recipient_map(recipient_map)?,
             donation,
             fee_rate,
+            min_confirmations,
         )
     }
 
@@ -364,12 +378,14 @@ impl Wallet {
         recipient_map: HashMap<String, Vec<Recipient>>,
         donation: bool,
         fee_rate: f32,
+        min_confirmations: u8,
     ) -> Result<String, RgbLibError> {
         self._get_wallet().send_begin(
             online,
             _convert_recipient_map(recipient_map)?,
             donation,
             fee_rate,
+            min_confirmations,
         )
     }
 

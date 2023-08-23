@@ -17,7 +17,13 @@ fn success() {
         )
         .unwrap();
     let receive_data = rcv_wallet
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id,

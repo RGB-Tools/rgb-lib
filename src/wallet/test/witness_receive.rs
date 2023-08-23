@@ -11,7 +11,13 @@ fn success() {
     // default expiration
     let now_timestamp = now().unix_timestamp();
     let receive_data = wallet
-        .witness_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .witness_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     assert!(receive_data.expiration_timestamp.is_some());
     let timestamp = now_timestamp + DURATION_RCV_TRANSFER as i64;
@@ -20,7 +26,13 @@ fn success() {
     // positive expiration
     let now_timestamp = now().unix_timestamp();
     let receive_data = wallet
-        .witness_receive(None, None, Some(expiration), TRANSPORT_ENDPOINTS.clone())
+        .witness_receive(
+            None,
+            None,
+            Some(expiration),
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     assert!(receive_data.expiration_timestamp.is_some());
     let timestamp = now_timestamp + expiration as i64;
@@ -28,7 +40,13 @@ fn success() {
 
     // 0 expiration
     let receive_data = wallet
-        .witness_receive(None, None, Some(0), TRANSPORT_ENDPOINTS.clone())
+        .witness_receive(
+            None,
+            None,
+            Some(0),
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     assert!(receive_data.expiration_timestamp.is_none());
 
@@ -49,6 +67,7 @@ fn success() {
         None,
         None,
         TRANSPORT_ENDPOINTS.clone(),
+        MIN_CONFIRMATIONS,
     );
     assert!(result.is_ok());
 
@@ -59,6 +78,7 @@ fn success() {
         Some(amount),
         Some(expiration),
         TRANSPORT_ENDPOINTS.clone(),
+        MIN_CONFIRMATIONS,
     );
     assert!(result.is_ok());
     let receive_data = result.unwrap();
@@ -89,7 +109,13 @@ fn success() {
         format!("rpc://{}", "127.0.0.1:3001/json-rpc"),
         format!("rpc://{}", "127.0.0.1:3002/json-rpc"),
     ];
-    let result = wallet.witness_receive(None, None, Some(0), transport_endpoints.clone());
+    let result = wallet.witness_receive(
+        None,
+        None,
+        Some(0),
+        transport_endpoints.clone(),
+        MIN_CONFIRMATIONS,
+    );
     assert!(result.is_ok());
     let transfer = get_test_transfer_recipient(&wallet, &result.unwrap().recipient_id);
     let tce_data = wallet
@@ -107,7 +133,13 @@ fn fail() {
 
     // invalid invoice (missing network)
     let receive_data = wallet
-        .witness_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .witness_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let invoice = Invoice::new(receive_data.invoice).unwrap();
     let mut invoice_data = invoice.invoice_data();

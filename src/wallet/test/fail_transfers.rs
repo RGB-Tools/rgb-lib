@@ -28,7 +28,13 @@ fn success() {
 
     // fail single transfer
     let receive_data = rcv_wallet
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
@@ -46,13 +52,31 @@ fn success() {
 
     // fail all expired WaitingCounterparty transfers
     let receive_data_1 = rcv_wallet
-        .blind_receive(None, None, Some(expiration), TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            Some(expiration),
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let receive_data_2 = rcv_wallet
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let receive_data_3 = rcv_wallet
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     // wait for expiration to be in the past
     std::thread::sleep(std::time::Duration::from_millis(
@@ -122,7 +146,13 @@ fn success() {
 
     // fail all expired WaitingCounterparty transfers with no asset_id
     let receive_data_1 = rcv_wallet
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let receive_data_2 = rcv_wallet
         .blind_receive(
@@ -130,13 +160,26 @@ fn success() {
             None,
             None,
             TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
         )
         .unwrap();
     let receive_data_3 = rcv_wallet
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let receive_data_4 = rcv_wallet
-        .blind_receive(None, None, Some(expiration), TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            Some(expiration),
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     // wait for expiration to be in the past
     std::thread::sleep(std::time::Duration::from_millis(
@@ -232,10 +275,22 @@ fn batch_success() {
 
     // transfer is in WaitingCounterparty status and can be failed, using both blinded_utxo + txid
     let receive_data_1 = rcv_wallet_1
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let receive_data_2 = rcv_wallet_2
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_id.clone(),
@@ -284,10 +339,22 @@ fn batch_success() {
 
     // ...and can be failed using txid only
     let receive_data_1 = rcv_wallet_1
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let receive_data_2 = rcv_wallet_2
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_id.clone(),
@@ -316,10 +383,22 @@ fn batch_success() {
 
     // transfer is still in WaitingCounterparty status after some recipients (but not all) replied with an ACK
     let receive_data_1 = rcv_wallet_1
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let receive_data_2 = rcv_wallet_2
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_id,
@@ -390,6 +469,7 @@ fn fail() {
             None,
             None,
             TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
         )
         .unwrap();
     let result = wallet.fail_transfers(
@@ -411,7 +491,13 @@ fn fail() {
 
     // blind
     let receive_data = rcv_wallet
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let blinded_utxo = receive_data.recipient_id;
     // send
@@ -536,10 +622,22 @@ fn batch_fail() {
 
     // only blinded utxo given but multiple transfers in batch
     let receive_data_1 = rcv_wallet_1
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let receive_data_2 = rcv_wallet_2
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_id.clone(),
@@ -574,10 +672,22 @@ fn batch_fail() {
 
     // blinded utxo + txid given but blinded utxo transfer not part of batch transfer
     let receive_data_1 = rcv_wallet_1
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let receive_data_2 = rcv_wallet_2
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let recipient_map_1 = HashMap::from([(
         asset_id.clone(),
@@ -600,7 +710,13 @@ fn batch_fail() {
     )]);
     let txid_1 = test_send_default(&mut wallet, &online, recipient_map_1);
     let receive_data_3 = rcv_wallet_2
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let recipient_map_2 = HashMap::from([(
         asset_id.clone(),
@@ -630,10 +746,22 @@ fn batch_fail() {
 
     // batch send as donation (doesn't wait for recipient confirmations)
     let receive_data_1 = rcv_wallet_1
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let receive_data_2 = rcv_wallet_2
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let recipient_map = HashMap::from([(
         asset_id,
@@ -655,7 +783,13 @@ fn batch_fail() {
         ],
     )]);
     wallet
-        .send(online.clone(), recipient_map, true, FEE_RATE)
+        .send(
+            online.clone(),
+            recipient_map,
+            true,
+            FEE_RATE,
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
 
     // transfer is in WaitingConfirmations status and cannot be failed

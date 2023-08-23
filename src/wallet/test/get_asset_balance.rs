@@ -98,7 +98,13 @@ fn transfer_balances() {
 
     // blind + fail to check failed blinds are not counted in balance
     let receive_data_fail = wallet_recv
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     wallet_recv
         .fail_transfers(
@@ -125,7 +131,13 @@ fn transfer_balances() {
         .unwrap();
     // send some assets
     let receive_data_1 = wallet_recv
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -255,7 +267,13 @@ fn transfer_balances() {
 
     // send some assets
     let receive_data_2 = wallet_recv
-        .blind_receive(None, None, None, TRANSPORT_ENDPOINTS.clone())
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
         .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),

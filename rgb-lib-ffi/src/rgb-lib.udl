@@ -308,11 +308,11 @@ interface Wallet {
 
   [Throws=RgbLibError]
   ReceiveData blind_receive(string? asset_id, u64? amount, u32? duration_seconds,
-  sequence<string> transport_endpoints);
+  sequence<string> transport_endpoints, u8 min_confirmations);
 
   [Throws=RgbLibError]
   ReceiveData witness_receive(string? asset_id, u64? amount, u32? duration_seconds,
-  sequence<string> transport_endpoints);
+  sequence<string> transport_endpoints, u8 min_confirmations);
 
   [Throws=RgbLibError]
   string sign_psbt(string unsigned_psbt);
@@ -380,12 +380,12 @@ interface Wallet {
   [Throws=RgbLibError]
   string send(
     Online online, record<DOMString, sequence<Recipient>> recipient_map,
-    boolean donation, f32 fee_rate);
+    boolean donation, f32 fee_rate, u8 min_confirmations);
 
   [Throws=RgbLibError]
   string send_begin(
     Online online, record<DOMString, sequence<Recipient>> recipient_map,
-    boolean donation, f32 fee_rate);
+    boolean donation, f32 fee_rate, u8 min_confirmations);
 
   [Throws=RgbLibError]
   string send_end(Online online, string signed_psbt);

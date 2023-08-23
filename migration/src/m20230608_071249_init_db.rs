@@ -89,6 +89,11 @@ impl MigrationTrait for Migration {
                             .not_null(),
                     )
                     .col(ColumnDef::new(BatchTransfer::Expiration).big_unsigned())
+                    .col(
+                        ColumnDef::new(BatchTransfer::MinConfirmations)
+                            .tiny_unsigned()
+                            .not_null(),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -422,6 +427,7 @@ pub enum BatchTransfer {
     CreatedAt,
     UpdatedAt,
     Expiration,
+    MinConfirmations,
 }
 
 #[derive(DeriveIden)]

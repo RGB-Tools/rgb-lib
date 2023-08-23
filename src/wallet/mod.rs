@@ -126,8 +126,6 @@ const MAX_LEN_DETAILS: usize = 255;
 const UTXO_SIZE: u32 = 1000;
 const UTXO_NUM: u8 = 5;
 
-const MIN_CONFIRMATIONS: u8 = 1;
-
 const MAX_TRANSPORT_ENDPOINTS: u8 = 3;
 
 const MIN_FEE_RATE: f32 = 1.0;
@@ -435,6 +433,7 @@ struct InfoBatchTransfer {
     change_utxo_idx: i32,
     blank_allocations: HashMap<String, u64>,
     donation: bool,
+    min_confirmations: u8,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -1418,6 +1417,7 @@ impl Wallet {
         amount: Option<u64>,
         duration_seconds: Option<u32>,
         transport_endpoints: Vec<String>,
+        min_confirmations: u8,
         runtime: &Runtime,
         beneficiary: Beneficiary,
         recipient_type: RecipientType,
@@ -1494,6 +1494,7 @@ impl Wallet {
             status: ActiveValue::Set(TransferStatus::WaitingCounterparty),
             expiration: ActiveValue::Set(expiry),
             created_at: ActiveValue::Set(created_at),
+            min_confirmations: ActiveValue::Set(min_confirmations),
             ..Default::default()
         };
         let batch_transfer_idx = self.database.set_batch_transfer(batch_transfer)?;
@@ -1537,6 +1538,7 @@ impl Wallet {
         amount: Option<u64>,
         duration_seconds: Option<u32>,
         transport_endpoints: Vec<String>,
+        min_confirmations: u8,
     ) -> Result<ReceiveData, Error> {
         info!(
             self.logger,
@@ -1579,6 +1581,7 @@ impl Wallet {
             amount,
             duration_seconds,
             transport_endpoints,
+            min_confirmations,
             &runtime,
             concealed_seal.into(),
             RecipientType::Blind,
@@ -1615,6 +1618,7 @@ impl Wallet {
         amount: Option<u64>,
         duration_seconds: Option<u32>,
         transport_endpoints: Vec<String>,
+        min_confirmations: u8,
     ) -> Result<ReceiveData, Error> {
         info!(
             self.logger,
@@ -1635,6 +1639,7 @@ impl Wallet {
             amount,
             duration_seconds,
             transport_endpoints,
+            min_confirmations,
             &runtime,
             Beneficiary::WitnessUtxo(address),
             RecipientType::Witness,
@@ -2593,6 +2598,7 @@ impl Wallet {
             status: ActiveValue::Set(TransferStatus::Settled),
             expiration: ActiveValue::Set(None),
             created_at: ActiveValue::Set(created_at),
+            min_confirmations: ActiveValue::Set(0),
             ..Default::default()
         };
         let batch_transfer_idx = self.database.set_batch_transfer(batch_transfer)?;
@@ -2791,6 +2797,7 @@ impl Wallet {
             status: ActiveValue::Set(TransferStatus::Settled),
             expiration: ActiveValue::Set(None),
             created_at: ActiveValue::Set(created_at),
+            min_confirmations: ActiveValue::Set(0),
             ..Default::default()
         };
         let batch_transfer_idx = self.database.set_batch_transfer(batch_transfer)?;
@@ -3535,11 +3542,12 @@ impl Wallet {
             tx_details.get("confirmations")
         );
 
-        if tx_details.get("confirmations").is_none()
-            || tx_details["confirmations"]
-                .as_u64()
-                .expect("confirmations to be a valid u64 number")
-                < MIN_CONFIRMATIONS as u64
+        if batch_transfer.min_confirmations > 0
+            && (tx_details.get("confirmations").is_none()
+                || tx_details["confirmations"]
+                    .as_u64()
+                    .expect("confirmations to be a valid u64 number")
+                    < batch_transfer.min_confirmations as u64)
         {
             return Ok(None);
         }
@@ -3832,6 +3840,7 @@ impl Wallet {
         unspents: Vec<LocalUnspent>,
         db_data: &DbData,
         runtime: &mut Runtime,
+        min_confirmations: u8,
     ) -> Result<(), Error> {
         let change_utxo = self._get_utxo(
             input_outpoints.into_iter().map(|t| t.into()).collect(),
@@ -4089,6 +4098,7 @@ impl Wallet {
             change_utxo_idx: change_utxo.idx,
             blank_allocations,
             donation,
+            min_confirmations,
         };
         let serialized_info = serde_json::to_string(&info_contents).map_err(InternalError::from)?;
         let info_file = transfer_dir.join(TRANSFER_DATA_FILE);
@@ -4182,6 +4192,7 @@ impl Wallet {
         blank_allocations: HashMap<String, u64>,
         change_utxo_idx: i32,
         status: TransferStatus,
+        min_confirmations: u8,
     ) -> Result<(), Error> {
         let created_at = now().unix_timestamp();
         let expiration = Some(created_at + DURATION_SEND_TRANSFER);
@@ -4191,6 +4202,7 @@ impl Wallet {
             status: ActiveValue::Set(status),
             expiration: ActiveValue::Set(expiration),
             created_at: ActiveValue::Set(created_at),
+            min_confirmations: ActiveValue::Set(min_confirmations),
             ..Default::default()
         };
         let batch_transfer_idx = self.database.set_batch_transfer(batch_transfer)?;
@@ -4273,11 +4285,18 @@ impl Wallet {
         recipient_map: HashMap<String, Vec<Recipient>>,
         donation: bool,
         fee_rate: f32,
+        min_confirmations: u8,
     ) -> Result<String, Error> {
         info!(self.logger, "Sending to: {:?}...", recipient_map);
         self._check_xprv()?;
 
-        let unsigned_psbt = self.send_begin(online.clone(), recipient_map, donation, fee_rate)?;
+        let unsigned_psbt = self.send_begin(
+            online.clone(),
+            recipient_map,
+            donation,
+            fee_rate,
+            min_confirmations,
+        )?;
 
         let psbt = self.sign_psbt(unsigned_psbt)?;
 
@@ -4306,6 +4325,7 @@ impl Wallet {
         recipient_map: HashMap<String, Vec<Recipient>>,
         donation: bool,
         fee_rate: f32,
+        min_confirmations: u8,
     ) -> Result<String, Error> {
         info!(self.logger, "Sending (begin) to: {:?}...", recipient_map);
         self._check_online(online)?;
@@ -4474,6 +4494,7 @@ impl Wallet {
             unspents,
             &db_data,
             &mut runtime,
+            min_confirmations,
         )?;
 
         // rename transfer directory
@@ -4562,6 +4583,7 @@ impl Wallet {
             blank_allocations,
             change_utxo_idx,
             status,
+            info_contents.min_confirmations,
         )?;
 
         info!(self.logger, "Send (end) completed");
