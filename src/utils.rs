@@ -11,6 +11,7 @@ use rgbstd::Chain as RgbNetwork;
 use serde::{Deserialize, Serialize};
 use slog::{Drain, Logger};
 use slog_term::{FullFormat, PlainDecorator};
+use std::fmt;
 use std::io;
 use std::str::FromStr;
 use std::{fs::OpenOptions, path::PathBuf};
@@ -39,6 +40,27 @@ pub enum BitcoinNetwork {
     Signet,
     /// Bitcoin's regtest
     Regtest,
+}
+
+impl fmt::Display for BitcoinNetwork {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl FromStr for BitcoinNetwork {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let network = s.to_lowercase();
+        Ok(match network.as_str() {
+            "mainnet" | "bitcoin" => BitcoinNetwork::Mainnet,
+            "testnet" | "testnet3" => BitcoinNetwork::Testnet,
+            "regtest" => BitcoinNetwork::Regtest,
+            "signet" => BitcoinNetwork::Signet,
+            _ => return Err(Error::InvalidBitcoinNetwork { network }),
+        })
+    }
 }
 
 impl From<BdkNetwork> for BitcoinNetwork {

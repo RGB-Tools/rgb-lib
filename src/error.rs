@@ -24,6 +24,13 @@ pub enum Error {
         txid: String,
     },
 
+    /// Invalid bitcoin network
+    #[error("Invalid bitcoin network: {network}")]
+    InvalidBitcoinNetwork {
+        /// The invalid network
+        network: String,
+    },
+
     /// Provided blinded UTXO has already been used for another transfer
     #[error("Blinded UTXO already used")]
     BlindedUTXOAlreadyUsed,

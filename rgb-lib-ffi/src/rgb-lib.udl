@@ -33,6 +33,7 @@ interface RgbLibError {
   InvalidAddress(string details);
   InvalidAssetID(string asset_id);
   InvalidBitcoinKeys();
+  InvalidBitcoinNetwork(string network);
   InvalidBlindedUTXO(string details);
   InvalidTransportEndpoint(string details);
   InvalidTransportEndpoints(string details);
