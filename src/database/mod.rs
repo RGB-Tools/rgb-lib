@@ -273,9 +273,7 @@ impl RgbLibDatabase {
         &self.connection
     }
 
-    pub(crate) fn set_asset(&self, asset: DbAsset) -> Result<i32, InternalError> {
-        let mut asset: DbAssetActMod = asset.into();
-        asset.idx = ActiveValue::NotSet;
+    pub(crate) fn set_asset(&self, asset: DbAssetActMod) -> Result<i32, InternalError> {
         let res = block_on(asset::Entity::insert(asset).exec(self.get_connection()))?;
         Ok(res.last_insert_id)
     }

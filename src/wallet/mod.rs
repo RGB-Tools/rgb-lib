@@ -68,7 +68,7 @@ use strict_types::value::StrictNum;
 use strict_types::StrictVal;
 
 use crate::api::Proxy;
-use crate::database::entities::asset::Model as DbAsset;
+use crate::database::entities::asset::ActiveModel as DbAssetActMod;
 use crate::database::entities::asset_transfer::{
     ActiveModel as DbAssetTransferActMod, Model as DbAssetTransfer,
 };
@@ -194,19 +194,29 @@ pub struct AssetRgb20 {
 impl AssetRgb20 {
     fn get_asset_details(
         wallet: &Wallet,
-        x: DbAsset,
-        balance: Balance,
+        asset_id: String,
         runtime: &mut RgbRuntime,
+        asset_transfers: Option<Vec<DbAssetTransfer>>,
+        batch_transfers: Option<Vec<DbBatchTransfer>>,
+        colorings: Option<Vec<DbColoring>>,
+        txos: Option<Vec<DbTxo>>,
     ) -> Result<AssetRgb20, Error> {
         let iface = runtime
             .iface_by_name(&AssetIface::RGB20.to_typename())?
             .clone();
-        let contract_id = ContractId::from_str(&x.asset_id).expect("invalid contract ID");
+        let contract_id = ContractId::from_str(&asset_id).expect("invalid contract ID");
         let contract = runtime.contract_iface(contract_id, iface.iface_id())?;
         let timestamp = wallet._get_asset_timestamp(&contract)?;
         let (name, precision, issued_supply, ticker) = wallet._get_rgb20_asset_metadata(contract);
+        let balance = wallet.database.get_asset_balance(
+            asset_id.clone(),
+            asset_transfers,
+            batch_transfers,
+            colorings,
+            txos,
+        )?;
         Ok(AssetRgb20 {
-            asset_id: x.asset_id,
+            asset_id,
             ticker,
             name,
             precision,
@@ -280,21 +290,24 @@ pub struct AssetRgb25 {
 impl AssetRgb25 {
     fn get_asset_details(
         wallet: &Wallet,
-        x: DbAsset,
-        balance: Balance,
+        asset_id: String,
         runtime: &mut RgbRuntime,
         assets_dir: PathBuf,
+        asset_transfers: Option<Vec<DbAssetTransfer>>,
+        batch_transfers: Option<Vec<DbBatchTransfer>>,
+        colorings: Option<Vec<DbColoring>>,
+        txos: Option<Vec<DbTxo>>,
     ) -> Result<AssetRgb25, Error> {
         let iface = runtime
             .iface_by_name(&AssetIface::RGB25.to_typename())?
             .clone();
-        let contract_id = ContractId::from_str(&x.asset_id).expect("invalid contract ID");
+        let contract_id = ContractId::from_str(&asset_id).expect("invalid contract ID");
         let contract = runtime.contract_iface(contract_id, iface.iface_id())?;
         let timestamp = wallet._get_asset_timestamp(&contract)?;
         let (name, precision, issued_supply, description) =
             wallet._get_rgb25_asset_metadata(contract);
         let mut data_paths = vec![];
-        let asset_dir = assets_dir.join(x.asset_id.clone());
+        let asset_dir = assets_dir.join(asset_id.clone());
         if asset_dir.is_dir() {
             for fp in fs::read_dir(asset_dir)? {
                 let fpath = fp?.path();
@@ -303,8 +316,15 @@ impl AssetRgb25 {
                 data_paths.push(Media { file_path, mime });
             }
         }
+        let balance = wallet.database.get_asset_balance(
+            asset_id.clone(),
+            asset_transfers,
+            batch_transfers,
+            colorings,
+            txos,
+        )?;
         Ok(AssetRgb25 {
-            asset_id: x.asset_id,
+            asset_id,
             description,
             name,
             precision,
@@ -2465,6 +2485,15 @@ impl Wallet {
         Ok(ticker.to_string())
     }
 
+    /// Save new asset to the DB
+    pub fn save_new_asset(&self, asset_id: String) -> Result<i32, Error> {
+        let db_asset = DbAssetActMod {
+            idx: ActiveValue::NotSet,
+            asset_id: ActiveValue::Set(asset_id),
+        };
+        Ok(self.database.set_asset(db_asset)?)
+    }
+
     /// Issue a new RGB [`AssetRgb20`] and return it
     pub fn issue_asset_rgb20(
         &mut self,
@@ -2562,11 +2591,7 @@ impl Wallet {
             .import_contract(validated_contract, &mut self._blockchain_resolver()?)
             .expect("failure importing issued contract");
 
-        let db_asset = DbAsset {
-            idx: 0,
-            asset_id: asset_id.clone(),
-        };
-        self.database.set_asset(db_asset.clone())?;
+        self.save_new_asset(asset_id.clone())?;
         let batch_transfer = DbBatchTransferActMod {
             status: ActiveValue::Set(TransferStatus::Settled),
             expiration: ActiveValue::Set(None),
@@ -2602,10 +2627,12 @@ impl Wallet {
 
         let asset = AssetRgb20::get_asset_details(
             self,
-            db_asset,
-            self.database
-                .get_asset_balance(asset_id, None, None, None, None)?,
+            asset_id.clone(),
             &mut runtime,
+            None,
+            None,
+            None,
+            None,
         )?;
 
         info!(self.logger, "Issue asset RGB20 completed");
@@ -2761,11 +2788,7 @@ impl Wallet {
             fs::write(media_dir.join(MIME_FNAME), mime)?;
         }
 
-        let db_asset = DbAsset {
-            idx: 0,
-            asset_id: asset_id.clone(),
-        };
-        self.database.set_asset(db_asset.clone())?;
+        self.save_new_asset(asset_id.clone())?;
         let batch_transfer = DbBatchTransferActMod {
             status: ActiveValue::Set(TransferStatus::Settled),
             expiration: ActiveValue::Set(None),
@@ -2801,11 +2824,13 @@ impl Wallet {
 
         let asset = AssetRgb25::get_asset_details(
             self,
-            db_asset,
-            self.database
-                .get_asset_balance(asset_id, None, None, None, None)?,
+            asset_id,
             &mut runtime,
             self.wallet_dir.join(ASSETS_DIR),
+            None,
+            None,
+            None,
+            None,
         )?;
 
         info!(self.logger, "Issue asset RGB25 completed");
@@ -2846,15 +2871,12 @@ impl Wallet {
                             .map(|c| {
                                 AssetRgb20::get_asset_details(
                                     self,
-                                    c.clone(),
-                                    self.database.get_asset_balance(
-                                        c.asset_id.clone(),
-                                        asset_transfers.clone(),
-                                        batch_transfers.clone(),
-                                        colorings.clone(),
-                                        txos.clone(),
-                                    )?,
+                                    c.asset_id.clone(),
                                     &mut runtime,
+                                    asset_transfers.clone(),
+                                    batch_transfers.clone(),
+                                    colorings.clone(),
+                                    txos.clone(),
                                 )
                             })
                             .collect::<Result<Vec<AssetRgb20>, Error>>()?,
@@ -2874,16 +2896,13 @@ impl Wallet {
                             .map(|c| {
                                 AssetRgb25::get_asset_details(
                                     self,
-                                    c.clone(),
-                                    self.database.get_asset_balance(
-                                        c.asset_id.clone(),
-                                        asset_transfers.clone(),
-                                        batch_transfers.clone(),
-                                        colorings.clone(),
-                                        txos.clone(),
-                                    )?,
+                                    c.asset_id.clone(),
                                     &mut runtime,
                                     assets_dir.clone(),
+                                    asset_transfers.clone(),
+                                    batch_transfers.clone(),
+                                    colorings.clone(),
+                                    txos.clone(),
                                 )
                             })
                             .collect::<Result<Vec<AssetRgb25>, Error>>()?,
@@ -3263,11 +3282,7 @@ impl Wallet {
                     .expect("failure importing issued contract");
                 debug!(self.logger, "Contract registered");
 
-                let db_asset = DbAsset {
-                    idx: 0,
-                    asset_id: asset_id.clone(),
-                };
-                self.database.set_asset(db_asset)?;
+                self.save_new_asset(asset_id.clone())?;
             }
             let mut updated_asset_transfer: DbAssetTransferActMod = asset_transfer.clone().into();
             updated_asset_transfer.asset_id = ActiveValue::Set(Some(asset_id.clone()));
