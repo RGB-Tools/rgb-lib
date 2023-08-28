@@ -119,7 +119,7 @@ pub(crate) struct DbBatchTransferData {
 
 impl DbColoring {
     pub(crate) fn incoming(&self) -> bool {
-        vec![
+        [
             ColoringType::Receive,
             ColoringType::Change,
             ColoringType::Issue,

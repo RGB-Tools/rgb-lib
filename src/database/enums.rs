@@ -76,7 +76,7 @@ impl TransferStatus {
     }
 
     pub(crate) fn pending(&self) -> bool {
-        vec![
+        [
             TransferStatus::WaitingCounterparty,
             TransferStatus::WaitingConfirmations,
         ]

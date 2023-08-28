@@ -3247,7 +3247,7 @@ impl Wallet {
         let validity = validation_status.validity();
         debug!(self.logger, "Consignment validity: {:?}", validity);
 
-        if !vec![Validity::Valid, Validity::UnminedTerminals].contains(&validity) {
+        if ![Validity::Valid, Validity::UnminedTerminals].contains(&validity) {
             return self._refuse_consignment(proxy_url, recipient_id, &mut updated_batch_transfer);
         }
 
