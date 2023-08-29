@@ -22,7 +22,7 @@ fn success() {
     fund_wallet(wallet.get_address());
     test_create_utxos_default(&mut wallet, online.clone());
     wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),

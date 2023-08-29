@@ -8,7 +8,7 @@ fn success() {
     let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
 
     let asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),

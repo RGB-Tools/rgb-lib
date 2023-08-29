@@ -23,7 +23,7 @@ R ->> R: <font color=red>Wallet::create_utxos</font>
 end
 
 group Issue assets
-R ->> R: <font color=red>Wallet::issue_asset_rgb20</font>
+R ->> R: <font color=red>Wallet::issue_asset_nia</font>
 note right of R: or receive assets sent from another wallet
 end
 @enduml

@@ -7,8 +7,8 @@ fn success() {
     let (mut wallet, online) = get_funded_wallet!();
     let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
 
-    let asset_rgb20 = wallet
-        .issue_asset_rgb20(
+    let asset_nia = wallet
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -16,7 +16,7 @@ fn success() {
             vec![AMOUNT, AMOUNT],
         )
         .unwrap();
-    let transfers = wallet.list_transfers(asset_rgb20.asset_id.clone()).unwrap();
+    let transfers = wallet.list_transfers(asset_nia.asset_id.clone()).unwrap();
     assert_eq!(transfers.len(), 1);
     let issuance = transfers.first().unwrap();
     let timestamp = issuance.created_at;
@@ -30,7 +30,7 @@ fn success() {
         )
         .unwrap();
     let recipient_map = HashMap::from([(
-        asset_rgb20.asset_id.clone(),
+        asset_nia.asset_id.clone(),
         vec![Recipient {
             amount: 10,
             recipient_data: RecipientData::BlindedUTXO(
@@ -41,21 +41,21 @@ fn success() {
     )]);
     test_send_default(&mut wallet, &online, recipient_map);
     rcv_wallet.refresh(rcv_online, None, vec![]).unwrap();
-    let rgb20_metadata = rcv_wallet.get_asset_metadata(asset_rgb20.asset_id).unwrap();
+    let nia_metadata = rcv_wallet.get_asset_metadata(asset_nia.asset_id).unwrap();
 
-    assert_eq!(rgb20_metadata.asset_iface, AssetIface::RGB20);
-    assert_eq!(rgb20_metadata.asset_schema, AssetSchema::NIA);
-    assert_eq!(rgb20_metadata.issued_supply, AMOUNT * 2);
-    assert_eq!(rgb20_metadata.name, NAME.to_string());
-    assert_eq!(rgb20_metadata.precision, PRECISION);
-    assert_eq!(rgb20_metadata.ticker.unwrap(), TICKER.to_string());
-    assert_eq!(rgb20_metadata.description, None);
-    assert!((timestamp - rgb20_metadata.timestamp) < 30);
+    assert_eq!(nia_metadata.asset_iface, AssetIface::RGB20);
+    assert_eq!(nia_metadata.asset_schema, AssetSchema::NIA);
+    assert_eq!(nia_metadata.issued_supply, AMOUNT * 2);
+    assert_eq!(nia_metadata.name, NAME.to_string());
+    assert_eq!(nia_metadata.precision, PRECISION);
+    assert_eq!(nia_metadata.ticker.unwrap(), TICKER.to_string());
+    assert_eq!(nia_metadata.description, None);
+    assert!((timestamp - nia_metadata.timestamp) < 30);
 
     let file_str = "README.md";
     let description = None;
-    let asset_rgb25 = wallet
-        .issue_asset_rgb25(
+    let asset_cfa = wallet
+        .issue_asset_cfa(
             online.clone(),
             NAME.to_string(),
             description.clone(),
@@ -64,20 +64,20 @@ fn success() {
             Some(file_str.to_string()),
         )
         .unwrap();
-    let transfers = wallet.list_transfers(asset_rgb25.asset_id.clone()).unwrap();
+    let transfers = wallet.list_transfers(asset_cfa.asset_id.clone()).unwrap();
     assert_eq!(transfers.len(), 1);
     let issuance = transfers.first().unwrap();
     let timestamp = issuance.created_at;
-    let rgb25_metadata = wallet.get_asset_metadata(asset_rgb25.asset_id).unwrap();
+    let cfa_metadata = wallet.get_asset_metadata(asset_cfa.asset_id).unwrap();
 
-    assert_eq!(rgb25_metadata.asset_iface, AssetIface::RGB25);
-    assert_eq!(rgb25_metadata.asset_schema, AssetSchema::CFA);
-    assert_eq!(rgb25_metadata.issued_supply, AMOUNT * 2);
-    assert_eq!(rgb25_metadata.name, NAME.to_string());
-    assert_eq!(rgb25_metadata.precision, PRECISION);
-    assert_eq!(rgb25_metadata.ticker, None);
-    assert_eq!(rgb25_metadata.description, description);
-    assert!((timestamp - rgb25_metadata.timestamp) < 30);
+    assert_eq!(cfa_metadata.asset_iface, AssetIface::RGB25);
+    assert_eq!(cfa_metadata.asset_schema, AssetSchema::CFA);
+    assert_eq!(cfa_metadata.issued_supply, AMOUNT * 2);
+    assert_eq!(cfa_metadata.name, NAME.to_string());
+    assert_eq!(cfa_metadata.precision, PRECISION);
+    assert_eq!(cfa_metadata.ticker, None);
+    assert_eq!(cfa_metadata.description, description);
+    assert!((timestamp - cfa_metadata.timestamp) < 30);
 }
 
 #[test]

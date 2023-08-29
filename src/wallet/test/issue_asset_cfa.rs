@@ -21,7 +21,7 @@ fn success() {
     // required fields only
     println!("\nasset 1");
     let asset_1 = wallet
-        .issue_asset_rgb25(
+        .issue_asset_cfa(
             online.clone(),
             NAME.to_string(),
             None,
@@ -48,7 +48,7 @@ fn success() {
     // include a text file
     println!("\nasset 2");
     let asset_2 = wallet
-        .issue_asset_rgb25(
+        .issue_asset_cfa(
             online.clone(),
             NAME.to_string(),
             Some(DESCRIPTION.to_string()),
@@ -91,7 +91,7 @@ fn success() {
     // include an image file
     println!("\nasset 3");
     let asset_3 = wallet
-        .issue_asset_rgb25(
+        .issue_asset_cfa(
             online,
             NAME.to_string(),
             Some(DESCRIPTION.to_string()),
@@ -140,7 +140,7 @@ fn multi_success() {
     let (mut wallet, online) = get_funded_wallet!();
 
     let asset = wallet
-        .issue_asset_rgb25(
+        .issue_asset_cfa(
             online,
             NAME.to_string(),
             Some(DESCRIPTION.to_string()),
@@ -178,12 +178,12 @@ fn multi_success() {
         }));
 
     // check the allocated asset has one attachment
-    let rgb25_asset_list = wallet.list_assets(vec![]).unwrap().rgb25.unwrap();
-    let rgb25_asset = rgb25_asset_list
+    let cfa_asset_list = wallet.list_assets(vec![]).unwrap().cfa.unwrap();
+    let cfa_asset = cfa_asset_list
         .into_iter()
         .find(|a| a.asset_id == asset.asset_id)
         .unwrap();
-    assert_eq!(rgb25_asset.data_paths.len(), 1);
+    assert_eq!(cfa_asset.data_paths.len(), 1);
 }
 
 #[test]
@@ -197,7 +197,7 @@ fn no_issue_on_pending_send() {
 
     // issue 1st asset
     let asset_1 = wallet
-        .issue_asset_rgb25(
+        .issue_asset_cfa(
             online.clone(),
             NAME.to_string(),
             Some(DESCRIPTION.to_string()),
@@ -241,7 +241,7 @@ fn no_issue_on_pending_send() {
 
     // issue 2nd asset
     let asset_2 = wallet
-        .issue_asset_rgb25(
+        .issue_asset_cfa(
             online.clone(),
             s!("NAME2"),
             Some(s!("DESCRIPTION2")),
@@ -271,7 +271,7 @@ fn no_issue_on_pending_send() {
         .unwrap();
     // issue 3rd asset
     let asset_3 = wallet
-        .issue_asset_rgb25(
+        .issue_asset_cfa(
             online,
             s!("NAME3"),
             Some(s!("DESCRIPTION3")),
@@ -306,7 +306,7 @@ fn fail() {
         id: 1,
         electrum_url: wallet.online_data.as_ref().unwrap().electrum_url.clone(),
     };
-    let result = wallet.issue_asset_rgb25(
+    let result = wallet.issue_asset_cfa(
         other_online,
         NAME.to_string(),
         Some(DESCRIPTION.to_string()),
@@ -317,7 +317,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::CannotChangeOnline)));
 
     // invalid name: too short
-    let result = wallet.issue_asset_rgb25(
+    let result = wallet.issue_asset_cfa(
         online.clone(),
         s!(""),
         Some(DESCRIPTION.to_string()),
@@ -328,7 +328,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidName { details: _ })));
 
     // invalid name: too long
-    let result = wallet.issue_asset_rgb25(
+    let result = wallet.issue_asset_cfa(
         online.clone(),
         ("a").repeat(257),
         Some(DESCRIPTION.to_string()),
@@ -339,7 +339,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidName { details: _ })));
 
     // invalid name: unicode characters
-    let result = wallet.issue_asset_rgb25(
+    let result = wallet.issue_asset_cfa(
         online.clone(),
         s!("name with ℧nicode characters"),
         Some(DESCRIPTION.to_string()),
@@ -350,7 +350,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidName { details: _ })));
 
     // invalid precision
-    let result = wallet.issue_asset_rgb25(
+    let result = wallet.issue_asset_cfa(
         online.clone(),
         NAME.to_string(),
         Some(DESCRIPTION.to_string()),
@@ -364,7 +364,7 @@ fn fail() {
     ));
 
     // invalid amount list
-    let result = wallet.issue_asset_rgb25(
+    let result = wallet.issue_asset_cfa(
         online.clone(),
         NAME.to_string(),
         Some(DESCRIPTION.to_string()),
@@ -376,7 +376,7 @@ fn fail() {
 
     // invalid file_path
     let invalid_file_path = s!("invalid");
-    let result = wallet.issue_asset_rgb25(
+    let result = wallet.issue_asset_cfa(
         online.clone(),
         NAME.to_string(),
         Some(DESCRIPTION.to_string()),
@@ -392,7 +392,7 @@ fn fail() {
     drain_wallet(&wallet, online.clone());
 
     // insufficient funds
-    let result = wallet.issue_asset_rgb25(
+    let result = wallet.issue_asset_cfa(
         online.clone(),
         NAME.to_string(),
         Some(DESCRIPTION.to_string()),
@@ -413,7 +413,7 @@ fn fail() {
     wallet._sync_db_txos().unwrap();
 
     // insufficient allocations
-    let result = wallet.issue_asset_rgb25(
+    let result = wallet.issue_asset_cfa(
         online,
         NAME.to_string(),
         Some(DESCRIPTION.to_string()),

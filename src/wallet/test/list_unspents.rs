@@ -31,7 +31,7 @@ fn success() {
 
     // multiple unspents, one settled RGB allocation
     let asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -146,7 +146,7 @@ fn success() {
 
     // issue + send some asset
     let asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),

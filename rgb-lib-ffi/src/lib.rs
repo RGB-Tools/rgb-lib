@@ -8,8 +8,8 @@ use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard};
 uniffi::include_scaffolding!("rgb-lib");
 
 type AssetIface = rgb_lib::wallet::AssetIface;
-type AssetRgb20 = rgb_lib::wallet::AssetRgb20;
-type AssetRgb25 = rgb_lib::wallet::AssetRgb25;
+type AssetNIA = rgb_lib::wallet::AssetNIA;
+type AssetCFA = rgb_lib::wallet::AssetCFA;
 type AssetSchema = rgb_lib::wallet::AssetSchema;
 type Assets = rgb_lib::wallet::Assets;
 type Balance = rgb_lib::wallet::Balance;
@@ -295,19 +295,19 @@ impl Wallet {
             .go_online(skip_consistency_check, electrum_url)
     }
 
-    fn issue_asset_rgb20(
+    fn issue_asset_nia(
         &self,
         online: Online,
         ticker: String,
         name: String,
         precision: u8,
         amounts: Vec<u64>,
-    ) -> Result<AssetRgb20, RgbLibError> {
+    ) -> Result<AssetNIA, RgbLibError> {
         self._get_wallet()
-            .issue_asset_rgb20(online, ticker, name, precision, amounts)
+            .issue_asset_nia(online, ticker, name, precision, amounts)
     }
 
-    fn issue_asset_rgb25(
+    fn issue_asset_cfa(
         &self,
         online: Online,
         name: String,
@@ -315,15 +315,9 @@ impl Wallet {
         precision: u8,
         amounts: Vec<u64>,
         file_path: Option<String>,
-    ) -> Result<AssetRgb25, RgbLibError> {
-        self._get_wallet().issue_asset_rgb25(
-            online,
-            name,
-            description,
-            precision,
-            amounts,
-            file_path,
-        )
+    ) -> Result<AssetCFA, RgbLibError> {
+        self._get_wallet()
+            .issue_asset_cfa(online, name, description, precision, amounts, file_path)
     }
 
     fn list_assets(&self, filter_asset_ifaces: Vec<AssetIface>) -> Result<Assets, RgbLibError> {

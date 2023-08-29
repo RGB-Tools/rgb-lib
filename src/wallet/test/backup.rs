@@ -18,7 +18,7 @@ fn success() {
 
     // issue
     let asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -135,7 +135,7 @@ fn success() {
 
     // issue a second asset with the restored wallet
     let _asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online,
             s!("AR"),
             s!("after restore"),
@@ -194,7 +194,7 @@ fn double_restore() {
 
     // issue
     let asset_1 = wallet_1
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online_1.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -203,7 +203,7 @@ fn double_restore() {
         )
         .unwrap();
     let asset_2 = wallet_2
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online_2.clone(),
             s!("TICKER2"),
             s!("asset name 2"),
@@ -322,7 +322,7 @@ fn double_restore() {
 
     // issue a second asset with the restored wallets
     wallet_1
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online_1,
             s!("ARW1"),
             s!("after restore wallet 1"),
@@ -331,7 +331,7 @@ fn double_restore() {
         )
         .unwrap();
     wallet_2
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online_2,
             s!("ARW2"),
             s!("after restore wallet 2"),

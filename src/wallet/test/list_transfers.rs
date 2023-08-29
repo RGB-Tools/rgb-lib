@@ -8,7 +8,7 @@ fn success() {
 
     // issue RGB20 asset
     let asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -30,7 +30,7 @@ fn success() {
 
     // issue RGB25 asset
     let asset = wallet
-        .issue_asset_rgb25(
+        .issue_asset_cfa(
             online,
             NAME.to_string(),
             Some(DESCRIPTION.to_string()),

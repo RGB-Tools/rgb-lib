@@ -8,7 +8,7 @@ fn success() {
 
     // issue an RGB20 asset
     let asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -30,7 +30,7 @@ fn success() {
 
     // issue an RGB25 asset
     let asset = wallet
-        .issue_asset_rgb25(
+        .issue_asset_cfa(
             online,
             NAME.to_string(),
             Some(DESCRIPTION.to_string()),
@@ -64,7 +64,7 @@ fn transfer_balances() {
 
     // issue
     let asset = wallet_send
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online_send.clone(),
             TICKER.to_string(),
             NAME.to_string(),

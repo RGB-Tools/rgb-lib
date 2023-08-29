@@ -52,7 +52,7 @@ fn success() {
 
     // asset id is set
     let asset = wallet
-        .issue_asset_rgb25(
+        .issue_asset_cfa(
             online,
             NAME.to_string(),
             Some(DESCRIPTION.to_string()),

@@ -54,7 +54,7 @@ fn consistency_check_fail_utxos() {
     let (mut wallet_orig, online_orig) = get_funded_wallet!(true, true);
     let wallet_data_orig = wallet_orig.get_wallet_data();
     wallet_orig
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online_orig,
             TICKER.to_string(),
             NAME.to_string(),
@@ -169,7 +169,7 @@ fn consistency_check_fail_asset_ids() {
     let (mut wallet_orig, online_orig) = get_funded_wallet!();
     let wallet_data_orig = wallet_orig.get_wallet_data();
     let _asset = wallet_orig
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online_orig,
             TICKER.to_string(),
             NAME.to_string(),

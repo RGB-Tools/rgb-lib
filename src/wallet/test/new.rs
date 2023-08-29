@@ -119,7 +119,7 @@ fn re_instantiate_wallet() {
 
     // issue
     let asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),

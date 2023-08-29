@@ -16,7 +16,7 @@ fn success() {
     );
 
     let asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online,
             TICKER.to_string(),
             NAME.to_string(),
@@ -48,7 +48,7 @@ fn multi_success() {
     let (mut wallet, online) = get_funded_wallet!();
 
     let asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online,
             TICKER.to_string(),
             NAME.to_string(),
@@ -96,7 +96,7 @@ fn no_issue_on_pending_send() {
 
     // issue 1st asset
     let asset_1 = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -139,7 +139,7 @@ fn no_issue_on_pending_send() {
 
     // issue 2nd asset
     let asset_2 = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             s!("TICKER2"),
             s!("NAME2"),
@@ -168,7 +168,7 @@ fn no_issue_on_pending_send() {
         .unwrap();
     // issue 3rd asset
     let asset_3 = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online,
             s!("TICKER3"),
             s!("NAME3"),
@@ -202,7 +202,7 @@ fn fail() {
         id: 1,
         electrum_url: wallet.online_data.as_ref().unwrap().electrum_url.clone(),
     };
-    let result = wallet.issue_asset_rgb20(
+    let result = wallet.issue_asset_nia(
         other_online,
         TICKER.to_string(),
         NAME.to_string(),
@@ -212,7 +212,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::CannotChangeOnline)));
 
     // invalid ticker: too short
-    let result = wallet.issue_asset_rgb20(
+    let result = wallet.issue_asset_nia(
         online.clone(),
         s!(""),
         NAME.to_string(),
@@ -222,7 +222,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidTicker { details: _ })));
 
     // invalid ticker: too long
-    let result = wallet.issue_asset_rgb20(
+    let result = wallet.issue_asset_nia(
         online.clone(),
         s!("ABCDEFGHI"),
         NAME.to_string(),
@@ -232,7 +232,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidTicker { details: _ })));
 
     // invalid ticker: lowercase
-    let result = wallet.issue_asset_rgb20(
+    let result = wallet.issue_asset_nia(
         online.clone(),
         s!("TiCkEr"),
         NAME.to_string(),
@@ -242,7 +242,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidTicker { details: _ })));
 
     // invalid ticker: unicode characters
-    let result = wallet.issue_asset_rgb20(
+    let result = wallet.issue_asset_nia(
         online.clone(),
         s!("ticker with ℧nicode characters"),
         NAME.to_string(),
@@ -252,7 +252,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidTicker { details: _ })));
 
     // invalid name: too short
-    let result = wallet.issue_asset_rgb20(
+    let result = wallet.issue_asset_nia(
         online.clone(),
         TICKER.to_string(),
         s!(""),
@@ -262,7 +262,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidName { details: _ })));
 
     // invalid name: too long
-    let result = wallet.issue_asset_rgb20(
+    let result = wallet.issue_asset_nia(
         online.clone(),
         TICKER.to_string(),
         ("a").repeat(257),
@@ -272,7 +272,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidName { details: _ })));
 
     // invalid name: unicode characters
-    let result = wallet.issue_asset_rgb20(
+    let result = wallet.issue_asset_nia(
         online.clone(),
         TICKER.to_string(),
         s!("name with ℧nicode characters"),
@@ -282,7 +282,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidName { details: _ })));
 
     // invalid precision
-    let result = wallet.issue_asset_rgb20(
+    let result = wallet.issue_asset_nia(
         online.clone(),
         TICKER.to_string(),
         NAME.to_string(),
@@ -295,7 +295,7 @@ fn fail() {
     ));
 
     // invalid amount list
-    let result = wallet.issue_asset_rgb20(
+    let result = wallet.issue_asset_nia(
         online.clone(),
         TICKER.to_string(),
         NAME.to_string(),
@@ -307,7 +307,7 @@ fn fail() {
     drain_wallet(&wallet, online.clone());
 
     // insufficient funds
-    let result = wallet.issue_asset_rgb20(
+    let result = wallet.issue_asset_nia(
         online.clone(),
         TICKER.to_string(),
         NAME.to_string(),
@@ -327,7 +327,7 @@ fn fail() {
     wallet._sync_db_txos().unwrap();
 
     // insufficient allocations
-    let result = wallet.issue_asset_rgb20(
+    let result = wallet.issue_asset_nia(
         online,
         TICKER.to_string(),
         NAME.to_string(),

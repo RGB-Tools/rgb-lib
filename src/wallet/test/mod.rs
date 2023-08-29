@@ -365,7 +365,7 @@ fn check_test_transfer_status_sender(
 
 fn check_test_wallet_data(
     wallet: &mut Wallet,
-    asset: &AssetRgb20,
+    asset: &AssetNIA,
     custom_issued_supply: Option<u64>,
     transfer_num: usize,
     spent_amount: u64,
@@ -377,12 +377,12 @@ fn check_test_wallet_data(
     };
     // asset list
     let assets = wallet.list_assets(vec![]).unwrap();
-    let rgb20_assets = assets.rgb20.unwrap();
-    let rgb25_assets = assets.rgb25.unwrap();
-    assert_eq!(rgb20_assets.len(), 1);
-    assert_eq!(rgb25_assets.len(), 0);
-    let rgb20_asset = rgb20_assets.first().unwrap();
-    assert_eq!(rgb20_asset.asset_id, asset.asset_id);
+    let nia_assets = assets.nia.unwrap();
+    let cfa_assets = assets.cfa.unwrap();
+    assert_eq!(nia_assets.len(), 1);
+    assert_eq!(cfa_assets.len(), 0);
+    let nia_asset = nia_assets.first().unwrap();
+    assert_eq!(nia_asset.asset_id, asset.asset_id);
     // asset balance
     let balance = wallet.get_asset_balance(asset.asset_id.clone()).unwrap();
     assert_eq!(
@@ -698,8 +698,8 @@ mod get_address;
 mod get_asset_balance;
 mod get_asset_metadata;
 mod go_online;
-mod issue_asset_rgb20;
-mod issue_asset_rgb25;
+mod issue_asset_cfa;
+mod issue_asset_nia;
 mod list_assets;
 mod list_transactions;
 mod list_transfers;

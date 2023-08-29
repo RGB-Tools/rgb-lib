@@ -29,7 +29,7 @@ fn success() {
 
     // issue
     let asset_1 = wallet_1
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online_1.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -38,7 +38,7 @@ fn success() {
         )
         .unwrap();
     let asset_2 = wallet_2
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online_2.clone(),
             s!("TICKER2"),
             s!("NAME2"),

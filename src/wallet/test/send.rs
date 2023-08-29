@@ -16,7 +16,7 @@ fn success() {
 
     // issue
     let asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -158,11 +158,11 @@ fn success() {
 
     // asset has been received correctly
     let rcv_assets = rcv_wallet.list_assets(vec![]).unwrap();
-    let rgb20_assets = rcv_assets.rgb20.unwrap();
-    let rgb25_assets = rcv_assets.rgb25.unwrap();
-    assert_eq!(rgb20_assets.len(), 1);
-    assert_eq!(rgb25_assets.len(), 0);
-    let rcv_asset = rgb20_assets.last().unwrap();
+    let nia_assets = rcv_assets.nia.unwrap();
+    let cfa_assets = rcv_assets.cfa.unwrap();
+    assert_eq!(nia_assets.len(), 1);
+    assert_eq!(cfa_assets.len(), 0);
+    let rcv_asset = nia_assets.last().unwrap();
     assert_eq!(rcv_asset.asset_id, asset.asset_id);
     assert_eq!(rcv_asset.ticker, TICKER);
     assert_eq!(rcv_asset.name, NAME);
@@ -399,7 +399,7 @@ fn spend_all() {
 
     // issue
     let asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -408,7 +408,7 @@ fn spend_all() {
         )
         .unwrap();
     let asset_blank = wallet
-        .issue_asset_rgb25(
+        .issue_asset_cfa(
             online.clone(),
             s!("NAME2"),
             Some(DESCRIPTION.to_string()),
@@ -566,7 +566,7 @@ fn send_twice_success() {
 
     // issue
     let asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -732,8 +732,8 @@ fn send_blank_success() {
     );
 
     // issue
-    let asset_rgb20 = wallet_1
-        .issue_asset_rgb20(
+    let asset_nia = wallet_1
+        .issue_asset_nia(
             online_1.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -741,9 +741,9 @@ fn send_blank_success() {
             vec![AMOUNT],
         )
         .unwrap();
-    let asset_rgb20_cid = ContractId::from_str(&asset_rgb20.asset_id).unwrap();
-    let asset_rgb25 = wallet_1
-        .issue_asset_rgb25(
+    let asset_nia_cid = ContractId::from_str(&asset_nia.asset_id).unwrap();
+    let asset_cfa = wallet_1
+        .issue_asset_cfa(
             online_1.clone(),
             s!("NAME2"),
             Some(DESCRIPTION.to_string()),
@@ -752,7 +752,7 @@ fn send_blank_success() {
             Some(file_str.to_string()),
         )
         .unwrap();
-    let asset_rgb25_cid = ContractId::from_str(&asset_rgb25.asset_id).unwrap();
+    let asset_cfa_cid = ContractId::from_str(&asset_cfa.asset_id).unwrap();
 
     // check both assets are allocated to the same UTXO
     let unspents = wallet_1.list_unspents(None, true).unwrap();
@@ -769,12 +769,12 @@ fn send_blank_success() {
         .into_iter()
         .map(|a| a.asset_id.unwrap_or_else(|| s!("")))
         .collect();
-    assert!(allocation_asset_ids.contains(&asset_rgb20.asset_id));
-    assert!(allocation_asset_ids.contains(&asset_rgb25.asset_id));
+    assert!(allocation_asset_ids.contains(&asset_nia.asset_id));
+    assert!(allocation_asset_ids.contains(&asset_cfa.asset_id));
     show_unspent_colorings(&wallet_1, "wallet 1 after issuance");
 
     //
-    // 1st transfer, asset_rgb20: wallet 1 > wallet 2
+    // 1st transfer, asset_nia: wallet 1 > wallet 2
     //
 
     // send
@@ -797,7 +797,7 @@ fn send_blank_success() {
         )
         .unwrap();
     let recipient_map = HashMap::from([(
-        asset_rgb20.asset_id.clone(),
+        asset_nia.asset_id.clone(),
         vec![Recipient {
             recipient_data: RecipientData::BlindedUTXO(
                 SecretSeal::from_str(&receive_data_1.recipient_id).unwrap(),
@@ -813,22 +813,18 @@ fn send_blank_success() {
     // take transfers from WaitingCounterparty to Settled
     wallet_2.refresh(online_2.clone(), None, vec![]).unwrap();
     wallet_1
-        .refresh(online_1.clone(), Some(asset_rgb20.asset_id.clone()), vec![])
+        .refresh(online_1.clone(), Some(asset_nia.asset_id.clone()), vec![])
         .unwrap();
     mine(false);
     wallet_2.refresh(online_2.clone(), None, vec![]).unwrap();
     wallet_1
-        .refresh(online_1.clone(), Some(asset_rgb20.asset_id.clone()), vec![])
+        .refresh(online_1.clone(), Some(asset_nia.asset_id.clone()), vec![])
         .unwrap();
 
     // transfer 1 checks
-    let transfers_w1 = wallet_1
-        .list_transfers(asset_rgb20.asset_id.clone())
-        .unwrap();
+    let transfers_w1 = wallet_1.list_transfers(asset_nia.asset_id.clone()).unwrap();
     let transfer_w1 = transfers_w1.last().unwrap();
-    let transfers_w2 = wallet_2
-        .list_transfers(asset_rgb20.asset_id.clone())
-        .unwrap();
+    let transfers_w2 = wallet_2.list_transfers(asset_nia.asset_id.clone()).unwrap();
     let transfer_w2 = transfers_w2.last().unwrap();
     // transfers data
     assert_eq!(transfer_w1.status, TransferStatus::Settled);
@@ -848,36 +844,36 @@ fn send_blank_success() {
     assert_eq!(change_allocations.len(), 2);
     let ca_a1 = change_allocations
         .iter()
-        .find(|a| a.asset_id == Some(asset_rgb20.asset_id.clone()))
+        .find(|a| a.asset_id == Some(asset_nia.asset_id.clone()))
         .unwrap();
     let ca_a2 = change_allocations
         .iter()
-        .find(|a| a.asset_id == Some(asset_rgb25.asset_id.clone()))
+        .find(|a| a.asset_id == Some(asset_cfa.asset_id.clone()))
         .unwrap();
     assert_eq!(ca_a1.amount, AMOUNT - amount_1);
-    assert_eq!(ca_a1.asset_id, Some(asset_rgb20.asset_id.clone()));
+    assert_eq!(ca_a1.asset_id, Some(asset_nia.asset_id.clone()));
     assert!(ca_a1.settled);
     assert_eq!(ca_a2.amount, AMOUNT * 2);
-    assert_eq!(ca_a2.asset_id, Some(asset_rgb25.asset_id.clone()));
+    assert_eq!(ca_a2.asset_id, Some(asset_cfa.asset_id.clone()));
     assert!(ca_a2.settled);
     // sender RGB state map
     let mut change_outpoint_set = BTreeSet::new();
     change_outpoint_set.insert(RgbOutpoint::from(change_utxo.clone()));
-    let state_map_rgb20_w1 = wallet_1
+    let state_map_nia_w1 = wallet_1
         ._rgb_runtime()
         .unwrap()
-        .state_for_outpoints(asset_rgb20_cid, change_outpoint_set.clone())
+        .state_for_outpoints(asset_nia_cid, change_outpoint_set.clone())
         .unwrap();
-    check_state_map_asset_amount(&state_map_rgb20_w1, ca_a1.amount);
-    let state_map_rgb25_w1 = wallet_1
+    check_state_map_asset_amount(&state_map_nia_w1, ca_a1.amount);
+    let state_map_cfa_w1 = wallet_1
         ._rgb_runtime()
         .unwrap()
-        .state_for_outpoints(asset_rgb25_cid, change_outpoint_set.clone())
+        .state_for_outpoints(asset_cfa_cid, change_outpoint_set.clone())
         .unwrap();
-    check_state_map_asset_amount(&state_map_rgb25_w1, ca_a2.amount);
+    check_state_map_asset_amount(&state_map_cfa_w1, ca_a2.amount);
 
     //
-    // 2nd transfer, asset_rgb25 (blank in 1st send): wallet 1 > wallet 2
+    // 2nd transfer, asset_cfa (blank in 1st send): wallet 1 > wallet 2
     //
 
     // send
@@ -892,7 +888,7 @@ fn send_blank_success() {
         .unwrap();
     println!("\n=== send 2");
     let recipient_map = HashMap::from([(
-        asset_rgb25.asset_id.clone(),
+        asset_cfa.asset_id.clone(),
         vec![Recipient {
             recipient_data: RecipientData::BlindedUTXO(
                 SecretSeal::from_str(&receive_data_2.recipient_id).unwrap(),
@@ -908,22 +904,18 @@ fn send_blank_success() {
     // take transfers from WaitingCounterparty to Settled
     wallet_2.refresh(online_2.clone(), None, vec![]).unwrap();
     wallet_1
-        .refresh(online_1.clone(), Some(asset_rgb25.asset_id.clone()), vec![])
+        .refresh(online_1.clone(), Some(asset_cfa.asset_id.clone()), vec![])
         .unwrap();
     mine(false);
     wallet_2.refresh(online_2, None, vec![]).unwrap();
     wallet_1
-        .refresh(online_1, Some(asset_rgb25.asset_id.clone()), vec![])
+        .refresh(online_1, Some(asset_cfa.asset_id.clone()), vec![])
         .unwrap();
 
     // transfer 2 checks
-    let transfers_w2 = wallet_2
-        .list_transfers(asset_rgb25.asset_id.clone())
-        .unwrap();
+    let transfers_w2 = wallet_2.list_transfers(asset_cfa.asset_id.clone()).unwrap();
     let transfer_w2 = transfers_w2.last().unwrap();
-    let transfers_w1 = wallet_1
-        .list_transfers(asset_rgb25.asset_id.clone())
-        .unwrap();
+    let transfers_w1 = wallet_1.list_transfers(asset_cfa.asset_id.clone()).unwrap();
     let transfer_w1 = transfers_w1.last().unwrap();
     // transfers data
     assert_eq!(transfer_w1.status, TransferStatus::Settled);
@@ -943,33 +935,33 @@ fn send_blank_success() {
     assert_eq!(change_allocations.len(), 2);
     let ca_a1 = change_allocations
         .iter()
-        .find(|a| a.asset_id == Some(asset_rgb20.asset_id.clone()))
+        .find(|a| a.asset_id == Some(asset_nia.asset_id.clone()))
         .unwrap();
     let ca_a2 = change_allocations
         .iter()
-        .find(|a| a.asset_id == Some(asset_rgb25.asset_id.clone()))
+        .find(|a| a.asset_id == Some(asset_cfa.asset_id.clone()))
         .unwrap();
     assert_eq!(ca_a1.amount, AMOUNT - amount_1);
-    assert_eq!(ca_a1.asset_id, Some(asset_rgb20.asset_id.clone()));
+    assert_eq!(ca_a1.asset_id, Some(asset_nia.asset_id.clone()));
     assert!(ca_a1.settled);
     assert_eq!(ca_a2.amount, AMOUNT * 2 - amount_2);
-    assert_eq!(ca_a2.asset_id, Some(asset_rgb25.asset_id.clone()));
+    assert_eq!(ca_a2.asset_id, Some(asset_cfa.asset_id.clone()));
     assert!(ca_a2.settled);
     // sender RGB state map
     let mut change_outpoint_set = BTreeSet::new();
     change_outpoint_set.insert(RgbOutpoint::from(change_utxo.clone()));
-    let state_map_rgb20_w1 = wallet_1
+    let state_map_nia_w1 = wallet_1
         ._rgb_runtime()
         .unwrap()
-        .state_for_outpoints(asset_rgb20_cid, change_outpoint_set.clone())
+        .state_for_outpoints(asset_nia_cid, change_outpoint_set.clone())
         .unwrap();
-    check_state_map_asset_amount(&state_map_rgb20_w1, ca_a1.amount);
-    let state_map_rgb25_w1 = wallet_1
+    check_state_map_asset_amount(&state_map_nia_w1, ca_a1.amount);
+    let state_map_cfa_w1 = wallet_1
         ._rgb_runtime()
         .unwrap()
-        .state_for_outpoints(asset_rgb25_cid, change_outpoint_set.clone())
+        .state_for_outpoints(asset_cfa_cid, change_outpoint_set.clone())
         .unwrap();
-    check_state_map_asset_amount(&state_map_rgb25_w1, ca_a2.amount);
+    check_state_map_asset_amount(&state_map_cfa_w1, ca_a2.amount);
 }
 
 #[test]
@@ -988,8 +980,8 @@ fn send_received_success() {
     let (mut wallet_3, online_3) = get_funded_wallet!();
 
     // issue
-    let asset_rgb20 = wallet_1
-        .issue_asset_rgb20(
+    let asset_nia = wallet_1
+        .issue_asset_nia(
             online_1.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -997,8 +989,8 @@ fn send_received_success() {
             vec![AMOUNT],
         )
         .unwrap();
-    let asset_rgb25 = wallet_1
-        .issue_asset_rgb25(
+    let asset_cfa = wallet_1
+        .issue_asset_cfa(
             online_1.clone(),
             NAME.to_string(),
             Some(DESCRIPTION.to_string()),
@@ -1033,7 +1025,7 @@ fn send_received_success() {
         .unwrap();
     let recipient_map = HashMap::from([
         (
-            asset_rgb20.asset_id.clone(),
+            asset_nia.asset_id.clone(),
             vec![Recipient {
                 recipient_data: RecipientData::BlindedUTXO(
                     SecretSeal::from_str(&receive_data_a20.recipient_id).unwrap(),
@@ -1043,7 +1035,7 @@ fn send_received_success() {
             }],
         ),
         (
-            asset_rgb25.asset_id.clone(),
+            asset_cfa.asset_id.clone(),
             vec![Recipient {
                 recipient_data: RecipientData::BlindedUTXO(
                     SecretSeal::from_str(&receive_data_a25.recipient_id).unwrap(),
@@ -1065,12 +1057,12 @@ fn send_received_success() {
 
     // transfer 1 checks
     let (transfers_w1, _, _) = get_test_transfers_sender(&wallet_1, &txid_1);
-    let transfers_for_asset_rgb20 = transfers_w1.get(&asset_rgb20.asset_id).unwrap();
-    let transfers_for_asset_rgb25 = transfers_w1.get(&asset_rgb25.asset_id).unwrap();
-    assert_eq!(transfers_for_asset_rgb20.len(), 1);
-    assert_eq!(transfers_for_asset_rgb25.len(), 1);
-    let transfer_w1a = transfers_for_asset_rgb20.first().unwrap();
-    let transfer_w1b = transfers_for_asset_rgb25.first().unwrap();
+    let transfers_for_asset_nia = transfers_w1.get(&asset_nia.asset_id).unwrap();
+    let transfers_for_asset_cfa = transfers_w1.get(&asset_cfa.asset_id).unwrap();
+    assert_eq!(transfers_for_asset_nia.len(), 1);
+    assert_eq!(transfers_for_asset_cfa.len(), 1);
+    let transfer_w1a = transfers_for_asset_nia.first().unwrap();
+    let transfer_w1b = transfers_for_asset_cfa.first().unwrap();
     let transfer_w2a = get_test_transfer_recipient(&wallet_2, &receive_data_a20.recipient_id);
     let transfer_w2b = get_test_transfer_recipient(&wallet_2, &receive_data_a25.recipient_id);
     let (transfer_data_w1a, _) = get_test_transfer_data(&wallet_1, transfer_w1a);
@@ -1094,11 +1086,11 @@ fn send_received_success() {
     let change_allocations = change_unspent.rgb_allocations;
     let change_allocation_a = change_allocations
         .iter()
-        .find(|a| a.asset_id == Some(asset_rgb20.asset_id.clone()))
+        .find(|a| a.asset_id == Some(asset_nia.asset_id.clone()))
         .unwrap();
     let change_allocation_b = change_allocations
         .iter()
-        .find(|a| a.asset_id == Some(asset_rgb25.asset_id.clone()))
+        .find(|a| a.asset_id == Some(asset_cfa.asset_id.clone()))
         .unwrap();
     assert_eq!(change_allocations.len(), 2);
     assert_eq!(change_allocation_a.amount, AMOUNT - amount_1a);
@@ -1129,7 +1121,7 @@ fn send_received_success() {
         .unwrap();
     let recipient_map = HashMap::from([
         (
-            asset_rgb20.asset_id.clone(),
+            asset_nia.asset_id.clone(),
             vec![Recipient {
                 recipient_data: RecipientData::BlindedUTXO(
                     SecretSeal::from_str(&receive_data_b20.recipient_id).unwrap(),
@@ -1139,7 +1131,7 @@ fn send_received_success() {
             }],
         ),
         (
-            asset_rgb25.asset_id.clone(),
+            asset_cfa.asset_id.clone(),
             vec![Recipient {
                 recipient_data: RecipientData::BlindedUTXO(
                     SecretSeal::from_str(&receive_data_b25.recipient_id).unwrap(),
@@ -1161,12 +1153,12 @@ fn send_received_success() {
 
     // transfer 2 checks
     let (transfers_w2, _, _) = get_test_transfers_sender(&wallet_2, &txid_2);
-    let transfers_for_asset_rgb20 = transfers_w2.get(&asset_rgb20.asset_id).unwrap();
-    let transfers_for_asset_rgb25 = transfers_w2.get(&asset_rgb25.asset_id).unwrap();
-    assert_eq!(transfers_for_asset_rgb20.len(), 1);
-    assert_eq!(transfers_for_asset_rgb25.len(), 1);
-    let transfer_w2a = transfers_for_asset_rgb20.first().unwrap();
-    let transfer_w2b = transfers_for_asset_rgb25.first().unwrap();
+    let transfers_for_asset_nia = transfers_w2.get(&asset_nia.asset_id).unwrap();
+    let transfers_for_asset_cfa = transfers_w2.get(&asset_cfa.asset_id).unwrap();
+    assert_eq!(transfers_for_asset_nia.len(), 1);
+    assert_eq!(transfers_for_asset_cfa.len(), 1);
+    let transfer_w2a = transfers_for_asset_nia.first().unwrap();
+    let transfer_w2b = transfers_for_asset_cfa.first().unwrap();
     let transfer_w3a = get_test_transfer_recipient(&wallet_3, &receive_data_b20.recipient_id);
     let transfer_w3b = get_test_transfer_recipient(&wallet_3, &receive_data_b25.recipient_id);
     let (transfer_data_w2a, _) = get_test_transfer_data(&wallet_2, transfer_w2a);
@@ -1190,24 +1182,24 @@ fn send_received_success() {
     let change_allocations = change_unspent.rgb_allocations;
     let change_allocation_a = change_allocations
         .iter()
-        .find(|a| a.asset_id == Some(asset_rgb20.asset_id.clone()))
+        .find(|a| a.asset_id == Some(asset_nia.asset_id.clone()))
         .unwrap();
     let change_allocation_b = change_allocations
         .iter()
-        .find(|a| a.asset_id == Some(asset_rgb25.asset_id.clone()))
+        .find(|a| a.asset_id == Some(asset_cfa.asset_id.clone()))
         .unwrap();
     assert_eq!(change_allocations.len(), 2);
     assert_eq!(change_allocation_a.amount, amount_1a - amount_2a);
     assert_eq!(change_allocation_b.amount, amount_1b - amount_2b);
 
     // check RGB25 asset has the correct attachment after being received
-    let rgb25_assets = wallet_3
+    let cfa_assets = wallet_3
         .list_assets(vec![AssetIface::RGB25])
         .unwrap()
-        .rgb25
+        .cfa
         .unwrap();
-    assert_eq!(rgb25_assets.len(), 1);
-    let recv_asset = rgb25_assets.first().unwrap();
+    assert_eq!(cfa_assets.len(), 1);
+    let recv_asset = cfa_assets.first().unwrap();
     let dst_path = recv_asset.data_paths.first().unwrap().file_path.clone();
     let src_bytes = std::fs::read(PathBuf::from(file_str)).unwrap();
     let dst_bytes = std::fs::read(PathBuf::from(dst_path.clone())).unwrap();
@@ -1224,7 +1216,7 @@ fn send_received_success() {
 }
 
 #[test]
-fn send_received_rgb25_success() {
+fn send_received_cfa_success() {
     initialize();
 
     let amount_1: u64 = 66;
@@ -1238,7 +1230,7 @@ fn send_received_rgb25_success() {
 
     // issue
     let asset = wallet_1
-        .issue_asset_rgb25(
+        .issue_asset_cfa(
             online_1.clone(),
             NAME.to_string(),
             Some(DESCRIPTION.to_string()),
@@ -1368,13 +1360,13 @@ fn send_received_rgb25_success() {
         amount_1 - amount_2
     );
     // check asset has been received correctly
-    let rgb25_assets = wallet_3
+    let cfa_assets = wallet_3
         .list_assets(vec![AssetIface::RGB25])
         .unwrap()
-        .rgb25
+        .cfa
         .unwrap();
-    assert_eq!(rgb25_assets.len(), 1);
-    let recv_asset = rgb25_assets.first().unwrap();
+    assert_eq!(cfa_assets.len(), 1);
+    let recv_asset = cfa_assets.first().unwrap();
     assert_eq!(recv_asset.asset_id, asset.asset_id);
     assert_eq!(recv_asset.name, NAME.to_string());
     assert_eq!(recv_asset.description, Some(DESCRIPTION.to_string()));
@@ -1420,7 +1412,7 @@ fn receive_multiple_same_asset_success() {
 
     // issue
     let asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -1713,7 +1705,7 @@ fn receive_multiple_different_assets_success() {
 
     // issue
     let asset_1 = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -1722,7 +1714,7 @@ fn receive_multiple_different_assets_success() {
         )
         .unwrap();
     let asset_2 = wallet
-        .issue_asset_rgb25(
+        .issue_asset_cfa(
             online.clone(),
             s!("NAME2"),
             Some(DESCRIPTION.to_string()),
@@ -1969,30 +1961,30 @@ fn receive_multiple_different_assets_success() {
 
     // assets have been received correctly
     let rcv_assets = rcv_wallet.list_assets(vec![]).unwrap();
-    let rgb20_assets = rcv_assets.rgb20.unwrap();
-    let rgb25_assets = rcv_assets.rgb25.unwrap();
-    assert_eq!(rgb20_assets.len(), 1);
-    assert_eq!(rgb25_assets.len(), 1);
-    let rcv_asset_rgb20 = rgb20_assets.last().unwrap();
-    assert_eq!(rcv_asset_rgb20.asset_id, asset_1.asset_id);
-    assert_eq!(rcv_asset_rgb20.ticker, TICKER);
-    assert_eq!(rcv_asset_rgb20.name, NAME);
-    assert_eq!(rcv_asset_rgb20.precision, PRECISION);
+    let nia_assets = rcv_assets.nia.unwrap();
+    let cfa_assets = rcv_assets.cfa.unwrap();
+    assert_eq!(nia_assets.len(), 1);
+    assert_eq!(cfa_assets.len(), 1);
+    let rcv_asset_nia = nia_assets.last().unwrap();
+    assert_eq!(rcv_asset_nia.asset_id, asset_1.asset_id);
+    assert_eq!(rcv_asset_nia.ticker, TICKER);
+    assert_eq!(rcv_asset_nia.name, NAME);
+    assert_eq!(rcv_asset_nia.precision, PRECISION);
     assert_eq!(
-        rcv_asset_rgb20.balance,
+        rcv_asset_nia.balance,
         Balance {
             settled: 0,
             future: amount_1,
             spendable: 0,
         }
     );
-    let rcv_asset_rgb25 = rgb25_assets.last().unwrap();
-    assert_eq!(rcv_asset_rgb25.asset_id, asset_2.asset_id);
-    assert_eq!(rcv_asset_rgb25.name, s!("NAME2"));
-    assert_eq!(rcv_asset_rgb25.description, Some(DESCRIPTION.to_string()));
-    assert_eq!(rcv_asset_rgb25.precision, PRECISION);
+    let rcv_asset_cfa = cfa_assets.last().unwrap();
+    assert_eq!(rcv_asset_cfa.asset_id, asset_2.asset_id);
+    assert_eq!(rcv_asset_cfa.name, s!("NAME2"));
+    assert_eq!(rcv_asset_cfa.description, Some(DESCRIPTION.to_string()));
+    assert_eq!(rcv_asset_cfa.precision, PRECISION);
     assert_eq!(
-        rcv_asset_rgb25.balance,
+        rcv_asset_cfa.balance,
         Balance {
             settled: 0,
             future: amount_2,
@@ -2000,7 +1992,7 @@ fn receive_multiple_different_assets_success() {
         }
     );
     let empty_data_paths = vec![];
-    assert_eq!(rcv_asset_rgb25.data_paths, empty_data_paths);
+    assert_eq!(rcv_asset_cfa.data_paths, empty_data_paths);
 
     // transfers progress to status Settled after tx mining + refresh
     std::thread::sleep(Duration::from_millis(1000)); // make sure updated_at will be at least +1s
@@ -2060,7 +2052,7 @@ fn batch_donation_success() {
 
     // issue
     let asset_a = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -2069,7 +2061,7 @@ fn batch_donation_success() {
         )
         .unwrap();
     let asset_b = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -2078,7 +2070,7 @@ fn batch_donation_success() {
         )
         .unwrap();
     let _asset_c = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -2253,7 +2245,7 @@ fn reuse_failed_blinded_success() {
 
     // issue asset
     let asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -2320,7 +2312,7 @@ fn ack() {
 
     // issue
     let asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -2431,7 +2423,7 @@ fn nack() {
 
     // issue
     let asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -2504,7 +2496,7 @@ fn expire() {
 
     // issue
     let asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -2577,7 +2569,7 @@ fn no_change_on_pending_send() {
 
     // issue 1 + get its UTXO
     let asset_1 = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -2596,7 +2588,7 @@ fn no_change_on_pending_send() {
         .unwrap();
     // issue 2
     let asset_2 = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -2722,7 +2714,7 @@ fn fail() {
         FEE_RATE,
     );
     let asset_1_alloc = wallet_1_alloc
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online_1_alloc.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -2760,7 +2752,7 @@ fn fail() {
 
     // issue asset
     let asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -2996,7 +2988,7 @@ fn pending_incoming_transfer_fail() {
 
     // issue
     let asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -3132,7 +3124,7 @@ fn pending_outgoing_transfer_fail() {
 
     // issue asset
     let asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -3221,7 +3213,7 @@ fn pending_transfer_input_fail() {
 
     // issue
     let asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -3280,7 +3272,7 @@ fn already_used_fail() {
 
     // issue asset to 3 UTXOs
     let asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -3318,7 +3310,7 @@ fn already_used_fail() {
 }
 
 #[test]
-fn rgb25_blank_success() {
+fn cfa_blank_success() {
     initialize();
 
     let amount_issue_ft = 10000;
@@ -3329,8 +3321,8 @@ fn rgb25_blank_success() {
     let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
 
     // issue RGB20
-    let asset_rgb20 = wallet
-        .issue_asset_rgb20(
+    let asset_nia = wallet
+        .issue_asset_nia(
             online.clone(),
             s!("TFT"),
             s!("Test Fungible Token"),
@@ -3340,8 +3332,8 @@ fn rgb25_blank_success() {
         .unwrap();
 
     // issue RGB25
-    let _asset_rgb25 = wallet
-        .issue_asset_rgb25(
+    let _asset_cfa = wallet
+        .issue_asset_cfa(
             online.clone(),
             s!("Test Non Funguble Token"),
             Some(s!("Debugging rgb blank error")),
@@ -3363,7 +3355,7 @@ fn rgb25_blank_success() {
 
     // try sending RGB20
     let recipient_map = HashMap::from([(
-        asset_rgb20.asset_id,
+        asset_nia.asset_id,
         vec![Recipient {
             amount: 1,
             recipient_data: RecipientData::BlindedUTXO(
@@ -3394,8 +3386,8 @@ fn psbt_rgb_consumer_success() {
 
     // issue an RGB20 asset
     println!("issue 1");
-    let asset_rgb20_a = wallet
-        .issue_asset_rgb20(
+    let asset_nia_a = wallet
+        .issue_asset_nia(
             online.clone(),
             s!("TFT1"),
             s!("Test Fungible Token 1"),
@@ -3422,7 +3414,7 @@ fn psbt_rgb_consumer_success() {
         )
         .unwrap();
     let recipient_map = HashMap::from([(
-        asset_rgb20_a.asset_id,
+        asset_nia_a.asset_id,
         vec![Recipient {
             amount: 1,
             recipient_data: RecipientData::BlindedUTXO(
@@ -3442,8 +3434,8 @@ fn psbt_rgb_consumer_success() {
 
     // issue one more RGB20 asset, should go to the same UTXO as the 1st issuance
     println!("issue 2");
-    let asset_rgb20_b = wallet
-        .issue_asset_rgb20(
+    let asset_nia_b = wallet
+        .issue_asset_nia(
             online.clone(),
             s!("TFT2"),
             s!("Test Fungible Token 2"),
@@ -3464,7 +3456,7 @@ fn psbt_rgb_consumer_success() {
         )
         .unwrap();
     let recipient_map = HashMap::from([(
-        asset_rgb20_b.asset_id.clone(),
+        asset_nia_b.asset_id.clone(),
         vec![Recipient {
             amount: 1,
             recipient_data: RecipientData::BlindedUTXO(
@@ -3497,8 +3489,8 @@ fn psbt_rgb_consumer_success() {
             .unwrap();
     }
     println!("issue 3");
-    let asset_rgb20_c = wallet
-        .issue_asset_rgb20(
+    let asset_nia_c = wallet
+        .issue_asset_nia(
             online.clone(),
             s!("TFT3"),
             s!("Test Fungible Token 3"),
@@ -3539,7 +3531,7 @@ fn psbt_rgb_consumer_success() {
         .unwrap();
     let recipient_map = HashMap::from([
         (
-            asset_rgb20_b.asset_id,
+            asset_nia_b.asset_id,
             vec![Recipient {
                 amount: 1,
                 recipient_data: RecipientData::BlindedUTXO(
@@ -3549,7 +3541,7 @@ fn psbt_rgb_consumer_success() {
             }],
         ),
         (
-            asset_rgb20_c.asset_id,
+            asset_nia_c.asset_id,
             vec![Recipient {
                 amount: 1,
                 recipient_data: RecipientData::BlindedUTXO(
@@ -3586,8 +3578,8 @@ fn insufficient_bitcoins() {
         .unwrap();
 
     // issue an RGB20 asset
-    let asset_rgb20_a = wallet
-        .issue_asset_rgb20(
+    let asset_nia_a = wallet
+        .issue_asset_nia(
             online.clone(),
             s!("TFT1"),
             s!("Test Fungible Token 1"),
@@ -3609,7 +3601,7 @@ fn insufficient_bitcoins() {
         )
         .unwrap();
     let recipient_map = HashMap::from([(
-        asset_rgb20_a.asset_id,
+        asset_nia_a.asset_id,
         vec![Recipient {
             amount: 1,
             recipient_data: RecipientData::BlindedUTXO(
@@ -3677,8 +3669,8 @@ fn insufficient_allocations_fail() {
     assert_eq!(num_utxos_created, 1);
 
     // issue an RGB20 asset
-    let asset_rgb20_a = wallet
-        .issue_asset_rgb20(
+    let asset_nia_a = wallet
+        .issue_asset_nia(
             online.clone(),
             s!("TFT1"),
             s!("Test Fungible Token 1"),
@@ -3700,7 +3692,7 @@ fn insufficient_allocations_fail() {
         )
         .unwrap();
     let recipient_map = HashMap::from([(
-        asset_rgb20_a.asset_id,
+        asset_nia_a.asset_id,
         vec![Recipient {
             amount: 1,
             recipient_data: RecipientData::BlindedUTXO(
@@ -3753,8 +3745,8 @@ fn insufficient_allocations_success() {
     assert_eq!(num_utxos_created, 1);
 
     // issue an RGB20 asset on the unspendable UTXO
-    let asset_rgb20_a = wallet
-        .issue_asset_rgb20(
+    let asset_nia_a = wallet
+        .issue_asset_nia(
             online.clone(),
             s!("TFT1"),
             s!("Test Fungible Token 1"),
@@ -3779,7 +3771,7 @@ fn insufficient_allocations_success() {
         )
         .unwrap();
     let recipient_map = HashMap::from([(
-        asset_rgb20_a.asset_id,
+        asset_nia_a.asset_id,
         vec![Recipient {
             amount: 1,
             recipient_data: RecipientData::BlindedUTXO(
@@ -3803,7 +3795,7 @@ fn send_to_oneself() {
 
     // issue
     let asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -3849,7 +3841,7 @@ fn send_received_back_success() {
 
     // issue
     let asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -4064,7 +4056,7 @@ fn witness_success() {
 
     // issue
     let asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -4127,11 +4119,11 @@ fn witness_success() {
 
     // asset has been received correctly
     let rcv_assets = rcv_wallet.list_assets(vec![]).unwrap();
-    let rgb20_assets = rcv_assets.rgb20.unwrap();
-    let rgb25_assets = rcv_assets.rgb25.unwrap();
-    assert_eq!(rgb20_assets.len(), 1);
-    assert_eq!(rgb25_assets.len(), 0);
-    let rcv_asset = rgb20_assets.last().unwrap();
+    let nia_assets = rcv_assets.nia.unwrap();
+    let cfa_assets = rcv_assets.cfa.unwrap();
+    assert_eq!(nia_assets.len(), 1);
+    assert_eq!(cfa_assets.len(), 0);
+    let rcv_asset = nia_assets.last().unwrap();
     assert_eq!(rcv_asset.asset_id, asset.asset_id);
     assert_eq!(rcv_asset.ticker, TICKER);
     assert_eq!(rcv_asset.name, NAME);

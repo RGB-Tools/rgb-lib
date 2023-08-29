@@ -38,8 +38,7 @@ use rgb_lib_migration::{Migrator, MigratorTrait};
 use rgb_schemata::{cfa_rgb25, cfa_schema, nia_rgb20, nia_schema};
 use rgbstd::containers::{Bindle, BuilderSeal, Transfer as RgbTransfer};
 use rgbstd::contract::{ContractId, GenesisSeal, GraphSeal};
-use rgbstd::interface::rgb20::Rgb20;
-use rgbstd::interface::{rgb20, rgb25, ContractBuilder, ContractIface, Rgb25, TypedState};
+use rgbstd::interface::{rgb20, rgb25, ContractBuilder, ContractIface, Rgb20, Rgb25, TypedState};
 use rgbstd::stl::{
     Amount, AssetNaming, Attachment, ContractData, Details, DivisibleAssetSpec, MediaType, Name,
     Precision, RicardianContract, Ticker, Timestamp,
@@ -174,9 +173,11 @@ impl TryFrom<TypeName> for AssetIface {
 
 /// An RGB20 fungible asset
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
-pub struct AssetRgb20 {
+pub struct AssetNIA {
     /// ID of the asset
     pub asset_id: String,
+    /// Asset interface type
+    pub asset_iface: AssetIface,
     /// Ticker of the asset
     pub ticker: String,
     /// Name of the asset
@@ -191,7 +192,7 @@ pub struct AssetRgb20 {
     pub balance: Balance,
 }
 
-impl AssetRgb20 {
+impl AssetNIA {
     fn get_asset_details(
         wallet: &Wallet,
         asset_id: String,
@@ -200,14 +201,14 @@ impl AssetRgb20 {
         batch_transfers: Option<Vec<DbBatchTransfer>>,
         colorings: Option<Vec<DbColoring>>,
         txos: Option<Vec<DbTxo>>,
-    ) -> Result<AssetRgb20, Error> {
+    ) -> Result<AssetNIA, Error> {
         let iface = runtime
             .iface_by_name(&AssetIface::RGB20.to_typename())?
             .clone();
         let contract_id = ContractId::from_str(&asset_id).expect("invalid contract ID");
         let contract = runtime.contract_iface(contract_id, iface.iface_id())?;
         let timestamp = wallet._get_asset_timestamp(&contract)?;
-        let (name, precision, issued_supply, ticker) = wallet._get_rgb20_asset_metadata(contract);
+        let (name, precision, issued_supply, ticker) = wallet._get_nia_asset_metadata(contract);
         let balance = wallet.database.get_asset_balance(
             asset_id.clone(),
             asset_transfers,
@@ -215,8 +216,9 @@ impl AssetRgb20 {
             colorings,
             txos,
         )?;
-        Ok(AssetRgb20 {
+        Ok(AssetNIA {
             asset_id,
+            asset_iface: AssetIface::RGB20,
             ticker,
             name,
             precision,
@@ -268,9 +270,11 @@ pub struct Metadata {
 
 /// An RGB25 collectible asset
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
-pub struct AssetRgb25 {
+pub struct AssetCFA {
     /// ID of the asset
     pub asset_id: String,
+    /// Asset interface type
+    pub asset_iface: AssetIface,
     /// Name of the asset
     pub name: String,
     /// Description of the asset
@@ -287,7 +291,7 @@ pub struct AssetRgb25 {
     pub data_paths: Vec<Media>,
 }
 
-impl AssetRgb25 {
+impl AssetCFA {
     fn get_asset_details(
         wallet: &Wallet,
         asset_id: String,
@@ -297,7 +301,7 @@ impl AssetRgb25 {
         batch_transfers: Option<Vec<DbBatchTransfer>>,
         colorings: Option<Vec<DbColoring>>,
         txos: Option<Vec<DbTxo>>,
-    ) -> Result<AssetRgb25, Error> {
+    ) -> Result<AssetCFA, Error> {
         let iface = runtime
             .iface_by_name(&AssetIface::RGB25.to_typename())?
             .clone();
@@ -305,7 +309,7 @@ impl AssetRgb25 {
         let contract = runtime.contract_iface(contract_id, iface.iface_id())?;
         let timestamp = wallet._get_asset_timestamp(&contract)?;
         let (name, precision, issued_supply, description) =
-            wallet._get_rgb25_asset_metadata(contract);
+            wallet._get_cfa_asset_metadata(contract);
         let mut data_paths = vec![];
         let asset_dir = assets_dir.join(asset_id.clone());
         if asset_dir.is_dir() {
@@ -323,8 +327,9 @@ impl AssetRgb25 {
             colorings,
             txos,
         )?;
-        Ok(AssetRgb25 {
+        Ok(AssetCFA {
             asset_id,
+            asset_iface: AssetIface::RGB25,
             description,
             name,
             precision,
@@ -340,9 +345,9 @@ impl AssetRgb25 {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Assets {
     /// List of RGB20 assets
-    pub rgb20: Option<Vec<AssetRgb20>>,
+    pub nia: Option<Vec<AssetNIA>>,
     /// List of RGB25 assets
-    pub rgb25: Option<Vec<AssetRgb25>>,
+    pub cfa: Option<Vec<AssetCFA>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -2209,26 +2214,26 @@ impl Wallet {
         balance
     }
 
-    fn _get_rgb20_asset_metadata(&self, contract: ContractIface) -> (String, u8, u64, String) {
-        let iface_rgb20 = Rgb20::from(contract);
-        let spec = iface_rgb20.spec();
+    fn _get_nia_asset_metadata(&self, contract: ContractIface) -> (String, u8, u64, String) {
+        let iface_nia = Rgb20::from(contract);
+        let spec = iface_nia.spec();
         let ticker = spec.ticker().to_string();
         let name = spec.name().to_string();
         let precision = spec.precision.into();
-        let issued_supply = iface_rgb20.total_issued_supply().into();
+        let issued_supply = iface_nia.total_issued_supply().into();
         (name, precision, issued_supply, ticker)
     }
 
-    fn _get_rgb25_asset_metadata(
+    fn _get_cfa_asset_metadata(
         &self,
         contract: ContractIface,
     ) -> (String, u8, u64, Option<String>) {
-        let iface_rgb25 = Rgb25::from(contract);
-        let name = iface_rgb25.name().to_string();
-        let precision = iface_rgb25.precision().into();
-        let issued_supply = iface_rgb25.total_issued_supply().into();
+        let iface_cfa = Rgb25::from(contract);
+        let name = iface_cfa.name().to_string();
+        let precision = iface_cfa.precision().into();
+        let issued_supply = iface_cfa.total_issued_supply().into();
         let mut details = None;
-        if let Some(det) = iface_rgb25.details() {
+        if let Some(det) = iface_cfa.details() {
             details = Some(det.to_string());
         }
         (name, precision, issued_supply, details)
@@ -2270,12 +2275,12 @@ impl Wallet {
         let (name, precision, issued_supply, ticker, description) = match asset_iface {
             AssetIface::RGB20 => {
                 let (name, precision, issued_supply, ticker) =
-                    self._get_rgb20_asset_metadata(contract);
+                    self._get_nia_asset_metadata(contract);
                 (name, precision, issued_supply, Some(ticker), None)
             }
             AssetIface::RGB25 => {
                 let (name, precision, issued_supply, details) =
-                    self._get_rgb25_asset_metadata(contract);
+                    self._get_cfa_asset_metadata(contract);
                 (name, precision, issued_supply, None, details)
             }
         };
@@ -2494,15 +2499,15 @@ impl Wallet {
         Ok(self.database.set_asset(db_asset)?)
     }
 
-    /// Issue a new RGB [`AssetRgb20`] and return it
-    pub fn issue_asset_rgb20(
+    /// Issue a new RGB [`AssetNIA`] and return it
+    pub fn issue_asset_nia(
         &mut self,
         online: Online,
         ticker: String,
         name: String,
         precision: u8,
         amounts: Vec<u64>,
-    ) -> Result<AssetRgb20, Error> {
+    ) -> Result<AssetNIA, Error> {
         info!(
             self.logger,
             "Issuing RGB20 asset with ticker '{}' name '{}' precision '{}' amounts '{:?}'...",
@@ -2625,7 +2630,7 @@ impl Wallet {
             self.database.set_coloring(db_coloring)?;
         }
 
-        let asset = AssetRgb20::get_asset_details(
+        let asset = AssetNIA::get_asset_details(
             self,
             asset_id.clone(),
             &mut runtime,
@@ -2639,8 +2644,8 @@ impl Wallet {
         Ok(asset)
     }
 
-    /// Issue a new RGB [`AssetRgb25`] and return it
-    pub fn issue_asset_rgb25(
+    /// Issue a new RGB [`AssetCFA`] and return it
+    pub fn issue_asset_cfa(
         &mut self,
         online: Online,
         name: String,
@@ -2648,7 +2653,7 @@ impl Wallet {
         precision: u8,
         amounts: Vec<u64>,
         file_path: Option<String>,
-    ) -> Result<AssetRgb25, Error> {
+    ) -> Result<AssetCFA, Error> {
         info!(
             self.logger,
             "Issuing RGB25 asset with name '{}' precision '{}' amounts '{:?}'...",
@@ -2822,7 +2827,7 @@ impl Wallet {
             self.database.set_coloring(db_coloring)?;
         }
 
-        let asset = AssetRgb25::get_asset_details(
+        let asset = AssetCFA::get_asset_details(
             self,
             asset_id,
             &mut runtime,
@@ -2854,22 +2859,22 @@ impl Wallet {
 
         let mut runtime = self._rgb_runtime()?;
         let assets = self.database.iter_assets()?;
-        let mut rgb20 = None;
-        let mut rgb25 = None;
+        let mut nia = None;
+        let mut cfa = None;
         for asset_iface in filter_asset_ifaces {
             match asset_iface {
                 AssetIface::RGB20 => {
-                    let rgb20_ids: Vec<String> = runtime
+                    let nia_ids: Vec<String> = runtime
                         .contract_ids_by_iface(&TypeName::try_from("RGB20").unwrap())?
                         .iter()
                         .map(|c| c.to_string())
                         .collect();
-                    rgb20 = Some(
+                    nia = Some(
                         assets
                             .iter()
-                            .filter(|a| rgb20_ids.contains(&a.asset_id))
+                            .filter(|a| nia_ids.contains(&a.asset_id))
                             .map(|c| {
-                                AssetRgb20::get_asset_details(
+                                AssetNIA::get_asset_details(
                                     self,
                                     c.asset_id.clone(),
                                     &mut runtime,
@@ -2879,22 +2884,22 @@ impl Wallet {
                                     txos.clone(),
                                 )
                             })
-                            .collect::<Result<Vec<AssetRgb20>, Error>>()?,
+                            .collect::<Result<Vec<AssetNIA>, Error>>()?,
                     );
                 }
                 AssetIface::RGB25 => {
-                    let rgb25_ids: Vec<String> = runtime
+                    let cfa_ids: Vec<String> = runtime
                         .contract_ids_by_iface(&TypeName::try_from("RGB25").unwrap())?
                         .iter()
                         .map(|c| c.to_string())
                         .collect();
                     let assets_dir = self.wallet_dir.join(ASSETS_DIR);
-                    rgb25 = Some(
+                    cfa = Some(
                         assets
                             .iter()
-                            .filter(|a| rgb25_ids.contains(&a.asset_id))
+                            .filter(|a| cfa_ids.contains(&a.asset_id))
                             .map(|c| {
-                                AssetRgb25::get_asset_details(
+                                AssetCFA::get_asset_details(
                                     self,
                                     c.asset_id.clone(),
                                     &mut runtime,
@@ -2905,14 +2910,14 @@ impl Wallet {
                                     txos.clone(),
                                 )
                             })
-                            .collect::<Result<Vec<AssetRgb25>, Error>>()?,
+                            .collect::<Result<Vec<AssetCFA>, Error>>()?,
                     );
                 }
             }
         }
 
         info!(self.logger, "List assets completed");
-        Ok(Assets { rgb20, rgb25 })
+        Ok(Assets { nia, cfa })
     }
 
     fn _sync_if_online(&self, online: Option<Online>) -> Result<(), Error> {
@@ -3294,8 +3299,8 @@ impl Wallet {
             let iface_name = AssetIface::RGB25.to_typename();
             let iface = runtime.iface_by_name(&iface_name)?.clone();
             let contract = runtime.contract_iface(contract_id, iface.iface_id())?;
-            let iface_rgb25 = Rgb25::from(contract);
-            let contract_data = iface_rgb25.contract_data();
+            let iface_cfa = Rgb25::from(contract);
+            let contract_data = iface_cfa.contract_data();
 
             if let Some(media) = contract_data.media {
                 let attachment_id = hex::encode(media.digest);

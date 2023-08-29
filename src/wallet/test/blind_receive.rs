@@ -56,7 +56,7 @@ fn success() {
 
     // asset id is set
     let asset = wallet
-        .issue_asset_rgb25(
+        .issue_asset_cfa(
             online,
             NAME.to_string(),
             Some(DESCRIPTION.to_string()),
@@ -198,7 +198,7 @@ fn expire() {
 
     // trigger the expiration of pending transfers
     let _asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online,
             TICKER.to_string(),
             NAME.to_string(),
@@ -224,7 +224,7 @@ fn pending_outgoing_transfer_fail() {
 
     // issue
     let asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -370,7 +370,7 @@ fn fail() {
 
     // cannot blind if all UTXOS already have an allocation
     let _asset = wallet
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -485,7 +485,7 @@ fn wrong_asset_fail() {
 
     // issue one asset per wallet
     let asset_a = wallet_1
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online_1.clone(),
             TICKER.to_string(),
             NAME.to_string(),
@@ -494,7 +494,7 @@ fn wrong_asset_fail() {
         )
         .unwrap();
     let asset_b = wallet_2
-        .issue_asset_rgb20(
+        .issue_asset_nia(
             online_2.clone(),
             TICKER.to_string(),
             NAME.to_string(),

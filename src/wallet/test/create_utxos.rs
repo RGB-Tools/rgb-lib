@@ -133,7 +133,7 @@ fn up_to_allocation_checks() {
         assert_eq!(num_utxos_created, 1);
         // issue
         let asset = wallet
-            .issue_asset_rgb20(
+            .issue_asset_nia(
                 online.clone(),
                 TICKER.to_string(),
                 NAME.to_string(),
