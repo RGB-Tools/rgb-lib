@@ -14,7 +14,10 @@ use bdk::blockchain::{
     Blockchain, ConfigurableBlockchain, ElectrumBlockchain, ElectrumBlockchainConfig,
 };
 use bdk::database::any::SledDbConfiguration;
-use bdk::database::{AnyDatabase, ConfigurableDatabase as BdkConfigurableDatabase};
+use bdk::database::{
+    AnyDatabase, BatchDatabase, ConfigurableDatabase as BdkConfigurableDatabase, MemoryDatabase,
+};
+use bdk::descriptor::IntoWalletDescriptor;
 use bdk::keys::bip39::{Language, Mnemonic};
 use bdk::keys::{DerivableKey, ExtendedKey};
 use bdk::wallet::AddressIndex;
@@ -357,14 +360,19 @@ struct AssetSpend {
     change_amount: u64,
 }
 
-/// An asset balance
+/// A balance
 ///
-/// The settled balance includes allocations created by operations that have completed and are in a
-/// final status.
-/// The future balance also includes operations that have not yet completed or are not yet final,
-/// reflecting what the balance will be once all pending operations will have settled.
-/// The spendable balance is a subset of the settled balance, excluding allocations on UTXOs that
-/// are supporting any pending operation.
+/// The settled balance for the vanilla wallet includes the confirmed balance.
+/// The settled balance for the colored wallet includes allocations created by operations that have
+/// completed and are in a final status.
+/// The future balance for the vanilla wallet also includes the immature balance and the untrusted
+/// and trusted pending balances.
+/// The future balance for the colored wallet also includes operations that have not yet completed
+/// or are not yet final.
+/// The spendable balance for the vanilla wallet includes the settled balance and also the
+/// untrusted and trusted pending balances.
+/// The spendable balance for the colored wallet is a subset of the settled balance, excluding
+/// allocations on UTXOs that are supporting any pending operation.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct Balance {
     /// Settled balance
@@ -373,6 +381,14 @@ pub struct Balance {
     pub future: u64,
     /// Spendable balance
     pub spendable: u64,
+}
+
+/// The bitcoin balances for the vanilla and colored wallets
+pub struct BtcBalance {
+    /// Extra funds that will never hold RGB assets
+    pub vanilla: Balance,
+    /// Funds that may hold RGB assets
+    pub colored: Balance,
 }
 
 /// Data to receive an asset
@@ -1194,16 +1210,36 @@ impl Wallet {
         Ok(())
     }
 
+    fn _sync_wallet<D>(&self, wallet: &BdkWallet<D>) -> Result<(), Error>
+    where
+        D: BatchDatabase,
+    {
+        self._sync_wallet_with_blockchain(wallet, self._bdk_blockchain()?)?;
+        Ok(())
+    }
+
+    fn _sync_wallet_with_blockchain<D>(
+        &self,
+        wallet: &BdkWallet<D>,
+        bdk_blockchain: &ElectrumBlockchain,
+    ) -> Result<(), Error>
+    where
+        D: BatchDatabase,
+    {
+        wallet
+            .sync(bdk_blockchain, SyncOptions { progress: None })
+            .map_err(|e| Error::FailedBdkSync {
+                details: e.to_string(),
+            })?;
+        Ok(())
+    }
+
     fn _sync_db_txos_with_blockchain(
         &self,
         bdk_blockchain: &ElectrumBlockchain,
     ) -> Result<(), Error> {
         debug!(self.logger, "Syncing TXOs...");
-        self.bdk_wallet
-            .sync(bdk_blockchain, SyncOptions { progress: None })
-            .map_err(|e| Error::FailedBdkSync {
-                details: e.to_string(),
-            })?;
+        self._sync_wallet_with_blockchain(&self.bdk_wallet, bdk_blockchain)?;
 
         let db_outpoints: Vec<String> = self
             .database
@@ -2237,6 +2273,67 @@ impl Wallet {
         balance
     }
 
+    /// Return the [`BtcBalance`] of the underlying bitcoin wallets
+    pub fn get_btc_balance(&self, online: Online) -> Result<BtcBalance, Error> {
+        info!(self.logger, "Getting BTC balance...");
+        self._check_online(online)?;
+
+        let bdk_network = self.bdk_wallet.network();
+        let secp = Secp256k1::new();
+        let (descriptor_keychain_1, _) = self
+            .bdk_wallet
+            .get_descriptor_for_keychain(KeychainKind::Internal)
+            .clone()
+            .into_wallet_descriptor(&secp, bdk_network)
+            .unwrap();
+        let bdk_wallet_keychain_1 = BdkWallet::new(
+            descriptor_keychain_1,
+            None,
+            bdk_network,
+            MemoryDatabase::default(),
+        )
+        .map_err(InternalError::from)?;
+        let (descriptor_keychain_9, _) = self
+            .bdk_wallet
+            .get_descriptor_for_keychain(KeychainKind::External)
+            .clone()
+            .into_wallet_descriptor(&secp, bdk_network)
+            .unwrap();
+        let bdk_wallet_keychain_9 = BdkWallet::new(
+            descriptor_keychain_9,
+            None,
+            bdk_network,
+            MemoryDatabase::default(),
+        )
+        .map_err(InternalError::from)?;
+
+        self._sync_wallet(&bdk_wallet_keychain_1)?;
+        self._sync_wallet(&bdk_wallet_keychain_9)?;
+
+        let vanilla_balance = bdk_wallet_keychain_1
+            .get_balance()
+            .map_err(InternalError::from)?;
+        let colored_balance = bdk_wallet_keychain_9
+            .get_balance()
+            .map_err(InternalError::from)?;
+        let vanilla_future = vanilla_balance.get_total();
+        let colored_future = colored_balance.get_total();
+        let balance = BtcBalance {
+            vanilla: Balance {
+                settled: vanilla_balance.confirmed,
+                future: vanilla_future,
+                spendable: vanilla_future - vanilla_balance.immature,
+            },
+            colored: Balance {
+                settled: colored_balance.confirmed,
+                future: colored_future,
+                spendable: colored_future - colored_balance.immature,
+            },
+        };
+        info!(self.logger, "Get BTC balance completed");
+        Ok(balance)
+    }
+
     fn _get_nia_asset_metadata(&self, contract: ContractIface) -> (String, u8, u64, String) {
         let iface_nia = Rgb20::from(contract);
         let spec = iface_nia.spec();
@@ -2946,11 +3043,7 @@ impl Wallet {
     fn _sync_if_online(&self, online: Option<Online>) -> Result<(), Error> {
         if let Some(online) = online {
             self._check_online(online)?;
-            self.bdk_wallet
-                .sync(self._bdk_blockchain()?, SyncOptions { progress: None })
-                .map_err(|e| Error::FailedBdkSync {
-                    details: e.to_string(),
-                })?;
+            self._sync_wallet(&self.bdk_wallet)?;
         }
         Ok(())
     }

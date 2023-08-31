@@ -15,6 +15,7 @@ type Assets = rgb_lib::wallet::Assets;
 type Balance = rgb_lib::wallet::Balance;
 type BitcoinNetwork = rgb_lib::BitcoinNetwork;
 type BlockTime = rgb_lib::wallet::BlockTime;
+type BtcBalance = rgb_lib::wallet::BtcBalance;
 type DatabaseType = rgb_lib::wallet::DatabaseType;
 type InvoiceData = rgb_lib::wallet::InvoiceData;
 type Keys = rgb_lib::keys::Keys;
@@ -280,6 +281,10 @@ impl Wallet {
 
     fn get_asset_balance(&self, asset_id: String) -> Result<Balance, RgbLibError> {
         self._get_wallet().get_asset_balance(asset_id)
+    }
+
+    fn get_btc_balance(&self, online: Online) -> Result<BtcBalance, RgbLibError> {
+        self._get_wallet().get_btc_balance(online)
     }
 
     fn get_asset_metadata(&self, asset_id: String) -> Result<Metadata, RgbLibError> {

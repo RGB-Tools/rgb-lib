@@ -114,6 +114,11 @@ dictionary Balance {
   u64 spendable;
 };
 
+dictionary BtcBalance {
+  Balance vanilla;
+  Balance colored;
+};
+
 enum BitcoinNetwork {
   "Mainnet",
   "Testnet",
@@ -347,6 +352,9 @@ interface Wallet {
 
   [Throws=RgbLibError]
   Balance get_asset_balance(string asset_id);
+
+  [Throws=RgbLibError]
+  BtcBalance get_btc_balance(Online online);
 
   [Throws=RgbLibError]
   Metadata get_asset_metadata(string asset_id);
