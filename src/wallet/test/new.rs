@@ -13,7 +13,6 @@ fn check_wallet(wallet: &Wallet, desc_type: DescriptorType, network: BitcoinNetw
     let _split = descriptor_string.split_off(20); // "wpkh([<chksum>/84'/0", "..."
     let descriptor_coin_type = descriptor_string.split_off(19);
     assert_eq!(descriptor_coin_type, coin_type.to_string());
-    assert_eq!(wallet.bitcoin_network, network);
     assert_eq!(wallet.wallet_data.bitcoin_network, network);
 }
 

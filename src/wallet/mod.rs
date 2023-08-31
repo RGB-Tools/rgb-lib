@@ -1006,7 +1006,6 @@ pub struct Wallet {
     logger: Logger,
     watch_only: bool,
     database: Arc<RgbLibDatabase>,
-    bitcoin_network: BitcoinNetwork,
     wallet_dir: PathBuf,
     bdk_wallet: BdkWallet<AnyDatabase>,
     rest_client: RestClient,
@@ -1131,7 +1130,6 @@ impl Wallet {
             logger,
             watch_only,
             database: Arc::new(database),
-            bitcoin_network: wdata.bitcoin_network,
             wallet_dir,
             bdk_wallet,
             rest_client,
@@ -1145,6 +1143,10 @@ impl Wallet {
             Some(ref x) => Ok(&x.bdk_blockchain),
             None => Err(InternalError::Unexpected),
         }
+    }
+
+    fn _bitcoin_network(&self) -> BitcoinNetwork {
+        self.wallet_data.bitcoin_network
     }
 
     fn _electrum_client(&self) -> Result<&ElectrumClient, InternalError> {
@@ -1161,7 +1163,7 @@ impl Wallet {
     }
 
     fn _rgb_runtime(&self) -> Result<RgbRuntime, Error> {
-        load_rgb_runtime(self.wallet_dir.clone(), self.bitcoin_network)
+        load_rgb_runtime(self.wallet_dir.clone(), self._bitcoin_network())
     }
 
     fn _get_tx_details(
@@ -2508,8 +2510,8 @@ impl Wallet {
             })?;
 
         // check electrum server
-        if self.bitcoin_network != BitcoinNetwork::Regtest {
-            self._get_tx_details(get_txid(self.bitcoin_network), Some(&electrum_client))?;
+        if self._bitcoin_network() != BitcoinNetwork::Regtest {
+            self._get_tx_details(get_txid(self._bitcoin_network()), Some(&electrum_client))?;
         }
 
         let online_data = OnlineData {
