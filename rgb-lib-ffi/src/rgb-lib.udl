@@ -258,7 +258,7 @@ enum TransactionType {
   "RgbSend",
   "Drain",
   "CreateUtxos",
-  "Other",
+  "User",
 };
 
 dictionary BlockTime {

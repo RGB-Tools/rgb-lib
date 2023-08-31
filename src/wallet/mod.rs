@@ -802,7 +802,7 @@ pub enum TransactionType {
     /// Transaction used to create UTXOs
     CreateUtxos,
     /// Transaction not created by rgb-lib directly
-    Other,
+    User,
 }
 
 /// An RGB transfer
@@ -2990,7 +2990,7 @@ impl Wallet {
                 } else if rgb_send_txids.contains(&txid) {
                     TransactionType::RgbSend
                 } else {
-                    TransactionType::Other
+                    TransactionType::User
                 };
                 Transaction {
                     transaction_type,
