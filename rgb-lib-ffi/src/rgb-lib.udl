@@ -54,6 +54,7 @@ interface RgbLibError {
   NoIssuanceAmounts();
   NoValidTransportEndpoint();
   Offline();
+  OutputBelowDustLimit();
   Proxy(string details);
   ScriptAlreadyUsed();
   TransferNotFound(string recipient_id);
@@ -399,4 +400,7 @@ interface Wallet {
 
   [Throws=RgbLibError]
   string send_end(Online online, string signed_psbt);
+
+  [Throws=RgbLibError]
+  string send_btc(Online online, string address, u64 amount, f32 fee_rate);
 };

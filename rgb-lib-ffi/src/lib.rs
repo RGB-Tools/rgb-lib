@@ -391,6 +391,17 @@ impl Wallet {
     fn send_end(&self, online: Online, signed_psbt: String) -> Result<String, RgbLibError> {
         self._get_wallet().send_end(online, signed_psbt)
     }
+
+    fn send_btc(
+        &self,
+        online: Online,
+        address: String,
+        amount: u64,
+        fee_rate: f32,
+    ) -> Result<String, RgbLibError> {
+        self._get_wallet()
+            .send_btc(online, address, amount, fee_rate)
+    }
 }
 
 fn _convert_recipient_map(

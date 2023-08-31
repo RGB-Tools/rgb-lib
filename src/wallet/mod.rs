@@ -1730,12 +1730,17 @@ impl Wallet {
         })
     }
 
+    fn _sign_psbt(&self, psbt: &mut BdkPsbt) -> Result<(), Error> {
+        self.bdk_wallet
+            .sign(psbt, SignOptions::default())
+            .map_err(InternalError::from)?;
+        Ok(())
+    }
+
     /// Sign a PSBT
     pub fn sign_psbt(&self, unsigned_psbt: String) -> Result<String, Error> {
         let mut psbt = BdkPsbt::from_str(&unsigned_psbt).map_err(InternalError::from)?;
-        self.bdk_wallet
-            .sign(&mut psbt, SignOptions::default())
-            .map_err(InternalError::from)?;
+        self._sign_psbt(&mut psbt)?;
         Ok(psbt.to_string())
     }
 
@@ -2035,6 +2040,15 @@ impl Wallet {
         self.drain_to_end(online, psbt)
     }
 
+    fn _get_unspendable_bdk_outpoints(&self) -> Result<Vec<BdkOutPoint>, Error> {
+        Ok(self
+            .database
+            .iter_txos()?
+            .into_iter()
+            .map(BdkOutPoint::from)
+            .collect())
+    }
+
     /// Prepare the PSBT to send bitcoin funds not in use for RGB allocations, or all if
     /// `destroy_assets` is specified, to the provided `address`.
     ///
@@ -2071,12 +2085,7 @@ impl Wallet {
             .fee_rate(FeeRate::from_sat_per_vb(fee_rate));
 
         if !destroy_assets {
-            let unspendable: Vec<BdkOutPoint> = self
-                .database
-                .iter_txos()?
-                .into_iter()
-                .map(BdkOutPoint::from)
-                .collect();
+            let unspendable = self._get_unspendable_bdk_outpoints()?;
             tx_builder.unspendable(unspendable);
         }
 
@@ -4690,6 +4699,56 @@ impl Wallet {
 
         info!(self.logger, "Send (end) completed");
         Ok(txid)
+    }
+
+    /// Send bitcoins using the internal vanilla wallet.
+    ///
+    /// Returns the TXID of the broadcasted transaction
+    pub fn send_btc(
+        &self,
+        online: Online,
+        address: String,
+        amount: u64,
+        fee_rate: f32,
+    ) -> Result<String, Error> {
+        info!(self.logger, "Sending BTC...");
+        self._check_online(online)?;
+        self._check_fee_rate(fee_rate)?;
+
+        self._sync_db_txos()?;
+
+        let address = BdkAddress::from_str(&address)?;
+        if !address.is_valid_for_network(self._bitcoin_network().into()) {
+            return Err(Error::InvalidAddress {
+                details: s!("belongs to another network"),
+            });
+        }
+
+        let unspendable = self._get_unspendable_bdk_outpoints()?;
+
+        let mut tx_builder = self.bdk_wallet.build_tx();
+        tx_builder
+            .unspendable(unspendable)
+            .add_recipient(address.script_pubkey(), amount)
+            .fee_rate(FeeRate::from_sat_per_vb(fee_rate));
+
+        let mut psbt = tx_builder
+            .finish()
+            .map_err(|e| match e {
+                bdk::Error::InsufficientFunds { needed, available } => {
+                    Error::InsufficientBitcoins { needed, available }
+                }
+                bdk::Error::OutputBelowDustLimit(_) => Error::OutputBelowDustLimit,
+                _ => Error::from(InternalError::from(e)),
+            })?
+            .0;
+
+        self._sign_psbt(&mut psbt)?;
+
+        let tx = self._broadcast_psbt(psbt)?;
+
+        info!(self.logger, "Send BTC completed");
+        Ok(tx.txid().to_string())
     }
 }
 

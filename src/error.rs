@@ -278,6 +278,10 @@ pub enum Error {
     #[error("Wallet is offline. Hint: call go_online")]
     Offline,
 
+    /// Output created is under the dust limit
+    #[error("Output below the dust limit")]
+    OutputBelowDustLimit,
+
     /// Error contacting the RGB proxy
     #[error("Proxy error: {details}")]
     Proxy {
