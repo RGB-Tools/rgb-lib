@@ -103,6 +103,9 @@ use crate::utils::{
 const RGB_DB_NAME: &str = "rgb_db";
 const BDK_DB_NAME: &str = "bdk_db";
 
+const KEYCHAIN_RGB: u8 = 9;
+const KEYCHAIN_BTC: u8 = 1;
+
 const ASSETS_DIR: &str = "assets";
 const TRANSFER_DIR: &str = "transfers";
 const TRANSFER_DATA_FILE: &str = "transfer_data.txt";
@@ -1068,9 +1071,10 @@ impl Wallet {
             let xprv = xkey
                 .into_xprv(bdk_network)
                 .expect("should be possible to get an extended private key");
-            let descriptor = calculate_descriptor_from_xprv(xprv, wdata.bitcoin_network, false);
+            let descriptor =
+                calculate_descriptor_from_xprv(xprv, wdata.bitcoin_network, KEYCHAIN_RGB);
             let change_descriptor =
-                calculate_descriptor_from_xprv(xprv, wdata.bitcoin_network, true);
+                calculate_descriptor_from_xprv(xprv, wdata.bitcoin_network, KEYCHAIN_BTC);
             BdkWallet::new(
                 &descriptor,
                 Some(&change_descriptor),
@@ -1080,9 +1084,9 @@ impl Wallet {
             .map_err(InternalError::from)?
         } else {
             let descriptor_pub =
-                calculate_descriptor_from_xpub(xpub, wdata.bitcoin_network, false)?;
+                calculate_descriptor_from_xpub(xpub, wdata.bitcoin_network, KEYCHAIN_RGB)?;
             let change_descriptor_pub =
-                calculate_descriptor_from_xpub(xpub, wdata.bitcoin_network, true)?;
+                calculate_descriptor_from_xpub(xpub, wdata.bitcoin_network, KEYCHAIN_BTC)?;
             BdkWallet::new(
                 &descriptor_pub,
                 Some(&change_descriptor_pub),

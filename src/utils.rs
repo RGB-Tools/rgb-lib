@@ -38,9 +38,6 @@ use time::OffsetDateTime;
 use crate::error::InternalError;
 use crate::Error;
 
-const DERIVATION_EXTERNAL: u32 = 9;
-const DERIVATION_INTERNAL: u32 = 1;
-
 const TIMESTAMP_FORMAT: &[time::format_description::FormatItem] = time::macros::format_description!(
     "[year]-[month]-[day]T[hour repr:24]:[minute]:[second].[subsecond digits:3]+00"
 );
@@ -156,35 +153,30 @@ pub(crate) fn get_txid(bitcoin_network: BitcoinNetwork) -> String {
 pub(crate) fn _get_derivation_path(
     watch_only: bool,
     bitcoin_network: BitcoinNetwork,
-    change: bool,
+    keychain: u8,
 ) -> String {
-    let change_num = if change {
-        DERIVATION_INTERNAL
-    } else {
-        DERIVATION_EXTERNAL
-    };
     let coin_type = i32::from(bitcoin_network != BitcoinNetwork::Mainnet);
     let hardened = if watch_only { "" } else { "'" };
     let child_number = if watch_only { "" } else { "/*" };
     let master = if watch_only { "m" } else { "" };
-    format!("{master}/84{hardened}/{coin_type}{hardened}/0{hardened}/{change_num}{child_number}")
+    format!("{master}/84{hardened}/{coin_type}{hardened}/0{hardened}/{keychain}{child_number}")
 }
 
 pub(crate) fn calculate_descriptor_from_xprv(
     xprv: ExtendedPrivKey,
     bitcoin_network: BitcoinNetwork,
-    change: bool,
+    keychain: u8,
 ) -> String {
-    let derivation_path = _get_derivation_path(false, bitcoin_network, change);
+    let derivation_path = _get_derivation_path(false, bitcoin_network, keychain);
     format!("wpkh({xprv}{derivation_path})")
 }
 
 pub(crate) fn calculate_descriptor_from_xpub(
     xpub: ExtendedPubKey,
     bitcoin_network: BitcoinNetwork,
-    change: bool,
+    keychain: u8,
 ) -> Result<String, Error> {
-    let derivation_path = _get_derivation_path(true, bitcoin_network, change);
+    let derivation_path = _get_derivation_path(true, bitcoin_network, keychain);
     let path =
         DerivationPath::from_str(&derivation_path).expect("derivation path should be well-formed");
     let der_xpub = &xpub
