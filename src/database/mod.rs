@@ -1,5 +1,5 @@
 use bdk::bitcoin::OutPoint as BdkOutPoint;
-use bdk::{KeychainKind, LocalUtxo};
+use bdk::LocalUtxo;
 use futures::executor::block_on;
 use sea_orm::{ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder};
 use serde::{Deserialize, Serialize};
@@ -173,16 +173,11 @@ impl From<DbTxo> for BdkOutPoint {
 
 impl From<LocalUtxo> for DbTxoActMod {
     fn from(x: LocalUtxo) -> DbTxoActMod {
-        let colorable = match x.keychain {
-            KeychainKind::External => true,
-            KeychainKind::Internal => false,
-        };
         DbTxoActMod {
             idx: ActiveValue::NotSet,
             txid: ActiveValue::Set(x.outpoint.txid.to_string()),
             vout: ActiveValue::Set(x.outpoint.vout),
             btc_amount: ActiveValue::Set(x.txout.value.to_string()),
-            colorable: ActiveValue::Set(colorable),
             spent: ActiveValue::Set(false),
         }
     }

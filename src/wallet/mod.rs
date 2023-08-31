@@ -919,6 +919,15 @@ impl From<LocalUnspent> for Unspent {
     }
 }
 
+impl From<LocalUtxo> for Unspent {
+    fn from(x: LocalUtxo) -> Unspent {
+        Unspent {
+            utxo: Utxo::from(x),
+            rgb_allocations: vec![],
+        }
+    }
+}
+
 /// An unspent transaction output
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Utxo {
@@ -938,7 +947,17 @@ impl From<DbTxo> for Utxo {
                 .btc_amount
                 .parse::<u64>()
                 .expect("DB should contain a valid u64 value"),
-            colorable: x.colorable,
+            colorable: true,
+        }
+    }
+}
+
+impl From<LocalUtxo> for Utxo {
+    fn from(x: LocalUtxo) -> Utxo {
+        Utxo {
+            outpoint: Outpoint::from(x.outpoint),
+            btc_amount: x.txout.value,
+            colorable: false,
         }
     }
 }
@@ -1199,6 +1218,7 @@ impl Wallet {
             .map_err(InternalError::from)?;
         let new_utxos: Vec<DbTxoActMod> = bdk_utxos
             .into_iter()
+            .filter(|u| u.keychain == KeychainKind::External)
             .filter(|u| !db_outpoints.contains(&u.outpoint.to_string()))
             .map(DbTxoActMod::from)
             .collect();
@@ -1214,6 +1234,15 @@ impl Wallet {
         Ok(())
     }
 
+    fn _internal_unspents(&self) -> Result<impl Iterator<Item = LocalUtxo>, Error> {
+        Ok(self
+            .bdk_wallet
+            .list_unspent()
+            .map_err(InternalError::from)?
+            .into_iter()
+            .filter(|u| u.keychain == KeychainKind::Internal))
+    }
+
     fn _broadcast_psbt(&self, signed_psbt: BdkPsbt) -> Result<BdkTransaction, Error> {
         let tx = signed_psbt.extract_tx();
         self._bdk_blockchain()?
@@ -1223,13 +1252,20 @@ impl Wallet {
             })?;
         debug!(self.logger, "Broadcasted TX with ID '{}'", tx.txid());
 
+        let internal_unspents_outpoints: Vec<(String, u32)> = self
+            ._internal_unspents()?
+            .map(|u| (u.outpoint.txid.to_string(), u.outpoint.vout))
+            .collect();
+
         for input in tx.clone().input {
+            let txid = input.previous_output.txid.to_string();
+            let vout = input.previous_output.vout;
+            if internal_unspents_outpoints.contains(&(txid.clone(), vout)) {
+                continue;
+            }
             let mut db_txo: DbTxoActMod = self
                 .database
-                .get_txo(Outpoint {
-                    txid: input.previous_output.txid.to_string(),
-                    vout: input.previous_output.vout,
-                })?
+                .get_txo(Outpoint { txid, vout })?
                 .expect("outpoint should be in the DB")
                 .into();
             db_txo.spent = ActiveValue::Set(true);
@@ -1262,17 +1298,8 @@ impl Wallet {
         Ok(())
     }
 
-    fn _get_uncolorable_btc_sum(&self, unspents: &[LocalUnspent]) -> u64 {
-        unspents
-            .iter()
-            .filter(|u| !u.utxo.colorable)
-            .map(|u| {
-                u.utxo
-                    .btc_amount
-                    .parse::<u64>()
-                    .expect("DB should contain a valid u64 value")
-            })
-            .sum()
+    fn _get_uncolorable_btc_sum(&self) -> Result<u64, Error> {
+        Ok(self._internal_unspents()?.map(|u| u.txout.value).sum())
     }
 
     fn _handle_expired_transfers(&mut self, db_data: &mut DbData) -> Result<(), Error> {
@@ -1312,7 +1339,6 @@ impl Wallet {
             .filter(|u| !exclude_utxos.contains(&u.utxo.outpoint()))
             .filter(|u| {
                 (u.rgb_allocations.len() as u32) <= max_allocs
-                    && u.utxo.colorable
                     && !u
                         .rgb_allocations
                         .iter()
@@ -1322,16 +1348,16 @@ impl Wallet {
             .collect())
     }
 
-    fn _detect_btc_unspendable_err(&self, unspents: &[LocalUnspent]) -> Error {
-        let available = self._get_uncolorable_btc_sum(unspents);
-        if available < MIN_BTC_REQUIRED {
+    fn _detect_btc_unspendable_err(&self) -> Result<Error, Error> {
+        let available = self._get_uncolorable_btc_sum()?;
+        Ok(if available < MIN_BTC_REQUIRED {
             Error::InsufficientBitcoins {
                 needed: MIN_BTC_REQUIRED,
                 available,
             }
         } else {
             Error::InsufficientAllocationSlots
-        }
+        })
     }
 
     fn _get_utxo(
@@ -1373,7 +1399,7 @@ impl Wallet {
                 }
                 Ok(selected.clone().utxo)
             }
-            None => Err(self._detect_btc_unspendable_err(&unspents)),
+            None => Err(self._detect_btc_unspendable_err()?),
         }
     }
 
@@ -1764,13 +1790,9 @@ impl Wallet {
         }
         debug!(self.logger, "Will try to create {} UTXOs", utxos_to_create);
 
-        let inputs: Vec<BdkOutPoint> = unspent_txos
-            .into_iter()
-            .filter(|u| !u.colorable)
-            .map(BdkOutPoint::from)
-            .collect();
+        let inputs: Vec<BdkOutPoint> = self._internal_unspents()?.map(|u| u.outpoint).collect();
         let inputs: &[BdkOutPoint] = &inputs;
-        let new_btc_amount = self._get_uncolorable_btc_sum(&unspents);
+        let new_btc_amount = self._get_uncolorable_btc_sum()?;
         let utxo_size = size.unwrap_or(UTXO_SIZE);
         let max_possible_utxos = new_btc_amount / utxo_size as u64;
         let mut btc_needed: u64 = 0;
@@ -2009,7 +2031,6 @@ impl Wallet {
                 .database
                 .iter_txos()?
                 .into_iter()
-                .filter(|t| t.colorable)
                 .map(BdkOutPoint::from)
                 .collect();
             tx_builder.unspendable(unspendable);
@@ -3098,6 +3119,14 @@ impl Wallet {
                 .for_each(|u| u.rgb_allocations.retain(|a| a.settled));
         }
 
+        let mut internal_unspents: Vec<Unspent> = self
+            ._internal_unspents()?
+            .filter(|u| !u.is_spent)
+            .map(Unspent::from)
+            .collect();
+
+        unspents.append(&mut internal_unspents);
+
         info!(self.logger, "List unspents completed");
         Ok(unspents)
     }
@@ -3807,7 +3836,7 @@ impl Wallet {
                         all_inputs.push(a.utxo.into());
                         continue;
                     } else {
-                        return Err(self._detect_btc_unspendable_err(input_unspents));
+                        return Err(self._detect_btc_unspendable_err()?);
                     }
                 }
                 Err(e) => return Err(e),

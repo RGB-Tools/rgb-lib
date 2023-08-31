@@ -17,7 +17,6 @@ pub struct Model {
     pub txid: String,
     pub vout: u32,
     pub btc_amount: String,
-    pub colorable: bool,
     pub spent: bool,
 }
 
@@ -27,7 +26,6 @@ pub enum Column {
     Txid,
     Vout,
     BtcAmount,
-    Colorable,
     Spent,
 }
 
@@ -56,7 +54,6 @@ impl ColumnTrait for Column {
             Self::Txid => ColumnType::String(None).def(),
             Self::Vout => ColumnType::Integer.def(),
             Self::BtcAmount => ColumnType::String(None).def(),
-            Self::Colorable => ColumnType::Boolean.def(),
             Self::Spent => ColumnType::Boolean.def(),
         }
     }

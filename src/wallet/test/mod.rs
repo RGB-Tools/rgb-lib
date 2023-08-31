@@ -644,7 +644,12 @@ fn list_test_unspents(wallet: &Wallet, msg: &str) -> Vec<Unspent> {
 /// type, amount and asset
 fn show_unspent_colorings(wallet: &Wallet, msg: &str) {
     println!("\n{msg}");
-    let unspents = wallet.list_unspents(None, false).unwrap();
+    let unspents: Vec<Unspent> = wallet
+        .list_unspents(None, false)
+        .unwrap()
+        .into_iter()
+        .filter(|u| u.utxo.colorable)
+        .collect();
     for unspent in unspents {
         let outpoint = unspent.utxo.outpoint;
         let db_txos = wallet.database.iter_txos().unwrap();
@@ -660,11 +665,8 @@ fn show_unspent_colorings(wallet: &Wallet, msg: &str) {
             .filter(|c| c.txo_idx == db_txo.idx)
             .collect();
         println!(
-            "> {}:{}, {} sat, {}colorable",
-            outpoint.txid,
-            outpoint.vout,
-            unspent.utxo.btc_amount,
-            if unspent.utxo.colorable { "" } else { "not " }
+            "> {}:{}, {} sat",
+            outpoint.txid, outpoint.vout, unspent.utxo.btc_amount,
         );
         for db_coloring in db_colorings {
             let db_asset_transfers = wallet.database.iter_asset_transfers().unwrap();

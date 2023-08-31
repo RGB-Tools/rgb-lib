@@ -21,7 +21,6 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Txo::Txid).string().not_null())
                     .col(ColumnDef::new(Txo::Vout).unsigned().not_null())
                     .col(ColumnDef::new(Txo::BtcAmount).string().not_null())
-                    .col(ColumnDef::new(Txo::Colorable).boolean().not_null())
                     .col(ColumnDef::new(Txo::Spent).boolean().not_null())
                     .to_owned(),
             )
@@ -407,7 +406,6 @@ pub enum Txo {
     Txid,
     Vout,
     BtcAmount,
-    Colorable,
     Spent,
 }
 
