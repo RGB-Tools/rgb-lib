@@ -118,11 +118,11 @@ fn success() {
     );
     assert!(result.is_ok());
     let transfer = get_test_transfer_recipient(&wallet, &result.unwrap().recipient_id);
-    let tce_data = wallet
+    let tte_data = wallet
         .database
         .get_transfer_transport_endpoints_data(transfer.idx)
         .unwrap();
-    assert_eq!(tce_data.len(), transport_endpoints.len());
+    assert_eq!(tte_data.len(), transport_endpoints.len());
 }
 
 #[test]

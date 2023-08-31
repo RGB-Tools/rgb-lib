@@ -15,9 +15,9 @@ use crate::{BitcoinNetwork, Error};
 pub struct Keys {
     /// Mnemonic phrase
     pub mnemonic: String,
-    /// Xpub corresponding to the mnemonic phrase
+    /// xPub corresponding to the mnemonic phrase
     pub xpub: String,
-    /// Fingerprint of the xpub
+    /// Fingerprint of the xPub
     pub xpub_fingerprint: String,
 }
 

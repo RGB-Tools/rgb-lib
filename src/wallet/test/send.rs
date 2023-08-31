@@ -51,12 +51,12 @@ fn success() {
     let txid = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid.is_empty());
     let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
-    let tce_data = wallet
+    let tte_data = wallet
         .database
         .get_transfer_transport_endpoints_data(transfer.idx)
         .unwrap();
-    assert_eq!(tce_data.len(), 1);
-    let ce = tce_data.first().unwrap();
+    assert_eq!(tte_data.len(), 1);
+    let ce = tte_data.first().unwrap();
     assert_eq!(ce.1.endpoint, PROXY_URL);
     assert!(ce.0.used);
 
@@ -235,16 +235,16 @@ fn success() {
     let txid = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid.is_empty());
     let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
-    let tce_data = wallet
+    let tte_data = wallet
         .database
         .get_transfer_transport_endpoints_data(transfer.idx)
         .unwrap();
-    assert_eq!(tce_data.len(), 3);
-    let mut tce_data_iter = tce_data.iter();
+    assert_eq!(tte_data.len(), 3);
+    let mut tte_data_iter = tte_data.iter();
     let (ce_0, ce_1, ce_2) = (
-        &tce_data_iter.next().unwrap(),
-        &tce_data_iter.next().unwrap(),
-        &tce_data_iter.next().unwrap(),
+        &tte_data_iter.next().unwrap(),
+        &tte_data_iter.next().unwrap(),
+        &tte_data_iter.next().unwrap(),
     );
     assert_eq!(ce_0.1.endpoint, PROXY_URL_MOD_API);
     assert_eq!(ce_1.1.endpoint, PROXY_URL_MOD_PROTO);
@@ -334,16 +334,16 @@ fn success() {
         .unwrap();
     assert!(!txid.is_empty());
     let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
-    let tce_data = wallet
+    let tte_data = wallet
         .database
         .get_transfer_transport_endpoints_data(transfer.idx)
         .unwrap();
-    assert_eq!(tce_data.len(), 3);
-    let mut tce_data_iter = tce_data.iter();
+    assert_eq!(tte_data.len(), 3);
+    let mut tte_data_iter = tte_data.iter();
     let (ce_0, ce_1, ce_2) = (
-        &tce_data_iter.next().unwrap(),
-        &tce_data_iter.next().unwrap(),
-        &tce_data_iter.next().unwrap(),
+        &tte_data_iter.next().unwrap(),
+        &tte_data_iter.next().unwrap(),
+        &tte_data_iter.next().unwrap(),
     );
     assert_eq!(ce_0.1.endpoint, PROXY_URL_MOD_PROTO);
     assert_eq!(ce_1.1.endpoint, "http://127.6.6.6:7777/json-rpc");

@@ -493,7 +493,7 @@ impl RgbLibDatabase {
                 .all(self.get_connection()),
         )?
         .into_iter()
-        .map(|(tce, ce)| (tce, ce.expect("should be connected")))
+        .map(|(tte, ce)| (tte, ce.expect("should be connected")))
         .collect())
     }
 

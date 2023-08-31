@@ -380,9 +380,9 @@ pub struct Balance {
 pub struct ReceiveData {
     /// Invoice string
     pub invoice: String,
-    /// ID of the receive (blinded UTXO or script)
+    /// ID of the receive operation (blinded UTXO or script)
     pub recipient_id: String,
-    /// Expiration of the `receiving_utxo`
+    /// Expiration of the receive operation
     pub expiration_timestamp: Option<i64>,
 }
 
@@ -954,7 +954,7 @@ pub struct WalletData {
     pub database_type: DatabaseType,
     /// The max number of RGB allocations allowed per UTXO
     pub max_allocations_per_utxo: u32,
-    /// Wallet xpub
+    /// Wallet xPub
     pub pubkey: String,
     /// Wallet mnemonic phrase
     pub mnemonic: Option<String>,
@@ -1552,7 +1552,7 @@ impl Wallet {
     ) -> Result<ReceiveData, Error> {
         info!(
             self.logger,
-            "Receive via blind for asset '{:?}' with duration '{:?}'...",
+            "Receiving via blinded UTXO for asset '{:?}' with duration '{:?}'...",
             asset_id,
             duration_seconds
         );
@@ -1617,7 +1617,7 @@ impl Wallet {
         })
     }
 
-    /// Create an address to reveive RGB assets and return the resulting [`ReceiveData`]
+    /// Create an address to receive RGB assets and return the resulting [`ReceiveData`]
     ///
     /// Optional Asset ID and duration (in seconds) can be specified
     pub fn witness_receive(
@@ -1630,7 +1630,7 @@ impl Wallet {
     ) -> Result<ReceiveData, Error> {
         info!(
             self.logger,
-            "Recieving via witness for asset '{:?}' with duration '{:?}'...",
+            "Receiving via witness TX for asset '{:?}' with duration '{:?}'...",
             asset_id,
             duration_seconds
         );
@@ -2036,7 +2036,7 @@ impl Wallet {
     /// The provided PSBT, prepared with the [`drain_to_begin`](Wallet::drain_to_begin) function,
     /// needs to have already been signed.
     ///
-    /// Returns the txid of the transaction that's been broadcast
+    /// Returns the TXID of the transaction that's been broadcast
     pub fn drain_to_end(&self, online: Online, signed_psbt: String) -> Result<String, Error> {
         info!(self.logger, "Draining (end)...");
         self._check_online(online)?;
@@ -2400,7 +2400,7 @@ impl Wallet {
 
     /// Return the existing or freshly generated set of wallet [`Online`] data
     ///
-    /// Setting `skip_consistency_check` to true bypases the check and allows operating an
+    /// Setting `skip_consistency_check` to true bypasses the check and allows operating an
     /// inconsistent wallet. Warning: this is dangerous, only do this if you know what you're doing!
     pub fn go_online(
         &mut self,
@@ -3002,7 +3002,7 @@ impl Wallet {
             .map(|t| {
                 let (asset_transfer, batch_transfer) =
                     t.related_transfers(&db_data.asset_transfers, &db_data.batch_transfers)?;
-                let tce_data = self.database.get_transfer_transport_endpoints_data(t.idx)?;
+                let tte_data = self.database.get_transfer_transport_endpoints_data(t.idx)?;
                 Ok(Transfer::from_db_transfer(
                     &t,
                     self.database.get_transfer_data(
@@ -3012,10 +3012,10 @@ impl Wallet {
                         &db_data.txos,
                         &db_data.colorings,
                     )?,
-                    tce_data
+                    tte_data
                         .iter()
-                        .map(|(tce, ce)| {
-                            TransferTransportEndpoint::from_db_transfer_transport_endpoint(tce, ce)
+                        .map(|(tte, ce)| {
+                            TransferTransportEndpoint::from_db_transfer_transport_endpoint(tte, ce)
                         })
                         .collect(),
                 ))
@@ -3157,14 +3157,14 @@ impl Wallet {
             .expect("transfer should have a recipient ID");
 
         // check if a consignment has been posted
-        let tce_data = self
+        let tte_data = self
             .database
             .get_transfer_transport_endpoints_data(transfer.idx)?;
-        if self._fail_batch_transfer_if_no_endpoints(batch_transfer, &tce_data)? {
+        if self._fail_batch_transfer_if_no_endpoints(batch_transfer, &tte_data)? {
             return Ok(None);
         }
         let mut proxy_res = None;
-        for (transfer_transport_endpoint, transport_endpoint) in tce_data {
+        for (transfer_transport_endpoint, transport_endpoint) in tte_data {
             let consignment_res = self
                 .rest_client
                 .clone()
@@ -3434,17 +3434,17 @@ impl Wallet {
                 if transfer.ack.is_some() {
                     continue;
                 }
-                let tce_data = self
+                let tte_data = self
                     .database
                     .get_transfer_transport_endpoints_data(transfer.idx)?;
-                if self._fail_batch_transfer_if_no_endpoints(batch_transfer, &tce_data)? {
+                if self._fail_batch_transfer_if_no_endpoints(batch_transfer, &tte_data)? {
                     return Ok(None);
                 }
-                let (_, transport_endpoint) = tce_data
+                let (_, transport_endpoint) = tte_data
                     .clone()
                     .into_iter()
-                    .find(|(tce, _ce)| tce.used)
-                    .expect("there should be 1 used tce");
+                    .find(|(tte, _ce)| tte.used)
+                    .expect("there should be 1 used TTE");
                 let proxy_url = transport_endpoint.endpoint.clone();
                 let ack_res = self.rest_client.clone().get_ack(
                     &proxy_url,
@@ -3480,7 +3480,7 @@ impl Wallet {
                 batch_transfer
                     .txid
                     .as_ref()
-                    .expect("batch transfer should have a txid"),
+                    .expect("batch transfer should have a TXID"),
             );
             let signed_psbt = self._get_signed_psbt(transfer_dir)?;
             self._broadcast_psbt(signed_psbt)?;
@@ -3505,7 +3505,7 @@ impl Wallet {
         let txid = batch_transfer
             .txid
             .clone()
-            .expect("batch transfer should have a txid");
+            .expect("batch transfer should have a TXID");
         debug!(
             self.logger,
             "Getting details of transaction with ID '{}'...", txid
@@ -3952,7 +3952,7 @@ impl Wallet {
             }
             fs::create_dir_all(asset_transfer_dir.clone())?;
 
-            // save asset transefer data to file (for send_end)
+            // save asset transfer data to file (for send_end)
             let serialized_info =
                 serde_json::to_string(&transfer_info).map_err(InternalError::from)?;
             let info_file = asset_transfer_dir.join(TRANSFER_DATA_FILE);
@@ -4065,7 +4065,7 @@ impl Wallet {
             transfer.save(&consignment_path)?;
         }
 
-        // save batch transefer data to file (for send_end)
+        // save batch transfer data to file (for send_end)
         let info_contents = InfoBatchTransfer {
             change_utxo_idx: change_utxo.idx,
             blank_allocations,
@@ -4283,7 +4283,7 @@ impl Wallet {
     /// If `donation` is true, the resulting transaction will be broadcast (by
     /// [`send_end`](Wallet::send_end)) as soon as it's ready, without the need for recipients to
     /// acknowledge the transfer.
-    /// If `donation` is false, all recipients will need to ack the transfer before the transaction
+    /// If `donation` is false, all recipients will need to ACK the transfer before the transaction
     /// is broadcast (as part of [`refresh`](Wallet::refresh)).
     ///
     /// This is the first half of the partial version, requiring no private keys.
@@ -4484,7 +4484,7 @@ impl Wallet {
     /// This is the second half of the partial version. The provided PSBT, prepared with the
     /// `send_begin` function, needs to have already been signed.
     ///
-    /// Returns the txid of the signed PSBT that's been saved and optionally broadcast
+    /// Returns the TXID of the signed PSBT that's been saved and optionally broadcast
     pub fn send_end(&self, online: Online, signed_psbt: String) -> Result<String, Error> {
         info!(self.logger, "Sending (end)...");
         self._check_online(online)?;

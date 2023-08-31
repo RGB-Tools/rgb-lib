@@ -313,7 +313,7 @@ impl MigrationTrait for Migration {
         manager
             .create_index(
                 sea_query::Index::create()
-                    .name("idx-tce-transfer_idx-transport_endpoint_idx")
+                    .name("idx-tte-transfer_idx-transport_endpoint_idx")
                     .table(TransferTransportEndpoint::Table)
                     .col(TransferTransportEndpoint::TransferIdx)
                     .col(TransferTransportEndpoint::TransportEndpointIdx)

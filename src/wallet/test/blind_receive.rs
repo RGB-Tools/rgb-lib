@@ -121,11 +121,11 @@ fn success() {
     );
     assert!(result.is_ok());
     let transfer = get_test_transfer_recipient(&wallet, &result.unwrap().recipient_id);
-    let tce_data = wallet
+    let tte_data = wallet
         .database
         .get_transfer_transport_endpoints_data(transfer.idx)
         .unwrap();
-    assert_eq!(tce_data.len(), transport_endpoints.len());
+    assert_eq!(tte_data.len(), transport_endpoints.len());
 }
 
 #[test]
@@ -443,13 +443,13 @@ fn fail() {
         .unwrap();
     let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
     let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
-    let tce_data = wallet
+    let tte_data = wallet
         .database
         .get_transfer_transport_endpoints_data(transfer.idx)
         .unwrap();
-    for (tce, _) in tce_data {
+    for (tte, _) in tte_data {
         block_on(
-            transfer_transport_endpoint::Entity::delete_by_id(tce.idx)
+            transfer_transport_endpoint::Entity::delete_by_id(tte.idx)
                 .exec(wallet.database.get_connection()),
         )
         .unwrap();
