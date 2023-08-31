@@ -9,12 +9,10 @@ fn success() {
 
     // drain funded wallet with no allocation UTXOs
     let (mut wallet, online) = get_funded_noutxo_wallet!();
-    wallet._sync_db_txos().unwrap();
     wallet
         .drain_to(online.clone(), rcv_wallet.get_address(), false, FEE_RATE)
         .unwrap();
     mine(false);
-    wallet._sync_db_txos().unwrap();
     let unspents = list_test_unspents(&wallet, "funded noutxo after draining");
     assert_eq!(unspents.len(), 0);
 
@@ -30,21 +28,18 @@ fn success() {
             vec![AMOUNT],
         )
         .unwrap();
-    wallet._sync_db_txos().unwrap();
 
     // drain funded wallet with RGB allocations
     wallet
         .drain_to(online.clone(), rcv_wallet.get_address(), false, FEE_RATE)
         .unwrap();
     mine(false);
-    wallet._sync_db_txos().unwrap();
     let unspents = list_test_unspents(&wallet, "funded with allocations after draining (false)");
     assert_eq!(unspents.len() as u8, UTXO_NUM);
     wallet
         .drain_to(online, rcv_wallet.get_address(), true, FEE_RATE)
         .unwrap();
     mine(false);
-    wallet._sync_db_txos().unwrap();
     let unspents = list_test_unspents(&wallet, "funded with allocations after draining (true)");
     assert_eq!(unspents.len(), 0);
 }
@@ -85,7 +80,6 @@ fn fail() {
 
     // no private keys
     let (wallet, online) = get_funded_noutxo_wallet!(false, false);
-    wallet._sync_db_txos().unwrap();
     let result = wallet.drain_to(online, rcv_wallet.get_address(), false, FEE_RATE);
     assert!(matches!(result, Err(Error::WatchOnly)));
 }

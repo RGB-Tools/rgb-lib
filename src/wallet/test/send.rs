@@ -197,7 +197,6 @@ fn success() {
     assert!(transfer_data.updated_at > updated_at);
 
     // change is unspent once transfer is Settled
-    wallet._sync_db_txos().unwrap();
     let unspents = wallet.list_unspents(None, true).unwrap();
     let change_unspent = unspents
         .into_iter()
@@ -535,7 +534,6 @@ fn spend_all() {
     assert_eq!(transfer_data.status, TransferStatus::Settled);
 
     // check the completely spent asset doesn't show up in unspents anymore
-    wallet._sync_db_txos().unwrap();
     let unspents = wallet.list_unspents(None, true).unwrap();
     let found = unspents.iter().any(|u| {
         u.rgb_allocations
@@ -1684,7 +1682,6 @@ fn receive_multiple_same_asset_success() {
     assert!(transfer_data_2.updated_at > updated_at_1);
 
     // change is unspent once transfer is Settled
-    wallet._sync_db_txos().unwrap();
     let unspents = wallet.list_unspents(None, true).unwrap();
     let change_unspent = unspents
         .into_iter()
@@ -2028,7 +2025,6 @@ fn receive_multiple_different_assets_success() {
     assert!(transfer_data_2.updated_at > updated_at_1);
 
     // change is unspent once transfer is Settled
-    wallet._sync_db_txos().unwrap();
     let unspents = wallet.list_unspents(None, true).unwrap();
     let change_unspent = unspents
         .into_iter()
@@ -4152,7 +4148,6 @@ fn witness_success() {
     assert_eq!(transfer_data.status, TransferStatus::Settled);
 
     // change is unspent once transfer is Settled
-    wallet._sync_db_txos().unwrap();
     let unspents = wallet.list_unspents(None, true).unwrap();
     let change_unspent = unspents
         .into_iter()

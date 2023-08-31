@@ -83,7 +83,6 @@ fn up_to_allocation_checks() {
 
     drain_wallet(&wallet, online.clone());
     fund_wallet(wallet.get_address());
-    wallet._sync_db_txos().unwrap();
 
     // MAX_ALLOCATIONS_PER_UTXO allocations
     let num_utxos_created =

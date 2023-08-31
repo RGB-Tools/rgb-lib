@@ -410,7 +410,6 @@ fn fail() {
 
     fund_wallet(wallet.get_address());
     mine(false);
-    wallet._sync_db_txos().unwrap();
 
     // insufficient allocations
     let result = wallet.issue_asset_cfa(

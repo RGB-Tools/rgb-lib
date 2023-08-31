@@ -2018,6 +2018,8 @@ impl Wallet {
         self._check_online(online)?;
         self._check_fee_rate(fee_rate)?;
 
+        self._sync_db_txos()?;
+
         let address = BdkAddress::from_str(&address).map(|x| x.script_pubkey())?;
 
         let mut tx_builder = self.bdk_wallet.build_tx();

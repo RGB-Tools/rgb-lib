@@ -20,8 +20,7 @@ fn success() {
     mine(false);
 
     // one (settled) unspent, no RGB allocations
-    wallet._sync_db_txos().unwrap();
-    let unspent_list_settled = wallet.list_unspents(None, true).unwrap();
+    let unspent_list_settled = wallet.list_unspents(Some(online.clone()), true).unwrap();
     assert_eq!(unspent_list_settled.len(), 1);
     let unspent_list_all = wallet.list_unspents(None, false).unwrap();
     assert_eq!(unspent_list_all.len(), 1);
