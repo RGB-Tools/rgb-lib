@@ -30,23 +30,18 @@ fn testnet_success() {
     fs::create_dir_all(TEST_DATA_DIR).unwrap();
 
     let bitcoin_network = BitcoinNetwork::Testnet;
-    let keys = generate_keys(bitcoin_network);
-    let mut wallet = Wallet::new(WalletData {
-        data_dir: TEST_DATA_DIR.to_string(),
-        bitcoin_network,
-        database_type: DatabaseType::Sqlite,
-        max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
-        pubkey: keys.xpub.clone(),
-        mnemonic: Some(keys.mnemonic.clone()),
-    })
-    .unwrap();
+    let mut wallet =
+        get_test_wallet_with_net(true, Some(MAX_ALLOCATIONS_PER_UTXO), bitcoin_network);
     check_wallet(&wallet, DescriptorType::Wpkh, bitcoin_network);
     wallet
         .go_online(false, s!("ssl://electrum.iriswallet.com:50013"))
         .unwrap();
     assert!(!wallet.watch_only);
-    assert_eq!(wallet.wallet_data.pubkey, keys.xpub);
-    assert_eq!(wallet.wallet_data.mnemonic, Some(keys.mnemonic));
+    assert_eq!(wallet.wallet_data.pubkey, wallet.wallet_data.pubkey);
+    assert_eq!(
+        wallet.wallet_data.mnemonic,
+        Some(wallet.wallet_data.mnemonic.clone().unwrap())
+    );
 }
 
 #[test]

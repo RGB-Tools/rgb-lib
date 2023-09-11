@@ -193,12 +193,15 @@ pub fn initialize() {
     });
 }
 
-// return a regtest wallet for testing.
-fn get_test_wallet(private_keys: bool, max_allocations_per_utxo: Option<u32>) -> Wallet {
+// return a wallet for testing
+fn get_test_wallet_with_net(
+    private_keys: bool,
+    max_allocations_per_utxo: Option<u32>,
+    bitcoin_network: BitcoinNetwork,
+) -> Wallet {
     let tests_data = TEST_DATA_DIR;
     fs::create_dir_all(tests_data).unwrap();
 
-    let bitcoin_network = BitcoinNetwork::Regtest;
     let keys = generate_keys(bitcoin_network);
     let mut mnemonic = None;
     if private_keys {
@@ -213,6 +216,15 @@ fn get_test_wallet(private_keys: bool, max_allocations_per_utxo: Option<u32>) ->
         mnemonic,
     })
     .unwrap()
+}
+
+// return a regtest wallet for testing
+fn get_test_wallet(private_keys: bool, max_allocations_per_utxo: Option<u32>) -> Wallet {
+    get_test_wallet_with_net(
+        private_keys,
+        max_allocations_per_utxo,
+        BitcoinNetwork::Regtest,
+    )
 }
 
 // the get_*_wallet! macros can be called with no arguments to use defaults
@@ -723,4 +735,5 @@ mod list_unspents;
 mod new;
 mod refresh;
 mod send;
+mod send_btc;
 mod witness_receive;
