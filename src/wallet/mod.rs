@@ -387,6 +387,7 @@ pub struct Balance {
 }
 
 /// The bitcoin balances for the vanilla and colored wallets
+#[derive(Debug)]
 pub struct BtcBalance {
     /// Extra funds that will never hold RGB assets
     pub vanilla: Balance,

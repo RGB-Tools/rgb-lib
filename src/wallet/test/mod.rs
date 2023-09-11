@@ -639,6 +639,20 @@ fn list_test_unspents(wallet: &Wallet, msg: &str) -> Vec<Unspent> {
     unspents
 }
 
+fn wait_for_unspent_num(wallet: &Wallet, online: Online, num_unspents: usize) {
+    let t_0 = OffsetDateTime::now_utc();
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let unspents = wallet.list_unspents(Some(online.clone()), false).unwrap();
+        if unspents.len() >= num_unspents {
+            break;
+        };
+        if (OffsetDateTime::now_utc() - t_0).as_seconds_f32() > 10.0 {
+            panic!("cannot find funding UTXO");
+        }
+    }
+}
+
 /// print the provided message, then get colorings for each wallet unspent and print their status,
 /// type, amount and asset
 fn show_unspent_colorings(wallet: &Wallet, msg: &str) {
@@ -698,6 +712,7 @@ mod fail_transfers;
 mod get_address;
 mod get_asset_balance;
 mod get_asset_metadata;
+mod get_btc_balance;
 mod go_online;
 mod issue_asset_cfa;
 mod issue_asset_nia;
