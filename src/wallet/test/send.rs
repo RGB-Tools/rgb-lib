@@ -4071,17 +4071,37 @@ fn witness_success() {
             MIN_CONFIRMATIONS,
         )
         .unwrap();
+    let receive_data_2 = rcv_wallet
+        .witness_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
-        vec![Recipient {
-            amount,
-            recipient_data: RecipientData::WitnessData {
-                script_buf: ScriptBuf::from_hex(&receive_data.recipient_id).unwrap(),
-                amount_sat: 1000,
-                blinding: None,
+        vec![
+            Recipient {
+                amount,
+                recipient_data: RecipientData::WitnessData {
+                    script_buf: ScriptBuf::from_hex(&receive_data.recipient_id).unwrap(),
+                    amount_sat: 1000,
+                    blinding: None,
+                },
+                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
-            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
-        }],
+            Recipient {
+                amount,
+                recipient_data: RecipientData::WitnessData {
+                    script_buf: ScriptBuf::from_hex(&receive_data_2.recipient_id).unwrap(),
+                    amount_sat: 1200,
+                    blinding: Some(7777),
+                },
+                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+            },
+        ],
     )]);
     let txid = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid.is_empty());
@@ -4098,18 +4118,23 @@ fn witness_success() {
     wallet
         .refresh(online.clone(), Some(asset.asset_id.clone()), vec![])
         .unwrap();
-    let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
-    let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
+    let batch_transfers = get_test_batch_transfers(&wallet, &txid);
+    let batch_transfer = batch_transfers.first().unwrap();
+    let asset_transfer = get_test_asset_transfer(&wallet, batch_transfer.idx);
+    let transfers = get_test_transfers(&wallet, asset_transfer.idx);
+    for transfer in transfers {
+        let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
+        assert_eq!(transfer_data.status, TransferStatus::WaitingConfirmations);
+        // ack is now true on the sender side
+        assert_eq!(transfer.ack, Some(true));
+    }
 
     assert_eq!(rcv_transfer_data.kind, TransferKind::ReceiveWitness);
     assert_eq!(
         rcv_transfer_data.status,
         TransferStatus::WaitingConfirmations
     );
-    assert_eq!(transfer_data.status, TransferStatus::WaitingConfirmations);
     assert_eq!(rcv_transfer.amount, amount.to_string());
-    // ack is now true on the sender side
-    assert_eq!(transfer.ack, Some(true));
     // asset id is now set on the receiver side
     assert_eq!(rcv_asset_transfer.asset_id, Some(asset.asset_id.clone()));
 
@@ -4135,22 +4160,38 @@ fn witness_success() {
 
     // transfers progress to status Settled after tx mining + refresh
     mine(true);
-    rcv_wallet.refresh(rcv_online, None, vec![]).unwrap();
+    rcv_wallet
+        .refresh(rcv_online.clone(), None, vec![])
+        .unwrap();
     wallet
         .refresh(online.clone(), Some(asset.asset_id), vec![])
         .unwrap();
 
     let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &receive_data.recipient_id);
     let (rcv_transfer_data, _) = get_test_transfer_data(&rcv_wallet, &rcv_transfer);
-    let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
-    let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
+    let batch_transfers = get_test_batch_transfers(&wallet, &txid);
+    let batch_transfer = batch_transfers.first().unwrap();
+    let asset_transfer = get_test_asset_transfer(&wallet, batch_transfer.idx);
+    let transfers = get_test_transfers(&wallet, asset_transfer.idx);
+    for transfer in transfers {
+        let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
+        assert_eq!(transfer_data.status, TransferStatus::Settled);
+        // change is unspent once transfer is Settled
+        let unspents = wallet.list_unspents(None, true).unwrap();
+        let change_unspent = unspents
+            .into_iter()
+            .find(|u| Some(u.utxo.outpoint.clone()) == transfer_data.change_utxo);
+        assert!(change_unspent.is_some());
+    }
     assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
-    assert_eq!(transfer_data.status, TransferStatus::Settled);
 
-    // change is unspent once transfer is Settled
-    let unspents = wallet.list_unspents(None, true).unwrap();
-    let change_unspent = unspents
-        .into_iter()
-        .find(|u| Some(u.utxo.outpoint.clone()) == transfer_data.change_utxo);
-    assert!(change_unspent.is_some());
+    let balances = rcv_wallet.get_btc_balance(rcv_online).unwrap();
+    assert!(matches!(
+        balances.colored,
+        Balance {
+            settled: 7200,
+            future: 7200,
+            spendable: 7200,
+        }
+    ));
 }
