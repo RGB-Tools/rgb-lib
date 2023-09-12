@@ -1419,8 +1419,7 @@ impl Wallet {
                 None,
             )?
         };
-        let mut allocatable =
-            self._get_available_allocations(unspents.clone(), exclude_utxos, None)?;
+        let mut allocatable = self._get_available_allocations(unspents, exclude_utxos, None)?;
         allocatable.sort_by_key(|t| t.rgb_allocations.len());
         match allocatable.first() {
             Some(mut selected) => {
@@ -1823,12 +1822,12 @@ impl Wallet {
         let unspent_txos = self.database.get_unspent_txos(vec![])?;
         let unspents = self
             .database
-            .get_rgb_allocations(unspent_txos.clone(), None, None, None)?;
+            .get_rgb_allocations(unspent_txos, None, None, None)?;
 
         let mut utxos_to_create = num.unwrap_or(UTXO_NUM);
         if up_to {
             let allocatable = self
-                ._get_available_allocations(unspents.clone(), vec![], None)?
+                ._get_available_allocations(unspents, vec![], None)?
                 .len() as u8;
             if allocatable >= utxos_to_create {
                 return Err(Error::AllocationsAlreadyAvailable);
@@ -2766,15 +2765,8 @@ impl Wallet {
             self.database.set_coloring(db_coloring)?;
         }
 
-        let asset = AssetNIA::get_asset_details(
-            self,
-            asset_id.clone(),
-            &mut runtime,
-            None,
-            None,
-            None,
-            None,
-        )?;
+        let asset =
+            AssetNIA::get_asset_details(self, asset_id, &mut runtime, None, None, None, None)?;
 
         info!(self.logger, "Issue asset RGB20 completed");
         Ok(asset)
