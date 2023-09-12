@@ -236,7 +236,6 @@ macro_rules! get_empty_wallet {
 fn get_funded_noutxo_wallet(print_log: bool, private_keys: bool) -> (Wallet, Online) {
     let (wallet, online) = get_empty_wallet(print_log, private_keys);
     fund_wallet(wallet.get_address());
-    mine(false);
     (wallet, online)
 }
 macro_rules! get_funded_noutxo_wallet {
