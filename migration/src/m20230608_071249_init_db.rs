@@ -247,7 +247,7 @@ impl MigrationTrait for Migration {
         manager
             .create_index(
                 sea_query::Index::create()
-                    .name("idx-ce-transport-type-endpoint")
+                    .name("idx-transportendpoint-transporttype-endpoint")
                     .table(TransportEndpoint::Table)
                     .col(TransportEndpoint::TransportType)
                     .col(TransportEndpoint::Endpoint)
@@ -312,7 +312,7 @@ impl MigrationTrait for Migration {
         manager
             .create_index(
                 sea_query::Index::create()
-                    .name("idx-tte-transfer_idx-transport_endpoint_idx")
+                    .name("idx-tte-transferidx-transportendpointidx")
                     .table(TransferTransportEndpoint::Table)
                     .col(TransferTransportEndpoint::TransferIdx)
                     .col(TransferTransportEndpoint::TransportEndpointIdx)
@@ -346,7 +346,7 @@ impl MigrationTrait for Migration {
         manager
             .create_index(
                 sea_query::Index::create()
-                    .name("idx-coloring-asset_transfer_idx-txo_idx")
+                    .name("idx-coloring-assettransferidx-txoidx")
                     .table(Coloring::Table)
                     .col(Coloring::AssetTransferIdx)
                     .col(Coloring::TxoIdx)
