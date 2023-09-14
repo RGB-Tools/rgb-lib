@@ -161,9 +161,7 @@ fn fail() {
 
     // backup on same file twice
     let result = wallet.backup(&backup_file, "password");
-    assert!(
-        matches!(result, Err(Error::Internal { details: msg }) if msg.starts_with("The file already exists:"))
-    );
+    assert!(matches!(result, Err(Error::FileAlreadyExists { path: _ })));
 
     // restore with wrong password
     let result = restore_backup(&backup_file, "wrong password", RESTORE_DIR);

@@ -79,6 +79,13 @@ pub enum Error {
         details: String,
     },
 
+    /// The file already exists
+    #[error("The file already exists: {path}")]
+    FileAlreadyExists {
+        /// The file path
+        path: String,
+    },
+
     /// An error I/O error has been encountered
     #[error("I/O error: {details}")]
     IO {
@@ -359,9 +366,6 @@ pub enum InternalError {
 
     #[error("Encode error: {0}")]
     Encode(#[from] bitcoin::consensus::encode::Error),
-
-    #[error("The file already exists: {0}")]
-    FileAlreadyExists(String),
 
     #[error("Hash error: {0}")]
     HashError(#[from] scrypt::password_hash::Error),

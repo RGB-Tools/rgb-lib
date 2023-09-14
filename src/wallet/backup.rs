@@ -49,7 +49,9 @@ impl Wallet {
         info!(self.logger, "starting backup...");
         let backup_file = PathBuf::from(&backup_path);
         if backup_file.exists() {
-            return Err(InternalError::FileAlreadyExists(backup_path.to_string()))?;
+            return Err(Error::FileAlreadyExists {
+                path: backup_path.to_string(),
+            })?;
         }
         let tmp_base_path = _get_parent_path(&backup_file)?;
         let files = _get_backup_paths(&tmp_base_path)?;
@@ -80,7 +82,7 @@ impl Wallet {
         );
         _encrypt_file(&files.zip, &files.encrypted, password, &salt, &nonce)?;
 
-        // add wallet fingerprint, backup nonce + salt and rgb-lib version to final zip file
+        // add backup nonce + salt + version to final zip file
         write(files.nonce, nonce)?;
         write(files.salt, salt)?;
         write(files.version, BACKUP_VERSION.to_string())?;

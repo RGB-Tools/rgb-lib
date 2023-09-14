@@ -22,6 +22,7 @@ interface RgbLibError {
   FailedBdkSync(string details);
   FailedBroadcast(string details);
   FailedIssuance(string details);
+  FileAlreadyExists(string path);
   IO(string details);
   Inconsistency(string details);
   InexistentDataDir();
