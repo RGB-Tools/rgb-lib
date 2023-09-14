@@ -1,10 +1,11 @@
 const TINY_BTC_AMOUNT: u32 = 294;
 
+use super::*;
+use serial_test::parallel;
 use std::collections::BTreeSet;
 
-use super::*;
-
 #[test]
+#[parallel]
 fn success() {
     initialize();
 
@@ -386,6 +387,7 @@ fn success() {
 }
 
 #[test]
+#[parallel]
 fn spend_all() {
     initialize();
 
@@ -552,6 +554,7 @@ fn spend_all() {
 }
 
 #[test]
+#[parallel]
 fn send_twice_success() {
     initialize();
 
@@ -701,6 +704,7 @@ fn send_twice_success() {
 }
 
 #[test]
+#[parallel]
 fn send_blank_success() {
     initialize();
 
@@ -963,6 +967,7 @@ fn send_blank_success() {
 }
 
 #[test]
+#[parallel]
 fn send_received_success() {
     initialize();
 
@@ -1214,6 +1219,7 @@ fn send_received_success() {
 }
 
 #[test]
+#[parallel]
 fn send_received_cfa_success() {
     initialize();
 
@@ -1398,6 +1404,7 @@ fn send_received_cfa_success() {
 }
 
 #[test]
+#[parallel]
 fn receive_multiple_same_asset_success() {
     initialize();
 
@@ -1690,6 +1697,7 @@ fn receive_multiple_same_asset_success() {
 }
 
 #[test]
+#[parallel]
 fn receive_multiple_different_assets_success() {
     initialize();
 
@@ -2033,6 +2041,7 @@ fn receive_multiple_different_assets_success() {
 }
 
 #[test]
+#[parallel]
 fn batch_donation_success() {
     initialize();
 
@@ -2230,6 +2239,7 @@ fn batch_donation_success() {
 }
 
 #[test]
+#[parallel]
 fn reuse_failed_blinded_success() {
     initialize();
 
@@ -2296,6 +2306,7 @@ fn reuse_failed_blinded_success() {
 }
 
 #[test]
+#[parallel]
 fn ack() {
     initialize();
 
@@ -2408,6 +2419,7 @@ fn ack() {
 }
 
 #[test]
+#[parallel]
 fn nack() {
     initialize();
 
@@ -2481,6 +2493,7 @@ fn nack() {
 }
 
 #[test]
+#[parallel]
 fn expire() {
     initialize();
 
@@ -2550,6 +2563,7 @@ fn expire() {
 }
 
 #[test]
+#[parallel]
 fn no_change_on_pending_send() {
     initialize();
 
@@ -2687,6 +2701,7 @@ fn no_change_on_pending_send() {
 }
 
 #[test]
+#[parallel]
 fn fail() {
     initialize();
 
@@ -2964,6 +2979,7 @@ fn fail() {
 }
 
 #[test]
+#[parallel]
 fn pending_incoming_transfer_fail() {
     initialize();
 
@@ -3109,6 +3125,7 @@ fn pending_incoming_transfer_fail() {
 }
 
 #[test]
+#[parallel]
 fn pending_outgoing_transfer_fail() {
     initialize();
 
@@ -3197,6 +3214,7 @@ fn pending_outgoing_transfer_fail() {
 }
 
 #[test]
+#[parallel]
 fn pending_transfer_input_fail() {
     initialize();
 
@@ -3257,6 +3275,7 @@ fn pending_transfer_input_fail() {
 }
 
 #[test]
+#[parallel]
 fn already_used_fail() {
     initialize();
 
@@ -3306,6 +3325,7 @@ fn already_used_fail() {
 }
 
 #[test]
+#[parallel]
 fn cfa_blank_success() {
     initialize();
 
@@ -3365,6 +3385,7 @@ fn cfa_blank_success() {
 }
 
 #[test]
+#[parallel]
 fn psbt_rgb_consumer_success() {
     initialize();
 
@@ -3552,6 +3573,7 @@ fn psbt_rgb_consumer_success() {
 }
 
 #[test]
+#[parallel]
 fn insufficient_bitcoins() {
     initialize();
 
@@ -3646,6 +3668,7 @@ fn insufficient_bitcoins() {
 }
 
 #[test]
+#[parallel]
 fn insufficient_allocations_fail() {
     initialize();
 
@@ -3722,6 +3745,7 @@ fn insufficient_allocations_fail() {
 }
 
 #[test]
+#[parallel]
 fn insufficient_allocations_success() {
     initialize();
 
@@ -3781,6 +3805,7 @@ fn insufficient_allocations_success() {
 }
 
 #[test]
+#[parallel]
 fn send_to_oneself() {
     initialize();
 
@@ -3825,6 +3850,7 @@ fn send_to_oneself() {
 }
 
 #[test]
+#[parallel]
 fn send_received_back_success() {
     initialize();
 
@@ -4041,6 +4067,7 @@ fn send_received_back_success() {
 }
 
 #[test]
+#[parallel]
 fn witness_success() {
     initialize();
 

@@ -1,6 +1,6 @@
-use bdk::miniscript::descriptor::DescriptorType;
-
 use super::*;
+use bdk::miniscript::descriptor::DescriptorType;
+use serial_test::parallel;
 
 fn check_wallet(wallet: &Wallet, desc_type: DescriptorType, network: BitcoinNetwork) {
     let coin_type = i32::from(network != BitcoinNetwork::Mainnet);
@@ -17,6 +17,7 @@ fn check_wallet(wallet: &Wallet, desc_type: DescriptorType, network: BitcoinNetw
 }
 
 #[test]
+#[parallel]
 fn success() {
     // with private keys
     get_test_wallet(true, None);
@@ -26,6 +27,7 @@ fn success() {
 }
 
 #[test]
+#[parallel]
 fn testnet_success() {
     fs::create_dir_all(TEST_DATA_DIR).unwrap();
 
@@ -45,6 +47,7 @@ fn testnet_success() {
 }
 
 #[test]
+#[parallel]
 fn mainnet_success() {
     fs::create_dir_all(TEST_DATA_DIR).unwrap();
 
@@ -66,6 +69,7 @@ fn mainnet_success() {
 }
 
 #[test]
+#[parallel]
 fn fail() {
     let wallet = get_test_wallet(true, None);
     let wallet_data = wallet.get_wallet_data();
@@ -101,6 +105,7 @@ fn fail() {
 }
 
 #[test]
+#[parallel]
 fn re_instantiate_wallet() {
     initialize();
 

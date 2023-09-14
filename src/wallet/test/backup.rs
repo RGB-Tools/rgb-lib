@@ -1,8 +1,9 @@
-use crate::wallet::backup::restore_backup;
-
 use super::*;
+use crate::wallet::backup::restore_backup;
+use serial_test::parallel;
 
 #[test]
+#[parallel]
 fn success() {
     initialize();
 
@@ -149,6 +150,7 @@ fn success() {
 }
 
 #[test]
+#[parallel]
 fn fail() {
     initialize();
 
@@ -171,6 +173,7 @@ fn fail() {
 }
 
 #[test]
+#[parallel]
 fn double_restore() {
     initialize();
 

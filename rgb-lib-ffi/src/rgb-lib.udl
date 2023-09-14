@@ -81,6 +81,7 @@ dictionary AssetNIA {
   u64 issued_supply;
   i64 timestamp;
   Balance balance;
+  sequence<Media> data_paths;
 };
 
 enum AssetSchema {

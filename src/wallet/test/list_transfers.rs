@@ -1,6 +1,8 @@
 use super::*;
+use serial_test::parallel;
 
 #[test]
+#[parallel]
 fn success() {
     initialize();
 
@@ -49,6 +51,7 @@ fn success() {
 }
 
 #[test]
+#[parallel]
 fn fail() {
     let wallet = get_test_wallet(false, None);
 

@@ -1,8 +1,9 @@
 use amplify::s;
+use lazy_static::lazy_static;
 use once_cell::sync::Lazy;
 use std::io::Read;
 use std::process::{Command, Stdio};
-use std::sync::{Once, RwLock};
+use std::sync::{Mutex, Once, RwLock};
 use time::OffsetDateTime;
 use walkdir::WalkDir;
 
@@ -711,6 +712,23 @@ fn show_unspent_colorings(wallet: &Wallet, msg: &str) {
                 db_coloring.amount,
                 db_asset_transfer.asset_id.as_ref(),
             );
+        }
+    }
+}
+
+lazy_static! {
+    static ref MOCK_CONTRACT_DATA: Mutex<Vec<Attachment>> = Mutex::new(vec![]);
+}
+
+pub fn mock_contract_data(terms: RicardianContract, media: Option<Attachment>) -> ContractData {
+    let mut mock_reqs = MOCK_CONTRACT_DATA.lock().unwrap();
+    if mock_reqs.is_empty() {
+        ContractData { terms, media }
+    } else {
+        let mocked_media = mock_reqs.pop();
+        ContractData {
+            terms: terms.clone(),
+            media: mocked_media.clone(),
         }
     }
 }

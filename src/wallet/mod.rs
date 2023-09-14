@@ -161,6 +161,72 @@ impl AssetIface {
     fn to_typename(&self) -> TypeName {
         tn!(format!("{self:?}"))
     }
+
+    fn get_asset_details(
+        &self,
+        wallet: &Wallet,
+        asset_id: String,
+        runtime: &mut RgbRuntime,
+        assets_dir: PathBuf,
+        asset_transfers: Option<Vec<DbAssetTransfer>>,
+        batch_transfers: Option<Vec<DbBatchTransfer>>,
+        colorings: Option<Vec<DbColoring>>,
+        txos: Option<Vec<DbTxo>>,
+    ) -> Result<AssetType, Error> {
+        let iface = runtime.iface_by_name(&self.to_typename())?.clone();
+        let contract_id = ContractId::from_str(&asset_id).expect("invalid contract ID");
+        let contract = runtime.contract_iface(contract_id, iface.iface_id())?;
+        let timestamp = wallet._get_asset_timestamp(&contract)?;
+        let mut data_paths = vec![];
+        let asset_dir = assets_dir.join(asset_id.clone());
+        if asset_dir.is_dir() {
+            for fp in fs::read_dir(asset_dir)? {
+                let fpath = fp?.path();
+                let file_path = fpath.join(MEDIA_FNAME).to_string_lossy().to_string();
+                let mime = fs::read_to_string(fpath.join(MIME_FNAME))?;
+                data_paths.push(Media { file_path, mime });
+            }
+        }
+        let balance = wallet.database.get_asset_balance(
+            asset_id.clone(),
+            asset_transfers,
+            batch_transfers,
+            colorings,
+            txos,
+        )?;
+        Ok(match &self {
+            AssetIface::RGB20 => {
+                let (name, precision, issued_supply, ticker) =
+                    wallet._get_nia_asset_metadata(contract);
+                AssetType::AssetNIA(AssetNIA {
+                    asset_id,
+                    asset_iface: self.clone(),
+                    ticker,
+                    name,
+                    precision,
+                    issued_supply,
+                    timestamp,
+                    balance,
+                    data_paths,
+                })
+            }
+            AssetIface::RGB25 => {
+                let (name, precision, issued_supply, description) =
+                    wallet._get_cfa_asset_metadata(contract);
+                AssetType::AssetCFA(AssetCFA {
+                    asset_id,
+                    asset_iface: self.clone(),
+                    description,
+                    name,
+                    precision,
+                    issued_supply,
+                    timestamp,
+                    balance,
+                    data_paths,
+                })
+            }
+        })
+    }
 }
 
 impl TryFrom<TypeName> for AssetIface {
@@ -196,6 +262,8 @@ pub struct AssetNIA {
     pub timestamp: i64,
     /// Current balance of the asset
     pub balance: Balance,
+    /// List of asset data file paths
+    pub data_paths: Vec<Media>,
 }
 
 impl AssetNIA {
@@ -203,35 +271,25 @@ impl AssetNIA {
         wallet: &Wallet,
         asset_id: String,
         runtime: &mut RgbRuntime,
+        assets_dir: PathBuf,
         asset_transfers: Option<Vec<DbAssetTransfer>>,
         batch_transfers: Option<Vec<DbBatchTransfer>>,
         colorings: Option<Vec<DbColoring>>,
         txos: Option<Vec<DbTxo>>,
     ) -> Result<AssetNIA, Error> {
-        let iface = runtime
-            .iface_by_name(&AssetIface::RGB20.to_typename())?
-            .clone();
-        let contract_id = ContractId::from_str(&asset_id).expect("invalid contract ID");
-        let contract = runtime.contract_iface(contract_id, iface.iface_id())?;
-        let timestamp = wallet._get_asset_timestamp(&contract)?;
-        let (name, precision, issued_supply, ticker) = wallet._get_nia_asset_metadata(contract);
-        let balance = wallet.database.get_asset_balance(
-            asset_id.clone(),
+        match AssetIface::RGB20.get_asset_details(
+            wallet,
+            asset_id,
+            runtime,
+            assets_dir,
             asset_transfers,
             batch_transfers,
             colorings,
             txos,
-        )?;
-        Ok(AssetNIA {
-            asset_id,
-            asset_iface: AssetIface::RGB20,
-            ticker,
-            name,
-            precision,
-            issued_supply,
-            timestamp,
-            balance,
-        })
+        )? {
+            AssetType::AssetNIA(asset) => Ok(asset),
+            _ => unreachable!("impossible"),
+        }
     }
 }
 
@@ -308,43 +366,25 @@ impl AssetCFA {
         colorings: Option<Vec<DbColoring>>,
         txos: Option<Vec<DbTxo>>,
     ) -> Result<AssetCFA, Error> {
-        let iface = runtime
-            .iface_by_name(&AssetIface::RGB25.to_typename())?
-            .clone();
-        let contract_id = ContractId::from_str(&asset_id).expect("invalid contract ID");
-        let contract = runtime.contract_iface(contract_id, iface.iface_id())?;
-        let timestamp = wallet._get_asset_timestamp(&contract)?;
-        let (name, precision, issued_supply, description) =
-            wallet._get_cfa_asset_metadata(contract);
-        let mut data_paths = vec![];
-        let asset_dir = assets_dir.join(asset_id.clone());
-        if asset_dir.is_dir() {
-            for fp in fs::read_dir(asset_dir)? {
-                let fpath = fp?.path();
-                let file_path = fpath.join(MEDIA_FNAME).to_string_lossy().to_string();
-                let mime = fs::read_to_string(fpath.join(MIME_FNAME))?;
-                data_paths.push(Media { file_path, mime });
-            }
-        }
-        let balance = wallet.database.get_asset_balance(
-            asset_id.clone(),
+        match AssetIface::RGB25.get_asset_details(
+            wallet,
+            asset_id,
+            runtime,
+            assets_dir,
             asset_transfers,
             batch_transfers,
             colorings,
             txos,
-        )?;
-        Ok(AssetCFA {
-            asset_id,
-            asset_iface: AssetIface::RGB25,
-            description,
-            name,
-            precision,
-            issued_supply,
-            timestamp,
-            balance,
-            data_paths,
-        })
+        )? {
+            AssetType::AssetCFA(asset) => Ok(asset),
+            _ => unreachable!("impossible"),
+        }
     }
+}
+
+enum AssetType {
+    AssetNIA(AssetNIA),
+    AssetCFA(AssetCFA),
 }
 
 /// List of known assets, grouped by asset interface
@@ -2675,6 +2715,9 @@ impl Wallet {
         let created = Timestamp::from(created_at);
         let settled: u64 = amounts.iter().sum();
         let terms = RicardianContract::default();
+        #[cfg(test)]
+        let data = test::mock_contract_data(terms, None);
+        #[cfg(not(test))]
         let data = ContractData { terms, media: None };
         let spec = DivisibleAssetSpec {
             naming: AssetNaming {
@@ -2765,8 +2808,16 @@ impl Wallet {
             self.database.set_coloring(db_coloring)?;
         }
 
-        let asset =
-            AssetNIA::get_asset_details(self, asset_id, &mut runtime, None, None, None, None)?;
+        let asset = AssetNIA::get_asset_details(
+            self,
+            asset_id,
+            &mut runtime,
+            self.wallet_dir.join(ASSETS_DIR),
+            None,
+            None,
+            None,
+            None,
+        )?;
 
         info!(self.logger, "Issue asset RGB20 completed");
         Ok(asset)
@@ -3006,6 +3057,7 @@ impl Wallet {
                                     self,
                                     c.asset_id.clone(),
                                     &mut runtime,
+                                    self.wallet_dir.join(ASSETS_DIR),
                                     asset_transfers.clone(),
                                     batch_transfers.clone(),
                                     colorings.clone(),
@@ -3427,48 +3479,57 @@ impl Wallet {
                 .update_asset_transfer(&mut updated_asset_transfer)?;
         }
 
-        if matches!(&schema_id[..], SCHEMA_ID_CFA) {
-            let iface_name = AssetIface::RGB25.to_typename();
-            let iface = runtime.iface_by_name(&iface_name)?.clone();
-            let contract = runtime.contract_iface(contract_id, iface.iface_id())?;
-            let iface_cfa = Rgb25::from(contract);
-            let contract_data = iface_cfa.contract_data();
-
-            if let Some(media) = contract_data.media {
-                let attachment_id = hex::encode(media.digest);
-                let media_res = self
-                    .rest_client
-                    .clone()
-                    .get_media(&proxy_url, attachment_id.clone())?;
-                debug!(self.logger, "Media GET response: {:?}", media_res);
-                if let Some(media_res) = media_res.result {
-                    let file_bytes = general_purpose::STANDARD
-                        .decode(media_res)
-                        .map_err(InternalError::from)?;
-                    let file_hash: sha256::Hash = Sha256Hash::hash(&file_bytes[..]);
-                    let real_attachment_id = hex::encode(file_hash.to_byte_array());
-                    if attachment_id != real_attachment_id {
-                        return self._refuse_consignment(
-                            proxy_url,
-                            recipient_id,
-                            &mut updated_batch_transfer,
-                        );
-                    }
-                    let media_dir = self
-                        .wallet_dir
-                        .join(ASSETS_DIR)
-                        .join(asset_id.clone())
-                        .join(&attachment_id);
-                    fs::create_dir_all(&media_dir)?;
-                    fs::write(media_dir.join(MEDIA_FNAME), file_bytes)?;
-                    fs::write(media_dir.join(MIME_FNAME), media.ty.to_string())?;
-                } else {
+        let contract_data = match &schema_id[..] {
+            SCHEMA_ID_NIA => {
+                let iface_name = AssetIface::RGB20.to_typename();
+                let iface = runtime.iface_by_name(&iface_name)?.clone();
+                let contract = runtime.contract_iface(contract_id, iface.iface_id())?;
+                let iface_nia = Rgb20::from(contract);
+                iface_nia.contract_data()
+            }
+            SCHEMA_ID_CFA => {
+                let iface_name = AssetIface::RGB25.to_typename();
+                let iface = runtime.iface_by_name(&iface_name)?.clone();
+                let contract = runtime.contract_iface(contract_id, iface.iface_id())?;
+                let iface_cfa = Rgb25::from(contract);
+                iface_cfa.contract_data()
+            }
+            _ => return Err(Error::UnknownRgbSchema { schema_id }),
+        };
+        if let Some(media) = contract_data.media {
+            let attachment_id = hex::encode(media.digest);
+            let media_res = self
+                .rest_client
+                .clone()
+                .get_media(&proxy_url, attachment_id.clone())?;
+            debug!(self.logger, "Media GET response: {:?}", media_res);
+            if let Some(media_res) = media_res.result {
+                let file_bytes = general_purpose::STANDARD
+                    .decode(media_res)
+                    .map_err(InternalError::from)?;
+                let file_hash: sha256::Hash = Sha256Hash::hash(&file_bytes[..]);
+                let real_attachment_id = hex::encode(file_hash.to_byte_array());
+                if attachment_id != real_attachment_id {
                     return self._refuse_consignment(
                         proxy_url,
                         recipient_id,
                         &mut updated_batch_transfer,
                     );
                 }
+                let media_dir = self
+                    .wallet_dir
+                    .join(ASSETS_DIR)
+                    .join(asset_id.clone())
+                    .join(&attachment_id);
+                fs::create_dir_all(&media_dir)?;
+                fs::write(media_dir.join(MEDIA_FNAME), file_bytes)?;
+                fs::write(media_dir.join(MIME_FNAME), media.ty.to_string())?;
+            } else {
+                return self._refuse_consignment(
+                    proxy_url,
+                    recipient_id,
+                    &mut updated_batch_transfer,
+                );
             }
         }
 
@@ -4654,13 +4715,9 @@ impl Wallet {
                 .to_string();
 
             // post consignment(s) and optional media
-            let asset_dir = if info_contents.asset_iface == AssetIface::RGB25 {
-                let ass_dir = self.wallet_dir.join(ASSETS_DIR).join(asset_id.clone());
-                if ass_dir.is_dir() {
-                    Some(ass_dir)
-                } else {
-                    None
-                }
+            let ass_dir = self.wallet_dir.join(ASSETS_DIR).join(asset_id.clone());
+            let asset_dir = if ass_dir.is_dir() {
+                Some(ass_dir)
             } else {
                 None
             };

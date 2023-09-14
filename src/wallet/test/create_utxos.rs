@@ -1,6 +1,8 @@
 use super::*;
+use serial_test::parallel;
 
 #[test]
+#[parallel]
 fn success() {
     initialize();
 
@@ -36,6 +38,7 @@ fn success() {
 }
 
 #[test]
+#[parallel]
 fn up_to_allocation_checks() {
     initialize();
 
@@ -212,6 +215,7 @@ fn up_to_allocation_checks() {
 }
 
 #[test]
+#[parallel]
 fn fail() {
     initialize();
 

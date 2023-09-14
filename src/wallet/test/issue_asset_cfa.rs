@@ -1,6 +1,8 @@
 use super::*;
+use serial_test::parallel;
 
 #[test]
+#[parallel]
 fn success() {
     initialize();
 
@@ -130,6 +132,7 @@ fn success() {
 }
 
 #[test]
+#[parallel]
 fn multi_success() {
     initialize();
 
@@ -187,6 +190,7 @@ fn multi_success() {
 }
 
 #[test]
+#[parallel]
 fn no_issue_on_pending_send() {
     initialize();
 
@@ -296,6 +300,7 @@ fn no_issue_on_pending_send() {
 }
 
 #[test]
+#[parallel]
 fn fail() {
     initialize();
 

@@ -1,10 +1,12 @@
 use crate::database::entities::transfer_transport_endpoint;
 use crate::wallet::MAX_TRANSPORT_ENDPOINTS;
 use sea_orm::EntityTrait;
+use serial_test::parallel;
 
 use super::*;
 
 #[test]
+#[parallel]
 fn success() {
     initialize();
 
@@ -133,6 +135,7 @@ fn success() {
 }
 
 #[test]
+#[parallel]
 fn respect_max_allocations() {
     initialize();
 
@@ -175,6 +178,7 @@ fn respect_max_allocations() {
 }
 
 #[test]
+#[parallel]
 fn expire() {
     initialize();
 
@@ -218,6 +222,7 @@ fn expire() {
 }
 
 #[test]
+#[parallel]
 fn pending_outgoing_transfer_fail() {
     initialize();
 
@@ -325,6 +330,7 @@ fn pending_outgoing_transfer_fail() {
 }
 
 #[test]
+#[parallel]
 fn fail() {
     initialize();
 
@@ -479,6 +485,7 @@ fn fail() {
 }
 
 #[test]
+#[parallel]
 fn wrong_asset_fail() {
     initialize();
 
@@ -553,6 +560,7 @@ fn wrong_asset_fail() {
 }
 
 #[test]
+#[parallel]
 fn new_transport_endpoint() {
     // correct JsonRpc endpoint
     let result = TransportEndpoint::new(PROXY_ENDPOINT.clone());

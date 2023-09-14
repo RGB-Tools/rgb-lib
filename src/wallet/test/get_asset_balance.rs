@@ -1,6 +1,8 @@
 use super::*;
+use serial_test::parallel;
 
 #[test]
+#[parallel]
 fn success() {
     initialize();
 
@@ -53,6 +55,7 @@ fn success() {
 }
 
 #[test]
+#[parallel]
 fn transfer_balances() {
     initialize();
 
@@ -386,6 +389,7 @@ fn transfer_balances() {
 }
 
 #[test]
+#[parallel]
 fn fail() {
     let (wallet, _online) = get_empty_wallet!();
 

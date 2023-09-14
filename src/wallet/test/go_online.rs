@@ -1,8 +1,9 @@
+use super::*;
+use serial_test::parallel;
 use std::ffi::OsString;
 
-use super::*;
-
 #[test]
+#[parallel]
 fn success() {
     initialize();
 
@@ -23,6 +24,7 @@ fn success() {
 }
 
 #[test]
+#[parallel]
 fn fail() {
     initialize();
 
@@ -47,6 +49,7 @@ fn fail() {
 }
 
 #[test]
+#[parallel]
 fn consistency_check_fail_utxos() {
     initialize();
 
@@ -162,6 +165,7 @@ fn consistency_check_fail_utxos() {
 }
 
 #[test]
+#[parallel]
 fn consistency_check_fail_asset_ids() {
     initialize();
 
@@ -270,6 +274,7 @@ fn consistency_check_fail_asset_ids() {
 }
 
 #[test]
+#[parallel]
 fn on_off_online() {
     initialize();
 
