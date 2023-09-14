@@ -1563,7 +1563,7 @@ impl Wallet {
             assignment: None,
             beneficiary,
             owned_state,
-            chain: None,
+            chain: Some(self._bitcoin_network().into()),
             expiry,
             unknown_query: none!(),
         };

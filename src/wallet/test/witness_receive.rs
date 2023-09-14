@@ -22,6 +22,9 @@ fn success() {
     assert!(receive_data.expiration_timestamp.is_some());
     let timestamp = now_timestamp + DURATION_RCV_TRANSFER as i64;
     assert!(receive_data.expiration_timestamp.unwrap() - timestamp <= 1);
+    let decoded_invoice = Invoice::new(receive_data.invoice).unwrap();
+    dbg!(&decoded_invoice);
+    assert!(decoded_invoice.invoice_data.network.is_some());
 
     // positive expiration
     let now_timestamp = now().unix_timestamp();

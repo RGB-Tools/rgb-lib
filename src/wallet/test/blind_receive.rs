@@ -26,6 +26,10 @@ fn success() {
     assert!(receive_data.expiration_timestamp.is_some());
     let timestamp = now_timestamp + DURATION_RCV_TRANSFER as i64;
     assert!(receive_data.expiration_timestamp.unwrap() - timestamp <= 1);
+    // TODO: this needs the network to be rendered in the invoice's string
+    //       see https://github.com/RGB-WG/rgb-wallet/issues/103
+    //let decoded_invoice = Invoice::new(receive_data.invoice).unwrap();
+    //assert!(decoded_invoice.invoice_data.network.is_some());
 
     // positive expiration
     let now_timestamp = now().unix_timestamp();
