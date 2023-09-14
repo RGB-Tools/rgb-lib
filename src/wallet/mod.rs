@@ -783,13 +783,6 @@ impl RecipientData {
             RecipientData::WitnessData { script_buf, .. } => script_buf.to_hex_string(),
         }
     }
-
-    pub(crate) fn recipient_type(&self) -> RecipientType {
-        match &self {
-            RecipientData::BlindedUTXO(_) => RecipientType::Blind,
-            RecipientData::WitnessData { .. } => RecipientType::Witness,
-        }
-    }
 }
 
 /// A transfer refresh filter
@@ -4038,7 +4031,6 @@ impl Wallet {
         transfer_dir: PathBuf,
         donation: bool,
         unspents: Vec<LocalUnspent>,
-        db_data: &DbData,
         runtime: &mut RgbRuntime,
         min_confirmations: u8,
     ) -> Result<(), Error> {
@@ -4052,21 +4044,6 @@ impl Wallet {
             "Change outpoint '{}'",
             change_utxo.outpoint().to_string()
         );
-
-        let failed_batch_transfer_ids: Vec<i32> = db_data
-            .batch_transfers
-            .clone()
-            .into_iter()
-            .filter(|t| t.failed())
-            .map(|t| t.idx)
-            .collect();
-        let failed_asset_transfer_ids: Vec<i32> = db_data
-            .asset_transfers
-            .clone()
-            .into_iter()
-            .filter(|t| failed_batch_transfer_ids.contains(&t.batch_transfer_idx))
-            .map(|t| t.idx)
-            .collect();
 
         let prev_outputs = psbt
             .unsigned_tx
@@ -4112,22 +4089,6 @@ impl Wallet {
 
             let mut beneficiaries: Vec<BuilderSeal<ChainBlindSeal>> = vec![];
             for recipient in transfer_info.recipients.clone() {
-                let recipient_type = recipient.recipient_type();
-                if let Some(existing_transfer) = db_data
-                    .transfers
-                    .iter()
-                    .filter(|t| !failed_asset_transfer_ids.contains(&t.asset_transfer_idx))
-                    .find(|t| t.recipient_id == Some(recipient.recipient_id()))
-                {
-                    if existing_transfer.incoming {
-                        return Err(Error::CannotSendToSelf);
-                    }
-                    match recipient_type {
-                        RecipientType::Blind => return Err(Error::BlindedUTXOAlreadyUsed)?,
-                        RecipientType::Witness => return Err(Error::ScriptAlreadyUsed)?,
-                    }
-                }
-
                 let seal: BuilderSeal<GraphSeal> = match recipient.recipient_data {
                     RecipientData::BlindedUTXO(secret_seal) => BuilderSeal::Concealed(secret_seal),
                     RecipientData::WitnessData {
@@ -4341,7 +4302,7 @@ impl Wallet {
 
                 if let Some(err) = consignment_res.error {
                     if err.code == -101 {
-                        return Err(Error::BlindedUTXOAlreadyUsed)?;
+                        return Err(Error::RecipientIDAlreadyUsed)?;
                     }
                     continue;
                 } else if consignment_res.result.is_none() {
@@ -4678,7 +4639,6 @@ impl Wallet {
             transfer_dir.clone(),
             donation,
             unspents,
-            &db_data,
             &mut runtime,
             min_confirmations,
         )?;

@@ -2302,7 +2302,7 @@ fn reuse_failed_blinded_success() {
 
     // 2nd transfer using the same blinded UTXO
     let result = wallet.send(online, recipient_map, false, FEE_RATE, MIN_CONFIRMATIONS);
-    assert!(matches!(result, Err(Error::BlindedUTXOAlreadyUsed)));
+    assert!(matches!(result, Err(Error::RecipientIDAlreadyUsed)));
 }
 
 #[test]
@@ -3321,7 +3321,7 @@ fn already_used_fail() {
 
     // 2nd transfer using the same blinded UTXO
     let result = wallet.send(online, recipient_map, false, FEE_RATE, MIN_CONFIRMATIONS);
-    assert!(matches!(result, Err(Error::BlindedUTXOAlreadyUsed)));
+    assert!(matches!(result, Err(Error::RecipientIDAlreadyUsed)));
 }
 
 #[test]
@@ -3836,7 +3836,7 @@ fn send_to_oneself() {
         )
         .unwrap();
     let recipient_map = HashMap::from([(
-        asset.asset_id,
+        asset.asset_id.clone(),
         vec![Recipient {
             amount,
             recipient_data: RecipientData::BlindedUTXO(
@@ -3845,8 +3845,22 @@ fn send_to_oneself() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let result = wallet.send(online, recipient_map, false, FEE_RATE, MIN_CONFIRMATIONS);
-    assert!(matches!(result, Err(Error::CannotSendToSelf)));
+    let txid = test_send_default(&mut wallet, &online, recipient_map);
+    assert!(!txid.is_empty());
+
+    stop_mining();
+
+    // transfers progress to status Settled after refreshes
+    wallet.refresh(online.clone(), None, vec![]).unwrap();
+    wallet.refresh(online.clone(), None, vec![]).unwrap();
+    mine(true);
+    wallet.refresh(online.clone(), None, vec![]).unwrap();
+
+    let batch_transfers = get_test_batch_transfers(&wallet, &txid);
+    assert_eq!(batch_transfers.len(), 2);
+    for batch_transfer in batch_transfers {
+        assert_eq!(batch_transfer.status, TransferStatus::Settled);
+    }
 }
 
 #[test]

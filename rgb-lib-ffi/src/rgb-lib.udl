@@ -13,11 +13,9 @@ interface RgbLibError {
   AllocationsAlreadyAvailable();
   AssetNotFound(string asset_id);
   BatchTransferNotFound(string txid);
-  BlindedUTXOAlreadyUsed();
   CannotChangeOnline();
   CannotDeleteTransfer();
   CannotFailTransfer();
-  CannotSendToSelf();
   Electrum(string details);
   FailedBdkSync(string details);
   FailedBroadcast(string details);
@@ -36,8 +34,6 @@ interface RgbLibError {
   InvalidBitcoinKeys();
   InvalidBitcoinNetwork(string network);
   InvalidBlindedUTXO(string details);
-  InvalidTransportEndpoint(string details);
-  InvalidTransportEndpoints(string details);
   InvalidDescription(string details);
   InvalidElectrum(string details);
   InvalidFeeRate(string details);
@@ -52,18 +48,20 @@ interface RgbLibError {
   InvalidRecipientID();
   InvalidScript(string details);
   InvalidTicker(string details);
+  InvalidTransportEndpoint(string details);
+  InvalidTransportEndpoints(string details);
   NoIssuanceAmounts();
   NoValidTransportEndpoint();
   Offline();
   OutputBelowDustLimit();
   Proxy(string details);
-  ScriptAlreadyUsed();
+  RecipientIDAlreadyUsed();
   TransferNotFound(string recipient_id);
   UnknownRgbInterface(string interface);
   UnknownRgbSchema(string schema_id);
-  UnsupportedTransportType();
   UnsupportedBackupVersion(string version);
   UnsupportedInvoice();
+  UnsupportedTransportType();
   WatchOnly();
 };
 

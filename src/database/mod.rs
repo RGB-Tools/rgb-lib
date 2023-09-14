@@ -211,10 +211,6 @@ impl LocalRecipient {
     pub(crate) fn recipient_id(&self) -> String {
         self.recipient_data.recipient_id()
     }
-
-    pub(crate) fn recipient_type(&self) -> RecipientType {
-        self.recipient_data.recipient_type()
-    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
