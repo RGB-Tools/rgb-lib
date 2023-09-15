@@ -15,12 +15,14 @@ impl EntityName for Entity {
 pub struct Model {
     pub idx: i32,
     pub asset_id: String,
+    pub added_at: i64,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
 pub enum Column {
     Idx,
     AssetId,
+    AddedAt,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DerivePrimaryKey)]
@@ -46,6 +48,7 @@ impl ColumnTrait for Column {
         match self {
             Self::Idx => ColumnType::Integer.def(),
             Self::AssetId => ColumnType::String(None).def().unique(),
+            Self::AddedAt => ColumnType::BigInteger.def(),
         }
     }
 }

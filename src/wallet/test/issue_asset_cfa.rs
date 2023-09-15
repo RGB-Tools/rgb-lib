@@ -22,6 +22,7 @@ fn success() {
 
     // required fields only
     println!("\nasset 1");
+    let before_timestamp = now().unix_timestamp();
     let asset_1 = wallet
         .issue_asset_cfa(
             online.clone(),
@@ -46,6 +47,7 @@ fn success() {
     );
     let empty_data_paths = vec![];
     assert_eq!(asset_1.data_paths, empty_data_paths);
+    assert!(before_timestamp <= asset_1.added_at && asset_1.added_at <= now().unix_timestamp());
 
     // include a text file
     println!("\nasset 2");

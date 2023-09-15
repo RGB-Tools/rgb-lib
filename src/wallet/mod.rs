@@ -166,6 +166,7 @@ impl AssetIface {
         &self,
         wallet: &Wallet,
         asset_id: String,
+        added_at: i64,
         runtime: &mut RgbRuntime,
         assets_dir: PathBuf,
         asset_transfers: Option<Vec<DbAssetTransfer>>,
@@ -206,6 +207,7 @@ impl AssetIface {
                     precision,
                     issued_supply,
                     timestamp,
+                    added_at,
                     balance,
                     data_paths,
                 })
@@ -221,6 +223,7 @@ impl AssetIface {
                     precision,
                     issued_supply,
                     timestamp,
+                    added_at,
                     balance,
                     data_paths,
                 })
@@ -260,6 +263,8 @@ pub struct AssetNIA {
     pub issued_supply: u64,
     /// Timestamp of asset genesis
     pub timestamp: i64,
+    /// Timestamp of asset import
+    pub added_at: i64,
     /// Current balance of the asset
     pub balance: Balance,
     /// List of asset data file paths
@@ -270,6 +275,7 @@ impl AssetNIA {
     fn get_asset_details(
         wallet: &Wallet,
         asset_id: String,
+        added_at: i64,
         runtime: &mut RgbRuntime,
         assets_dir: PathBuf,
         asset_transfers: Option<Vec<DbAssetTransfer>>,
@@ -280,6 +286,7 @@ impl AssetNIA {
         match AssetIface::RGB20.get_asset_details(
             wallet,
             asset_id,
+            added_at,
             runtime,
             assets_dir,
             asset_transfers,
@@ -349,6 +356,8 @@ pub struct AssetCFA {
     pub issued_supply: u64,
     /// Timestamp of asset genesis
     pub timestamp: i64,
+    /// Timestamp of asset import
+    pub added_at: i64,
     /// Current balance of the asset
     pub balance: Balance,
     /// List of asset data file paths
@@ -359,6 +368,7 @@ impl AssetCFA {
     fn get_asset_details(
         wallet: &Wallet,
         asset_id: String,
+        added_at: i64,
         runtime: &mut RgbRuntime,
         assets_dir: PathBuf,
         asset_transfers: Option<Vec<DbAssetTransfer>>,
@@ -369,6 +379,7 @@ impl AssetCFA {
         match AssetIface::RGB25.get_asset_details(
             wallet,
             asset_id,
+            added_at,
             runtime,
             assets_dir,
             asset_transfers,
@@ -2666,12 +2677,18 @@ impl Wallet {
     }
 
     /// Save new asset to the DB
-    pub fn save_new_asset(&self, asset_id: String) -> Result<i32, Error> {
+    pub fn save_new_asset(
+        &self,
+        asset_id: String,
+        added_at: Option<i64>,
+    ) -> Result<(i32, i64), Error> {
+        let added_at = added_at.unwrap_or_else(|| now().unix_timestamp());
         let db_asset = DbAssetActMod {
             idx: ActiveValue::NotSet,
             asset_id: ActiveValue::Set(asset_id),
+            added_at: ActiveValue::Set(added_at),
         };
-        Ok(self.database.set_asset(db_asset)?)
+        Ok((self.database.set_asset(db_asset)?, added_at))
     }
 
     /// Issue a new RGB [`AssetNIA`] and return it
@@ -2774,7 +2791,7 @@ impl Wallet {
             .import_contract(validated_contract, &mut self._blockchain_resolver()?)
             .expect("failure importing issued contract");
 
-        self.save_new_asset(asset_id.clone())?;
+        let (_, added_at) = self.save_new_asset(asset_id.clone(), Some(created_at))?;
         let batch_transfer = DbBatchTransferActMod {
             status: ActiveValue::Set(TransferStatus::Settled),
             expiration: ActiveValue::Set(None),
@@ -2811,6 +2828,7 @@ impl Wallet {
         let asset = AssetNIA::get_asset_details(
             self,
             asset_id,
+            added_at,
             &mut runtime,
             self.wallet_dir.join(ASSETS_DIR),
             None,
@@ -2972,7 +2990,7 @@ impl Wallet {
             fs::write(media_dir.join(MIME_FNAME), mime)?;
         }
 
-        self.save_new_asset(asset_id.clone())?;
+        let (_, added_at) = self.save_new_asset(asset_id.clone(), Some(created_at))?;
         let batch_transfer = DbBatchTransferActMod {
             status: ActiveValue::Set(TransferStatus::Settled),
             expiration: ActiveValue::Set(None),
@@ -3009,6 +3027,7 @@ impl Wallet {
         let asset = AssetCFA::get_asset_details(
             self,
             asset_id,
+            added_at,
             &mut runtime,
             self.wallet_dir.join(ASSETS_DIR),
             None,
@@ -3056,6 +3075,7 @@ impl Wallet {
                                 AssetNIA::get_asset_details(
                                     self,
                                     c.asset_id.clone(),
+                                    c.added_at,
                                     &mut runtime,
                                     self.wallet_dir.join(ASSETS_DIR),
                                     asset_transfers.clone(),
@@ -3082,6 +3102,7 @@ impl Wallet {
                                 AssetCFA::get_asset_details(
                                     self,
                                     c.asset_id.clone(),
+                                    c.added_at,
                                     &mut runtime,
                                     assets_dir.clone(),
                                     asset_transfers.clone(),
@@ -3471,7 +3492,7 @@ impl Wallet {
                     .expect("failure importing issued contract");
                 debug!(self.logger, "Contract registered");
 
-                self.save_new_asset(asset_id.clone())?;
+                self.save_new_asset(asset_id.clone(), None)?;
             }
             let mut updated_asset_transfer: DbAssetTransferActMod = asset_transfer.clone().into();
             updated_asset_transfer.asset_id = ActiveValue::Set(Some(asset_id.clone()));

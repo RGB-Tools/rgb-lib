@@ -80,6 +80,7 @@ dictionary AssetNIA {
   u8 precision;
   u64 issued_supply;
   i64 timestamp;
+  i64 added_at;
   Balance balance;
   sequence<Media> data_paths;
 };
@@ -102,6 +103,7 @@ dictionary AssetCFA {
   u8 precision;
   u64 issued_supply;
   i64 timestamp;
+  i64 added_at;
   Balance balance;
   sequence<Media> data_paths;
 };

@@ -55,6 +55,7 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .unique_key(),
                     )
+                    .col(ColumnDef::new(Asset::AddedAt).big_unsigned().not_null())
                     .to_owned(),
             )
             .await?;
@@ -414,6 +415,7 @@ pub enum Asset {
     Table,
     Idx,
     AssetId,
+    AddedAt,
 }
 
 #[derive(DeriveIden)]

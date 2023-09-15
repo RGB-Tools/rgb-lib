@@ -17,6 +17,7 @@ fn success() {
         MIN_CONFIRMATIONS,
     );
 
+    let before_timestamp = now().unix_timestamp();
     let asset = wallet
         .issue_asset_nia(
             online,
@@ -38,6 +39,7 @@ fn success() {
             spendable: AMOUNT * 2,
         }
     );
+    assert!(before_timestamp <= asset.added_at && asset.added_at <= now().unix_timestamp());
 }
 
 #[test]
