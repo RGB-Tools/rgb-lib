@@ -63,6 +63,7 @@ interface RgbLibError {
   UnsupportedInvoice();
   UnsupportedTransportType();
   WatchOnly();
+  WrongPassword();
 };
 
 enum AssetIface {

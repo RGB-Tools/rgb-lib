@@ -366,14 +366,14 @@ fn _decrypt_file(
         if read_count == BACKUP_BUFFER_LEN_DECRYPT {
             let cleartext = stream_decryptor
                 .decrypt_next(buffer.as_slice())
-                .map_err(|e| InternalError::AeadError(e.to_string()))?;
+                .map_err(|_| Error::WrongPassword)?;
             destination_file.write_all(&cleartext)?;
         } else if read_count == 0 {
             break;
         } else {
             let cleartext = stream_decryptor
                 .decrypt_last(&buffer[..read_count])
-                .map_err(|e| InternalError::AeadError(e.to_string()))?;
+                .map_err(|_| Error::WrongPassword)?;
             destination_file.write_all(&cleartext)?;
             break;
         }

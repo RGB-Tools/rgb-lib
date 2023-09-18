@@ -167,7 +167,7 @@ fn fail() {
 
     // restore with wrong password
     let result = restore_backup(&backup_file, "wrong password", RESTORE_DIR);
-    assert!(matches!(result, Err(Error::Internal { details: _ })));
+    assert!(matches!(result, Err(Error::WrongPassword)));
 
     std::fs::remove_file(&backup_file).unwrap_or_default();
 }

@@ -331,6 +331,10 @@ pub enum Error {
     /// The requested operation cannot be processed by a watch-only wallet
     #[error("Operation not allowed on watch only wallet")]
     WatchOnly,
+
+    /// The provided password is incorrect
+    #[error("The provided password is incorrect")]
+    WrongPassword,
 }
 
 #[derive(Debug, thiserror::Error)]
