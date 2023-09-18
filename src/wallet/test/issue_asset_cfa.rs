@@ -323,7 +323,7 @@ fn fail() {
     );
     assert!(matches!(result, Err(Error::CannotChangeOnline)));
 
-    // invalid name: too short
+    // invalid name: empty
     let result = wallet.issue_asset_cfa(
         online.clone(),
         s!(""),
@@ -332,7 +332,7 @@ fn fail() {
         vec![AMOUNT],
         None,
     );
-    assert!(matches!(result, Err(Error::InvalidName { details: _ })));
+    assert!(matches!(result, Err(Error::InvalidName { details: m }) if m == IDENT_EMPTY_MSG));
 
     // invalid name: too long
     let result = wallet.issue_asset_cfa(
@@ -343,7 +343,7 @@ fn fail() {
         vec![AMOUNT],
         None,
     );
-    assert!(matches!(result, Err(Error::InvalidName { details: _ })));
+    assert!(matches!(result, Err(Error::InvalidName { details: m }) if m == IDENT_TOO_LONG_MSG));
 
     // invalid name: unicode characters
     let result = wallet.issue_asset_cfa(
@@ -354,7 +354,33 @@ fn fail() {
         vec![AMOUNT],
         None,
     );
-    assert!(matches!(result, Err(Error::InvalidName { details: _ })));
+    assert!(matches!(result, Err(Error::InvalidName { details: m }) if m == IDENT_NOT_ASCII_MSG));
+
+    // invalid description: empty
+    let result = wallet.issue_asset_cfa(
+        online.clone(),
+        NAME.to_string(),
+        Some(s!("")),
+        PRECISION,
+        vec![AMOUNT],
+        None,
+    );
+    assert!(
+        matches!(result, Err(Error::InvalidDescription { details: m }) if m == IDENT_EMPTY_MSG)
+    );
+
+    // invalid description: too long
+    let result = wallet.issue_asset_cfa(
+        online.clone(),
+        NAME.to_string(),
+        Some(("a").repeat(256)),
+        PRECISION,
+        vec![AMOUNT],
+        None,
+    );
+    assert!(
+        matches!(result, Err(Error::InvalidDescription { details: m }) if m == IDENT_TOO_LONG_MSG)
+    );
 
     // invalid precision
     let result = wallet.issue_asset_cfa(
@@ -367,7 +393,7 @@ fn fail() {
     );
     assert!(matches!(
         result,
-        Err(Error::InvalidPrecision { details: _ })
+        Err(Error::InvalidPrecision { details: m }) if m == "precision is too high"
     ));
 
     // invalid amount list

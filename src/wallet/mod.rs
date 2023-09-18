@@ -121,12 +121,6 @@ const OPRET_VBYTES: f32 = 43.0;
 
 const NUM_KNOWN_SCHEMAS: usize = 2;
 
-const MAX_LEN_NAME: usize = 256;
-const MAX_LEN_TICKER: usize = 8;
-const MAX_PRECISION: u8 = 18;
-const MIN_LEN_DETAILS: usize = 1;
-const MAX_LEN_DETAILS: usize = 255;
-
 const UTXO_SIZE: u32 = 1000;
 const UTXO_NUM: u8 = 5;
 
@@ -2617,56 +2611,27 @@ impl Wallet {
         Ok(online)
     }
 
-    fn _check_name(&self, name: &str) -> Result<String, Error> {
-        if !name.is_ascii() {
-            return Err(Error::InvalidName {
-                details: s!("name cannot contain non-ASCII characters"),
-            });
-        }
-        if name.is_empty() {
-            return Err(Error::InvalidName {
-                details: s!("name cannot be empty"),
-            });
-        }
-        if name.len() > MAX_LEN_NAME {
-            return Err(Error::InvalidName {
-                details: s!("name too long"),
-            });
-        }
-        Ok(name.to_string())
+    fn _check_name(&self, name: String) -> Result<Name, Error> {
+        Name::try_from(name).map_err(|e| Error::InvalidName {
+            details: e.to_string(),
+        })
     }
 
     fn _check_precision(&self, precision: u8) -> Result<Precision, Error> {
-        if precision > MAX_PRECISION {
-            return Err(Error::InvalidPrecision {
-                details: s!("precision is too high"),
-            });
-        }
-        Ok(Precision::try_from(precision).expect("invalid precision"))
+        Precision::try_from(precision).map_err(|_| Error::InvalidPrecision {
+            details: s!("precision is too high"),
+        })
     }
 
-    fn _check_ticker(&self, ticker: &str) -> Result<String, Error> {
-        if !ticker.is_ascii() {
-            return Err(Error::InvalidTicker {
-                details: s!("ticker cannot contain non-ASCII characters"),
-            });
-        }
-        if ticker.is_empty() {
-            return Err(Error::InvalidTicker {
-                details: s!("ticker cannot be empty"),
-            });
-        }
-        if ticker.len() > MAX_LEN_TICKER {
-            return Err(Error::InvalidTicker {
-                details: s!("ticker too long"),
-            });
-        }
+    fn _check_ticker(&self, ticker: String) -> Result<Ticker, Error> {
         if ticker.to_ascii_uppercase() != *ticker {
             return Err(Error::InvalidTicker {
                 details: s!("ticker needs to be all uppercase"),
             });
         }
-        Ok(ticker.to_string())
+        Ticker::try_from(ticker).map_err(|e| Error::InvalidTicker {
+            details: e.to_string(),
+        })
     }
 
     /// Save new asset to the DB
@@ -2731,14 +2696,8 @@ impl Wallet {
         let data = ContractData { terms, media: None };
         let spec = DivisibleAssetSpec {
             naming: AssetNaming {
-                ticker: Ticker::try_from(self._check_ticker(&ticker)?).map_err(|e| {
-                    Error::InvalidTicker {
-                        details: e.to_string(),
-                    }
-                })?,
-                name: Name::try_from(self._check_name(&name)?).map_err(|e| Error::InvalidName {
-                    details: e.to_string(),
-                })?,
+                ticker: self._check_ticker(ticker)?,
+                name: self._check_name(name)?,
                 details: None,
             },
             precision: self._check_precision(precision)?,
@@ -2903,10 +2862,7 @@ impl Wallet {
             media: media.clone(),
         };
         let precision_state = self._check_precision(precision)?;
-        let name_state =
-            Name::try_from(self._check_name(&name)?).map_err(|e| Error::InvalidName {
-                details: e.to_string(),
-            })?;
+        let name_state = self._check_name(name)?;
 
         let mut runtime = self._rgb_runtime()?;
         let mut builder = ContractBuilder::with(rgb25(), cfa_schema(), cfa_rgb25())
@@ -2924,14 +2880,9 @@ impl Wallet {
             .expect("invalid issuedSupply");
 
         if let Some(desc) = description {
-            if desc.len() < MIN_LEN_DETAILS {
+            if desc.is_empty() {
                 return Err(Error::InvalidDescription {
-                    details: s!("description too short"),
-                });
-            }
-            if desc.len() > MAX_LEN_DETAILS {
-                return Err(Error::InvalidDescription {
-                    details: s!("description too long"),
+                    details: s!("ident must contain at least one character"),
                 });
             }
             let details = Details::from_str(&desc).map_err(|e| Error::InvalidDescription {

@@ -218,7 +218,7 @@ fn fail() {
     );
     assert!(matches!(result, Err(Error::CannotChangeOnline)));
 
-    // invalid ticker: too short
+    // invalid ticker: empty
     let result = wallet.issue_asset_nia(
         online.clone(),
         s!(""),
@@ -226,7 +226,7 @@ fn fail() {
         PRECISION,
         vec![AMOUNT],
     );
-    assert!(matches!(result, Err(Error::InvalidTicker { details: _ })));
+    assert!(matches!(result, Err(Error::InvalidTicker { details: m }) if m == IDENT_EMPTY_MSG));
 
     // invalid ticker: too long
     let result = wallet.issue_asset_nia(
@@ -236,7 +236,7 @@ fn fail() {
         PRECISION,
         vec![AMOUNT],
     );
-    assert!(matches!(result, Err(Error::InvalidTicker { details: _ })));
+    assert!(matches!(result, Err(Error::InvalidTicker { details: m }) if m == IDENT_TOO_LONG_MSG));
 
     // invalid ticker: lowercase
     let result = wallet.issue_asset_nia(
@@ -246,19 +246,21 @@ fn fail() {
         PRECISION,
         vec![AMOUNT],
     );
-    assert!(matches!(result, Err(Error::InvalidTicker { details: _ })));
+    assert!(
+        matches!(result, Err(Error::InvalidTicker { details: m }) if m == "ticker needs to be all uppercase")
+    );
 
     // invalid ticker: unicode characters
     let result = wallet.issue_asset_nia(
         online.clone(),
-        s!("ticker with ℧nicode characters"),
+        s!("TICKER WITH ℧NICODE CHARACTERS"),
         NAME.to_string(),
         PRECISION,
         vec![AMOUNT],
     );
-    assert!(matches!(result, Err(Error::InvalidTicker { details: _ })));
+    assert!(matches!(result, Err(Error::InvalidTicker { details: m }) if m == IDENT_NOT_ASCII_MSG));
 
-    // invalid name: too short
+    // invalid name: empty
     let result = wallet.issue_asset_nia(
         online.clone(),
         TICKER.to_string(),
@@ -266,7 +268,7 @@ fn fail() {
         PRECISION,
         vec![AMOUNT],
     );
-    assert!(matches!(result, Err(Error::InvalidName { details: _ })));
+    assert!(matches!(result, Err(Error::InvalidName { details: m }) if m == IDENT_EMPTY_MSG));
 
     // invalid name: too long
     let result = wallet.issue_asset_nia(
@@ -276,7 +278,7 @@ fn fail() {
         PRECISION,
         vec![AMOUNT],
     );
-    assert!(matches!(result, Err(Error::InvalidName { details: _ })));
+    assert!(matches!(result, Err(Error::InvalidName { details: m }) if m == IDENT_TOO_LONG_MSG));
 
     // invalid name: unicode characters
     let result = wallet.issue_asset_nia(
@@ -286,7 +288,7 @@ fn fail() {
         PRECISION,
         vec![AMOUNT],
     );
-    assert!(matches!(result, Err(Error::InvalidName { details: _ })));
+    assert!(matches!(result, Err(Error::InvalidName { details: m }) if m == IDENT_NOT_ASCII_MSG));
 
     // invalid precision
     let result = wallet.issue_asset_nia(
@@ -298,7 +300,7 @@ fn fail() {
     );
     assert!(matches!(
         result,
-        Err(Error::InvalidPrecision { details: _ })
+        Err(Error::InvalidPrecision { details: m }) if m == "precision is too high"
     ));
 
     // invalid amount list
