@@ -3836,7 +3836,7 @@ fn send_to_oneself() {
         )
         .unwrap();
     let recipient_map = HashMap::from([(
-        asset.asset_id.clone(),
+        asset.asset_id,
         vec![Recipient {
             amount,
             recipient_data: RecipientData::BlindedUTXO(
@@ -4235,4 +4235,119 @@ fn witness_success() {
             spendable: 7200,
         }
     ));
+}
+
+#[test]
+fn min_confirmations() {
+    initialize();
+
+    let amount: u64 = 66;
+    let min_confirmations = 2;
+
+    // wallets
+    let (mut wallet, online) = get_funded_wallet!();
+    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
+
+    // issue
+    let asset = wallet
+        .issue_asset_nia(
+            online.clone(),
+            TICKER.to_string(),
+            NAME.to_string(),
+            PRECISION,
+            vec![AMOUNT],
+        )
+        .unwrap();
+
+    // send
+    let receive_data = rcv_wallet
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            min_confirmations,
+        )
+        .unwrap();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            amount,
+            recipient_data: RecipientData::BlindedUTXO(
+                SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
+            ),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid = wallet
+        .send(
+            online.clone(),
+            recipient_map,
+            false,
+            FEE_RATE,
+            min_confirmations,
+        )
+        .unwrap();
+    assert!(!txid.is_empty());
+
+    let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &receive_data.recipient_id);
+    let (rcv_transfer_data, _) = get_test_transfer_data(&rcv_wallet, &rcv_transfer);
+    let (_, rcv_batch_transfer) = get_test_transfer_related(&rcv_wallet, &rcv_transfer);
+    let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
+    let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
+    let (_, batch_transfer) = get_test_transfer_related(&wallet, &transfer);
+    assert_eq!(rcv_batch_transfer.min_confirmations, min_confirmations);
+    assert_eq!(batch_transfer.min_confirmations, min_confirmations);
+    assert_eq!(
+        rcv_transfer_data.status,
+        TransferStatus::WaitingCounterparty
+    );
+    assert_eq!(transfer_data.status, TransferStatus::WaitingCounterparty);
+
+    stop_mining();
+
+    // transfers progress to status WaitingConfirmations after a refresh
+    rcv_wallet
+        .refresh(rcv_online.clone(), None, vec![])
+        .unwrap();
+    wallet
+        .refresh(online.clone(), Some(asset.asset_id.clone()), vec![])
+        .unwrap();
+
+    let (rcv_transfer_data, _) = get_test_transfer_data(&rcv_wallet, &rcv_transfer);
+    let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
+    assert_eq!(
+        rcv_transfer_data.status,
+        TransferStatus::WaitingConfirmations
+    );
+    assert_eq!(transfer_data.status, TransferStatus::WaitingConfirmations);
+
+    // transfers remain in status WaitingConfirmations after a block is mined
+    mine(true);
+    rcv_wallet
+        .refresh(rcv_online.clone(), None, vec![])
+        .unwrap();
+    wallet
+        .refresh(online.clone(), Some(asset.asset_id.clone()), vec![])
+        .unwrap();
+
+    let (rcv_transfer_data, _) = get_test_transfer_data(&rcv_wallet, &rcv_transfer);
+    let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
+    assert_eq!(
+        rcv_transfer_data.status,
+        TransferStatus::WaitingConfirmations
+    );
+    assert_eq!(transfer_data.status, TransferStatus::WaitingConfirmations);
+
+    // transfers progress to status Settled after a second block is mined
+    mine(false);
+    rcv_wallet.refresh(rcv_online, None, vec![]).unwrap();
+    wallet
+        .refresh(online, Some(asset.asset_id), vec![])
+        .unwrap();
+
+    let (rcv_transfer_data, _) = get_test_transfer_data(&rcv_wallet, &rcv_transfer);
+    let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
+    assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
+    assert_eq!(transfer_data.status, TransferStatus::Settled);
 }

@@ -10,7 +10,7 @@ fn success() {
     let expiration = 60;
     let (mut wallet, online) = get_funded_wallet!();
 
-    // default expiration
+    // default expiration + min confirmations
     let now_timestamp = now().unix_timestamp();
     let receive_data = wallet
         .witness_receive(
@@ -25,8 +25,10 @@ fn success() {
     let timestamp = now_timestamp + DURATION_RCV_TRANSFER as i64;
     assert!(receive_data.expiration_timestamp.unwrap() - timestamp <= 1);
     let decoded_invoice = Invoice::new(receive_data.invoice).unwrap();
-    dbg!(&decoded_invoice);
     assert!(decoded_invoice.invoice_data.network.is_some());
+    let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
+    let (_, batch_transfer) = get_test_transfer_related(&wallet, &transfer);
+    assert_eq!(batch_transfer.min_confirmations, MIN_CONFIRMATIONS);
 
     // positive expiration
     let now_timestamp = now().unix_timestamp();
@@ -54,6 +56,21 @@ fn success() {
         )
         .unwrap();
     assert!(receive_data.expiration_timestamp.is_none());
+
+    // custom min confirmations
+    let min_confirmations = 2;
+    let receive_data = wallet
+        .witness_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            min_confirmations,
+        )
+        .unwrap();
+    let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
+    let (_, batch_transfer) = get_test_transfer_related(&wallet, &transfer);
+    assert_eq!(batch_transfer.min_confirmations, min_confirmations);
 
     // asset id is set
     let asset = wallet

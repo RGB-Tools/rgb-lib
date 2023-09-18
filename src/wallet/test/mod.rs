@@ -631,6 +631,16 @@ fn get_test_transfer_data(
     (transfer_data, asset_transfer)
 }
 
+fn get_test_transfer_related(
+    wallet: &Wallet,
+    transfer: &DbTransfer,
+) -> (DbAssetTransfer, DbBatchTransfer) {
+    let db_data = wallet.database.get_db_data(false).unwrap();
+    transfer
+        .related_transfers(&db_data.asset_transfers, &db_data.batch_transfers)
+        .unwrap()
+}
+
 fn get_test_txo(wallet: &Wallet, idx: i32) -> DbTxo {
     wallet
         .database
