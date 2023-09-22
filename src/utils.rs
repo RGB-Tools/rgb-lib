@@ -290,15 +290,6 @@ impl RgbRuntime {
         self.runtime.contract_ids().map_err(InternalError::from)
     }
 
-    pub(crate) fn contract_ids_by_iface(
-        &self,
-        name: &TypeName,
-    ) -> Result<BTreeSet<ContractId>, InternalError> {
-        self.runtime
-            .contract_ids_by_iface(name)
-            .map_err(InternalError::from)
-    }
-
     pub(crate) fn contract_iface(
         &mut self,
         contract_id: ContractId,

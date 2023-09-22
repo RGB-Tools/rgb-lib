@@ -46,7 +46,7 @@ fn success() {
     let nia_metadata = rcv_wallet.get_asset_metadata(asset_nia.asset_id).unwrap();
 
     assert_eq!(nia_metadata.asset_iface, AssetIface::RGB20);
-    assert_eq!(nia_metadata.asset_schema, AssetSchema::NIA);
+    assert_eq!(nia_metadata.asset_schema, AssetSchema::Nia);
     assert_eq!(nia_metadata.issued_supply, AMOUNT * 2);
     assert_eq!(nia_metadata.name, NAME.to_string());
     assert_eq!(nia_metadata.precision, PRECISION);
@@ -73,7 +73,7 @@ fn success() {
     let cfa_metadata = wallet.get_asset_metadata(asset_cfa.asset_id).unwrap();
 
     assert_eq!(cfa_metadata.asset_iface, AssetIface::RGB25);
-    assert_eq!(cfa_metadata.asset_schema, AssetSchema::CFA);
+    assert_eq!(cfa_metadata.asset_schema, AssetSchema::Cfa);
     assert_eq!(cfa_metadata.issued_supply, AMOUNT * 2);
     assert_eq!(cfa_metadata.name, NAME.to_string());
     assert_eq!(cfa_metadata.precision, PRECISION);

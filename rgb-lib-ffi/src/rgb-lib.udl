@@ -85,8 +85,8 @@ dictionary AssetNIA {
 };
 
 enum AssetSchema {
-  "NIA",
-  "CFA",
+  "Nia",
+  "Cfa",
 };
 
 dictionary Media {

@@ -621,18 +621,16 @@ impl RgbLibDatabase {
             .collect())
     }
 
-    pub(crate) fn check_asset_exists(&self, asset_id: String) -> Result<(), Error> {
-        if block_on(
+    pub(crate) fn check_asset_exists(&self, asset_id: String) -> Result<DbAsset, Error> {
+        match block_on(
             asset::Entity::find()
                 .filter(asset::Column::AssetId.eq(asset_id.clone()))
                 .one(self.get_connection()),
         )
         .map_err(InternalError::from)?
-        .is_some()
         {
-            Ok(())
-        } else {
-            Err(Error::AssetNotFound { asset_id })
+            Some(a) => Ok(a),
+            None => Err(Error::AssetNotFound { asset_id }),
         }
     }
 

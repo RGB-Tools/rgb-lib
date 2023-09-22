@@ -3,6 +3,36 @@
 use sea_orm::{ActiveValue, DeriveActiveEnum, EnumIter, IntoActiveValue};
 use serde::{Deserialize, Serialize};
 
+use crate::{
+    wallet::{SCHEMA_ID_CFA, SCHEMA_ID_NIA},
+    Error,
+};
+
+/// The schema of an asset
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize, EnumIter, DeriveActiveEnum,
+)]
+#[sea_orm(rs_type = "u16", db_type = "Integer")]
+pub enum AssetSchema {
+    /// NIA schema
+    #[sea_orm(num_value = 1)]
+    Nia = 1,
+    /// CFA schema
+    #[sea_orm(num_value = 2)]
+    Cfa = 2,
+}
+
+impl AssetSchema {
+    /// Get the AssetSchema given a schema ID
+    pub fn from_schema_id(schema_id: String) -> Result<AssetSchema, Error> {
+        Ok(match &schema_id[..] {
+            SCHEMA_ID_NIA => AssetSchema::Nia,
+            SCHEMA_ID_CFA => AssetSchema::Cfa,
+            _ => return Err(Error::UnknownRgbSchema { schema_id }),
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
 #[sea_orm(rs_type = "u16", db_type = "Integer")]
 pub enum ColoringType {

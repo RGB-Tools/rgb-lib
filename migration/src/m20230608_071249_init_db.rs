@@ -55,7 +55,14 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .unique_key(),
                     )
+                    .col(ColumnDef::new(Asset::Schema).tiny_unsigned().not_null())
                     .col(ColumnDef::new(Asset::AddedAt).big_unsigned().not_null())
+                    .col(ColumnDef::new(Asset::Description).string())
+                    .col(ColumnDef::new(Asset::IssuedSupply).string().not_null())
+                    .col(ColumnDef::new(Asset::Name).string().not_null())
+                    .col(ColumnDef::new(Asset::Precision).tiny_unsigned().not_null())
+                    .col(ColumnDef::new(Asset::Ticker).string())
+                    .col(ColumnDef::new(Asset::Timestamp).big_unsigned().not_null())
                     .to_owned(),
             )
             .await?;
@@ -75,7 +82,7 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(BatchTransfer::Txid).string())
                     .col(
                         ColumnDef::new(BatchTransfer::Status)
-                            .small_unsigned()
+                            .tiny_unsigned()
                             .not_null(),
                     )
                     .col(
@@ -415,7 +422,14 @@ pub enum Asset {
     Table,
     Idx,
     AssetId,
+    Schema,
     AddedAt,
+    Description,
+    IssuedSupply,
+    Name,
+    Precision,
+    Ticker,
+    Timestamp,
 }
 
 #[derive(DeriveIden)]

@@ -2,6 +2,8 @@
 
 use sea_orm::entity::prelude::*;
 
+use crate::database::enums::AssetSchema;
+
 #[derive(Copy, Clone, Default, Debug, DeriveEntity)]
 pub struct Entity;
 
@@ -15,7 +17,14 @@ impl EntityName for Entity {
 pub struct Model {
     pub idx: i32,
     pub asset_id: String,
+    pub schema: AssetSchema,
     pub added_at: i64,
+    pub description: Option<String>,
+    pub issued_supply: String,
+    pub name: String,
+    pub precision: u8,
+    pub ticker: Option<String>,
+    pub timestamp: i64,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
@@ -23,6 +32,13 @@ pub enum Column {
     Idx,
     AssetId,
     AddedAt,
+    Schema,
+    Description,
+    IssuedSupply,
+    Name,
+    Precision,
+    Ticker,
+    Timestamp,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DerivePrimaryKey)]
@@ -48,7 +64,14 @@ impl ColumnTrait for Column {
         match self {
             Self::Idx => ColumnType::Integer.def(),
             Self::AssetId => ColumnType::String(None).def().unique(),
+            Self::Schema => ColumnType::SmallInteger.def(),
             Self::AddedAt => ColumnType::BigInteger.def(),
+            Self::Description => ColumnType::String(None).def().null(),
+            Self::IssuedSupply => ColumnType::String(None).def(),
+            Self::Name => ColumnType::String(None).def(),
+            Self::Precision => ColumnType::SmallInteger.def(),
+            Self::Ticker => ColumnType::String(None).def().null(),
+            Self::Timestamp => ColumnType::BigInteger.def(),
         }
     }
 }

@@ -68,7 +68,7 @@ pub mod keys;
 pub mod utils;
 pub mod wallet;
 
-pub use crate::database::enums::{TransferStatus, TransportType};
+pub use crate::database::enums::{AssetSchema, TransferStatus, TransportType};
 pub use crate::error::Error;
 pub use crate::keys::generate_keys;
 pub use crate::keys::restore_keys;
