@@ -2960,11 +2960,11 @@ impl Wallet {
     /// List the assets known by the underlying RGB node
     pub fn list_assets(
         &mut self,
-        mut filter_asset_ifaces: Vec<AssetIface>,
+        mut filter_asset_schemas: Vec<AssetSchema>,
     ) -> Result<Assets, Error> {
         info!(self.logger, "Listing assets...");
-        if filter_asset_ifaces.is_empty() {
-            filter_asset_ifaces = vec![AssetIface::RGB20, AssetIface::RGB25];
+        if filter_asset_schemas.is_empty() {
+            filter_asset_schemas = vec![AssetSchema::Nia, AssetSchema::Cfa];
         }
 
         let batch_transfers = Some(self.database.iter_batch_transfers()?);
@@ -2975,13 +2975,13 @@ impl Wallet {
         let assets = self.database.iter_assets()?;
         let mut nia = None;
         let mut cfa = None;
-        for asset_iface in filter_asset_ifaces {
-            match asset_iface {
-                AssetIface::RGB20 => {
+        for schema in filter_asset_schemas {
+            match schema {
+                AssetSchema::Nia => {
                     nia = Some(
                         assets
                             .iter()
-                            .filter(|a| a.schema == AssetSchema::Nia)
+                            .filter(|a| a.schema == schema)
                             .map(|a| {
                                 AssetNIA::get_asset_details(
                                     self,
@@ -2996,12 +2996,12 @@ impl Wallet {
                             .collect::<Result<Vec<AssetNIA>, Error>>()?,
                     );
                 }
-                AssetIface::RGB25 => {
+                AssetSchema::Cfa => {
                     let assets_dir = self.wallet_dir.join(ASSETS_DIR);
                     cfa = Some(
                         assets
                             .iter()
-                            .filter(|a| a.schema == AssetSchema::Cfa)
+                            .filter(|a| a.schema == schema)
                             .map(|a| {
                                 AssetCFA::get_asset_details(
                                     self,

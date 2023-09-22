@@ -1197,7 +1197,7 @@ fn send_received_success() {
 
     // check RGB25 asset has the correct attachment after being received
     let cfa_assets = wallet_3
-        .list_assets(vec![AssetIface::RGB25])
+        .list_assets(vec![AssetSchema::Cfa])
         .unwrap()
         .cfa
         .unwrap();
@@ -1365,7 +1365,7 @@ fn send_received_cfa_success() {
     );
     // check asset has been received correctly
     let cfa_assets = wallet_3
-        .list_assets(vec![AssetIface::RGB25])
+        .list_assets(vec![AssetSchema::Cfa])
         .unwrap()
         .cfa
         .unwrap();

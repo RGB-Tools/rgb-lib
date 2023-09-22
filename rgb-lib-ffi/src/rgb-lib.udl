@@ -377,7 +377,7 @@ interface Wallet {
     sequence<u64> amounts, string? file_path);
 
   [Throws=RgbLibError]
-  Assets list_assets(sequence<AssetIface> filter_asset_ifaces);
+  Assets list_assets(sequence<AssetSchema> filter_asset_schemas);
 
   [Throws=RgbLibError]
   sequence<Transaction> list_transactions(Online? online);

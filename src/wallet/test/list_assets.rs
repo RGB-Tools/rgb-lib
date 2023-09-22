@@ -103,11 +103,11 @@ fn success() {
     assert_eq!(asset.data_paths, empty_data_paths);
 
     // test filter by asset type
-    let assets = wallet.list_assets(vec![AssetIface::RGB20]).unwrap();
+    let assets = wallet.list_assets(vec![AssetSchema::Nia]).unwrap();
     assert_eq!(assets.nia.unwrap().len(), 2);
     assert!(assets.cfa.is_none());
 
-    let assets = wallet.list_assets(vec![AssetIface::RGB25]).unwrap();
+    let assets = wallet.list_assets(vec![AssetSchema::Cfa]).unwrap();
     assert!(assets.nia.is_none());
     assert_eq!(assets.cfa.unwrap().len(), 1);
 }

@@ -7,10 +7,10 @@ use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard};
 
 uniffi::include_scaffolding!("rgb-lib");
 
+type AssetCFA = rgb_lib::wallet::AssetCFA;
 type AssetIface = rgb_lib::wallet::AssetIface;
 type AssetNIA = rgb_lib::wallet::AssetNIA;
-type AssetCFA = rgb_lib::wallet::AssetCFA;
-type AssetSchema = rgb_lib::wallet::AssetSchema;
+type AssetSchema = rgb_lib::AssetSchema;
 type Assets = rgb_lib::wallet::Assets;
 type Balance = rgb_lib::wallet::Balance;
 type BitcoinNetwork = rgb_lib::BitcoinNetwork;
@@ -325,8 +325,8 @@ impl Wallet {
             .issue_asset_cfa(online, name, description, precision, amounts, file_path)
     }
 
-    fn list_assets(&self, filter_asset_ifaces: Vec<AssetIface>) -> Result<Assets, RgbLibError> {
-        self._get_wallet().list_assets(filter_asset_ifaces)
+    fn list_assets(&self, filter_asset_schemas: Vec<AssetSchema>) -> Result<Assets, RgbLibError> {
+        self._get_wallet().list_assets(filter_asset_schemas)
     }
 
     fn list_transactions(&self, online: Option<Online>) -> Result<Vec<Transaction>, RgbLibError> {
