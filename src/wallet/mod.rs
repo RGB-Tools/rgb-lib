@@ -1853,7 +1853,7 @@ impl Wallet {
         let new_btc_amount = self._get_uncolorable_btc_sum()?;
         let utxo_size = size.unwrap_or(UTXO_SIZE);
         let max_possible_utxos = new_btc_amount / utxo_size as u64;
-        let mut btc_needed: u64 = 0;
+        let mut btc_needed: u64 = utxo_size as u64 + 1000;
         let mut btc_available: u64 = 0;
         let mut num_try_creating = min(utxos_to_create, max_possible_utxos as u8);
         while num_try_creating > 0 {
@@ -1862,7 +1862,7 @@ impl Wallet {
                 Err(e) => {
                     (btc_needed, btc_available) = match e {
                         bdk::Error::InsufficientFunds { needed, available } => (needed, available),
-                        _ => (0, 0),
+                        _ => return Err(InternalError::Unexpected.into()),
                     };
                     num_try_creating -= 1
                 }

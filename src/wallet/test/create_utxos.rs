@@ -225,9 +225,9 @@ fn fail() {
     assert!(matches!(
         result,
         Err(Error::InsufficientBitcoins {
-            needed: _,
-            available: _
-        })
+            needed: n,
+            available: a
+        }) if n == UTXO_SIZE as u64 + 1000 && a == 0
     ));
 
     fund_wallet(wallet.get_address());
