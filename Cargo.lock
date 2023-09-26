@@ -2888,7 +2888,7 @@ dependencies = [
 
 [[package]]
 name = "rgb-lib-migration"
-version = "0.2.0-alpha.3"
+version = "0.2.0-alpha.4"
 dependencies = [
  "async-std",
  "sea-orm-migration",
