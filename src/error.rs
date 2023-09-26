@@ -7,7 +7,7 @@
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// No need to create more allocations
-    #[error("Allocation already available")]
+    #[error("Allocations already available")]
     AllocationsAlreadyAvailable,
 
     /// Requested asset was not found
