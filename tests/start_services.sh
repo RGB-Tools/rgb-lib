@@ -1,6 +1,11 @@
 #!/bin/bash
 set -eu
 
+_die () {
+    echo "ERR: $*"
+    exit 1
+}
+
 COMPOSE="docker compose"
 if ! $COMPOSE >/dev/null; then
     echo "could not call docker compose (hint: install docker compose plugin)"
