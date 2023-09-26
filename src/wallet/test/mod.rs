@@ -740,8 +740,8 @@ pub fn mock_contract_data(terms: RicardianContract, media: Option<Attachment>) -
     } else {
         let mocked_media = mock_reqs.pop();
         ContractData {
-            terms: terms.clone(),
-            media: mocked_media.clone(),
+            terms,
+            media: mocked_media,
         }
     }
 }

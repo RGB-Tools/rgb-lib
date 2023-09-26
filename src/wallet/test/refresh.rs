@@ -343,8 +343,8 @@ fn nia_with_media() {
     let (mut wallet_2, online_2) = get_funded_wallet!();
     let (mut wallet_3, online_3) = get_funded_wallet!();
 
-    let fp = "tests/qrcode.png";
-    let fpath = std::path::Path::new(fp);
+    let fp = "tests/qrcode.png".to_string();
+    let fpath = std::path::Path::new(&fp);
     let file_bytes = std::fs::read(fp.clone()).unwrap();
     let file_hash: sha256::Hash = Sha256Hash::hash(&file_bytes[..]);
     let digest = file_hash.to_byte_array();
@@ -373,7 +373,7 @@ fn nia_with_media() {
         .join(attachment_id);
     fs::create_dir_all(&media_dir).unwrap();
     let media_path = media_dir.join(MEDIA_FNAME);
-    fs::copy(fp, &media_path).unwrap();
+    fs::copy(fp, media_path).unwrap();
     fs::write(media_dir.join(MIME_FNAME), mime).unwrap();
 
     let receive_data = wallet_2
@@ -416,7 +416,7 @@ fn nia_with_media() {
         )
         .unwrap();
     let recipient_map = HashMap::from([(
-        asset.asset_id.clone(),
+        asset.asset_id,
         vec![Recipient {
             amount,
             recipient_data: RecipientData::BlindedUTXO(
@@ -433,7 +433,7 @@ fn nia_with_media() {
     assert_eq!(assets_list.nia.unwrap()[0].data_paths.len(), 1);
     wallet_2.refresh(online_2.clone(), None, vec![]).unwrap();
     mine(false);
-    wallet_3.refresh(online_3.clone(), None, vec![]).unwrap();
+    wallet_3.refresh(online_3, None, vec![]).unwrap();
     wallet_2.refresh(online_2.clone(), None, vec![]).unwrap();
     let rcv_transfer = get_test_transfer_recipient(&wallet_3, &receive_data.recipient_id);
     let (rcv_transfer_data, _) = get_test_transfer_data(&wallet_3, &rcv_transfer);

@@ -85,9 +85,7 @@ fn success() {
         .unwrap();
     wallet.refresh(online.clone(), None, vec![]).unwrap();
     let transactions = wallet.list_transactions(Some(online.clone())).unwrap();
-    let rcv_transactions = rcv_wallet
-        .list_transactions(Some(rcv_online.clone()))
-        .unwrap();
+    let rcv_transactions = rcv_wallet.list_transactions(Some(rcv_online)).unwrap();
     assert_eq!(transactions.len(), 3);
     assert_eq!(rcv_transactions.len(), 3);
     assert!(transactions

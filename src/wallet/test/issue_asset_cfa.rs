@@ -308,6 +308,17 @@ fn fail() {
 
     let (mut wallet, online) = get_funded_wallet!();
 
+    // supply overflow
+    let result = wallet.issue_asset_cfa(
+        online.clone(),
+        NAME.to_string(),
+        Some(DESCRIPTION.to_string()),
+        PRECISION,
+        vec![u64::MAX, u64::MAX],
+        None,
+    );
+    assert!(matches!(result, Err(Error::TooHighIssuanceAmounts)));
+
     // bad online object
     let other_online = Online {
         id: 1,
