@@ -2606,6 +2606,18 @@ impl Wallet {
         Ok(db_asset.try_into_model().unwrap())
     }
 
+    fn _get_total_issue_amount(&self, amounts: &Vec<u64>) -> Result<u64, Error> {
+        if amounts.is_empty() {
+            return Err(Error::NoIssuanceAmounts);
+        }
+        amounts.iter().try_fold(0u64, |acc, x| {
+            Ok(match acc.checked_add(*x) {
+                None => return Err(Error::TooHighIssuanceAmounts),
+                Some(sum) => sum,
+            })
+        })
+    }
+
     /// Issue a new RGB [`AssetNIA`] and return it
     pub fn issue_asset_nia(
         &mut self,
@@ -2623,10 +2635,9 @@ impl Wallet {
             precision,
             amounts
         );
-        if amounts.is_empty() {
-            return Err(Error::NoIssuanceAmounts);
-        }
         self._check_online(online)?;
+
+        let settled = self._get_total_issue_amount(&amounts)?;
 
         let mut db_data = self.database.get_db_data(false)?;
         self._handle_expired_transfers(&mut db_data)?;
@@ -2645,7 +2656,6 @@ impl Wallet {
 
         let created_at = now().unix_timestamp();
         let created = Timestamp::from(created_at);
-        let settled: u64 = amounts.iter().sum();
         let terms = RicardianContract::default();
         #[cfg(test)]
         let data = test::mock_contract_data(terms, None);
@@ -2775,10 +2785,9 @@ impl Wallet {
             precision,
             amounts
         );
-        if amounts.is_empty() {
-            return Err(Error::NoIssuanceAmounts);
-        }
         self._check_online(online)?;
+
+        let settled = self._get_total_issue_amount(&amounts)?;
 
         let mut db_data = self.database.get_db_data(false)?;
         self._handle_expired_transfers(&mut db_data)?;
@@ -2797,7 +2806,6 @@ impl Wallet {
 
         let created_at = now().unix_timestamp();
         let created = Timestamp::from(created_at);
-        let settled: u64 = amounts.iter().sum();
         let terms = RicardianContract::default();
         let (media, mime) = if let Some(fp) = &file_path {
             let fpath = std::path::Path::new(fp);

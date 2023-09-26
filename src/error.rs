@@ -24,13 +24,6 @@ pub enum Error {
         txid: String,
     },
 
-    /// Invalid bitcoin network
-    #[error("Invalid bitcoin network: {network}")]
-    InvalidBitcoinNetwork {
-        /// The invalid network
-        network: String,
-    },
-
     /// A wallet cannot go online twice with different data
     #[error("Cannot change online object")]
     CannotChangeOnline,
@@ -148,6 +141,13 @@ pub enum Error {
     /// Keys derived from the provided data do not match
     #[error("Invalid bitcoin keys")]
     InvalidBitcoinKeys,
+
+    /// Invalid bitcoin network
+    #[error("Invalid bitcoin network: {network}")]
+    InvalidBitcoinNetwork {
+        /// The invalid network
+        network: String,
+    },
 
     /// The provided blinded UTXO is invalid
     #[error("Invalid blinded UTXO: {details}")]
@@ -291,6 +291,10 @@ pub enum Error {
     /// Provided recipient ID has already been used for another transfer
     #[error("Recipient ID already used")]
     RecipientIDAlreadyUsed,
+
+    /// Trying to issue too many assets
+    #[error("Trying to issue too many assets")]
+    TooHighIssuanceAmounts,
 
     /// The requested transfer was not found
     #[error("Transfer with recipient ID {recipient_id} not found")]
