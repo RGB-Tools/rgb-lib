@@ -1,8 +1,9 @@
 use chacha20poly1305::aead::{generic_array::GenericArray, stream};
 use chacha20poly1305::{Key, KeyInit, XChaCha20Poly1305};
 use rand::{distributions::Alphanumeric, Rng};
-use scrypt::password_hash::{PasswordHasher, Salt};
-use scrypt::Scrypt;
+use scrypt::password_hash::{PasswordHasher, Salt, SaltString};
+use scrypt::{Params, Scrypt};
+use serde::{Deserialize, Serialize};
 use slog::Logger;
 use tempfile::TempDir;
 use typenum::consts::U32;
@@ -25,16 +26,65 @@ const BACKUP_VERSION: u8 = 1;
 
 struct BackupPaths {
     encrypted: PathBuf,
-    nonce: PathBuf,
-    salt: PathBuf,
+    backup_pub_data: PathBuf,
     tempdir: TempDir,
-    version: PathBuf,
     zip: PathBuf,
 }
 
-struct CypherSecrets {
-    key: GenericArray<u8, U32>,
-    nonce: [u8; BACKUP_NONCE_LENGTH],
+#[derive(Clone, Deserialize, Serialize)]
+pub(crate) struct ScryptParams {
+    log_n: u8,
+    r: u32,
+    p: u32,
+    len: usize,
+    version: Option<u32>,
+    algorithm: Option<String>,
+}
+
+impl ScryptParams {
+    pub(crate) fn new(log_n: Option<u8>, r: Option<u32>, p: Option<u32>) -> ScryptParams {
+        ScryptParams {
+            log_n: log_n.unwrap_or(Params::RECOMMENDED_LOG_N),
+            r: r.unwrap_or(Params::RECOMMENDED_R),
+            p: p.unwrap_or(Params::RECOMMENDED_P),
+            len: BACKUP_KEY_LENGTH,
+            version: None,
+            algorithm: None,
+        }
+    }
+}
+
+impl Default for ScryptParams {
+    fn default() -> ScryptParams {
+        ScryptParams::new(None, None, None)
+    }
+}
+
+impl TryInto<Params> for ScryptParams {
+    type Error = Error;
+
+    fn try_into(self: ScryptParams) -> Result<Params, Error> {
+        Params::new(self.log_n, self.r, self.p, self.len).map_err(|e| Error::Internal {
+            details: format!("invalid params {}", e),
+        })
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+struct BackupPubData {
+    scrypt_params: ScryptParams,
+    salt: String,
+    nonce: String,
+    version: u8,
+}
+
+impl BackupPubData {
+    fn nonce(&self) -> Result<[u8; BACKUP_NONCE_LENGTH], InternalError> {
+        let nonce_bytes = self.nonce.as_bytes();
+        nonce_bytes[0..BACKUP_NONCE_LENGTH]
+            .try_into()
+            .map_err(|_| InternalError::Unexpected)
+    }
 }
 
 impl Wallet {
@@ -45,6 +95,19 @@ impl Wallet {
     /// hashing and a random nonce for encrypting are randomly generated and included in the final
     /// backup file, along with the backup version
     pub fn backup(&self, backup_path: &str, password: &str) -> Result<(), Error> {
+        self.backup_customize(backup_path, password, None)
+    }
+
+    /// For now this method is only used for testing, a few details should be refined before
+    /// exposing it to the public:
+    /// - Which parameters should we allow users to change? Should we set sensible minimums?
+    /// - Can we guarantee old backups can always be recovered in the future?
+    pub(crate) fn backup_customize(
+        &self,
+        backup_path: &str,
+        password: &str,
+        scrypt_params: Option<ScryptParams>,
+    ) -> Result<(), Error> {
         // setup
         info!(self.logger, "starting backup...");
         let backup_file = PathBuf::from(&backup_path);
@@ -55,18 +118,23 @@ impl Wallet {
         }
         let tmp_base_path = _get_parent_path(&backup_file)?;
         let files = _get_backup_paths(&tmp_base_path)?;
-        let salt: String = rand::thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(BACKUP_KEY_LENGTH)
-            .map(char::from)
-            .collect();
-        debug!(self.logger, "using generated salt: {}", &salt);
+        let scrypt_params = scrypt_params.unwrap_or_default();
+        let mut rng = rand::thread_rng();
+        let salt = SaltString::generate(&mut rng);
+        let str_params = serde_json::to_string(&scrypt_params).map_err(InternalError::from)?;
+        debug!(self.logger, "using generated scrypt params: {}", str_params);
         let nonce: String = rand::thread_rng()
             .sample_iter(&Alphanumeric)
             .take(BACKUP_NONCE_LENGTH)
             .map(char::from)
             .collect();
         debug!(self.logger, "using generated nonce: {}", &nonce);
+        let backup_pub_data = BackupPubData {
+            scrypt_params,
+            salt: salt.to_string(),
+            nonce,
+            version: BACKUP_VERSION,
+        };
 
         // create zip archive of wallet data
         debug!(
@@ -80,12 +148,13 @@ impl Wallet {
             self.logger,
             "\nencrypting {:?} to {:?}", &files.zip, &files.encrypted
         );
-        _encrypt_file(&files.zip, &files.encrypted, password, &salt, &nonce)?;
+        _encrypt_file(&files.zip, &files.encrypted, password, &backup_pub_data)?;
 
         // add backup nonce + salt + version to final zip file
-        write(files.nonce, nonce)?;
-        write(files.salt, salt)?;
-        write(files.version, BACKUP_VERSION.to_string())?;
+        write(
+            files.backup_pub_data,
+            serde_json::to_string(&backup_pub_data).unwrap(),
+        )?;
         debug!(
             self.logger,
             "\nzipping {:?} to {:?}", &files.tempdir, &backup_file
@@ -118,13 +187,11 @@ pub fn restore_backup(backup_path: &str, password: &str, target_dir: &str) -> Re
     // unpack given zip file and retrieve backup data
     info!(logger, "unzipping {:?}", backup_file);
     _unzip(&backup_file, &PathBuf::from(files.tempdir.path()), &logger)?;
-    let nonce = read_to_string(files.nonce)?;
-    debug!(logger, "using retrieved nonce: {}", &nonce);
-    let salt = read_to_string(files.salt)?;
-    debug!(logger, "using retrieved salt: {}", &salt);
-    let version = read_to_string(files.version)?
-        .parse::<u8>()
-        .map_err(|_| InternalError::Unexpected)?;
+    let json_pub_data = read_to_string(files.backup_pub_data)?;
+    debug!(logger, "using retrieved backup_pub_data: {}", json_pub_data);
+    let backup_pub_data: BackupPubData =
+        serde_json::from_str(json_pub_data.as_str()).map_err(InternalError::from)?;
+    let version = backup_pub_data.version;
     debug!(logger, "retrieved version: {}", &version);
     if version != BACKUP_VERSION {
         return Err(Error::UnsupportedBackupVersion {
@@ -137,7 +204,7 @@ pub fn restore_backup(backup_path: &str, password: &str, target_dir: &str) -> Re
         logger.clone(),
         "decrypting {:?} to {:?}", files.encrypted, files.zip
     );
-    _decrypt_file(&files.encrypted, &files.zip, password, &salt, &nonce)?;
+    _decrypt_file(&files.encrypted, &files.zip, password, &backup_pub_data)?;
     info!(
         logger.clone(),
         "unzipping {:?} to {:?}", &files.zip, &target_dir_path
@@ -152,16 +219,12 @@ fn _get_backup_paths(tmp_base_path: &Path) -> Result<BackupPaths, Error> {
     create_dir_all(tmp_base_path)?;
     let tempdir = tempfile::tempdir_in(tmp_base_path)?;
     let encrypted = tempdir.path().join("backup.enc");
-    let nonce = tempdir.path().join("backup.nonce");
-    let salt = tempdir.path().join("backup.salt");
-    let version = tempdir.path().join("backup.version");
+    let backup_pub_data = tempdir.path().join("backup.pub_data");
     let zip = tempdir.path().join("backup.zip");
     Ok(BackupPaths {
         encrypted,
-        nonce,
-        salt,
+        backup_pub_data,
         tempdir,
-        version,
         zip,
     })
 }
@@ -274,14 +337,19 @@ fn _unzip(zip_path: &PathBuf, path_out: &Path, logger: &Logger) -> Result<(), Er
 
 fn _get_cypher_secrets(
     password: &str,
-    salt_str: &str,
-    nonce_str: &str,
-) -> Result<CypherSecrets, Error> {
+    backup_pub_data: &BackupPubData,
+) -> Result<GenericArray<u8, U32>, Error> {
     // hash password using scrypt with the provided salt
     let password_bytes = password.as_bytes();
-    let salt = Salt::from_b64(salt_str).map_err(InternalError::from)?;
+    let salt = Salt::from_b64(&backup_pub_data.salt).map_err(InternalError::from)?;
     let password_hash = Scrypt
-        .hash_password(password_bytes, salt)
+        .hash_password_customized(
+            password_bytes,
+            None,
+            None,
+            backup_pub_data.scrypt_params.clone().try_into()?,
+            salt,
+        )
         .map_err(InternalError::from)?;
     let hash_output = password_hash
         .hash
@@ -289,32 +357,26 @@ fn _get_cypher_secrets(
     let hash = hash_output.as_bytes();
 
     // get key from password hash
-    let key = Key::clone_from_slice(&hash[..BACKUP_KEY_LENGTH]);
+    let key = Key::clone_from_slice(hash);
 
-    // get nonce from provided str
-    let nonce_bytes = nonce_str.as_bytes();
-    let nonce: [u8; BACKUP_NONCE_LENGTH] = nonce_bytes[0..BACKUP_NONCE_LENGTH]
-        .try_into()
-        .map_err(|_| InternalError::Unexpected)?;
-
-    Ok(CypherSecrets { key, nonce })
+    Ok(key)
 }
 
 fn _encrypt_file(
     path_cleartext: &PathBuf,
     path_encrypted: &PathBuf,
     password: &str,
-    salt_str: &str,
-    nonce_str: &str,
+    backup_pub_data: &BackupPubData,
 ) -> Result<(), Error> {
-    let cypher_secrets = _get_cypher_secrets(password, salt_str, nonce_str)?;
+    let key = _get_cypher_secrets(password, backup_pub_data)?;
 
     // - XChacha20Poly1305 is fast, requires no special hardware and supports stream operation
     // - stream mode required as files to encrypt may be big, so avoiding a memory buffer
 
     // setup
-    let aead = XChaCha20Poly1305::new(&cypher_secrets.key);
-    let nonce = GenericArray::from_slice(&cypher_secrets.nonce);
+    let aead = XChaCha20Poly1305::new(&key);
+    let nonce = backup_pub_data.nonce()?;
+    let nonce = GenericArray::from_slice(&nonce);
     let mut stream_encryptor = stream::EncryptorBE32::from_aead(aead, nonce);
     let mut buffer = [0u8; BACKUP_BUFFER_LEN_ENCRYPT];
     let mut source_file = File::open(path_cleartext)?;
@@ -347,14 +409,14 @@ fn _decrypt_file(
     path_encrypted: &PathBuf,
     path_cleartext: &PathBuf,
     password: &str,
-    salt_str: &str,
-    nonce_str: &str,
+    backup_pub_data: &BackupPubData,
 ) -> Result<(), Error> {
-    let cypher_secrets = _get_cypher_secrets(password, salt_str, nonce_str)?;
+    let key = _get_cypher_secrets(password, backup_pub_data)?;
 
     // setup
-    let aead = XChaCha20Poly1305::new(&cypher_secrets.key);
-    let nonce = GenericArray::from_slice(&cypher_secrets.nonce);
+    let aead = XChaCha20Poly1305::new(&key);
+    let nonce = backup_pub_data.nonce()?;
+    let nonce = GenericArray::from_slice(&nonce);
     let mut stream_decryptor = stream::DecryptorBE32::from_aead(aead, nonce);
     let mut buffer = [0u8; BACKUP_BUFFER_LEN_DECRYPT];
     let mut source_file = File::open(path_encrypted)?;
