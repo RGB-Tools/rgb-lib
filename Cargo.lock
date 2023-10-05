@@ -1188,6 +1188,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "dircmp"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3ca7fa3ba397980657070e679f412acddb7a372f1793ff68ef0bbe708680f0f"
+dependencies = [
+ "regex",
+ "sha2",
+ "thiserror",
+ "walkdir",
+]
+
+[[package]]
 name = "dirs-next"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2844,12 +2856,14 @@ dependencies = [
  "bp-core",
  "chacha20poly1305",
  "commit_verify",
+ "dircmp",
  "electrum-client 0.17.0",
  "futures",
  "hex",
  "lazy_static",
  "once_cell",
  "rand",
+ "regex",
  "reqwest",
  "rgb-contracts",
  "rgb-core",

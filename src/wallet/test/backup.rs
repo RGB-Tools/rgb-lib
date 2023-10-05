@@ -87,8 +87,7 @@ fn success() {
     let restore_wallet_dir = PathBuf::from_str(RESTORE_DIR)
         .unwrap()
         .join(wallet_dir.file_name().unwrap());
-    let (same, _msg) = compare_test_directories(&wallet_dir, &restore_wallet_dir, vec!["log"]);
-    assert!(same);
+    compare_test_directories(&wallet_dir, &restore_wallet_dir, &["log"]);
 
     // post-restore wallet data
     wallet_data.data_dir = RESTORE_DIR.to_string();
@@ -311,13 +310,11 @@ fn double_restore() {
     let restore_wallet_1_dir = PathBuf::from_str(RESTORE_DIR)
         .unwrap()
         .join(wallet_1_dir.file_name().unwrap());
-    let (same, _msg) = compare_test_directories(&wallet_1_dir, &restore_wallet_1_dir, vec!["log"]);
-    assert!(same);
+    compare_test_directories(&wallet_1_dir, &restore_wallet_1_dir, &["log"]);
     let restore_wallet_2_dir = PathBuf::from_str(RESTORE_DIR)
         .unwrap()
         .join(wallet_2_dir.file_name().unwrap());
-    let (same, _msg) = compare_test_directories(&wallet_2_dir, &restore_wallet_2_dir, vec!["log"]);
-    assert!(same);
+    compare_test_directories(&wallet_2_dir, &restore_wallet_2_dir, &["log"]);
 
     // post-restore wallet data
     wallet_1_data.data_dir = RESTORE_DIR.to_string();

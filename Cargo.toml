@@ -53,8 +53,10 @@ strict_encoding = "=2.5.0"
 strict_types = "=1.6.1"
 
 [dev-dependencies]
+dircmp = "0.2.0"
 electrum-client = "0.17.0"
 lazy_static = "1.4.0"
 once_cell = "1.18.0"
+regex = "1.9.5"
 serial_test = "2.0.0"
 tempfile = "3.8"

@@ -1,11 +1,10 @@
 use amplify::s;
 use lazy_static::lazy_static;
 use once_cell::sync::Lazy;
-use std::io::Read;
+use regex::RegexSet;
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, Once, RwLock};
 use time::OffsetDateTime;
-use walkdir::WalkDir;
 
 use crate::generate_keys;
 
@@ -426,95 +425,11 @@ fn check_test_wallet_data(
     assert_eq!(unspents.len(), 6);
 }
 
-fn compare_test_directories(src: &Path, dst: &Path, skip_src: Vec<&str>) -> (bool, String) {
-    const BUF_SIZE: usize = 4096;
-    let mut walk_src = WalkDir::new(src)
-        .sort_by(|a, b| a.path().cmp(b.path()))
-        .into_iter();
-    let mut walk_dst = WalkDir::new(dst)
-        .sort_by(|a, b| a.path().cmp(b.path()))
-        .into_iter();
-    let (same, msg) = loop {
-        let path_src = walk_src.next();
-        if path_src.is_some() {
-            let file_name = path_src
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .unwrap()
-                .path()
-                .strip_prefix(src)
-                .unwrap()
-                .file_name();
-            if let Some(name) = file_name {
-                if skip_src.contains(&name.to_str().unwrap()) {
-                    continue;
-                }
-            }
-        }
-        let path_dst = walk_dst.next();
-        if path_src.is_none() && path_dst.is_none() {
-            break (true, s!(""));
-        }
-
-        let path_src = path_src
-            .unwrap()
-            .unwrap_or_else(|e| panic!("error walking original directory: {e}"));
-        let path_dst = path_dst
-            .unwrap()
-            .unwrap_or_else(|e| panic!("error walking restored directory: {e}"));
-        let path_src = path_src.path();
-        let path_dst = path_dst.path();
-        let path_src_str = path_src
-            .to_str()
-            .ok_or_else(|| panic!("error getting original file path string"))
-            .unwrap();
-        let path_dst_str = path_dst
-            .to_str()
-            .ok_or_else(|| panic!("error getting restored file path string"))
-            .unwrap();
-        if path_src.strip_prefix(src) != path_dst.strip_prefix(dst) {
-            break (false, s!("original and restored file paths differ: \"{path_src_str}\" != \"{path_dst_str}\""));
-        }
-        if path_src.is_dir() && path_src.is_dir() {
-            continue;
-        }
-        let file_src = std::fs::File::open(path_src);
-        let file_dst = std::fs::File::open(path_dst);
-        let file_src = file_src
-            .unwrap_or_else(|e| panic!("error opening original file \"{path_src_str}\": {e}"));
-        let file_dst = file_dst
-            .unwrap_or_else(|e| panic!("error opening restored file \"{path_dst_str}\": {e}"));
-        let mut read_src = std::io::BufReader::new(file_src);
-        let mut read_dst = std::io::BufReader::new(file_dst);
-        let mut buf_src = [0; BUF_SIZE];
-        let mut buf_dst = [0; BUF_SIZE];
-        let same = loop {
-            let bytes_read_src = read_src
-                .read(&mut buf_src)
-                .unwrap_or_else(|e| panic!("error reading from file \"{path_src_str}\": {e}"));
-            let bytes_read_dst = read_dst
-                .read(&mut buf_dst)
-                .unwrap_or_else(|e| panic!("error reading from file \"{path_dst_str}\": {e}"));
-            if bytes_read_src == 0 && bytes_read_dst == 0 {
-                break true;
-            }
-            if bytes_read_src != bytes_read_dst || buf_src != buf_dst {
-                break false;
-            } else {
-                continue;
-            }
-        };
-        if same {
-            continue;
-        } else {
-            break (
-                false,
-                s!("differing files found: \"{path_src_str}\" != \"{path_dst_str}\""),
-            );
-        }
-    };
-    (same, msg)
+fn compare_test_directories(src: &Path, dst: &Path, skip: &[&str]) {
+    let ignores = RegexSet::new(skip).unwrap();
+    let cmp = dircmp::Comparison::new(ignores);
+    let diff = cmp.compare(src, dst).unwrap();
+    assert!(diff.is_empty());
 }
 
 fn get_test_batch_transfers(wallet: &Wallet, txid: &str) -> Vec<DbBatchTransfer> {
