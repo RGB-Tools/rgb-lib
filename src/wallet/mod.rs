@@ -3090,15 +3090,22 @@ impl Wallet {
         Ok(transactions)
     }
 
-    /// List the [`Transfer`]s known to the RGB wallet
-    pub fn list_transfers(&self, asset_id: String) -> Result<Vec<Transfer>, Error> {
-        info!(self.logger, "Listing transfers for asset '{}'...", asset_id);
-        self.database.check_asset_exists(asset_id.clone())?;
+    /// List the [`Transfer`]s known to the RGB wallet.
+    ///
+    /// When the `asset_id` is not provided return transfers that are not connected to a specific
+    /// asset.
+    pub fn list_transfers(&self, asset_id: Option<String>) -> Result<Vec<Transfer>, Error> {
+        if let Some(asset_id) = &asset_id {
+            info!(self.logger, "Listing transfers for asset '{}'...", asset_id);
+            self.database.check_asset_exists(asset_id.clone())?;
+        } else {
+            info!(self.logger, "Listing transfers...");
+        }
         let db_data = self.database.get_db_data(false)?;
-        let asset_transfer_ids: Vec<i32> = self
-            .database
-            .iter_asset_asset_transfers(asset_id, db_data.asset_transfers.clone())
+        let asset_transfer_ids: Vec<i32> = db_data
+            .asset_transfers
             .iter()
+            .filter(|t| t.asset_id == asset_id)
             .filter(|t| t.user_driven)
             .map(|t| t.idx)
             .collect();
@@ -3837,11 +3844,11 @@ impl Wallet {
 
         let mut db_data = self.database.get_db_data(false)?;
 
-        if let Some(aid) = asset_id {
-            let batch_transfers_ids: Vec<i32> = self
-                .database
-                .iter_asset_asset_transfers(aid, db_data.asset_transfers.clone())
-                .into_iter()
+        if asset_id.is_some() {
+            let batch_transfers_ids: Vec<i32> = db_data
+                .asset_transfers
+                .iter()
+                .filter(|t| t.asset_id == asset_id)
                 .map(|t| t.batch_transfer_idx)
                 .collect();
             db_data

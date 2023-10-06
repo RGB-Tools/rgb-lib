@@ -18,7 +18,9 @@ fn success() {
             vec![AMOUNT, AMOUNT],
         )
         .unwrap();
-    let transfers = wallet.list_transfers(asset_nia.asset_id.clone()).unwrap();
+    let transfers = wallet
+        .list_transfers(Some(asset_nia.asset_id.clone()))
+        .unwrap();
     assert_eq!(transfers.len(), 1);
     let issuance = transfers.first().unwrap();
     let timestamp = issuance.created_at;
@@ -66,7 +68,9 @@ fn success() {
             Some(file_str.to_string()),
         )
         .unwrap();
-    let transfers = wallet.list_transfers(asset_cfa.asset_id.clone()).unwrap();
+    let transfers = wallet
+        .list_transfers(Some(asset_cfa.asset_id.clone()))
+        .unwrap();
     assert_eq!(transfers.len(), 1);
     let issuance = transfers.first().unwrap();
     let timestamp = issuance.created_at;

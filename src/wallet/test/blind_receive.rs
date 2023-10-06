@@ -570,7 +570,7 @@ fn wrong_asset_fail() {
     // transfer has been NACKed
     let (rcv_transfer_data_a, _) = get_test_transfer_data(&wallet_1, &rcv_transfer_a);
     assert_eq!(rcv_transfer_data_a.status, TransferStatus::Failed);
-    let rcv_transfers_b = wallet_1.list_transfers(asset_b.asset_id);
+    let rcv_transfers_b = wallet_1.list_transfers(Some(asset_b.asset_id));
     assert!(matches!(
         rcv_transfers_b,
         Err(Error::AssetNotFound { asset_id: _ })

@@ -25,7 +25,7 @@ fn success() {
             vec![AMOUNT],
         )
         .unwrap();
-    let transfers = wallet.list_transfers(asset.asset_id.clone()).unwrap();
+    let transfers = wallet.list_transfers(Some(asset.asset_id.clone())).unwrap();
     assert_eq!(transfers.len(), 1);
     assert_eq!(transfers.first().unwrap().kind, TransferKind::Issuance);
 
@@ -824,9 +824,13 @@ fn send_blank_success() {
         .unwrap();
 
     // transfer 1 checks
-    let transfers_w1 = wallet_1.list_transfers(asset_nia.asset_id.clone()).unwrap();
+    let transfers_w1 = wallet_1
+        .list_transfers(Some(asset_nia.asset_id.clone()))
+        .unwrap();
     let transfer_w1 = transfers_w1.last().unwrap();
-    let transfers_w2 = wallet_2.list_transfers(asset_nia.asset_id.clone()).unwrap();
+    let transfers_w2 = wallet_2
+        .list_transfers(Some(asset_nia.asset_id.clone()))
+        .unwrap();
     let transfer_w2 = transfers_w2.last().unwrap();
     // transfers data
     assert_eq!(transfer_w1.status, TransferStatus::Settled);
@@ -915,9 +919,13 @@ fn send_blank_success() {
         .unwrap();
 
     // transfer 2 checks
-    let transfers_w2 = wallet_2.list_transfers(asset_cfa.asset_id.clone()).unwrap();
+    let transfers_w2 = wallet_2
+        .list_transfers(Some(asset_cfa.asset_id.clone()))
+        .unwrap();
     let transfer_w2 = transfers_w2.last().unwrap();
-    let transfers_w1 = wallet_1.list_transfers(asset_cfa.asset_id.clone()).unwrap();
+    let transfers_w1 = wallet_1
+        .list_transfers(Some(asset_cfa.asset_id.clone()))
+        .unwrap();
     let transfer_w1 = transfers_w1.last().unwrap();
     // transfers data
     assert_eq!(transfer_w1.status, TransferStatus::Settled);
@@ -2180,7 +2188,9 @@ fn batch_donation_success() {
     show_unspent_colorings(&wallet, "after send");
 
     // check change UTXO has all the expected allocations
-    let transfers_a = wallet.list_transfers(asset_a.asset_id.clone()).unwrap();
+    let transfers_a = wallet
+        .list_transfers(Some(asset_a.asset_id.clone()))
+        .unwrap();
     let transfer_a = transfers_a.last().unwrap();
     let change_utxo = transfer_a.change_utxo.as_ref().unwrap();
     let unspents = wallet.list_unspents(None, false).unwrap();
@@ -2208,31 +2218,31 @@ fn batch_donation_success() {
         .refresh(rcv_online_2.clone(), None, vec![])
         .unwrap();
     rcv_wallet_1
-        .list_transfers(asset_a.asset_id.clone())
+        .list_transfers(Some(asset_a.asset_id.clone()))
         .unwrap();
     rcv_wallet_1
-        .list_transfers(asset_b.asset_id.clone())
+        .list_transfers(Some(asset_b.asset_id.clone()))
         .unwrap();
     rcv_wallet_2
-        .list_transfers(asset_a.asset_id.clone())
+        .list_transfers(Some(asset_a.asset_id.clone()))
         .unwrap();
     rcv_wallet_2
-        .list_transfers(asset_b.asset_id.clone())
+        .list_transfers(Some(asset_b.asset_id.clone()))
         .unwrap();
     mine(false);
     rcv_wallet_1.refresh(rcv_online_1, None, vec![]).unwrap();
     rcv_wallet_2.refresh(rcv_online_2, None, vec![]).unwrap();
     rcv_wallet_1
-        .list_transfers(asset_a.asset_id.clone())
+        .list_transfers(Some(asset_a.asset_id.clone()))
         .unwrap();
     rcv_wallet_1
-        .list_transfers(asset_b.asset_id.clone())
+        .list_transfers(Some(asset_b.asset_id.clone()))
         .unwrap();
     rcv_wallet_2
-        .list_transfers(asset_a.asset_id.clone())
+        .list_transfers(Some(asset_a.asset_id.clone()))
         .unwrap();
     rcv_wallet_2
-        .list_transfers(asset_b.asset_id.clone())
+        .list_transfers(Some(asset_b.asset_id.clone()))
         .unwrap();
 
     show_unspent_colorings(&wallet, "after send, settled");

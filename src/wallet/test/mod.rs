@@ -415,7 +415,7 @@ fn check_test_wallet_data(
     assert_eq!(metadata.precision, asset.precision);
     assert_eq!(metadata.ticker.unwrap(), asset.ticker);
     // transfer list
-    let transfers = wallet.list_transfers(asset.asset_id.clone()).unwrap();
+    let transfers = wallet.list_transfers(Some(asset.asset_id.clone())).unwrap();
     assert_eq!(transfers.len(), 1 + transfer_num);
     assert_eq!(transfers.first().unwrap().kind, TransferKind::Issuance);
     assert_eq!(transfers.last().unwrap().kind, TransferKind::Send);

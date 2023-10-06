@@ -431,17 +431,6 @@ impl RgbLibDatabase {
         )?)
     }
 
-    pub(crate) fn iter_asset_asset_transfers(
-        &self,
-        asset_id: String,
-        asset_transfers: Vec<DbAssetTransfer>,
-    ) -> Vec<DbAssetTransfer> {
-        asset_transfers
-            .into_iter()
-            .filter(|t| t.asset_id == Some(asset_id.clone()))
-            .collect()
-    }
-
     pub(crate) fn iter_batch_transfers(&self) -> Result<Vec<DbBatchTransfer>, InternalError> {
         Ok(block_on(
             batch_transfer::Entity::find().all(self.get_connection()),

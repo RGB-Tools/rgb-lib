@@ -333,7 +333,7 @@ impl Wallet {
         self._get_wallet().list_transactions(online)
     }
 
-    fn list_transfers(&self, asset_id: String) -> Result<Vec<Transfer>, RgbLibError> {
+    fn list_transfers(&self, asset_id: Option<String>) -> Result<Vec<Transfer>, RgbLibError> {
         self._get_wallet().list_transfers(asset_id)
     }
 

@@ -384,7 +384,7 @@ interface Wallet {
   sequence<Transaction> list_transactions(Online? online);
 
   [Throws=RgbLibError]
-  sequence<Transfer> list_transfers(string asset_id);
+  sequence<Transfer> list_transfers(string? asset_id);
 
   [Throws=RgbLibError]
   sequence<Unspent> list_unspents(Online? online, boolean settled_only);

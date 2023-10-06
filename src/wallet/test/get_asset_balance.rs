@@ -159,7 +159,9 @@ fn transfer_balances() {
     show_unspent_colorings(&wallet_recv, "recv after 1st send");
 
     // sender balance with transfer WaitingCounterparty
-    let transfers = wallet_send.list_transfers(asset.asset_id.clone()).unwrap();
+    let transfers = wallet_send
+        .list_transfers(Some(asset.asset_id.clone()))
+        .unwrap();
     assert_eq!(transfers.len(), 3);
     assert_eq!(
         transfers.last().unwrap().status,
@@ -188,7 +190,9 @@ fn transfer_balances() {
         .unwrap();
 
     // balances with transfer WaitingConfirmations
-    let transfers = wallet_send.list_transfers(asset.asset_id.clone()).unwrap();
+    let transfers = wallet_send
+        .list_transfers(Some(asset.asset_id.clone()))
+        .unwrap();
     assert_eq!(
         transfers.last().unwrap().status,
         TransferStatus::WaitingConfirmations
@@ -204,7 +208,9 @@ fn transfer_balances() {
             spendable: AMOUNT * 2,
         }
     );
-    let transfers_recv = wallet_recv.list_transfers(asset.asset_id.clone()).unwrap();
+    let transfers_recv = wallet_recv
+        .list_transfers(Some(asset.asset_id.clone()))
+        .unwrap();
     assert_eq!(
         transfers_recv.last().unwrap().status,
         TransferStatus::WaitingConfirmations
@@ -234,7 +240,9 @@ fn transfer_balances() {
     show_unspent_colorings(&wallet_recv, "recv after 1st send, settled");
 
     // balances with transfer Settled
-    let transfers = wallet_send.list_transfers(asset.asset_id.clone()).unwrap();
+    let transfers = wallet_send
+        .list_transfers(Some(asset.asset_id.clone()))
+        .unwrap();
     assert_eq!(transfers.last().unwrap().status, TransferStatus::Settled);
     let asset_balance_send = wallet_send
         .get_asset_balance(asset.asset_id.clone())
@@ -247,7 +255,9 @@ fn transfer_balances() {
             spendable: AMOUNT * 3 - amount_1,
         }
     );
-    let transfers_recv = wallet_recv.list_transfers(asset.asset_id.clone()).unwrap();
+    let transfers_recv = wallet_recv
+        .list_transfers(Some(asset.asset_id.clone()))
+        .unwrap();
     assert_eq!(
         transfers_recv.last().unwrap().status,
         TransferStatus::Settled
@@ -294,7 +304,9 @@ fn transfer_balances() {
     show_unspent_colorings(&wallet_recv, "recv after 2nd send");
 
     // sender balance with transfer WaitingCounterparty
-    let transfers = wallet_send.list_transfers(asset.asset_id.clone()).unwrap();
+    let transfers = wallet_send
+        .list_transfers(Some(asset.asset_id.clone()))
+        .unwrap();
     assert_eq!(transfers.len(), 4);
     assert_eq!(
         transfers.last().unwrap().status,
@@ -323,7 +335,9 @@ fn transfer_balances() {
         .unwrap();
 
     // balances with transfer WaitingConfirmations
-    let transfers = wallet_send.list_transfers(asset.asset_id.clone()).unwrap();
+    let transfers = wallet_send
+        .list_transfers(Some(asset.asset_id.clone()))
+        .unwrap();
     assert_eq!(
         transfers.last().unwrap().status,
         TransferStatus::WaitingConfirmations
@@ -364,7 +378,9 @@ fn transfer_balances() {
     show_unspent_colorings(&wallet_recv, "recv after 2nd send, settled");
 
     // balances with transfer Settled
-    let transfers = wallet_send.list_transfers(asset.asset_id.clone()).unwrap();
+    let transfers = wallet_send
+        .list_transfers(Some(asset.asset_id.clone()))
+        .unwrap();
     assert_eq!(transfers.last().unwrap().status, TransferStatus::Settled);
     let asset_balance_send = wallet_send
         .get_asset_balance(asset.asset_id.clone())

@@ -20,7 +20,7 @@ fn success() {
         .unwrap();
 
     // single transfer
-    let transfer_list = wallet.list_transfers(asset.asset_id).unwrap();
+    let transfer_list = wallet.list_transfers(Some(asset.asset_id)).unwrap();
     assert_eq!(transfer_list.len(), 1);
     let transfer = transfer_list.first().unwrap();
     assert_eq!(transfer.amount, AMOUNT);
@@ -43,7 +43,7 @@ fn success() {
         .unwrap();
 
     // single transfer
-    let transfer_list = wallet.list_transfers(asset.asset_id).unwrap();
+    let transfer_list = wallet.list_transfers(Some(asset.asset_id)).unwrap();
     assert_eq!(transfer_list.len(), 1);
     let transfer = transfer_list.first().unwrap();
     assert_eq!(transfer.amount, AMOUNT);
@@ -56,6 +56,6 @@ fn fail() {
     let wallet = get_test_wallet(false, None);
 
     // asset not found
-    let result = wallet.list_transfers(s!("rgb1inexistent"));
+    let result = wallet.list_transfers(Some(s!("rgb1inexistent")));
     assert!(matches!(result, Err(Error::AssetNotFound { asset_id: _ })));
 }
