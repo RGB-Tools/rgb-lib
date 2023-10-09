@@ -361,6 +361,32 @@ impl MigrationTrait for Migration {
                     .unique()
                     .clone(),
             )
+            .await?;
+
+        manager
+            .create_table(
+                Table::create()
+                    .table(BackupInfo::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(BackupInfo::Idx)
+                            .integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(BackupInfo::LastBackupTimestamp)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(BackupInfo::LastOperationTimestamp)
+                            .string()
+                            .not_null(),
+                    )
+                    .to_owned(),
+            )
             .await
     }
 
@@ -403,6 +429,10 @@ impl MigrationTrait for Migration {
 
         manager
             .drop_table(Table::drop().table(WalletTransaction::Table).to_owned())
+            .await?;
+
+        manager
+            .drop_table(Table::drop().table(BackupInfo::Table).to_owned())
             .await
     }
 }
@@ -499,4 +529,12 @@ enum WalletTransaction {
     Idx,
     Txid,
     WalletTransactionType,
+}
+
+#[derive(DeriveIden)]
+enum BackupInfo {
+    Table,
+    Idx,
+    LastBackupTimestamp,
+    LastOperationTimestamp,
 }

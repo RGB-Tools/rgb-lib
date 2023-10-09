@@ -321,6 +321,9 @@ interface Wallet {
   void backup(string backup_path, string password);
 
   [Throws=RgbLibError]
+  boolean backup_info();
+
+  [Throws=RgbLibError]
   ReceiveData blind_receive(string? asset_id, u64? amount, u32? duration_seconds,
   sequence<string> transport_endpoints, u8 min_confirmations);
 
@@ -355,6 +358,7 @@ interface Wallet {
   [Throws=RgbLibError]
   boolean fail_transfers(Online online, string? blinded_utxo, string? txid, boolean no_asset_only);
 
+  [Throws=RgbLibError]
   string get_address();
 
   [Throws=RgbLibError]

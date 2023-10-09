@@ -382,7 +382,7 @@ fn fail() {
     let result = Invoice::new(s!("invalid"));
     assert!(matches!(result, Err(Error::InvalidInvoice { details: _ })));
 
-    fund_wallet(wallet.get_address());
+    fund_wallet(wallet.get_address().unwrap());
     mine(false);
     test_create_utxos(&mut wallet, online.clone(), true, Some(1), None, FEE_RATE);
 
@@ -416,7 +416,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 
     // transport endpoints: malformed string
-    fund_wallet(wallet.get_address());
+    fund_wallet(wallet.get_address().unwrap());
     test_create_utxos_default(&mut wallet, online.clone());
     let transport_endpoints = vec!["malformed".to_string()];
     let result = wallet.blind_receive(None, None, Some(0), transport_endpoints, MIN_CONFIRMATIONS);

@@ -85,7 +85,7 @@ fn up_to_allocation_checks() {
     assert_eq!(unspents.len(), 2);
 
     drain_wallet(&wallet, online.clone());
-    fund_wallet(wallet.get_address());
+    fund_wallet(wallet.get_address().unwrap());
 
     // MAX_ALLOCATIONS_PER_UTXO allocations
     let num_utxos_created =
@@ -118,8 +118,8 @@ fn up_to_allocation_checks() {
 
     if MAX_ALLOCATIONS_PER_UTXO > 2 {
         drain_wallet(&wallet, online.clone());
-        fund_wallet(wallet.get_address());
-        fund_wallet(rcv_wallet.get_address());
+        fund_wallet(wallet.get_address().unwrap());
+        fund_wallet(rcv_wallet.get_address().unwrap());
 
         let num_utxos_created =
             test_create_utxos(&mut wallet, online.clone(), true, Some(2), None, FEE_RATE);
@@ -230,7 +230,7 @@ fn fail() {
         }) if n == (UTXO_SIZE as u64 * UTXO_NUM as u64) + 1000 && a == 0
     ));
 
-    fund_wallet(wallet.get_address());
+    fund_wallet(wallet.get_address().unwrap());
     test_create_utxos_default(&mut wallet, online.clone());
 
     // don't create UTXOs if enough allocations are already available

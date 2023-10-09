@@ -1,8 +1,10 @@
+use amplify::s;
 use chacha20poly1305::aead::{generic_array::GenericArray, stream};
 use chacha20poly1305::{Key, KeyInit, XChaCha20Poly1305};
 use rand::{distributions::Alphanumeric, Rng};
 use scrypt::password_hash::{PasswordHasher, Salt, SaltString};
 use scrypt::{Params, Scrypt};
+use sea_orm::ActiveValue;
 use serde::{Deserialize, Serialize};
 use slog::Logger;
 use tempfile::TempDir;
@@ -14,6 +16,9 @@ use std::fs::{create_dir_all, read_to_string, remove_file, write, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+use crate::database::entities::backup_info::{
+    ActiveModel as DbBackupInfoActMod, Model as DbBackupInfo,
+};
 use crate::utils::now;
 use crate::wallet::{setup_logger, InternalError, LOG_FILE};
 use crate::{Error, Wallet};
@@ -108,6 +113,27 @@ impl Wallet {
         password: &str,
         scrypt_params: Option<ScryptParams>,
     ) -> Result<(), Error> {
+        let prev_backup_info = self.update_backup_info(true)?;
+        match self._backup(backup_path, password, scrypt_params) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                if let Some(prev_backup_info) = prev_backup_info {
+                    let mut prev_backup_info: DbBackupInfoActMod = prev_backup_info.into();
+                    self.database.update_backup_info(&mut prev_backup_info)?;
+                } else {
+                    self.database.del_backup_info()?;
+                }
+                Err(e)
+            }
+        }
+    }
+
+    fn _backup(
+        &self,
+        backup_path: &str,
+        password: &str,
+        scrypt_params: Option<ScryptParams>,
+    ) -> Result<(), Error> {
         // setup
         info!(self.logger, "starting backup...");
         let backup_file = PathBuf::from(&backup_path);
@@ -168,6 +194,51 @@ impl Wallet {
 
         info!(self.logger, "backup completed");
         Ok(())
+    }
+
+    /// Return whether the wallet requires to perform a backup.
+    pub fn backup_info(&self) -> Result<bool, Error> {
+        let backup_required = if let Some(backup_info) = self.database.get_backup_info()? {
+            backup_info
+                .last_operation_timestamp
+                .parse::<i128>()
+                .unwrap()
+                > backup_info.last_backup_timestamp.parse::<i128>().unwrap()
+        } else {
+            false
+        };
+        Ok(backup_required)
+    }
+
+    pub(crate) fn update_backup_info(
+        &self,
+        doing_backup: bool,
+    ) -> Result<Option<DbBackupInfo>, Error> {
+        let now = ActiveValue::Set(now().unix_timestamp_nanos().to_string());
+        if let Some(backup_info) = self.database.get_backup_info()? {
+            let prev_backup_info = backup_info.clone();
+            let mut backup_info: DbBackupInfoActMod = backup_info.into();
+            if doing_backup {
+                backup_info.last_backup_timestamp = now;
+            } else {
+                backup_info.last_operation_timestamp = now;
+            }
+            self.database.update_backup_info(&mut backup_info)?;
+            Ok(Some(prev_backup_info))
+        } else {
+            let (last_backup_timestamp, last_operation_timestamp) = if doing_backup {
+                (now, ActiveValue::Set(s!("0")))
+            } else {
+                (ActiveValue::Set(s!("0")), now)
+            };
+            let backup_info = DbBackupInfoActMod {
+                last_backup_timestamp,
+                last_operation_timestamp,
+                ..Default::default()
+            };
+            self.database.set_backup_info(backup_info)?;
+            Ok(None)
+        }
     }
 }
 

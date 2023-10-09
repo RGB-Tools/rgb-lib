@@ -18,7 +18,7 @@ fn success() {
     let unspent_list_all = wallet.list_unspents(None, false).unwrap();
     assert_eq!(unspent_list_all.len(), 0);
 
-    fund_wallet(wallet.get_address());
+    fund_wallet(wallet.get_address().unwrap());
     mine(false);
 
     // one (settled) unspent, no RGB allocations
@@ -137,11 +137,11 @@ fn success() {
         .all(|a| a.asset_id == Some(asset.asset_id.clone()) && a.amount == AMOUNT && a.settled));
 
     drain_wallet(&wallet, online.clone());
-    fund_wallet(wallet.get_address());
+    fund_wallet(wallet.get_address().unwrap());
     mine(false);
     test_create_utxos_default(&mut wallet, online.clone());
     drain_wallet(&rcv_wallet, rcv_online.clone());
-    fund_wallet(rcv_wallet.get_address());
+    fund_wallet(rcv_wallet.get_address().unwrap());
     mine(false);
     test_create_utxos_default(&mut rcv_wallet, rcv_online.clone());
 

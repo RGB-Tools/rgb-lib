@@ -15,6 +15,9 @@ pub(crate) mod entities;
 use crate::database::entities::asset_transfer::{
     ActiveModel as DbAssetTransferActMod, Model as DbAssetTransfer,
 };
+use crate::database::entities::backup_info::{
+    ActiveModel as DbBackupInfoActMod, Model as DbBackupInfo,
+};
 use crate::database::entities::batch_transfer::{
     ActiveModel as DbBatchTransferActMod, Model as DbBatchTransfer,
 };
@@ -32,8 +35,8 @@ use entities::wallet_transaction::{
     ActiveModel as DbWalletTransactionActMod, Model as DbWalletTransaction,
 };
 use entities::{
-    asset, asset_transfer, batch_transfer, coloring, transfer, transfer_transport_endpoint,
-    transport_endpoint, txo, wallet_transaction,
+    asset, asset_transfer, backup_info, batch_transfer, coloring, transfer,
+    transfer_transport_endpoint, transport_endpoint, txo, wallet_transaction,
 };
 
 use self::enums::{ColoringType, RecipientType, TransferStatus, TransportType};
@@ -278,6 +281,14 @@ impl RgbLibDatabase {
         Ok(res.last_insert_id)
     }
 
+    pub(crate) fn set_backup_info(
+        &self,
+        backup_info: DbBackupInfoActMod,
+    ) -> Result<i32, InternalError> {
+        let res = block_on(backup_info::Entity::insert(backup_info).exec(self.get_connection()))?;
+        Ok(res.last_insert_id)
+    }
+
     pub(crate) fn set_batch_transfer(
         &self,
         batch_transfer: DbBatchTransferActMod,
@@ -358,6 +369,15 @@ impl RgbLibDatabase {
         )?)
     }
 
+    pub(crate) fn update_backup_info(
+        &self,
+        backup_info: &mut DbBackupInfoActMod,
+    ) -> Result<DbBackupInfo, InternalError> {
+        Ok(block_on(
+            backup_info::Entity::update(backup_info.clone()).exec(self.get_connection()),
+        )?)
+    }
+
     pub(crate) fn update_batch_transfer(
         &self,
         batch_transfer: &mut DbBatchTransferActMod,
@@ -384,6 +404,11 @@ impl RgbLibDatabase {
         Ok(())
     }
 
+    pub(crate) fn del_backup_info(&self) -> Result<(), InternalError> {
+        block_on(backup_info::Entity::delete_many().exec(self.get_connection()))?;
+        Ok(())
+    }
+
     pub(crate) fn del_batch_transfer(
         &self,
         batch_transfer: &DbBatchTransfer,
@@ -399,6 +424,12 @@ impl RgbLibDatabase {
                 .exec(self.get_connection()),
         )?;
         Ok(())
+    }
+
+    pub(crate) fn get_backup_info(&self) -> Result<Option<DbBackupInfo>, InternalError> {
+        Ok(block_on(
+            backup_info::Entity::find().one(self.get_connection()),
+        )?)
     }
 
     pub(crate) fn get_transport_endpoint(

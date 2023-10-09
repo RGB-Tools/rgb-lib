@@ -27,7 +27,7 @@ fn success() {
     assert_eq!(transfer.status, TransferStatus::Settled);
 
     drain_wallet(&wallet, online.clone());
-    fund_wallet(wallet.get_address());
+    fund_wallet(wallet.get_address().unwrap());
     test_create_utxos_default(&mut wallet, online.clone());
 
     // issue RGB25 asset

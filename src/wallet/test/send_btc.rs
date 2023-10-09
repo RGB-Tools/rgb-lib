@@ -14,7 +14,7 @@ fn success() {
 
     // initial balance
     stop_mining();
-    fund_wallet(wallet.get_address());
+    fund_wallet(wallet.get_address().unwrap());
     test_create_utxos_default(&mut wallet, online.clone());
     let balances = wallet.get_btc_balance(online.clone()).unwrap();
     assert!(matches!(
@@ -36,7 +36,12 @@ fn success() {
 
     // balance after send
     let txid = wallet
-        .send_btc(online.clone(), rcv_wallet.get_address(), amount, FEE_RATE)
+        .send_btc(
+            online.clone(),
+            rcv_wallet.get_address().unwrap(),
+            amount,
+            FEE_RATE,
+        )
         .unwrap();
     assert!(!txid.is_empty());
     let balances = wallet.get_btc_balance(online.clone()).unwrap();
@@ -133,7 +138,12 @@ fn fail() {
         id: 1,
         electrum_url: wallet.online_data.as_ref().unwrap().electrum_url.clone(),
     };
-    let result = wallet.send_btc(wrong_online, rcv_wallet.get_address(), amount, FEE_RATE);
+    let result = wallet.send_btc(
+        wrong_online,
+        rcv_wallet.get_address().unwrap(),
+        amount,
+        FEE_RATE,
+    );
     assert!(matches!(result, Err(Error::CannotChangeOnline)));
 
     // invalid address
@@ -141,19 +151,29 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidAddress { details: _ })));
     let result = wallet.send_btc(
         online.clone(),
-        testnet_rcv_wallet.get_address(),
+        testnet_rcv_wallet.get_address().unwrap(),
         amount,
         FEE_RATE,
     );
     assert!(matches!(result, Err(Error::InvalidAddress { details: _ })));
 
     // invalid amount
-    let result = wallet.send_btc(online.clone(), rcv_wallet.get_address(), 0, FEE_RATE);
+    let result = wallet.send_btc(
+        online.clone(),
+        rcv_wallet.get_address().unwrap(),
+        0,
+        FEE_RATE,
+    );
     assert!(matches!(result, Err(Error::OutputBelowDustLimit)));
 
     // invalid fee rate
-    let result = wallet.send_btc(online.clone(), rcv_wallet.get_address(), amount, 0.9);
+    let result = wallet.send_btc(
+        online.clone(),
+        rcv_wallet.get_address().unwrap(),
+        amount,
+        0.9,
+    );
     assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_LOW));
-    let result = wallet.send_btc(online, rcv_wallet.get_address(), amount, 1000.1);
+    let result = wallet.send_btc(online, rcv_wallet.get_address().unwrap(), amount, 1000.1);
     assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_HIGH));
 }

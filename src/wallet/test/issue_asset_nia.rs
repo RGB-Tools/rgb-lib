@@ -341,7 +341,7 @@ fn fail() {
         })
     ));
 
-    fund_wallet(wallet.get_address());
+    fund_wallet(wallet.get_address().unwrap());
     mine(false);
 
     // insufficient allocations

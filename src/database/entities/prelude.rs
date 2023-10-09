@@ -2,6 +2,7 @@
 
 pub use super::asset::Entity as Asset;
 pub use super::asset_transfer::Entity as AssetTransfer;
+pub use super::backup_info::Entity as BackupInfo;
 pub use super::batch_transfer::Entity as BatchTransfer;
 pub use super::coloring::Entity as Coloring;
 pub use super::transfer::Entity as Transfer;

@@ -2724,7 +2724,7 @@ fn fail() {
         .unwrap();
 
     // cannot send if no available allocations for change (max 1 allocation per UTXO)
-    fund_wallet(wallet_1_alloc.get_address());
+    fund_wallet(wallet_1_alloc.get_address().unwrap());
     mine(false);
     test_create_utxos(
         &mut wallet_1_alloc,
@@ -3602,7 +3602,12 @@ fn insufficient_bitcoins() {
     );
     assert_eq!(num_utxos_created, 1);
     wallet
-        .drain_to(online.clone(), rcv_wallet.get_address(), false, FEE_RATE)
+        .drain_to(
+            online.clone(),
+            rcv_wallet.get_address().unwrap(),
+            false,
+            FEE_RATE,
+        )
         .unwrap();
 
     // issue an RGB20 asset
@@ -3654,7 +3659,7 @@ fn insufficient_bitcoins() {
     ));
 
     // create 1 UTXO for change (add funds, create UTXO, drain the rest)
-    fund_wallet(wallet.get_address());
+    fund_wallet(wallet.get_address().unwrap());
     let num_utxos_created = test_create_utxos(
         &mut wallet,
         online.clone(),
@@ -3665,7 +3670,12 @@ fn insufficient_bitcoins() {
     );
     assert_eq!(num_utxos_created, 1);
     wallet
-        .drain_to(online.clone(), rcv_wallet.get_address(), false, FEE_RATE)
+        .drain_to(
+            online.clone(),
+            rcv_wallet.get_address().unwrap(),
+            false,
+            FEE_RATE,
+        )
         .unwrap();
 
     // send works with no colorable UTXOs available as additional bitcoin inputs

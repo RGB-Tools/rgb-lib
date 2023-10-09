@@ -57,7 +57,7 @@ fn _bitcoin_cli() -> [String; 9] {
 fn drain_wallet(wallet: &Wallet, online: Online) {
     let rcv_wallet = get_test_wallet(false, None);
     wallet
-        .drain_to(online, rcv_wallet.get_address(), true, FEE_RATE)
+        .drain_to(online, rcv_wallet.get_address().unwrap(), true, FEE_RATE)
         .unwrap();
 }
 
@@ -251,7 +251,7 @@ macro_rules! get_empty_wallet {
 
 fn get_funded_noutxo_wallet(print_log: bool, private_keys: bool) -> (Wallet, Online) {
     let (wallet, online) = get_empty_wallet(print_log, private_keys);
-    fund_wallet(wallet.get_address());
+    fund_wallet(wallet.get_address().unwrap());
     (wallet, online)
 }
 macro_rules! get_funded_noutxo_wallet {

@@ -1698,6 +1698,8 @@ impl Wallet {
         };
         self.database.set_coloring(db_coloring)?;
 
+        self.update_backup_info(false)?;
+
         info!(self.logger, "Blind receive completed");
         Ok(ReceiveData {
             invoice,
@@ -1739,6 +1741,8 @@ impl Wallet {
             RecipientType::Witness,
             script_buf_str.clone(),
         )?;
+
+        self.update_backup_info(false)?;
 
         info!(self.logger, "Witness receive completed");
         Ok(ReceiveData {
@@ -1923,6 +1927,8 @@ impl Wallet {
             }
         }
 
+        self.update_backup_info(false)?;
+
         info!(self.logger, "Create UTXOs completed");
         Ok(num_utxos_created)
     }
@@ -2027,6 +2033,10 @@ impl Wallet {
                 transfers_changed = true;
                 self._delete_batch_transfer(batch_transfer, &asset_transfers)?
             }
+        }
+
+        if transfers_changed {
+            self.update_backup_info(false)?;
         }
 
         info!(self.logger, "Delete transfer completed");
@@ -2142,6 +2152,8 @@ impl Wallet {
                 wallet_transaction_type: ActiveValue::Set(WalletTransactionType::Drain),
                 ..Default::default()
             })?;
+
+        self.update_backup_info(false)?;
 
         info!(self.logger, "Drain (end) completed");
         Ok(tx.txid().to_string())
@@ -2271,6 +2283,10 @@ impl Wallet {
             }
         }
 
+        if transfers_changed {
+            self.update_backup_info(false)?;
+        }
+
         info!(self.logger, "Fail transfers completed");
         Ok(transfers_changed)
     }
@@ -2283,7 +2299,7 @@ impl Wallet {
     }
 
     /// Return a new bitcoin address
-    pub fn get_address(&self) -> String {
+    pub fn get_address(&self) -> Result<String, Error> {
         info!(self.logger, "Getting address...");
         let address = self
             .bdk_wallet
@@ -2291,8 +2307,11 @@ impl Wallet {
             .expect("to be able to get a new address")
             .address
             .to_string();
+
+        self.update_backup_info(false)?;
+
         info!(self.logger, "Get address completed");
-        address
+        Ok(address)
     }
 
     /// Return the [`Balance`] for the requested asset
@@ -2771,6 +2790,8 @@ impl Wallet {
             None,
         )?;
 
+        self.update_backup_info(false)?;
+
         info!(self.logger, "Issue asset RGB20 completed");
         Ok(asset)
     }
@@ -2967,6 +2988,8 @@ impl Wallet {
             None,
             None,
         )?;
+
+        self.update_backup_info(false)?;
 
         info!(self.logger, "Issue asset RGB25 completed");
         Ok(asset)
@@ -3313,6 +3336,8 @@ impl Wallet {
             ticker,
             timestamp,
         )?;
+
+        self.update_backup_info(false)?;
 
         Ok(contract_iface)
     }
@@ -3872,6 +3897,10 @@ impl Wallet {
             {
                 transfers_changed = true;
             }
+        }
+
+        if transfers_changed {
+            self.update_backup_info(false)?;
         }
 
         info!(self.logger, "Refresh completed");
@@ -4736,6 +4765,8 @@ impl Wallet {
             status,
             info_contents.min_confirmations,
         )?;
+
+        self.update_backup_info(false)?;
 
         info!(self.logger, "Send (end) completed");
         Ok(txid)

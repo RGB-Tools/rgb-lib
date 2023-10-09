@@ -162,6 +162,10 @@ impl Wallet {
         self._get_wallet().backup(&backup_path, &password)
     }
 
+    fn backup_info(&self) -> Result<bool, RgbLibError> {
+        self._get_wallet().backup_info()
+    }
+
     fn blind_receive(
         &self,
         asset_id: Option<String>,
@@ -275,7 +279,7 @@ impl Wallet {
             .fail_transfers(online, blinded_utxo, txid, no_asset_only)
     }
 
-    fn get_address(&self) -> String {
+    fn get_address(&self) -> Result<String, RgbLibError> {
         self._get_wallet().get_address()
     }
 

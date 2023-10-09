@@ -29,7 +29,7 @@ fn success() {
 
     // future balance after funding
     stop_mining();
-    fund_wallet(wallet.get_address());
+    fund_wallet(wallet.get_address().unwrap());
     wait_for_unspent_num(&wallet, online.clone(), 1);
     let balances = wallet.get_btc_balance(online.clone()).unwrap();
     assert!(matches!(

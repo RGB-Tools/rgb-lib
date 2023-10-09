@@ -4,6 +4,7 @@ pub mod prelude;
 
 pub mod asset;
 pub mod asset_transfer;
+pub mod backup_info;
 pub mod batch_transfer;
 pub mod coloring;
 pub mod transfer;

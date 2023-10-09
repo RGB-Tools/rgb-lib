@@ -148,7 +148,12 @@ fn consistency_check_fail_utxos() {
         .unwrap();
     let (rcv_wallet, _rcv_online) = get_funded_wallet!();
     wallet_empty
-        .drain_to(online_empty, rcv_wallet.get_address(), false, FEE_RATE)
+        .drain_to(
+            online_empty,
+            rcv_wallet.get_address().unwrap(),
+            false,
+            FEE_RATE,
+        )
         .unwrap();
 
     // detect asset inconsistency
