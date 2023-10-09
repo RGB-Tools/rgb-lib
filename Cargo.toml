@@ -41,16 +41,16 @@ walkdir = "2.3.3"
 zip = { version = "0.6.6", default-features = false, features = ["time", "zstd"] }
 
 # RGB-related deps
-amplify = "=4.0.2"
-bp-core = "=0.10.9"
-commit_verify = "=0.10.5"
-rgb-contracts = { version = "=0.10.0", features = ["electrum"] }
-rgb-schemata = "=0.10.0"
-rgb-std = "=0.10.8"
-rgb-wallet = "=0.10.8"
-rgb_core = { package = "rgb-core", version = "=0.10.7" }
-strict_encoding = "=2.5.0"
-strict_types = "=1.6.1"
+amplify = "=4.5.0"
+bp-core = "=0.10.11"
+commit_verify = "=0.10.6"
+rgb-contracts = { version = "=0.10.1", features = ["electrum"] }
+rgb-schemata = "=0.10.1"
+rgb-std = "=0.10.9"
+rgb-wallet = "=0.10.9"
+rgb_core = { package = "rgb-core", version = "=0.10.8" }
+strict_encoding = "=2.6.1"
+strict_types = "=1.6.3"
 
 [dev-dependencies]
 dircmp = "0.2.0"

@@ -2,7 +2,7 @@
 //!
 //! This module defines the [`Wallet`] structure and all its related data.
 
-use amplify::{bmap, none, s, RawArray};
+use amplify::{bmap, none, s, ByteArray};
 use base64::{engine::general_purpose, Engine as _};
 use bdk::bitcoin::bip32::ExtendedPubKey;
 use bdk::bitcoin::secp256k1::Secp256k1;
@@ -4252,7 +4252,7 @@ impl Wallet {
             for beneficiary in beneficiaries {
                 let beneficiary_with_txid = match beneficiary {
                     BuilderSeal::Revealed(seal) => BuilderSeal::Revealed(
-                        seal.resolve(BpTxid::from_raw_array(witness_txid.to_byte_array())),
+                        seal.resolve(BpTxid::from_byte_array(witness_txid.to_byte_array())),
                     ),
                     BuilderSeal::Concealed(seal) => BuilderSeal::Concealed(seal),
                 };
