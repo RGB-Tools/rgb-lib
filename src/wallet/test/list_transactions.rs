@@ -8,6 +8,7 @@ fn success() {
 
     let amount: u64 = 66;
 
+    stop_mining();
     let (mut wallet, online) = get_funded_wallet!();
     let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
 
@@ -33,6 +34,7 @@ fn success() {
     assert!(rcv_transactions
         .iter()
         .all(|t| t.confirmation_time.is_none()));
+    resume_mining();
     // sync wallet when online is provided
     let transactions = wallet.list_transactions(Some(online.clone())).unwrap();
     let rcv_transactions = rcv_wallet
