@@ -1,5 +1,6 @@
 use super::*;
-use crate::wallet::backup::restore_backup;
+use crate::wallet::backup::{restore_backup, ScryptParams};
+use scrypt::Params;
 use serial_test::parallel;
 
 #[test]
@@ -285,7 +286,14 @@ fn double_restore() {
     // backup
     println!("\nbacking up...");
     wallet_1.backup(&backup_file_1, password_1).unwrap();
-    wallet_2.backup(&backup_file_2, password_2).unwrap();
+    let custom_params = ScryptParams::new(
+        Some(Params::RECOMMENDED_LOG_N + 1),
+        Some(Params::RECOMMENDED_R + 1),
+        Some(Params::RECOMMENDED_P + 1),
+    );
+    wallet_2
+        .backup_customize(&backup_file_2, password_2, Some(custom_params))
+        .unwrap();
 
     // drop wallets
     drop(online_1);
