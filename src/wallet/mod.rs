@@ -492,7 +492,7 @@ pub enum DatabaseType {
 
 #[derive(Debug, Deserialize, Serialize)]
 struct InfoBatchTransfer {
-    change_utxo_idx: i32,
+    change_utxo_idx: Option<i32>,
     blank_allocations: HashMap<String, u64>,
     donation: bool,
     min_confirmations: u8,
@@ -3997,6 +3997,30 @@ impl Wallet {
         Ok(psbt)
     }
 
+    fn _get_change_utxo(
+        &self,
+        change_utxo_option: &mut Option<DbTxo>,
+        change_utxo_idx: &mut Option<i32>,
+        input_outpoints: Vec<OutPoint>,
+        unspents: Vec<LocalUnspent>,
+    ) -> Result<DbTxo, Error> {
+        if change_utxo_option.is_none() {
+            let change_utxo = self._get_utxo(
+                input_outpoints.into_iter().map(|t| t.into()).collect(),
+                Some(unspents),
+                true,
+            )?;
+            debug!(
+                self.logger,
+                "Change outpoint '{}'",
+                change_utxo.outpoint().to_string()
+            );
+            *change_utxo_idx = Some(change_utxo.idx);
+            *change_utxo_option = Some(change_utxo);
+        }
+        Ok(change_utxo_option.clone().unwrap())
+    }
+
     fn _prepare_rgb_psbt(
         &self,
         psbt: &mut PartiallySignedTransaction,
@@ -4008,16 +4032,8 @@ impl Wallet {
         runtime: &mut RgbRuntime,
         min_confirmations: u8,
     ) -> Result<(), Error> {
-        let change_utxo = self._get_utxo(
-            input_outpoints.into_iter().map(|t| t.into()).collect(),
-            Some(unspents),
-            true,
-        )?;
-        debug!(
-            self.logger,
-            "Change outpoint '{}'",
-            change_utxo.outpoint().to_string()
-        );
+        let mut change_utxo_option = None;
+        let mut change_utxo_idx = None;
 
         let prev_outputs = psbt
             .unsigned_tx
@@ -4049,6 +4065,12 @@ impl Wallet {
             }
 
             if change_amount > 0 {
+                let change_utxo = self._get_change_utxo(
+                    &mut change_utxo_option,
+                    &mut change_utxo_idx,
+                    input_outpoints.clone(),
+                    unspents.clone(),
+                )?;
                 let seal = ExplicitSeal::with(
                     CloseMethod::OpretFirst,
                     RgbTxid::from_str(&change_utxo.txid).unwrap().into(),
@@ -4134,6 +4156,12 @@ impl Wallet {
                 if let TypedState::Amount(amt) = &state {
                     moved_amount += amt
                 }
+                let change_utxo = self._get_change_utxo(
+                    &mut change_utxo_option,
+                    &mut change_utxo_idx,
+                    input_outpoints.clone(),
+                    unspents.clone(),
+                )?;
                 let seal = ExplicitSeal::with(
                     CloseMethod::OpretFirst,
                     RgbTxid::from_str(&change_utxo.txid).unwrap().into(),
@@ -4216,7 +4244,7 @@ impl Wallet {
 
         // save batch transfer data to file (for send_end)
         let info_contents = InfoBatchTransfer {
-            change_utxo_idx: change_utxo.idx,
+            change_utxo_idx,
             blank_allocations,
             donation,
             min_confirmations,
@@ -4311,7 +4339,7 @@ impl Wallet {
         txid: String,
         transfer_info_map: BTreeMap<String, InfoAssetTransfer>,
         blank_allocations: HashMap<String, u64>,
-        change_utxo_idx: i32,
+        change_utxo_idx: Option<i32>,
         status: TransferStatus,
         min_confirmations: u8,
     ) -> Result<(), Error> {
@@ -4352,7 +4380,7 @@ impl Wallet {
             }
             if asset_spend.change_amount > 0 {
                 let db_coloring = DbColoringActMod {
-                    txo_idx: ActiveValue::Set(change_utxo_idx),
+                    txo_idx: ActiveValue::Set(change_utxo_idx.unwrap()),
                     asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
                     coloring_type: ActiveValue::Set(ColoringType::Change),
                     amount: ActiveValue::Set(asset_spend.change_amount.to_string()),
@@ -4385,7 +4413,7 @@ impl Wallet {
             };
             let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
             let db_coloring = DbColoringActMod {
-                txo_idx: ActiveValue::Set(change_utxo_idx),
+                txo_idx: ActiveValue::Set(change_utxo_idx.unwrap()),
                 asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
                 coloring_type: ActiveValue::Set(ColoringType::Change),
                 amount: ActiveValue::Set(amt.to_string()),
