@@ -1850,10 +1850,10 @@ impl Wallet {
 
         let inputs: Vec<BdkOutPoint> = self._internal_unspents()?.map(|u| u.outpoint).collect();
         let inputs: &[BdkOutPoint] = &inputs;
-        let new_btc_amount = self._get_uncolorable_btc_sum()?;
+        let usable_btc_amount = self._get_uncolorable_btc_sum()?;
         let utxo_size = size.unwrap_or(UTXO_SIZE);
-        let max_possible_utxos = new_btc_amount / utxo_size as u64;
-        let mut btc_needed: u64 = utxo_size as u64 + 1000;
+        let max_possible_utxos = usable_btc_amount / utxo_size as u64;
+        let mut btc_needed: u64 = (utxo_size as u64 * utxos_to_create as u64) + 1000;
         let mut btc_available: u64 = 0;
         let mut num_try_creating = min(utxos_to_create, max_possible_utxos as u8);
         while num_try_creating > 0 {
