@@ -9,7 +9,13 @@ fn success() {
     let (mut wallet, online) = get_funded_wallet!();
 
     // no assets
+    let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
     let assets = wallet.list_assets(vec![]).unwrap();
+    let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
+    assert_eq!(
+        bak_info_after.last_operation_timestamp,
+        bak_info_before.last_operation_timestamp
+    );
     assert_eq!(assets.nia.unwrap().len(), 0);
 
     // one issued RGB20 asset

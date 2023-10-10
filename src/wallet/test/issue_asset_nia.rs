@@ -18,6 +18,7 @@ fn success() {
     );
 
     let before_timestamp = now().unix_timestamp();
+    let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
     let asset = wallet
         .issue_asset_nia(
             online,
@@ -27,6 +28,8 @@ fn success() {
             vec![AMOUNT, AMOUNT],
         )
         .unwrap();
+    let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
+    assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     show_unspent_colorings(&wallet, "after issuance");
     assert_eq!(asset.ticker, TICKER.to_string());
     assert_eq!(asset.name, NAME.to_string());

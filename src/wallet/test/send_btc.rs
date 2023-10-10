@@ -35,6 +35,7 @@ fn success() {
     ));
 
     // balance after send
+    let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
     let txid = wallet
         .send_btc(
             online.clone(),
@@ -43,6 +44,11 @@ fn success() {
             FEE_RATE,
         )
         .unwrap();
+    let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
+    assert_eq!(
+        bak_info_after.last_operation_timestamp,
+        bak_info_before.last_operation_timestamp
+    );
     assert!(!txid.is_empty());
     let balances = wallet.get_btc_balance(online.clone()).unwrap();
     assert!(matches!(

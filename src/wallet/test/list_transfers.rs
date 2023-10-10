@@ -20,7 +20,13 @@ fn success() {
         .unwrap();
 
     // single transfer
+    let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
     let transfer_list = wallet.list_transfers(Some(asset.asset_id)).unwrap();
+    let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
+    assert_eq!(
+        bak_info_after.last_operation_timestamp,
+        bak_info_before.last_operation_timestamp
+    );
     assert_eq!(transfer_list.len(), 1);
     let transfer = transfer_list.first().unwrap();
     assert_eq!(transfer.amount, AMOUNT);

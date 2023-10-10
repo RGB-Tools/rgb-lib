@@ -9,8 +9,11 @@ fn success() {
     // up_to version with 0 allocatable UTXOs
     println!("\n=== up_to true, 0 allocatable");
     let (mut wallet, online) = get_funded_noutxo_wallet!();
+    let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
     let num_utxos_created =
         test_create_utxos(&mut wallet, online.clone(), true, None, None, FEE_RATE);
+    let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
+    assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     assert_eq!(num_utxos_created, UTXO_NUM);
     let unspents = wallet.list_unspents(None, false).unwrap();
     assert_eq!(unspents.len(), (UTXO_NUM + 1) as usize);

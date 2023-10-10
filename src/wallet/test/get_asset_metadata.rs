@@ -45,7 +45,13 @@ fn success() {
     )]);
     test_send_default(&mut wallet, &online, recipient_map);
     rcv_wallet.refresh(rcv_online, None, vec![]).unwrap();
+    let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
     let nia_metadata = rcv_wallet.get_asset_metadata(asset_nia.asset_id).unwrap();
+    let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
+    assert_eq!(
+        bak_info_after.last_operation_timestamp,
+        bak_info_before.last_operation_timestamp
+    );
 
     assert_eq!(nia_metadata.asset_iface, AssetIface::RGB20);
     assert_eq!(nia_metadata.asset_schema, AssetSchema::Nia);

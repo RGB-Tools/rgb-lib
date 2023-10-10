@@ -9,7 +9,13 @@ fn success() {
     let (mut wallet, online) = get_funded_wallet!();
 
     // return false if no transfer has changed
+    let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
     assert!(!wallet.delete_transfers(None, None, false).unwrap());
+    let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
+    assert_eq!(
+        bak_info_after.last_operation_timestamp,
+        bak_info_before.last_operation_timestamp
+    );
 
     // delete single transfer
     let receive_data = wallet
@@ -34,9 +40,12 @@ fn success() {
         &receive_data.recipient_id,
         TransferStatus::Failed
     ));
+    let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
     assert!(wallet
         .delete_transfers(Some(receive_data.recipient_id), None, false)
         .unwrap());
+    let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
+    assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
 
     // delete all Failed transfers
     let receive_data_1 = wallet

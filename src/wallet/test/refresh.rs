@@ -76,7 +76,13 @@ fn success() {
         }],
     )]);
     // return false if no transfer has changed
+    let bak_info_before = wallet_2.database.get_backup_info().unwrap().unwrap();
     assert!(!wallet_2.refresh(online_2.clone(), None, vec![]).unwrap());
+    let bak_info_after = wallet_2.database.get_backup_info().unwrap().unwrap();
+    assert_eq!(
+        bak_info_after.last_operation_timestamp,
+        bak_info_before.last_operation_timestamp
+    );
     let txid_1a = test_send_default(&mut wallet_1, &online_1, recipient_map_1a);
     assert!(!txid_1a.is_empty());
     let receive_data_1a = wallet_1
@@ -101,7 +107,10 @@ fn success() {
     let txid_2a = test_send_default(&mut wallet_2, &online_2, recipient_map_2a);
     assert!(!txid_2a.is_empty());
     assert!(wallet_1.refresh(online_1.clone(), None, vec![]).unwrap());
+    let bak_info_before = wallet_2.database.get_backup_info().unwrap().unwrap();
     assert!(wallet_2.refresh(online_2.clone(), None, vec![]).unwrap());
+    let bak_info_after = wallet_2.database.get_backup_info().unwrap().unwrap();
+    assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     assert!(wallet_1
         .refresh(
             online_1.clone(),

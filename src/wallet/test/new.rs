@@ -55,7 +55,9 @@ fn check_wallet(wallet: &Wallet, network: BitcoinNetwork, keychain_vanilla: Opti
 #[parallel]
 fn success() {
     // with private keys
-    get_test_wallet(true, None);
+    let wallet = get_test_wallet(true, None);
+    let bak_info_after = wallet.database.get_backup_info().unwrap();
+    assert!(bak_info_after.is_none());
 
     // without private keys
     let wallet = get_test_wallet(false, None);

@@ -11,14 +11,13 @@ fn success() {
 
     // drain funded wallet with no allocation UTXOs
     let (mut wallet, online) = get_funded_noutxo_wallet!();
+    let address = rcv_wallet.get_address().unwrap(); // also updates backup_info
+    let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
     wallet
-        .drain_to(
-            online.clone(),
-            rcv_wallet.get_address().unwrap(),
-            false,
-            FEE_RATE,
-        )
+        .drain_to(online.clone(), address, false, FEE_RATE)
         .unwrap();
+    let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
+    assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     mine(false);
     let unspents = list_test_unspents(&wallet, "funded noutxo after draining");
     assert_eq!(unspents.len(), 0);

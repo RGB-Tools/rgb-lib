@@ -20,7 +20,13 @@ fn success() {
         .unwrap();
 
     // balances after issuance
+    let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
     let asset_balance = wallet.get_asset_balance(asset.asset_id).unwrap();
+    let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
+    assert_eq!(
+        bak_info_after.last_operation_timestamp,
+        bak_info_before.last_operation_timestamp
+    );
     assert_eq!(
         asset_balance,
         Balance {

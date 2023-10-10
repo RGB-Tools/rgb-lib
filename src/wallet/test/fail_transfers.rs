@@ -13,9 +13,15 @@ fn success() {
     let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
 
     // return false if no transfer has changed
+    let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
     assert!(!wallet
         .fail_transfers(online.clone(), None, None, false)
         .unwrap());
+    let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
+    assert_eq!(
+        bak_info_after.last_operation_timestamp,
+        bak_info_before.last_operation_timestamp
+    );
 
     // issue
     let asset = wallet
@@ -43,6 +49,7 @@ fn success() {
         &receive_data.recipient_id,
         TransferStatus::WaitingCounterparty
     ));
+    let bak_info_before = rcv_wallet.database.get_backup_info().unwrap().unwrap();
     assert!(rcv_wallet
         .fail_transfers(
             rcv_online.clone(),
@@ -51,6 +58,8 @@ fn success() {
             false,
         )
         .unwrap());
+    let bak_info_after = rcv_wallet.database.get_backup_info().unwrap().unwrap();
+    assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
 
     // fail all expired WaitingCounterparty transfers
     let receive_data_1 = rcv_wallet

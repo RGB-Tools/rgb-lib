@@ -15,6 +15,7 @@ fn success() {
     let (mut wallet, online) = get_funded_wallet!();
 
     // default expiration + min confirmations
+    let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
     let now_timestamp = now().unix_timestamp();
     let receive_data = wallet
         .blind_receive(
@@ -25,6 +26,8 @@ fn success() {
             MIN_CONFIRMATIONS,
         )
         .unwrap();
+    let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
+    assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     assert!(receive_data.expiration_timestamp.is_some());
     let timestamp = now_timestamp + DURATION_RCV_TRANSFER as i64;
     assert!(receive_data.expiration_timestamp.unwrap() - timestamp <= 1);

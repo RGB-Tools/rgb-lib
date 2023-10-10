@@ -9,7 +9,11 @@ fn success() {
     let (mut wallet, online) = get_empty_wallet!();
 
     // empty balances
+    let bak_info_before = wallet.database.get_backup_info().unwrap();
+    assert!(bak_info_before.is_none());
     let balances = wallet.get_btc_balance(online.clone()).unwrap();
+    let bak_info_after = wallet.database.get_backup_info().unwrap();
+    assert!(bak_info_after.is_none());
     assert!(matches!(
         balances.vanilla,
         Balance {

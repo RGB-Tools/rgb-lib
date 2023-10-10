@@ -14,7 +14,13 @@ fn success() {
 
     mine(false);
     // don't sync wallet without online
+    let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
     let transactions = wallet.list_transactions(None).unwrap();
+    let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
+    assert_eq!(
+        bak_info_after.last_operation_timestamp,
+        bak_info_before.last_operation_timestamp
+    );
     let rcv_transactions = wallet.list_transactions(None).unwrap();
     assert_eq!(transactions.len(), 2);
     assert_eq!(rcv_transactions.len(), 2);

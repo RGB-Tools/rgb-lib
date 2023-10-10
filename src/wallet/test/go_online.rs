@@ -10,7 +10,11 @@ fn success() {
     let mut wallet = get_test_wallet(true, None);
 
     // go online
+    let bak_info_before = wallet.database.get_backup_info().unwrap();
+    assert!(bak_info_before.is_none());
     let result_1 = wallet.go_online(false, ELECTRUM_URL.to_string());
+    let bak_info_after = wallet.database.get_backup_info().unwrap();
+    assert!(bak_info_after.is_none());
     assert!(result_1.is_ok());
 
     // can go online again with the same electrum URL

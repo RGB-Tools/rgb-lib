@@ -74,6 +74,10 @@ fn success() {
     println!("\nbacking up...");
     wallet.backup(&backup_file, password).unwrap();
 
+    // backup not required after doing one
+    let backup_required = wallet.backup_info().unwrap();
+    assert!(!backup_required);
+
     // drop wallets
     drop(online);
     drop(wallet);
@@ -94,6 +98,10 @@ fn success() {
     let mut wallet = Wallet::new(wallet_data).unwrap();
     let online = wallet.go_online(true, ELECTRUM_URL.to_string()).unwrap();
     check_test_wallet_data(&mut wallet, &asset, None, 1, amount);
+
+    // backup not required after restoring one
+    let backup_required = wallet.backup_info().unwrap();
+    assert!(!backup_required);
 
     // spend asset once more and check wallet data again
     let receive_data = rcv_wallet
@@ -349,4 +357,17 @@ fn double_restore() {
     // cleanup
     std::fs::remove_file(&backup_file_1).unwrap_or_default();
     std::fs::remove_file(&backup_file_2).unwrap_or_default();
+}
+
+#[test]
+#[parallel]
+fn backup_info() {
+    initialize();
+
+    // wallets
+    let (wallet, _online) = get_empty_wallet!();
+
+    // backup not required for new wallets
+    let backup_required = wallet.backup_info().unwrap();
+    assert!(!backup_required);
 }
