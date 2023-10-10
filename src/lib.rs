@@ -51,6 +51,7 @@
 //!         max_allocations_per_utxo: 5,
 //!         pubkey: keys.xpub,
 //!         mnemonic: Some(keys.mnemonic),
+//!         vanilla_keychain: None,
 //!     };
 //!     let wallet = Wallet::new(wallet_data)?;
 //!

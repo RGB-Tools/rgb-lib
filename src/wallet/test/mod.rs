@@ -217,6 +217,7 @@ fn get_test_wallet_with_net(
         max_allocations_per_utxo: max_allocations_per_utxo.unwrap_or(MAX_ALLOCATIONS_PER_UTXO),
         pubkey: keys.xpub,
         mnemonic,
+        vanilla_keychain: None,
     })
     .unwrap()
 }

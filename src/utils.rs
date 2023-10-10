@@ -45,6 +45,8 @@ const TIMESTAMP_FORMAT: &[time::format_description::FormatItem] = time::macros::
 const RGB_RUNTIME_LOCK_FILE: &str = "rgb_runtime.lock";
 
 pub(crate) const LOG_FILE: &str = "log";
+pub(crate) const PURPOSE: u8 = 84;
+pub(crate) const ACCOUNT: u8 = 0;
 
 /// Supported Bitcoin networks
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
@@ -159,7 +161,7 @@ pub(crate) fn _get_derivation_path(
     let hardened = if watch_only { "" } else { "'" };
     let child_number = if watch_only { "" } else { "/*" };
     let master = if watch_only { "m" } else { "" };
-    format!("{master}/84{hardened}/{coin_type}{hardened}/0{hardened}/{keychain}{child_number}")
+    format!("{master}/{PURPOSE}{hardened}/{coin_type}{hardened}/{ACCOUNT}{hardened}/{keychain}{child_number}")
 }
 
 pub(crate) fn calculate_descriptor_from_xprv(

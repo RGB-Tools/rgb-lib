@@ -103,8 +103,9 @@ use crate::utils::{
 const RGB_DB_NAME: &str = "rgb_db";
 const BDK_DB_NAME: &str = "bdk_db";
 
-const KEYCHAIN_RGB: u8 = 9;
-const KEYCHAIN_BTC: u8 = 1;
+pub(crate) const KEYCHAIN_RGB_OPRET: u8 = 9;
+pub(crate) const KEYCHAIN_RGB_TAPRET: u8 = 10;
+pub(crate) const KEYCHAIN_BTC: u8 = 1;
 
 const ASSETS_DIR: &str = "assets";
 const TRANSFER_DIR: &str = "transfers";
@@ -1014,6 +1015,8 @@ pub struct WalletData {
     pub pubkey: String,
     /// Wallet mnemonic phrase
     pub mnemonic: Option<String>,
+    /// Optional keychain index for the vanilla wallet (default: 1)
+    pub vanilla_keychain: Option<u8>,
 }
 
 /// An RGB wallet
@@ -1061,6 +1064,10 @@ impl Wallet {
         }));
 
         // BDK setup
+        let vanilla_keychain = wdata.vanilla_keychain.unwrap_or(KEYCHAIN_BTC);
+        if [KEYCHAIN_RGB_OPRET, KEYCHAIN_RGB_TAPRET].contains(&vanilla_keychain) {
+            return Err(Error::InvalidVanillaKeychain);
+        }
         let bdk_db = wallet_dir.join(BDK_DB_NAME);
         let bdk_config = SledDbConfiguration {
             path: bdk_db
@@ -1089,9 +1096,9 @@ impl Wallet {
                 .into_xprv(bdk_network)
                 .expect("should be possible to get an extended private key");
             let descriptor =
-                calculate_descriptor_from_xprv(xprv, wdata.bitcoin_network, KEYCHAIN_RGB);
+                calculate_descriptor_from_xprv(xprv, wdata.bitcoin_network, KEYCHAIN_RGB_OPRET);
             let change_descriptor =
-                calculate_descriptor_from_xprv(xprv, wdata.bitcoin_network, KEYCHAIN_BTC);
+                calculate_descriptor_from_xprv(xprv, wdata.bitcoin_network, vanilla_keychain);
             BdkWallet::new(
                 &descriptor,
                 Some(&change_descriptor),
@@ -1101,9 +1108,9 @@ impl Wallet {
             .map_err(InternalError::from)?
         } else {
             let descriptor_pub =
-                calculate_descriptor_from_xpub(xpub, wdata.bitcoin_network, KEYCHAIN_RGB)?;
+                calculate_descriptor_from_xpub(xpub, wdata.bitcoin_network, KEYCHAIN_RGB_OPRET)?;
             let change_descriptor_pub =
-                calculate_descriptor_from_xpub(xpub, wdata.bitcoin_network, KEYCHAIN_BTC)?;
+                calculate_descriptor_from_xpub(xpub, wdata.bitcoin_network, vanilla_keychain)?;
             BdkWallet::new(
                 &descriptor_pub,
                 Some(&change_descriptor_pub),

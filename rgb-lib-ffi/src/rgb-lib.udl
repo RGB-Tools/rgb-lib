@@ -50,6 +50,7 @@ interface RgbLibError {
   InvalidTicker(string details);
   InvalidTransportEndpoint(string details);
   InvalidTransportEndpoints(string details);
+  InvalidVanillaKeychain();
   NoIssuanceAmounts();
   NoValidTransportEndpoint();
   Offline();
@@ -309,6 +310,7 @@ dictionary WalletData {
   u32 max_allocations_per_utxo;
   string pubkey;
   string? mnemonic;
+  u8? vanilla_keychain;
 };
 
 interface Wallet {

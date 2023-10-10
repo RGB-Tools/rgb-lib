@@ -1,18 +1,53 @@
 use super::*;
-use bdk::miniscript::descriptor::DescriptorType;
+use crate::utils::{ACCOUNT, PURPOSE};
+use bdk::descriptor::Descriptor;
 use serial_test::parallel;
 
-fn check_wallet(wallet: &Wallet, desc_type: DescriptorType, network: BitcoinNetwork) {
-    let coin_type = i32::from(network != BitcoinNetwork::Mainnet);
-    let descriptor = &wallet
+fn check_wallet(wallet: &Wallet, network: BitcoinNetwork, keychain_vanilla: Option<u8>) {
+    let hardened = if wallet.wallet_data.mnemonic.is_some() {
+        true
+    } else {
+        false
+    };
+    let mut coin_type = i32::from(network != BitcoinNetwork::Mainnet).to_string();
+    let mut purpose = PURPOSE.to_string();
+    let mut account = ACCOUNT.to_string();
+    if hardened {
+        coin_type = format!("{coin_type}'");
+        purpose = format!("{purpose}'");
+        account = format!("{account}'");
+    }
+    let external_descriptor = &wallet
         .bdk_wallet
         .get_descriptor_for_keychain(KeychainKind::External);
-    let descriptor_type = &descriptor.desc_type();
-    assert_eq!(descriptor_type, &desc_type);
-    let mut descriptor_string = descriptor.to_string();
-    let _split = descriptor_string.split_off(20); // "wpkh([<chksum>/84'/0", "..."
-    let descriptor_coin_type = descriptor_string.split_off(19);
-    assert_eq!(descriptor_coin_type, coin_type.to_string());
+    match external_descriptor {
+        Descriptor::Wpkh(ref wpkh) => {
+            let full_derivation_path = wpkh.as_inner().full_derivation_path().to_string();
+            let split: Vec<&str> = full_derivation_path.split("/").collect();
+            assert_eq!(split[1], purpose);
+            assert_eq!(split[2], coin_type);
+            assert_eq!(split[3], account);
+            assert_eq!(split[4], KEYCHAIN_RGB_OPRET.to_string());
+        }
+        _ => panic!("wrong descriptor type"),
+    }
+    let internal_descriptor = &wallet
+        .bdk_wallet
+        .get_descriptor_for_keychain(KeychainKind::Internal);
+    match internal_descriptor {
+        Descriptor::Wpkh(ref wpkh) => {
+            let full_derivation_path = wpkh.as_inner().full_derivation_path().to_string();
+            let split: Vec<&str> = full_derivation_path.split("/").collect();
+            assert_eq!(split[1], purpose);
+            assert_eq!(split[2], coin_type);
+            assert_eq!(split[3], account);
+            assert_eq!(
+                split[4],
+                keychain_vanilla.unwrap_or(KEYCHAIN_BTC).to_string()
+            );
+        }
+        _ => panic!("wrong descriptor type"),
+    }
     assert_eq!(wallet.wallet_data.bitcoin_network, network);
 }
 
@@ -23,7 +58,24 @@ fn success() {
     get_test_wallet(true, None);
 
     // without private keys
-    get_test_wallet(false, None);
+    let wallet = get_test_wallet(false, None);
+    check_wallet(&wallet, BitcoinNetwork::Regtest, None);
+
+    // with custom vanilla keychain
+    let bitcoin_network = BitcoinNetwork::Regtest;
+    let keys = generate_keys(bitcoin_network);
+    let vanilla_keychain = Some(u8::MAX);
+    let wallet = Wallet::new(WalletData {
+        data_dir: TEST_DATA_DIR.to_string(),
+        bitcoin_network,
+        database_type: DatabaseType::Sqlite,
+        max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
+        pubkey: keys.xpub.clone(),
+        mnemonic: Some(keys.mnemonic.clone()),
+        vanilla_keychain,
+    })
+    .unwrap();
+    check_wallet(&wallet, bitcoin_network, vanilla_keychain);
 }
 
 #[test]
@@ -34,7 +86,7 @@ fn testnet_success() {
     let bitcoin_network = BitcoinNetwork::Testnet;
     let mut wallet =
         get_test_wallet_with_net(true, Some(MAX_ALLOCATIONS_PER_UTXO), bitcoin_network);
-    check_wallet(&wallet, DescriptorType::Wpkh, bitcoin_network);
+    check_wallet(&wallet, bitcoin_network, None);
     wallet
         .go_online(false, s!("ssl://electrum.iriswallet.com:50013"))
         .unwrap();
@@ -60,9 +112,10 @@ fn mainnet_success() {
         max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
         pubkey: keys.xpub.clone(),
         mnemonic: Some(keys.mnemonic.clone()),
+        vanilla_keychain: None,
     })
     .unwrap();
-    check_wallet(&wallet, DescriptorType::Wpkh, bitcoin_network);
+    check_wallet(&wallet, bitcoin_network, None);
     assert!(!wallet.watch_only);
     assert_eq!(wallet.wallet_data.pubkey, keys.xpub);
     assert_eq!(wallet.wallet_data.mnemonic, Some(keys.mnemonic));
@@ -98,10 +151,19 @@ fn fail() {
     drop(wallet);
 
     // bad mnemonic word count
-    let mut wallet_data_bad = wallet_data;
+    let mut wallet_data_bad = wallet_data.clone();
     wallet_data_bad.mnemonic = Some(s!(""));
     let result = Wallet::new(wallet_data_bad);
     assert!(matches!(result, Err(Error::InvalidMnemonic { details: _ })));
+
+    // invalid vanilla keychain
+    let mut wallet_data_bad = wallet_data;
+    wallet_data_bad.vanilla_keychain = Some(KEYCHAIN_RGB_OPRET);
+    let result = Wallet::new(wallet_data_bad.clone());
+    assert!(matches!(result, Err(Error::InvalidVanillaKeychain)));
+    wallet_data_bad.vanilla_keychain = Some(KEYCHAIN_RGB_TAPRET);
+    let result = Wallet::new(wallet_data_bad);
+    assert!(matches!(result, Err(Error::InvalidVanillaKeychain)));
 }
 
 #[test]

@@ -99,6 +99,7 @@ fn consistency_check_fail_utxos() {
         max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
         pubkey: wallet_data_orig.pubkey.clone(),
         mnemonic: wallet_data_orig.mnemonic.clone(),
+        vanilla_keychain: None,
     };
     let wallet_data_prefill = WalletData {
         data_dir: data_dir_prefill.into_os_string().into_string().unwrap(),
@@ -107,6 +108,7 @@ fn consistency_check_fail_utxos() {
         max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
         pubkey: wallet_data_orig.pubkey.clone(),
         mnemonic: wallet_data_orig.mnemonic.clone(),
+        vanilla_keychain: None,
     };
     let wallet_data_prefill_2 = WalletData {
         data_dir: data_dir_prefill_2.into_os_string().into_string().unwrap(),
@@ -115,6 +117,7 @@ fn consistency_check_fail_utxos() {
         max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
         pubkey: wallet_data_orig.pubkey.clone(),
         mnemonic: wallet_data_orig.mnemonic,
+        vanilla_keychain: None,
     };
     // copy original wallet's db data to prefilled wallet data dir
     let wallet_dir_entries = fs::read_dir(&wallet_dir_orig).unwrap();
@@ -215,6 +218,7 @@ fn consistency_check_fail_asset_ids() {
         max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
         pubkey: wallet_data_orig.pubkey.clone(),
         mnemonic: wallet_data_orig.mnemonic.clone(),
+        vanilla_keychain: None,
     };
     let wallet_data_prefill_2 = WalletData {
         data_dir: data_dir_prefill_2.to_str().unwrap().to_string(),
@@ -223,6 +227,7 @@ fn consistency_check_fail_asset_ids() {
         max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
         pubkey: wallet_data_orig.pubkey.clone(),
         mnemonic: wallet_data_orig.mnemonic.clone(),
+        vanilla_keychain: None,
     };
     let wallet_data_prefill_3 = WalletData {
         data_dir: data_dir_prefill_3.to_str().unwrap().to_string(),
@@ -231,6 +236,7 @@ fn consistency_check_fail_asset_ids() {
         max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
         pubkey: wallet_data_orig.pubkey.clone(),
         mnemonic: wallet_data_orig.mnemonic,
+        vanilla_keychain: None,
     };
     // copy original wallet's data to prefilled wallets 1 + 2 data dir
     for destination in [&wallet_dir_prefill_1, &wallet_dir_prefill_2] {

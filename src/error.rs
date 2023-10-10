@@ -265,6 +265,10 @@ pub enum Error {
         details: String,
     },
 
+    /// The provided vanilla keychain is invalid
+    #[error("Invalid vanilla keychain")]
+    InvalidVanillaKeychain,
+
     /// Cannot issue an asset without knowing the amounts
     #[error("Issuance request with no provided amounts")]
     NoIssuanceAmounts,
