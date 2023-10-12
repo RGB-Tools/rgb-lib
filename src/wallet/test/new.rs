@@ -22,7 +22,7 @@ fn check_wallet(wallet: &Wallet, network: BitcoinNetwork, keychain_vanilla: Opti
         .get_descriptor_for_keychain(KeychainKind::External);
     match external_descriptor {
         Descriptor::Wpkh(ref wpkh) => {
-            let full_derivation_path = wpkh.as_inner().full_derivation_path().to_string();
+            let full_derivation_path = wpkh.as_inner().full_derivation_path().unwrap().to_string();
             let split: Vec<&str> = full_derivation_path.split("/").collect();
             assert_eq!(split[1], purpose);
             assert_eq!(split[2], coin_type);
@@ -36,7 +36,7 @@ fn check_wallet(wallet: &Wallet, network: BitcoinNetwork, keychain_vanilla: Opti
         .get_descriptor_for_keychain(KeychainKind::Internal);
     match internal_descriptor {
         Descriptor::Wpkh(ref wpkh) => {
-            let full_derivation_path = wpkh.as_inner().full_derivation_path().to_string();
+            let full_derivation_path = wpkh.as_inner().full_derivation_path().unwrap().to_string();
             let split: Vec<&str> = full_derivation_path.split("/").collect();
             assert_eq!(split[1], purpose);
             assert_eq!(split[2], coin_type);

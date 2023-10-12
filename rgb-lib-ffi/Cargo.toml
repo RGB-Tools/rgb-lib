@@ -22,6 +22,7 @@ uniffi = "0.24.3"
 
 # fixed-version dependencies to support building with rust 1.67
 anstyle = "=1.0.1"
+anstyle-parse = "=0.2.1"
 clap_lex = "=0.5.0"
 clap_derive = "=4.3.12"
 

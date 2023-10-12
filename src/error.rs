@@ -381,7 +381,7 @@ pub enum InternalError {
     NoPasswordHashError,
 
     #[error("PSBT parse error: {0}")]
-    PsbtParse(#[from] bdk::bitcoin::util::psbt::PsbtParseError),
+    PsbtParse(#[from] bdk::bitcoin::psbt::PsbtParseError),
 
     #[error("Restore directory is not empty")]
     RestoreDirNotEmpty,
@@ -440,24 +440,24 @@ impl From<bdk::keys::bip39::Error> for Error {
     }
 }
 
-impl From<bdk::bitcoin::util::address::Error> for Error {
-    fn from(e: bdk::bitcoin::util::address::Error) -> Self {
+impl From<bdk::bitcoin::address::Error> for Error {
+    fn from(e: bdk::bitcoin::address::Error) -> Self {
         Error::InvalidAddress {
             details: e.to_string(),
         }
     }
 }
 
-impl From<bdk::bitcoin::util::bip32::Error> for Error {
-    fn from(e: bdk::bitcoin::util::bip32::Error) -> Self {
+impl From<bdk::bitcoin::bip32::Error> for Error {
+    fn from(e: bdk::bitcoin::bip32::Error) -> Self {
         Error::InvalidPubkey {
             details: e.to_string(),
         }
     }
 }
 
-impl From<bdk::bitcoin::util::psbt::PsbtParseError> for Error {
-    fn from(e: bdk::bitcoin::util::psbt::PsbtParseError) -> Self {
+impl From<bdk::bitcoin::psbt::PsbtParseError> for Error {
+    fn from(e: bdk::bitcoin::psbt::PsbtParseError) -> Self {
         Error::InvalidPsbt {
             details: e.to_string(),
         }

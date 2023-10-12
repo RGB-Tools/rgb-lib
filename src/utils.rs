@@ -3,9 +3,9 @@
 //! This module defines some utility methods.
 
 use amplify::s;
+use bdk::bitcoin::bip32::ExtendedPrivKey;
+use bdk::bitcoin::bip32::{DerivationPath, ExtendedPubKey, KeySource};
 use bdk::bitcoin::secp256k1::Secp256k1;
-use bdk::bitcoin::util::bip32::ExtendedPrivKey;
-use bdk::bitcoin::util::bip32::{DerivationPath, ExtendedPubKey, KeySource};
 use bdk::bitcoin::Network as BdkNetwork;
 use bdk::descriptor::Segwitv0;
 use bdk::keys::DescriptorKey::Public;
@@ -89,6 +89,7 @@ impl From<BdkNetwork> for BitcoinNetwork {
             BdkNetwork::Testnet => BitcoinNetwork::Testnet,
             BdkNetwork::Signet => BitcoinNetwork::Signet,
             BdkNetwork::Regtest => BitcoinNetwork::Regtest,
+            _ => unimplemented!("this should not be possible"),
         }
     }
 }
@@ -111,17 +112,6 @@ impl From<BitcoinNetwork> for bitcoin::Network {
             BitcoinNetwork::Testnet => bitcoin::Network::Testnet,
             BitcoinNetwork::Signet => bitcoin::Network::Signet,
             BitcoinNetwork::Regtest => bitcoin::Network::Regtest,
-        }
-    }
-}
-
-impl From<BitcoinNetwork> for BdkNetwork {
-    fn from(x: BitcoinNetwork) -> BdkNetwork {
-        match x {
-            BitcoinNetwork::Mainnet => BdkNetwork::Bitcoin,
-            BitcoinNetwork::Testnet => BdkNetwork::Testnet,
-            BitcoinNetwork::Signet => BdkNetwork::Signet,
-            BitcoinNetwork::Regtest => BdkNetwork::Regtest,
         }
     }
 }

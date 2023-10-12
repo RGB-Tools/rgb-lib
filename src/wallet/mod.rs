@@ -4,11 +4,11 @@
 
 use amplify::{bmap, none, s, RawArray};
 use base64::{engine::general_purpose, Engine as _};
+use bdk::bitcoin::bip32::ExtendedPubKey;
 use bdk::bitcoin::secp256k1::Secp256k1;
-use bdk::bitcoin::util::bip32::ExtendedPubKey;
 use bdk::bitcoin::{
     psbt::Psbt as BdkPsbt, Address as BdkAddress, Network as BdkNetwork, OutPoint as BdkOutPoint,
-    Script as BdkScript, Transaction as BdkTransaction,
+    Transaction as BdkTransaction,
 };
 use bdk::blockchain::{
     Blockchain, ConfigurableBlockchain, ElectrumBlockchain, ElectrumBlockchainConfig,
@@ -672,15 +672,6 @@ impl fmt::Display for Outpoint {
     }
 }
 
-impl From<BdkOutPoint> for Outpoint {
-    fn from(x: BdkOutPoint) -> Outpoint {
-        Outpoint {
-            txid: x.txid.to_string(),
-            vout: x.vout,
-        }
-    }
-}
-
 impl From<OutPoint> for Outpoint {
     fn from(x: OutPoint) -> Outpoint {
         Outpoint {
@@ -696,12 +687,6 @@ impl From<DbTxo> for Outpoint {
             txid: x.txid,
             vout: x.vout,
         }
-    }
-}
-
-impl From<Outpoint> for BdkOutPoint {
-    fn from(x: Outpoint) -> BdkOutPoint {
-        BdkOutPoint::from_str(&x.to_string()).expect("outpoint should be parsable")
     }
 }
 
@@ -2104,7 +2089,7 @@ impl Wallet {
 
         self._sync_db_txos()?;
 
-        let address = BdkAddress::from_str(&address).map(|x| x.script_pubkey())?;
+        let address = BdkAddress::from_str(&address).map(|x| x.payload.script_pubkey())?;
 
         let mut tx_builder = self.bdk_wallet.build_tx();
         tx_builder
@@ -3982,8 +3967,7 @@ impl Wallet {
             .fee_rate(FeeRate::from_sat_per_vb(fee_rate))
             .ordering(bdk::wallet::tx_builder::TxOrdering::Untouched);
         for (script_buf, amount_sat) in witness_recipients {
-            let bdk_script = BdkScript::from(script_buf.clone().into_bytes());
-            builder.add_recipient(bdk_script, *amount_sat);
+            builder.add_recipient(script_buf.clone(), *amount_sat);
         }
         builder
             .drain_to(self._get_new_address().script_pubkey())
@@ -4800,7 +4784,7 @@ impl Wallet {
         let mut tx_builder = self.bdk_wallet.build_tx();
         tx_builder
             .unspendable(unspendable)
-            .add_recipient(address.script_pubkey(), amount)
+            .add_recipient(address.payload.script_pubkey(), amount)
             .fee_rate(FeeRate::from_sat_per_vb(fee_rate));
 
         let mut psbt = tx_builder
