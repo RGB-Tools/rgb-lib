@@ -4217,7 +4217,7 @@ fn witness_success() {
         rcv_asset.balance,
         Balance {
             settled: 0,
-            future: 0, // still 0 for witness transfers
+            future: amount * 2,
             spendable: 0,
         }
     );

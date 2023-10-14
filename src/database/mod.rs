@@ -539,6 +539,7 @@ impl RgbLibDatabase {
     pub(crate) fn get_asset_balance(
         &self,
         asset_id: String,
+        transfers: Option<Vec<DbTransfer>>,
         asset_transfers: Option<Vec<DbAssetTransfer>>,
         batch_transfers: Option<Vec<DbBatchTransfer>>,
         colorings: Option<Vec<DbColoring>>,
@@ -554,6 +555,11 @@ impl RgbLibDatabase {
         } else {
             self.iter_asset_transfers()?
         };
+        let transfers = if let Some(t) = transfers {
+            t
+        } else {
+            self.iter_transfers()?
+        };
         let colorings = if let Some(cs) = colorings {
             cs
         } else {
@@ -568,8 +574,8 @@ impl RgbLibDatabase {
         let txos_allocations = self.get_rgb_allocations(
             txos,
             Some(colorings),
-            Some(batch_transfers),
-            Some(asset_transfers),
+            Some(batch_transfers.clone()),
+            Some(asset_transfers.clone()),
         )?;
 
         let mut allocations: Vec<LocalRgbAllocation> = vec![];
@@ -587,11 +593,30 @@ impl RgbLibDatabase {
             .map(|a| a.amount)
             .sum();
 
-        let ass_pending_incoming: u64 = ass_allocations
+        let mut ass_pending_incoming: u64 = ass_allocations
             .iter()
             .filter(|a| !a.txo_spent && a.incoming && a.status.pending())
             .map(|a| a.amount)
             .sum();
+        let witness_pending: u64 = transfers
+            .iter()
+            .filter(|t| t.incoming && t.recipient_type == Some(RecipientType::Witness))
+            .filter_map(
+                |t| match t.related_transfers(&asset_transfers, &batch_transfers) {
+                    Ok((_, bt)) => {
+                        if bt.status.waiting_confirmations() {
+                            Some(Ok(t.amount.parse::<u64>().unwrap()))
+                        } else {
+                            None
+                        }
+                    }
+                    Err(e) => Some(Err(e)),
+                },
+            )
+            .collect::<Result<Vec<u64>, InternalError>>()?
+            .iter()
+            .sum();
+        ass_pending_incoming += witness_pending;
         let ass_pending_outgoing: u64 = ass_allocations
             .iter()
             .filter(|a| !a.incoming && a.status.pending())

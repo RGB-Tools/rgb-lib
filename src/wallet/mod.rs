@@ -162,6 +162,7 @@ impl AssetIface {
         wallet: &Wallet,
         asset: &DbAsset,
         assets_dir: PathBuf,
+        transfers: Option<Vec<DbTransfer>>,
         asset_transfers: Option<Vec<DbAssetTransfer>>,
         batch_transfers: Option<Vec<DbBatchTransfer>>,
         colorings: Option<Vec<DbColoring>>,
@@ -179,6 +180,7 @@ impl AssetIface {
         }
         let balance = wallet.database.get_asset_balance(
             asset.asset_id.clone(),
+            transfers,
             asset_transfers,
             batch_transfers,
             colorings,
@@ -267,6 +269,7 @@ impl AssetNIA {
         wallet: &Wallet,
         asset: &DbAsset,
         assets_dir: PathBuf,
+        transfers: Option<Vec<DbTransfer>>,
         asset_transfers: Option<Vec<DbAssetTransfer>>,
         batch_transfers: Option<Vec<DbBatchTransfer>>,
         colorings: Option<Vec<DbColoring>>,
@@ -276,6 +279,7 @@ impl AssetNIA {
             wallet,
             asset,
             assets_dir,
+            transfers,
             asset_transfers,
             batch_transfers,
             colorings,
@@ -347,6 +351,7 @@ impl AssetCFA {
         wallet: &Wallet,
         asset: &DbAsset,
         assets_dir: PathBuf,
+        transfers: Option<Vec<DbTransfer>>,
         asset_transfers: Option<Vec<DbAssetTransfer>>,
         batch_transfers: Option<Vec<DbBatchTransfer>>,
         colorings: Option<Vec<DbColoring>>,
@@ -356,6 +361,7 @@ impl AssetCFA {
             wallet,
             asset,
             assets_dir,
+            transfers,
             asset_transfers,
             batch_transfers,
             colorings,
@@ -2305,7 +2311,7 @@ impl Wallet {
         self.database.check_asset_exists(asset_id.clone())?;
         let balance = self
             .database
-            .get_asset_balance(asset_id, None, None, None, None);
+            .get_asset_balance(asset_id, None, None, None, None, None);
         info!(self.logger, "Get asset balance completed");
         balance
     }
@@ -2773,6 +2779,7 @@ impl Wallet {
             None,
             None,
             None,
+            None,
         )?;
 
         self.update_backup_info(false)?;
@@ -2972,6 +2979,7 @@ impl Wallet {
             None,
             None,
             None,
+            None,
         )?;
 
         self.update_backup_info(false)?;
@@ -2994,6 +3002,7 @@ impl Wallet {
         let colorings = Some(self.database.iter_colorings()?);
         let txos = Some(self.database.iter_txos()?);
         let asset_transfers = Some(self.database.iter_asset_transfers()?);
+        let transfers = Some(self.database.iter_transfers()?);
 
         let assets = self.database.iter_assets()?;
         let mut nia = None;
@@ -3010,6 +3019,7 @@ impl Wallet {
                                     self,
                                     a,
                                     self.wallet_dir.join(ASSETS_DIR),
+                                    transfers.clone(),
                                     asset_transfers.clone(),
                                     batch_transfers.clone(),
                                     colorings.clone(),
@@ -3030,6 +3040,7 @@ impl Wallet {
                                     self,
                                     a,
                                     assets_dir.clone(),
+                                    transfers.clone(),
                                     asset_transfers.clone(),
                                     batch_transfers.clone(),
                                     colorings.clone(),
@@ -3897,6 +3908,7 @@ impl Wallet {
         asset_id: String,
         amount_needed: u64,
         unspents: Vec<LocalUnspent>,
+        transfers: Option<Vec<DbTransfer>>,
         asset_transfers: Option<Vec<DbAssetTransfer>>,
         batch_transfers: Option<Vec<DbBatchTransfer>>,
         colorings: Option<Vec<DbColoring>>,
@@ -3924,6 +3936,7 @@ impl Wallet {
         if amount_input_asset < amount_needed {
             let ass_balance = self.database.get_asset_balance(
                 asset_id.clone(),
+                transfers,
                 asset_transfers,
                 batch_transfers,
                 colorings,
@@ -4609,6 +4622,7 @@ impl Wallet {
                 asset_id.clone(),
                 amount,
                 input_unspents.clone(),
+                Some(db_data.transfers.clone()),
                 Some(db_data.asset_transfers.clone()),
                 Some(db_data.batch_transfers.clone()),
                 Some(db_data.colorings.clone()),
