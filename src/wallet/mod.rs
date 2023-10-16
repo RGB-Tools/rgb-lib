@@ -28,7 +28,7 @@ use bitcoin::psbt::PartiallySignedTransaction;
 use bitcoin::{Address, OutPoint};
 use bitcoin::{ScriptBuf, Txid};
 use bp::seals::txout::blind::ChainBlindSeal;
-use bp::seals::txout::{CloseMethod, ExplicitSeal};
+use bp::seals::txout::{CloseMethod, ExplicitSeal, TxPtr};
 use bp::Outpoint as RgbOutpoint;
 use bp::Txid as BpTxid;
 use electrum_client::{Client as ElectrumClient, ConfigBuilder, ElectrumApi, Param};
@@ -3570,7 +3570,9 @@ impl Wallet {
                                 }
                             };
                             if let Assign::Revealed { seal, state } = fungible_assignment {
-                                if Some(seal.vout.into_u32()) == vout {
+                                if seal.txid == TxPtr::WitnessTx
+                                    && Some(seal.vout.into_u32()) == vout
+                                {
                                     amount = state.value.as_u64();
                                     break 'outer;
                                 }
