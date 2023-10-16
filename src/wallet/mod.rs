@@ -3379,6 +3379,7 @@ impl Wallet {
                 continue;
             }
             let consignment_res = consignment_res.unwrap();
+            #[cfg(test)]
             debug!(
                 self.logger,
                 "Consignment GET response: {:?}", consignment_res
@@ -3518,6 +3519,7 @@ impl Wallet {
                 .rest_client
                 .clone()
                 .get_media(&proxy_url, attachment_id.clone())?;
+            #[cfg(test)]
             debug!(self.logger, "Media GET response: {:?}", media_res);
             if let Some(media_res) = media_res.result {
                 let file_bytes = general_purpose::STANDARD
