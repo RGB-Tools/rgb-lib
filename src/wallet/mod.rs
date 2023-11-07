@@ -4522,8 +4522,15 @@ impl Wallet {
 
         let receive_ids: Vec<String> = recipient_map
             .values()
-            .map(|r| r.iter().map(|r| r.recipient_id()).collect())
+            .flatten()
+            .map(|r| r.recipient_id())
             .collect();
+        let mut receive_ids_dedup = receive_ids.clone();
+        receive_ids_dedup.sort();
+        receive_ids_dedup.dedup();
+        if receive_ids.len() != receive_ids_dedup.len() {
+            return Err(Error::RecipientIDDuplicated);
+        }
         let mut hasher = DefaultHasher::new();
         receive_ids.hash(&mut hasher);
         let transfer_dir = self

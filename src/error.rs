@@ -296,6 +296,10 @@ pub enum Error {
     #[error("Recipient ID already used")]
     RecipientIDAlreadyUsed,
 
+    /// Provided recipient map has duplicated recipient IDs
+    #[error("Recipient ID duplicated")]
+    RecipientIDDuplicated,
+
     /// Trying to issue too many assets
     #[error("Trying to issue too many assets")]
     TooHighIssuanceAmounts,

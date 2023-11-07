@@ -2970,7 +2970,7 @@ fn fail() {
 
     // fee min/max
     let recipient_map = HashMap::from([(
-        asset.asset_id,
+        asset.asset_id.clone(),
         vec![Recipient {
             recipient_data: RecipientData::BlindedUTXO(
                 SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
@@ -2987,8 +2987,40 @@ fn fail() {
         MIN_CONFIRMATIONS,
     );
     assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_LOW));
-    let result = wallet.send_begin(online, recipient_map, false, 1000.1, MIN_CONFIRMATIONS);
+    let result = wallet.send_begin(
+        online.clone(),
+        recipient_map,
+        false,
+        1000.1,
+        MIN_CONFIRMATIONS,
+    );
     assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_HIGH));
+
+    // duplicated recipient ID
+    let blinded_utxo = SecretSeal::from_str(&receive_data.recipient_id).unwrap();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![
+            Recipient {
+                recipient_data: RecipientData::BlindedUTXO(blinded_utxo),
+                amount: AMOUNT / 2,
+                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+            },
+            Recipient {
+                recipient_data: RecipientData::BlindedUTXO(blinded_utxo),
+                amount: AMOUNT / 3,
+                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+            },
+        ],
+    )]);
+    let result = wallet.send_begin(
+        online.clone(),
+        recipient_map.clone(),
+        false,
+        FEE_RATE,
+        MIN_CONFIRMATIONS,
+    );
+    assert!(matches!(result, Err(Error::RecipientIDDuplicated)));
 }
 
 #[test]

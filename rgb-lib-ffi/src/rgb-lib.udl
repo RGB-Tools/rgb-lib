@@ -57,6 +57,7 @@ interface RgbLibError {
   OutputBelowDustLimit();
   Proxy(string details);
   RecipientIDAlreadyUsed();
+  RecipientIDDuplicated();
   TooHighIssuanceAmounts();
   TransferNotFound(string recipient_id);
   UnknownRgbInterface(string interface);
