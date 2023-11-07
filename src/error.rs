@@ -131,6 +131,10 @@ pub enum Error {
         details: String,
     },
 
+    /// An invalid 0 amount has been provided
+    #[error("Amount 0 is invalid")]
+    InvalidAmountZero,
+
     /// An invalid asset ID has been provided
     #[error("Invalid asset ID: {asset_id}")]
     InvalidAssetID {

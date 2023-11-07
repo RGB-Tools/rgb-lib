@@ -4572,6 +4572,9 @@ impl Wallet {
             let mut recipient_vout = 0;
             for recipient in recipients.clone() {
                 self._check_transport_endpoints(&recipient.transport_endpoints)?;
+                if recipient.amount == 0 {
+                    return Err(Error::InvalidAmountZero);
+                }
 
                 let mut transport_endpoints: Vec<LocalTransportEndpoint> = vec![];
                 let mut found_valid = false;

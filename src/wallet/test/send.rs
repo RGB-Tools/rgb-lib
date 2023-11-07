@@ -3021,6 +3021,26 @@ fn fail() {
         MIN_CONFIRMATIONS,
     );
     assert!(matches!(result, Err(Error::RecipientIDDuplicated)));
+
+    // amount 0
+    let recipient_map = HashMap::from([(
+        asset.asset_id,
+        vec![Recipient {
+            recipient_data: RecipientData::BlindedUTXO(
+                SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
+            ),
+            amount: 0,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let result = wallet.send_begin(
+        online,
+        recipient_map.clone(),
+        false,
+        FEE_RATE,
+        MIN_CONFIRMATIONS,
+    );
+    assert!(matches!(result, Err(Error::InvalidAmountZero)));
 }
 
 #[test]

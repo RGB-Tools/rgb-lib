@@ -30,6 +30,7 @@ interface RgbLibError {
   InsufficientTotalAssets(string asset_id);
   Internal(string details);
   InvalidAddress(string details);
+  InvalidAmountZero();
   InvalidAssetID(string asset_id);
   InvalidBitcoinKeys();
   InvalidBitcoinNetwork(string network);
