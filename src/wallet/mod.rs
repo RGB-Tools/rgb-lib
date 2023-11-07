@@ -3973,7 +3973,7 @@ impl Wallet {
     fn _prepare_psbt(
         &self,
         input_outpoints: Vec<BdkOutPoint>,
-        witness_recipients: &HashMap<ScriptBuf, u64>,
+        witness_recipients: &Vec<(ScriptBuf, u64)>,
         fee_rate: f32,
     ) -> Result<BdkPsbt, Error> {
         let mut builder = self.bdk_wallet.build_tx();
@@ -4005,7 +4005,7 @@ impl Wallet {
         &self,
         input_unspents: &[LocalUnspent],
         all_inputs: &mut Vec<BdkOutPoint>,
-        witness_recipients: &HashMap<ScriptBuf, u64>,
+        witness_recipients: &Vec<(ScriptBuf, u64)>,
         fee_rate: f32,
     ) -> Result<BdkPsbt, Error> {
         let psbt = loop {
@@ -4563,7 +4563,7 @@ impl Wallet {
         });
 
         let mut runtime = self._rgb_runtime()?;
-        let mut witness_recipients: HashMap<ScriptBuf, u64> = HashMap::new();
+        let mut witness_recipients: Vec<(ScriptBuf, u64)> = vec![];
         let mut transfer_info_map: BTreeMap<String, InfoAssetTransfer> = BTreeMap::new();
         for (asset_id, recipients) in recipient_map {
             self.database.check_asset_exists(asset_id.clone())?;
@@ -4613,7 +4613,7 @@ impl Wallet {
                         amount_sat,
                         ..
                     } => {
-                        witness_recipients.insert(script_buf.clone(), *amount_sat);
+                        witness_recipients.push((script_buf.clone(), *amount_sat));
                         let vout = recipient_vout;
                         recipient_vout += 1;
                         Some(vout)

@@ -4196,6 +4196,15 @@ fn witness_success() {
             MIN_CONFIRMATIONS,
         )
         .unwrap();
+    let receive_data_3 = rcv_wallet
+        .witness_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![
@@ -4209,7 +4218,7 @@ fn witness_success() {
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
             Recipient {
-                amount,
+                amount: amount * 2,
                 recipient_data: RecipientData::WitnessData {
                     script_buf: ScriptBuf::from_hex(&receive_data_2.recipient_id).unwrap(),
                     amount_sat: 1200,
@@ -4217,8 +4226,18 @@ fn witness_success() {
                 },
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
+            Recipient {
+                amount: amount * 3,
+                recipient_data: RecipientData::WitnessData {
+                    script_buf: ScriptBuf::from_hex(&receive_data_3.recipient_id).unwrap(),
+                    amount_sat: 1400,
+                    blinding: Some(8888),
+                },
+                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+            },
         ],
     )]);
+    _test_create_utxos(&mut wallet, online.clone(), false, None, None, FEE_RATE);
     let txid = test_send_default(&mut wallet, &online, recipient_map);
     assert!(!txid.is_empty());
 
@@ -4269,7 +4288,7 @@ fn witness_success() {
         rcv_asset.balance,
         Balance {
             settled: 0,
-            future: amount * 2,
+            future: amount * 6,
             spendable: 0,
         }
     );
@@ -4305,9 +4324,9 @@ fn witness_success() {
     assert!(matches!(
         balances.colored,
         Balance {
-            settled: 7200,
-            future: 7200,
-            spendable: 7200,
+            settled: 8600,
+            future: 8600,
+            spendable: 8600,
         }
     ));
 }
