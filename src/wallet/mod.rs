@@ -3259,6 +3259,46 @@ impl Wallet {
         Ok(unspents)
     }
 
+    /// List the unspents of the vanilla wallet, using BDK's objects, filtered by
+    /// `min_confirmations`.
+    ///
+    /// This method is meant for special usage, for most cases the method [`list_unspents`] is
+    /// sufficient.
+    pub fn list_unspents_vanilla(
+        &self,
+        online: Online,
+        min_confirmations: u8,
+    ) -> Result<Vec<LocalUtxo>, Error> {
+        self._check_online(online)?;
+        self._sync_wallet(&self.bdk_wallet)?;
+
+        let unspents = self._internal_unspents()?.filter(|u| !u.is_spent);
+
+        if min_confirmations > 0 {
+            unspents
+                .filter_map(
+                    |u| match self._get_tx_details(u.outpoint.txid.to_string(), None) {
+                        Ok(tx_details) => {
+                            if tx_details.get("confirmations").is_some()
+                                && tx_details["confirmations"]
+                                    .as_u64()
+                                    .expect("confirmations to be a valid u64 number")
+                                    >= min_confirmations as u64
+                            {
+                                Some(Ok(u))
+                            } else {
+                                None
+                            }
+                        }
+                        Err(_e) => Some(Err(InternalError::Unexpected.into())),
+                    },
+                )
+                .collect::<Result<Vec<LocalUtxo>, Error>>()
+        } else {
+            Ok(unspents.collect())
+        }
+    }
+
     fn _get_signed_psbt(&self, transfer_dir: PathBuf) -> Result<BdkPsbt, Error> {
         let psbt_file = transfer_dir.join(SIGNED_PSBT_FILE);
         let psbt_str = fs::read_to_string(psbt_file)?;
