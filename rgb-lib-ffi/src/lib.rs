@@ -201,7 +201,7 @@ impl Wallet {
     }
 
     fn sign_psbt(&self, unsigned_psbt: String) -> Result<String, RgbLibError> {
-        self._get_wallet().sign_psbt(unsigned_psbt)
+        self._get_wallet().sign_psbt(unsigned_psbt, None)
     }
 
     fn create_utxos(

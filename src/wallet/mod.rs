@@ -1743,17 +1743,26 @@ impl Wallet {
         })
     }
 
-    fn _sign_psbt(&self, psbt: &mut BdkPsbt) -> Result<(), Error> {
+    fn _sign_psbt(
+        &self,
+        psbt: &mut BdkPsbt,
+        sign_options: Option<SignOptions>,
+    ) -> Result<(), Error> {
+        let sign_options = sign_options.unwrap_or_default();
         self.bdk_wallet
-            .sign(psbt, SignOptions::default())
+            .sign(psbt, sign_options)
             .map_err(InternalError::from)?;
         Ok(())
     }
 
-    /// Sign a PSBT
-    pub fn sign_psbt(&self, unsigned_psbt: String) -> Result<String, Error> {
+    /// Sign a PSBT, optionally providing BDK sign options.
+    pub fn sign_psbt(
+        &self,
+        unsigned_psbt: String,
+        sign_options: Option<SignOptions>,
+    ) -> Result<String, Error> {
         let mut psbt = BdkPsbt::from_str(&unsigned_psbt).map_err(InternalError::from)?;
-        self._sign_psbt(&mut psbt)?;
+        self._sign_psbt(&mut psbt, sign_options)?;
         Ok(psbt.to_string())
     }
 
@@ -1792,7 +1801,7 @@ impl Wallet {
 
         let unsigned_psbt = self.create_utxos_begin(online.clone(), up_to, num, size, fee_rate)?;
 
-        let psbt = self.sign_psbt(unsigned_psbt)?;
+        let psbt = self.sign_psbt(unsigned_psbt, None)?;
 
         self.create_utxos_end(online, psbt)
     }
@@ -2054,7 +2063,7 @@ impl Wallet {
         let unsigned_psbt =
             self.drain_to_begin(online.clone(), address, destroy_assets, fee_rate)?;
 
-        let psbt = self.sign_psbt(unsigned_psbt)?;
+        let psbt = self.sign_psbt(unsigned_psbt, None)?;
 
         self.drain_to_end(online, psbt)
     }
@@ -4484,7 +4493,7 @@ impl Wallet {
             min_confirmations,
         )?;
 
-        let psbt = self.sign_psbt(unsigned_psbt)?;
+        let psbt = self.sign_psbt(unsigned_psbt, None)?;
 
         self.send_end(online, psbt)
     }
@@ -4826,7 +4835,7 @@ impl Wallet {
             })?
             .0;
 
-        self._sign_psbt(&mut psbt)?;
+        self._sign_psbt(&mut psbt, None)?;
 
         let tx = self._broadcast_psbt(psbt)?;
 
