@@ -70,9 +70,9 @@ fn consistency_check_fail_utxos() {
     let xpub = extended_key.into_xpub(bdk_network, &Secp256k1::new());
     let fingerprint = xpub.fingerprint().to_string();
     // prepare directories
-    let data_dir_empty = PathBuf::from(TEST_DATA_DIR).join("test_consistency.empty");
-    let data_dir_prefill = PathBuf::from(TEST_DATA_DIR).join("test_consistency.prefill");
-    let data_dir_prefill_2 = PathBuf::from(TEST_DATA_DIR).join("test_consistency.prefill_2");
+    let data_dir_empty = get_test_data_dir_path().join("test_consistency.empty");
+    let data_dir_prefill = get_test_data_dir_path().join("test_consistency.prefill");
+    let data_dir_prefill_2 = get_test_data_dir_path().join("test_consistency.prefill_2");
     let wallet_dir_prefill = PathBuf::from(&data_dir_prefill).join(&fingerprint);
     let wallet_dir_prefill_2 = PathBuf::from(&data_dir_prefill_2).join(&fingerprint);
     for dir in [
@@ -164,9 +164,9 @@ fn consistency_check_fail_asset_ids() {
     let xpub = extended_key.into_xpub(bdk_network, &Secp256k1::new());
     let fingerprint = xpub.fingerprint().to_string();
     // prepare directories
-    let data_dir_prefill_1 = PathBuf::from(TEST_DATA_DIR).join("test_consistency.prefill_1");
-    let data_dir_prefill_2 = PathBuf::from(TEST_DATA_DIR).join("test_consistency.prefill_2");
-    let data_dir_prefill_3 = PathBuf::from(TEST_DATA_DIR).join("test_consistency.prefill_3");
+    let data_dir_prefill_1 = get_test_data_dir_path().join("test_consistency.prefill_1");
+    let data_dir_prefill_2 = get_test_data_dir_path().join("test_consistency.prefill_2");
+    let data_dir_prefill_3 = get_test_data_dir_path().join("test_consistency.prefill_3");
     let wallet_dir_prefill_1 = PathBuf::from(&data_dir_prefill_1).join(&fingerprint);
     let wallet_dir_prefill_2 = PathBuf::from(&data_dir_prefill_2).join(&fingerprint);
     let wallet_dir_prefill_3 = PathBuf::from(&data_dir_prefill_3).join(&fingerprint);

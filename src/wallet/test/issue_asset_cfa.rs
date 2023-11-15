@@ -7,7 +7,7 @@ fn success() {
     initialize();
 
     let file_str = "README.md";
-    let image_str = "tests/qrcode.png";
+    let image_str = ["tests", "qrcode.png"].join(&MAIN_SEPARATOR.to_string());
 
     let (mut wallet, online) = get_funded_wallet!();
 

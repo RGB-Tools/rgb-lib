@@ -4,11 +4,7 @@ use bdk::descriptor::Descriptor;
 use serial_test::parallel;
 
 fn check_wallet(wallet: &Wallet, network: BitcoinNetwork, keychain_vanilla: Option<u8>) {
-    let hardened = if wallet.wallet_data.mnemonic.is_some() {
-        true
-    } else {
-        false
-    };
+    let hardened = wallet.wallet_data.mnemonic.is_some();
     let mut coin_type = i32::from(network != BitcoinNetwork::Mainnet).to_string();
     let mut purpose = PURPOSE.to_string();
     let mut account = ACCOUNT.to_string();
@@ -23,7 +19,7 @@ fn check_wallet(wallet: &Wallet, network: BitcoinNetwork, keychain_vanilla: Opti
     match external_descriptor {
         Descriptor::Wpkh(ref wpkh) => {
             let full_derivation_path = wpkh.as_inner().full_derivation_path().unwrap().to_string();
-            let split: Vec<&str> = full_derivation_path.split("/").collect();
+            let split: Vec<&str> = full_derivation_path.split('/').collect();
             assert_eq!(split[1], purpose);
             assert_eq!(split[2], coin_type);
             assert_eq!(split[3], account);
@@ -37,7 +33,7 @@ fn check_wallet(wallet: &Wallet, network: BitcoinNetwork, keychain_vanilla: Opti
     match internal_descriptor {
         Descriptor::Wpkh(ref wpkh) => {
             let full_derivation_path = wpkh.as_inner().full_derivation_path().unwrap().to_string();
-            let split: Vec<&str> = full_derivation_path.split("/").collect();
+            let split: Vec<&str> = full_derivation_path.split('/').collect();
             assert_eq!(split[1], purpose);
             assert_eq!(split[2], coin_type);
             assert_eq!(split[3], account);
@@ -68,12 +64,12 @@ fn success() {
     let keys = generate_keys(bitcoin_network);
     let vanilla_keychain = Some(u8::MAX);
     let wallet = Wallet::new(WalletData {
-        data_dir: TEST_DATA_DIR.to_string(),
+        data_dir: get_test_data_dir_string(),
         bitcoin_network,
         database_type: DatabaseType::Sqlite,
         max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
         pubkey: keys.xpub.clone(),
-        mnemonic: Some(keys.mnemonic.clone()),
+        mnemonic: Some(keys.mnemonic),
         vanilla_keychain,
     })
     .unwrap();
@@ -83,7 +79,7 @@ fn success() {
 #[test]
 #[parallel]
 fn testnet_success() {
-    fs::create_dir_all(TEST_DATA_DIR).unwrap();
+    fs::create_dir_all(get_test_data_dir_string()).unwrap();
 
     let bitcoin_network = BitcoinNetwork::Testnet;
     let mut wallet = get_test_wallet_with_net(true, None, bitcoin_network);
@@ -98,7 +94,7 @@ fn testnet_success() {
 #[test]
 #[parallel]
 fn mainnet_success() {
-    fs::create_dir_all(TEST_DATA_DIR).unwrap();
+    fs::create_dir_all(get_test_data_dir_string()).unwrap();
 
     let bitcoin_network = BitcoinNetwork::Mainnet;
     let mut wallet = get_test_wallet_with_net(true, None, bitcoin_network);

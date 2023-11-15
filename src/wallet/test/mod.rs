@@ -2,6 +2,7 @@ use amplify::s;
 use lazy_static::lazy_static;
 use once_cell::sync::Lazy;
 use regex::RegexSet;
+use std::path::MAIN_SEPARATOR;
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, Once, RwLock};
 use time::OffsetDateTime;
@@ -23,7 +24,7 @@ static PROXY_ENDPOINT: Lazy<String> = Lazy::new(|| format!("rpc://{PROXY_HOST}")
 static TRANSPORT_ENDPOINTS: Lazy<Vec<String>> = Lazy::new(|| vec![PROXY_ENDPOINT.clone()]);
 const ELECTRUM_URL: &str = "127.0.0.1:50001";
 const ELECTRUM_2_URL: &str = "127.0.0.1:50002";
-const TEST_DATA_DIR: &str = "./tests/tmp";
+const TEST_DATA_DIR_PARTS: [&str; 2] = ["tests", "tmp"];
 const TICKER: &str = "TICKER";
 const NAME: &str = "asset name";
 const DESCRIPTION: &str = "description with ℧nicode characters";
@@ -35,16 +36,17 @@ const FEE_MSG_HIGH: &str = "value above maximum 1000";
 const IDENT_EMPTY_MSG: &str = "ident must contain at least one character";
 const IDENT_TOO_LONG_MSG: &str = "identifier name has invalid length";
 const IDENT_NOT_ASCII_MSG: &str = "identifier name contains non-ASCII character(s)";
-const RESTORE_DIR: &str = "./tests/tmp/restored";
+const RESTORE_DIR_PARTS: [&str; 3] = ["tests", "tmp", "restored"];
 const MAX_ALLOCATIONS_PER_UTXO: u32 = 5;
 const MIN_CONFIRMATIONS: u8 = 1;
 
 static INIT: Once = Once::new();
 
 pub fn initialize() {
+    let start_services_file = ["tests", "start_services.sh"].join(&MAIN_SEPARATOR.to_string());
     INIT.call_once(|| {
         println!("starting test services...");
-        let status = Command::new("./tests/start_services.sh")
+        let status = Command::new(start_services_file)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()

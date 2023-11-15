@@ -1,5 +1,25 @@
 use super::*;
 
+pub(crate) fn join_with_sep(parts: &[&str]) -> String {
+    parts.join(&MAIN_SEPARATOR.to_string())
+}
+
+pub(crate) fn get_restore_dir_string() -> String {
+    join_with_sep(&RESTORE_DIR_PARTS)
+}
+
+pub(crate) fn get_test_data_dir_string() -> String {
+    join_with_sep(&TEST_DATA_DIR_PARTS)
+}
+
+pub(crate) fn get_restore_dir_path() -> PathBuf {
+    PathBuf::from(get_restore_dir_string())
+}
+
+pub(crate) fn get_test_data_dir_path() -> PathBuf {
+    PathBuf::from(get_test_data_dir_string())
+}
+
 pub(crate) fn get_test_wallet_data(data_dir: &str, pubkey: &str, mnemonic: &str) -> WalletData {
     WalletData {
         data_dir: data_dir.to_string(),
@@ -18,8 +38,7 @@ pub(crate) fn get_test_wallet_with_net(
     max_allocations_per_utxo: Option<u32>,
     bitcoin_network: BitcoinNetwork,
 ) -> Wallet {
-    let tests_data = TEST_DATA_DIR;
-    fs::create_dir_all(tests_data).unwrap();
+    fs::create_dir_all(get_test_data_dir_path()).unwrap();
 
     let keys = generate_keys(bitcoin_network);
     let mut mnemonic = None;
@@ -27,7 +46,7 @@ pub(crate) fn get_test_wallet_with_net(
         mnemonic = Some(keys.mnemonic)
     }
     Wallet::new(WalletData {
-        data_dir: tests_data.to_string(),
+        data_dir: get_test_data_dir_string(),
         bitcoin_network,
         database_type: DatabaseType::Sqlite,
         max_allocations_per_utxo: max_allocations_per_utxo.unwrap_or(MAX_ALLOCATIONS_PER_UTXO),

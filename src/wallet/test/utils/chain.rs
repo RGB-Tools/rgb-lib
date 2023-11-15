@@ -8,9 +8,10 @@ pub(crate) struct Miner {
 }
 
 pub(crate) fn _bitcoin_cli() -> [String; 9] {
+    let compose_file = ["tests", "docker-compose.yml"].join(&MAIN_SEPARATOR.to_string());
     [
         s!("-f"),
-        s!("tests/docker-compose.yml"),
+        compose_file,
         s!("exec"),
         s!("-T"),
         s!("-u"),

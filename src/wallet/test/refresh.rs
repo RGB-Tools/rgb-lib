@@ -304,7 +304,7 @@ fn nia_with_media() {
     let (mut wallet_2, online_2) = get_funded_wallet!();
     let (mut wallet_3, online_3) = get_funded_wallet!();
 
-    let fp = "tests/qrcode.png".to_string();
+    let fp = ["tests", "qrcode.png"].join(&MAIN_SEPARATOR.to_string());
     let fpath = std::path::Path::new(&fp);
     let file_bytes = std::fs::read(fp.clone()).unwrap();
     let file_hash: sha256::Hash = Sha256Hash::hash(&file_bytes[..]);

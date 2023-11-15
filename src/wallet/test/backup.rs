@@ -9,7 +9,8 @@ fn success() {
     initialize();
 
     let amount: u64 = 66;
-    let backup_file = format!("{TEST_DATA_DIR}/test_backup_success.rgb-lib_backup");
+    let backup_file_path = get_test_data_dir_path().join("test_backup_success.rgb-lib_backup");
+    let backup_file = backup_file_path.to_str().unwrap();
     let password = "password";
 
     // wallets
@@ -48,7 +49,7 @@ fn success() {
 
     // backup
     println!("\nbacking up...");
-    wallet.backup(&backup_file, password).unwrap();
+    wallet.backup(backup_file, password).unwrap();
 
     // backup not required after doing one
     let backup_required = wallet.backup_info().unwrap();
@@ -60,17 +61,17 @@ fn success() {
 
     // restore
     println!("\nrestoring...");
-    restore_backup(&backup_file, password, RESTORE_DIR).unwrap();
+    restore_backup(backup_file, password, &get_restore_dir_string()).unwrap();
 
     // check original and restored data are the same
     println!("\ncomparing data...");
-    let restore_wallet_dir = PathBuf::from_str(RESTORE_DIR)
+    let restore_wallet_dir = PathBuf::from_str(&get_restore_dir_string())
         .unwrap()
         .join(wallet_dir.file_name().unwrap());
     compare_test_directories(&wallet_dir, &restore_wallet_dir, &["log"]);
 
     // post-restore wallet data
-    wallet_data.data_dir = RESTORE_DIR.to_string();
+    wallet_data.data_dir = get_restore_dir_string();
     let mut wallet = Wallet::new(wallet_data).unwrap();
     let online = test_go_online(&mut wallet, true, None);
     check_test_wallet_data(&mut wallet, &asset, None, 1, amount);
@@ -106,7 +107,7 @@ fn success() {
     let _asset = test_issue_asset_nia(&mut wallet, &online, None);
 
     // cleanup
-    std::fs::remove_file(&backup_file).unwrap_or_default();
+    std::fs::remove_file(backup_file).unwrap_or_default();
 }
 
 #[test]
@@ -114,22 +115,23 @@ fn success() {
 fn fail() {
     initialize();
 
-    let backup_file = format!("{TEST_DATA_DIR}/test_backup_fail.rgb-lib_backup");
+    let backup_file_path = get_test_data_dir_path().join("test_backup_fail.rgb-lib_backup");
+    let backup_file = backup_file_path.to_str().unwrap();
 
     let (wallet, _online) = get_empty_wallet!();
 
     // backup
-    wallet.backup(&backup_file, "password").unwrap();
+    wallet.backup(backup_file, "password").unwrap();
 
     // backup on same file twice
-    let result = wallet.backup(&backup_file, "password");
+    let result = wallet.backup(backup_file, "password");
     assert!(matches!(result, Err(Error::FileAlreadyExists { path: _ })));
 
     // restore with wrong password
-    let result = restore_backup(&backup_file, "wrong password", RESTORE_DIR);
+    let result = restore_backup(backup_file, "wrong password", &get_restore_dir_string());
     assert!(matches!(result, Err(Error::WrongPassword)));
 
-    std::fs::remove_file(&backup_file).unwrap_or_default();
+    std::fs::remove_file(backup_file).unwrap_or_default();
 }
 
 #[test]
@@ -138,8 +140,10 @@ fn double_restore() {
     initialize();
 
     let amount: u64 = 66;
-    let backup_file_1 = format!("{TEST_DATA_DIR}/test_double_restore_1.rgb-lib_backup");
-    let backup_file_2 = format!("{TEST_DATA_DIR}/test_double_restore_2.rgb-lib_backup");
+    let backup_file_1_path = get_test_data_dir_path().join("test_double_restore_1.rgb-lib_backup");
+    let backup_file_1 = backup_file_1_path.to_str().unwrap();
+    let backup_file_2_path = get_test_data_dir_path().join("test_double_restore_2.rgb-lib_backup");
+    let backup_file_2 = backup_file_2_path.to_str().unwrap();
     let password_1 = "password1";
     let password_2 = "password2";
 
@@ -200,14 +204,14 @@ fn double_restore() {
 
     // backup
     println!("\nbacking up...");
-    wallet_1.backup(&backup_file_1, password_1).unwrap();
+    wallet_1.backup(backup_file_1, password_1).unwrap();
     let custom_params = ScryptParams::new(
         Some(Params::RECOMMENDED_LOG_N + 1),
         Some(Params::RECOMMENDED_R + 1),
         Some(Params::RECOMMENDED_P + 1),
     );
     wallet_2
-        .backup_customize(&backup_file_2, password_2, Some(custom_params))
+        .backup_customize(backup_file_2, password_2, Some(custom_params))
         .unwrap();
 
     // drop wallets
@@ -218,23 +222,19 @@ fn double_restore() {
 
     // restore
     println!("\nrestoring...");
-    restore_backup(&backup_file_1, password_1, RESTORE_DIR).unwrap();
-    restore_backup(&backup_file_2, password_2, RESTORE_DIR).unwrap();
+    restore_backup(backup_file_1, password_1, &get_restore_dir_string()).unwrap();
+    restore_backup(backup_file_2, password_2, &get_restore_dir_string()).unwrap();
 
     // check original and restored data are the same
     println!("\ncomparing data for wallet 1...");
-    let restore_wallet_1_dir = PathBuf::from_str(RESTORE_DIR)
-        .unwrap()
-        .join(wallet_1_dir.file_name().unwrap());
+    let restore_wallet_1_dir = get_restore_dir_path().join(wallet_1_dir.file_name().unwrap());
     compare_test_directories(&wallet_1_dir, &restore_wallet_1_dir, &["log"]);
-    let restore_wallet_2_dir = PathBuf::from_str(RESTORE_DIR)
-        .unwrap()
-        .join(wallet_2_dir.file_name().unwrap());
+    let restore_wallet_2_dir = get_restore_dir_path().join(wallet_2_dir.file_name().unwrap());
     compare_test_directories(&wallet_2_dir, &restore_wallet_2_dir, &["log"]);
 
     // post-restore wallet data
-    wallet_1_data.data_dir = RESTORE_DIR.to_string();
-    wallet_2_data.data_dir = RESTORE_DIR.to_string();
+    wallet_1_data.data_dir = get_restore_dir_string();
+    wallet_2_data.data_dir = get_restore_dir_string();
     let mut wallet_1 = Wallet::new(wallet_1_data).unwrap();
     let mut wallet_2 = Wallet::new(wallet_2_data).unwrap();
     let online_1 = test_go_online(&mut wallet_1, true, None);
@@ -247,8 +247,8 @@ fn double_restore() {
     test_issue_asset_nia(&mut wallet_2, &online_2, None);
 
     // cleanup
-    std::fs::remove_file(&backup_file_1).unwrap_or_default();
-    std::fs::remove_file(&backup_file_2).unwrap_or_default();
+    std::fs::remove_file(backup_file_1).unwrap_or_default();
+    std::fs::remove_file(backup_file_2).unwrap_or_default();
 }
 
 #[test]
