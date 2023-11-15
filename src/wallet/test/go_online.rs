@@ -198,15 +198,8 @@ fn consistency_check_fail_asset_ids() {
     );
     // copy original wallet's data to prefilled wallets 1 + 2 data dir
     for destination in [&wallet_dir_prefill_1, &wallet_dir_prefill_2] {
-        let result = Command::new("cp")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .arg("-r")
-            .arg(&wallet_dir_orig)
-            .arg(destination)
-            .status();
-        assert!(result.is_ok());
+        let result = copy_dir::copy_dir(&wallet_dir_orig, destination);
+        assert!(result.unwrap().is_empty());
     }
 
     // check the first wallet copy works ok
@@ -223,15 +216,8 @@ fn consistency_check_fail_asset_ids() {
     assert!(matches!(result, Err(Error::Inconsistency { details: _ })));
 
     // make sure detection works multiple times
-    let result = Command::new("cp")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .arg("-r")
-        .arg(&wallet_dir_prefill_2)
-        .arg(&wallet_dir_prefill_3)
-        .status();
-    assert!(result.is_ok());
+    let result = copy_dir::copy_dir(wallet_dir_prefill_2, wallet_dir_prefill_3);
+    assert!(result.unwrap().is_empty());
     let mut wallet_prefill_3 = Wallet::new(wallet_data_prefill_3).unwrap();
     let result = test_go_online_result(&mut wallet_prefill_3, false, None);
     assert!(matches!(result, Err(Error::Inconsistency { details: _ })));
