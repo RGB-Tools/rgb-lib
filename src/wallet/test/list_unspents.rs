@@ -25,7 +25,7 @@ fn success() {
     fund_wallet(test_get_address(&wallet));
     mine(false);
 
-    // one (settled) unspent, no RGB allocations
+    // one unspent, no RGB allocations
     let unspent_list_settled = test_list_unspents(&wallet, Some(&online), true);
     assert_eq!(unspent_list_settled.len(), 1);
     let unspent_list_all = test_list_unspents(&wallet, None, false);
@@ -160,7 +160,7 @@ fn success() {
     assert!(settled_allocations
         .iter()
         .all(|a| a.asset_id == Some(asset.asset_id.clone()) && a.amount == AMOUNT && a.settled));
-    // check sender lists one pending change
+    // check sender lists one pending change + 1 settled issue
     let unspent_list_all = test_list_unspents(&wallet, None, false);
     assert_eq!(
         unspent_list_all.iter().filter(|u| u.utxo.colorable).count(),
@@ -174,6 +174,7 @@ fn success() {
         1
     );
     let mut pending_allocations = vec![];
+    let mut settled_allocations = vec![];
     unspent_list_all
         .iter()
         .for_each(|u| pending_allocations.extend(u.rgb_allocations.iter().filter(|a| !a.settled)));
@@ -181,6 +182,13 @@ fn success() {
     assert!(pending_allocations
         .iter()
         .all(|a| a.asset_id == Some(asset.asset_id.clone()) && a.amount == AMOUNT - amount));
+    unspent_list_all
+        .iter()
+        .for_each(|u| settled_allocations.extend(u.rgb_allocations.iter().filter(|a| a.settled)));
+    assert_eq!(settled_allocations.len(), 1);
+    assert!(settled_allocations
+        .iter()
+        .all(|a| a.asset_id == Some(asset.asset_id.clone()) && a.amount == AMOUNT));
 
     stop_mining();
 
