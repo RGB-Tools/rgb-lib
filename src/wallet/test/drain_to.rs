@@ -38,6 +38,59 @@ fn success() {
 
 #[test]
 #[parallel]
+fn pending_witness_receive() {
+    initialize();
+
+    let amount: u64 = 66;
+
+    // wallets
+    let (mut wallet, online) = get_funded_wallet!();
+    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
+    let (drain_wallet, _drain_online) = get_empty_wallet!();
+
+    // issue
+    let asset = test_issue_asset_nia(&mut wallet, &online, None);
+
+    // send
+    let receive_data = test_witness_receive(&mut rcv_wallet);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            amount,
+            recipient_data: RecipientData::WitnessData {
+                script_buf: ScriptBuf::from_hex(&receive_data.recipient_id).unwrap(),
+                amount_sat: 1000,
+                blinding: None,
+            },
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid = test_send(&mut wallet, &online, &recipient_map);
+    assert!(!txid.is_empty());
+
+    // refresh receiver (no UTXOs created) + sender (to broadcast) + mine
+    test_refresh_all(&mut rcv_wallet, &rcv_online);
+    test_refresh_asset(&mut wallet, &online, &asset.asset_id);
+    mine(false);
+
+    // receiver still doesn't see the new UTXO (not refreshed a 2nd time yet)
+    let unspents = list_test_unspents(&rcv_wallet, "before draining");
+    assert_eq!(unspents.len(), 6);
+
+    // drain receiver, which syncs the wallet, detecting (and draining) the new UTXO as well
+    let address = test_get_address(&drain_wallet);
+    test_drain_to_destroy(&rcv_wallet, &rcv_online, &address);
+    let unspents = list_test_unspents(&rcv_wallet, "after draining");
+    assert_eq!(unspents.len(), 0);
+
+    // refresh receiver, if draining hadn't synced (before draining) a new UTXO would appear
+    test_refresh_all(&mut rcv_wallet, &rcv_online);
+    let unspents = list_test_unspents(&rcv_wallet, "after receiver refresh 2");
+    assert_eq!(unspents.len(), 0);
+}
+
+#[test]
+#[parallel]
 fn fail() {
     initialize();
 
