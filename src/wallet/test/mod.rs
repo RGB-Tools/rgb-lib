@@ -54,11 +54,9 @@ fn _bitcoin_cli() -> [String; 9] {
     ]
 }
 
-fn drain_wallet(wallet: &Wallet, online: Online) {
+fn drain_wallet(wallet: &Wallet, online: &Online) {
     let rcv_wallet = get_test_wallet(false, None);
-    wallet
-        .drain_to(online, rcv_wallet.get_address().unwrap(), true, FEE_RATE)
-        .unwrap();
+    test_drain_to_destroy(wallet, online, &rcv_wallet.get_address().unwrap());
 }
 
 fn fund_wallet(address: String) {
@@ -196,6 +194,18 @@ pub fn initialize() {
     });
 }
 
+fn get_test_wallet_data(data_dir: &str, pubkey: &str, mnemonic: &str) -> WalletData {
+    WalletData {
+        data_dir: data_dir.to_string(),
+        bitcoin_network: BitcoinNetwork::Regtest,
+        database_type: DatabaseType::Sqlite,
+        max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
+        pubkey: pubkey.to_string(),
+        mnemonic: Some(mnemonic.to_string()),
+        vanilla_keychain: None,
+    }
+}
+
 // return a wallet for testing
 fn get_test_wallet_with_net(
     private_keys: bool,
@@ -235,7 +245,7 @@ fn get_test_wallet(private_keys: bool, max_allocations_per_utxo: Option<u32>) ->
 fn get_empty_wallet(print_log: bool, private_keys: bool) -> (Wallet, Online) {
     let mut wallet = get_test_wallet(private_keys, None);
     if print_log {
-        println!("wallet directory: {:?}", wallet.get_wallet_dir());
+        println!("wallet directory: {:?}", test_get_wallet_dir(&wallet));
     }
     let online = wallet.go_online(true, ELECTRUM_URL.to_string()).unwrap();
     (wallet, online)
@@ -265,7 +275,7 @@ macro_rules! get_funded_noutxo_wallet {
 
 fn get_funded_wallet(print_log: bool, private_keys: bool) -> (Wallet, Online) {
     let (mut wallet, online) = get_funded_noutxo_wallet(print_log, private_keys);
-    test_create_utxos_default(&mut wallet, online.clone());
+    test_create_utxos_default(&mut wallet, &online);
     (wallet, online)
 }
 macro_rules! get_funded_wallet {
@@ -277,13 +287,37 @@ macro_rules! get_funded_wallet {
     };
 }
 
-fn test_create_utxos_default(wallet: &mut Wallet, online: Online) -> u8 {
+fn test_blind_receive(wallet: &mut Wallet) -> ReceiveData {
+    wallet
+        .blind_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap()
+}
+
+fn test_witness_receive(wallet: &mut Wallet) -> ReceiveData {
+    wallet
+        .witness_receive(
+            None,
+            None,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap()
+}
+
+fn test_create_utxos_default(wallet: &mut Wallet, online: &Online) -> u8 {
     _test_create_utxos(wallet, online, false, None, None, FEE_RATE)
 }
 
 fn test_create_utxos(
     wallet: &mut Wallet,
-    online: Online,
+    online: &Online,
     up_to: bool,
     num: Option<u8>,
     size: Option<u32>,
@@ -292,9 +326,20 @@ fn test_create_utxos(
     _test_create_utxos(wallet, online, up_to, num, size, fee_rate)
 }
 
+fn test_create_utxos_begin_result(
+    wallet: &mut Wallet,
+    online: &Online,
+    up_to: bool,
+    num: Option<u8>,
+    size: Option<u32>,
+    fee_rate: f32,
+) -> Result<String, Error> {
+    wallet.create_utxos_begin(online.clone(), up_to, num, size, fee_rate)
+}
+
 fn _test_create_utxos(
     wallet: &mut Wallet,
-    online: Online,
+    online: &Online,
     up_to: bool,
     num: Option<u8>,
     size: Option<u32>,
@@ -329,20 +374,274 @@ fn _test_create_utxos(
     num_utxos_created
 }
 
-fn test_send_default(
+fn test_delete_transfers(
+    wallet: &Wallet,
+    recipient_id: Option<&str>,
+    txid: Option<&str>,
+    no_asset_only: bool,
+) -> bool {
+    test_delete_transfers_result(wallet, recipient_id, txid, no_asset_only).unwrap()
+}
+
+fn test_delete_transfers_result(
+    wallet: &Wallet,
+    recipient_id: Option<&str>,
+    txid: Option<&str>,
+    no_asset_only: bool,
+) -> Result<bool, Error> {
+    let recipient_id = recipient_id.map(|id| id.to_string());
+    let txid = txid.map(|id| id.to_string());
+    wallet.delete_transfers(recipient_id, txid, no_asset_only)
+}
+
+fn test_drain_to_result(
+    wallet: &Wallet,
+    online: &Online,
+    address: &str,
+    destroy_assets: bool,
+) -> Result<String, Error> {
+    wallet.drain_to(
+        online.clone(),
+        address.to_string(),
+        destroy_assets,
+        FEE_RATE,
+    )
+}
+
+fn test_drain_to_begin_result(
+    wallet: &Wallet,
+    online: &Online,
+    address: &str,
+    destroy_assets: bool,
+    fee_rate: f32,
+) -> Result<String, Error> {
+    wallet.drain_to_begin(
+        online.clone(),
+        address.to_string(),
+        destroy_assets,
+        fee_rate,
+    )
+}
+
+fn test_drain_to_destroy(wallet: &Wallet, online: &Online, address: &str) -> String {
+    wallet
+        .drain_to(online.clone(), address.to_string(), true, FEE_RATE)
+        .unwrap()
+}
+
+fn test_drain_to_keep(wallet: &Wallet, online: &Online, address: &str) -> String {
+    wallet
+        .drain_to(online.clone(), address.to_string(), false, FEE_RATE)
+        .unwrap()
+}
+
+fn test_fail_transfers_all(wallet: &mut Wallet, online: &Online) -> bool {
+    wallet
+        .fail_transfers(online.clone(), None, None, false)
+        .unwrap()
+}
+
+fn test_fail_transfers_blind(wallet: &mut Wallet, online: &Online, blinded_utxo: &str) -> bool {
+    wallet
+        .fail_transfers(online.clone(), Some(blinded_utxo.to_string()), None, false)
+        .unwrap()
+}
+
+fn test_fail_transfers_txid(wallet: &mut Wallet, online: &Online, txid: &str) -> bool {
+    wallet
+        .fail_transfers(online.clone(), None, Some(txid.to_string()), false)
+        .unwrap()
+}
+
+fn test_get_address(wallet: &Wallet) -> String {
+    wallet.get_address().unwrap()
+}
+
+fn test_get_asset_balance(wallet: &Wallet, asset_id: &str) -> Balance {
+    test_get_asset_balance_result(wallet, asset_id).unwrap()
+}
+
+fn test_get_asset_balance_result(wallet: &Wallet, asset_id: &str) -> Result<Balance, Error> {
+    wallet.get_asset_balance(asset_id.to_string())
+}
+
+fn test_get_asset_metadata(wallet: &mut Wallet, asset_id: &str) -> Metadata {
+    test_get_asset_metadata_result(wallet, asset_id).unwrap()
+}
+
+fn test_get_asset_metadata_result(wallet: &mut Wallet, asset_id: &str) -> Result<Metadata, Error> {
+    wallet.get_asset_metadata(asset_id.to_string())
+}
+
+fn test_get_btc_balance(wallet: &Wallet, online: &Online) -> BtcBalance {
+    wallet.get_btc_balance(online.clone()).unwrap()
+}
+
+fn test_get_wallet_data(wallet: &Wallet) -> WalletData {
+    wallet.get_wallet_data()
+}
+
+fn test_get_wallet_dir(wallet: &Wallet) -> PathBuf {
+    wallet.get_wallet_dir()
+}
+
+fn test_go_online(
+    wallet: &mut Wallet,
+    skip_consistency_check: bool,
+    electrum_url: Option<&str>,
+) -> Online {
+    test_go_online_result(wallet, skip_consistency_check, electrum_url).unwrap()
+}
+
+fn test_go_online_result(
+    wallet: &mut Wallet,
+    skip_consistency_check: bool,
+    electrum_url: Option<&str>,
+) -> Result<Online, Error> {
+    let electrum = electrum_url.unwrap_or(ELECTRUM_URL).to_string();
+    wallet.go_online(skip_consistency_check, electrum)
+}
+
+fn test_issue_asset_cfa(
     wallet: &mut Wallet,
     online: &Online,
-    recipient_map: HashMap<String, Vec<Recipient>>,
-) -> String {
+    amounts: Option<&[u64]>,
+    file_path: Option<String>,
+) -> AssetCFA {
+    test_issue_asset_cfa_result(wallet, online, amounts, file_path).unwrap()
+}
+
+fn test_issue_asset_cfa_result(
+    wallet: &mut Wallet,
+    online: &Online,
+    amounts: Option<&[u64]>,
+    file_path: Option<String>,
+) -> Result<AssetCFA, Error> {
+    let amounts = if let Some(a) = amounts {
+        a.to_vec()
+    } else {
+        vec![AMOUNT]
+    };
+    wallet.issue_asset_cfa(
+        online.clone(),
+        NAME.to_string(),
+        Some(DESCRIPTION.to_string()),
+        PRECISION,
+        amounts,
+        file_path,
+    )
+}
+
+fn test_issue_asset_nia(wallet: &mut Wallet, online: &Online, amounts: Option<&[u64]>) -> AssetNIA {
+    test_issue_asset_nia_result(wallet, online, amounts).unwrap()
+}
+
+fn test_issue_asset_nia_result(
+    wallet: &mut Wallet,
+    online: &Online,
+    amounts: Option<&[u64]>,
+) -> Result<AssetNIA, Error> {
+    let amounts = if let Some(a) = amounts {
+        a.to_vec()
+    } else {
+        vec![AMOUNT]
+    };
+    wallet.issue_asset_nia(
+        online.clone(),
+        TICKER.to_string(),
+        NAME.to_string(),
+        PRECISION,
+        amounts,
+    )
+}
+
+fn test_list_assets(wallet: &mut Wallet, filter_asset_schemas: &[AssetSchema]) -> Assets {
+    wallet.list_assets(filter_asset_schemas.to_vec()).unwrap()
+}
+
+fn test_list_transactions(wallet: &Wallet, online: Option<&Online>) -> Vec<Transaction> {
+    let online = online.cloned();
+    wallet.list_transactions(online).unwrap()
+}
+
+fn test_list_transfers(wallet: &Wallet, asset_id: Option<&str>) -> Vec<Transfer> {
+    test_list_transfers_result(wallet, asset_id).unwrap()
+}
+
+fn test_list_transfers_result(
+    wallet: &Wallet,
+    asset_id: Option<&str>,
+) -> Result<Vec<Transfer>, Error> {
+    let asset_id = asset_id.map(|a| a.to_string());
+    wallet.list_transfers(asset_id)
+}
+
+fn test_list_unspents(
+    wallet: &Wallet,
+    online: Option<&Online>,
+    settled_only: bool,
+) -> Vec<Unspent> {
+    let online = online.cloned();
+    wallet.list_unspents(online, settled_only).unwrap()
+}
+
+fn test_refresh_all(wallet: &mut Wallet, online: &Online) -> bool {
+    wallet.refresh(online.clone(), None, vec![]).unwrap()
+}
+
+fn test_refresh_asset(wallet: &mut Wallet, online: &Online, asset_id: &str) -> bool {
     wallet
-        .send(
-            online.clone(),
-            recipient_map,
-            false,
-            FEE_RATE,
-            MIN_CONFIRMATIONS,
-        )
+        .refresh(online.clone(), Some(asset_id.to_string()), vec![])
         .unwrap()
+}
+
+fn test_send(
+    wallet: &mut Wallet,
+    online: &Online,
+    recipient_map: &HashMap<String, Vec<Recipient>>,
+) -> String {
+    test_send_result(wallet, online, recipient_map).unwrap()
+}
+
+fn test_send_result(
+    wallet: &mut Wallet,
+    online: &Online,
+    recipient_map: &HashMap<String, Vec<Recipient>>,
+) -> Result<String, Error> {
+    wallet.send(
+        online.clone(),
+        recipient_map.clone(),
+        false,
+        FEE_RATE,
+        MIN_CONFIRMATIONS,
+    )
+}
+
+fn test_send_begin_result(
+    wallet: &mut Wallet,
+    online: &Online,
+    recipient_map: &HashMap<String, Vec<Recipient>>,
+) -> Result<String, Error> {
+    wallet.send_begin(
+        online.clone(),
+        recipient_map.clone(),
+        false,
+        FEE_RATE,
+        MIN_CONFIRMATIONS,
+    )
+}
+
+fn test_send_btc(wallet: &Wallet, online: &Online, address: &str, amount: u64) -> String {
+    test_send_btc_result(wallet, online, address, amount).unwrap()
+}
+
+fn test_send_btc_result(
+    wallet: &Wallet,
+    online: &Online,
+    address: &str,
+    amount: u64,
+) -> Result<String, Error> {
+    wallet.send_btc(online.clone(), address.to_string(), amount, FEE_RATE)
 }
 
 fn check_test_transfer_status_recipient(
@@ -391,7 +690,7 @@ fn check_test_wallet_data(
         None => AMOUNT,
     };
     // asset list
-    let assets = wallet.list_assets(vec![]).unwrap();
+    let assets = test_list_assets(wallet, &[]);
     let nia_assets = assets.nia.unwrap();
     let cfa_assets = assets.cfa.unwrap();
     assert_eq!(nia_assets.len(), 1);
@@ -409,20 +708,20 @@ fn check_test_wallet_data(
         }
     );
     // asset metadata
-    let metadata = wallet.get_asset_metadata(asset.asset_id.clone()).unwrap();
+    let metadata = test_get_asset_metadata(wallet, &asset.asset_id);
     assert_eq!(metadata.asset_iface, AssetIface::RGB20);
     assert_eq!(metadata.issued_supply, issued_supply);
     assert_eq!(metadata.name, asset.name);
     assert_eq!(metadata.precision, asset.precision);
     assert_eq!(metadata.ticker.unwrap(), asset.ticker);
     // transfer list
-    let transfers = wallet.list_transfers(Some(asset.asset_id.clone())).unwrap();
+    let transfers = test_list_transfers(wallet, Some(&asset.asset_id));
     assert_eq!(transfers.len(), 1 + transfer_num);
     assert_eq!(transfers.first().unwrap().kind, TransferKind::Issuance);
     assert_eq!(transfers.last().unwrap().kind, TransferKind::Send);
     assert_eq!(transfers.last().unwrap().status, TransferStatus::Settled);
     // unspent list
-    let unspents = wallet.list_unspents(None, false).unwrap();
+    let unspents = test_list_unspents(wallet, None, false);
     assert_eq!(unspents.len(), 6);
 }
 
@@ -568,10 +867,10 @@ fn get_test_txo(wallet: &Wallet, idx: i32) -> DbTxo {
 }
 
 fn list_test_unspents(wallet: &Wallet, msg: &str) -> Vec<Unspent> {
-    let unspents = wallet.list_unspents(None, false).unwrap();
+    let unspents = test_list_unspents(wallet, None, false);
     println!(
         "unspents for wallet {:?} {}: {}",
-        wallet.get_wallet_dir(),
+        test_get_wallet_dir(wallet),
         msg,
         unspents.len()
     );
@@ -585,7 +884,7 @@ fn wait_for_unspent_num(wallet: &Wallet, online: Online, num_unspents: usize) {
     let t_0 = OffsetDateTime::now_utc();
     loop {
         std::thread::sleep(std::time::Duration::from_millis(500));
-        let unspents = wallet.list_unspents(Some(online.clone()), false).unwrap();
+        let unspents = test_list_unspents(wallet, Some(&online), false);
         if unspents.len() >= num_unspents {
             break;
         };
@@ -599,9 +898,7 @@ fn wait_for_unspent_num(wallet: &Wallet, online: Online, num_unspents: usize) {
 /// type, amount and asset
 fn show_unspent_colorings(wallet: &Wallet, msg: &str) {
     println!("\n{msg}");
-    let unspents: Vec<Unspent> = wallet
-        .list_unspents(None, false)
-        .unwrap()
+    let unspents: Vec<Unspent> = test_list_unspents(wallet, None, false)
         .into_iter()
         .filter(|u| u.utxo.colorable)
         .collect();

@@ -86,18 +86,13 @@ fn testnet_success() {
     fs::create_dir_all(TEST_DATA_DIR).unwrap();
 
     let bitcoin_network = BitcoinNetwork::Testnet;
-    let mut wallet =
-        get_test_wallet_with_net(true, Some(MAX_ALLOCATIONS_PER_UTXO), bitcoin_network);
+    let mut wallet = get_test_wallet_with_net(true, None, bitcoin_network);
     check_wallet(&wallet, bitcoin_network, None);
     wallet
         .go_online(false, s!("ssl://electrum.iriswallet.com:50013"))
         .unwrap();
     assert!(!wallet.watch_only);
-    assert_eq!(wallet.wallet_data.pubkey, wallet.wallet_data.pubkey);
-    assert_eq!(
-        wallet.wallet_data.mnemonic,
-        Some(wallet.wallet_data.mnemonic.clone().unwrap())
-    );
+    assert_eq!(wallet.wallet_data.bitcoin_network, bitcoin_network);
 }
 
 #[test]
@@ -106,28 +101,20 @@ fn mainnet_success() {
     fs::create_dir_all(TEST_DATA_DIR).unwrap();
 
     let bitcoin_network = BitcoinNetwork::Mainnet;
-    let keys = generate_keys(bitcoin_network);
-    let wallet = Wallet::new(WalletData {
-        data_dir: TEST_DATA_DIR.to_string(),
-        bitcoin_network,
-        database_type: DatabaseType::Sqlite,
-        max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
-        pubkey: keys.xpub.clone(),
-        mnemonic: Some(keys.mnemonic.clone()),
-        vanilla_keychain: None,
-    })
-    .unwrap();
+    let mut wallet = get_test_wallet_with_net(true, None, bitcoin_network);
     check_wallet(&wallet, bitcoin_network, None);
+    wallet
+        .go_online(false, s!("ssl://electrum.iriswallet.com:50003"))
+        .unwrap();
     assert!(!wallet.watch_only);
-    assert_eq!(wallet.wallet_data.pubkey, keys.xpub);
-    assert_eq!(wallet.wallet_data.mnemonic, Some(keys.mnemonic));
+    assert_eq!(wallet.wallet_data.bitcoin_network, bitcoin_network);
 }
 
 #[test]
 #[parallel]
 fn fail() {
     let wallet = get_test_wallet(true, None);
-    let wallet_data = wallet.get_wallet_data();
+    let wallet_data = test_get_wallet_data(&wallet);
 
     // inexistent data dir
     let mut wallet_data_bad = wallet_data.clone();
@@ -181,26 +168,10 @@ fn re_instantiate_wallet() {
     let wallet_data = wallet.wallet_data.clone();
 
     // issue
-    let asset = wallet
-        .issue_asset_nia(
-            online.clone(),
-            TICKER.to_string(),
-            NAME.to_string(),
-            PRECISION,
-            vec![AMOUNT],
-        )
-        .unwrap();
+    let asset = test_issue_asset_nia(&mut wallet, &online, None);
 
     // send
-    let receive_data = rcv_wallet
-        .blind_receive(
-            None,
-            None,
-            None,
-            TRANSPORT_ENDPOINTS.clone(),
-            MIN_CONFIRMATIONS,
-        )
-        .unwrap();
+    let receive_data = test_blind_receive(&mut rcv_wallet);
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -211,23 +182,15 @@ fn re_instantiate_wallet() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send_default(&mut wallet, &online, recipient_map);
+    let txid = test_send(&mut wallet, &online, &recipient_map);
     assert!(!txid.is_empty());
     // take transfers from WaitingCounterparty to Settled
     stop_mining();
-    rcv_wallet
-        .refresh(rcv_online.clone(), None, vec![])
-        .unwrap();
-    wallet
-        .refresh(online.clone(), Some(asset.asset_id.clone()), vec![])
-        .unwrap();
+    test_refresh_all(&mut rcv_wallet, &rcv_online);
+    test_refresh_asset(&mut wallet, &online, &asset.asset_id);
     mine(true);
-    rcv_wallet
-        .refresh(rcv_online, Some(asset.asset_id.clone()), vec![])
-        .unwrap();
-    wallet
-        .refresh(online.clone(), Some(asset.asset_id.clone()), vec![])
-        .unwrap();
+    test_refresh_asset(&mut rcv_wallet, &rcv_online, &asset.asset_id);
+    test_refresh_asset(&mut wallet, &online, &asset.asset_id);
 
     // drop wallet
     drop(online);

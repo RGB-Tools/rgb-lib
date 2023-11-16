@@ -9,30 +9,12 @@ fn success() {
     let (mut wallet, online) = get_funded_wallet!();
     let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
 
-    let asset_nia = wallet
-        .issue_asset_nia(
-            online.clone(),
-            TICKER.to_string(),
-            NAME.to_string(),
-            PRECISION,
-            vec![AMOUNT, AMOUNT],
-        )
-        .unwrap();
-    let transfers = wallet
-        .list_transfers(Some(asset_nia.asset_id.clone()))
-        .unwrap();
+    let asset_nia = test_issue_asset_nia(&mut wallet, &online, Some(&[AMOUNT, AMOUNT]));
+    let transfers = test_list_transfers(&wallet, Some(&asset_nia.asset_id));
     assert_eq!(transfers.len(), 1);
     let issuance = transfers.first().unwrap();
     let timestamp = issuance.created_at;
-    let receive_data = rcv_wallet
-        .blind_receive(
-            None,
-            None,
-            None,
-            TRANSPORT_ENDPOINTS.clone(),
-            MIN_CONFIRMATIONS,
-        )
-        .unwrap();
+    let receive_data = test_blind_receive(&mut rcv_wallet);
     let recipient_map = HashMap::from([(
         asset_nia.asset_id.clone(),
         vec![Recipient {
@@ -43,10 +25,10 @@ fn success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    test_send_default(&mut wallet, &online, recipient_map);
+    test_send(&mut wallet, &online, &recipient_map);
     rcv_wallet.refresh(rcv_online, None, vec![]).unwrap();
     let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
-    let nia_metadata = rcv_wallet.get_asset_metadata(asset_nia.asset_id).unwrap();
+    let nia_metadata = test_get_asset_metadata(&mut rcv_wallet, &asset_nia.asset_id);
     let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
     assert_eq!(
         bak_info_after.last_operation_timestamp,
@@ -74,13 +56,11 @@ fn success() {
             Some(file_str.to_string()),
         )
         .unwrap();
-    let transfers = wallet
-        .list_transfers(Some(asset_cfa.asset_id.clone()))
-        .unwrap();
+    let transfers = test_list_transfers(&wallet, Some(&asset_cfa.asset_id));
     assert_eq!(transfers.len(), 1);
     let issuance = transfers.first().unwrap();
     let timestamp = issuance.created_at;
-    let cfa_metadata = wallet.get_asset_metadata(asset_cfa.asset_id).unwrap();
+    let cfa_metadata = test_get_asset_metadata(&mut wallet, &asset_cfa.asset_id);
 
     assert_eq!(cfa_metadata.asset_iface, AssetIface::RGB25);
     assert_eq!(cfa_metadata.asset_schema, AssetSchema::Cfa);
@@ -99,6 +79,6 @@ fn fail() {
 
     let (mut wallet, _online) = get_empty_wallet!();
 
-    let result = wallet.get_asset_metadata(s!(""));
+    let result = test_get_asset_metadata_result(&mut wallet, "");
     assert!(matches!(result, Err(Error::AssetNotFound { asset_id: _ })));
 }

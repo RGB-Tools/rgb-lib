@@ -15,13 +15,13 @@ fn success() {
     mine(false);
     // don't sync wallet without online
     let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
-    let transactions = wallet.list_transactions(None).unwrap();
+    let transactions = test_list_transactions(&wallet, None);
     let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
     assert_eq!(
         bak_info_after.last_operation_timestamp,
         bak_info_before.last_operation_timestamp
     );
-    let rcv_transactions = wallet.list_transactions(None).unwrap();
+    let rcv_transactions = test_list_transactions(&wallet, None);
     assert_eq!(transactions.len(), 2);
     assert_eq!(rcv_transactions.len(), 2);
     assert!(transactions
@@ -42,33 +42,15 @@ fn success() {
         .all(|t| t.confirmation_time.is_none()));
     resume_mining();
     // sync wallet when online is provided
-    let transactions = wallet.list_transactions(Some(online.clone())).unwrap();
-    let rcv_transactions = rcv_wallet
-        .list_transactions(Some(rcv_online.clone()))
-        .unwrap();
+    let transactions = test_list_transactions(&wallet, Some(&online));
+    let rcv_transactions = test_list_transactions(&rcv_wallet, Some(&rcv_online));
     assert!(transactions.iter().all(|t| t.confirmation_time.is_some()));
     assert!(rcv_transactions
         .iter()
         .all(|t| t.confirmation_time.is_some()));
 
-    let asset = wallet
-        .issue_asset_nia(
-            online.clone(),
-            TICKER.to_string(),
-            NAME.to_string(),
-            PRECISION,
-            vec![AMOUNT],
-        )
-        .unwrap();
-    let receive_data = rcv_wallet
-        .witness_receive(
-            None,
-            None,
-            None,
-            TRANSPORT_ENDPOINTS.clone(),
-            MIN_CONFIRMATIONS,
-        )
-        .unwrap();
+    let asset = test_issue_asset_nia(&mut wallet, &online, None);
+    let receive_data = test_witness_receive(&mut rcv_wallet);
     let recipient_map = HashMap::from([(
         asset.asset_id,
         vec![Recipient {
@@ -81,19 +63,15 @@ fn success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    test_send_default(&mut wallet, &online, recipient_map);
+    test_send(&mut wallet, &online, &recipient_map);
     // settle the transfer so the tx gets broadcasted and receiver sees the new UTXO
-    rcv_wallet
-        .refresh(rcv_online.clone(), None, vec![])
-        .unwrap();
+    test_refresh_all(&mut rcv_wallet, &rcv_online);
     wallet.refresh(online.clone(), None, vec![]).unwrap();
     mine(false);
-    rcv_wallet
-        .refresh(rcv_online.clone(), None, vec![])
-        .unwrap();
+    test_refresh_all(&mut rcv_wallet, &rcv_online);
     wallet.refresh(online.clone(), None, vec![]).unwrap();
-    let transactions = wallet.list_transactions(Some(online.clone())).unwrap();
-    let rcv_transactions = rcv_wallet.list_transactions(Some(rcv_online)).unwrap();
+    let transactions = test_list_transactions(&wallet, Some(&online));
+    let rcv_transactions = test_list_transactions(&rcv_wallet, Some(&rcv_online));
     assert_eq!(transactions.len(), 3);
     assert_eq!(rcv_transactions.len(), 3);
     assert!(transactions
@@ -107,9 +85,9 @@ fn success() {
         .iter()
         .all(|t| t.confirmation_time.is_some()));
 
-    drain_wallet(&wallet, online.clone());
+    drain_wallet(&wallet, &online);
     mine(false);
-    let transactions = wallet.list_transactions(Some(online)).unwrap();
+    let transactions = test_list_transactions(&wallet, Some(&online));
     assert_eq!(transactions.len(), 4);
     assert!(transactions
         .iter()

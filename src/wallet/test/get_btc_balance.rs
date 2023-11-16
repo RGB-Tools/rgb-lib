@@ -11,7 +11,7 @@ fn success() {
     // empty balances
     let bak_info_before = wallet.database.get_backup_info().unwrap();
     assert!(bak_info_before.is_none());
-    let balances = wallet.get_btc_balance(online.clone()).unwrap();
+    let balances = test_get_btc_balance(&wallet, &online);
     let bak_info_after = wallet.database.get_backup_info().unwrap();
     assert!(bak_info_after.is_none());
     assert!(matches!(
@@ -33,9 +33,9 @@ fn success() {
 
     // future balance after funding
     stop_mining();
-    fund_wallet(wallet.get_address().unwrap());
+    fund_wallet(test_get_address(&wallet));
     wait_for_unspent_num(&wallet, online.clone(), 1);
-    let balances = wallet.get_btc_balance(online.clone()).unwrap();
+    let balances = test_get_btc_balance(&wallet, &online);
     assert!(matches!(
         balances.vanilla,
         Balance {
@@ -55,7 +55,7 @@ fn success() {
 
     // settled balance after mining
     mine(true);
-    let balances = wallet.get_btc_balance(online.clone()).unwrap();
+    let balances = test_get_btc_balance(&wallet, &online);
     assert!(matches!(
         balances.vanilla,
         Balance {
@@ -75,8 +75,8 @@ fn success() {
 
     // future vanilla change + colored UTXOs balance
     stop_mining();
-    test_create_utxos_default(&mut wallet, online.clone());
-    let balances = wallet.get_btc_balance(online.clone()).unwrap();
+    test_create_utxos_default(&mut wallet, &online);
+    let balances = test_get_btc_balance(&wallet, &online);
     assert!(matches!(
         balances.vanilla,
         Balance {
@@ -96,7 +96,7 @@ fn success() {
 
     // settled balance after mining
     mine(true);
-    let balances = wallet.get_btc_balance(online).unwrap();
+    let balances = test_get_btc_balance(&wallet, &online);
     assert!(matches!(
         balances.vanilla,
         Balance {

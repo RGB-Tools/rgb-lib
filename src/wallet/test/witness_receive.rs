@@ -13,15 +13,7 @@ fn success() {
     // default expiration + min confirmations
     let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
     let now_timestamp = now().unix_timestamp();
-    let receive_data = wallet
-        .witness_receive(
-            None,
-            None,
-            None,
-            TRANSPORT_ENDPOINTS.clone(),
-            MIN_CONFIRMATIONS,
-        )
-        .unwrap();
+    let receive_data = test_witness_receive(&mut wallet);
     let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     assert!(receive_data.expiration_timestamp.is_some());
@@ -76,16 +68,7 @@ fn success() {
     assert_eq!(batch_transfer.min_confirmations, min_confirmations);
 
     // asset id is set
-    let asset = wallet
-        .issue_asset_cfa(
-            online,
-            NAME.to_string(),
-            Some(DESCRIPTION.to_string()),
-            PRECISION,
-            vec![AMOUNT],
-            None,
-        )
-        .unwrap();
+    let asset = test_issue_asset_cfa(&mut wallet, &online, None, None);
     let asset_id = asset.asset_id;
     let result = wallet.witness_receive(
         Some(asset_id.clone()),
@@ -158,15 +141,7 @@ fn fail() {
     let (mut wallet, _) = get_empty_wallet!();
 
     // invalid invoice (missing network)
-    let receive_data = wallet
-        .witness_receive(
-            None,
-            None,
-            None,
-            TRANSPORT_ENDPOINTS.clone(),
-            MIN_CONFIRMATIONS,
-        )
-        .unwrap();
+    let receive_data = test_witness_receive(&mut wallet);
     let invoice = Invoice::new(receive_data.invoice).unwrap();
     let mut invoice_data = invoice.invoice_data();
     invoice_data.network = None;

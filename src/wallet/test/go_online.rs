@@ -12,18 +12,18 @@ fn success() {
     // go online
     let bak_info_before = wallet.database.get_backup_info().unwrap();
     assert!(bak_info_before.is_none());
-    let result_1 = wallet.go_online(false, ELECTRUM_URL.to_string());
+    let result_1 = test_go_online_result(&mut wallet, false, None);
     let bak_info_after = wallet.database.get_backup_info().unwrap();
     assert!(bak_info_after.is_none());
     assert!(result_1.is_ok());
 
     // can go online again with the same electrum URL
-    let result_2 = wallet.go_online(false, ELECTRUM_URL.to_string());
+    let result_2 = test_go_online_result(&mut wallet, false, None);
     assert!(result_2.is_ok());
     assert_eq!(result_1.unwrap(), result_2.unwrap());
 
     // can go online again with a different electrum URL
-    let result_3 = wallet.go_online(false, ELECTRUM_2_URL.to_string());
+    let result_3 = test_go_online_result(&mut wallet, false, Some(ELECTRUM_2_URL));
     assert!(result_3.is_ok());
 }
 
@@ -35,12 +35,12 @@ fn fail() {
     let mut wallet = get_test_wallet(true, None);
 
     // cannot go online with a broken electrum URL
-    let result = wallet.go_online(false, s!("other:50001"));
+    let result = test_go_online_result(&mut wallet, false, Some("other:50001"));
     assert!(matches!(result, Err(Error::InvalidElectrum { details: _ })));
 
     // cannot go online again with broken electrum URL
-    wallet.go_online(false, ELECTRUM_URL.to_string()).unwrap();
-    let result = wallet.go_online(false, s!("other:50001"));
+    test_go_online(&mut wallet, false, None);
+    let result = test_go_online_result(&mut wallet, false, Some("other:50001"));
     assert!(matches!(result, Err(Error::InvalidElectrum { details: _ })));
 
     // bad online object
@@ -58,24 +58,15 @@ fn consistency_check_fail_utxos() {
     initialize();
 
     // prepare test wallet with UTXOs + an asset
-    let (mut wallet_orig, online_orig) = get_funded_wallet!(true, true);
-    let wallet_data_orig = wallet_orig.get_wallet_data();
-    wallet_orig
-        .issue_asset_nia(
-            online_orig,
-            TICKER.to_string(),
-            NAME.to_string(),
-            PRECISION,
-            vec![AMOUNT],
-        )
-        .unwrap();
+    let (mut wallet_orig, online_orig) = get_funded_wallet!();
+    let wallet_data_orig = test_get_wallet_data(&wallet_orig);
+    test_issue_asset_nia(&mut wallet_orig, &online_orig, None);
 
-    let bitcoin_network = BitcoinNetwork::Regtest;
     // get wallet fingerprint
-    let wallet_dir_orig = wallet_orig.get_wallet_dir();
+    let wallet_dir_orig = test_get_wallet_dir(&wallet_orig);
     let pubkey = ExtendedPubKey::from_str(&wallet_data_orig.pubkey).unwrap();
     let extended_key: ExtendedKey = ExtendedKey::from(pubkey);
-    let bdk_network = BdkNetwork::from(bitcoin_network);
+    let bdk_network = BdkNetwork::from(BitcoinNetwork::Regtest);
     let xpub = extended_key.into_xpub(bdk_network, &Secp256k1::new());
     let fingerprint = xpub.fingerprint().to_string();
     // prepare directories
@@ -96,33 +87,21 @@ fn consistency_check_fail_utxos() {
         fs::create_dir_all(dir).unwrap();
     }
     // prepare wallet data objects
-    let wallet_data_empty = WalletData {
-        data_dir: data_dir_empty.into_os_string().into_string().unwrap(),
-        bitcoin_network,
-        database_type: DatabaseType::Sqlite,
-        max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
-        pubkey: wallet_data_orig.pubkey.clone(),
-        mnemonic: wallet_data_orig.mnemonic.clone(),
-        vanilla_keychain: None,
-    };
-    let wallet_data_prefill = WalletData {
-        data_dir: data_dir_prefill.into_os_string().into_string().unwrap(),
-        bitcoin_network,
-        database_type: DatabaseType::Sqlite,
-        max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
-        pubkey: wallet_data_orig.pubkey.clone(),
-        mnemonic: wallet_data_orig.mnemonic.clone(),
-        vanilla_keychain: None,
-    };
-    let wallet_data_prefill_2 = WalletData {
-        data_dir: data_dir_prefill_2.into_os_string().into_string().unwrap(),
-        bitcoin_network,
-        database_type: DatabaseType::Sqlite,
-        max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
-        pubkey: wallet_data_orig.pubkey.clone(),
-        mnemonic: wallet_data_orig.mnemonic,
-        vanilla_keychain: None,
-    };
+    let wallet_data_empty = get_test_wallet_data(
+        data_dir_empty.to_str().unwrap(),
+        &wallet_data_orig.pubkey,
+        wallet_data_orig.mnemonic.as_ref().unwrap(),
+    );
+    let wallet_data_prefill = get_test_wallet_data(
+        data_dir_prefill.to_str().unwrap(),
+        &wallet_data_orig.pubkey,
+        wallet_data_orig.mnemonic.as_ref().unwrap(),
+    );
+    let wallet_data_prefill_2 = get_test_wallet_data(
+        data_dir_prefill_2.to_str().unwrap(),
+        &wallet_data_orig.pubkey,
+        wallet_data_orig.mnemonic.as_ref().unwrap(),
+    );
     // copy original wallet's db data to prefilled wallet data dir
     let wallet_dir_entries = fs::read_dir(&wallet_dir_orig).unwrap();
     let db_files: Vec<OsString> = wallet_dir_entries
@@ -147,22 +126,13 @@ fn consistency_check_fail_utxos() {
     // simulating a wallet used on multiple devices (which needs to be avoided to prevent asset
     // loss)
     let mut wallet_empty = Wallet::new(wallet_data_empty).unwrap();
-    let online_empty = wallet_empty
-        .go_online(false, ELECTRUM_URL.to_string())
-        .unwrap();
+    let online_empty = test_go_online(&mut wallet_empty, false, None);
     let (rcv_wallet, _rcv_online) = get_funded_wallet!();
-    wallet_empty
-        .drain_to(
-            online_empty,
-            rcv_wallet.get_address().unwrap(),
-            false,
-            FEE_RATE,
-        )
-        .unwrap();
+    test_drain_to_keep(&wallet_empty, &online_empty, &test_get_address(&rcv_wallet));
 
     // detect asset inconsistency
     let mut wallet_prefill = Wallet::new(wallet_data_prefill).unwrap();
-    let result = wallet_prefill.go_online(false, ELECTRUM_URL.to_string());
+    let result = test_go_online_result(&mut wallet_prefill, false, None);
     assert!(matches!(result, Err(Error::Inconsistency { details: _ })));
 
     // make sure detection works multiple times (doesn't get reset on first failed check)
@@ -172,7 +142,7 @@ fn consistency_check_fail_utxos() {
         let dst = PathBuf::from(&wallet_dir_prefill_2).join(file);
         fs::copy(src, dst).unwrap();
     }
-    let result = wallet_prefill_2.go_online(false, ELECTRUM_URL.to_string());
+    let result = test_go_online_result(&mut wallet_prefill_2, false, None);
     assert!(matches!(result, Err(Error::Inconsistency { details: _ })));
 }
 
@@ -183,23 +153,14 @@ fn consistency_check_fail_asset_ids() {
 
     // prepare test wallet with UTXOs + an asset
     let (mut wallet_orig, online_orig) = get_funded_wallet!();
-    let wallet_data_orig = wallet_orig.get_wallet_data();
-    let _asset = wallet_orig
-        .issue_asset_nia(
-            online_orig,
-            TICKER.to_string(),
-            NAME.to_string(),
-            PRECISION,
-            vec![AMOUNT],
-        )
-        .unwrap();
+    let wallet_data_orig = test_get_wallet_data(&wallet_orig);
+    let _asset = test_issue_asset_nia(&mut wallet_orig, &online_orig, None);
 
-    let bitcoin_network = BitcoinNetwork::Regtest;
     // get wallet fingerprint
-    let wallet_dir_orig = wallet_orig.get_wallet_dir();
+    let wallet_dir_orig = test_get_wallet_dir(&wallet_orig);
     let pubkey = ExtendedPubKey::from_str(&wallet_data_orig.pubkey).unwrap();
     let extended_key: ExtendedKey = ExtendedKey::from(pubkey);
-    let bdk_network = BdkNetwork::from(bitcoin_network);
+    let bdk_network = BdkNetwork::from(BitcoinNetwork::Regtest);
     let xpub = extended_key.into_xpub(bdk_network, &Secp256k1::new());
     let fingerprint = xpub.fingerprint().to_string();
     // prepare directories
@@ -220,33 +181,21 @@ fn consistency_check_fail_asset_ids() {
         fs::create_dir_all(dir).unwrap();
     }
     // prepare wallet data objects
-    let wallet_data_prefill_1 = WalletData {
-        data_dir: data_dir_prefill_1.to_str().unwrap().to_string(),
-        bitcoin_network,
-        database_type: DatabaseType::Sqlite,
-        max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
-        pubkey: wallet_data_orig.pubkey.clone(),
-        mnemonic: wallet_data_orig.mnemonic.clone(),
-        vanilla_keychain: None,
-    };
-    let wallet_data_prefill_2 = WalletData {
-        data_dir: data_dir_prefill_2.to_str().unwrap().to_string(),
-        bitcoin_network,
-        database_type: DatabaseType::Sqlite,
-        max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
-        pubkey: wallet_data_orig.pubkey.clone(),
-        mnemonic: wallet_data_orig.mnemonic.clone(),
-        vanilla_keychain: None,
-    };
-    let wallet_data_prefill_3 = WalletData {
-        data_dir: data_dir_prefill_3.to_str().unwrap().to_string(),
-        bitcoin_network,
-        database_type: DatabaseType::Sqlite,
-        max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
-        pubkey: wallet_data_orig.pubkey.clone(),
-        mnemonic: wallet_data_orig.mnemonic,
-        vanilla_keychain: None,
-    };
+    let wallet_data_prefill_1 = get_test_wallet_data(
+        data_dir_prefill_1.to_str().unwrap(),
+        &wallet_data_orig.pubkey,
+        wallet_data_orig.mnemonic.as_ref().unwrap(),
+    );
+    let wallet_data_prefill_2 = get_test_wallet_data(
+        data_dir_prefill_2.to_str().unwrap(),
+        &wallet_data_orig.pubkey,
+        wallet_data_orig.mnemonic.as_ref().unwrap(),
+    );
+    let wallet_data_prefill_3 = get_test_wallet_data(
+        data_dir_prefill_3.to_str().unwrap(),
+        &wallet_data_orig.pubkey,
+        wallet_data_orig.mnemonic.as_ref().unwrap(),
+    );
     // copy original wallet's data to prefilled wallets 1 + 2 data dir
     for destination in [&wallet_dir_prefill_1, &wallet_dir_prefill_2] {
         let result = Command::new("cp")
@@ -262,7 +211,7 @@ fn consistency_check_fail_asset_ids() {
 
     // check the first wallet copy works ok
     let mut wallet_prefill_1 = Wallet::new(wallet_data_prefill_1).unwrap();
-    let result = wallet_prefill_1.go_online(false, ELECTRUM_URL.to_string());
+    let result = test_go_online_result(&mut wallet_prefill_1, false, None);
     assert!(result.is_ok());
 
     // introduce asset id inconsistency by removing RGB data from wallet dir
@@ -270,7 +219,7 @@ fn consistency_check_fail_asset_ids() {
 
     // detect inconsistency
     let mut wallet_prefill_2 = Wallet::new(wallet_data_prefill_2).unwrap();
-    let result = wallet_prefill_2.go_online(false, ELECTRUM_URL.to_string());
+    let result = test_go_online_result(&mut wallet_prefill_2, false, None);
     assert!(matches!(result, Err(Error::Inconsistency { details: _ })));
 
     // make sure detection works multiple times
@@ -284,7 +233,7 @@ fn consistency_check_fail_asset_ids() {
         .status();
     assert!(result.is_ok());
     let mut wallet_prefill_3 = Wallet::new(wallet_data_prefill_3).unwrap();
-    let result = wallet_prefill_3.go_online(false, ELECTRUM_URL.to_string());
+    let result = test_go_online_result(&mut wallet_prefill_3, false, None);
     assert!(matches!(result, Err(Error::Inconsistency { details: _ })));
 }
 
@@ -296,7 +245,7 @@ fn on_off_online() {
     // create wallet and go online
     let mut wallet = get_test_wallet(true, None);
     let wallet_data = wallet.wallet_data.clone();
-    let online = wallet.go_online(false, ELECTRUM_URL.to_string()).unwrap();
+    let online = test_go_online(&mut wallet, false, None);
 
     // go offline and close wallet
     drop(online);
@@ -304,5 +253,5 @@ fn on_off_online() {
 
     // re-instantiate wallet and go back online
     let mut wallet = Wallet::new(wallet_data).unwrap();
-    wallet.go_online(false, ELECTRUM_URL.to_string()).unwrap();
+    test_go_online(&mut wallet, false, None);
 }

@@ -9,19 +9,11 @@ fn success() {
     let (mut wallet, online) = get_funded_wallet!();
 
     // issue an RGB20 asset
-    let asset = wallet
-        .issue_asset_nia(
-            online.clone(),
-            TICKER.to_string(),
-            NAME.to_string(),
-            PRECISION,
-            vec![AMOUNT],
-        )
-        .unwrap();
+    let asset = test_issue_asset_nia(&mut wallet, &online, None);
 
     // balances after issuance
     let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
-    let asset_balance = wallet.get_asset_balance(asset.asset_id).unwrap();
+    let asset_balance = test_get_asset_balance(&wallet, &asset.asset_id);
     let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
     assert_eq!(
         bak_info_after.last_operation_timestamp,
@@ -37,19 +29,10 @@ fn success() {
     );
 
     // issue an RGB25 asset
-    let asset = wallet
-        .issue_asset_cfa(
-            online,
-            NAME.to_string(),
-            Some(DESCRIPTION.to_string()),
-            PRECISION,
-            vec![AMOUNT],
-            None,
-        )
-        .unwrap();
+    let asset = test_issue_asset_cfa(&mut wallet, &online, None, None);
 
     // balances after issuance
-    let asset_balance = wallet.get_asset_balance(asset.asset_id).unwrap();
+    let asset_balance = test_get_asset_balance(&wallet, &asset.asset_id);
     assert_eq!(
         asset_balance,
         Balance {
@@ -72,23 +55,17 @@ fn transfer_balances() {
     let (mut wallet_recv, online_recv) = get_funded_wallet!();
 
     // issue
-    let asset = wallet_send
-        .issue_asset_nia(
-            online_send.clone(),
-            TICKER.to_string(),
-            NAME.to_string(),
-            PRECISION,
-            vec![AMOUNT, AMOUNT, AMOUNT],
-        )
-        .unwrap();
+    let asset = test_issue_asset_nia(
+        &mut wallet_send,
+        &online_send,
+        Some(&[AMOUNT, AMOUNT, AMOUNT]),
+    );
 
     show_unspent_colorings(&wallet_send, "send after issuance");
     show_unspent_colorings(&wallet_recv, "recv after issuance");
 
     // balances after issuance
-    let asset_balance_send = wallet_send
-        .get_asset_balance(asset.asset_id.clone())
-        .unwrap();
+    let asset_balance_send = test_get_asset_balance(&wallet_send, &asset.asset_id);
     assert_eq!(
         asset_balance_send,
         Balance {
@@ -98,7 +75,7 @@ fn transfer_balances() {
         }
     );
     // receiver side after issuance (no asset yet)
-    let result = wallet_recv.get_asset_balance(asset.asset_id.clone());
+    let result = test_get_asset_balance_result(&wallet_recv, &asset.asset_id);
     assert!(matches!(result, Err(Error::AssetNotFound { asset_id: _ })));
 
     //
@@ -106,23 +83,12 @@ fn transfer_balances() {
     //
 
     // blind + fail to check failed blinds are not counted in balance
-    let receive_data_fail = wallet_recv
-        .blind_receive(
-            None,
-            None,
-            None,
-            TRANSPORT_ENDPOINTS.clone(),
-            MIN_CONFIRMATIONS,
-        )
-        .unwrap();
-    wallet_recv
-        .fail_transfers(
-            online_recv.clone(),
-            Some(receive_data_fail.recipient_id.clone()),
-            None,
-            false,
-        )
-        .unwrap();
+    let receive_data_fail = test_blind_receive(&mut wallet_recv);
+    test_fail_transfers_blind(
+        &mut wallet_recv,
+        &online_recv,
+        &receive_data_fail.recipient_id,
+    );
     // send + fail to check failed inputs + changes are not counted in balance
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -134,20 +100,10 @@ fn transfer_balances() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send_default(&mut wallet_send, &online_send, recipient_map);
-    wallet_send
-        .fail_transfers(online_send.clone(), None, Some(txid), false)
-        .unwrap();
+    let txid = test_send(&mut wallet_send, &online_send, &recipient_map);
+    test_fail_transfers_txid(&mut wallet_send, &online_send, &txid);
     // send some assets
-    let receive_data_1 = wallet_recv
-        .blind_receive(
-            None,
-            None,
-            None,
-            TRANSPORT_ENDPOINTS.clone(),
-            MIN_CONFIRMATIONS,
-        )
-        .unwrap();
+    let receive_data_1 = test_blind_receive(&mut wallet_recv);
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -159,23 +115,19 @@ fn transfer_balances() {
         }],
     )]);
     // actual send
-    test_send_default(&mut wallet_send, &online_send, recipient_map);
+    test_send(&mut wallet_send, &online_send, &recipient_map);
 
     show_unspent_colorings(&wallet_send, "send after 1st send");
     show_unspent_colorings(&wallet_recv, "recv after 1st send");
 
     // sender balance with transfer WaitingCounterparty
-    let transfers = wallet_send
-        .list_transfers(Some(asset.asset_id.clone()))
-        .unwrap();
+    let transfers = test_list_transfers(&wallet_send, Some(&asset.asset_id));
     assert_eq!(transfers.len(), 3);
     assert_eq!(
         transfers.last().unwrap().status,
         TransferStatus::WaitingCounterparty
     );
-    let asset_balance_send = wallet_send
-        .get_asset_balance(asset.asset_id.clone())
-        .unwrap();
+    let asset_balance_send = test_get_asset_balance(&wallet_send, &asset.asset_id);
     assert_eq!(
         asset_balance_send,
         Balance {
@@ -188,24 +140,16 @@ fn transfer_balances() {
     stop_mining();
 
     // take transfers from WaitingCounterparty to WaitingConfirmations
-    wallet_recv
-        .refresh(online_recv.clone(), None, vec![])
-        .unwrap();
-    wallet_send
-        .refresh(online_send.clone(), Some(asset.asset_id.clone()), vec![])
-        .unwrap();
+    test_refresh_all(&mut wallet_recv, &online_recv);
+    test_refresh_asset(&mut wallet_send, &online_send, &asset.asset_id);
 
     // balances with transfer WaitingConfirmations
-    let transfers = wallet_send
-        .list_transfers(Some(asset.asset_id.clone()))
-        .unwrap();
+    let transfers = test_list_transfers(&wallet_send, Some(&asset.asset_id));
     assert_eq!(
         transfers.last().unwrap().status,
         TransferStatus::WaitingConfirmations
     );
-    let asset_balance_send = wallet_send
-        .get_asset_balance(asset.asset_id.clone())
-        .unwrap();
+    let asset_balance_send = test_get_asset_balance(&wallet_send, &asset.asset_id);
     assert_eq!(
         asset_balance_send,
         Balance {
@@ -214,16 +158,12 @@ fn transfer_balances() {
             spendable: AMOUNT * 2,
         }
     );
-    let transfers_recv = wallet_recv
-        .list_transfers(Some(asset.asset_id.clone()))
-        .unwrap();
+    let transfers_recv = test_list_transfers(&wallet_recv, Some(&asset.asset_id));
     assert_eq!(
         transfers_recv.last().unwrap().status,
         TransferStatus::WaitingConfirmations
     );
-    let asset_balance_recv = wallet_recv
-        .get_asset_balance(asset.asset_id.clone())
-        .unwrap();
+    let asset_balance_recv = test_get_asset_balance(&wallet_recv, &asset.asset_id);
     assert_eq!(
         asset_balance_recv,
         Balance {
@@ -235,24 +175,16 @@ fn transfer_balances() {
 
     // take transfers from WaitingConfirmations to Settled
     mine(true);
-    wallet_recv
-        .refresh(online_recv.clone(), Some(asset.asset_id.clone()), vec![])
-        .unwrap();
-    wallet_send
-        .refresh(online_send.clone(), Some(asset.asset_id.clone()), vec![])
-        .unwrap();
+    test_refresh_asset(&mut wallet_recv, &online_recv, &asset.asset_id);
+    test_refresh_asset(&mut wallet_send, &online_send, &asset.asset_id);
 
     show_unspent_colorings(&wallet_send, "send after 1st send, settled");
     show_unspent_colorings(&wallet_recv, "recv after 1st send, settled");
 
     // balances with transfer Settled
-    let transfers = wallet_send
-        .list_transfers(Some(asset.asset_id.clone()))
-        .unwrap();
+    let transfers = test_list_transfers(&wallet_send, Some(&asset.asset_id));
     assert_eq!(transfers.last().unwrap().status, TransferStatus::Settled);
-    let asset_balance_send = wallet_send
-        .get_asset_balance(asset.asset_id.clone())
-        .unwrap();
+    let asset_balance_send = test_get_asset_balance(&wallet_send, &asset.asset_id);
     assert_eq!(
         asset_balance_send,
         Balance {
@@ -261,16 +193,12 @@ fn transfer_balances() {
             spendable: AMOUNT * 3 - amount_1,
         }
     );
-    let transfers_recv = wallet_recv
-        .list_transfers(Some(asset.asset_id.clone()))
-        .unwrap();
+    let transfers_recv = test_list_transfers(&wallet_recv, Some(&asset.asset_id));
     assert_eq!(
         transfers_recv.last().unwrap().status,
         TransferStatus::Settled
     );
-    let asset_balance_recv = wallet_recv
-        .get_asset_balance(asset.asset_id.clone())
-        .unwrap();
+    let asset_balance_recv = test_get_asset_balance(&wallet_recv, &asset.asset_id);
     assert_eq!(
         asset_balance_recv,
         Balance {
@@ -285,15 +213,7 @@ fn transfer_balances() {
     //
 
     // send some assets
-    let receive_data_2 = wallet_recv
-        .blind_receive(
-            None,
-            None,
-            None,
-            TRANSPORT_ENDPOINTS.clone(),
-            MIN_CONFIRMATIONS,
-        )
-        .unwrap();
+    let receive_data_2 = test_blind_receive(&mut wallet_recv);
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -304,23 +224,19 @@ fn transfer_balances() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    test_send_default(&mut wallet_send, &online_send, recipient_map);
+    test_send(&mut wallet_send, &online_send, &recipient_map);
 
     show_unspent_colorings(&wallet_send, "send after 2nd send");
     show_unspent_colorings(&wallet_recv, "recv after 2nd send");
 
     // sender balance with transfer WaitingCounterparty
-    let transfers = wallet_send
-        .list_transfers(Some(asset.asset_id.clone()))
-        .unwrap();
+    let transfers = test_list_transfers(&wallet_send, Some(&asset.asset_id));
     assert_eq!(transfers.len(), 4);
     assert_eq!(
         transfers.last().unwrap().status,
         TransferStatus::WaitingCounterparty
     );
-    let asset_balance_send = wallet_send
-        .get_asset_balance(asset.asset_id.clone())
-        .unwrap();
+    let asset_balance_send = test_get_asset_balance(&wallet_send, &asset.asset_id);
     assert_eq!(
         asset_balance_send,
         Balance {
@@ -333,24 +249,16 @@ fn transfer_balances() {
     stop_mining();
 
     // take transfers from WaitingCounterparty to WaitingConfirmations
-    wallet_recv
-        .refresh(online_recv.clone(), None, vec![])
-        .unwrap();
-    wallet_send
-        .refresh(online_send.clone(), Some(asset.asset_id.clone()), vec![])
-        .unwrap();
+    test_refresh_all(&mut wallet_recv, &online_recv);
+    test_refresh_asset(&mut wallet_send, &online_send, &asset.asset_id);
 
     // balances with transfer WaitingConfirmations
-    let transfers = wallet_send
-        .list_transfers(Some(asset.asset_id.clone()))
-        .unwrap();
+    let transfers = test_list_transfers(&wallet_send, Some(&asset.asset_id));
     assert_eq!(
         transfers.last().unwrap().status,
         TransferStatus::WaitingConfirmations
     );
-    let asset_balance_send = wallet_send
-        .get_asset_balance(asset.asset_id.clone())
-        .unwrap();
+    let asset_balance_send = test_get_asset_balance(&wallet_send, &asset.asset_id);
     assert_eq!(
         asset_balance_send,
         Balance {
@@ -359,9 +267,7 @@ fn transfer_balances() {
             spendable: AMOUNT * 2 - amount_1,
         }
     );
-    let asset_balance_recv = wallet_recv
-        .get_asset_balance(asset.asset_id.clone())
-        .unwrap();
+    let asset_balance_recv = test_get_asset_balance(&wallet_recv, &asset.asset_id);
     assert_eq!(
         asset_balance_recv,
         Balance {
@@ -373,24 +279,16 @@ fn transfer_balances() {
 
     // take transfers from WaitingConfirmations to Settled
     mine(true);
-    wallet_recv
-        .refresh(online_recv, Some(asset.asset_id.clone()), vec![])
-        .unwrap();
-    wallet_send
-        .refresh(online_send, Some(asset.asset_id.clone()), vec![])
-        .unwrap();
+    test_refresh_asset(&mut wallet_recv, &online_recv, &asset.asset_id);
+    test_refresh_asset(&mut wallet_send, &online_send, &asset.asset_id);
 
     show_unspent_colorings(&wallet_send, "send after 2nd send, settled");
     show_unspent_colorings(&wallet_recv, "recv after 2nd send, settled");
 
     // balances with transfer Settled
-    let transfers = wallet_send
-        .list_transfers(Some(asset.asset_id.clone()))
-        .unwrap();
+    let transfers = test_list_transfers(&wallet_send, Some(&asset.asset_id));
     assert_eq!(transfers.last().unwrap().status, TransferStatus::Settled);
-    let asset_balance_send = wallet_send
-        .get_asset_balance(asset.asset_id.clone())
-        .unwrap();
+    let asset_balance_send = test_get_asset_balance(&wallet_send, &asset.asset_id);
     assert_eq!(
         asset_balance_send,
         Balance {
@@ -399,7 +297,7 @@ fn transfer_balances() {
             spendable: AMOUNT * 3 - amount_1 - amount_2,
         }
     );
-    let asset_balance_recv = wallet_recv.get_asset_balance(asset.asset_id).unwrap();
+    let asset_balance_recv = test_get_asset_balance(&wallet_recv, &asset.asset_id);
     assert_eq!(
         asset_balance_recv,
         Balance {
@@ -416,6 +314,6 @@ fn fail() {
     let (wallet, _online) = get_empty_wallet!();
 
     // bad asset_id returns an error
-    let result = wallet.get_asset_balance("rgb1inexistent".to_string());
+    let result = test_get_asset_balance_result(&wallet, "rgb1inexistent");
     assert!(matches!(result, Err(Error::AssetNotFound { asset_id: _ })));
 }

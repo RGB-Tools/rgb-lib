@@ -9,19 +9,11 @@ fn success() {
     let (mut wallet, online) = get_funded_wallet!();
 
     // issue RGB20 asset
-    let asset = wallet
-        .issue_asset_nia(
-            online.clone(),
-            TICKER.to_string(),
-            NAME.to_string(),
-            PRECISION,
-            vec![AMOUNT],
-        )
-        .unwrap();
+    let asset = test_issue_asset_nia(&mut wallet, &online, None);
 
     // single transfer
     let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
-    let transfer_list = wallet.list_transfers(Some(asset.asset_id)).unwrap();
+    let transfer_list = test_list_transfers(&wallet, Some(&asset.asset_id));
     let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
     assert_eq!(
         bak_info_after.last_operation_timestamp,
@@ -32,24 +24,15 @@ fn success() {
     assert_eq!(transfer.amount, AMOUNT);
     assert_eq!(transfer.status, TransferStatus::Settled);
 
-    drain_wallet(&wallet, online.clone());
-    fund_wallet(wallet.get_address().unwrap());
-    test_create_utxos_default(&mut wallet, online.clone());
+    drain_wallet(&wallet, &online);
+    fund_wallet(test_get_address(&wallet));
+    test_create_utxos_default(&mut wallet, &online);
 
     // issue RGB25 asset
-    let asset = wallet
-        .issue_asset_cfa(
-            online,
-            NAME.to_string(),
-            Some(DESCRIPTION.to_string()),
-            PRECISION,
-            vec![AMOUNT],
-            None,
-        )
-        .unwrap();
+    let asset = test_issue_asset_cfa(&mut wallet, &online, None, None);
 
     // single transfer
-    let transfer_list = wallet.list_transfers(Some(asset.asset_id)).unwrap();
+    let transfer_list = test_list_transfers(&wallet, Some(&asset.asset_id));
     assert_eq!(transfer_list.len(), 1);
     let transfer = transfer_list.first().unwrap();
     assert_eq!(transfer.amount, AMOUNT);
@@ -62,6 +45,6 @@ fn fail() {
     let wallet = get_test_wallet(false, None);
 
     // asset not found
-    let result = wallet.list_transfers(Some(s!("rgb1inexistent")));
+    let result = test_list_transfers_result(&wallet, Some("rgb1inexistent"));
     assert!(matches!(result, Err(Error::AssetNotFound { asset_id: _ })));
 }
