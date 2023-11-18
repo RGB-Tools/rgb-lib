@@ -415,4 +415,10 @@ interface Wallet {
 
   [Throws=RgbLibError]
   string send_btc(Online online, string address, u64 amount, f32 fee_rate);
+
+  [Throws=RgbLibError]
+  string send_btc_begin(Online online, string address, u64 amount, f32 fee_rate);
+
+  [Throws=RgbLibError]
+  string send_btc_end(Online online, string signed_psbt);
 };

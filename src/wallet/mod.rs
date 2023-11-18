@@ -4833,9 +4833,10 @@ impl Wallet {
         Ok(txid)
     }
 
-    /// Send bitcoins using the internal vanilla wallet.
+    /// Send bitcoins using the internal vanilla wallet. See the
+    /// [`send_btc_begin`](Wallet::send_btc_begin) function for details.
     ///
-    /// Returns the TXID of the broadcasted transaction
+    /// This is the full version, requiring a wallet with private keys and [`Online`] data
     pub fn send_btc(
         &self,
         online: Online,
@@ -4844,6 +4845,26 @@ impl Wallet {
         fee_rate: f32,
     ) -> Result<String, Error> {
         info!(self.logger, "Sending BTC...");
+        self._check_xprv()?;
+
+        let unsigned_psbt = self.send_btc_begin(online.clone(), address, amount, fee_rate)?;
+
+        let psbt = self.sign_psbt(unsigned_psbt, None)?;
+
+        self.send_btc_end(online, psbt)
+    }
+
+    /// Prepare the PSBT to send bitcoins using the internal vanilla wallet.
+    ///
+    /// Returns a PSBT ready to be signed
+    pub fn send_btc_begin(
+        &self,
+        online: Online,
+        address: String,
+        amount: u64,
+        fee_rate: f32,
+    ) -> Result<String, Error> {
+        info!(self.logger, "Sending BTC (begin)...");
         self._check_online(online)?;
         self._check_fee_rate(fee_rate)?;
 
@@ -4864,7 +4885,7 @@ impl Wallet {
             .add_recipient(address.payload.script_pubkey(), amount)
             .fee_rate(FeeRate::from_sat_per_vb(fee_rate));
 
-        let mut psbt = tx_builder
+        let psbt = tx_builder
             .finish()
             .map_err(|e| match e {
                 bdk::Error::InsufficientFunds { needed, available } => {
@@ -4875,11 +4896,25 @@ impl Wallet {
             })?
             .0;
 
-        self._sign_psbt(&mut psbt, None)?;
+        info!(self.logger, "Send BTC (begin) completed");
+        Ok(psbt.to_string())
+    }
 
-        let tx = self._broadcast_psbt(psbt)?;
+    /// Broadcast the provided PSBT to send bitcoins using the internal vanilla wallet.
+    ///
+    /// This is the second half of the partial version, requiring [`Online`] data but no private
+    /// keys. The provided PSBT, prepared with the [`send_btc_begin`](Wallet::send_btc_begin)
+    /// function, needs to have already been signed.
+    ///
+    /// Returns the TXID of the broadcasted transaction
+    pub fn send_btc_end(&self, online: Online, signed_psbt: String) -> Result<String, Error> {
+        info!(self.logger, "Sending BTC (end)...");
+        self._check_online(online)?;
 
-        info!(self.logger, "Send BTC completed");
+        let signed_psbt = BdkPsbt::from_str(&signed_psbt)?;
+        let tx = self._broadcast_psbt(signed_psbt)?;
+
+        info!(self.logger, "Send BTC (end) completed");
         Ok(tx.txid().to_string())
     }
 }
