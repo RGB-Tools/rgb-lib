@@ -112,7 +112,7 @@ fn success() {
         TransferStatus::WaitingCounterparty
     ));
 
-    // fail and delete remaining pending tranfers
+    // fail and delete remaining pending transfers
     assert!(wallet
         .fail_transfers(
             online.clone(),
