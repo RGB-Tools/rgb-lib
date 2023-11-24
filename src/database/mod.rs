@@ -70,8 +70,8 @@ impl DbBatchTransfer {
     ) -> Result<Vec<DbAssetTransfer>, InternalError> {
         Ok(asset_transfers
             .iter()
+            .filter(|&t| t.batch_transfer_idx == self.idx)
             .cloned()
-            .filter(|t| t.batch_transfer_idx == self.idx)
             .collect())
     }
 
@@ -85,8 +85,8 @@ impl DbBatchTransfer {
         for asset_transfer in asset_transfers {
             let transfers: Vec<DbTransfer> = transfers
                 .iter()
+                .filter(|&t| asset_transfer.idx == t.asset_transfer_idx)
                 .cloned()
-                .filter(|t| asset_transfer.idx == t.asset_transfer_idx)
                 .collect();
             asset_transfers_data.push(DbAssetTransferData {
                 asset_transfer,
@@ -734,8 +734,8 @@ impl RgbLibDatabase {
     ) -> Result<TransferData, Error> {
         let filtered_coloring = colorings
             .iter()
-            .cloned()
-            .filter(|c| c.asset_transfer_idx == asset_transfer.idx);
+            .filter(|&c| c.asset_transfer_idx == asset_transfer.idx)
+            .cloned();
 
         let received: u64 = filtered_coloring
             .clone()
@@ -782,8 +782,8 @@ impl RgbLibDatabase {
         let txo_ids: Vec<i32> = filtered_coloring.clone().map(|c| c.txo_idx).collect();
         let transfer_txos: Vec<DbTxo> = txos
             .iter()
+            .filter(|&t| txo_ids.contains(&t.idx))
             .cloned()
-            .filter(|t| txo_ids.contains(&t.idx))
             .collect();
         let (receive_utxo, change_utxo) = match kind {
             TransferKind::ReceiveBlind | TransferKind::ReceiveWitness => {

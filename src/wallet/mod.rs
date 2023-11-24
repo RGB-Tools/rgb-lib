@@ -2931,7 +2931,7 @@ impl Wallet {
                 .join(attachment_id);
             fs::create_dir_all(&media_dir)?;
             let media_path = media_dir.join(MEDIA_FNAME);
-            fs::copy(fp, &media_path)?;
+            fs::copy(fp, media_path)?;
             let mime = mime.unwrap();
             fs::write(media_dir.join(MIME_FNAME), mime)?;
         }
