@@ -89,7 +89,7 @@ pub enum TransferStatus {
     /// Waiting for the counterparty to take action
     #[sea_orm(num_value = 1)]
     WaitingCounterparty = 1,
-    /// Waiting for the transfer transcation to be confirmed
+    /// Waiting for the transfer transaction to be confirmed
     #[sea_orm(num_value = 2)]
     WaitingConfirmations = 2,
     /// Settled transfer, this status is final
