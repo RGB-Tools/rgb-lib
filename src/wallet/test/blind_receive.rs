@@ -517,3 +517,82 @@ fn new_transport_endpoint() {
         Err(Error::InvalidTransportEndpoint { details: _ })
     ));
 }
+
+#[test]
+#[parallel]
+fn multiple_receive_same_utxo() {
+    initialize();
+
+    let amount: u64 = 66;
+
+    let (mut wallet_recv, online_recv) = get_funded_noutxo_wallet!();
+    let (mut wallet_send_1, online_send_1) = get_funded_wallet!();
+    let (mut wallet_send_2, online_send_2) = get_funded_wallet!();
+
+    // create 1 colorable UTXO on receiver wallet
+    let created = test_create_utxos(
+        &mut wallet_recv,
+        &online_recv,
+        false,
+        Some(1),
+        None,
+        FEE_RATE,
+    );
+    assert_eq!(created, 1);
+    let unspents_recv = test_list_unspents(&wallet_recv, None, false);
+    assert_eq!(unspents_recv.iter().filter(|u| u.utxo.colorable).count(), 1);
+
+    // blind twice, yielding 2 invoices paying to the same UTXO
+    let receive_data_1 = test_blind_receive(&mut wallet_recv);
+    let receive_data_2 = test_blind_receive(&mut wallet_recv);
+
+    // check both transfers are to be received on the same UTXO
+    let transfers_recv = test_list_transfers(&wallet_recv, None);
+    assert!(transfers_recv
+        .windows(2)
+        .all(|w| w[0].receive_utxo == w[1].receive_utxo));
+
+    // issue + send from wallet_send_1 to wallet_recv blind 1
+    let asset_1 = test_issue_asset_nia(&mut wallet_send_1, &online_send_1, None);
+    let recipient_map_1 = HashMap::from([(
+        asset_1.asset_id.clone(),
+        vec![Recipient {
+            amount,
+            recipient_data: RecipientData::BlindedUTXO(
+                SecretSeal::from_str(&receive_data_1.recipient_id).unwrap(),
+            ),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid_1 = test_send(&mut wallet_send_1, &online_send_1, &recipient_map_1);
+    assert!(!txid_1.is_empty());
+
+    // issue + send from wallet_send_2 to wallet_recv blind 2
+    let asset_2 = test_issue_asset_nia(&mut wallet_send_2, &online_send_2, None);
+    let recipient_map_2 = HashMap::from([(
+        asset_2.asset_id.clone(),
+        vec![Recipient {
+            amount,
+            recipient_data: RecipientData::BlindedUTXO(
+                SecretSeal::from_str(&receive_data_2.recipient_id).unwrap(),
+            ),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid_2 = test_send(&mut wallet_send_2, &online_send_2, &recipient_map_2);
+    assert!(!txid_2.is_empty());
+
+    // refresh receiver + check both RGB allocations are on the same UTXO
+    test_refresh_all(&mut wallet_recv, &online_recv);
+    let unspents_recv = test_list_unspents(&wallet_recv, None, false);
+    let unspents_recv_colorable: Vec<&Unspent> =
+        unspents_recv.iter().filter(|u| u.utxo.colorable).collect();
+    assert_eq!(unspents_recv_colorable.len(), 1);
+    let allocations = &unspents_recv_colorable.first().unwrap().rgb_allocations;
+    assert_eq!(allocations.len(), 2);
+    assert_eq!(
+        allocations.first().unwrap().asset_id,
+        Some(asset_1.asset_id)
+    );
+    assert_eq!(allocations.last().unwrap().asset_id, Some(asset_2.asset_id));
+}
