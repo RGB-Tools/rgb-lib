@@ -1863,10 +1863,15 @@ impl Wallet {
         let inputs: &[BdkOutPoint] = &inputs;
         let usable_btc_amount = self._get_uncolorable_btc_sum()?;
         let utxo_size = size.unwrap_or(UTXO_SIZE);
-        let max_possible_utxos = usable_btc_amount / utxo_size as u64;
+        let possible_utxos = usable_btc_amount / utxo_size as u64;
+        let max_possible_utxos: u8 = if possible_utxos > u8::MAX as u64 {
+            u8::MAX
+        } else {
+            possible_utxos as u8
+        };
         let mut btc_needed: u64 = (utxo_size as u64 * utxos_to_create as u64) + 1000;
         let mut btc_available: u64 = 0;
-        let mut num_try_creating = min(utxos_to_create, max_possible_utxos as u8);
+        let mut num_try_creating = min(utxos_to_create, max_possible_utxos);
         while num_try_creating > 0 {
             match self._create_split_tx(inputs, num_try_creating, utxo_size, fee_rate) {
                 Ok(_v) => break,
