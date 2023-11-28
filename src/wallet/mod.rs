@@ -1515,6 +1515,7 @@ impl Wallet {
         recipient_type: RecipientType,
         recipient_id: String,
     ) -> Result<(String, Option<i64>, i32), Error> {
+        debug!(self.logger, "Recipient ID: {recipient_id}");
         let (iface, contract_id) = if let Some(aid) = asset_id.clone() {
             let asset = self.database.check_asset_exists(aid.clone())?;
             let contract_id = ContractId::from_str(&aid).expect("invalid contract ID");
@@ -3326,7 +3327,10 @@ impl Wallet {
         recipient_id: String,
         updated_batch_transfer: &mut DbBatchTransferActMod,
     ) -> Result<Option<DbBatchTransfer>, Error> {
-        debug!(self.logger, "Consignment is invalid");
+        debug!(
+            self.logger,
+            "Refusing invalid consignment for {recipient_id}"
+        );
         let nack_res = self
             .rest_client
             .clone()
@@ -3404,6 +3408,7 @@ impl Wallet {
             .recipient_id
             .clone()
             .expect("transfer should have a recipient ID");
+        debug!(self.logger, "Recipient ID: {recipient_id}");
 
         // check if a consignment has been posted
         let tte_data = self
@@ -3482,6 +3487,10 @@ impl Wallet {
         if let Some(aid) = asset_transfer.asset_id.clone() {
             // check if asset transfer is connected to the asset we are actually receiving
             if aid != asset_id {
+                error!(
+                    self.logger,
+                    "Received a different asset than the expected one"
+                );
                 return self._refuse_consignment(
                     proxy_url,
                     recipient_id,
@@ -3510,6 +3519,7 @@ impl Wallet {
             return Ok(None);
         }
         if ![Validity::Valid, Validity::UnminedTerminals].contains(&validity) {
+            error!(self.logger, "Consignment has an invalid status: {validity}");
             return self._refuse_consignment(proxy_url, recipient_id, &mut updated_batch_transfer);
         }
 
@@ -3579,6 +3589,10 @@ impl Wallet {
                 let file_hash: sha256::Hash = Sha256Hash::hash(&file_bytes[..]);
                 let real_attachment_id = hex::encode(file_hash.to_byte_array());
                 if attachment_id != real_attachment_id {
+                    error!(
+                        self.logger,
+                        "Attached file has a different hash than the one in the contract"
+                    );
                     return self._refuse_consignment(
                         proxy_url,
                         recipient_id,
@@ -3594,6 +3608,10 @@ impl Wallet {
                 fs::write(media_dir.join(MEDIA_FNAME), file_bytes)?;
                 fs::write(media_dir.join(MIME_FNAME), media.ty.to_string())?;
             } else {
+                error!(
+                    self.logger,
+                    "Cannot find the media file but the contract defines one"
+                );
                 return self._refuse_consignment(
                     proxy_url,
                     recipient_id,
@@ -3637,6 +3655,10 @@ impl Wallet {
         }
 
         if amount == 0 {
+            error!(
+                self.logger,
+                "Cannot find any receiving allocation with positive amount"
+            );
             return self._refuse_consignment(proxy_url, recipient_id, &mut updated_batch_transfer);
         }
 
@@ -3710,13 +3732,12 @@ impl Wallet {
                     .find(|(tte, _ce)| tte.used)
                     .expect("there should be 1 used TTE");
                 let proxy_url = transport_endpoint.endpoint.clone();
-                let ack_res = self.rest_client.clone().get_ack(
-                    &proxy_url,
-                    transfer
-                        .recipient_id
-                        .clone()
-                        .expect("transfer should have a recipient ID"),
-                )?;
+                let recipient_id = transfer
+                    .recipient_id
+                    .clone()
+                    .expect("transfer should have a recipient ID");
+                debug!(self.logger, "Recipient ID: {recipient_id}");
+                let ack_res = self.rest_client.clone().get_ack(&proxy_url, recipient_id)?;
                 debug!(self.logger, "Consignment ACK/NACK response: {:?}", ack_res);
 
                 if ack_res.result.is_some() {
@@ -3812,6 +3833,7 @@ impl Wallet {
                 .clone()
                 .recipient_id
                 .expect("transfer should have a recipient ID");
+            debug!(self.logger, "Recipient ID: {recipient_id}");
             let transfer_dir = self.wallet_dir.join(TRANSFER_DIR).join(recipient_id);
             let consignment_path = transfer_dir.join(CONSIGNMENT_RCV_FILE);
             let bindle =
@@ -4378,6 +4400,10 @@ impl Wallet {
                     continue;
                 }
                 let proxy_url = transport_endpoint.endpoint.clone();
+                debug!(
+                    self.logger,
+                    "Posting consignment for recipient ID: {recipient_id}"
+                );
                 let consignment_res = self.rest_client.clone().post_consignment(
                     &proxy_url,
                     recipient_id.clone(),
