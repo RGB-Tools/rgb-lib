@@ -239,7 +239,7 @@ impl TryFrom<TypeName> for AssetIface {
     }
 }
 
-/// An RGB20 fungible asset
+/// A Non-Inflatable Asset
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct AssetNIA {
     /// ID of the asset
@@ -296,7 +296,7 @@ impl AssetNIA {
 pub struct Media {
     /// Path of the media file
     pub file_path: String,
-    /// Mime of the media file
+    /// Mime type of the media file
     pub mime: String,
 }
 
@@ -321,7 +321,7 @@ pub struct Metadata {
     pub description: Option<String>,
 }
 
-/// An RGB25 collectible asset
+/// A Collectible Fungible Asset
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct AssetCFA {
     /// ID of the asset
@@ -378,12 +378,12 @@ enum AssetType {
     AssetCFA(AssetCFA),
 }
 
-/// List of known assets, grouped by asset interface
+/// List of known assets, grouped by asset schema
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Assets {
-    /// List of RGB20 assets
+    /// List of NIA assets
     pub nia: Option<Vec<AssetNIA>>,
-    /// List of RGB25 assets
+    /// List of CFA assets
     pub cfa: Option<Vec<AssetCFA>>,
 }
 
@@ -396,31 +396,30 @@ struct AssetSpend {
 
 /// A balance
 ///
-/// The settled balance for the vanilla wallet includes the confirmed balance.
-/// The settled balance for the colored wallet includes allocations created by operations that have
-/// completed and are in a final status.
-/// The future balance for the vanilla wallet also includes the immature balance and the untrusted
-/// and trusted pending balances.
-/// The future balance for the colored wallet also includes operations that have not yet completed
-/// or are not yet final.
-/// The spendable balance for the vanilla wallet includes the settled balance and also the
-/// untrusted and trusted pending balances.
-/// The spendable balance for the colored wallet is a subset of the settled balance, excluding
-/// allocations on UTXOs that are supporting any pending operation.
+/// This structure is used both for RGB assets and BTC balances (in sats). When used for BTC
+/// balance it can be used both for the vanilla wallet and the colored wallet.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct Balance {
-    /// Settled balance
+    /// Settled balance, based on operations that have reached the final status
     pub settled: u64,
-    /// Future balance
+    /// Future balance, including settled operations plus ones are not yet finalized
     pub future: u64,
-    /// Spendable balance
+    /// Spendable balance, only including balance that can actually be spent. It's a subset of the
+    /// settled balance. For the RGB balance this excludes the allocations on UTXOs related to
+    /// pending operations
     pub spendable: u64,
 }
 
-/// The bitcoin balances for the vanilla and colored wallets
+/// The bitcoin balances (in sats) for the vanilla and colored wallets
+///
+/// The settled balances include the confirmed balance.
+/// The future balances also include the immature balance and the untrusted and trusted pending
+/// balances.
+/// The spendable balances include the settled balance and also the untrusted and trusted pending
+/// balances.
 #[derive(Debug)]
 pub struct BtcBalance {
-    /// Extra funds that will never hold RGB assets
+    /// Funds that will never hold RGB assets
     pub vanilla: Balance,
     /// Funds that may hold RGB assets
     pub colored: Balance,
@@ -431,21 +430,22 @@ pub struct BtcBalance {
 pub struct ReceiveData {
     /// Invoice string
     pub invoice: String,
-    /// ID of the receive operation (blinded UTXO or script)
+    /// ID of the receive operation (blinded UTXO or Bitcoin script)
     pub recipient_id: String,
     /// Expiration of the receive operation
     pub expiration_timestamp: Option<i64>,
 }
 
-/// An RGB blinded UTXO
+/// An RGB blinded UTXO, which is used to refer to an UTXO without revealing it
 #[derive(Debug)]
 pub struct BlindedUTXO {
-    /// Blinded UTXO
+    /// Blinded UTXO in string form
     pub blinded_utxo: String,
 }
 
 impl BlindedUTXO {
-    /// Check that the provided [`BlindedUTXO::blinded_utxo`] is valid
+    /// Builds a new [`BlindedUTXO::blinded_utxo`] from the provided string, checking that it is
+    /// valid
     pub fn new(blinded_utxo: String) -> Result<Self, Error> {
         SecretSeal::from_str(&blinded_utxo).map_err(|e| Error::InvalidBlindedUTXO {
             details: e.to_string(),
@@ -464,7 +464,8 @@ pub struct TransportEndpoint {
 }
 
 impl TransportEndpoint {
-    /// Check that the provided [`TransportEndpoint::endpoint`] is valid
+    /// Builds a new [`TransportEndpoint::endpoint`] from the provided string, checking that it is
+    /// valid
     pub fn new(transport_endpoint: String) -> Result<Self, Error> {
         let rgb_transport = RgbTransport::from_str(&transport_endpoint)?;
         TransportEndpoint::try_from(rgb_transport)
@@ -631,7 +632,7 @@ impl Invoice {
 /// A decoded RGB invoice
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct InvoiceData {
-    /// Recipient ID
+    /// ID of the receive operation (blinded UTXO or Bitcoin script)
     pub recipient_id: String,
     /// RGB interface
     pub asset_iface: Option<AssetIface>,
@@ -648,6 +649,9 @@ pub struct InvoiceData {
 }
 
 /// Data for operations that require the wallet to be online
+///
+/// This should not be manually constructed but should be obtained from the [`Wallet::go_online`]
+/// method.
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct Online {
     /// ID to tell different Online structs apart
@@ -732,9 +736,9 @@ pub enum RecipientData {
     BlindedUTXO(SecretSeal),
     /// Witness data
     WitnessData {
-        /// The script
+        /// The Bitcoin script
         script_buf: ScriptBuf,
-        /// The Bitcoin amount
+        /// The Bitcoin amount (in sats)
         amount_sat: u64,
         /// An optional blinding
         blinding: Option<u64>,
@@ -764,7 +768,7 @@ pub struct RefreshFilter {
 pub enum RefreshTransferStatus {
     /// Waiting for the counterparty to take action
     WaitingCounterparty = 1,
-    /// Waiting for the transfer transaction to be confirmed
+    /// Waiting for the transfer transaction to reach the minimum number of confirmations
     WaitingConfirmations = 2,
 }
 
@@ -787,7 +791,8 @@ pub struct RgbAllocation {
     pub asset_id: Option<String>,
     /// RGB amount
     pub amount: u64,
-    /// Defines if the allocation is settled
+    /// Defines if the allocation is settled, meaning it refers to a transfer in the
+    /// [`TransferStatus::Settled`] status
     pub settled: bool,
 }
 
@@ -801,23 +806,23 @@ impl From<LocalRgbAllocation> for RgbAllocation {
     }
 }
 
-/// A bitcoin transaction
+/// A Bitcoin transaction
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Transaction {
     /// Type of transaction
     pub transaction_type: TransactionType,
-    /// Transaction id
+    /// Transaction ID
     pub txid: String,
-    /// Received value (sats)
-    /// Sum of owned outputs of this transaction.
+    /// Received value (in sats), computed as the sum of owned output amounts included in this
+    /// transaction
     pub received: u64,
-    /// Sent value (sats)
-    /// Sum of owned inputs of this transaction.
+    /// Sent value (in sats), computed as the sum of owned input amounts included in this
+    /// transaction
     pub sent: u64,
-    /// Fee value (sats) if confirmed.
+    /// Fee value (in sats) if transaction is confirmed
     pub fee: Option<u64>,
-    /// If the transaction is confirmed, contains height and Unix timestamp of the block containing the
-    /// transaction, unconfirmed transaction contains `None`.
+    /// Height and Unix timestamp of the block containing the transaction if confirmed, `None` if
+    /// unconfirmed
     pub confirmation_time: Option<BlockTime>,
 }
 
@@ -845,13 +850,13 @@ pub struct Transfer {
     pub updated_at: i64,
     /// Status of the transfer
     pub status: TransferStatus,
-    /// Amount
+    /// Amount in RGB unit (not considering precision)
     pub amount: u64,
     /// Type of the transfer
     pub kind: TransferKind,
-    /// Txid of the transfer
+    /// TXID of the transfer
     pub txid: Option<String>,
-    /// Recipient ID (blinded UTXO or script) of an incoming transfer
+    /// Recipient ID (blinded UTXO or Bitcoin script) of an incoming transfer
     pub recipient_id: Option<String>,
     /// UTXO of an incoming transfer
     pub receive_utxo: Option<Outpoint>,
@@ -920,7 +925,7 @@ pub enum TransferKind {
     Issuance,
     /// An incoming transfer via blinded UTXO
     ReceiveBlind,
-    /// An incoming transfer via witness TX
+    /// An incoming transfer via a Bitcoin script (witness TX)
     ReceiveWitness,
     /// An outgoing transfer
     Send,
@@ -957,12 +962,12 @@ impl From<LocalUtxo> for Unspent {
     }
 }
 
-/// An unspent transaction output
+/// A Bitcoin unspent transaction output
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Utxo {
     /// UTXO outpoint
     pub outpoint: Outpoint,
-    /// Amount held in satoshi
+    /// Amount (in sats)
     pub btc_amount: u64,
     /// Defines if the UTXO can have RGB allocations
     pub colorable: bool,
@@ -991,10 +996,10 @@ impl From<LocalUtxo> for Utxo {
     }
 }
 
-/// Wallet data provided by the user
+/// Data that defines a [`Wallet`]
 #[derive(Clone, Deserialize, Serialize)]
 pub struct WalletData {
-    /// Directory where the wallet directory is to be created
+    /// Directory where the wallet directory is stored
     pub data_dir: String,
     /// Bitcoin network for the wallet
     pub bitcoin_network: BitcoinNetwork,
@@ -1006,13 +1011,14 @@ pub struct WalletData {
     pub pubkey: String,
     /// Wallet mnemonic phrase
     pub mnemonic: Option<String>,
-    /// Optional keychain index for the vanilla wallet (default: 1)
+    /// Keychain index for the vanilla wallet (default: 1)
     pub vanilla_keychain: Option<u8>,
 }
 
 /// An RGB wallet
 ///
-/// A `Wallet` struct holds all the data required to operate it
+/// This should not be manually constructed but should be obtained from the [`Wallet::new`]
+/// method.
 pub struct Wallet {
     wallet_data: WalletData,
     logger: Logger,
