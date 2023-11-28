@@ -3252,11 +3252,8 @@ impl Wallet {
                 .for_each(|u| u.rgb_allocations.retain(|a| a.settled));
         }
 
-        let mut internal_unspents: Vec<Unspent> = self
-            ._internal_unspents()?
-            .filter(|u| !u.is_spent)
-            .map(Unspent::from)
-            .collect();
+        let mut internal_unspents: Vec<Unspent> =
+            self._internal_unspents()?.map(Unspent::from).collect();
 
         unspents.append(&mut internal_unspents);
 
@@ -3277,7 +3274,7 @@ impl Wallet {
         self._check_online(online)?;
         self._sync_wallet(&self.bdk_wallet)?;
 
-        let unspents = self._internal_unspents()?.filter(|u| !u.is_spent);
+        let unspents = self._internal_unspents()?;
 
         if min_confirmations > 0 {
             unspents
