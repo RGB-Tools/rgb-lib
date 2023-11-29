@@ -3,7 +3,7 @@
 //! This module defines the [`Error`] enum, containing all error variants returned by functions in
 //! the library.
 
-/// The error variants returned by functions
+/// The error variants returned by functions.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// No need to create more allocations
@@ -71,7 +71,7 @@ pub enum Error {
         path: String,
     },
 
-    /// An error I/O error has been encountered
+    /// An I/O error has been encountered
     #[error("I/O error: {details}")]
     IO {
         /// Error details

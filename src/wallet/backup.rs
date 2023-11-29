@@ -98,7 +98,7 @@ impl Wallet {
     ///
     /// Scrypt is used for hashing and xchacha20poly1305 is used for encryption. A random salt for
     /// hashing and a random nonce for encrypting are randomly generated and included in the final
-    /// backup file, along with the backup version
+    /// backup file, along with the backup version.
     pub fn backup(&self, backup_path: &str, password: &str) -> Result<(), Error> {
         self.backup_customize(backup_path, password, None)
     }

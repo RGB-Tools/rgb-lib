@@ -1,5 +1,3 @@
-#![allow(missing_docs)]
-
 use sea_orm::{ActiveValue, DeriveActiveEnum, EnumIter, IntoActiveValue};
 use serde::{Deserialize, Serialize};
 
@@ -8,7 +6,7 @@ use crate::{
     Error,
 };
 
-/// The schema of an asset
+/// The schema of an asset.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize, EnumIter, DeriveActiveEnum,
 )]
@@ -23,7 +21,7 @@ pub enum AssetSchema {
 }
 
 impl AssetSchema {
-    /// Get the AssetSchema given a schema ID
+    /// Get the AssetSchema given a schema ID.
     pub fn from_schema_id(schema_id: String) -> Result<AssetSchema, Error> {
         Ok(match &schema_id[..] {
             SCHEMA_ID_NIA => AssetSchema::Nia,
@@ -63,14 +61,16 @@ pub enum RecipientType {
     Witness = 2,
 }
 
+/// The type of an RGB transport.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, DeriveActiveEnum, Deserialize, Serialize)]
 #[sea_orm(rs_type = "u16", db_type = "Integer")]
 pub enum TransportType {
+    /// HTTP(s) JSON-RPC ([specification](https://github.com/RGB-Tools/rgb-http-json-rpc))
     #[sea_orm(num_value = 1)]
     JsonRpc = 1,
 }
 
-/// The status of a [`crate::wallet::Transfer`]
+/// The status of a [`crate::wallet::Transfer`].
 #[derive(
     Clone,
     Copy,
@@ -89,7 +89,7 @@ pub enum TransferStatus {
     /// Waiting for the counterparty to take action
     #[sea_orm(num_value = 1)]
     WaitingCounterparty = 1,
-    /// Waiting for the transfer transaction to be confirmed
+    /// Waiting for the transfer transaction to reach the required number of confirmations
     #[sea_orm(num_value = 2)]
     WaitingConfirmations = 2,
     /// Settled transfer, this status is final

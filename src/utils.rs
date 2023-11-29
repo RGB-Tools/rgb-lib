@@ -48,7 +48,7 @@ pub(crate) const LOG_FILE: &str = "log";
 pub(crate) const PURPOSE: u8 = 84;
 pub(crate) const ACCOUNT: u8 = 0;
 
-/// Supported Bitcoin networks
+/// Supported Bitcoin networks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub enum BitcoinNetwork {
     /// Bitcoin's mainnet
@@ -221,11 +221,11 @@ pub(crate) fn now() -> OffsetDateTime {
     OffsetDateTime::now_utc()
 }
 
-/// Wrapper for the RGB runtime. Needed to handle its lockfile.
+/// Wrapper for the RGB runtime and its lockfile.
 pub struct RgbRuntime {
     /// The RGB runtime
     pub runtime: Runtime,
-    /// The wallet directory containing the lockfile for the runtime
+    /// The wallet directory, where the lockfile for the runtime is to be held
     pub wallet_dir: PathBuf,
 }
 
@@ -416,7 +416,11 @@ fn _write_rgb_runtime_lockfile(wallet_dir: &Path) {
     }
 }
 
-/// Write the lock file for write access to the RGB runtime and load the runtime
+/// Write the lock file for write access in the provided `wallet_dir`, load the RGB runtime for the
+/// provided `bitcoin_network` and return the loaded runtime.
+///
+/// <div class="warning">This method is meant for special usage and is normally not needed, use
+/// it only if you know what you're doing</div>
 pub fn load_rgb_runtime(
     wallet_dir: PathBuf,
     bitcoin_network: BitcoinNetwork,

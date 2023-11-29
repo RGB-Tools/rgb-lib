@@ -143,7 +143,7 @@ pub(crate) const SCHEMA_ID_NIA: &str =
 pub(crate) const SCHEMA_ID_CFA: &str =
     "urn:lnp-bp:sc:4nfgJ2-jkeTRQuG-uTet6NSW-Fy1sFTU8-qqrN2uY2-j6S5rv#ravioli-justin-brave";
 
-/// The interface of an asset
+/// The interface of an RGB asset.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub enum AssetIface {
     /// RGB20 interface
@@ -239,7 +239,7 @@ impl TryFrom<TypeName> for AssetIface {
     }
 }
 
-/// A Non-Inflatable Asset
+/// A Non-Inflatable Asset.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct AssetNIA {
     /// ID of the asset
@@ -291,7 +291,7 @@ impl AssetNIA {
     }
 }
 
-/// An asset media file
+/// An asset media file.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct Media {
     /// Path of the media file
@@ -300,7 +300,7 @@ pub struct Media {
     pub mime: String,
 }
 
-/// Metadata of an asset
+/// Metadata of an RGB asset.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Metadata {
     /// Asset interface type
@@ -321,7 +321,7 @@ pub struct Metadata {
     pub description: Option<String>,
 }
 
-/// A Collectible Fungible Asset
+/// A Collectible Fungible Asset.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct AssetCFA {
     /// ID of the asset
@@ -378,7 +378,7 @@ enum AssetType {
     AssetCFA(AssetCFA),
 }
 
-/// List of known assets, grouped by asset schema
+/// List of RGB assets, grouped by asset schema.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Assets {
     /// List of NIA assets
@@ -394,9 +394,9 @@ struct AssetSpend {
     change_amount: u64,
 }
 
-/// A balance
+/// A balance.
 ///
-/// This structure is used both for RGB assets and BTC balances (in sats). When used for BTC
+/// This structure is used both for RGB assets and BTC balances (in sats). When used for a BTC
 /// balance it can be used both for the vanilla wallet and the colored wallet.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct Balance {
@@ -410,7 +410,7 @@ pub struct Balance {
     pub spendable: u64,
 }
 
-/// The bitcoin balances (in sats) for the vanilla and colored wallets
+/// The bitcoin balances (in sats) for the vanilla and colored wallets.
 ///
 /// The settled balances include the confirmed balance.
 /// The future balances also include the immature balance and the untrusted and trusted pending
@@ -425,7 +425,7 @@ pub struct BtcBalance {
     pub colored: Balance,
 }
 
-/// Data to receive an asset
+/// Data to receive an RGB transfer.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ReceiveData {
     /// Invoice string
@@ -436,7 +436,7 @@ pub struct ReceiveData {
     pub expiration_timestamp: Option<i64>,
 }
 
-/// An RGB blinded UTXO, which is used to refer to an UTXO without revealing it
+/// An RGB blinded UTXO, which is used to refer to an UTXO without revealing it.
 #[derive(Debug)]
 pub struct BlindedUTXO {
     /// Blinded UTXO in string form
@@ -445,7 +445,7 @@ pub struct BlindedUTXO {
 
 impl BlindedUTXO {
     /// Builds a new [`BlindedUTXO::blinded_utxo`] from the provided string, checking that it is
-    /// valid
+    /// valid.
     pub fn new(blinded_utxo: String) -> Result<Self, Error> {
         SecretSeal::from_str(&blinded_utxo).map_err(|e| Error::InvalidBlindedUTXO {
             details: e.to_string(),
@@ -454,7 +454,7 @@ impl BlindedUTXO {
     }
 }
 
-/// An RGB transport endpoint
+/// An RGB transport endpoint.
 #[derive(Debug)]
 pub struct TransportEndpoint {
     /// Endpoint address
@@ -465,13 +465,13 @@ pub struct TransportEndpoint {
 
 impl TransportEndpoint {
     /// Builds a new [`TransportEndpoint::endpoint`] from the provided string, checking that it is
-    /// valid
+    /// valid.
     pub fn new(transport_endpoint: String) -> Result<Self, Error> {
         let rgb_transport = RgbTransport::from_str(&transport_endpoint)?;
         TransportEndpoint::try_from(rgb_transport)
     }
 
-    /// Return the transport type of this transport endpoint
+    /// Return the transport type of this transport endpoint.
     pub fn transport_type(&self) -> TransportType {
         self.transport_type
     }
@@ -491,7 +491,7 @@ impl TryFrom<RgbTransport> for TransportEndpoint {
     }
 }
 
-/// Supported database types
+/// Supported database types.
 #[derive(Clone, Deserialize, Serialize)]
 pub enum DatabaseType {
     /// A SQLite database
@@ -513,12 +513,12 @@ struct InfoAssetTransfer {
     asset_iface: AssetIface,
 }
 
-/// An RGB invoice
+/// An RGB invoice.
 #[derive(Debug)]
 pub struct Invoice {
     /// The RGB invoice string
     invoice_string: String,
-    /// The decoded RGB invoice
+    /// The data of the RGB invoice
     invoice_data: InvoiceData,
 }
 
@@ -618,18 +618,18 @@ impl Invoice {
         })
     }
 
-    /// Return the data associated with this [`Invoice`]
+    /// Return the data associated with this [`Invoice`].
     pub fn invoice_data(&self) -> InvoiceData {
         self.invoice_data.clone()
     }
 
-    /// Return the string associated with this [`Invoice`]
+    /// Return the string associated with this [`Invoice`].
     pub fn invoice_string(&self) -> String {
         self.invoice_string.clone()
     }
 }
 
-/// A decoded RGB invoice
+/// The data of an RGB invoice.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct InvoiceData {
     /// ID of the receive operation (blinded UTXO or Bitcoin script)
@@ -648,13 +648,17 @@ pub struct InvoiceData {
     pub transport_endpoints: Vec<String>,
 }
 
-/// Data for operations that require the wallet to be online
+/// Data for operations that require the wallet to be online.
 ///
-/// This should not be manually constructed but should be obtained from the [`Wallet::go_online`]
-/// method.
+/// Methods not requiring an `Online` object don't need network access and can be performed
+/// offline. Methods taking an optional `Online` will operate offline when it's missing and will
+/// use local data only.
+///
+/// <div class="warning">This should not be manually constructed but should be obtained from the
+/// [`Wallet::go_online`] method.</div>
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct Online {
-    /// ID to tell different Online structs apart
+    /// Unique ID for this object
     pub id: u64,
     /// URL of the electrum server to be used for online operations
     pub electrum_url: String,
@@ -667,7 +671,7 @@ struct OnlineData {
     electrum_client: ElectrumClient,
 }
 
-/// Bitcoin transaction outpoint
+/// Bitcoin transaction outpoint.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct Outpoint {
     /// ID of the transaction
@@ -712,7 +716,7 @@ impl From<Outpoint> for RgbOutpoint {
     }
 }
 
-/// An RGB recipient
+/// A recipient of an RGB transfer.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct Recipient {
     /// Recipient data
@@ -729,7 +733,7 @@ impl Recipient {
     }
 }
 
-/// The information needed to receive RGB assets
+/// The information needed to receive RGB assets.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub enum RecipientData {
     /// A blinded UTXO
@@ -754,7 +758,7 @@ impl RecipientData {
     }
 }
 
-/// A transfer refresh filter
+/// A transfer refresh filter.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct RefreshFilter {
     /// Transfer status
@@ -763,7 +767,7 @@ pub struct RefreshFilter {
     pub incoming: bool,
 }
 
-/// The pending status of a [`Transfer`] (eligible for refresh)
+/// The pending status of a [`Transfer`] (eligible for refresh).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub enum RefreshTransferStatus {
     /// Waiting for the counterparty to take action
@@ -784,7 +788,7 @@ impl TryFrom<TransferStatus> for RefreshTransferStatus {
     }
 }
 
-/// An RGB allocation
+/// An RGB allocation.
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize)]
 pub struct RgbAllocation {
     /// Asset ID
@@ -806,7 +810,7 @@ impl From<LocalRgbAllocation> for RgbAllocation {
     }
 }
 
-/// A Bitcoin transaction
+/// A Bitcoin transaction.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Transaction {
     /// Type of transaction
@@ -826,7 +830,7 @@ pub struct Transaction {
     pub confirmation_time: Option<BlockTime>,
 }
 
-/// The type of a transaction
+/// The type of a transaction.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum TransactionType {
     /// Transaction used to perform an RGB send
@@ -839,7 +843,7 @@ pub enum TransactionType {
     User,
 }
 
-/// An RGB transfer
+/// An RGB transfer.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Transfer {
     /// ID of the transfer
@@ -854,7 +858,7 @@ pub struct Transfer {
     pub amount: u64,
     /// Type of the transfer
     pub kind: TransferKind,
-    /// TXID of the transfer
+    /// ID of the Bitcoin transaction anchoring the transfer
     pub txid: Option<String>,
     /// Recipient ID (blinded UTXO or Bitcoin script) of an incoming transfer
     pub recipient_id: Option<String>,
@@ -864,7 +868,7 @@ pub struct Transfer {
     pub change_utxo: Option<Outpoint>,
     /// Expiration of the transfer
     pub expiration: Option<i64>,
-    /// Transport endpoints of the transfer
+    /// Transport endpoints for the transfer
     pub transport_endpoints: Vec<TransferTransportEndpoint>,
 }
 
@@ -894,7 +898,7 @@ impl Transfer {
     }
 }
 
-/// An RGB transfer transport endpoint
+/// An RGB transport endpoint for a transfer.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TransferTransportEndpoint {
     /// Endpoint address
@@ -918,7 +922,7 @@ impl TransferTransportEndpoint {
     }
 }
 
-/// The type of an RGB transfer
+/// The type of an RGB transfer.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum TransferKind {
     /// A transfer that issued the asset
@@ -931,7 +935,7 @@ pub enum TransferKind {
     Send,
 }
 
-/// A wallet unspent
+/// A wallet unspent.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Unspent {
     /// Bitcoin UTXO
@@ -962,7 +966,7 @@ impl From<LocalUtxo> for Unspent {
     }
 }
 
-/// A Bitcoin unspent transaction output
+/// A Bitcoin unspent transaction output.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Utxo {
     /// UTXO outpoint
@@ -996,7 +1000,7 @@ impl From<LocalUtxo> for Utxo {
     }
 }
 
-/// Data that defines a [`Wallet`]
+/// Data that defines a [`Wallet`].
 #[derive(Clone, Deserialize, Serialize)]
 pub struct WalletData {
     /// Directory where the wallet directory is stored
@@ -1015,7 +1019,7 @@ pub struct WalletData {
     pub vanilla_keychain: Option<u8>,
 }
 
-/// An RGB wallet
+/// An RGB wallet.
 ///
 /// This should not be manually constructed but should be obtained from the [`Wallet::new`]
 /// method.
@@ -1032,7 +1036,7 @@ pub struct Wallet {
 }
 
 impl Wallet {
-    /// Create a new RGB wallet based on the provided [`WalletData`]
+    /// Create a new RGB wallet based on the provided [`WalletData`].
     pub fn new(wallet_data: WalletData) -> Result<Self, Error> {
         let wdata = wallet_data.clone();
 
@@ -1628,9 +1632,28 @@ impl Wallet {
         Ok((invoice.to_string(), expiry, asset_transfer_idx))
     }
 
-    /// Blind an UTXO to receive RGB assets and return the resulting [`ReceiveData`]
+    /// Blind an UTXO to receive RGB assets and return the resulting [`ReceiveData`].
     ///
-    /// Optional Asset ID and duration (in seconds) can be specified
+    /// An optional asset ID can be specified, which will be embedded in the invoice, resulting in
+    /// the refusal of the transfer is the asset doesn't match.
+    ///
+    /// An optional amount can be specified, which will be embedded in the invoice. It will not be
+    /// checked when accepting the transfer.
+    ///
+    /// An optional duration (in seconds) can be specified, which will set the expiration of the
+    /// invoice. A duration of 0 seconds means no expiration.
+    ///
+    /// Each endpoint in the provided `transport_endpoints` list will be used as RGB data exchange
+    /// medium. The list needs to contain at least 1 endpoint and a maximum of 3. Strings
+    /// specifying invalid endpoints and duplicate ones will cause an error to be raised. A valid
+    /// endpoint string encodes an
+    /// [`RgbTransport`](https://docs.rs/rgb-wallet/latest/rgbwallet/enum.RgbTransport.html). At
+    /// the moment the only supported variant is JsonRpc (e.g. `rpc://127.0.0.1` or
+    /// `rpcs://example.com`).
+    ///
+    /// The `min_confirmations` number determines the minimum number of confirmations needed for
+    /// the transaction anchoring the transfer for it to be considered final and move (while
+    /// refreshing) to the [`TransferStatus::Settled`] status.
     pub fn blind_receive(
         &mut self,
         asset_id: Option<String>,
@@ -1706,9 +1729,28 @@ impl Wallet {
         })
     }
 
-    /// Create an address to receive RGB assets and return the resulting [`ReceiveData`]
+    /// Create an address to receive RGB assets and return the resulting [`ReceiveData`].
     ///
-    /// Optional Asset ID and duration (in seconds) can be specified
+    /// An optional asset ID can be specified, which will be embedded in the invoice, resulting in
+    /// the refusal of the transfer is the asset doesn't match.
+    ///
+    /// An optional amount can be specified, which will be embedded in the invoice. It will not be
+    /// checked when accepting the transfer.
+    ///
+    /// An optional duration (in seconds) can be specified, which will set the expiration of the
+    /// invoice. A duration of 0 seconds means no expiration.
+    ///
+    /// Each endpoint in the provided `transport_endpoints` list will be used as RGB data exchange
+    /// medium. The list needs to contain at least 1 endpoint and a maximum of 3. Strings
+    /// specifying invalid endpoints and duplicate ones will cause an error to be raised. A valid
+    /// endpoint string encodes an
+    /// [`RgbTransport`](https://docs.rs/rgb-wallet/latest/rgbwallet/enum.RgbTransport.html). At
+    /// the moment the only supported variant is JsonRpc (e.g. `rpc://127.0.0.1` or
+    /// `rpcs://example.com`).
+    ///
+    /// The `min_confirmations` number determines the minimum number of confirmations needed for
+    /// the transaction anchoring the transfer for it to be considered final and move (while
+    /// refreshing) to the [`TransferStatus::Settled`] status.
     pub fn witness_receive(
         &mut self,
         asset_id: Option<String>,
@@ -1791,10 +1833,12 @@ impl Wallet {
         Ok(tx_builder.finish()?.0)
     }
 
-    /// Create new UTXOs. See the [`create_utxos_begin`](Wallet::create_utxos_begin) function for
-    /// details.
+    /// Create new UTXOs.
     ///
-    /// This is the full version, requiring a wallet with private keys and [`Online`] data
+    /// This calls [`create_utxos_begin`](Wallet::create_utxos_begin), signs the resulting PSBT and
+    /// finally calls [`create_utxos_end`](Wallet::create_utxos_end).
+    ///
+    /// A wallet with private keys is required.
     pub fn create_utxos(
         &mut self,
         online: Online,
@@ -1813,27 +1857,28 @@ impl Wallet {
         self.create_utxos_end(online, psbt)
     }
 
-    /// Prepare the PSBT to create new UTXOs to hold RGB allocations.
+    /// Prepare the PSBT to create new UTXOs to hold RGB allocations with the provided `fee_rate`
+    /// (in sat/vB).
     ///
-    /// If `up_to` is false, just create the required UTXOs.
-    /// If `up_to` is true, create as many UTXOs as needed to reach the requested number or return
-    /// an error if none need to be created.
+    /// If `up_to` is false, just create the required UTXOs, if it is true, create as many UTXOs as
+    /// needed to reach the requested number or return an error if none need to be created.
     ///
     /// Providing the optional `num` parameter requests that many UTXOs, if it's not specified the
-    /// default number is used.
+    /// default number (5<!--UTXO_NUM-->) is used.
     ///
-    /// Providing the optional `size` parameter requests that UTXOs be created of that size, if it's
-    /// not specified the default one is used.
+    /// Providing the optional `size` parameter requests that UTXOs be created of that size (in
+    /// sats), if it's not specified the default one (1000<!--UTXO_SIZE-->) is used.
     ///
     /// If not enough bitcoin funds are available to create the requested (or default) number of
     /// UTXOs, the number is decremented by one until it is possible to complete the operation. If
     /// the number reaches zero, an error is returned.
     ///
-    /// This is the first half of the partial version, requiring no private keys nor [`Online`] data.
     /// Signing of the returned PSBT needs to be carried out separately. The signed PSBT then needs
     /// to be fed to the [`create_utxos_end`](Wallet::create_utxos_end) function.
     ///
-    /// Returns a PSBT ready to be signed
+    /// This doesn't require the wallet to have private keys.
+    ///
+    /// Returns a PSBT ready to be signed.
     pub fn create_utxos_begin(
         &mut self,
         online: Online,
@@ -1908,11 +1953,12 @@ impl Wallet {
 
     /// Broadcast the provided PSBT to create new UTXOs.
     ///
-    /// This is the second half of the partial version, requiring [`Online`] data but no private keys.
     /// The provided PSBT, prepared with the [`create_utxos_begin`](Wallet::create_utxos_begin)
     /// function, needs to have already been signed.
     ///
-    /// Returns the number of created UTXOs
+    /// This doesn't require the wallet to have private keys.
+    ///
+    /// Returns the number of created UTXOs.
     pub fn create_utxos_end(&self, online: Online, signed_psbt: String) -> Result<u8, Error> {
         info!(self.logger, "Creating UTXOs (end)...");
         self._check_online(online)?;
@@ -1956,15 +2002,21 @@ impl Wallet {
         Ok(self.database.del_batch_transfer(batch_transfer)?)
     }
 
-    /// Delete eligible transfers from the database and return if any transfer has been deleted
+    /// Delete eligible transfers from the database and return true if any transfer has been
+    /// deleted.
     ///
     /// An optional `recipient_id` can be provided to operate on a single transfer.
     /// An optional `txid` can be provided to operate on a batch transfer.
+    ///
     /// If both a `recipient_id` and a `txid` are provided, they need to belong to the same batch
     /// transfer or an error is returned.
     ///
-    /// If either `recipient_id` or `txid` are provided and `no_asset_only` is true, transfers with
-    /// an associated Asset ID will not be deleted and instead return an error.
+    /// If at least one of `recipient_id` or `txid` are provided and `no_asset_only` is true,
+    /// transfers with an associated asset ID will not be deleted and instead return an error.
+    ///
+    /// If neither `recipient_id` nor `txid` are provided, all failed transfers will be deleted,
+    /// unless `no_asset_only` is true, in which case transfers with an associated asset ID will be
+    /// skipped.
     ///
     /// Eligible transfers are the ones in status [`TransferStatus::Failed`].
     pub fn delete_transfers(
@@ -2055,10 +2107,12 @@ impl Wallet {
         Ok(transfers_changed)
     }
 
-    /// Send bitcoin funds to the provided address. See the
-    /// [`drain_to_begin`](Wallet::drain_to_begin) function for details.
+    /// Send bitcoin funds to the provided address.
     ///
-    /// This is the full version, requiring a wallet with private keys and [`Online`] data
+    /// This calls [`drain_to_begin`](Wallet::drain_to_begin), signs the resulting PSBT and finally
+    /// calls [`drain_to_end`](Wallet::drain_to_end).
+    ///
+    /// A wallet with private keys is required.
     pub fn drain_to(
         &self,
         online: Online,
@@ -2089,17 +2143,19 @@ impl Wallet {
             .collect())
     }
 
-    /// Prepare the PSBT to send bitcoin funds not in use for RGB allocations, or all if
-    /// `destroy_assets` is specified, to the provided `address`.
+    /// Prepare the PSBT to send bitcoin funds not in use for RGB allocations, or all funds if
+    /// `destroy_assets` is set to true, to the provided Bitcoin `address` with the provided
+    /// `fee_rate` (in sat/vB).
     ///
-    /// Warning: setting `destroy_assets` to true is dangerous, only do this if you know what
-    /// you're doing!
+    /// <div class="warning">Warning: setting <code>destroy_assets</code> to true is dangerous,
+    /// only do this if you know what you're doing!</div>
     ///
-    /// This is the first half of the partial version, requiring no private keys.
     /// Signing of the returned PSBT needs to be carried out separately. The signed PSBT then needs
     /// to be fed to the [`drain_to_end`](Wallet::drain_to_end) function.
     ///
-    /// Returns a PSBT ready to be signed
+    /// This doesn't require the wallet to have private keys.
+    ///
+    /// Returns a PSBT ready to be signed.
     pub fn drain_to_begin(
         &self,
         online: Online,
@@ -2146,11 +2202,12 @@ impl Wallet {
 
     /// Broadcast the provided PSBT to send bitcoin funds.
     ///
-    /// This is the second half of the partial version, requiring [`Online`] data but no private keys.
     /// The provided PSBT, prepared with the [`drain_to_begin`](Wallet::drain_to_begin) function,
     /// needs to have already been signed.
     ///
-    /// Returns the TXID of the transaction that's been broadcast
+    /// This doesn't require the wallet to have private keys.
+    ///
+    /// Returns the TXID of the transaction that's been broadcast.
     pub fn drain_to_end(&self, online: Online, signed_psbt: String) -> Result<String, Error> {
         info!(self.logger, "Draining (end)...");
         self._check_online(online)?;
@@ -2198,20 +2255,23 @@ impl Wallet {
         Ok(())
     }
 
-    /// Set the status for eligible transfers to [`TransferStatus::Failed`] and return if any
-    /// transfer has changed
+    /// Set the status for eligible transfers to [`TransferStatus::Failed`] and return true if any
+    /// transfer has changed.
     ///
     /// An optional `recipient_id` can be provided to operate on a single transfer.
     /// An optional `txid` can be provided to operate on a batch transfer.
+    ///
     /// If both a `recipient_id` and a `txid` are provided, they need to belong to the same batch
     /// transfer or an error is returned.
     ///
-    /// If either `recipient_id` or `txid` are provided and `no_asset_only` is true, transfers with
-    /// an associated Asset ID will not be failed and instead return an error.
+    /// If at least one of `recipient_id` or `txid` are provided and `no_asset_only` is true,
+    /// transfers with an associated asset ID will not be failed and instead return an error.
+    ///
+    /// If neither `recipient_id` nor `txid` are provided, only expired transfers will be failed,
+    /// and if `no_asset_only` is true transfers with an associated asset ID will be skipped.
     ///
     /// Transfers are eligible if they remain in status [`TransferStatus::WaitingCounterparty`]
-    /// after a `refresh` has been performed. If nor `recipient_id` not `txid` have been provided,
-    /// only expired transfers will be failed.
+    /// after a `refresh` has been performed.
     pub fn fail_transfers(
         &mut self,
         online: Online,
@@ -2310,7 +2370,7 @@ impl Wallet {
             .address
     }
 
-    /// Return a new bitcoin address
+    /// Return a new Bitcoin address from the vanilla wallet.
     pub fn get_address(&self) -> Result<String, Error> {
         info!(self.logger, "Getting address...");
         let address = self
@@ -2326,7 +2386,7 @@ impl Wallet {
         Ok(address)
     }
 
-    /// Return the [`Balance`] for the requested asset
+    /// Return the [`Balance`] for the RGB asset with the provided ID.
     pub fn get_asset_balance(&self, asset_id: String) -> Result<Balance, Error> {
         info!(self.logger, "Getting balance for asset '{}'...", asset_id);
         self.database.check_asset_exists(asset_id.clone())?;
@@ -2337,7 +2397,7 @@ impl Wallet {
         balance
     }
 
-    /// Return the [`BtcBalance`] of the underlying bitcoin wallets
+    /// Return the [`BtcBalance`] of the internal Bitcoin wallets.
     pub fn get_btc_balance(&self, online: Online) -> Result<BtcBalance, Error> {
         info!(self.logger, "Getting BTC balance...");
         self._check_online(online)?;
@@ -2433,7 +2493,7 @@ impl Wallet {
         Ok(timestamp)
     }
 
-    /// Return the [`Metadata`] for the requested asset
+    /// Return the [`Metadata`] for the RGB asset with the provided ID.
     pub fn get_asset_metadata(&mut self, asset_id: String) -> Result<Metadata, Error> {
         info!(self.logger, "Getting metadata for asset '{}'...", asset_id);
         let asset = self.database.check_asset_exists(asset_id)?;
@@ -2450,12 +2510,12 @@ impl Wallet {
         })
     }
 
-    /// Return the wallet data provided by the user
+    /// Return the data that defines the wallet.
     pub fn get_wallet_data(&self) -> WalletData {
         self.wallet_data.clone()
     }
 
-    /// Return the wallet data directory
+    /// Return the wallet directory.
     pub fn get_wallet_dir(&self) -> PathBuf {
         self.wallet_dir.clone()
     }
@@ -2551,10 +2611,15 @@ impl Wallet {
         Ok((online, online_data))
     }
 
-    /// Return the existing or freshly generated set of wallet [`Online`] data
+    /// Return the existing or freshly generated set of wallet [`Online`] data.
     ///
+    /// Setting `skip_consistency_check` to false runs a check on UTXOs (BDK vs rgb-lib DB) and
+    /// assets (RGB vs rgb-lib DB) to try and detect possible inconsistencies in the wallet.
     /// Setting `skip_consistency_check` to true bypasses the check and allows operating an
-    /// inconsistent wallet. Warning: this is dangerous, only do this if you know what you're doing!
+    /// inconsistent wallet.
+    ///
+    /// <div class="warning">Warning: setting `skip_consistency_check` to true is dangerous, only
+    /// do this if you know what you're doing!</div>
     pub fn go_online(
         &mut self,
         skip_consistency_check: bool,
@@ -2656,7 +2721,14 @@ impl Wallet {
         })
     }
 
-    /// Issue a new RGB [`AssetNIA`] and return it
+    /// Issue a new RGB NIA asset with the provided `ticker`, `name`, `precision` and `amounts`,
+    /// then return it.
+    ///
+    /// At least 1 amount needs to be provided and the sum of all amounts cannot exceed the maximum
+    /// `u64` value.
+    ///
+    /// If `amounts` contains more than 1 element, each one will be issued as a separate allocation
+    /// for the same asset (on a separate UTXO that needs to be already available).
     pub fn issue_asset_nia(
         &mut self,
         online: Online,
@@ -2809,7 +2881,17 @@ impl Wallet {
         Ok(asset)
     }
 
-    /// Issue a new RGB [`AssetCFA`] and return it
+    /// Issue a new RGB CFA asset with the provided `name`, optional `description`, `precision` and
+    /// `amounts`, then return it.
+    ///
+    /// An optional `file_path` containing the path to a media file can be provided. Its hash (as
+    /// attachment ID) and mime type will be encoded in the contract.
+    ///
+    /// At least 1 amount needs to be provided and the sum of all amounts cannot exceed the maximum
+    /// `u64` value.
+    ///
+    /// If `amounts` contains more than 1 element, each one will be issued as a separate allocation
+    /// for the same asset (on a separate UTXO that needs to be already available).
     pub fn issue_asset_cfa(
         &mut self,
         online: Online,
@@ -3009,7 +3091,13 @@ impl Wallet {
         Ok(asset)
     }
 
-    /// List the assets known by the underlying RGB node
+    /// List the known RGB assets.
+    ///
+    /// Providing an empty `filter_asset_schemas` will list assets for all schemas, otherwise only
+    /// assets for the provided schemas will be listed.
+    ///
+    /// The returned `Assets` will have fields set to `None` for schemas that have not been
+    /// requested.
     pub fn list_assets(
         &mut self,
         mut filter_asset_schemas: Vec<AssetSchema>,
@@ -3086,7 +3174,7 @@ impl Wallet {
         Ok(())
     }
 
-    /// List the [`Transaction`]s known to the RGB wallet
+    /// List the Bitcoin [`Transaction`]s known to the wallet.
     pub fn list_transactions(&self, online: Option<Online>) -> Result<Vec<Transaction>, Error> {
         info!(self.logger, "Listing transactions...");
 
@@ -3137,9 +3225,9 @@ impl Wallet {
         Ok(transactions)
     }
 
-    /// List the [`Transfer`]s known to the RGB wallet.
+    /// List the RGB [`Transfer`]s known to the wallet.
     ///
-    /// When the `asset_id` is not provided return transfers that are not connected to a specific
+    /// When an `asset_id` is not provided, return transfers that are not connected to a specific
     /// asset.
     pub fn list_transfers(&self, asset_id: Option<String>) -> Result<Vec<Transfer>, Error> {
         if let Some(asset_id) = &asset_id {
@@ -3187,9 +3275,10 @@ impl Wallet {
         Ok(transfers)
     }
 
-    /// List the [`Unspent`]s known to the RGB wallet,
-    /// if `settled` is true only show settled allocations
-    /// if `settled` is false also show pending allocations
+    /// List the [`Unspent`]s known to the wallet.
+    ///
+    /// If `settled` is true only show settled RGB allocations, if false also show pending RGB
+    /// allocations.
     pub fn list_unspents(
         &self,
         online: Option<Online>,
@@ -3268,11 +3357,11 @@ impl Wallet {
         Ok(unspents)
     }
 
-    /// List the unspents of the vanilla wallet, using BDK's objects, filtered by
+    /// List the Bitcoin unspents of the vanilla wallet, using BDK's objects, filtered by
     /// `min_confirmations`.
     ///
-    /// This method is meant for special usage, for most cases the method [`list_unspents`] is
-    /// sufficient.
+    /// <div class="warning">This method is meant for special usage, for most cases the method
+    /// [`list_unspents`] is sufficient</div>
     pub fn list_unspents_vanilla(
         &self,
         online: Online,
@@ -3349,7 +3438,10 @@ impl Wallet {
         ))
     }
 
-    /// Extract the metadata of a new asset and save the asset into the DB
+    /// Extract the metadata of a new RGB asset and save the asset into the DB.
+    ///
+    /// <div class="warning">This method is meant for special usage and is normally not needed, use
+    /// it only if you know what you're doing</div>
     pub fn save_new_asset(
         &self,
         runtime: &mut RgbRuntime,
@@ -3930,15 +4022,14 @@ impl Wallet {
         }
     }
 
-    /// Refresh the status of pending transfers and return if any transfer has changed
+    /// Update pending RGB transfers, based on their current status, and return true if any
+    /// transfer has changed.
     ///
-    /// An optional `asset_id` can be provided to operate on a single asset.
-    /// Each item in the [`RefreshFilter`] vector defines a combination of transfer status and
-    /// direction to be refreshed, skipping any others. If the vector is empty, all combinations
-    /// are refreshed.
+    /// An optional `asset_id` can be provided to refresh transfers related to a specific asset.
     ///
-    /// Changes to each transfer depend on its status and whether the wallet is on the receiving or
-    /// sending side.
+    /// Each item in the [`RefreshFilter`] vector defines transfers to be refreshed. Transfers not
+    /// matching any provided filter are skipped. If the vector is empty, all transfers are
+    /// refreshed.
     pub fn refresh(
         &mut self,
         online: Online,
@@ -4545,9 +4636,12 @@ impl Wallet {
         Ok(())
     }
 
-    /// Send tokens. See the [`send_begin`](Wallet::send_begin) function for details.
+    /// Send RGB assets.
     ///
-    /// This is the full version, requiring a wallet with private keys
+    /// This calls [`send_begin`](Wallet::send_begin), signs the resulting PSBT and finally calls
+    /// [`send_end`](Wallet::send_end).
+    ///
+    /// A wallet with private keys is required.
     pub fn send(
         &mut self,
         online: Online,
@@ -4572,22 +4666,31 @@ impl Wallet {
         self.send_end(online, psbt)
     }
 
-    /// Prepare the PSBT to send tokens according to the given recipient map.
+    /// Prepare the PSBT to send RGB assets according to the given recipient map, with the provided
+    /// `fee_rate` (in sat/vB).
     ///
-    /// The `recipient_map` maps Asset IDs to a vector of [`Recipient`]s. Each recipient
-    /// is specified by a `recipient_id` and the `amount` to send.
+    /// The `recipient_map` maps asset IDs to a vector of [`Recipient`]s. When multiple recipients
+    /// are provided, a batch transfer will be performed, meaning a single Bitcoin transaction will
+    /// be used to move all assets to the respective recipients. Each asset being sent will result
+    /// in the creation of a single consignment, which will then be posted to the RGB proxy server
+    /// for each of its recipients.
     ///
     /// If `donation` is true, the resulting transaction will be broadcast (by
     /// [`send_end`](Wallet::send_end)) as soon as it's ready, without the need for recipients to
-    /// acknowledge the transfer.
+    /// ACK the transfer.
     /// If `donation` is false, all recipients will need to ACK the transfer before the transaction
-    /// is broadcast (as part of [`refresh`](Wallet::refresh)).
+    /// is broadcast.
     ///
-    /// This is the first half of the partial version, requiring no private keys.
+    /// The `min_confirmations` number determines the minimum number of confirmations needed for
+    /// the transaction anchoring the transfer for it to be considered final and move (while
+    /// refreshing) to the [`TransferStatus::Settled`] status.
+    ///
     /// Signing of the returned PSBT needs to be carried out separately. The signed PSBT then needs
-    /// to be fed to the `send_end` function for broadcasting.
+    /// to be fed to the [`send_end`](Wallet::send_end) function for broadcasting.
     ///
-    /// Returns a PSBT ready to be signed
+    /// This doesn't require the wallet to have private keys.
+    ///
+    /// Returns a PSBT ready to be signed.
     pub fn send_begin(
         &mut self,
         online: Online,
@@ -4785,13 +4888,15 @@ impl Wallet {
         Ok(psbt.to_string())
     }
 
-    /// Complete the send operation by saving the PSBT to disk, POSTing consignments to the proxy
-    /// server, saving the transfer to DB and broadcasting the provided PSBT, if appropriate.
+    /// Complete the send operation by saving the PSBT to disk, POSTing consignments to the RGB
+    /// proxy server, saving the transfer to DB and broadcasting the provided PSBT, if appropriate.
     ///
-    /// This is the second half of the partial version. The provided PSBT, prepared with the
-    /// `send_begin` function, needs to have already been signed.
+    /// The provided PSBT, prepared with the [`send_begin`](Wallet::send_begin) function, needs to
+    /// have already been signed.
     ///
-    /// Returns the TXID of the signed PSBT that's been saved and optionally broadcast
+    /// This doesn't require the wallet to have private keys.
+    ///
+    /// Returns the TXID of the signed PSBT that's been saved and optionally broadcast.
     pub fn send_end(&self, online: Online, signed_psbt: String) -> Result<String, Error> {
         info!(self.logger, "Sending (end)...");
         self._check_online(online)?;
@@ -4867,10 +4972,12 @@ impl Wallet {
         Ok(txid)
     }
 
-    /// Send bitcoins using the internal vanilla wallet. See the
-    /// [`send_btc_begin`](Wallet::send_btc_begin) function for details.
+    /// Send bitcoins using the vanilla wallet.
     ///
-    /// This is the full version, requiring a wallet with private keys and [`Online`] data
+    /// This calls [`send_btc_begin`](Wallet::send_btc_begin), signs the resulting PSBT and finally
+    /// calls [`send_btc_end`](Wallet::send_btc_end).
+    ///
+    /// A wallet with private keys and [`Online`] data are required.
     pub fn send_btc(
         &self,
         online: Online,
@@ -4888,9 +4995,15 @@ impl Wallet {
         self.send_btc_end(online, psbt)
     }
 
-    /// Prepare the PSBT to send bitcoins using the internal vanilla wallet.
+    /// Prepare the PSBT to send the specified `amount` of bitcoins (in sats) using the vanilla
+    /// wallet to the specified Bitcoin `address` with the specified `fee_rate` (in sat/vB).
     ///
-    /// Returns a PSBT ready to be signed
+    /// Signing of the returned PSBT needs to be carried out separately. The signed PSBT then needs
+    /// to be fed to the [`send_btc_end`](Wallet::send_btc_end) function.
+    ///
+    /// This doesn't require the wallet to have private keys.
+    ///
+    /// Returns a PSBT ready to be signed.
     pub fn send_btc_begin(
         &self,
         online: Online,
@@ -4934,13 +5047,14 @@ impl Wallet {
         Ok(psbt.to_string())
     }
 
-    /// Broadcast the provided PSBT to send bitcoins using the internal vanilla wallet.
+    /// Broadcast the provided PSBT to send bitcoins using the vanilla wallet.
     ///
-    /// This is the second half of the partial version, requiring [`Online`] data but no private
-    /// keys. The provided PSBT, prepared with the [`send_btc_begin`](Wallet::send_btc_begin)
-    /// function, needs to have already been signed.
+    /// The provided PSBT, prepared with the [`send_btc_begin`](Wallet::send_btc_begin) function,
+    /// needs to have already been signed.
     ///
-    /// Returns the TXID of the broadcasted transaction
+    /// This doesn't require the wallet to have private keys.
+    ///
+    /// Returns the TXID of the broadcasted transaction.
     pub fn send_btc_end(&self, online: Online, signed_psbt: String) -> Result<String, Error> {
         info!(self.logger, "Sending BTC (end)...");
         self._check_online(online)?;

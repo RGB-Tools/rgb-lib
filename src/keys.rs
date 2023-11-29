@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{BitcoinNetwork, Error};
 
-/// A set of Bitcoin keys used by the RGB wallet
+/// A set of Bitcoin keys used by the wallet.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Keys {
     /// Mnemonic phrase
@@ -21,7 +21,7 @@ pub struct Keys {
     pub xpub_fingerprint: String,
 }
 
-/// Generate a set of [`Keys`] for the given Bitcoin network
+/// Generate a set of [`Keys`] for the given Bitcoin network.
 pub fn generate_keys(bitcoin_network: BitcoinNetwork) -> Keys {
     let bdk_network = BdkNetwork::from(bitcoin_network);
     let mnemonic = Mnemonic::generate((WordCount::Words12, Language::English))
@@ -38,7 +38,7 @@ pub fn generate_keys(bitcoin_network: BitcoinNetwork) -> Keys {
     }
 }
 
-/// Recreate a set of [`Keys`] from a given mnemonic phrase
+/// Recreate a set of [`Keys`] from the given mnemonic phrase.
 pub fn restore_keys(bitcoin_network: BitcoinNetwork, mnemonic: String) -> Result<Keys, Error> {
     let bdk_network = BdkNetwork::from(bitcoin_network);
     let mnemonic = Mnemonic::parse_in(Language::English, mnemonic)?;

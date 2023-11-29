@@ -222,7 +222,7 @@ pub struct LocalRgbAllocation {
     pub asset_id: Option<String>,
     /// RGB amount
     pub amount: u64,
-    /// Defines the allocation status
+    /// The status of the transfer that produced the RGB allocation
     pub status: TransferStatus,
     /// Defines if the allocation is incoming
     pub incoming: bool,
