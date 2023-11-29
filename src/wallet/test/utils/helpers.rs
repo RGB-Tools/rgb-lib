@@ -347,16 +347,22 @@ pub(crate) fn list_test_unspents(wallet: &Wallet, msg: &str) -> Vec<Unspent> {
     unspents
 }
 
-pub(crate) fn wait_for_unspent_num(wallet: &Wallet, online: Online, num_unspents: usize) {
+pub(crate) fn wait_for_btc_balance(
+    wallet: &Wallet,
+    online: &Online,
+    expected_balance: &BtcBalance,
+) {
     let t_0 = OffsetDateTime::now_utc();
     loop {
         std::thread::sleep(std::time::Duration::from_millis(500));
-        let unspents = test_list_unspents(wallet, Some(&online), false);
-        if unspents.len() >= num_unspents {
+        let current_balance = test_get_btc_balance(wallet, online);
+        if &current_balance == expected_balance {
             break;
-        };
+        }
         if (OffsetDateTime::now_utc() - t_0).as_seconds_f32() > 10.0 {
-            panic!("cannot find funding UTXO");
+            println!("current balance: {current_balance:?}");
+            println!("expected balance: {expected_balance:?}");
+            panic!("BTC balance is not becoming the expected one");
         }
     }
 }

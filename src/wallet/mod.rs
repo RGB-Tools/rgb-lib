@@ -417,7 +417,7 @@ pub struct Balance {
 /// balances.
 /// The spendable balances include the settled balance and also the untrusted and trusted pending
 /// balances.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct BtcBalance {
     /// Funds that will never hold RGB assets
     pub vanilla: Balance,
