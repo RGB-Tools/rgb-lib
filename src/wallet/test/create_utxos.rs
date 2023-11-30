@@ -198,3 +198,37 @@ fn fail() {
     let result = test_create_utxos_begin_result(&mut wallet, &online, false, Some(1), None, 1000.1);
     assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_HIGH));
 }
+
+// create UTXOs of size funds/256 + check UTXO_NUM are created
+// if casting to u8 is done improperly, this would result in trying to create 0 UTXOs
+//
+// see https://github.com/RGB-Tools/rgb-lib/issues/35 for context
+#[test]
+#[parallel]
+fn casting() {
+    initialize();
+
+    let funds = 100_000_000;
+    let utxo_size = funds as u32 / 256;
+
+    let (mut wallet, online) = get_empty_wallet!();
+    fund_wallet(test_get_address(&wallet));
+    let expected_balance = BtcBalance {
+        vanilla: Balance {
+            settled: 0,
+            future: funds,
+            spendable: funds,
+        },
+        colored: Balance {
+            settled: 0,
+            future: 0,
+            spendable: 0,
+        },
+    };
+    wait_for_btc_balance(&wallet, &online, &expected_balance);
+    let num_utxos_created =
+        test_create_utxos(&mut wallet, &online, true, None, Some(utxo_size), FEE_RATE);
+    assert_eq!(num_utxos_created, UTXO_NUM);
+    let unspents = test_list_unspents(&wallet, None, false);
+    assert_eq!(unspents.len(), (UTXO_NUM + 1) as usize);
+}
