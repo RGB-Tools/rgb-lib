@@ -1004,7 +1004,7 @@ fn send_received_success() {
         .unwrap();
     assert_eq!(cfa_assets.len(), 1);
     let recv_asset = cfa_assets.first().unwrap();
-    let dst_path = recv_asset.data_paths.first().unwrap().file_path.clone();
+    let dst_path = recv_asset.media.as_ref().unwrap().file_path.clone();
     let src_bytes = std::fs::read(PathBuf::from(file_str)).unwrap();
     let dst_bytes = std::fs::read(PathBuf::from(dst_path.clone())).unwrap();
     assert_eq!(src_bytes, dst_bytes);
@@ -1152,10 +1152,10 @@ fn send_received_cfa_success() {
         }
     );
     // check attachment mime-type
-    let media = recv_asset.data_paths.first().unwrap();
+    let media = recv_asset.media.as_ref().unwrap();
     assert_eq!(media.mime, "text/plain");
     // check attachment data matches
-    let dst_path = recv_asset.data_paths.first().unwrap().file_path.clone();
+    let dst_path = media.file_path.clone();
     let src_bytes = std::fs::read(PathBuf::from(file_str)).unwrap();
     let dst_bytes = std::fs::read(PathBuf::from(dst_path.clone())).unwrap();
     assert_eq!(src_bytes, dst_bytes);
@@ -1706,8 +1706,7 @@ fn receive_multiple_different_assets_success() {
             spendable: 0,
         }
     );
-    let empty_data_paths = vec![];
-    assert_eq!(rcv_asset_cfa.data_paths, empty_data_paths);
+    assert_eq!(rcv_asset_cfa.media, None);
 
     // transfers progress to status Settled after tx mining + refresh
     std::thread::sleep(Duration::from_millis(1000)); // make sure updated_at will be at least +1s

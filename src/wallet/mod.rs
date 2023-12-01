@@ -168,14 +168,14 @@ impl AssetIface {
         colorings: Option<Vec<DbColoring>>,
         txos: Option<Vec<DbTxo>>,
     ) -> Result<AssetType, Error> {
-        let mut data_paths = vec![];
+        let mut media = None;
         let asset_dir = assets_dir.join(asset.asset_id.clone());
         if asset_dir.is_dir() {
             for fp in fs::read_dir(asset_dir)? {
                 let fpath = fp?.path();
                 let file_path = fpath.join(MEDIA_FNAME).to_string_lossy().to_string();
                 let mime = fs::read_to_string(fpath.join(MIME_FNAME))?;
-                data_paths.push(Media { file_path, mime });
+                media = Some(Media { file_path, mime });
             }
         }
         let balance = wallet.database.get_asset_balance(
@@ -198,7 +198,7 @@ impl AssetIface {
                 timestamp: asset.timestamp,
                 added_at: asset.added_at,
                 balance,
-                data_paths,
+                media,
             }),
             AssetIface::RGB25 => AssetType::AssetCFA(AssetCFA {
                 asset_id: asset.asset_id.clone(),
@@ -210,7 +210,7 @@ impl AssetIface {
                 timestamp: asset.timestamp,
                 added_at: asset.added_at,
                 balance,
-                data_paths,
+                media,
             }),
         })
     }
@@ -235,58 +235,6 @@ impl TryFrom<TypeName> for AssetIface {
             _ => Err(Error::UnknownRgbInterface {
                 interface: value.to_string(),
             }),
-        }
-    }
-}
-
-/// A Non-Inflatable Asset.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
-pub struct AssetNIA {
-    /// ID of the asset
-    pub asset_id: String,
-    /// Asset interface type
-    pub asset_iface: AssetIface,
-    /// Ticker of the asset
-    pub ticker: String,
-    /// Name of the asset
-    pub name: String,
-    /// Precision, also known as divisibility, of the asset
-    pub precision: u8,
-    /// Total issued amount
-    pub issued_supply: u64,
-    /// Timestamp of asset genesis
-    pub timestamp: i64,
-    /// Timestamp of asset import
-    pub added_at: i64,
-    /// Current balance of the asset
-    pub balance: Balance,
-    /// List of asset data file paths
-    pub data_paths: Vec<Media>,
-}
-
-impl AssetNIA {
-    fn get_asset_details(
-        wallet: &Wallet,
-        asset: &DbAsset,
-        assets_dir: PathBuf,
-        transfers: Option<Vec<DbTransfer>>,
-        asset_transfers: Option<Vec<DbAssetTransfer>>,
-        batch_transfers: Option<Vec<DbBatchTransfer>>,
-        colorings: Option<Vec<DbColoring>>,
-        txos: Option<Vec<DbTxo>>,
-    ) -> Result<AssetNIA, Error> {
-        match AssetIface::RGB20.get_asset_details(
-            wallet,
-            asset,
-            assets_dir,
-            transfers,
-            asset_transfers,
-            batch_transfers,
-            colorings,
-            txos,
-        )? {
-            AssetType::AssetNIA(asset) => Ok(asset),
-            _ => unreachable!("impossible"),
         }
     }
 }
@@ -321,6 +269,58 @@ pub struct Metadata {
     pub description: Option<String>,
 }
 
+/// A Non-Inflatable Asset.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
+pub struct AssetNIA {
+    /// ID of the asset
+    pub asset_id: String,
+    /// Asset interface type
+    pub asset_iface: AssetIface,
+    /// Ticker of the asset
+    pub ticker: String,
+    /// Name of the asset
+    pub name: String,
+    /// Precision, also known as divisibility, of the asset
+    pub precision: u8,
+    /// Total issued amount
+    pub issued_supply: u64,
+    /// Timestamp of asset genesis
+    pub timestamp: i64,
+    /// Timestamp of asset import
+    pub added_at: i64,
+    /// Current balance of the asset
+    pub balance: Balance,
+    /// Asset media attachment
+    pub media: Option<Media>,
+}
+
+impl AssetNIA {
+    fn get_asset_details(
+        wallet: &Wallet,
+        asset: &DbAsset,
+        assets_dir: PathBuf,
+        transfers: Option<Vec<DbTransfer>>,
+        asset_transfers: Option<Vec<DbAssetTransfer>>,
+        batch_transfers: Option<Vec<DbBatchTransfer>>,
+        colorings: Option<Vec<DbColoring>>,
+        txos: Option<Vec<DbTxo>>,
+    ) -> Result<AssetNIA, Error> {
+        match AssetIface::RGB20.get_asset_details(
+            wallet,
+            asset,
+            assets_dir,
+            transfers,
+            asset_transfers,
+            batch_transfers,
+            colorings,
+            txos,
+        )? {
+            AssetType::AssetNIA(asset) => Ok(asset),
+            _ => unreachable!("impossible"),
+        }
+    }
+}
+
 /// A Collectible Fungible Asset.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct AssetCFA {
@@ -342,8 +342,8 @@ pub struct AssetCFA {
     pub added_at: i64,
     /// Current balance of the asset
     pub balance: Balance,
-    /// List of asset data file paths
-    pub data_paths: Vec<Media>,
+    /// Asset media attachment
+    pub media: Option<Media>,
 }
 
 impl AssetCFA {

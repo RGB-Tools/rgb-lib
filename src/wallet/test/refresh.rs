@@ -345,7 +345,7 @@ fn nia_with_media() {
 
     wallet_2.refresh(online_2.clone(), None, vec![]).unwrap();
     let assets_list = test_list_assets(&mut wallet_2, &[]);
-    assert_eq!(assets_list.nia.unwrap()[0].data_paths.len(), 1);
+    assert!(assets_list.nia.unwrap()[0].media.is_some());
     wallet_1.refresh(online_1.clone(), None, vec![]).unwrap();
     mine(false);
     wallet_2.refresh(online_2.clone(), None, vec![]).unwrap();
@@ -367,7 +367,7 @@ fn nia_with_media() {
 
     wallet_3.refresh(online_3.clone(), None, vec![]).unwrap();
     let assets_list = test_list_assets(&mut wallet_3, &[]);
-    assert_eq!(assets_list.nia.unwrap()[0].data_paths.len(), 1);
+    assert!(assets_list.nia.unwrap()[0].media.is_some());
     wallet_2.refresh(online_2.clone(), None, vec![]).unwrap();
     mine(false);
     wallet_3.refresh(online_3, None, vec![]).unwrap();

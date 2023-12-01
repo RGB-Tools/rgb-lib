@@ -88,8 +88,7 @@ fn success() {
             spendable: AMOUNT * 3,
         }
     );
-    let empty_data_paths = vec![];
-    assert_eq!(asset.data_paths, empty_data_paths);
+    assert_eq!(asset.media, None);
 
     // test filter by asset type
     let assets = test_list_assets(&mut wallet, &[AssetSchema::Nia]);

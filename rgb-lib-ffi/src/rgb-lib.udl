@@ -75,6 +75,16 @@ enum AssetIface {
   "RGB25",
 };
 
+enum AssetSchema {
+  "Nia",
+  "Cfa",
+};
+
+dictionary Media {
+  string file_path;
+  string mime;
+};
+
 dictionary AssetNIA {
   string asset_id;
   AssetIface asset_iface;
@@ -85,17 +95,7 @@ dictionary AssetNIA {
   i64 timestamp;
   i64 added_at;
   Balance balance;
-  sequence<Media> data_paths;
-};
-
-enum AssetSchema {
-  "Nia",
-  "Cfa",
-};
-
-dictionary Media {
-  string file_path;
-  string mime;
+  Media? media;
 };
 
 dictionary AssetCFA {
@@ -108,7 +108,7 @@ dictionary AssetCFA {
   i64 timestamp;
   i64 added_at;
   Balance balance;
-  sequence<Media> data_paths;
+  Media? media;
 };
 
 dictionary Assets {

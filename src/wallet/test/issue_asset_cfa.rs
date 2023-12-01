@@ -42,8 +42,7 @@ fn success() {
             spendable: AMOUNT * 2,
         }
     );
-    let empty_data_paths = vec![];
-    assert_eq!(asset_1.data_paths, empty_data_paths);
+    assert_eq!(asset_1.media, None);
     assert!(before_timestamp <= asset_1.added_at && asset_1.added_at <= now().unix_timestamp());
 
     // include a text file
@@ -66,9 +65,9 @@ fn success() {
             spendable: AMOUNT * 2,
         }
     );
-    assert_eq!(asset_2.data_paths.len(), 1);
+    assert!(asset_2.media.is_some());
     // check attached file contents match
-    let media = asset_2.data_paths.first().unwrap();
+    let media = asset_2.media.unwrap();
     assert_eq!(media.mime, "text/plain");
     let dst_path = media.file_path.clone();
     let src_bytes = std::fs::read(PathBuf::from(file_str)).unwrap();
@@ -102,9 +101,9 @@ fn success() {
             spendable: AMOUNT * 3,
         }
     );
-    assert_eq!(asset_3.data_paths.len(), 1);
+    assert!(asset_3.media.is_some());
     // check attached file contents match
-    let media = asset_3.data_paths.first().unwrap();
+    let media = asset_3.media.unwrap();
     assert_eq!(media.mime, "image/png");
     let dst_path = media.file_path.clone();
     let src_bytes = std::fs::read(PathBuf::from(image_str)).unwrap();
@@ -171,7 +170,7 @@ fn multi_success() {
         .into_iter()
         .find(|a| a.asset_id == asset.asset_id)
         .unwrap();
-    assert_eq!(cfa_asset.data_paths.len(), 1);
+    assert!(cfa_asset.media.is_some());
 }
 
 #[test]
