@@ -19,7 +19,7 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(ColumnDef::new(Txo::Txid).string().not_null())
-                    .col(ColumnDef::new(Txo::Vout).unsigned().not_null())
+                    .col(ColumnDef::new(Txo::Vout).big_unsigned().not_null())
                     .col(ColumnDef::new(Txo::BtcAmount).string().not_null())
                     .col(ColumnDef::new(Txo::Spent).boolean().not_null())
                     .to_owned(),
@@ -40,6 +40,29 @@ impl MigrationTrait for Migration {
         manager
             .create_table(
                 Table::create()
+                    .table(Media::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(Media::Idx)
+                            .integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(Media::Digest)
+                            .string()
+                            .not_null()
+                            .unique_key(),
+                    )
+                    .col(ColumnDef::new(Media::Mime).string().not_null())
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_table(
+                Table::create()
                     .table(Asset::Table)
                     .if_not_exists()
                     .col(
@@ -49,6 +72,7 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
+                    .col(ColumnDef::new(Asset::MediaIdx).integer())
                     .col(
                         ColumnDef::new(Asset::AssetId)
                             .string()
@@ -63,6 +87,14 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Asset::Precision).tiny_unsigned().not_null())
                     .col(ColumnDef::new(Asset::Ticker).string())
                     .col(ColumnDef::new(Asset::Timestamp).big_unsigned().not_null())
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk-asset-media")
+                            .from(Asset::Table, Asset::MediaIdx)
+                            .to(Media::Table, Media::Idx)
+                            .on_delete(ForeignKeyAction::Restrict)
+                            .on_update(ForeignKeyAction::Cascade),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -214,7 +246,7 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Transfer::RecipientType).tiny_unsigned())
                     .col(ColumnDef::new(Transfer::RecipientID).string())
                     .col(ColumnDef::new(Transfer::Ack).boolean())
-                    .col(ColumnDef::new(Transfer::Vout).unsigned())
+                    .col(ColumnDef::new(Transfer::Vout).big_unsigned())
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk-transfer-assettransfer")
@@ -332,6 +364,72 @@ impl MigrationTrait for Migration {
         manager
             .create_table(
                 Table::create()
+                    .table(Token::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(Token::Idx)
+                            .integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(ColumnDef::new(Token::AssetIdx).integer().not_null())
+                    .col(ColumnDef::new(Token::Index).big_unsigned().not_null())
+                    .col(ColumnDef::new(Token::Ticker).string())
+                    .col(ColumnDef::new(Token::Name).string())
+                    .col(ColumnDef::new(Token::Details).string())
+                    .col(ColumnDef::new(Token::EmbeddedMedia).boolean().not_null())
+                    .col(ColumnDef::new(Token::Reserves).boolean().not_null())
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk-token-asset")
+                            .from(Token::Table, Token::AssetIdx)
+                            .to(Asset::Table, Asset::Idx)
+                            .on_delete(ForeignKeyAction::Cascade)
+                            .on_update(ForeignKeyAction::Cascade),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_table(
+                Table::create()
+                    .table(TokenMedia::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(TokenMedia::Idx)
+                            .integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(ColumnDef::new(TokenMedia::TokenIdx).integer().not_null())
+                    .col(ColumnDef::new(TokenMedia::MediaIdx).integer().not_null())
+                    .col(ColumnDef::new(TokenMedia::AttachmentId).tiny_unsigned())
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk-tokenmedia-token")
+                            .from(TokenMedia::Table, TokenMedia::TokenIdx)
+                            .to(Token::Table, Token::Idx)
+                            .on_delete(ForeignKeyAction::Cascade)
+                            .on_update(ForeignKeyAction::Cascade),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk-tokenmedia-media")
+                            .from(TokenMedia::Table, TokenMedia::MediaIdx)
+                            .to(Media::Table, Media::Idx)
+                            .on_delete(ForeignKeyAction::Restrict)
+                            .on_update(ForeignKeyAction::Restrict),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_table(
+                Table::create()
                     .table(WalletTransaction::Table)
                     .if_not_exists()
                     .col(
@@ -428,6 +526,18 @@ impl MigrationTrait for Migration {
             .await?;
 
         manager
+            .drop_table(Table::drop().table(Token::Table).to_owned())
+            .await?;
+
+        manager
+            .drop_table(Table::drop().table(Media::Table).to_owned())
+            .await?;
+
+        manager
+            .drop_table(Table::drop().table(TokenMedia::Table).to_owned())
+            .await?;
+
+        manager
             .drop_table(Table::drop().table(WalletTransaction::Table).to_owned())
             .await?;
 
@@ -451,6 +561,7 @@ pub enum Txo {
 pub enum Asset {
     Table,
     Idx,
+    MediaIdx,
     AssetId,
     Schema,
     AddedAt,
@@ -521,6 +632,36 @@ pub enum TransferTransportEndpoint {
     TransferIdx,
     TransportEndpointIdx,
     Used,
+}
+
+#[derive(DeriveIden)]
+enum Token {
+    Table,
+    Idx,
+    AssetIdx,
+    Index,
+    Ticker,
+    Name,
+    Details,
+    EmbeddedMedia,
+    Reserves,
+}
+
+#[derive(DeriveIden)]
+enum Media {
+    Table,
+    Idx,
+    Digest,
+    Mime,
+}
+
+#[derive(DeriveIden)]
+enum TokenMedia {
+    Table,
+    Idx,
+    TokenIdx,
+    MediaIdx,
+    AttachmentId,
 }
 
 #[derive(DeriveIden)]

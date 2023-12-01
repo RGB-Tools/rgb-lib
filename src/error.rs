@@ -142,6 +142,13 @@ pub enum Error {
         asset_id: String,
     },
 
+    /// The provided attachments are invalid
+    #[error("Invalid attachments: {details}")]
+    InvalidAttachments {
+        /// Error details
+        details: String,
+    },
+
     /// Keys derived from the provided data do not match
     #[error("Invalid bitcoin keys")]
     InvalidBitcoinKeys,

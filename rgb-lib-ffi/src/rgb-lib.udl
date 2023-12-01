@@ -32,6 +32,7 @@ interface RgbLibError {
   InvalidAddress(string details);
   InvalidAmountZero();
   InvalidAssetID(string asset_id);
+  InvalidAttachments(string details);
   InvalidBitcoinKeys();
   InvalidBitcoinNetwork(string network);
   InvalidBlindedUTXO(string details);
@@ -72,11 +73,13 @@ interface RgbLibError {
 
 enum AssetIface {
   "RGB20",
+  "RGB21",
   "RGB25",
 };
 
 enum AssetSchema {
   "Nia",
+  "Uda",
   "Cfa",
 };
 
@@ -99,6 +102,31 @@ dictionary AssetNIA {
   Media? media;
 };
 
+dictionary TokenLight {
+    u32 index;
+    string? ticker;
+    string? name;
+    string? details;
+    boolean embedded_media;
+    Media? media;
+    record<u8, Media> attachments;
+    boolean reserves;
+};
+
+dictionary AssetUDA {
+  string asset_id;
+  AssetIface asset_iface;
+  string ticker;
+  string name;
+  string? details;
+  u8 precision;
+  u64 issued_supply;
+  i64 timestamp;
+  i64 added_at;
+  Balance balance;
+  TokenLight? token;
+};
+
 dictionary AssetCFA {
   string asset_id;
   AssetIface asset_iface;
@@ -114,6 +142,7 @@ dictionary AssetCFA {
 
 dictionary Assets {
   sequence<AssetNIA>? nia;
+  sequence<AssetUDA>? uda;
   sequence<AssetCFA>? cfa;
 };
 
@@ -189,6 +218,27 @@ dictionary Keys {
   string xpub_fingerprint;
 };
 
+dictionary EmbeddedMedia {
+    string mime;
+    sequence<u8> data;
+};
+
+dictionary ProofOfReserves {
+    Outpoint utxo;
+    sequence<u8> proof;
+};
+
+dictionary Token {
+    u32 index;
+    string? ticker;
+    string? name;
+    string? details;
+    EmbeddedMedia? embedded_media;
+    Media? media;
+    record<u8, Media> attachments;
+    ProofOfReserves? reserves;
+};
+
 dictionary Metadata {
   AssetIface asset_iface;
   AssetSchema asset_schema;
@@ -198,6 +248,7 @@ dictionary Metadata {
   u8 precision;
   string? ticker;
   string? details;
+  Token? token;
 };
 
 dictionary Online {
@@ -380,6 +431,11 @@ interface Wallet {
   AssetNIA issue_asset_nia(
     Online online, string ticker, string name, u8 precision,
     sequence<u64> amounts);
+
+  [Throws=RgbLibError]
+  AssetUDA issue_asset_uda(
+    Online online, string ticker, string name, string? details, u8 precision,
+    string? media_file_path, sequence<string> attachments_file_paths);
 
   [Throws=RgbLibError]
   AssetCFA issue_asset_cfa(

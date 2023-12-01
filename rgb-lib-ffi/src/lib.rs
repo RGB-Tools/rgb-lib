@@ -11,18 +11,21 @@ type AssetCFA = rgb_lib::wallet::AssetCFA;
 type AssetIface = rgb_lib::wallet::AssetIface;
 type AssetNIA = rgb_lib::wallet::AssetNIA;
 type AssetSchema = rgb_lib::AssetSchema;
+type AssetUDA = rgb_lib::wallet::AssetUDA;
 type Assets = rgb_lib::wallet::Assets;
 type Balance = rgb_lib::wallet::Balance;
 type BitcoinNetwork = rgb_lib::BitcoinNetwork;
 type BlockTime = rgb_lib::wallet::BlockTime;
 type BtcBalance = rgb_lib::wallet::BtcBalance;
 type DatabaseType = rgb_lib::wallet::DatabaseType;
+type EmbeddedMedia = rgb_lib::wallet::EmbeddedMedia;
 type InvoiceData = rgb_lib::wallet::InvoiceData;
 type Keys = rgb_lib::keys::Keys;
 type Media = rgb_lib::wallet::Media;
 type Metadata = rgb_lib::wallet::Metadata;
 type Online = rgb_lib::wallet::Online;
 type Outpoint = rgb_lib::wallet::Outpoint;
+type ProofOfReserves = rgb_lib::wallet::ProofOfReserves;
 type ReceiveData = rgb_lib::wallet::ReceiveData;
 type RecipientData = rgb_lib::wallet::RecipientData;
 type RefreshFilter = rgb_lib::wallet::RefreshFilter;
@@ -34,6 +37,8 @@ type RgbLibInvoice = rgb_lib::wallet::Invoice;
 type RgbLibRecipient = rgb_lib::wallet::Recipient;
 type RgbLibTransportEndpoint = rgb_lib::wallet::TransportEndpoint;
 type RgbLibWallet = rgb_lib::wallet::Wallet;
+type Token = rgb_lib::wallet::Token;
+type TokenLight = rgb_lib::wallet::TokenLight;
 type Transaction = rgb_lib::wallet::Transaction;
 type TransactionType = rgb_lib::wallet::TransactionType;
 type Transfer = rgb_lib::wallet::Transfer;
@@ -314,6 +319,27 @@ impl Wallet {
     ) -> Result<AssetNIA, RgbLibError> {
         self._get_wallet()
             .issue_asset_nia(online, ticker, name, precision, amounts)
+    }
+
+    fn issue_asset_uda(
+        &self,
+        online: Online,
+        ticker: String,
+        name: String,
+        details: Option<String>,
+        precision: u8,
+        media_file_path: Option<String>,
+        attachments_file_paths: Vec<String>,
+    ) -> Result<AssetUDA, RgbLibError> {
+        self._get_wallet().issue_asset_uda(
+            online,
+            ticker,
+            name,
+            details,
+            precision,
+            media_file_path,
+            attachments_file_paths,
+        )
     }
 
     fn issue_asset_cfa(

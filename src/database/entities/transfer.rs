@@ -66,7 +66,7 @@ impl ColumnTrait for Column {
             Self::RecipientType => ColumnType::SmallInteger.def().null(),
             Self::RecipientId => ColumnType::String(None).def().null(),
             Self::Ack => ColumnType::Boolean.def().null(),
-            Self::Vout => ColumnType::Integer.def().null(),
+            Self::Vout => ColumnType::BigInteger.def().null(),
         }
     }
 }

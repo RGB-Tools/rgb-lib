@@ -21,6 +21,7 @@ fn success() {
     assert_eq!(asset.name, NAME.to_string());
     assert_eq!(asset.details, None);
     assert_eq!(asset.precision, PRECISION);
+    assert_eq!(asset.issued_supply, AMOUNT * 2);
     assert_eq!(
         asset.balance,
         Balance {

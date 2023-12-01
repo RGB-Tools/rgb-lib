@@ -7,26 +7,22 @@ pub struct Entity;
 
 impl EntityName for Entity {
     fn table_name(&self) -> &str {
-        "txo"
+        "media"
     }
 }
 
-#[derive(Clone, Debug, PartialEq, DeriveModel, DeriveActiveModel, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, DeriveModel, DeriveActiveModel, Eq)]
 pub struct Model {
     pub idx: i32,
-    pub txid: String,
-    pub vout: u32,
-    pub btc_amount: String,
-    pub spent: bool,
+    pub digest: String,
+    pub mime: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
 pub enum Column {
     Idx,
-    Txid,
-    Vout,
-    BtcAmount,
-    Spent,
+    Digest,
+    Mime,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DerivePrimaryKey)]
@@ -43,7 +39,8 @@ impl PrimaryKeyTrait for PrimaryKey {
 
 #[derive(Copy, Clone, Debug, EnumIter)]
 pub enum Relation {
-    Coloring,
+    Asset,
+    TokenMedia,
 }
 
 impl ColumnTrait for Column {
@@ -51,10 +48,8 @@ impl ColumnTrait for Column {
     fn def(&self) -> ColumnDef {
         match self {
             Self::Idx => ColumnType::Integer.def(),
-            Self::Txid => ColumnType::String(None).def(),
-            Self::Vout => ColumnType::BigInteger.def(),
-            Self::BtcAmount => ColumnType::String(None).def(),
-            Self::Spent => ColumnType::Boolean.def(),
+            Self::Digest => ColumnType::String(None).def().unique(),
+            Self::Mime => ColumnType::String(None).def(),
         }
     }
 }
@@ -62,14 +57,21 @@ impl ColumnTrait for Column {
 impl RelationTrait for Relation {
     fn def(&self) -> RelationDef {
         match self {
-            Self::Coloring => Entity::has_many(super::coloring::Entity).into(),
+            Self::Asset => Entity::has_many(super::asset::Entity).into(),
+            Self::TokenMedia => Entity::has_many(super::token_media::Entity).into(),
         }
     }
 }
 
-impl Related<super::coloring::Entity> for Entity {
+impl Related<super::asset::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Coloring.def()
+        Relation::Asset.def()
+    }
+}
+
+impl Related<super::token_media::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::TokenMedia.def()
     }
 }
 

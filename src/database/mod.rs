@@ -23,6 +23,9 @@ use crate::database::entities::batch_transfer::{
 };
 use entities::asset::{ActiveModel as DbAssetActMod, Model as DbAsset};
 use entities::coloring::{ActiveModel as DbColoringActMod, Model as DbColoring};
+use entities::media::{ActiveModel as DbMediaActMod, Model as DbMedia};
+use entities::token::{ActiveModel as DbTokenActMod, Model as DbToken};
+use entities::token_media::{ActiveModel as DbTokenMediaActMod, Model as DbTokenMedia};
 use entities::transfer::{ActiveModel as DbTransferActMod, Model as DbTransfer};
 use entities::transfer_transport_endpoint::{
     ActiveModel as DbTransferTransportEndpointActMod, Model as DbTransferTransportEndpoint,
@@ -35,8 +38,8 @@ use entities::wallet_transaction::{
     ActiveModel as DbWalletTransactionActMod, Model as DbWalletTransaction,
 };
 use entities::{
-    asset, asset_transfer, backup_info, batch_transfer, coloring, transfer,
-    transfer_transport_endpoint, transport_endpoint, txo, wallet_transaction,
+    asset, asset_transfer, backup_info, batch_transfer, coloring, media, token, token_media,
+    transfer, transfer_transport_endpoint, transport_endpoint, txo, wallet_transaction,
 };
 
 use self::enums::{ColoringType, RecipientType, TransferStatus, TransportType};
@@ -305,6 +308,24 @@ impl RgbLibDatabase {
         Ok(res.last_insert_id)
     }
 
+    pub(crate) fn set_media(&self, media: DbMediaActMod) -> Result<i32, InternalError> {
+        let res = block_on(media::Entity::insert(media).exec(self.get_connection()))?;
+        Ok(res.last_insert_id)
+    }
+
+    pub(crate) fn set_token(&self, token: DbTokenActMod) -> Result<i32, InternalError> {
+        let res = block_on(token::Entity::insert(token).exec(self.get_connection()))?;
+        Ok(res.last_insert_id)
+    }
+
+    pub(crate) fn set_token_media(
+        &self,
+        token_media: DbTokenMediaActMod,
+    ) -> Result<i32, InternalError> {
+        let res = block_on(token_media::Entity::insert(token_media).exec(self.get_connection()))?;
+        Ok(res.last_insert_id)
+    }
+
     pub(crate) fn set_transport_endpoint(
         &self,
         transport_endpoint: DbTransportEndpointActMod,
@@ -426,9 +447,36 @@ impl RgbLibDatabase {
         Ok(())
     }
 
+    pub(crate) fn get_asset(&self, asset_id: String) -> Result<Option<DbAsset>, InternalError> {
+        Ok(block_on(
+            asset::Entity::find()
+                .filter(asset::Column::AssetId.eq(asset_id.clone()))
+                .one(self.get_connection()),
+        )?)
+    }
+
     pub(crate) fn get_backup_info(&self) -> Result<Option<DbBackupInfo>, InternalError> {
         Ok(block_on(
             backup_info::Entity::find().one(self.get_connection()),
+        )?)
+    }
+
+    pub(crate) fn get_media(&self, media_idx: i32) -> Result<Option<DbMedia>, InternalError> {
+        Ok(block_on(
+            media::Entity::find()
+                .filter(media::Column::Idx.eq(media_idx))
+                .one(self.get_connection()),
+        )?)
+    }
+
+    pub(crate) fn get_media_by_digest(
+        &self,
+        digest: String,
+    ) -> Result<Option<DbMedia>, InternalError> {
+        Ok(block_on(
+            media::Entity::find()
+                .filter(media::Column::Digest.eq(digest))
+                .one(self.get_connection()),
         )?)
     }
 
@@ -472,6 +520,20 @@ impl RgbLibDatabase {
         Ok(block_on(
             coloring::Entity::find().all(self.get_connection()),
         )?)
+    }
+
+    pub(crate) fn iter_media(&self) -> Result<Vec<DbMedia>, InternalError> {
+        Ok(block_on(media::Entity::find().all(self.get_connection()))?)
+    }
+
+    pub(crate) fn iter_token_medias(&self) -> Result<Vec<DbTokenMedia>, InternalError> {
+        Ok(block_on(
+            token_media::Entity::find().all(self.get_connection()),
+        )?)
+    }
+
+    pub(crate) fn iter_tokens(&self) -> Result<Vec<DbToken>, InternalError> {
+        Ok(block_on(token::Entity::find().all(self.get_connection()))?)
     }
 
     pub(crate) fn iter_transfers(&self) -> Result<Vec<DbTransfer>, InternalError> {
@@ -667,13 +729,7 @@ impl RgbLibDatabase {
     }
 
     pub(crate) fn check_asset_exists(&self, asset_id: String) -> Result<DbAsset, Error> {
-        match block_on(
-            asset::Entity::find()
-                .filter(asset::Column::AssetId.eq(asset_id.clone()))
-                .one(self.get_connection()),
-        )
-        .map_err(InternalError::from)?
-        {
+        match self.get_asset(asset_id.clone())? {
             Some(a) => Ok(a),
             None => Err(Error::AssetNotFound { asset_id }),
         }

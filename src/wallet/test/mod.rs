@@ -39,6 +39,7 @@ const IDENT_NOT_ASCII_MSG: &str = "identifier name contains non-ASCII character(
 const RESTORE_DIR_PARTS: [&str; 3] = ["tests", "tmp", "restored"];
 const MAX_ALLOCATIONS_PER_UTXO: u32 = 5;
 const MIN_CONFIRMATIONS: u8 = 1;
+const FAKE_TXID: &str = "e5a3e577309df31bd606f48049049d2e1e02b048206ba232944fcc053a176ccb:0";
 
 static INIT: Once = Once::new();
 
@@ -85,16 +86,35 @@ lazy_static! {
     static ref MOCK_CONTRACT_DATA: Mutex<Vec<Attachment>> = Mutex::new(vec![]);
 }
 
-pub fn mock_contract_data(terms: RicardianContract, media: Option<Attachment>) -> ContractData {
+pub fn mock_contract_data(
+    wallet: &Wallet,
+    terms: RicardianContract,
+    media: Option<Attachment>,
+) -> ContractData {
     let mut mock_reqs = MOCK_CONTRACT_DATA.lock().unwrap();
     if mock_reqs.is_empty() {
-        ContractData { terms, media }
+        wallet._new_contract_data(terms, media)
     } else {
         let mocked_media = mock_reqs.pop();
-        ContractData {
-            terms,
-            media: mocked_media,
-        }
+        wallet._new_contract_data(terms, mocked_media)
+    }
+}
+
+lazy_static! {
+    static ref MOCK_TOKEN_DATA: Mutex<Vec<TokenData>> = Mutex::new(vec![]);
+}
+
+pub fn mock_token_data(
+    wallet: &Wallet,
+    index: TokenIndex,
+    media_data: &Option<(Attachment, Media)>,
+    attachments: BTreeMap<u8, Attachment>,
+) -> TokenData {
+    let mut mock_reqs = MOCK_TOKEN_DATA.lock().unwrap();
+    if mock_reqs.is_empty() {
+        wallet._new_token_data(index, media_data, attachments)
+    } else {
+        mock_reqs.pop().unwrap()
     }
 }
 
@@ -115,6 +135,7 @@ mod get_btc_balance;
 mod go_online;
 mod issue_asset_cfa;
 mod issue_asset_nia;
+mod issue_asset_uda;
 mod list_assets;
 mod list_transactions;
 mod list_transfers;

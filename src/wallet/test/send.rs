@@ -996,7 +996,7 @@ fn send_received_success() {
     assert_eq!(change_allocation_a.amount, amount_1a - amount_2a);
     assert_eq!(change_allocation_b.amount, amount_1b - amount_2b);
 
-    // check RGB25 asset has the correct attachment after being received
+    // check RGB25 asset has the correct media after being received
     let cfa_assets = wallet_3
         .list_assets(vec![AssetSchema::Cfa])
         .unwrap()
@@ -1009,14 +1009,176 @@ fn send_received_success() {
     let dst_bytes = std::fs::read(PathBuf::from(dst_path.clone())).unwrap();
     assert_eq!(src_bytes, dst_bytes);
     let src_hash: sha256::Hash = Sha256Hash::hash(&src_bytes[..]);
-    let src_attachment_id = hex::encode(src_hash.to_byte_array());
-    let dst_attachment_id = Path::new(&dst_path)
-        .parent()
+    let src_digest = hex::encode(src_hash.to_byte_array());
+    let dst_digest = Path::new(&dst_path).file_name().unwrap().to_string_lossy();
+    assert_eq!(src_digest, dst_digest);
+}
+
+#[test]
+#[parallel]
+fn send_received_uda_success() {
+    initialize();
+
+    let amount_1: u64 = 1;
+    let file_str = "README.md";
+    let image_str = ["tests", "qrcode.png"].join(&MAIN_SEPARATOR.to_string());
+
+    // wallets
+    let (wallet_1, online_1) = get_funded_wallet!();
+    let (wallet_2, online_2) = get_funded_wallet!();
+    let (wallet_3, online_3) = get_funded_wallet!();
+
+    // issue
+    let asset = test_issue_asset_uda(
+        &wallet_1,
+        &online_1,
+        Some(file_str.to_string()),
+        vec![image_str.to_string(), file_str.to_string()],
+    );
+    assert!(wallet_1
+        .database
+        .get_asset(asset.asset_id.clone())
         .unwrap()
-        .file_name()
         .unwrap()
-        .to_string_lossy();
-    assert_eq!(src_attachment_id, dst_attachment_id);
+        .media_idx
+        .is_none());
+
+    //
+    // 1st transfer: wallet 1 > wallet 2
+    //
+
+    // send
+    let receive_data_1 = test_blind_receive(&wallet_2);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            recipient_data: RecipientData::BlindedUTXO(
+                SecretSeal::from_str(&receive_data_1.recipient_id).unwrap(),
+            ),
+            amount: amount_1,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid_1 = test_send(&wallet_1, &online_1, &recipient_map);
+    assert!(!txid_1.is_empty());
+
+    // take transfers from WaitingCounterparty to Settled
+    wallet_2.refresh(online_2.clone(), None, vec![]).unwrap();
+    test_refresh_asset(&wallet_1, &online_1, &asset.asset_id);
+    mine(false);
+    wallet_2.refresh(online_2.clone(), None, vec![]).unwrap();
+    test_refresh_asset(&wallet_1, &online_1, &asset.asset_id);
+
+    // transfer 1 checks
+    let (transfer_w1, _, _) = get_test_transfer_sender(&wallet_1, &txid_1);
+    let transfer_w2 = get_test_transfer_recipient(&wallet_2, &receive_data_1.recipient_id);
+    let (transfer_data_w1, _) = get_test_transfer_data(&wallet_1, &transfer_w1);
+    let (transfer_data_w2, _) = get_test_transfer_data(&wallet_2, &transfer_w2);
+    assert_eq!(transfer_w1.amount, amount_1.to_string());
+    assert_eq!(transfer_w2.amount, amount_1.to_string());
+    assert_eq!(transfer_data_w1.status, TransferStatus::Settled);
+    assert_eq!(transfer_data_w2.status, TransferStatus::Settled);
+
+    //
+    // 2nd transfer: wallet 2 > wallet 3
+    //
+
+    // send
+    let receive_data_2 = test_witness_receive(&wallet_3);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            recipient_data: RecipientData::WitnessData {
+                script_buf: ScriptBuf::from_hex(&receive_data_2.recipient_id).unwrap(),
+                amount_sat: 1000,
+                blinding: None,
+            },
+            amount: amount_1,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid_2 = test_send(&wallet_2, &online_2, &recipient_map);
+    assert!(!txid_2.is_empty());
+
+    // take transfers from WaitingCounterparty to Settled
+    wallet_3.refresh(online_3.clone(), None, vec![]).unwrap();
+    assert!(wallet_3
+        .database
+        .get_asset(asset.asset_id.clone())
+        .unwrap()
+        .unwrap()
+        .media_idx
+        .is_none());
+    test_refresh_asset(&wallet_2, &online_2, &asset.asset_id);
+    mine(false);
+    wallet_3.refresh(online_3, None, vec![]).unwrap();
+    test_refresh_asset(&wallet_2, &online_2, &asset.asset_id);
+
+    // transfer 2 checks
+    let transfer_w3 = get_test_transfer_recipient(&wallet_3, &receive_data_2.recipient_id);
+    let (transfer_w2, _, _) = get_test_transfer_sender(&wallet_2, &txid_2);
+    let (transfer_data_w3, _) = get_test_transfer_data(&wallet_3, &transfer_w3);
+    let (transfer_data_w2, _) = get_test_transfer_data(&wallet_2, &transfer_w2);
+    assert_eq!(transfer_w3.amount, amount_1.to_string());
+    assert_eq!(transfer_w2.amount, amount_1.to_string());
+    assert_eq!(transfer_data_w3.status, TransferStatus::Settled);
+    assert_eq!(transfer_data_w2.status, TransferStatus::Settled);
+
+    // check asset has been received correctly
+    let uda_assets = wallet_3
+        .list_assets(vec![AssetSchema::Uda])
+        .unwrap()
+        .uda
+        .unwrap();
+    assert_eq!(uda_assets.len(), 1);
+    let recv_asset = uda_assets.first().unwrap();
+    assert_eq!(recv_asset.asset_id, asset.asset_id);
+    assert_eq!(recv_asset.name, NAME.to_string());
+    assert_eq!(recv_asset.details, Some(DETAILS.to_string()));
+    assert_eq!(recv_asset.precision, PRECISION);
+    assert_eq!(
+        recv_asset.balance,
+        Balance {
+            settled: amount_1,
+            future: amount_1,
+            spendable: amount_1,
+        }
+    );
+    let token = recv_asset.token.as_ref().unwrap();
+    // check media mime-type
+    let media = token.media.as_ref().unwrap();
+    assert_eq!(media.mime, "text/plain");
+    // check media data matches
+    let dst_path = media.file_path.clone();
+    let src_bytes = std::fs::read(PathBuf::from(file_str)).unwrap();
+    let dst_bytes = std::fs::read(PathBuf::from(dst_path.clone())).unwrap();
+    assert_eq!(src_bytes, dst_bytes);
+    // check digest for provided file matches
+    let src_hash: sha256::Hash = Sha256Hash::hash(&src_bytes[..]);
+    let src_digest = hex::encode(src_hash.to_byte_array());
+    let dst_digest = Path::new(&dst_path).file_name().unwrap().to_string_lossy();
+    assert_eq!(src_digest, dst_digest);
+    // check attachments
+    let media = token.attachments.get(&0).unwrap();
+    assert_eq!(media.mime, "image/png");
+    let dst_path = media.file_path.clone();
+    let src_bytes = std::fs::read(PathBuf::from(image_str)).unwrap();
+    let dst_bytes = std::fs::read(PathBuf::from(dst_path.clone())).unwrap();
+    assert_eq!(src_bytes, dst_bytes);
+    let src_hash: sha256::Hash = Sha256Hash::hash(&src_bytes[..]);
+    let src_digest = src_hash.to_string();
+    let dst_digest = Path::new(&dst_path).file_name().unwrap().to_string_lossy();
+    assert_eq!(src_digest, dst_digest);
+    let media = token.attachments.get(&1).unwrap();
+    assert_eq!(media.mime, "text/plain");
+    let dst_path = media.file_path.clone();
+    let src_bytes = std::fs::read(PathBuf::from(file_str)).unwrap();
+    let dst_bytes = std::fs::read(PathBuf::from(dst_path.clone())).unwrap();
+    assert_eq!(src_bytes, dst_bytes);
+    let src_hash: sha256::Hash = Sha256Hash::hash(&src_bytes[..]);
+    let src_digest = src_hash.to_string();
+    let dst_digest = Path::new(&dst_path).file_name().unwrap().to_string_lossy();
+    assert_eq!(src_digest, dst_digest);
 }
 
 #[test]
@@ -1151,24 +1313,19 @@ fn send_received_cfa_success() {
             spendable: amount_2,
         }
     );
-    // check attachment mime-type
+    // check media mime-type
     let media = recv_asset.media.as_ref().unwrap();
     assert_eq!(media.mime, "text/plain");
-    // check attachment data matches
+    // check media data matches
     let dst_path = media.file_path.clone();
     let src_bytes = std::fs::read(PathBuf::from(file_str)).unwrap();
     let dst_bytes = std::fs::read(PathBuf::from(dst_path.clone())).unwrap();
     assert_eq!(src_bytes, dst_bytes);
-    // check attachment id for provided file matches
+    // check digest for provided file matches
     let src_hash: sha256::Hash = Sha256Hash::hash(&src_bytes[..]);
-    let src_attachment_id = hex::encode(src_hash.to_byte_array());
-    let dst_attachment_id = Path::new(&dst_path)
-        .parent()
-        .unwrap()
-        .file_name()
-        .unwrap()
-        .to_string_lossy();
-    assert_eq!(src_attachment_id, dst_attachment_id);
+    let src_digest = hex::encode(src_hash.to_byte_array());
+    let dst_digest = Path::new(&dst_path).file_name().unwrap().to_string_lossy();
+    assert_eq!(src_digest, dst_digest);
 }
 
 #[test]

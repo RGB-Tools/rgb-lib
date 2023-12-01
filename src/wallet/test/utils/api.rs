@@ -225,6 +225,32 @@ pub(crate) fn test_go_online_result(
     wallet.go_online(skip_consistency_check, electrum)
 }
 
+pub(crate) fn test_issue_asset_uda(
+    wallet: &Wallet,
+    online: &Online,
+    media_file_path: Option<String>,
+    attachments_file_paths: Vec<String>,
+) -> AssetUDA {
+    test_issue_asset_uda_result(wallet, online, media_file_path, attachments_file_paths).unwrap()
+}
+
+pub(crate) fn test_issue_asset_uda_result(
+    wallet: &Wallet,
+    online: &Online,
+    media_file_path: Option<String>,
+    attachments_file_paths: Vec<String>,
+) -> Result<AssetUDA, Error> {
+    wallet.issue_asset_uda(
+        online.clone(),
+        TICKER.to_string(),
+        NAME.to_string(),
+        Some(DETAILS.to_string()),
+        PRECISION,
+        media_file_path,
+        attachments_file_paths,
+    )
+}
+
 pub(crate) fn test_issue_asset_cfa(
     wallet: &Wallet,
     online: &Online,

@@ -2,8 +2,7 @@ use amplify::s;
 use reqwest::blocking::{multipart, Client};
 use reqwest::header::CONTENT_TYPE;
 use serde::{Deserialize, Serialize};
-
-use std::path::PathBuf;
+use std::path::Path;
 
 use crate::error::{Error, InternalError};
 
@@ -103,20 +102,20 @@ pub trait Proxy {
         ack: bool,
     ) -> Result<JsonRpcResponse<bool>, Error>;
 
-    fn post_consignment(
+    fn post_consignment<P: AsRef<Path>>(
         self,
         url: &str,
         recipient_id: String,
-        consignment_path: PathBuf,
+        consignment_path: P,
         txid: String,
         vout: Option<u32>,
     ) -> Result<JsonRpcResponse<bool>, Error>;
 
-    fn post_media(
+    fn post_media<P: AsRef<Path>>(
         self,
         url: &str,
         attachment_id: String,
-        media_path: PathBuf,
+        media_path: P,
     ) -> Result<JsonRpcResponse<bool>, Error>;
 }
 
@@ -210,11 +209,11 @@ impl Proxy for Client {
             .map_err(InternalError::from)?)
     }
 
-    fn post_consignment(
+    fn post_consignment<P: AsRef<Path>>(
         self,
         url: &str,
         recipient_id: String,
-        consignment_path: PathBuf,
+        consignment_path: P,
         txid: String,
         vout: Option<u32>,
     ) -> Result<JsonRpcResponse<bool>, Error> {
@@ -243,11 +242,11 @@ impl Proxy for Client {
             .map_err(InternalError::from)?)
     }
 
-    fn post_media(
+    fn post_media<P: AsRef<Path>>(
         self,
         url: &str,
         attachment_id: String,
-        media_path: PathBuf,
+        media_path: P,
     ) -> Result<JsonRpcResponse<bool>, Error> {
         let form = multipart::Form::new()
             .text("method", "media.post")

@@ -34,6 +34,7 @@ fn success() {
     assert_eq!(asset_1.name, NAME.to_string());
     assert_eq!(asset_1.details, None);
     assert_eq!(asset_1.precision, PRECISION);
+    assert_eq!(asset_1.issued_supply, AMOUNT * 2);
     assert_eq!(
         asset_1.balance,
         Balance {
@@ -66,23 +67,18 @@ fn success() {
         }
     );
     assert!(asset_2.media.is_some());
-    // check attached file contents match
+    // check media file contents match
     let media = asset_2.media.unwrap();
     assert_eq!(media.mime, "text/plain");
     let dst_path = media.file_path.clone();
     let src_bytes = std::fs::read(PathBuf::from(file_str)).unwrap();
     let dst_bytes = std::fs::read(PathBuf::from(dst_path.clone())).unwrap();
     assert_eq!(src_bytes, dst_bytes);
-    // check attachment id for provided file matches
+    // check digest for provided file matches
     let src_hash: sha256::Hash = Sha256Hash::hash(&src_bytes[..]);
-    let src_attachment_id = src_hash.to_string();
-    let dst_attachment_id = Path::new(&dst_path)
-        .parent()
-        .unwrap()
-        .file_name()
-        .unwrap()
-        .to_string_lossy();
-    assert_eq!(src_attachment_id, dst_attachment_id);
+    let src_digest = src_hash.to_string();
+    let dst_digest = Path::new(&dst_path).file_name().unwrap().to_string_lossy();
+    assert_eq!(src_digest, dst_digest);
 
     // include an image file
     println!("\nasset 3");
@@ -102,23 +98,18 @@ fn success() {
         }
     );
     assert!(asset_3.media.is_some());
-    // check attached file contents match
+    // check media file contents match
     let media = asset_3.media.unwrap();
     assert_eq!(media.mime, "image/png");
     let dst_path = media.file_path.clone();
     let src_bytes = std::fs::read(PathBuf::from(image_str)).unwrap();
     let dst_bytes = std::fs::read(PathBuf::from(dst_path.clone())).unwrap();
     assert_eq!(src_bytes, dst_bytes);
-    // check attachment id for provided file matches
+    // check digest for provided file matches
     let src_hash: sha256::Hash = Sha256Hash::hash(&src_bytes[..]);
-    let src_attachment_id = src_hash.to_string();
-    let dst_attachment_id = Path::new(&dst_path)
-        .parent()
-        .unwrap()
-        .file_name()
-        .unwrap()
-        .to_string_lossy();
-    assert_eq!(src_attachment_id, dst_attachment_id);
+    let src_digest = src_hash.to_string();
+    let dst_digest = Path::new(&dst_path).file_name().unwrap().to_string_lossy();
+    assert_eq!(src_digest, dst_digest);
 }
 
 #[test]
@@ -159,7 +150,7 @@ fn multi_success() {
                 && u.rgb_allocations.first().unwrap().asset_id == Some(asset.asset_id.clone())
         }));
 
-    // check the allocated asset has one attachment
+    // check the allocated asset has one media
     let cfa_asset_list = test_list_assets(&wallet, &[]).cfa.unwrap();
     let cfa_asset = cfa_asset_list
         .into_iter()

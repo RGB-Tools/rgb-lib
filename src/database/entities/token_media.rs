@@ -2,45 +2,29 @@
 
 use sea_orm::entity::prelude::*;
 
-use crate::database::enums::AssetSchema;
-
 #[derive(Copy, Clone, Default, Debug, DeriveEntity)]
 pub struct Entity;
 
 impl EntityName for Entity {
     fn table_name(&self) -> &str {
-        "asset"
+        "token_media"
     }
 }
 
 #[derive(Clone, Debug, PartialEq, DeriveModel, DeriveActiveModel, Eq)]
 pub struct Model {
     pub idx: i32,
-    pub media_idx: Option<i32>,
-    pub asset_id: String,
-    pub schema: AssetSchema,
-    pub added_at: i64,
-    pub details: Option<String>,
-    pub issued_supply: String,
-    pub name: String,
-    pub precision: u8,
-    pub ticker: Option<String>,
-    pub timestamp: i64,
+    pub token_idx: i32,
+    pub media_idx: i32,
+    pub attachment_id: Option<u8>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
 pub enum Column {
     Idx,
+    TokenIdx,
     MediaIdx,
-    AssetId,
-    Schema,
-    AddedAt,
-    Details,
-    IssuedSupply,
-    Name,
-    Precision,
-    Ticker,
-    Timestamp,
+    AttachmentId,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DerivePrimaryKey)]
@@ -57,7 +41,6 @@ impl PrimaryKeyTrait for PrimaryKey {
 
 #[derive(Copy, Clone, Debug, EnumIter)]
 pub enum Relation {
-    AssetTransfer,
     Media,
     Token,
 }
@@ -67,16 +50,9 @@ impl ColumnTrait for Column {
     fn def(&self) -> ColumnDef {
         match self {
             Self::Idx => ColumnType::Integer.def(),
-            Self::MediaIdx => ColumnType::Integer.def().null(),
-            Self::AssetId => ColumnType::String(None).def().unique(),
-            Self::Schema => ColumnType::SmallInteger.def(),
-            Self::AddedAt => ColumnType::BigInteger.def(),
-            Self::Details => ColumnType::String(None).def().null(),
-            Self::IssuedSupply => ColumnType::String(None).def(),
-            Self::Name => ColumnType::String(None).def(),
-            Self::Precision => ColumnType::SmallInteger.def(),
-            Self::Ticker => ColumnType::String(None).def().null(),
-            Self::Timestamp => ColumnType::BigInteger.def(),
+            Self::TokenIdx => ColumnType::Integer.def(),
+            Self::MediaIdx => ColumnType::Integer.def(),
+            Self::AttachmentId => ColumnType::SmallInteger.def().null(),
         }
     }
 }
@@ -84,19 +60,15 @@ impl ColumnTrait for Column {
 impl RelationTrait for Relation {
     fn def(&self) -> RelationDef {
         match self {
-            Self::AssetTransfer => Entity::has_many(super::asset_transfer::Entity).into(),
             Self::Media => Entity::belongs_to(super::media::Entity)
                 .from(Column::MediaIdx)
                 .to(super::media::Column::Idx)
                 .into(),
-            Self::Token => Entity::has_many(super::token::Entity).into(),
+            Self::Token => Entity::belongs_to(super::token::Entity)
+                .from(Column::TokenIdx)
+                .to(super::token::Column::Idx)
+                .into(),
         }
-    }
-}
-
-impl Related<super::asset_transfer::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::AssetTransfer.def()
     }
 }
 

@@ -45,6 +45,38 @@ fn success() {
     assert!((timestamp - nia_metadata.timestamp) < 30);
 
     let file_str = "README.md";
+    let image_str = ["tests", "qrcode.png"].join(&MAIN_SEPARATOR.to_string());
+    let asset_uda = test_issue_asset_uda(
+        &wallet,
+        &online,
+        Some(file_str.to_string()),
+        vec![image_str.to_string(), file_str.to_string()],
+    );
+    let transfers = test_list_transfers(&wallet, Some(&asset_uda.asset_id));
+    assert_eq!(transfers.len(), 1);
+    let issuance = transfers.first().unwrap();
+    let timestamp = issuance.created_at;
+    let uda_metadata = test_get_asset_metadata(&wallet, &asset_uda.asset_id);
+
+    assert_eq!(uda_metadata.asset_iface, AssetIface::RGB21);
+    assert_eq!(uda_metadata.asset_schema, AssetSchema::Uda);
+    assert_eq!(uda_metadata.issued_supply, 1);
+    assert_eq!(uda_metadata.name, NAME.to_string());
+    assert_eq!(uda_metadata.precision, PRECISION);
+    assert_eq!(uda_metadata.ticker, Some(TICKER.to_string()));
+    assert_eq!(uda_metadata.details, Some(DETAILS.to_string()));
+    assert!((timestamp - uda_metadata.timestamp) < 30);
+    let token = uda_metadata.token.unwrap();
+    assert_eq!(token.index, 0);
+    assert!(token.ticker.is_none());
+    assert!(token.name.is_none());
+    assert!(token.details.is_none());
+    assert!(token.embedded_media.is_none());
+    assert_eq!(token.media.as_ref().unwrap().mime, "text/plain");
+    assert_eq!(token.attachments.get(&0).unwrap().mime, "image/png");
+    assert_eq!(token.attachments.get(&1).unwrap().mime, "text/plain");
+    assert!(token.reserves.is_none());
+
     let details = None;
     let asset_cfa = wallet
         .issue_asset_cfa(

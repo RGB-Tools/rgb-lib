@@ -2,7 +2,7 @@ use sea_orm::{ActiveValue, DeriveActiveEnum, EnumIter, IntoActiveValue};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    wallet::{SCHEMA_ID_CFA, SCHEMA_ID_NIA},
+    wallet::{NUM_KNOWN_SCHEMAS, SCHEMA_ID_CFA, SCHEMA_ID_NIA, SCHEMA_ID_UDA},
     Error,
 };
 
@@ -15,16 +15,22 @@ pub enum AssetSchema {
     /// NIA schema
     #[sea_orm(num_value = 1)]
     Nia = 1,
-    /// CFA schema
+    /// UDA schema
     #[sea_orm(num_value = 2)]
-    Cfa = 2,
+    Uda = 2,
+    /// CFA schema
+    #[sea_orm(num_value = 3)]
+    Cfa = 3,
 }
 
 impl AssetSchema {
+    pub(crate) const VALUES: [Self; NUM_KNOWN_SCHEMAS] = [Self::Nia, Self::Uda, Self::Cfa];
+
     /// Get the AssetSchema given a schema ID.
     pub fn from_schema_id(schema_id: String) -> Result<AssetSchema, Error> {
         Ok(match &schema_id[..] {
             SCHEMA_ID_NIA => AssetSchema::Nia,
+            SCHEMA_ID_UDA => AssetSchema::Uda,
             SCHEMA_ID_CFA => AssetSchema::Cfa,
             _ => return Err(Error::UnknownRgbSchema { schema_id }),
         })
