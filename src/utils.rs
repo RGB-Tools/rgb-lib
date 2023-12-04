@@ -71,13 +71,16 @@ impl FromStr for BitcoinNetwork {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let network = s.to_lowercase();
-        Ok(match network.as_str() {
+        Ok(match s.to_lowercase().as_str() {
             "mainnet" | "bitcoin" => BitcoinNetwork::Mainnet,
             "testnet" | "testnet3" => BitcoinNetwork::Testnet,
             "regtest" => BitcoinNetwork::Regtest,
             "signet" => BitcoinNetwork::Signet,
-            _ => return Err(Error::InvalidBitcoinNetwork { network }),
+            _ => {
+                return Err(Error::InvalidBitcoinNetwork {
+                    network: s.to_string(),
+                })
+            }
         })
     }
 }
