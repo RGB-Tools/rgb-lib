@@ -1,6 +1,6 @@
 use super::*;
 
-pub(crate) fn test_blind_receive(wallet: &mut Wallet) -> ReceiveData {
+pub(crate) fn test_blind_receive(wallet: &Wallet) -> ReceiveData {
     wallet
         .blind_receive(
             None,
@@ -12,7 +12,7 @@ pub(crate) fn test_blind_receive(wallet: &mut Wallet) -> ReceiveData {
         .unwrap()
 }
 
-pub(crate) fn test_witness_receive(wallet: &mut Wallet) -> ReceiveData {
+pub(crate) fn test_witness_receive(wallet: &Wallet) -> ReceiveData {
     wallet
         .witness_receive(
             None,
@@ -24,12 +24,12 @@ pub(crate) fn test_witness_receive(wallet: &mut Wallet) -> ReceiveData {
         .unwrap()
 }
 
-pub(crate) fn test_create_utxos_default(wallet: &mut Wallet, online: &Online) -> u8 {
+pub(crate) fn test_create_utxos_default(wallet: &Wallet, online: &Online) -> u8 {
     _test_create_utxos(wallet, online, false, None, None, FEE_RATE)
 }
 
 pub(crate) fn test_create_utxos(
-    wallet: &mut Wallet,
+    wallet: &Wallet,
     online: &Online,
     up_to: bool,
     num: Option<u8>,
@@ -40,7 +40,7 @@ pub(crate) fn test_create_utxos(
 }
 
 pub(crate) fn test_create_utxos_begin_result(
-    wallet: &mut Wallet,
+    wallet: &Wallet,
     online: &Online,
     up_to: bool,
     num: Option<u8>,
@@ -51,7 +51,7 @@ pub(crate) fn test_create_utxos_begin_result(
 }
 
 pub(crate) fn _test_create_utxos(
-    wallet: &mut Wallet,
+    wallet: &Wallet,
     online: &Online,
     up_to: bool,
     num: Option<u8>,
@@ -148,14 +148,14 @@ pub(crate) fn test_drain_to_keep(wallet: &Wallet, online: &Online, address: &str
         .unwrap()
 }
 
-pub(crate) fn test_fail_transfers_all(wallet: &mut Wallet, online: &Online) -> bool {
+pub(crate) fn test_fail_transfers_all(wallet: &Wallet, online: &Online) -> bool {
     wallet
         .fail_transfers(online.clone(), None, None, false)
         .unwrap()
 }
 
 pub(crate) fn test_fail_transfers_blind(
-    wallet: &mut Wallet,
+    wallet: &Wallet,
     online: &Online,
     blinded_utxo: &str,
 ) -> bool {
@@ -164,7 +164,7 @@ pub(crate) fn test_fail_transfers_blind(
         .unwrap()
 }
 
-pub(crate) fn test_fail_transfers_txid(wallet: &mut Wallet, online: &Online, txid: &str) -> bool {
+pub(crate) fn test_fail_transfers_txid(wallet: &Wallet, online: &Online, txid: &str) -> bool {
     wallet
         .fail_transfers(online.clone(), None, Some(txid.to_string()), false)
         .unwrap()
@@ -185,12 +185,12 @@ pub(crate) fn test_get_asset_balance_result(
     wallet.get_asset_balance(asset_id.to_string())
 }
 
-pub(crate) fn test_get_asset_metadata(wallet: &mut Wallet, asset_id: &str) -> Metadata {
+pub(crate) fn test_get_asset_metadata(wallet: &Wallet, asset_id: &str) -> Metadata {
     test_get_asset_metadata_result(wallet, asset_id).unwrap()
 }
 
 pub(crate) fn test_get_asset_metadata_result(
-    wallet: &mut Wallet,
+    wallet: &Wallet,
     asset_id: &str,
 ) -> Result<Metadata, Error> {
     wallet.get_asset_metadata(asset_id.to_string())
@@ -226,7 +226,7 @@ pub(crate) fn test_go_online_result(
 }
 
 pub(crate) fn test_issue_asset_cfa(
-    wallet: &mut Wallet,
+    wallet: &Wallet,
     online: &Online,
     amounts: Option<&[u64]>,
     file_path: Option<String>,
@@ -235,7 +235,7 @@ pub(crate) fn test_issue_asset_cfa(
 }
 
 pub(crate) fn test_issue_asset_cfa_result(
-    wallet: &mut Wallet,
+    wallet: &Wallet,
     online: &Online,
     amounts: Option<&[u64]>,
     file_path: Option<String>,
@@ -256,7 +256,7 @@ pub(crate) fn test_issue_asset_cfa_result(
 }
 
 pub(crate) fn test_issue_asset_nia(
-    wallet: &mut Wallet,
+    wallet: &Wallet,
     online: &Online,
     amounts: Option<&[u64]>,
 ) -> AssetNIA {
@@ -264,7 +264,7 @@ pub(crate) fn test_issue_asset_nia(
 }
 
 pub(crate) fn test_issue_asset_nia_result(
-    wallet: &mut Wallet,
+    wallet: &Wallet,
     online: &Online,
     amounts: Option<&[u64]>,
 ) -> Result<AssetNIA, Error> {
@@ -282,10 +282,7 @@ pub(crate) fn test_issue_asset_nia_result(
     )
 }
 
-pub(crate) fn test_list_assets(
-    wallet: &mut Wallet,
-    filter_asset_schemas: &[AssetSchema],
-) -> Assets {
+pub(crate) fn test_list_assets(wallet: &Wallet, filter_asset_schemas: &[AssetSchema]) -> Assets {
     wallet.list_assets(filter_asset_schemas.to_vec()).unwrap()
 }
 
@@ -315,18 +312,18 @@ pub(crate) fn test_list_unspents(
     wallet.list_unspents(online, settled_only).unwrap()
 }
 
-pub(crate) fn test_refresh_all(wallet: &mut Wallet, online: &Online) -> bool {
+pub(crate) fn test_refresh_all(wallet: &Wallet, online: &Online) -> bool {
     wallet.refresh(online.clone(), None, vec![]).unwrap()
 }
 
-pub(crate) fn test_refresh_asset(wallet: &mut Wallet, online: &Online, asset_id: &str) -> bool {
+pub(crate) fn test_refresh_asset(wallet: &Wallet, online: &Online, asset_id: &str) -> bool {
     wallet
         .refresh(online.clone(), Some(asset_id.to_string()), vec![])
         .unwrap()
 }
 
 pub(crate) fn test_send(
-    wallet: &mut Wallet,
+    wallet: &Wallet,
     online: &Online,
     recipient_map: &HashMap<String, Vec<Recipient>>,
 ) -> String {
@@ -334,7 +331,7 @@ pub(crate) fn test_send(
 }
 
 pub(crate) fn test_send_result(
-    wallet: &mut Wallet,
+    wallet: &Wallet,
     online: &Online,
     recipient_map: &HashMap<String, Vec<Recipient>>,
 ) -> Result<String, Error> {
@@ -348,7 +345,7 @@ pub(crate) fn test_send_result(
 }
 
 pub(crate) fn test_send_begin_result(
-    wallet: &mut Wallet,
+    wallet: &Wallet,
     online: &Online,
     recipient_map: &HashMap<String, Vec<Recipient>>,
 ) -> Result<String, Error> {

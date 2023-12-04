@@ -9,8 +9,8 @@ fn success() {
     let amount: u64 = 66;
 
     // wallets
-    let (mut wallet, online) = get_empty_wallet!();
-    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
+    let (wallet, online) = get_empty_wallet!();
+    let (rcv_wallet, rcv_online) = get_funded_wallet!();
 
     // no unspents
     let bak_info_before = wallet.database.get_backup_info().unwrap();
@@ -32,10 +32,10 @@ fn success() {
     assert_eq!(unspent_list_all.len(), 1);
     assert!(unspent_list_all.iter().all(|u| !u.utxo.colorable));
 
-    test_create_utxos_default(&mut wallet, &online);
+    test_create_utxos_default(&wallet, &online);
 
     // multiple unspents, one settled RGB allocation
-    let asset = test_issue_asset_nia(&mut wallet, &online, None);
+    let asset = test_issue_asset_nia(&wallet, &online, None);
     let unspent_list_settled = test_list_unspents(&wallet, None, true);
     assert_eq!(unspent_list_settled.len(), UTXO_NUM as usize + 1);
     let unspent_list_all = test_list_unspents(&wallet, None, false);
@@ -61,12 +61,8 @@ fn success() {
         .all(|a| a.asset_id == Some(asset.asset_id.clone()) && a.amount == AMOUNT && a.settled));
 
     // multiple unspents, one failed blind, not listed
-    let receive_data_fail = test_blind_receive(&mut rcv_wallet);
-    test_fail_transfers_blind(
-        &mut rcv_wallet,
-        &rcv_online,
-        &receive_data_fail.recipient_id,
-    );
+    let receive_data_fail = test_blind_receive(&rcv_wallet);
+    test_fail_transfers_blind(&rcv_wallet, &rcv_online, &receive_data_fail.recipient_id);
     show_unspent_colorings(&rcv_wallet, "after blind fail");
     let unspent_list_all = test_list_unspents(&rcv_wallet, None, false);
     let mut allocations = vec![];
@@ -75,7 +71,7 @@ fn success() {
         .for_each(|u| allocations.extend(u.rgb_allocations.clone()));
     assert_eq!(allocations.len(), 0);
     // one failed send, not listed
-    let receive_data = test_blind_receive(&mut rcv_wallet);
+    let receive_data = test_blind_receive(&rcv_wallet);
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -86,9 +82,9 @@ fn success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&mut wallet, &online, &recipient_map);
+    let txid = test_send(&wallet, &online, &recipient_map);
     assert!(!txid.is_empty());
-    test_fail_transfers_txid(&mut wallet, &online, &txid);
+    test_fail_transfers_txid(&wallet, &online, &txid);
     show_unspent_colorings(&wallet, "after send fail");
     let unspent_list_all = test_list_unspents(&wallet, None, false);
     assert_eq!(
@@ -114,15 +110,15 @@ fn success() {
     drain_wallet(&wallet, &online);
     fund_wallet(test_get_address(&wallet));
     mine(false);
-    test_create_utxos_default(&mut wallet, &online);
+    test_create_utxos_default(&wallet, &online);
     drain_wallet(&rcv_wallet, &rcv_online);
     fund_wallet(test_get_address(&rcv_wallet));
     mine(false);
-    test_create_utxos_default(&mut rcv_wallet, &rcv_online);
+    test_create_utxos_default(&rcv_wallet, &rcv_online);
 
     // issue + send some asset
-    let asset = test_issue_asset_nia(&mut wallet, &online, None);
-    let receive_data = test_blind_receive(&mut rcv_wallet);
+    let asset = test_issue_asset_nia(&wallet, &online, None);
+    let receive_data = test_blind_receive(&rcv_wallet);
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -133,7 +129,7 @@ fn success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&mut wallet, &online, &recipient_map);
+    let txid = test_send(&wallet, &online, &recipient_map);
     assert!(!txid.is_empty());
     show_unspent_colorings(&rcv_wallet, "receiver after send - WaitingCounterparty");
     show_unspent_colorings(&wallet, "sender after send - WaitingCounterparty");
@@ -193,8 +189,8 @@ fn success() {
     stop_mining();
 
     // transfer progresses to status WaitingConfirmations
-    test_refresh_all(&mut rcv_wallet, &rcv_online);
-    test_refresh_asset(&mut wallet, &online, &asset.asset_id);
+    test_refresh_all(&rcv_wallet, &rcv_online);
+    test_refresh_asset(&wallet, &online, &asset.asset_id);
     show_unspent_colorings(&rcv_wallet, "receiver after send - WaitingConfirmations");
     show_unspent_colorings(&wallet, "sender after send - WaitingConfirmations");
     // check receiver lists no settled allocations
@@ -237,7 +233,7 @@ fn success() {
     // transfer progresses to status Settled
     mine(true);
     rcv_wallet.refresh(rcv_online, None, vec![]).unwrap();
-    test_refresh_asset(&mut wallet, &online, &asset.asset_id);
+    test_refresh_asset(&wallet, &online, &asset.asset_id);
     show_unspent_colorings(&rcv_wallet, "receiver after send - Settled");
     show_unspent_colorings(&wallet, "sender after send - Settled");
     // check receiver lists one settled allocation

@@ -58,9 +58,9 @@ fn consistency_check_fail_utxos() {
     initialize();
 
     // prepare test wallet with UTXOs + an asset
-    let (mut wallet_orig, online_orig) = get_funded_wallet!();
+    let (wallet_orig, online_orig) = get_funded_wallet!();
     let wallet_data_orig = test_get_wallet_data(&wallet_orig);
-    test_issue_asset_nia(&mut wallet_orig, &online_orig, None);
+    test_issue_asset_nia(&wallet_orig, &online_orig, None);
 
     // get wallet fingerprint
     let wallet_dir_orig = test_get_wallet_dir(&wallet_orig);
@@ -152,9 +152,9 @@ fn consistency_check_fail_asset_ids() {
     initialize();
 
     // prepare test wallet with UTXOs + an asset
-    let (mut wallet_orig, online_orig) = get_funded_wallet!();
+    let (wallet_orig, online_orig) = get_funded_wallet!();
     let wallet_data_orig = test_get_wallet_data(&wallet_orig);
-    let _asset = test_issue_asset_nia(&mut wallet_orig, &online_orig, None);
+    let _asset = test_issue_asset_nia(&wallet_orig, &online_orig, None);
 
     // get wallet fingerprint
     let wallet_dir_orig = test_get_wallet_dir(&wallet_orig);

@@ -12,12 +12,12 @@ fn success() {
 
     let amount = 69;
     let expiration = 60;
-    let (mut wallet, online) = get_funded_wallet!();
+    let (wallet, online) = get_funded_wallet!();
 
     // default expiration + min confirmations
     let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
     let now_timestamp = now().unix_timestamp();
-    let receive_data = test_blind_receive(&mut wallet);
+    let receive_data = test_blind_receive(&wallet);
     let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     assert!(receive_data.expiration_timestamp.is_some());
@@ -74,7 +74,7 @@ fn success() {
     assert_eq!(batch_transfer.min_confirmations, min_confirmations);
 
     // asset id is set
-    let asset = test_issue_asset_cfa(&mut wallet, &online, None, None);
+    let asset = test_issue_asset_cfa(&wallet, &online, None, None);
     let asset_id = asset.asset_id;
     let result = wallet.blind_receive(
         Some(asset_id.clone()),
@@ -143,14 +143,14 @@ fn success() {
 fn respect_max_allocations() {
     initialize();
 
-    let (mut wallet, _online) = get_funded_wallet!();
+    let (wallet, _online) = get_funded_wallet!();
 
     let available_allocations = UTXO_NUM as u32 * MAX_ALLOCATIONS_PER_UTXO;
     let mut created_allocations = 0;
     for _ in 0..UTXO_NUM {
         let mut txo_list: HashSet<DbTxo> = HashSet::new();
         for _ in 0..MAX_ALLOCATIONS_PER_UTXO {
-            let receive_data = test_blind_receive(&mut wallet);
+            let receive_data = test_blind_receive(&wallet);
             created_allocations += 1;
             let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
             let coloring = get_test_coloring(&wallet, transfer.asset_transfer_idx);
@@ -179,7 +179,7 @@ fn expire() {
     initialize();
 
     let expiration = 1;
-    let (mut wallet, online) = get_funded_wallet!();
+    let (wallet, online) = get_funded_wallet!();
 
     // check expiration
     let now_timestamp = now().unix_timestamp();
@@ -201,7 +201,7 @@ fn expire() {
     ));
 
     // trigger the expiration of pending transfers
-    let _asset = test_issue_asset_nia(&mut wallet, &online, None);
+    let _asset = test_issue_asset_nia(&wallet, &online, None);
 
     // check transfer is now in status Failed
     let transfer = get_test_transfer_recipient(&wallet, &receive_data_1.recipient_id);
@@ -216,11 +216,11 @@ fn pending_outgoing_transfer_fail() {
 
     let amount = 66;
 
-    let (mut wallet, online) = get_funded_wallet!();
-    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
+    let (wallet, online) = get_funded_wallet!();
+    let (rcv_wallet, rcv_online) = get_funded_wallet!();
 
     // issue
-    let asset = test_issue_asset_nia(&mut wallet, &online, None);
+    let asset = test_issue_asset_nia(&wallet, &online, None);
     let asset_id = asset.asset_id;
     // get issuance UTXO
     let unspents = test_list_unspents(&wallet, None, false);
@@ -233,7 +233,7 @@ fn pending_outgoing_transfer_fail() {
         })
         .unwrap();
     // send
-    let receive_data = test_blind_receive(&mut rcv_wallet);
+    let receive_data = test_blind_receive(&rcv_wallet);
     let recipient_map = HashMap::from([(
         asset_id.clone(),
         vec![Recipient {
@@ -244,11 +244,11 @@ fn pending_outgoing_transfer_fail() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&mut wallet, &online, &recipient_map);
+    let txid = test_send(&wallet, &online, &recipient_map);
     assert!(!txid.is_empty());
 
     // check blind doesn't get allocated to UTXO being spent
-    let receive_data = test_blind_receive(&mut wallet);
+    let receive_data = test_blind_receive(&wallet);
     show_unspent_colorings(&wallet, "after 1st blind");
     let unspents = test_list_unspents(&wallet, None, false);
     let unspent_blind_1 = unspents
@@ -257,14 +257,14 @@ fn pending_outgoing_transfer_fail() {
         .unwrap();
     assert_ne!(unspent_issue.utxo.outpoint, unspent_blind_1.utxo.outpoint);
     // remove blind
-    test_fail_transfers_blind(&mut wallet, &online, &receive_data.recipient_id);
+    test_fail_transfers_blind(&wallet, &online, &receive_data.recipient_id);
     test_delete_transfers(&wallet, Some(&receive_data.recipient_id), None, false);
 
     // take transfer from WaitingCounterparty to WaitingConfirmations
     rcv_wallet.refresh(rcv_online, None, vec![]).unwrap();
-    test_refresh_asset(&mut wallet, &online, &asset_id);
+    test_refresh_asset(&wallet, &online, &asset_id);
     // check blind doesn't get allocated to UTXO being spent
-    let _receive_data = test_blind_receive(&mut wallet);
+    let _receive_data = test_blind_receive(&wallet);
     show_unspent_colorings(&wallet, "after 2nd blind");
     let unspents = test_list_unspents(&wallet, None, false);
     let unspent_blind_2 = unspents
@@ -318,7 +318,7 @@ fn fail() {
 
     fund_wallet(test_get_address(&wallet));
     mine(false);
-    test_create_utxos(&mut wallet, &online, true, Some(1), None, FEE_RATE);
+    test_create_utxos(&wallet, &online, true, Some(1), None, FEE_RATE);
 
     // bad asset id
     let result = wallet.blind_receive(
@@ -331,7 +331,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::AssetNotFound { asset_id: _ })));
 
     // cannot blind if all UTXOS already have an allocation
-    let _asset = test_issue_asset_nia(&mut wallet, &online, None);
+    let _asset = test_issue_asset_nia(&wallet, &online, None);
     let result = wallet.blind_receive(
         None,
         None,
@@ -343,7 +343,7 @@ fn fail() {
 
     // transport endpoints: malformed string
     fund_wallet(test_get_address(&wallet));
-    test_create_utxos_default(&mut wallet, &online);
+    test_create_utxos_default(&wallet, &online);
     let transport_endpoints = vec!["malformed".to_string()];
     let result = blind_receive_0exp_withte(&mut wallet, transport_endpoints);
     assert!(matches!(
@@ -433,12 +433,12 @@ fn wrong_asset_fail() {
 
     let amount: u64 = 66;
 
-    let (mut wallet_1, online_1) = get_funded_wallet!();
-    let (mut wallet_2, online_2) = get_funded_wallet!();
+    let (wallet_1, online_1) = get_funded_wallet!();
+    let (wallet_2, online_2) = get_funded_wallet!();
 
     // issue one asset per wallet
-    let asset_a = test_issue_asset_nia(&mut wallet_1, &online_1, None);
-    let asset_b = test_issue_asset_nia(&mut wallet_2, &online_2, None);
+    let asset_a = test_issue_asset_nia(&wallet_1, &online_1, None);
+    let asset_b = test_issue_asset_nia(&wallet_2, &online_2, None);
 
     let receive_data_a = wallet_1
         .blind_receive(
@@ -460,7 +460,7 @@ fn wrong_asset_fail() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&mut wallet_2, &online_2, &recipient_map);
+    let txid = test_send(&wallet_2, &online_2, &recipient_map);
     assert!(!txid.is_empty());
 
     // transfer is pending
@@ -525,26 +525,19 @@ fn multiple_receive_same_utxo() {
 
     let amount: u64 = 66;
 
-    let (mut wallet_recv, online_recv) = get_funded_noutxo_wallet!();
-    let (mut wallet_send_1, online_send_1) = get_funded_wallet!();
-    let (mut wallet_send_2, online_send_2) = get_funded_wallet!();
+    let (wallet_recv, online_recv) = get_funded_noutxo_wallet!();
+    let (wallet_send_1, online_send_1) = get_funded_wallet!();
+    let (wallet_send_2, online_send_2) = get_funded_wallet!();
 
     // create 1 colorable UTXO on receiver wallet
-    let created = test_create_utxos(
-        &mut wallet_recv,
-        &online_recv,
-        false,
-        Some(1),
-        None,
-        FEE_RATE,
-    );
+    let created = test_create_utxos(&wallet_recv, &online_recv, false, Some(1), None, FEE_RATE);
     assert_eq!(created, 1);
     let unspents_recv = test_list_unspents(&wallet_recv, None, false);
     assert_eq!(unspents_recv.iter().filter(|u| u.utxo.colorable).count(), 1);
 
     // blind twice, yielding 2 invoices paying to the same UTXO
-    let receive_data_1 = test_blind_receive(&mut wallet_recv);
-    let receive_data_2 = test_blind_receive(&mut wallet_recv);
+    let receive_data_1 = test_blind_receive(&wallet_recv);
+    let receive_data_2 = test_blind_receive(&wallet_recv);
 
     // check both transfers are to be received on the same UTXO
     let transfers_recv = test_list_transfers(&wallet_recv, None);
@@ -553,7 +546,7 @@ fn multiple_receive_same_utxo() {
         .all(|w| w[0].receive_utxo == w[1].receive_utxo));
 
     // issue + send from wallet_send_1 to wallet_recv blind 1
-    let asset_1 = test_issue_asset_nia(&mut wallet_send_1, &online_send_1, None);
+    let asset_1 = test_issue_asset_nia(&wallet_send_1, &online_send_1, None);
     let recipient_map_1 = HashMap::from([(
         asset_1.asset_id.clone(),
         vec![Recipient {
@@ -564,11 +557,11 @@ fn multiple_receive_same_utxo() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid_1 = test_send(&mut wallet_send_1, &online_send_1, &recipient_map_1);
+    let txid_1 = test_send(&wallet_send_1, &online_send_1, &recipient_map_1);
     assert!(!txid_1.is_empty());
 
     // issue + send from wallet_send_2 to wallet_recv blind 2
-    let asset_2 = test_issue_asset_nia(&mut wallet_send_2, &online_send_2, None);
+    let asset_2 = test_issue_asset_nia(&wallet_send_2, &online_send_2, None);
     let recipient_map_2 = HashMap::from([(
         asset_2.asset_id.clone(),
         vec![Recipient {
@@ -579,11 +572,11 @@ fn multiple_receive_same_utxo() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid_2 = test_send(&mut wallet_send_2, &online_send_2, &recipient_map_2);
+    let txid_2 = test_send(&wallet_send_2, &online_send_2, &recipient_map_2);
     assert!(!txid_2.is_empty());
 
     // refresh receiver + check both RGB allocations are on the same UTXO
-    test_refresh_all(&mut wallet_recv, &online_recv);
+    test_refresh_all(&wallet_recv, &online_recv);
     let unspents_recv = test_list_unspents(&wallet_recv, None, false);
     let unspents_recv_colorable: Vec<&Unspent> =
         unspents_recv.iter().filter(|u| u.utxo.colorable).collect();

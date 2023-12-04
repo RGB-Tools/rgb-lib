@@ -174,15 +174,15 @@ fn re_instantiate_wallet() {
     let amount: u64 = 66;
 
     // create wallets
-    let (mut wallet, online) = get_funded_wallet!();
-    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
+    let (wallet, online) = get_funded_wallet!();
+    let (rcv_wallet, rcv_online) = get_funded_wallet!();
     let wallet_data = wallet.wallet_data.clone();
 
     // issue
-    let asset = test_issue_asset_nia(&mut wallet, &online, None);
+    let asset = test_issue_asset_nia(&wallet, &online, None);
 
     // send
-    let receive_data = test_blind_receive(&mut rcv_wallet);
+    let receive_data = test_blind_receive(&rcv_wallet);
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -193,15 +193,15 @@ fn re_instantiate_wallet() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&mut wallet, &online, &recipient_map);
+    let txid = test_send(&wallet, &online, &recipient_map);
     assert!(!txid.is_empty());
     // take transfers from WaitingCounterparty to Settled
     stop_mining();
-    test_refresh_all(&mut rcv_wallet, &rcv_online);
-    test_refresh_asset(&mut wallet, &online, &asset.asset_id);
+    test_refresh_all(&rcv_wallet, &rcv_online);
+    test_refresh_asset(&wallet, &online, &asset.asset_id);
     mine(true);
-    test_refresh_asset(&mut rcv_wallet, &rcv_online, &asset.asset_id);
-    test_refresh_asset(&mut wallet, &online, &asset.asset_id);
+    test_refresh_asset(&rcv_wallet, &rcv_online, &asset.asset_id);
+    test_refresh_asset(&wallet, &online, &asset.asset_id);
 
     // drop wallet
     drop(online);
@@ -212,5 +212,5 @@ fn re_instantiate_wallet() {
     let _online = wallet.go_online(true, ELECTRUM_URL.to_string()).unwrap();
 
     // check wallet asset
-    check_test_wallet_data(&mut wallet, &asset, None, 1, amount);
+    check_test_wallet_data(&wallet, &asset, None, 1, amount);
 }

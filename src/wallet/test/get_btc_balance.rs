@@ -6,7 +6,7 @@ use serial_test::parallel;
 fn success() {
     initialize();
 
-    let (mut wallet, online) = get_empty_wallet!();
+    let (wallet, online) = get_empty_wallet!();
 
     // empty balance
     let bak_info_before = wallet.database.get_backup_info().unwrap();
@@ -63,7 +63,7 @@ fn success() {
 
     // future vanilla change + colored UTXOs balance
     stop_mining();
-    test_create_utxos_default(&mut wallet, &online);
+    test_create_utxos_default(&wallet, &online);
     let expected_balance = BtcBalance {
         vanilla: Balance {
             settled: 0,

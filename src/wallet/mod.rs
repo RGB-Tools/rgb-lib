@@ -1389,7 +1389,7 @@ impl Wallet {
         Ok(self._internal_unspents()?.map(|u| u.txout.value).sum())
     }
 
-    fn _handle_expired_transfers(&mut self, db_data: &mut DbData) -> Result<(), Error> {
+    fn _handle_expired_transfers(&self, db_data: &mut DbData) -> Result<(), Error> {
         self._sync_db_txos()?;
         let now = now().unix_timestamp();
         let expired_transfers: Vec<DbBatchTransfer> = db_data
@@ -1674,7 +1674,7 @@ impl Wallet {
     /// the transaction anchoring the transfer for it to be considered final and move (while
     /// refreshing) to the [`TransferStatus::Settled`] status.
     pub fn blind_receive(
-        &mut self,
+        &self,
         asset_id: Option<String>,
         amount: Option<u64>,
         duration_seconds: Option<u32>,
@@ -1771,7 +1771,7 @@ impl Wallet {
     /// the transaction anchoring the transfer for it to be considered final and move (while
     /// refreshing) to the [`TransferStatus::Settled`] status.
     pub fn witness_receive(
-        &mut self,
+        &self,
         asset_id: Option<String>,
         amount: Option<u64>,
         duration_seconds: Option<u32>,
@@ -1859,7 +1859,7 @@ impl Wallet {
     ///
     /// A wallet with private keys is required.
     pub fn create_utxos(
-        &mut self,
+        &self,
         online: Online,
         up_to: bool,
         num: Option<u8>,
@@ -1899,7 +1899,7 @@ impl Wallet {
     ///
     /// Returns a PSBT ready to be signed.
     pub fn create_utxos_begin(
-        &mut self,
+        &self,
         online: Online,
         up_to: bool,
         num: Option<u8>,
@@ -2054,7 +2054,7 @@ impl Wallet {
 
         if recipient_id.is_some() || txid.is_some() {
             let (batch_transfer, asset_transfers) = if let Some(recipient_id) = recipient_id {
-                let db_transfer = &mut self
+                let db_transfer = &self
                     .database
                     .get_transfer_or_fail(recipient_id, &db_data.transfers)?;
                 let (_, batch_transfer) = db_transfer
@@ -2258,7 +2258,7 @@ impl Wallet {
     }
 
     fn _try_fail_batch_transfer(
-        &mut self,
+        &self,
         batch_transfer: &DbBatchTransfer,
         throw_err: bool,
         db_data: &mut DbData,
@@ -2292,7 +2292,7 @@ impl Wallet {
     /// Transfers are eligible if they remain in status [`TransferStatus::WaitingCounterparty`]
     /// after a `refresh` has been performed.
     pub fn fail_transfers(
-        &mut self,
+        &self,
         online: Online,
         recipient_id: Option<String>,
         txid: Option<String>,
@@ -2309,7 +2309,7 @@ impl Wallet {
 
         if recipient_id.is_some() || txid.is_some() {
             let batch_transfer = if let Some(recipient_id) = recipient_id {
-                let db_transfer = &mut self
+                let db_transfer = &self
                     .database
                     .get_transfer_or_fail(recipient_id, &db_data.transfers)?;
                 let (_, batch_transfer) = db_transfer
@@ -2513,7 +2513,7 @@ impl Wallet {
     }
 
     /// Return the [`Metadata`] for the RGB asset with the provided ID.
-    pub fn get_asset_metadata(&mut self, asset_id: String) -> Result<Metadata, Error> {
+    pub fn get_asset_metadata(&self, asset_id: String) -> Result<Metadata, Error> {
         info!(self.logger, "Getting metadata for asset '{}'...", asset_id);
         let asset = self.database.check_asset_exists(asset_id)?;
 
@@ -2755,7 +2755,7 @@ impl Wallet {
     /// If `amounts` contains more than 1 element, each one will be issued as a separate allocation
     /// for the same asset (on a separate UTXO that needs to be already available).
     pub fn issue_asset_nia(
-        &mut self,
+        &self,
         online: Online,
         ticker: String,
         name: String,
@@ -2918,7 +2918,7 @@ impl Wallet {
     /// If `amounts` contains more than 1 element, each one will be issued as a separate allocation
     /// for the same asset (on a separate UTXO that needs to be already available).
     pub fn issue_asset_cfa(
-        &mut self,
+        &self,
         online: Online,
         name: String,
         description: Option<String>,
@@ -3123,10 +3123,7 @@ impl Wallet {
     ///
     /// The returned `Assets` will have fields set to `None` for schemas that have not been
     /// requested.
-    pub fn list_assets(
-        &mut self,
-        mut filter_asset_schemas: Vec<AssetSchema>,
-    ) -> Result<Assets, Error> {
+    pub fn list_assets(&self, mut filter_asset_schemas: Vec<AssetSchema>) -> Result<Assets, Error> {
         info!(self.logger, "Listing assets...");
         if filter_asset_schemas.is_empty() {
             filter_asset_schemas = vec![AssetSchema::Nia, AssetSchema::Cfa];
@@ -3517,7 +3514,7 @@ impl Wallet {
     }
 
     fn _wait_consignment(
-        &mut self,
+        &self,
         batch_transfer: &DbBatchTransfer,
         db_data: &DbData,
     ) -> Result<Option<DbBatchTransfer>, Error> {
@@ -3904,7 +3901,7 @@ impl Wallet {
     }
 
     fn _wait_confirmations(
-        &mut self,
+        &self,
         batch_transfer: &DbBatchTransfer,
         db_data: &DbData,
         incoming: bool,
@@ -4007,7 +4004,7 @@ impl Wallet {
     }
 
     fn _wait_counterparty(
-        &mut self,
+        &self,
         transfer: &DbBatchTransfer,
         db_data: &mut DbData,
         incoming: bool,
@@ -4020,7 +4017,7 @@ impl Wallet {
     }
 
     fn _refresh_transfer(
-        &mut self,
+        &self,
         transfer: &DbBatchTransfer,
         db_data: &mut DbData,
         filter: &Vec<RefreshFilter>,
@@ -4056,7 +4053,7 @@ impl Wallet {
     /// matching any provided filter are skipped. If the vector is empty, all transfers are
     /// refreshed.
     pub fn refresh(
-        &mut self,
+        &self,
         online: Online,
         asset_id: Option<String>,
         filter: Vec<RefreshFilter>,
@@ -4668,7 +4665,7 @@ impl Wallet {
     ///
     /// A wallet with private keys is required.
     pub fn send(
-        &mut self,
+        &self,
         online: Online,
         recipient_map: HashMap<String, Vec<Recipient>>,
         donation: bool,
@@ -4717,7 +4714,7 @@ impl Wallet {
     ///
     /// Returns a PSBT ready to be signed.
     pub fn send_begin(
-        &mut self,
+        &self,
         online: Online,
         recipient_map: HashMap<String, Vec<Recipient>>,
         donation: bool,

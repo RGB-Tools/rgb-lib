@@ -6,15 +6,15 @@ use serial_test::parallel;
 fn success() {
     initialize();
 
-    let (mut wallet, online) = get_funded_wallet!();
-    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
+    let (wallet, online) = get_funded_wallet!();
+    let (rcv_wallet, rcv_online) = get_funded_wallet!();
 
-    let asset_nia = test_issue_asset_nia(&mut wallet, &online, Some(&[AMOUNT, AMOUNT]));
+    let asset_nia = test_issue_asset_nia(&wallet, &online, Some(&[AMOUNT, AMOUNT]));
     let transfers = test_list_transfers(&wallet, Some(&asset_nia.asset_id));
     assert_eq!(transfers.len(), 1);
     let issuance = transfers.first().unwrap();
     let timestamp = issuance.created_at;
-    let receive_data = test_blind_receive(&mut rcv_wallet);
+    let receive_data = test_blind_receive(&rcv_wallet);
     let recipient_map = HashMap::from([(
         asset_nia.asset_id.clone(),
         vec![Recipient {
@@ -25,10 +25,10 @@ fn success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    test_send(&mut wallet, &online, &recipient_map);
+    test_send(&wallet, &online, &recipient_map);
     rcv_wallet.refresh(rcv_online, None, vec![]).unwrap();
     let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
-    let nia_metadata = test_get_asset_metadata(&mut rcv_wallet, &asset_nia.asset_id);
+    let nia_metadata = test_get_asset_metadata(&rcv_wallet, &asset_nia.asset_id);
     let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
     assert_eq!(
         bak_info_after.last_operation_timestamp,
@@ -60,7 +60,7 @@ fn success() {
     assert_eq!(transfers.len(), 1);
     let issuance = transfers.first().unwrap();
     let timestamp = issuance.created_at;
-    let cfa_metadata = test_get_asset_metadata(&mut wallet, &asset_cfa.asset_id);
+    let cfa_metadata = test_get_asset_metadata(&wallet, &asset_cfa.asset_id);
 
     assert_eq!(cfa_metadata.asset_iface, AssetIface::RGB25);
     assert_eq!(cfa_metadata.asset_schema, AssetSchema::Cfa);
@@ -77,8 +77,8 @@ fn success() {
 fn fail() {
     initialize();
 
-    let (mut wallet, _online) = get_empty_wallet!();
+    let (wallet, _online) = get_empty_wallet!();
 
-    let result = test_get_asset_metadata_result(&mut wallet, "");
+    let result = test_get_asset_metadata_result(&wallet, "");
     assert!(matches!(result, Err(Error::AssetNotFound { asset_id: _ })));
 }

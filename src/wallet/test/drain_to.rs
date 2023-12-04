@@ -10,7 +10,7 @@ fn success() {
     let rcv_wallet = get_test_wallet(true, None);
 
     // drain funded wallet with no allocation UTXOs
-    let (mut wallet, online) = get_funded_noutxo_wallet!();
+    let (wallet, online) = get_funded_noutxo_wallet!();
     let address = test_get_address(&rcv_wallet); // also updates backup_info
     let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
     test_drain_to_keep(&wallet, &online, &address);
@@ -22,8 +22,8 @@ fn success() {
 
     // issue asset (to produce an RGB allocation)
     fund_wallet(test_get_address(&wallet));
-    test_create_utxos_default(&mut wallet, &online);
-    test_issue_asset_nia(&mut wallet, &online, None);
+    test_create_utxos_default(&wallet, &online);
+    test_issue_asset_nia(&wallet, &online, None);
 
     // drain funded wallet with RGB allocations
     test_drain_to_keep(&wallet, &online, &test_get_address(&rcv_wallet));
@@ -44,15 +44,15 @@ fn pending_witness_receive() {
     let amount: u64 = 66;
 
     // wallets
-    let (mut wallet, online) = get_funded_wallet!();
-    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
+    let (wallet, online) = get_funded_wallet!();
+    let (rcv_wallet, rcv_online) = get_funded_wallet!();
     let (drain_wallet, _drain_online) = get_empty_wallet!();
 
     // issue
-    let asset = test_issue_asset_nia(&mut wallet, &online, None);
+    let asset = test_issue_asset_nia(&wallet, &online, None);
 
     // send
-    let receive_data = test_witness_receive(&mut rcv_wallet);
+    let receive_data = test_witness_receive(&rcv_wallet);
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -65,12 +65,12 @@ fn pending_witness_receive() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&mut wallet, &online, &recipient_map);
+    let txid = test_send(&wallet, &online, &recipient_map);
     assert!(!txid.is_empty());
 
     // refresh receiver (no UTXOs created) + sender (to broadcast) + mine
-    test_refresh_all(&mut rcv_wallet, &rcv_online);
-    test_refresh_asset(&mut wallet, &online, &asset.asset_id);
+    test_refresh_all(&rcv_wallet, &rcv_online);
+    test_refresh_asset(&wallet, &online, &asset.asset_id);
     mine(false);
 
     // receiver still doesn't see the new UTXO (not refreshed a 2nd time yet)
@@ -84,7 +84,7 @@ fn pending_witness_receive() {
     assert_eq!(unspents.len(), 0);
 
     // refresh receiver, if draining hadn't synced (before draining) a new UTXO would appear
-    test_refresh_all(&mut rcv_wallet, &rcv_online);
+    test_refresh_all(&rcv_wallet, &rcv_online);
     let unspents = list_test_unspents(&rcv_wallet, "after receiver refresh 2");
     assert_eq!(unspents.len(), 0);
 }

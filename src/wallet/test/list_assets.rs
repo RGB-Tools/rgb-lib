@@ -6,11 +6,11 @@ use serial_test::parallel;
 fn success() {
     initialize();
 
-    let (mut wallet, online) = get_funded_wallet!();
+    let (wallet, online) = get_funded_wallet!();
 
     // no assets
     let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
-    let assets = test_list_assets(&mut wallet, &[]);
+    let assets = test_list_assets(&wallet, &[]);
     let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
     assert_eq!(
         bak_info_after.last_operation_timestamp,
@@ -19,8 +19,8 @@ fn success() {
     assert_eq!(assets.nia.unwrap().len(), 0);
 
     // one issued RGB20 asset
-    let asset_1 = test_issue_asset_nia(&mut wallet, &online, None);
-    let assets = test_list_assets(&mut wallet, &[]);
+    let asset_1 = test_issue_asset_nia(&wallet, &online, None);
+    let assets = test_list_assets(&wallet, &[]);
     let nia_assets = assets.nia.unwrap();
     let cfa_assets = assets.cfa.unwrap();
     assert_eq!(nia_assets.len(), 1);
@@ -49,7 +49,7 @@ fn success() {
             vec![AMOUNT * 2],
         )
         .unwrap();
-    let assets = test_list_assets(&mut wallet, &[]);
+    let assets = test_list_assets(&wallet, &[]);
     let nia_assets = assets.nia.unwrap();
     let cfa_assets = assets.cfa.unwrap();
     assert_eq!(nia_assets.len(), 2);
@@ -69,8 +69,8 @@ fn success() {
     );
 
     // three issued assets: 2x RGB20 + 1x RGB25
-    let asset_3 = test_issue_asset_cfa(&mut wallet, &online, Some(&[AMOUNT * 3]), None);
-    let assets = test_list_assets(&mut wallet, &[]);
+    let asset_3 = test_issue_asset_cfa(&wallet, &online, Some(&[AMOUNT * 3]), None);
+    let assets = test_list_assets(&wallet, &[]);
     let nia_assets = assets.nia.unwrap();
     let cfa_assets = assets.cfa.unwrap();
     assert_eq!(nia_assets.len(), 2);
@@ -91,11 +91,11 @@ fn success() {
     assert_eq!(asset.media, None);
 
     // test filter by asset type
-    let assets = test_list_assets(&mut wallet, &[AssetSchema::Nia]);
+    let assets = test_list_assets(&wallet, &[AssetSchema::Nia]);
     assert_eq!(assets.nia.unwrap().len(), 2);
     assert!(assets.cfa.is_none());
 
-    let assets = test_list_assets(&mut wallet, &[AssetSchema::Cfa]);
+    let assets = test_list_assets(&wallet, &[AssetSchema::Cfa]);
     assert!(assets.nia.is_none());
     assert_eq!(assets.cfa.unwrap().len(), 1);
 }

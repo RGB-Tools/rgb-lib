@@ -9,13 +9,13 @@ fn success() {
     let amount: u64 = 1000;
 
     // wallets
-    let (mut wallet, online) = get_empty_wallet!();
+    let (wallet, online) = get_empty_wallet!();
     let (rcv_wallet, rcv_online) = get_empty_wallet!();
 
     // initial balance
     stop_mining();
     fund_wallet(test_get_address(&wallet));
-    test_create_utxos_default(&mut wallet, &online);
+    test_create_utxos_default(&wallet, &online);
     let balances = test_get_btc_balance(&wallet, &online);
     assert!(matches!(
         balances.vanilla,

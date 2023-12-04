@@ -82,8 +82,8 @@ pub(crate) fn get_funded_noutxo_wallet(print_log: bool, private_keys: bool) -> (
 }
 
 pub(crate) fn get_funded_wallet(print_log: bool, private_keys: bool) -> (Wallet, Online) {
-    let (mut wallet, online) = get_funded_noutxo_wallet(print_log, private_keys);
-    test_create_utxos_default(&mut wallet, &online);
+    let (wallet, online) = get_funded_noutxo_wallet(print_log, private_keys);
+    test_create_utxos_default(&wallet, &online);
     (wallet, online)
 }
 
@@ -142,7 +142,7 @@ pub(crate) fn check_test_transfer_status_sender(
 }
 
 pub(crate) fn check_test_wallet_data(
-    wallet: &mut Wallet,
+    wallet: &Wallet,
     asset: &AssetNIA,
     custom_issued_supply: Option<u64>,
     transfer_num: usize,

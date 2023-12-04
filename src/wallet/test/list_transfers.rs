@@ -8,11 +8,11 @@ fn success() {
 
     let amount: u64 = 66;
 
-    let (mut wallet, online) = get_funded_wallet!();
-    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
+    let (wallet, online) = get_funded_wallet!();
+    let (rcv_wallet, rcv_online) = get_funded_wallet!();
 
     // issue RGB20 asset
-    let asset = test_issue_asset_nia(&mut wallet, &online, None);
+    let asset = test_issue_asset_nia(&wallet, &online, None);
 
     // single transfer (issuance)
     let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
@@ -29,10 +29,10 @@ fn success() {
 
     drain_wallet(&wallet, &online);
     fund_wallet(test_get_address(&wallet));
-    test_create_utxos_default(&mut wallet, &online);
+    test_create_utxos_default(&wallet, &online);
 
     // issue RGB25 asset
-    let asset = test_issue_asset_cfa(&mut wallet, &online, None, None);
+    let asset = test_issue_asset_cfa(&wallet, &online, None, None);
 
     // single transfer (issuance)
     let transfer_list = test_list_transfers(&wallet, Some(&asset.asset_id));
@@ -42,8 +42,8 @@ fn success() {
     assert_eq!(transfer.status, TransferStatus::Settled);
 
     // send
-    let receive_data_1 = test_blind_receive(&mut rcv_wallet);
-    let receive_data_2 = test_witness_receive(&mut rcv_wallet);
+    let receive_data_1 = test_blind_receive(&rcv_wallet);
+    let receive_data_2 = test_witness_receive(&rcv_wallet);
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![
@@ -65,7 +65,7 @@ fn success() {
             },
         ],
     )]);
-    let txid = test_send(&mut wallet, &online, &recipient_map);
+    let txid = test_send(&wallet, &online, &recipient_map);
     assert!(!txid.is_empty());
 
     // multiple transfers (sender)
@@ -93,8 +93,8 @@ fn success() {
     assert_eq!(transfer_send_2.txid, Some(txid.clone()));
 
     // refresh once, so the asset appears on the receiver side
-    test_refresh_all(&mut rcv_wallet, &rcv_online);
-    test_refresh_all(&mut wallet, &online);
+    test_refresh_all(&rcv_wallet, &rcv_online);
+    test_refresh_all(&wallet, &online);
 
     // multiple transfers (receiver)
     let transfer_list_rcv = test_list_transfers(&rcv_wallet, Some(&asset.asset_id));
@@ -122,8 +122,8 @@ fn success() {
 
     // refresh a second time to settle the transfers
     mine(false);
-    test_refresh_all(&mut rcv_wallet, &rcv_online);
-    test_refresh_all(&mut wallet, &online);
+    test_refresh_all(&rcv_wallet, &rcv_online);
+    test_refresh_all(&wallet, &online);
 
     // check all transfers are now in status Settled
     let transfer_list = test_list_transfers(&wallet, Some(&asset.asset_id));
