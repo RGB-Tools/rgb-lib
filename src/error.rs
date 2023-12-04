@@ -185,7 +185,12 @@ pub enum Error {
         details: String,
     },
 
-    /// Electrum server does not provide the required functionality
+    /// Electrum server is for the wrong network or does not provide the required functionality
+    ///
+    /// There are multiple electrum server variants and one with `verbose` support in
+    /// `blockchain.transaction.get` is required, see this
+    /// [issue](https://github.com/Blockstream/electrs/pull/36) on blockstream's electrs fork for
+    /// more info
     #[error("Invalid electrum server: {details}")]
     InvalidElectrum {
         /// Error details
