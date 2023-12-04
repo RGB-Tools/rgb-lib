@@ -78,6 +78,21 @@ fn success() {
 
 #[test]
 #[parallel]
+fn signet_success() {
+    fs::create_dir_all(get_test_data_dir_string()).unwrap();
+
+    let bitcoin_network = BitcoinNetwork::Signet;
+    let mut wallet = get_test_wallet_with_net(true, None, bitcoin_network);
+    check_wallet(&wallet, bitcoin_network, None);
+    wallet
+        .go_online(false, s!("ssl://electrum.iriswallet.com:50033"))
+        .unwrap();
+    assert!(!wallet.watch_only);
+    assert_eq!(wallet.wallet_data.bitcoin_network, bitcoin_network);
+}
+
+#[test]
+#[parallel]
 fn testnet_success() {
     fs::create_dir_all(get_test_data_dir_string()).unwrap();
 

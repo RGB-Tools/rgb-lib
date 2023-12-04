@@ -96,8 +96,9 @@ use crate::database::{
 };
 use crate::error::{Error, InternalError};
 use crate::utils::{
-    calculate_descriptor_from_xprv, calculate_descriptor_from_xpub, get_txid, load_rgb_runtime,
-    now, setup_logger, BitcoinNetwork, RgbRuntime, LOG_FILE,
+    calculate_descriptor_from_xprv, calculate_descriptor_from_xpub, get_genesis_hash,
+    get_valid_txid_for_network, load_rgb_runtime, now, setup_logger, BitcoinNetwork, RgbRuntime,
+    LOG_FILE,
 };
 
 const RGB_DB_NAME: &str = "rgb_db";
@@ -1190,6 +1191,24 @@ impl Wallet {
 
     fn _rgb_runtime(&self) -> Result<RgbRuntime, Error> {
         load_rgb_runtime(self.wallet_dir.clone(), self._bitcoin_network())
+    }
+
+    fn _check_genesis_hash(
+        &self,
+        bitcoin_network: &BitcoinNetwork,
+        electrum_client: &ElectrumClient,
+    ) -> Result<(), Error> {
+        let expected = get_genesis_hash(bitcoin_network);
+        let block_hash = electrum_client.block_header(0)?.block_hash().to_string();
+        if expected != block_hash {
+            return Err(Error::InvalidElectrum {
+                details: s!(
+                    "The provided electrum URL is for a network different from the wallet's one"
+                ),
+            });
+        }
+
+        Ok(())
     }
 
     fn _get_tx_details(
@@ -2597,8 +2616,14 @@ impl Wallet {
             })?;
 
         // check electrum server
+        let bitcoin_network = self._bitcoin_network();
+        self._check_genesis_hash(&bitcoin_network, &electrum_client)?;
         if self._bitcoin_network() != BitcoinNetwork::Regtest {
-            self._get_tx_details(get_txid(self._bitcoin_network()), Some(&electrum_client))?;
+            // check the server has the required functionality
+            self._get_tx_details(
+                get_valid_txid_for_network(&bitcoin_network),
+                Some(&electrum_client),
+            )?;
         }
 
         let online_data = OnlineData {
