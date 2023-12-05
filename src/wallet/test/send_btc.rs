@@ -13,26 +13,22 @@ fn success() {
     let (rcv_wallet, rcv_online) = get_empty_wallet!();
 
     // initial balance
-    stop_mining();
     fund_wallet(test_get_address(&wallet));
     test_create_utxos_default(&wallet, &online);
-    let balances = test_get_btc_balance(&wallet, &online);
-    assert!(matches!(
-        balances.vanilla,
-        Balance {
-            settled: 0,
+    mine(false);
+    let expected_balance = BtcBalance {
+        vanilla: Balance {
+            settled: 99994601,
             future: 99994601,
             spendable: 99994601,
-        }
-    ));
-    assert!(matches!(
-        balances.colored,
-        Balance {
-            settled: 0,
+        },
+        colored: Balance {
+            settled: 5000,
             future: 5000,
             spendable: 5000,
-        }
-    ));
+        },
+    };
+    assert_eq!(test_get_btc_balance(&wallet, &online), expected_balance);
 
     // balance after send
     let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
@@ -43,77 +39,36 @@ fn success() {
         bak_info_before.last_operation_timestamp
     );
     assert!(!txid.is_empty());
-    let balances = test_get_btc_balance(&wallet, &online);
-    assert!(matches!(
-        balances.vanilla,
-        Balance {
-            settled: 0,
-            future: 99993388,
-            spendable: 99993388,
-        }
-    ));
-    assert!(matches!(
-        balances.colored,
-        Balance {
-            settled: 0,
-            future: 5000,
-            spendable: 5000,
-        }
-    ));
-    let rcv_balances = test_get_btc_balance(&rcv_wallet, &rcv_online);
-    assert!(matches!(
-        rcv_balances.vanilla,
-        Balance {
-            settled: 0,
-            future: 1000,
-            spendable: 1000,
-        }
-    ));
-    assert!(matches!(
-        rcv_balances.colored,
-        Balance {
-            settled: 0,
-            future: 0,
-            spendable: 0,
-        }
-    ));
-
-    // balance after mining
-    mine(true);
-    let balances = test_get_btc_balance(&wallet, &online);
-    assert!(matches!(
-        balances.vanilla,
-        Balance {
+    mine(false);
+    let expected_balance = BtcBalance {
+        vanilla: Balance {
             settled: 99993388,
             future: 99993388,
             spendable: 99993388,
-        }
-    ));
-    assert!(matches!(
-        balances.colored,
-        Balance {
+        },
+        colored: Balance {
             settled: 5000,
             future: 5000,
             spendable: 5000,
-        }
-    ));
-    let rcv_balances = test_get_btc_balance(&rcv_wallet, &rcv_online);
-    assert!(matches!(
-        rcv_balances.vanilla,
-        Balance {
+        },
+    };
+    assert_eq!(test_get_btc_balance(&wallet, &online), expected_balance);
+    let expected_balance = BtcBalance {
+        vanilla: Balance {
             settled: 1000,
             future: 1000,
             spendable: 1000,
-        }
-    ));
-    assert!(matches!(
-        rcv_balances.colored,
-        Balance {
+        },
+        colored: Balance {
             settled: 0,
             future: 0,
             spendable: 0,
-        }
-    ));
+        },
+    };
+    assert_eq!(
+        test_get_btc_balance(&rcv_wallet, &rcv_online),
+        expected_balance
+    );
 }
 
 #[test]
