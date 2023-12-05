@@ -17,7 +17,7 @@ path = "uniffi-bindgen.rs"
 default = ["uniffi/cli"]
 
 [dependencies]
-rgb-lib = { version = "0.2.1", path = "../" }
+rgb-lib = { version = "0.2.2", path = "../" }
 uniffi = "0.25.2"
 
 [build-dependencies]
