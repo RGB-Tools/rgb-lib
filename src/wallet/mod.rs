@@ -1389,7 +1389,11 @@ impl Wallet {
         Ok(self._internal_unspents()?.map(|u| u.txout.value).sum())
     }
 
-    fn _handle_expired_transfers(&self, db_data: &mut DbData) -> Result<(), Error> {
+    fn _handle_expired_transfers(
+        &mut self,
+        db_data: &mut DbData,
+        exact_expiry: bool,
+    ) -> Result<(), Error> {
         self._sync_db_txos()?;
         let now = now().unix_timestamp();
         let expired_transfers: Vec<DbBatchTransfer> = db_data
@@ -1399,12 +1403,17 @@ impl Wallet {
             .filter(|t| t.waiting_counterparty() && t.expiration.unwrap_or(now) < now)
             .collect();
         for transfer in expired_transfers.iter() {
-            let updated_batch_transfer = self._refresh_transfer(transfer, db_data, &vec![])?;
-            if updated_batch_transfer.is_none() {
-                let mut updated_batch_transfer: DbBatchTransferActMod = transfer.clone().into();
-                updated_batch_transfer.status = ActiveValue::Set(TransferStatus::Failed);
-                self.database
-                    .update_batch_transfer(&mut updated_batch_transfer)?;
+            if exact_expiry {
+                let mut expired_order: DbBatchTransferActMod = transfer.clone().into();
+                expired_order.status = ActiveValue::Set(TransferStatus::Failed);
+            } else {
+                let updated_batch_transfer = self._refresh_transfer(transfer, db_data, &vec![])?;
+                if updated_batch_transfer.is_none() {
+                    let mut updated_batch_transfer: DbBatchTransferActMod = transfer.clone().into();
+                    updated_batch_transfer.status = ActiveValue::Set(TransferStatus::Failed);
+                    self.database
+                        .update_batch_transfer(&mut updated_batch_transfer)?;
+                }
             }
         }
         Ok(())
@@ -2761,6 +2770,7 @@ impl Wallet {
         name: String,
         precision: u8,
         amounts: Vec<u64>,
+        exact_expiry: bool,
     ) -> Result<AssetNIA, Error> {
         info!(
             self.logger,
@@ -2775,7 +2785,7 @@ impl Wallet {
         let settled = self._get_total_issue_amount(&amounts)?;
 
         let mut db_data = self.database.get_db_data(false)?;
-        self._handle_expired_transfers(&mut db_data)?;
+        self._handle_expired_transfers(&mut db_data, exact_expiry)?;
 
         let mut unspents: Vec<LocalUnspent> = self.database.get_rgb_allocations(
             self.database.get_unspent_txos(db_data.txos)?,
@@ -2925,6 +2935,7 @@ impl Wallet {
         precision: u8,
         amounts: Vec<u64>,
         file_path: Option<String>,
+        exact_expiry: bool,
     ) -> Result<AssetCFA, Error> {
         info!(
             self.logger,
@@ -2938,7 +2949,7 @@ impl Wallet {
         let settled = self._get_total_issue_amount(&amounts)?;
 
         let mut db_data = self.database.get_db_data(false)?;
-        self._handle_expired_transfers(&mut db_data)?;
+        self._handle_expired_transfers(&mut db_data, exact_expiry)?;
 
         let mut unspents: Vec<LocalUnspent> = self.database.get_rgb_allocations(
             self.database.get_unspent_txos(db_data.txos)?,
@@ -4681,6 +4692,7 @@ impl Wallet {
             donation,
             fee_rate,
             min_confirmations,
+            false,
         )?;
 
         let psbt = self.sign_psbt(unsigned_psbt, None)?;
@@ -4720,13 +4732,14 @@ impl Wallet {
         donation: bool,
         fee_rate: f32,
         min_confirmations: u8,
+        exact_expiry: bool,
     ) -> Result<String, Error> {
         info!(self.logger, "Sending (begin) to: {:?}...", recipient_map);
         self._check_online(online)?;
         self._check_fee_rate(fee_rate)?;
 
         let mut db_data = self.database.get_db_data(false)?;
-        self._handle_expired_transfers(&mut db_data)?;
+        self._handle_expired_transfers(&mut db_data, exact_expiry)?;
 
         let receive_ids: Vec<String> = recipient_map
             .values()

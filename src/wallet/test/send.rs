@@ -1456,6 +1456,7 @@ fn receive_multiple_different_assets_success() {
             PRECISION,
             vec![AMOUNT * 2],
             None,
+            false,
         )
         .unwrap();
 
@@ -2111,7 +2112,9 @@ fn expire() {
     //
     // expire transfer + check status goes to Failed
     let mut db_data = wallet.database.get_db_data(false).unwrap();
-    wallet._handle_expired_transfers(&mut db_data).unwrap();
+    wallet
+        ._handle_expired_transfers(&mut db_data, false)
+        .unwrap();
     let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
     let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
     assert_eq!(transfer_data.status, TransferStatus::Failed);
@@ -2416,6 +2419,7 @@ fn fail() {
         false,
         0.9,
         MIN_CONFIRMATIONS,
+        false,
     );
     assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_LOW));
     let result = wallet.send_begin(
@@ -2424,6 +2428,7 @@ fn fail() {
         false,
         1000.1,
         MIN_CONFIRMATIONS,
+        false,
     );
     assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_HIGH));
 

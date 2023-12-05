@@ -54,6 +54,7 @@ fn success() {
             PRECISION,
             vec![AMOUNT, AMOUNT],
             Some(file_str.to_string()),
+            false,
         )
         .unwrap();
     let transfers = test_list_transfers(&wallet, Some(&asset_cfa.asset_id));

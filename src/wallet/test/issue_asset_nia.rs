@@ -168,6 +168,7 @@ fn fail() {
         NAME.to_string(),
         PRECISION,
         vec![AMOUNT],
+        false,
     );
     assert!(matches!(result, Err(Error::InvalidTicker { details: m }) if m == IDENT_EMPTY_MSG));
 
@@ -178,6 +179,7 @@ fn fail() {
         NAME.to_string(),
         PRECISION,
         vec![AMOUNT],
+        false,
     );
     assert!(matches!(result, Err(Error::InvalidTicker { details: m }) if m == IDENT_TOO_LONG_MSG));
 
@@ -188,6 +190,7 @@ fn fail() {
         NAME.to_string(),
         PRECISION,
         vec![AMOUNT],
+        false,
     );
     assert!(
         matches!(result, Err(Error::InvalidTicker { details: m }) if m == "ticker needs to be all uppercase")
@@ -200,6 +203,7 @@ fn fail() {
         NAME.to_string(),
         PRECISION,
         vec![AMOUNT],
+        false,
     );
     assert!(matches!(result, Err(Error::InvalidTicker { details: m }) if m == IDENT_NOT_ASCII_MSG));
 
@@ -210,6 +214,7 @@ fn fail() {
         s!(""),
         PRECISION,
         vec![AMOUNT],
+        false,
     );
     assert!(matches!(result, Err(Error::InvalidName { details: m }) if m == IDENT_EMPTY_MSG));
 
@@ -220,6 +225,7 @@ fn fail() {
         ("a").repeat(257),
         PRECISION,
         vec![AMOUNT],
+        false,
     );
     assert!(matches!(result, Err(Error::InvalidName { details: m }) if m == IDENT_TOO_LONG_MSG));
 
@@ -230,6 +236,7 @@ fn fail() {
         s!("name with ℧nicode characters"),
         PRECISION,
         vec![AMOUNT],
+        false,
     );
     assert!(matches!(result, Err(Error::InvalidName { details: m }) if m == IDENT_NOT_ASCII_MSG));
 
@@ -240,6 +247,7 @@ fn fail() {
         NAME.to_string(),
         19,
         vec![AMOUNT],
+        false,
     );
     assert!(matches!(
         result,

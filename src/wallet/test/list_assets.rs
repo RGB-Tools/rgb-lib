@@ -47,6 +47,7 @@ fn success() {
             s!("NAME2"),
             PRECISION * 2,
             vec![AMOUNT * 2],
+            false,
         )
         .unwrap();
     let assets = test_list_assets(&wallet, &[]);
