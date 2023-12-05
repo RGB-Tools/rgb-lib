@@ -176,7 +176,7 @@ fn re_instantiate_wallet() {
     // create wallets
     let (wallet, online) = get_funded_wallet!();
     let (rcv_wallet, rcv_online) = get_funded_wallet!();
-    let wallet_data = wallet.wallet_data.clone();
+    let mut wallet_data = wallet.wallet_data.clone();
 
     // issue
     let asset = test_issue_asset_nia(&wallet, &online, None);
@@ -208,9 +208,18 @@ fn re_instantiate_wallet() {
     drop(wallet);
 
     // re-instantiate wallet
-    let mut wallet = Wallet::new(wallet_data).unwrap();
-    let _online = wallet.go_online(true, ELECTRUM_URL.to_string()).unwrap();
+    let mut wallet = Wallet::new(wallet_data.clone()).unwrap();
+    let online = wallet.go_online(true, ELECTRUM_URL.to_string()).unwrap();
 
     // check wallet asset
     check_test_wallet_data(&wallet, &asset, None, 1, amount);
+
+    // drop wallet
+    drop(online);
+    drop(wallet);
+
+    // re-instantiate wallet in watch only mode
+    wallet_data.mnemonic = None;
+    let mut wallet = Wallet::new(wallet_data).unwrap();
+    let _online = wallet.go_online(true, ELECTRUM_URL.to_string()).unwrap();
 }

@@ -1070,9 +1070,15 @@ impl Wallet {
         if [KEYCHAIN_RGB_OPRET, KEYCHAIN_RGB_TAPRET].contains(&vanilla_keychain) {
             return Err(Error::InvalidVanillaKeychain);
         }
-        let bdk_db = wallet_dir.join(BDK_DB_NAME);
+        let watch_only = wdata.mnemonic.is_none();
+        let bdk_db_name = if watch_only {
+            format!("{BDK_DB_NAME}_watch_only")
+        } else {
+            BDK_DB_NAME.to_string()
+        };
+        let bdk_db_path = wallet_dir.join(bdk_db_name);
         let bdk_config = SledDbConfiguration {
-            path: bdk_db
+            path: bdk_db_path
                 .into_os_string()
                 .into_string()
                 .expect("should be possible to convert path to a string"),
@@ -1080,7 +1086,6 @@ impl Wallet {
         };
         let bdk_database =
             AnyDatabase::from_config(&bdk_config.into()).map_err(InternalError::from)?;
-        let watch_only = wdata.mnemonic.is_none();
         let bdk_wallet = if let Some(mnemonic) = wdata.mnemonic {
             let mnemonic = Mnemonic::parse_in(Language::English, mnemonic)?;
             let xkey: ExtendedKey = mnemonic
