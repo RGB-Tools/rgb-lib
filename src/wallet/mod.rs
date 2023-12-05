@@ -1390,7 +1390,7 @@ impl Wallet {
     }
 
     fn _handle_expired_transfers(
-        &mut self,
+        &self,
         db_data: &mut DbData,
         exact_expiry: bool,
     ) -> Result<(), Error> {
