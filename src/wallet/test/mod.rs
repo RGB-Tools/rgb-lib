@@ -118,6 +118,19 @@ pub fn mock_token_data(
     }
 }
 
+lazy_static! {
+    static ref MOCK_INPUT_UNSPENTS: Mutex<Vec<LocalUnspent>> = Mutex::new(vec![]);
+}
+
+pub fn mock_input_unspents(wallet: &Wallet, unspents: &[LocalUnspent]) -> Vec<LocalUnspent> {
+    let mut mock_input_unspents = MOCK_INPUT_UNSPENTS.lock().unwrap();
+    if mock_input_unspents.is_empty() {
+        wallet._get_input_unspents(unspents)
+    } else {
+        mock_input_unspents.drain(..).collect()
+    }
+}
+
 // test utilities
 mod utils;
 

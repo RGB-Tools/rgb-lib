@@ -5496,6 +5496,20 @@ impl Wallet {
         Ok(())
     }
 
+    fn _get_input_unspents(&self, unspents: &[LocalUnspent]) -> Vec<LocalUnspent> {
+        let mut input_unspents = unspents.to_vec();
+        input_unspents.retain(|u| {
+            !((u.rgb_allocations
+                .iter()
+                .any(|a| a.incoming && a.status.pending()))
+                || (u
+                    .rgb_allocations
+                    .iter()
+                    .any(|a| !a.incoming && a.status.waiting_counterparty())))
+        });
+        input_unspents
+    }
+
     /// Send RGB assets.
     ///
     /// This calls [`send_begin`](Wallet::send_begin), signs the resulting PSBT and finally calls
@@ -5594,16 +5608,10 @@ impl Wallet {
             Some(db_data.asset_transfers.clone()),
         )?;
 
-        let mut input_unspents = unspents.clone();
-        input_unspents.retain(|u| {
-            !((u.rgb_allocations
-                .iter()
-                .any(|a| a.incoming && a.status.pending()))
-                || (u
-                    .rgb_allocations
-                    .iter()
-                    .any(|a| !a.incoming && a.status.waiting_counterparty())))
-        });
+        #[cfg(test)]
+        let input_unspents = test::mock_input_unspents(self, &unspents);
+        #[cfg(not(test))]
+        let input_unspents = self._get_input_unspents(&unspents);
 
         let mut runtime = self._rgb_runtime()?;
         let mut witness_recipients: Vec<(ScriptBuf, u64)> = vec![];
