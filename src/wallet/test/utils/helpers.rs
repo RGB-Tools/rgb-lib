@@ -341,8 +341,14 @@ pub(crate) fn list_test_unspents(wallet: &Wallet, msg: &str) -> Vec<Unspent> {
         msg,
         unspents.len()
     );
-    for unspent in &unspents {
-        println!("- {unspent:?}");
+    for u in &unspents {
+        println!(
+            "- {:?} {:?} {:?}",
+            u.utxo.outpoint, u.utxo.btc_amount, u.utxo.colorable
+        );
+        for a in &u.rgb_allocations {
+            println!("  - {:?} {:?} {:?}", a.asset_id, a.amount, a.settled);
+        }
     }
     unspents
 }
