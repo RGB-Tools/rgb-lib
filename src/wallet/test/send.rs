@@ -3773,3 +3773,53 @@ fn spend_double_receive() {
         }
     );
 }
+
+#[test]
+#[parallel]
+fn input_sorting() {
+    initialize();
+
+    let amounts: Vec<u64> = vec![444, 222, 555, 111, 333];
+    let amount: u64 = 120;
+
+    // wallets
+    let (wallet, online) = get_funded_wallet!();
+    let (rcv_wallet, rcv_online) = get_funded_wallet!();
+
+    // issue (allocations not sorted)
+    let asset = test_issue_asset_nia(&wallet, &online, Some(&amounts));
+
+    // send, spending the 111 and 222 allocations
+    println!("\nsend 1");
+    let receive_data = test_blind_receive(&rcv_wallet);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            amount,
+            recipient_data: RecipientData::BlindedUTXO(
+                SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
+            ),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid = test_send(&wallet, &online, &recipient_map);
+    assert!(!txid.is_empty());
+    // settle transfers
+    test_refresh_all(&rcv_wallet, &rcv_online);
+    test_refresh_asset(&wallet, &online, &asset.asset_id);
+    mine(false);
+    test_refresh_all(&rcv_wallet, &rcv_online);
+    test_refresh_asset(&wallet, &online, &asset.asset_id);
+
+    // check the intended UTXOs have been used
+    let unspents = list_test_unspents(&wallet, "after send");
+    let allocations: Vec<&RgbAllocation> =
+        unspents.iter().flat_map(|e| &e.rgb_allocations).collect();
+    let mut cur_amounts: Vec<u64> = allocations.iter().map(|a| a.amount).collect();
+    cur_amounts.sort();
+    let mut expected_amounts = amounts.clone();
+    expected_amounts.retain(|a| *a != 111 && *a != 222);
+    expected_amounts.push(111 + 222 - amount);
+    expected_amounts.sort();
+    assert_eq!(cur_amounts, expected_amounts);
+}
