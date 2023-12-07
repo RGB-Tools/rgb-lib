@@ -32,16 +32,24 @@ fn success() {
 fn fail() {
     initialize();
 
+    // wallets
     let mut wallet = get_test_wallet(true, None);
+    let mut wallet_testnet = get_test_wallet_with_net(true, None, BitcoinNetwork::Testnet);
 
     // cannot go online with a broken electrum URL
     let result = test_go_online_result(&mut wallet, false, Some("other:50001"));
-    assert!(matches!(result, Err(Error::InvalidElectrum { details: _ })));
+    let details = "failed to lookup address information: Name or service not known";
+    assert!(matches!(result, Err(Error::InvalidElectrum { details: m }) if m == details ));
 
     // cannot go online again with broken electrum URL
     test_go_online(&mut wallet, false, None);
     let result = test_go_online_result(&mut wallet, false, Some("other:50001"));
-    assert!(matches!(result, Err(Error::InvalidElectrum { details: _ })));
+    assert!(matches!(result, Err(Error::InvalidElectrum { details: m }) if m == details ));
+
+    // wrong network
+    let result = test_go_online_result(&mut wallet_testnet, false, None);
+    let details = "The provided electrum URL is for a network different from the wallet's one";
+    assert!(matches!(result, Err(Error::InvalidElectrum { details: m }) if m == details ));
 
     // bad online object
     let wrong_online = Online {
