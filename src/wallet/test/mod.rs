@@ -24,6 +24,7 @@ static PROXY_ENDPOINT: Lazy<String> = Lazy::new(|| format!("rpc://{PROXY_HOST}")
 static TRANSPORT_ENDPOINTS: Lazy<Vec<String>> = Lazy::new(|| vec![PROXY_ENDPOINT.clone()]);
 const ELECTRUM_URL: &str = "127.0.0.1:50001";
 const ELECTRUM_2_URL: &str = "127.0.0.1:50002";
+const ELECTRUM_BLOCKSTREAM_URL: &str = "127.0.0.1:50003";
 const TEST_DATA_DIR_PARTS: [&str; 2] = ["tests", "tmp"];
 const TICKER: &str = "TICKER";
 const NAME: &str = "asset name";

@@ -108,7 +108,7 @@ pub(crate) fn wait_electrs_sync() {
     loop {
         std::thread::sleep(std::time::Duration::from_millis(100));
         let mut all_synced = true;
-        for electrum_url in [ELECTRUM_URL, ELECTRUM_2_URL] {
+        for electrum_url in [ELECTRUM_URL, ELECTRUM_2_URL, ELECTRUM_BLOCKSTREAM_URL] {
             let electrum =
                 electrum_client::Client::new(electrum_url).expect("cannot get electrum client");
             if electrum.block_header(blockcount as usize).is_err() {

@@ -20,6 +20,19 @@ services:
       - 50002:50001
     depends_on:
       - bitcoind
+  electrs-blockstream:
+    image: olivbau/blockstream-electrs
+    command:
+      --network regtest
+      --daemon-rpc-addr bitcoind:18443
+      --cookie user:default_password
+      --jsonrpc-import
+      --electrum-rpc-addr 0.0.0.0:60401
+      -vvv
+    ports:
+      - 50003:60401
+    depends_on:
+      - bitcoind
   proxy:
     image: ghcr.io/grunch/rgb-proxy-server:0.2.0
     ports:

@@ -48,6 +48,9 @@ done
 until $COMPOSE logs electrs-2 |grep 'finished full compaction'; do
     sleep 1
 done
+until $COMPOSE logs electrs-blockstream |grep 'finished full compaction'; do
+    sleep 1
+done
 
 # wait for proxy to have completed startup
 until $COMPOSE logs proxy |grep 'App is running at http://localhost:3000'; do
