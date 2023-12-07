@@ -58,7 +58,7 @@ use rgbwallet::{Beneficiary, RgbInvoice, RgbTransport};
 use sea_orm::{ActiveValue, ConnectOptions, Database, TryIntoModel};
 use serde::{Deserialize, Serialize};
 use slog::{debug, error, info, Logger};
-use std::cmp::min;
+use std::cmp::{min, Ordering};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
@@ -4942,11 +4942,19 @@ impl Wallet {
         batch_transfers: Option<Vec<DbBatchTransfer>>,
         colorings: Option<Vec<DbColoring>>,
     ) -> Result<AssetSpend, Error> {
+        fn cmp_localunspent_allocation_sum(a: &LocalUnspent, b: &LocalUnspent) -> Ordering {
+            let a_sum: u64 = a.rgb_allocations.iter().map(|a| a.amount).sum();
+            let b_sum: u64 = b.rgb_allocations.iter().map(|a| a.amount).sum();
+            a_sum.cmp(&b_sum)
+        }
+
         debug!(self.logger, "Selecting inputs for asset '{}'...", asset_id);
         let mut input_allocations: HashMap<DbTxo, u64> = HashMap::new();
         let mut amount_input_asset: u64 = 0;
-        for unspent in unspents {
-            let mut asset_allocations: Vec<LocalRgbAllocation> = unspent
+        let mut mut_unspents = unspents;
+        mut_unspents.sort_by(cmp_localunspent_allocation_sum);
+        for unspent in mut_unspents {
+            let asset_allocations: Vec<LocalRgbAllocation> = unspent
                 .rgb_allocations
                 .into_iter()
                 .filter(|a| a.asset_id == Some(asset_id.clone()) && a.status.settled())
@@ -4954,7 +4962,6 @@ impl Wallet {
             if asset_allocations.is_empty() {
                 continue;
             }
-            asset_allocations.sort_by(|a, b| b.cmp(a));
             let amount_allocation: u64 = asset_allocations.iter().map(|a| a.amount).sum();
             input_allocations.insert(unspent.utxo, amount_allocation);
             amount_input_asset += amount_allocation;
