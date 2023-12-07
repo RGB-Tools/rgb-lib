@@ -84,9 +84,8 @@ fn signet_success() {
     let bitcoin_network = BitcoinNetwork::Signet;
     let mut wallet = get_test_wallet_with_net(true, None, bitcoin_network);
     check_wallet(&wallet, bitcoin_network, None);
-    wallet
-        .go_online(false, s!("ssl://electrum.iriswallet.com:50033"))
-        .unwrap();
+    let electrum_url = "ssl://electrum.iriswallet.com:50033";
+    test_go_online(&mut wallet, false, Some(electrum_url));
     assert!(!wallet.watch_only);
     assert_eq!(wallet.wallet_data.bitcoin_network, bitcoin_network);
 }
@@ -99,9 +98,8 @@ fn testnet_success() {
     let bitcoin_network = BitcoinNetwork::Testnet;
     let mut wallet = get_test_wallet_with_net(true, None, bitcoin_network);
     check_wallet(&wallet, bitcoin_network, None);
-    wallet
-        .go_online(false, s!("ssl://electrum.iriswallet.com:50013"))
-        .unwrap();
+    let electrum_url = "ssl://electrum.iriswallet.com:50013";
+    test_go_online(&mut wallet, false, Some(electrum_url));
     assert!(!wallet.watch_only);
     assert_eq!(wallet.wallet_data.bitcoin_network, bitcoin_network);
 }
@@ -114,9 +112,8 @@ fn mainnet_success() {
     let bitcoin_network = BitcoinNetwork::Mainnet;
     let mut wallet = get_test_wallet_with_net(true, None, bitcoin_network);
     check_wallet(&wallet, bitcoin_network, None);
-    wallet
-        .go_online(false, s!("ssl://electrum.iriswallet.com:50003"))
-        .unwrap();
+    let electrum_url = "ssl://electrum.iriswallet.com:50003";
+    test_go_online(&mut wallet, false, Some(electrum_url));
     assert!(!wallet.watch_only);
     assert_eq!(wallet.wallet_data.bitcoin_network, bitcoin_network);
 }
