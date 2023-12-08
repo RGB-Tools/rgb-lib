@@ -4123,7 +4123,7 @@ impl Wallet {
     /// `min_confirmations`.
     ///
     /// <div class="warning">This method is meant for special usage, for most cases the method
-    /// [`list_unspents`] is sufficient</div>
+    /// <code>list_unspents</code> is sufficient</div>
     pub fn list_unspents_vanilla(
         &self,
         online: Online,
