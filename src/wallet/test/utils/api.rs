@@ -338,6 +338,17 @@ pub(crate) fn test_list_unspents(
     wallet.list_unspents(online, settled_only).unwrap()
 }
 
+pub(crate) fn test_list_unspents_vanilla(
+    wallet: &Wallet,
+    online: &Online,
+    min_confirmations: Option<u8>,
+) -> Vec<LocalUtxo> {
+    let min_confirmations = min_confirmations.unwrap_or(MIN_CONFIRMATIONS);
+    wallet
+        .list_unspents_vanilla(online.clone(), min_confirmations)
+        .unwrap()
+}
+
 pub(crate) fn test_refresh_all(wallet: &Wallet, online: &Online) -> bool {
     wallet.refresh(online.clone(), None, vec![]).unwrap()
 }

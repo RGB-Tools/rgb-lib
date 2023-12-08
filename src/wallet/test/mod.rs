@@ -201,6 +201,7 @@ mod list_assets;
 mod list_transactions;
 mod list_transfers;
 mod list_unspents;
+mod list_unspents_vanilla;
 mod new;
 mod refresh;
 mod send;
