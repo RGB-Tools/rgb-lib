@@ -90,6 +90,7 @@ dictionary AssetNIA {
   AssetIface asset_iface;
   string ticker;
   string name;
+  string? details;
   u8 precision;
   u64 issued_supply;
   i64 timestamp;

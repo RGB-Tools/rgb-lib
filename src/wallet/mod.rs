@@ -194,6 +194,7 @@ impl AssetIface {
                 asset_iface: self.clone(),
                 ticker: asset.ticker.clone().unwrap(),
                 name: asset.name.clone(),
+                details: asset.details.clone(),
                 precision: asset.precision,
                 issued_supply,
                 timestamp: asset.timestamp,
@@ -204,8 +205,8 @@ impl AssetIface {
             AssetIface::RGB25 => AssetType::AssetCFA(AssetCFA {
                 asset_id: asset.asset_id.clone(),
                 asset_iface: self.clone(),
-                details: asset.details.clone(),
                 name: asset.name.clone(),
+                details: asset.details.clone(),
                 precision: asset.precision,
                 issued_supply,
                 timestamp: asset.timestamp,
@@ -281,6 +282,8 @@ pub struct AssetNIA {
     pub ticker: String,
     /// Name of the asset
     pub name: String,
+    /// Details of the asset
+    pub details: Option<String>,
     /// Precision, also known as divisibility, of the asset
     pub precision: u8,
     /// Total issued amount
@@ -3484,19 +3487,17 @@ impl Wallet {
                 let spec = iface_nia.spec();
                 let ticker = spec.ticker().to_string();
                 let name = spec.name().to_string();
+                let details = spec.details().map(|d| d.to_string());
                 let precision = spec.precision.into();
                 let issued_supply = iface_nia.total_issued_supply().into();
-                (name, precision, issued_supply, Some(ticker), None)
+                (name, precision, issued_supply, Some(ticker), details)
             }
             AssetSchema::Cfa => {
                 let iface_cfa = Rgb25::from(contract_iface.clone());
                 let name = iface_cfa.name().to_string();
+                let details = iface_cfa.details().map(|d| d.to_string());
                 let precision = iface_cfa.precision().into();
                 let issued_supply = iface_cfa.total_issued_supply().into();
-                let mut details = None;
-                if let Some(det) = iface_cfa.details() {
-                    details = Some(det.to_string());
-                }
                 (name, precision, issued_supply, None, details)
             }
         };

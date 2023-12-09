@@ -19,6 +19,7 @@ fn success() {
     show_unspent_colorings(&wallet, "after issuance");
     assert_eq!(asset.ticker, TICKER.to_string());
     assert_eq!(asset.name, NAME.to_string());
+    assert_eq!(asset.details, None);
     assert_eq!(asset.precision, PRECISION);
     assert_eq!(
         asset.balance,
