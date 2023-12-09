@@ -178,9 +178,9 @@ pub enum Error {
         details: String,
     },
 
-    /// The provided asset description is invalid
-    #[error("Invalid description: {details}")]
-    InvalidDescription {
+    /// The provided asset details is invalid
+    #[error("Invalid details: {details}")]
+    InvalidDetails {
         /// Error details
         details: String,
     },

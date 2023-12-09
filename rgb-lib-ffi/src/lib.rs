@@ -320,13 +320,13 @@ impl Wallet {
         &self,
         online: Online,
         name: String,
-        description: Option<String>,
+        details: Option<String>,
         precision: u8,
         amounts: Vec<u64>,
         file_path: Option<String>,
     ) -> Result<AssetCFA, RgbLibError> {
         self._get_wallet()
-            .issue_asset_cfa(online, name, description, precision, amounts, file_path)
+            .issue_asset_cfa(online, name, details, precision, amounts, file_path)
     }
 
     fn list_assets(&self, filter_asset_schemas: Vec<AssetSchema>) -> Result<Assets, RgbLibError> {

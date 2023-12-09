@@ -35,7 +35,7 @@ interface RgbLibError {
   InvalidBitcoinKeys();
   InvalidBitcoinNetwork(string network);
   InvalidBlindedUTXO(string details);
-  InvalidDescription(string details);
+  InvalidDetails(string details);
   InvalidElectrum(string details);
   InvalidFeeRate(string details);
   InvalidFilePath(string file_path);
@@ -102,7 +102,7 @@ dictionary AssetCFA {
   string asset_id;
   AssetIface asset_iface;
   string name;
-  string? description;
+  string? details;
   u8 precision;
   u64 issued_supply;
   i64 timestamp;
@@ -196,7 +196,7 @@ dictionary Metadata {
   string name;
   u8 precision;
   string? ticker;
-  string? description;
+  string? details;
 };
 
 dictionary Online {
@@ -382,7 +382,7 @@ interface Wallet {
 
   [Throws=RgbLibError]
   AssetCFA issue_asset_cfa(
-    Online online, string name, string? description, u8 precision,
+    Online online, string name, string? details, u8 precision,
     sequence<u64> amounts, string? file_path);
 
   [Throws=RgbLibError]

@@ -41,16 +41,16 @@ fn success() {
     assert_eq!(nia_metadata.name, NAME.to_string());
     assert_eq!(nia_metadata.precision, PRECISION);
     assert_eq!(nia_metadata.ticker.unwrap(), TICKER.to_string());
-    assert_eq!(nia_metadata.description, None);
+    assert_eq!(nia_metadata.details, None);
     assert!((timestamp - nia_metadata.timestamp) < 30);
 
     let file_str = "README.md";
-    let description = None;
+    let details = None;
     let asset_cfa = wallet
         .issue_asset_cfa(
             online.clone(),
             NAME.to_string(),
-            description.clone(),
+            details.clone(),
             PRECISION,
             vec![AMOUNT, AMOUNT],
             Some(file_str.to_string()),
@@ -68,7 +68,7 @@ fn success() {
     assert_eq!(cfa_metadata.name, NAME.to_string());
     assert_eq!(cfa_metadata.precision, PRECISION);
     assert_eq!(cfa_metadata.ticker, None);
-    assert_eq!(cfa_metadata.description, description);
+    assert_eq!(cfa_metadata.details, details);
     assert!((timestamp - cfa_metadata.timestamp) < 30);
 }
 

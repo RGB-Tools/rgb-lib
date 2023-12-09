@@ -1141,7 +1141,7 @@ fn send_received_cfa_success() {
     let recv_asset = cfa_assets.first().unwrap();
     assert_eq!(recv_asset.asset_id, asset.asset_id);
     assert_eq!(recv_asset.name, NAME.to_string());
-    assert_eq!(recv_asset.description, Some(DESCRIPTION.to_string()));
+    assert_eq!(recv_asset.details, Some(DETAILS.to_string()));
     assert_eq!(recv_asset.precision, PRECISION);
     assert_eq!(
         recv_asset.balance,
@@ -1452,7 +1452,7 @@ fn receive_multiple_different_assets_success() {
         .issue_asset_cfa(
             online.clone(),
             s!("NAME2"),
-            Some(DESCRIPTION.to_string()),
+            Some(DETAILS.to_string()),
             PRECISION,
             vec![AMOUNT * 2],
             None,
@@ -1696,7 +1696,7 @@ fn receive_multiple_different_assets_success() {
     let rcv_asset_cfa = cfa_assets.last().unwrap();
     assert_eq!(rcv_asset_cfa.asset_id, asset_2.asset_id);
     assert_eq!(rcv_asset_cfa.name, s!("NAME2"));
-    assert_eq!(rcv_asset_cfa.description, Some(DESCRIPTION.to_string()));
+    assert_eq!(rcv_asset_cfa.details, Some(DETAILS.to_string()));
     assert_eq!(rcv_asset_cfa.precision, PRECISION);
     assert_eq!(
         rcv_asset_cfa.balance,

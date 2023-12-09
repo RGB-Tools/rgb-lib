@@ -32,7 +32,7 @@ fn success() {
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     show_unspent_colorings(&wallet, "after issuance 1");
     assert_eq!(asset_1.name, NAME.to_string());
-    assert_eq!(asset_1.description, None);
+    assert_eq!(asset_1.details, None);
     assert_eq!(asset_1.precision, PRECISION);
     assert_eq!(
         asset_1.balance,
@@ -55,7 +55,7 @@ fn success() {
     );
     show_unspent_colorings(&wallet, "after issuance 2");
     assert_eq!(asset_2.name, NAME.to_string());
-    assert_eq!(asset_2.description, Some(DESCRIPTION.to_string()));
+    assert_eq!(asset_2.details, Some(DETAILS.to_string()));
     assert_eq!(asset_2.precision, PRECISION);
     assert_eq!(
         asset_2.balance,
@@ -264,7 +264,7 @@ fn fail() {
     let result = wallet.issue_asset_cfa(
         online.clone(),
         s!(""),
-        Some(DESCRIPTION.to_string()),
+        Some(DETAILS.to_string()),
         PRECISION,
         vec![AMOUNT],
         None,
@@ -275,7 +275,7 @@ fn fail() {
     let result = wallet.issue_asset_cfa(
         online.clone(),
         ("a").repeat(257),
-        Some(DESCRIPTION.to_string()),
+        Some(DETAILS.to_string()),
         PRECISION,
         vec![AMOUNT],
         None,
@@ -286,14 +286,14 @@ fn fail() {
     let result = wallet.issue_asset_cfa(
         online.clone(),
         s!("name with ℧nicode characters"),
-        Some(DESCRIPTION.to_string()),
+        Some(DETAILS.to_string()),
         PRECISION,
         vec![AMOUNT],
         None,
     );
     assert!(matches!(result, Err(Error::InvalidName { details: m }) if m == IDENT_NOT_ASCII_MSG));
 
-    // invalid description: empty
+    // invalid details: empty
     let result = wallet.issue_asset_cfa(
         online.clone(),
         NAME.to_string(),
@@ -302,11 +302,9 @@ fn fail() {
         vec![AMOUNT],
         None,
     );
-    assert!(
-        matches!(result, Err(Error::InvalidDescription { details: m }) if m == IDENT_EMPTY_MSG)
-    );
+    assert!(matches!(result, Err(Error::InvalidDetails { details: m }) if m == IDENT_EMPTY_MSG));
 
-    // invalid description: too long
+    // invalid details: too long
     let result = wallet.issue_asset_cfa(
         online.clone(),
         NAME.to_string(),
@@ -315,15 +313,13 @@ fn fail() {
         vec![AMOUNT],
         None,
     );
-    assert!(
-        matches!(result, Err(Error::InvalidDescription { details: m }) if m == IDENT_TOO_LONG_MSG)
-    );
+    assert!(matches!(result, Err(Error::InvalidDetails { details: m }) if m == IDENT_TOO_LONG_MSG));
 
     // invalid precision
     let result = wallet.issue_asset_cfa(
         online.clone(),
         NAME.to_string(),
-        Some(DESCRIPTION.to_string()),
+        Some(DETAILS.to_string()),
         19,
         vec![AMOUNT],
         None,

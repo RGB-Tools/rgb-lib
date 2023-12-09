@@ -57,7 +57,7 @@ impl MigrationTrait for Migration {
                     )
                     .col(ColumnDef::new(Asset::Schema).tiny_unsigned().not_null())
                     .col(ColumnDef::new(Asset::AddedAt).big_unsigned().not_null())
-                    .col(ColumnDef::new(Asset::Description).string())
+                    .col(ColumnDef::new(Asset::Details).string())
                     .col(ColumnDef::new(Asset::IssuedSupply).string().not_null())
                     .col(ColumnDef::new(Asset::Name).string().not_null())
                     .col(ColumnDef::new(Asset::Precision).tiny_unsigned().not_null())
@@ -454,7 +454,7 @@ pub enum Asset {
     AssetId,
     Schema,
     AddedAt,
-    Description,
+    Details,
     IssuedSupply,
     Name,
     Precision,

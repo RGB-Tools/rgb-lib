@@ -78,7 +78,7 @@ fn success() {
     let asset = cfa_assets.last().unwrap();
     assert_eq!(asset.asset_id, asset_3.asset_id);
     assert_eq!(asset.name, NAME.to_string());
-    assert_eq!(asset.description, Some(DESCRIPTION.to_string()));
+    assert_eq!(asset.details, Some(DETAILS.to_string()));
     assert_eq!(asset.precision, PRECISION);
     assert_eq!(
         asset.balance,

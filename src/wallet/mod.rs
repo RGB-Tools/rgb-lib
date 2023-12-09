@@ -204,7 +204,7 @@ impl AssetIface {
             AssetIface::RGB25 => AssetType::AssetCFA(AssetCFA {
                 asset_id: asset.asset_id.clone(),
                 asset_iface: self.clone(),
-                description: asset.description.clone(),
+                details: asset.details.clone(),
                 name: asset.name.clone(),
                 precision: asset.precision,
                 issued_supply,
@@ -266,8 +266,8 @@ pub struct Metadata {
     pub precision: u8,
     /// Asset ticker
     pub ticker: Option<String>,
-    /// Asset description
-    pub description: Option<String>,
+    /// Asset details
+    pub details: Option<String>,
 }
 
 /// A Non-Inflatable Asset.
@@ -331,8 +331,8 @@ pub struct AssetCFA {
     pub asset_iface: AssetIface,
     /// Name of the asset
     pub name: String,
-    /// Description of the asset
-    pub description: Option<String>,
+    /// Details of the asset
+    pub details: Option<String>,
     /// Precision, also known as divisibility, of the asset
     pub precision: u8,
     /// Total issued amount
@@ -2530,7 +2530,7 @@ impl Wallet {
             name: asset.name,
             precision: asset.precision,
             ticker: asset.ticker,
-            description: asset.description,
+            details: asset.details,
         })
     }
 
@@ -2714,7 +2714,7 @@ impl Wallet {
         asset_id: String,
         schema: &AssetSchema,
         added_at: Option<i64>,
-        description: Option<String>,
+        details: Option<String>,
         issued_supply: u64,
         name: String,
         precision: u8,
@@ -2727,7 +2727,7 @@ impl Wallet {
             asset_id: ActiveValue::Set(asset_id),
             schema: ActiveValue::Set(*schema),
             added_at: ActiveValue::Set(added_at),
-            description: ActiveValue::Set(description),
+            details: ActiveValue::Set(details),
             issued_supply: ActiveValue::Set(issued_supply.to_string()),
             name: ActiveValue::Set(name),
             precision: ActiveValue::Set(precision),
@@ -2911,7 +2911,7 @@ impl Wallet {
         Ok(asset)
     }
 
-    /// Issue a new RGB CFA asset with the provided `name`, optional `description`, `precision` and
+    /// Issue a new RGB CFA asset with the provided `name`, optional `details`, `precision` and
     /// `amounts`, then return it.
     ///
     /// An optional `file_path` containing the path to a media file can be provided. Its hash (as
@@ -2926,7 +2926,7 @@ impl Wallet {
         &self,
         online: Online,
         name: String,
-        description: Option<String>,
+        details: Option<String>,
         precision: u8,
         amounts: Vec<u64>,
         file_path: Option<String>,
@@ -3005,13 +3005,13 @@ impl Wallet {
             .add_global_state("issuedSupply", Amount::from(settled))
             .expect("invalid issuedSupply");
 
-        if let Some(desc) = &description {
-            if desc.is_empty() {
-                return Err(Error::InvalidDescription {
+        if let Some(details) = &details {
+            if details.is_empty() {
+                return Err(Error::InvalidDetails {
                     details: s!("ident must contain at least one character"),
                 });
             }
-            let details = Details::from_str(desc).map_err(|e| Error::InvalidDescription {
+            let details = Details::from_str(details).map_err(|e| Error::InvalidDetails {
                 details: e.to_string(),
             })?;
             builder = builder
@@ -3064,7 +3064,7 @@ impl Wallet {
             asset_id.clone(),
             &AssetSchema::Cfa,
             Some(created_at),
-            description,
+            details,
             settled,
             name,
             precision,
@@ -3478,7 +3478,7 @@ impl Wallet {
         let contract_iface = self._get_contract_iface(runtime, asset_schema, contract_id)?;
 
         let timestamp = self._get_asset_timestamp(&contract_iface)?;
-        let (name, precision, issued_supply, ticker, description) = match &asset_schema {
+        let (name, precision, issued_supply, ticker, details) = match &asset_schema {
             AssetSchema::Nia => {
                 let iface_nia = Rgb20::from(contract_iface.clone());
                 let spec = iface_nia.spec();
@@ -3505,7 +3505,7 @@ impl Wallet {
             contract_id.to_string(),
             asset_schema,
             None,
-            description,
+            details,
             issued_supply,
             name,
             precision,

@@ -248,7 +248,7 @@ pub(crate) fn test_issue_asset_cfa_result(
     wallet.issue_asset_cfa(
         online.clone(),
         NAME.to_string(),
-        Some(DESCRIPTION.to_string()),
+        Some(DETAILS.to_string()),
         PRECISION,
         amounts,
         file_path,
