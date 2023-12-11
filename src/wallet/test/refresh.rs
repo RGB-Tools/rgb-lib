@@ -378,6 +378,87 @@ fn nia_with_media() {
 
 #[test]
 #[serial]
+fn nia_with_details() {
+    initialize();
+
+    let amount: u64 = 66;
+    let details_str = "mocked details";
+
+    // wallets
+    let (wallet_1, online_1) = get_funded_wallet!();
+    let (wallet_2, online_2) = get_funded_wallet!();
+    let (wallet_3, online_3) = get_funded_wallet!();
+
+    // manually set the asset's details
+    let details = Some(details_str);
+    *MOCK_CONTRACT_DETAILS.lock().unwrap() = details;
+
+    // issue
+    let asset = test_issue_asset_nia(&wallet_1, &online_1, None);
+
+    // check asset details have been set
+    assert_eq!(asset.details, Some(details_str.to_string()));
+
+    // send 1->2
+    let receive_data = test_blind_receive(&wallet_2);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            amount,
+            recipient_data: RecipientData::BlindedUTXO(
+                SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
+            ),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid = test_send(&wallet_1, &online_1, &recipient_map);
+    assert!(!txid.is_empty());
+
+    // settle transfer
+    test_refresh_all(&wallet_2, &online_2);
+    test_refresh_all(&wallet_1, &online_1);
+    mine(false);
+    test_refresh_all(&wallet_2, &online_2);
+    test_refresh_all(&wallet_1, &online_1);
+
+    // send 2->3
+    let receive_data = test_blind_receive(&wallet_3);
+    let recipient_map = HashMap::from([(
+        asset.asset_id,
+        vec![Recipient {
+            amount,
+            recipient_data: RecipientData::BlindedUTXO(
+                SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
+            ),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid = test_send(&wallet_2, &online_2, &recipient_map);
+    assert!(!txid.is_empty());
+
+    // settle transfer
+    test_refresh_all(&wallet_3, &online_3);
+    test_refresh_all(&wallet_2, &online_2);
+    mine(false);
+    test_refresh_all(&wallet_3, &online_3);
+    test_refresh_all(&wallet_2, &online_2);
+    let rcv_transfer = get_test_transfer_recipient(&wallet_3, &receive_data.recipient_id);
+    let (rcv_transfer_data, _) = get_test_transfer_data(&wallet_3, &rcv_transfer);
+    let (transfer, _, _) = get_test_transfer_sender(&wallet_2, &txid);
+    let (transfer_data, _) = get_test_transfer_data(&wallet_2, &transfer);
+    assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
+    assert_eq!(transfer_data.status, TransferStatus::Settled);
+
+    // check asset details on the final recipient
+    let asset_list = test_list_assets(&wallet_3, &[]);
+    assert_eq!(
+        asset_list.nia.unwrap()[0].details,
+        Some(details_str.to_string())
+    );
+}
+
+#[test]
+#[serial]
 fn uda_with_preview_and_reserves() {
     initialize();
 
