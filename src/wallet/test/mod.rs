@@ -131,6 +131,18 @@ pub fn mock_input_unspents(wallet: &Wallet, unspents: &[LocalUnspent]) -> Vec<Lo
     }
 }
 
+lazy_static! {
+    static ref MOCK_CONTRACT_DETAILS: Mutex<Option<&'static str>> = Mutex::new(None);
+}
+
+pub fn mock_contract_details(wallet: &Wallet) -> Option<Details> {
+    MOCK_CONTRACT_DETAILS
+        .lock()
+        .unwrap()
+        .take()
+        .map(|d| wallet._check_details(d.to_string()).unwrap())
+}
+
 // test utilities
 mod utils;
 

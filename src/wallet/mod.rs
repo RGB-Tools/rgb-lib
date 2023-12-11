@@ -3265,11 +3265,15 @@ impl Wallet {
         let data = test::mock_contract_data(self, terms, None);
         #[cfg(not(test))]
         let data = self._new_contract_data(terms, None);
+        #[cfg(test)]
+        let details = test::mock_contract_details(self);
+        #[cfg(not(test))]
+        let details = None;
         let spec = DivisibleAssetSpec {
             naming: AssetNaming {
                 ticker: self._check_ticker(ticker.clone())?,
                 name: self._check_name(name.clone())?,
-                details: None,
+                details,
             },
             precision: self._check_precision(precision)?,
         };
@@ -3278,7 +3282,7 @@ impl Wallet {
         let mut builder = ContractBuilder::with(rgb20(), nia_schema(), nia_rgb20())
             .map_err(InternalError::from)?
             .set_chain(runtime.chain())
-            .add_global_state("spec", spec)
+            .add_global_state("spec", spec.clone())
             .expect("invalid spec")
             .add_global_state("data", data)
             .expect("invalid data")
@@ -3318,7 +3322,7 @@ impl Wallet {
             asset_id.clone(),
             &AssetSchema::Nia,
             Some(created_at),
-            None,
+            spec.details().map(|d| d.to_string()),
             settled,
             name,
             precision,
