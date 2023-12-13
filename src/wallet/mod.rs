@@ -110,6 +110,9 @@ use crate::utils::{
     LOG_FILE,
 };
 
+#[cfg(test)]
+use self::test::get_regtest_txid;
+
 const RGB_DB_NAME: &str = "rgb_db";
 const BDK_DB_NAME: &str = "bdk_db";
 
@@ -2995,15 +2998,21 @@ impl Wallet {
                 details: e.to_string(),
             })?;
 
-        // check electrum server
+        // check the electrum server is for the correct network and has the required functionality
         let bitcoin_network = self._bitcoin_network();
         self._check_genesis_hash(&bitcoin_network, &electrum_client)?;
-        if self._bitcoin_network() != BitcoinNetwork::Regtest {
-            // check the server has the required functionality
-            self._get_tx_details(
-                get_valid_txid_for_network(&bitcoin_network),
-                Some(&electrum_client),
-            )?;
+        let txid = if self._bitcoin_network() == BitcoinNetwork::Regtest {
+            #[cfg(test)]
+            {
+                Some(get_regtest_txid())
+            }
+            #[cfg(not(test))]
+            None
+        } else {
+            Some(get_valid_txid_for_network(&bitcoin_network))
+        };
+        if let Some(txid) = txid {
+            self._get_tx_details(txid, Some(&electrum_client))?;
         }
 
         let online_data = OnlineData {
