@@ -51,6 +51,11 @@ fn fail() {
     let details = "The provided electrum URL is for a network different from the wallet's one";
     assert!(matches!(result, Err(Error::InvalidElectrum { details: m }) if m == details ));
 
+    // unsupported electrs variant
+    let result = test_go_online_result(&mut wallet, false, Some(ELECTRUM_BLOCKSTREAM_URL));
+    let details = "Electrum server error: \"verbose transactions are currently unsupported\"";
+    assert!(matches!(result, Err(Error::InvalidElectrum { details: m }) if m == details ));
+
     // bad online object
     let wrong_online = Online {
         id: 1,
