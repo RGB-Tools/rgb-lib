@@ -5635,12 +5635,12 @@ impl Wallet {
 
         let mut runtime = self._rgb_runtime()?;
         let mut witness_recipients: Vec<(ScriptBuf, u64)> = vec![];
+        let mut recipient_vout = 0;
         let mut transfer_info_map: BTreeMap<String, InfoAssetTransfer> = BTreeMap::new();
         for (asset_id, recipients) in recipient_map {
             self.database.check_asset_exists(asset_id.clone())?;
 
             let mut local_recipients: Vec<LocalRecipient> = vec![];
-            let mut recipient_vout = 0;
             for recipient in recipients.clone() {
                 self._check_transport_endpoints(&recipient.transport_endpoints)?;
                 if recipient.amount == 0 {
