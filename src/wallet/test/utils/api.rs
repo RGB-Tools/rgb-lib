@@ -228,26 +228,38 @@ pub(crate) fn test_go_online_result(
 pub(crate) fn test_issue_asset_uda(
     wallet: &Wallet,
     online: &Online,
-    media_file_path: Option<String>,
-    attachments_file_paths: Vec<String>,
+    details: Option<&str>,
+    media_file_path: Option<&str>,
+    attachments_file_paths: Vec<&str>,
 ) -> AssetUDA {
-    test_issue_asset_uda_result(wallet, online, media_file_path, attachments_file_paths).unwrap()
+    test_issue_asset_uda_result(
+        wallet,
+        online,
+        details,
+        media_file_path,
+        attachments_file_paths,
+    )
+    .unwrap()
 }
 
 pub(crate) fn test_issue_asset_uda_result(
     wallet: &Wallet,
     online: &Online,
-    media_file_path: Option<String>,
-    attachments_file_paths: Vec<String>,
+    details: Option<&str>,
+    media_file_path: Option<&str>,
+    attachments_file_paths: Vec<&str>,
 ) -> Result<AssetUDA, Error> {
     wallet.issue_asset_uda(
         online.clone(),
         TICKER.to_string(),
         NAME.to_string(),
-        Some(DETAILS.to_string()),
+        details.map(|d| d.to_string()),
         PRECISION,
-        media_file_path,
-        attachments_file_paths,
+        media_file_path.map(|m| m.to_string()),
+        attachments_file_paths
+            .iter()
+            .map(|a| a.to_string())
+            .collect(),
     )
 }
 

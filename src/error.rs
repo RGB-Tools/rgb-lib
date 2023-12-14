@@ -43,6 +43,13 @@ pub enum Error {
         details: String,
     },
 
+    /// The provided file is empty
+    #[error("Empty file: {file_path}")]
+    EmptyFile {
+        /// File path
+        file_path: String,
+    },
+
     /// Syncing BDK with the blockchain has failed
     #[error("Failed bdk sync: {details}")]
     FailedBdkSync {

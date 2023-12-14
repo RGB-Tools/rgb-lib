@@ -333,6 +333,14 @@ fn fail() {
         Err(Error::InvalidFilePath { file_path: t }) if t == invalid_file_path
     ));
 
+    // empty file
+    let empty_file_path = ["tests", "empty"].join(&MAIN_SEPARATOR.to_string());
+    let result = test_issue_asset_cfa_result(&wallet, &online, None, Some(empty_file_path.clone()));
+    assert!(matches!(
+        result,
+        Err(Error::EmptyFile { file_path: t }) if t == empty_file_path
+    ));
+
     drain_wallet(&wallet, &online);
 
     // insufficient funds

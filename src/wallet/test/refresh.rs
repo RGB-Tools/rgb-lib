@@ -506,7 +506,7 @@ fn uda_with_preview_and_reserves() {
         reserves: Some(reserves),
     };
     MOCK_TOKEN_DATA.lock().unwrap().push(token_data.clone());
-    let asset = test_issue_asset_uda(&wallet_1, &online_1, None, vec![]);
+    let asset = test_issue_asset_uda(&wallet_1, &online_1, Some(DETAILS), None, vec![]);
 
     let receive_data = test_blind_receive(&wallet_2);
     let recipient_map = HashMap::from([(

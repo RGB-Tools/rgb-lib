@@ -3188,6 +3188,11 @@ impl Wallet {
             });
         }
         let file_bytes = fs::read(&original_file_path)?;
+        if file_bytes.is_empty() {
+            return Err(Error::EmptyFile {
+                file_path: original_file_path.as_ref().to_string_lossy().to_string(),
+            });
+        }
         let file_hash: sha256::Hash = Sha256Hash::hash(&file_bytes[..]);
         let digest = file_hash.to_byte_array();
         let mime = tree_magic::from_filepath(original_file_path.as_ref());

@@ -49,8 +49,9 @@ fn success() {
     let asset_uda = test_issue_asset_uda(
         &wallet,
         &online,
-        Some(file_str.to_string()),
-        vec![image_str.to_string(), file_str.to_string()],
+        Some(DETAILS),
+        Some(file_str),
+        vec![&image_str, file_str],
     );
     let transfers = test_list_transfers(&wallet, Some(&asset_uda.asset_id));
     assert_eq!(transfers.len(), 1);

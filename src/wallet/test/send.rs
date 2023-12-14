@@ -1032,8 +1032,9 @@ fn send_received_uda_success() {
     let asset = test_issue_asset_uda(
         &wallet_1,
         &online_1,
-        Some(file_str.to_string()),
-        vec![image_str.to_string(), file_str.to_string()],
+        Some(DETAILS),
+        Some(file_str),
+        vec![&image_str, file_str],
     );
     assert!(wallet_1
         .database
