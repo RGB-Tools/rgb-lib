@@ -1,6 +1,7 @@
 use super::*;
 use rgbstd::interface::rgb21::EmbeddedMedia as RgbEmbeddedMedia;
 use rgbstd::stl::ProofOfReserves as RgbProofOfReserves;
+use sea_orm::EntityTrait;
 use serial_test::{parallel, serial};
 
 #[test]
@@ -314,16 +315,30 @@ fn nia_with_media() {
     let mime = tree_magic::from_filepath(fpath);
     let media_ty: &'static str = Box::leak(mime.clone().into_boxed_str());
     let media_type = MediaType::with(media_ty);
-    let media = Attachment {
+    let attachment = Attachment {
         ty: media_type,
         digest,
     };
-    MOCK_CONTRACT_DATA.lock().unwrap().push(media.clone());
+    MOCK_CONTRACT_DATA.lock().unwrap().push(attachment.clone());
     let asset = test_issue_asset_nia(&wallet_1, &online_1, None);
-    let digest = hex::encode(media.digest);
-    let media_dir = wallet_1.wallet_dir.join(MEDIA_DIR);
-    fs::create_dir_all(&media_dir).unwrap();
-    fs::copy(fp, media_dir.join(digest)).unwrap();
+    let media_idx = wallet_1
+        ._copy_media_and_save(
+            fp,
+            &Media::from_attachment(&attachment, wallet_1._media_dir()),
+        )
+        .unwrap();
+    let db_asset = wallet_1
+        .database
+        .get_asset(asset.asset_id.clone())
+        .unwrap()
+        .unwrap();
+    let mut updated_asset: DbAssetActMod = db_asset.into();
+    updated_asset.media_idx = ActiveValue::Set(Some(media_idx));
+    block_on(
+        crate::database::entities::asset::Entity::update(updated_asset)
+            .exec(wallet_1.database.get_connection()),
+    )
+    .unwrap();
 
     let receive_data = test_blind_receive(&wallet_2);
     let recipient_map = HashMap::from([(

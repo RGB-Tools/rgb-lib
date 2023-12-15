@@ -1936,7 +1936,6 @@ impl Wallet {
         let seal = GraphSeal::from(seal);
         let concealed_seal = seal.to_concealed_seal();
         let blinded_utxo = concealed_seal.to_string();
-        debug!(self.logger, "Recipient ID '{}'", blinded_utxo);
 
         let (invoice, expiration_timestamp, asset_transfer_idx) = self._receive(
             asset_id,
@@ -2011,7 +2010,6 @@ impl Wallet {
         let address_str = self._get_new_address().to_string();
         let address = Address::from_str(&address_str).unwrap().assume_checked();
         let script_buf_str = address.script_pubkey().to_hex_string();
-        debug!(self.logger, "Recipient ID '{}'", script_buf_str);
 
         let (invoice, expiration_timestamp, _) = self._receive(
             asset_id,
