@@ -38,7 +38,7 @@ fn fail() {
 
     // cannot go online with a broken electrum URL
     let result = test_go_online_result(&mut wallet, false, Some("other:50001"));
-    let details = "failed to lookup address information: Name or service not known";
+    let details = "I/O error";
     assert!(matches!(result, Err(Error::InvalidElectrum { details: m }) if m == details ));
 
     // cannot go online again with broken electrum URL

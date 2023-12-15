@@ -2979,9 +2979,11 @@ impl Wallet {
         let electrum_config = ConfigBuilder::new().timeout(Some(ELECTRUM_TIMEOUT)).build();
         let electrum_client =
             ElectrumClient::from_config(&electrum_url, electrum_config).map_err(|e| {
-                Error::InvalidElectrum {
-                    details: e.to_string(),
-                }
+                let details = match e {
+                    electrum_client::Error::IOError(_) => s!("I/O error"),
+                    _ => format!("unknown ({e})"),
+                };
+                Error::InvalidElectrum { details }
             })?;
 
         // BDK setup
