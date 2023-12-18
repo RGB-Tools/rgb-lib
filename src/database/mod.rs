@@ -647,8 +647,12 @@ impl RgbLibDatabase {
             .filter(|t| t.incoming && t.recipient_type == Some(RecipientType::Witness))
             .filter_map(
                 |t| match t.related_transfers(&asset_transfers, &batch_transfers) {
-                    Ok((_, bt)) => {
+                    Ok((at, bt)) => {
                         if bt.status.waiting_confirmations() {
+                            // filter for asset ID (always present in WaitingConfirmations status)
+                            if at.asset_id.unwrap() != asset_id {
+                                return None;
+                            }
                             Some(Ok(t.amount.parse::<u64>().unwrap()))
                         } else {
                             None
