@@ -112,8 +112,8 @@ fn success() {
     let result = Invoice::from_invoice_data(invoice_data);
     assert!(matches!(result, Err(Error::InvalidAssetID { asset_id: a }) if a == invalid_asset_id));
 
-    // check BlindedUTXO
-    let result = BlindedUTXO::new(receive_data.recipient_id);
+    // check recipient ID
+    let result = RecipientInfo::new(receive_data.recipient_id);
     assert!(result.is_ok());
 
     // transport endpoints: multiple endpoints
@@ -231,9 +231,8 @@ fn pending_outgoing_transfer_fail() {
     let recipient_map = HashMap::from([(
         asset_id.clone(),
         vec![Recipient {
-            recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
-            ),
+            recipient_id: receive_data.recipient_id,
+            witness_data: None,
             amount,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -293,12 +292,9 @@ fn fail() {
         })
     ));
 
-    // invalid BlindedUTXO
-    let result = BlindedUTXO::new(s!("invalid"));
-    assert!(matches!(
-        result,
-        Err(Error::InvalidBlindedUTXO { details: _ })
-    ));
+    // invalid recipient ID
+    let result = RecipientInfo::new(s!("invalid"));
+    assert!(matches!(result, Err(Error::InvalidRecipientID)));
 
     // invalid invoice
     let result = Invoice::new(s!("invalid"));
@@ -436,9 +432,8 @@ fn wrong_asset_fail() {
         asset_b.asset_id.clone(),
         vec![Recipient {
             amount,
-            recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data_a.recipient_id).unwrap(),
-            ),
+            recipient_id: receive_data_a.recipient_id.clone(),
+            witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -533,9 +528,8 @@ fn multiple_receive_same_utxo() {
         asset_1.asset_id.clone(),
         vec![Recipient {
             amount,
-            recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data_1.recipient_id).unwrap(),
-            ),
+            recipient_id: receive_data_1.recipient_id,
+            witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -548,9 +542,8 @@ fn multiple_receive_same_utxo() {
         asset_2.asset_id.clone(),
         vec![Recipient {
             amount,
-            recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data_2.recipient_id).unwrap(),
-            ),
+            recipient_id: receive_data_2.recipient_id,
+            witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);

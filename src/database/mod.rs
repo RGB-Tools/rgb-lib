@@ -2,12 +2,13 @@ use bdk::bitcoin::OutPoint as BdkOutPoint;
 use bdk::LocalUtxo;
 use futures::executor::block_on;
 use sea_orm::{ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder};
+use seals::SecretSeal;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
 use crate::error::InternalError;
 use crate::utils::now;
-use crate::wallet::{Balance, Outpoint, RecipientData, TransferKind};
+use crate::wallet::{Balance, Outpoint, TransferKind};
 use crate::Error;
 
 pub(crate) mod entities;
@@ -229,17 +230,33 @@ impl LocalUnspent {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub(crate) struct LocalRecipient {
-    pub recipient_data: RecipientData,
-    pub amount: u64,
-    pub transport_endpoints: Vec<LocalTransportEndpoint>,
-    pub vout: Option<u32>,
+pub(crate) struct LocalWitnessData {
+    pub amount_sat: u64,
+    pub blinding: Option<u64>,
+    pub vout: u32,
 }
 
-impl LocalRecipient {
-    pub(crate) fn recipient_id(&self) -> String {
-        self.recipient_data.recipient_id()
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) enum LocalRecipientData {
+    Blind(SecretSeal),
+    Witness(LocalWitnessData),
+}
+
+impl LocalRecipientData {
+    pub(crate) fn vout(&self) -> Option<u32> {
+        match &self {
+            LocalRecipientData::Blind(_) => None,
+            LocalRecipientData::Witness(d) => Some(d.vout),
+        }
     }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct LocalRecipient {
+    pub recipient_id: String,
+    pub local_recipient_data: LocalRecipientData,
+    pub amount: u64,
+    pub transport_endpoints: Vec<LocalTransportEndpoint>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]

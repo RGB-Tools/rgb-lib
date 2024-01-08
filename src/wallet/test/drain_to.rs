@@ -83,11 +83,11 @@ fn pending_witness_receive() {
         asset.asset_id.clone(),
         vec![Recipient {
             amount,
-            recipient_data: RecipientData::WitnessData {
-                script_buf: ScriptBuf::from_hex(&receive_data.recipient_id).unwrap(),
+            recipient_id: receive_data.recipient_id.clone(),
+            witness_data: Some(WitnessData {
                 amount_sat: 1000,
                 blinding: None,
-            },
+            }),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);

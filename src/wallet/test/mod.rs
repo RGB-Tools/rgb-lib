@@ -123,17 +123,17 @@ lazy_static! {
     static ref MOCK_CONTRACT_DATA: Mutex<Vec<Attachment>> = Mutex::new(vec![]);
 }
 
-pub fn mock_contract_data(
+pub fn mock_asset_terms(
     wallet: &Wallet,
-    terms: RicardianContract,
+    text: RicardianContract,
     media: Option<Attachment>,
-) -> ContractData {
+) -> AssetTerms {
     let mut mock_reqs = MOCK_CONTRACT_DATA.lock().unwrap();
     if mock_reqs.is_empty() {
-        wallet._new_contract_data(terms, media)
+        wallet._new_asset_terms(text, media)
     } else {
         let mocked_media = mock_reqs.pop();
-        wallet._new_contract_data(terms, mocked_media)
+        wallet._new_asset_terms(text, mocked_media)
     }
 }
 

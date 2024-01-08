@@ -1,8 +1,6 @@
 #![allow(clippy::too_many_arguments)]
 
-use rgb_lib::{ScriptBuf, SecretSeal};
 use std::collections::HashMap;
-use std::str::FromStr;
 use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard};
 
 uniffi::include_scaffolding!("rgb-lib");
@@ -27,14 +25,13 @@ type Online = rgb_lib::wallet::Online;
 type Outpoint = rgb_lib::wallet::Outpoint;
 type ProofOfReserves = rgb_lib::wallet::ProofOfReserves;
 type ReceiveData = rgb_lib::wallet::ReceiveData;
-type RecipientData = rgb_lib::wallet::RecipientData;
+type Recipient = rgb_lib::wallet::Recipient;
 type RefreshFilter = rgb_lib::wallet::RefreshFilter;
 type RefreshTransferStatus = rgb_lib::wallet::RefreshTransferStatus;
 type RgbAllocation = rgb_lib::wallet::RgbAllocation;
-type RgbLibBlindedUTXO = rgb_lib::wallet::BlindedUTXO;
 type RgbLibError = rgb_lib::Error;
 type RgbLibInvoice = rgb_lib::wallet::Invoice;
-type RgbLibRecipient = rgb_lib::wallet::Recipient;
+type RgbLibRecipientInfo = rgb_lib::wallet::RecipientInfo;
 type RgbLibTransportEndpoint = rgb_lib::wallet::TransportEndpoint;
 type RgbLibWallet = rgb_lib::wallet::Wallet;
 type SendResult = rgb_lib::wallet::SendResult;
@@ -50,26 +47,7 @@ type TransportType = rgb_lib::TransportType;
 type Unspent = rgb_lib::wallet::Unspent;
 type Utxo = rgb_lib::wallet::Utxo;
 type WalletData = rgb_lib::wallet::WalletData;
-
-pub struct Recipient {
-    /// Blinded UTXO
-    pub blinded_utxo: Option<String>,
-    /// Script data
-    pub script_data: Option<ScriptData>,
-    /// RGB amount
-    pub amount: u64,
-    /// Transport endpoints
-    pub transport_endpoints: Vec<String>,
-}
-
-pub struct ScriptData {
-    /// The script
-    script: String,
-    /// The Bitcoin amount
-    amount_sat: u64,
-    /// An optional blinding
-    blinding: Option<u64>,
-}
+type WitnessData = rgb_lib::wallet::WitnessData;
 
 fn generate_keys(bitcoin_network: BitcoinNetwork) -> Keys {
     rgb_lib::generate_keys(bitcoin_network)
@@ -87,14 +65,14 @@ fn restore_backup(
     rgb_lib::restore_backup(&backup_path, &password, &data_dir)
 }
 
-struct BlindedUTXO {
-    _blinded_utxo: RwLock<RgbLibBlindedUTXO>,
+struct RecipientInfo {
+    _recipient_info: RwLock<RgbLibRecipientInfo>,
 }
 
-impl BlindedUTXO {
-    fn new(blinded_utxo: String) -> Result<Self, RgbLibError> {
-        Ok(BlindedUTXO {
-            _blinded_utxo: RwLock::new(RgbLibBlindedUTXO::new(blinded_utxo)?),
+impl RecipientInfo {
+    fn new(recipient_id: String) -> Result<Self, RgbLibError> {
+        Ok(RecipientInfo {
+            _recipient_info: RwLock::new(RgbLibRecipientInfo::new(recipient_id)?),
         })
     }
 }
@@ -391,13 +369,8 @@ impl Wallet {
         fee_rate: f32,
         min_confirmations: u8,
     ) -> Result<SendResult, RgbLibError> {
-        self._get_wallet().send(
-            online,
-            _convert_recipient_map(recipient_map)?,
-            donation,
-            fee_rate,
-            min_confirmations,
-        )
+        self._get_wallet()
+            .send(online, recipient_map, donation, fee_rate, min_confirmations)
     }
 
     fn send_begin(
@@ -408,13 +381,8 @@ impl Wallet {
         fee_rate: f32,
         min_confirmations: u8,
     ) -> Result<String, RgbLibError> {
-        self._get_wallet().send_begin(
-            online,
-            _convert_recipient_map(recipient_map)?,
-            donation,
-            fee_rate,
-            min_confirmations,
-        )
+        self._get_wallet()
+            .send_begin(online, recipient_map, donation, fee_rate, min_confirmations)
     }
 
     fn send_end(&self, online: Online, signed_psbt: String) -> Result<SendResult, RgbLibError> {
@@ -446,50 +414,6 @@ impl Wallet {
     fn send_btc_end(&self, online: Online, signed_psbt: String) -> Result<String, RgbLibError> {
         self._get_wallet().send_btc_end(online, signed_psbt)
     }
-}
-
-fn _convert_recipient_map(
-    recipient_map: HashMap<String, Vec<Recipient>>,
-) -> Result<HashMap<String, Vec<RgbLibRecipient>>, RgbLibError> {
-    let mut updated_map = HashMap::new();
-    for (k, v) in recipient_map {
-        let updated_v: Result<Vec<RgbLibRecipient>, RgbLibError> = v
-            .iter()
-            .map(|r| {
-                if r.script_data.is_some() && r.blinded_utxo.is_some() {
-                    return Err(RgbLibError::InvalidRecipientID);
-                }
-                let recipient_data = if let Some(script_data) = &r.script_data {
-                    let script_buf = ScriptBuf::from_hex(&script_data.script).map_err(|e| {
-                        RgbLibError::InvalidScript {
-                            details: e.to_string(),
-                        }
-                    })?;
-                    RecipientData::WitnessData {
-                        script_buf,
-                        amount_sat: script_data.amount_sat,
-                        blinding: script_data.blinding,
-                    }
-                } else if let Some(blinded_utxo) = &r.blinded_utxo {
-                    let secret_seal = SecretSeal::from_str(blinded_utxo).map_err(|e| {
-                        RgbLibError::InvalidBlindedUTXO {
-                            details: e.to_string(),
-                        }
-                    })?;
-                    RecipientData::BlindedUTXO(secret_seal)
-                } else {
-                    return Err(RgbLibError::InvalidRecipientID);
-                };
-                Ok(RgbLibRecipient {
-                    recipient_data,
-                    amount: r.amount,
-                    transport_endpoints: r.transport_endpoints.clone(),
-                })
-            })
-            .collect();
-        updated_map.insert(k, updated_v?);
-    }
-    Ok(updated_map)
 }
 
 uniffi::deps::static_assertions::assert_impl_all!(Wallet: Sync, Send);

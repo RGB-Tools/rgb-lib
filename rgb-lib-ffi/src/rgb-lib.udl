@@ -37,19 +37,19 @@ interface RgbLibError {
   InvalidAttachments(string details);
   InvalidBitcoinKeys();
   InvalidBitcoinNetwork(string network);
-  InvalidBlindedUTXO(string details);
   InvalidDetails(string details);
   InvalidElectrum(string details);
   InvalidFeeRate(string details);
   InvalidFilePath(string file_path);
   InvalidInvoice(string details);
-  InvalidInvoiceData(string details);
   InvalidMnemonic(string details);
   InvalidName(string details);
   InvalidPrecision(string details);
   InvalidPsbt(string details);
   InvalidPubkey(string details);
+  InvalidRecipientData(string details);
   InvalidRecipientID();
+  InvalidRecipientNetwork();
   InvalidScript(string details);
   InvalidTicker(string details);
   InvalidTransportEndpoint(string details);
@@ -67,6 +67,7 @@ interface RgbLibError {
   UnknownRgbSchema(string schema_id);
   UnsupportedBackupVersion(string version);
   UnsupportedInvoice();
+  UnsupportedLayer1(string layer_1);
   UnsupportedTransportType();
   WatchOnly();
   WrongPassword();
@@ -172,9 +173,9 @@ dictionary ReceiveData {
   i32 batch_transfer_idx;
 };
 
-interface BlindedUTXO {
+interface RecipientInfo {
   [Throws=RgbLibError]
-  constructor(string blinded_utxo);
+  constructor(string recipient_id);
 };
 
 interface TransportEndpoint {
@@ -209,7 +210,7 @@ dictionary InvoiceData {
   AssetIface? asset_iface;
   string? asset_id;
   u64? amount;
-  BitcoinNetwork? network;
+  BitcoinNetwork network;
   i64? expiration_timestamp;
   sequence<string> transport_endpoints;
 };
@@ -264,8 +265,7 @@ dictionary Outpoint {
   u32 vout;
 };
 
-dictionary ScriptData {
-  string script;
+dictionary WitnessData {
   u64 amount_sat;
   u64? blinding;
 };
@@ -276,8 +276,8 @@ dictionary SendResult {
 };
 
 dictionary Recipient {
-  string? blinded_utxo;
-  ScriptData? script_data;
+  string recipient_id;
+  WitnessData? witness_data;
   u64 amount;
   sequence<string> transport_endpoints;
 };

@@ -143,16 +143,14 @@ fn batch_success() {
         asset_id.clone(),
         vec![
             Recipient {
-                recipient_data: RecipientData::BlindedUTXO(
-                    SecretSeal::from_str(&receive_data_1.recipient_id).unwrap(),
-                ),
+                recipient_id: receive_data_1.recipient_id.clone(),
+                witness_data: None,
                 amount,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
             Recipient {
-                recipient_data: RecipientData::BlindedUTXO(
-                    SecretSeal::from_str(&receive_data_2.recipient_id).unwrap(),
-                ),
+                recipient_id: receive_data_2.recipient_id.clone(),
+                witness_data: None,
                 amount,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },

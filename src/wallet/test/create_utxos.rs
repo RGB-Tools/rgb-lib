@@ -113,9 +113,8 @@ fn up_to_allocation_checks() {
             asset.asset_id.clone(),
             vec![Recipient {
                 amount,
-                recipient_data: RecipientData::BlindedUTXO(
-                    SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
-                ),
+                recipient_id: receive_data.recipient_id.clone(),
+                witness_data: None,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             }],
         )]);

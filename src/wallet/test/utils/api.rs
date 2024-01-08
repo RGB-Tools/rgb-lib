@@ -373,11 +373,11 @@ pub(crate) fn test_save_new_asset(
         asset_id.clone(),
         vec![Recipient {
             amount,
-            recipient_data: RecipientData::WitnessData {
-                script_buf: ScriptBuf::from_hex(&receive_data.recipient_id).unwrap(),
+            recipient_id: receive_data.recipient_id,
+            witness_data: Some(WitnessData {
                 amount_sat: 1000,
                 blinding: None,
-            },
+            }),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -388,17 +388,18 @@ pub(crate) fn test_save_new_asset(
     let asset_transfer_dir = txid_dir.join(asset_id);
     let consignment_path = asset_transfer_dir.join(CONSIGNMENT_FILE);
 
-    let bindle = Bindle::<RgbTransfer>::load(consignment_path).unwrap();
-    let consignment: RgbTransfer = bindle.unbindle();
+    let consignment = RgbTransfer::load_file(consignment_path).unwrap();
     let mut contract = consignment.clone().into_contract();
 
     contract.bundles = none!();
     contract.terminals = none!();
-    let minimal_contract_validated =
-        match contract.validate(&mut rcv_wallet._blockchain_resolver().unwrap()) {
-            Ok(consignment) => consignment,
-            Err(consignment) => consignment,
-        };
+    let minimal_contract_validated = match contract.validate(
+        &mut rcv_wallet._blockchain_resolver().unwrap(),
+        rcv_wallet._testnet(),
+    ) {
+        Ok(consignment) => consignment,
+        Err(consignment) => consignment,
+    };
 
     let mut runtime = rcv_wallet._rgb_runtime().unwrap();
     runtime
@@ -414,6 +415,7 @@ pub(crate) fn test_save_new_asset(
             &mut runtime,
             &asset_schema,
             minimal_contract_validated.contract_id(),
+            minimal_contract_validated,
         )
         .unwrap();
 }

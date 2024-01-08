@@ -20,7 +20,10 @@ fn success() {
     let timestamp = now_timestamp + DURATION_RCV_TRANSFER as i64;
     assert!(receive_data.expiration_timestamp.unwrap() - timestamp <= 1);
     let decoded_invoice = Invoice::new(receive_data.invoice).unwrap();
-    assert!(decoded_invoice.invoice_data.network.is_some());
+    assert_eq!(
+        decoded_invoice.invoice_data.network,
+        wallet._bitcoin_network()
+    );
     let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
     let (_, batch_transfer) = get_test_transfer_related(&wallet, &transfer);
     assert_eq!(batch_transfer.min_confirmations, MIN_CONFIRMATIONS);
@@ -100,15 +103,15 @@ fn success() {
     assert_eq!(invoice_data.recipient_id, receive_data.recipient_id);
     assert_eq!(invoice_data.asset_id, Some(asset_id));
     assert_eq!(invoice_data.amount, Some(amount));
-    assert_eq!(invoice_data.network, Some(BitcoinNetwork::Regtest));
+    assert_eq!(invoice_data.network, BitcoinNetwork::Regtest);
     assert!(invoice_data.expiration_timestamp.unwrap() - approx_expiry <= 1);
     let invalid_asset_id = s!("invalid");
     invoice_data.asset_id = Some(invalid_asset_id.clone());
     let result = Invoice::from_invoice_data(invoice_data);
     assert!(matches!(result, Err(Error::InvalidAssetID { asset_id: a }) if a == invalid_asset_id));
 
-    // check WitnessData ScriptBuf
-    let result = ScriptBuf::from_hex(&receive_data.recipient_id);
+    // check recipient ID
+    let result = RecipientInfo::new(receive_data.recipient_id);
     assert!(result.is_ok());
 
     // transport endpoints: multiple endpoints
@@ -131,23 +134,4 @@ fn success() {
         .get_transfer_transport_endpoints_data(transfer.idx)
         .unwrap();
     assert_eq!(tte_data.len(), transport_endpoints.len());
-}
-
-#[test]
-#[parallel]
-fn fail() {
-    initialize();
-
-    let (wallet, _) = get_empty_wallet!();
-
-    // invalid invoice (missing network)
-    let receive_data = test_witness_receive(&wallet);
-    let invoice = Invoice::new(receive_data.invoice).unwrap();
-    let mut invoice_data = invoice.invoice_data();
-    invoice_data.network = None;
-    let result = Invoice::from_invoice_data(invoice_data);
-    assert!(matches!(
-        result,
-        Err(Error::InvalidInvoiceData { details: _ })
-    ));
 }

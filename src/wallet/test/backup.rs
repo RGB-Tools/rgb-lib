@@ -28,9 +28,8 @@ fn success() {
         asset.asset_id.clone(),
         vec![Recipient {
             amount,
-            recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
-            ),
+            recipient_id: receive_data.recipient_id,
+            witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -86,9 +85,8 @@ fn success() {
         asset.asset_id.clone(),
         vec![Recipient {
             amount,
-            recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
-            ),
+            recipient_id: receive_data.recipient_id,
+            witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -168,9 +166,8 @@ fn double_restore() {
         asset_1.asset_id.clone(),
         vec![Recipient {
             amount,
-            recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data_1.recipient_id).unwrap(),
-            ),
+            recipient_id: receive_data_1.recipient_id,
+            witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -178,9 +175,8 @@ fn double_restore() {
         asset_2.asset_id.clone(),
         vec![Recipient {
             amount: amount * 2,
-            recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data_2.recipient_id).unwrap(),
-            ),
+            recipient_id: receive_data_2.recipient_id,
+            witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);

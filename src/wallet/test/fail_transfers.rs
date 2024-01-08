@@ -59,9 +59,8 @@ fn success() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data_3.recipient_id).unwrap(),
-            ),
+            recipient_id: receive_data_3.recipient_id.clone(),
+            witness_data: None,
             amount,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -141,9 +140,8 @@ fn success() {
     let recipient_map = HashMap::from([(
         asset.asset_id,
         vec![Recipient {
-            recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data_3.recipient_id).unwrap(),
-            ),
+            recipient_id: receive_data_3.recipient_id.clone(),
+            witness_data: None,
             amount,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -221,16 +219,14 @@ fn batch_success() {
         asset_id.clone(),
         vec![
             Recipient {
-                recipient_data: RecipientData::BlindedUTXO(
-                    SecretSeal::from_str(&receive_data_1.recipient_id).unwrap(),
-                ),
+                recipient_id: receive_data_1.recipient_id.clone(),
+                witness_data: None,
                 amount,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
             Recipient {
-                recipient_data: RecipientData::BlindedUTXO(
-                    SecretSeal::from_str(&receive_data_2.recipient_id).unwrap(),
-                ),
+                recipient_id: receive_data_2.recipient_id.clone(),
+                witness_data: None,
                 amount,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
@@ -265,16 +261,14 @@ fn batch_success() {
         asset_id,
         vec![
             Recipient {
-                recipient_data: RecipientData::BlindedUTXO(
-                    SecretSeal::from_str(&receive_data_1.recipient_id).unwrap(),
-                ),
+                recipient_id: receive_data_1.recipient_id.clone(),
+                witness_data: None,
                 amount,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
             Recipient {
-                recipient_data: RecipientData::BlindedUTXO(
-                    SecretSeal::from_str(&receive_data_2.recipient_id).unwrap(),
-                ),
+                recipient_id: receive_data_2.recipient_id.clone(),
+                witness_data: None,
                 amount,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
@@ -346,9 +340,8 @@ fn fail() {
     let recipient_map = HashMap::from([(
         asset_id.clone(),
         vec![Recipient {
-            recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&recipient_id).unwrap(),
-            ),
+            recipient_id: recipient_id.clone(),
+            witness_data: None,
             amount: 66,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -455,16 +448,14 @@ fn batch_fail() {
         asset_id,
         vec![
             Recipient {
-                recipient_data: RecipientData::BlindedUTXO(
-                    SecretSeal::from_str(&receive_data_1.recipient_id).unwrap(),
-                ),
+                recipient_id: receive_data_1.recipient_id.clone(),
+                witness_data: None,
                 amount,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
             Recipient {
-                recipient_data: RecipientData::BlindedUTXO(
-                    SecretSeal::from_str(&receive_data_2.recipient_id).unwrap(),
-                ),
+                recipient_id: receive_data_2.recipient_id.clone(),
+                witness_data: None,
                 amount,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },

@@ -2,7 +2,8 @@
 //!
 //! This module defines some utility methods.
 
-use amplify::s;
+use amplify::confinement::{Confined, SmallOrdMap, U24};
+use amplify::{bset, s, FromSliceError};
 use bdk::bitcoin::bip32::ExtendedPrivKey;
 use bdk::bitcoin::bip32::{DerivationPath, ExtendedPubKey, KeySource};
 use bdk::bitcoin::secp256k1::Secp256k1;
@@ -13,29 +14,36 @@ use bdk::keys::DescriptorKey::{Public, Secret};
 use bdk::keys::{DerivableKey, DescriptorKey, DescriptorSecretKey};
 use bdk::miniscript::DescriptorPublicKey;
 use bitcoin::bip32::ChildNumber;
-use bp::{Outpoint, Txid};
-use commit_verify::mpc::MerkleBlock;
-use rgb::Runtime;
-use rgb_core::validation::Status;
-use rgb_core::{
-    Anchor, ContractId, Genesis, GenesisSeal, GraphSeal, Opout, SchemaId, SubSchema,
-    TransitionBundle,
+use bitcoin::psbt::raw::ProprietaryKey;
+use bitcoin::psbt::{Input, Output, PartiallySignedTransaction};
+use bpstd::Network as RgbNetwork;
+use psbt::{PropKey, ProprietaryKeyRgb};
+use rgb::validation::Status;
+use rgb::{
+    ContractId, Genesis, GraphSeal, InputMap, OpId, Opout, SchemaId, SubSchema, Transition,
+    TransitionBundle, XChain, XOutpoint, XOutputSeal,
 };
-use rgbstd::containers::{Bindle, BuilderSeal, Contract, Transfer};
-use rgbstd::interface::{ContractIface, Iface, IfaceId, IfaceImpl, TransitionBuilder, TypedState};
-use rgbstd::persistence::{Inventory, Stash};
+use rgbfs::StockFs;
+use rgbstd::accessors::MergeReveal;
+use rgbstd::containers::{CloseMethodSet, Contract, Fascia, Transfer};
+use rgbstd::interface::{ContractIface, Iface, IfaceId, IfaceImpl, TransitionBuilder};
+use rgbstd::invoice::ChainNet;
+use rgbstd::persistence::{Inventory, PersistedState, Stash, Stock};
 use rgbstd::resolvers::ResolveHeight;
-use rgbstd::Chain as RgbNetwork;
+use rgbstd::{Operation, Vin};
+use seals::SecretSeal;
 use serde::{Deserialize, Serialize};
 use slog::{Drain, Logger};
 use slog_term::{FullFormat, PlainDecorator};
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt;
-use std::io;
+use std::io::{self, ErrorKind};
 use std::path::Path;
-use std::str::FromStr;
+use std::str::{self, FromStr};
+use std::{fmt, fs};
 use std::{fs::OpenOptions, path::PathBuf};
-use strict_encoding::TypeName;
+use strict_encoding::{
+    DecodeError, DeserializeError, FieldName, StrictDeserialize, StrictSerialize, TypeName,
+};
 use time::OffsetDateTime;
 
 use crate::error::InternalError;
@@ -46,6 +54,8 @@ const TIMESTAMP_FORMAT: &[time::format_description::FormatItem] = time::macros::
 );
 
 const RGB_RUNTIME_LOCK_FILE: &str = "rgb_runtime.lock";
+
+pub(crate) const RGB_RUNTIME_DIR: &str = "rgb";
 
 pub(crate) const LOG_FILE: &str = "log";
 pub(crate) const PURPOSE: u8 = 84;
@@ -100,13 +110,18 @@ impl From<BdkNetwork> for BitcoinNetwork {
     }
 }
 
-impl From<RgbNetwork> for BitcoinNetwork {
-    fn from(x: RgbNetwork) -> BitcoinNetwork {
+impl TryFrom<ChainNet> for BitcoinNetwork {
+    type Error = Error;
+
+    fn try_from(x: ChainNet) -> Result<Self, Self::Error> {
         match x {
-            RgbNetwork::Bitcoin => BitcoinNetwork::Mainnet,
-            RgbNetwork::Testnet3 => BitcoinNetwork::Testnet,
-            RgbNetwork::Signet => BitcoinNetwork::Signet,
-            RgbNetwork::Regtest => BitcoinNetwork::Regtest,
+            ChainNet::BitcoinMainnet => Ok(BitcoinNetwork::Mainnet),
+            ChainNet::BitcoinTestnet => Ok(BitcoinNetwork::Testnet),
+            ChainNet::BitcoinSignet => Ok(BitcoinNetwork::Signet),
+            ChainNet::BitcoinRegtest => Ok(BitcoinNetwork::Regtest),
+            _ => Err(Error::UnsupportedLayer1 {
+                layer_1: x.layer1().to_string(),
+            }),
         }
     }
 }
@@ -122,10 +137,21 @@ impl From<BitcoinNetwork> for bitcoin::Network {
     }
 }
 
+impl From<BitcoinNetwork> for ChainNet {
+    fn from(x: BitcoinNetwork) -> ChainNet {
+        match x {
+            BitcoinNetwork::Mainnet => ChainNet::BitcoinMainnet,
+            BitcoinNetwork::Testnet => ChainNet::BitcoinTestnet,
+            BitcoinNetwork::Signet => ChainNet::BitcoinSignet,
+            BitcoinNetwork::Regtest => ChainNet::BitcoinRegtest,
+        }
+    }
+}
+
 impl From<BitcoinNetwork> for RgbNetwork {
     fn from(x: BitcoinNetwork) -> RgbNetwork {
         match x {
-            BitcoinNetwork::Mainnet => RgbNetwork::Bitcoin,
+            BitcoinNetwork::Mainnet => RgbNetwork::Mainnet,
             BitcoinNetwork::Testnet => RgbNetwork::Testnet3,
             BitcoinNetwork::Signet => RgbNetwork::Signet,
             BitcoinNetwork::Regtest => RgbNetwork::Regtest,
@@ -258,7 +284,7 @@ pub(crate) fn calculate_descriptor_from_xpub(
 }
 
 fn convert_time_fmt_error(cause: time::error::Format) -> io::Error {
-    io::Error::new(io::ErrorKind::Other, cause)
+    io::Error::new(ErrorKind::Other, cause)
 }
 
 fn log_timestamp(io: &mut dyn io::Write) -> io::Result<()> {
@@ -296,10 +322,12 @@ pub(crate) fn now() -> OffsetDateTime {
     OffsetDateTime::now_utc()
 }
 
-/// Wrapper for the RGB runtime and its lockfile.
+/// Wrapper for the RGB stock and its lockfile.
 pub struct RgbRuntime {
-    /// The RGB runtime
-    pub runtime: Runtime,
+    /// Path to the RGB stock
+    pub stock_path: PathBuf,
+    /// The RGB stock
+    pub stock: Stock,
     /// The wallet directory, where the lockfile for the runtime is to be held
     pub wallet_dir: PathBuf,
 }
@@ -314,7 +342,7 @@ impl RgbRuntime {
     where
         R::Error: 'static,
     {
-        self.runtime
+        self.stock
             .accept_transfer(transfer, resolver, force)
             .map_err(InternalError::from)
     }
@@ -324,68 +352,44 @@ impl RgbRuntime {
         contract_id: ContractId,
         iface: impl Into<TypeName>,
     ) -> Result<TransitionBuilder, InternalError> {
-        self.runtime
+        self.stock
             .blank_builder(contract_id, iface)
             .map_err(InternalError::from)
     }
 
-    pub(crate) fn chain(&self) -> RgbNetwork {
-        self.runtime.chain()
-    }
-
-    pub(crate) fn consume_anchor(
-        &mut self,
-        anchor: Anchor<MerkleBlock>,
-    ) -> Result<(), InternalError> {
-        self.runtime
-            .consume_anchor(anchor)
-            .map_err(InternalError::from)
-    }
-
-    pub(crate) fn consume_bundle(
-        &mut self,
-        contract_id: ContractId,
-        bundle: TransitionBundle,
-        witness_txid: Txid,
-    ) -> Result<(), InternalError> {
-        self.runtime
-            .consume_bundle(contract_id, bundle, witness_txid)
-            .map_err(InternalError::from)
+    pub(crate) fn consume(&mut self, fascia: Fascia) -> Result<(), InternalError> {
+        self.stock.consume(fascia).map_err(InternalError::from)
     }
 
     pub(crate) fn contract_ids(&self) -> Result<BTreeSet<ContractId>, InternalError> {
-        self.runtime.contract_ids().map_err(InternalError::from)
+        self.stock.contract_ids().map_err(InternalError::from)
     }
 
-    pub(crate) fn contract_iface(
+    pub(crate) fn contract_iface_id(
         &mut self,
         contract_id: ContractId,
         iface_id: IfaceId,
     ) -> Result<ContractIface, InternalError> {
-        self.runtime
-            .contract_iface(contract_id, iface_id)
+        self.stock
+            .contract_iface_id(contract_id, iface_id)
             .map_err(InternalError::from)
     }
 
-    pub(crate) fn contracts_by_outpoints(
+    pub(crate) fn contracts_by_outputs(
         &mut self,
-        outpoints: impl IntoIterator<Item = impl Into<Outpoint>>,
+        outputs: impl IntoIterator<Item = impl Into<XOutputSeal>>,
     ) -> Result<BTreeSet<ContractId>, InternalError> {
-        self.runtime
-            .contracts_by_outpoints(outpoints)
+        self.stock
+            .contracts_by_outputs(outputs)
             .map_err(InternalError::from)
     }
 
     pub(crate) fn genesis(&self, contract_id: ContractId) -> Result<&Genesis, InternalError> {
-        self.runtime
-            .genesis(contract_id)
-            .map_err(InternalError::from)
+        self.stock.genesis(contract_id).map_err(InternalError::from)
     }
 
     pub(crate) fn iface_by_name(&self, name: &TypeName) -> Result<&Iface, InternalError> {
-        self.runtime
-            .iface_by_name(name)
-            .map_err(InternalError::from)
+        self.stock.iface_by_name(name).map_err(InternalError::from)
     }
 
     pub(crate) fn import_contract<R: ResolveHeight>(
@@ -396,54 +400,46 @@ impl RgbRuntime {
     where
         R::Error: 'static,
     {
-        self.runtime
+        self.stock
             .import_contract(contract, resolver)
             .map_err(InternalError::from)
     }
 
-    pub(crate) fn import_iface(
-        &mut self,
-        iface: impl Into<Bindle<Iface>>,
-    ) -> Result<Status, InternalError> {
-        self.runtime
-            .import_iface(iface)
-            .map_err(InternalError::from)
+    pub(crate) fn import_iface(&mut self, iface: Iface) -> Result<Status, InternalError> {
+        self.stock.import_iface(iface).map_err(InternalError::from)
     }
 
-    pub(crate) fn import_iface_impl(
-        &mut self,
-        iimpl: impl Into<Bindle<IfaceImpl>>,
-    ) -> Result<Status, InternalError> {
-        self.runtime
+    pub(crate) fn import_iface_impl(&mut self, iimpl: IfaceImpl) -> Result<Status, InternalError> {
+        self.stock
             .import_iface_impl(iimpl)
             .map_err(InternalError::from)
     }
 
-    pub(crate) fn import_schema(
-        &mut self,
-        schema: impl Into<Bindle<SubSchema>>,
-    ) -> Result<Status, InternalError> {
-        self.runtime
+    pub(crate) fn import_schema(&mut self, schema: SubSchema) -> Result<Status, InternalError> {
+        self.stock
             .import_schema(schema)
             .map_err(InternalError::from)
     }
 
     pub(crate) fn schema_ids(&self) -> Result<BTreeSet<SchemaId>, InternalError> {
-        self.runtime.schema_ids().map_err(InternalError::from)
+        self.stock.schema_ids().map_err(InternalError::from)
     }
 
     pub(crate) fn state_for_outpoints(
         &mut self,
         contract_id: ContractId,
-        outpoints: impl IntoIterator<Item = impl Into<Outpoint>>,
-    ) -> Result<BTreeMap<Opout, TypedState>, InternalError> {
-        self.runtime
+        outpoints: impl IntoIterator<Item = impl Into<XOutpoint>>,
+    ) -> Result<BTreeMap<(Opout, XOutputSeal), PersistedState>, InternalError> {
+        self.stock
             .state_for_outpoints(contract_id, outpoints)
             .map_err(InternalError::from)
     }
 
-    pub(crate) fn store_seal_secret(&mut self, seal: GraphSeal) -> Result<(), InternalError> {
-        self.runtime
+    pub(crate) fn store_seal_secret(
+        &mut self,
+        seal: XChain<GraphSeal>,
+    ) -> Result<(), InternalError> {
+        self.stock
             .store_seal_secret(seal)
             .map_err(InternalError::from)
     }
@@ -451,20 +447,21 @@ impl RgbRuntime {
     pub(crate) fn transfer(
         &mut self,
         contract_id: ContractId,
-        seals: impl IntoIterator<Item = impl Into<BuilderSeal<GenesisSeal>>>,
-    ) -> Result<Bindle<Transfer>, InternalError> {
-        self.runtime
-            .transfer(contract_id, seals)
-            .map_err(InternalError::from)
+        outputs: impl AsRef<[XOutputSeal]>,
+        secret_seals: impl AsRef<[XChain<SecretSeal>]>,
+    ) -> Result<Transfer, InternalError> {
+        self.stock
+            .transfer(contract_id, outputs, secret_seals)
+            .map_err(|_| InternalError::Unexpected)
     }
 
     pub(crate) fn transition_builder(
         &mut self,
         contract_id: ContractId,
         iface: impl Into<TypeName>,
-        transition_name: Option<impl Into<TypeName>>,
+        transition_name: Option<impl Into<FieldName>>,
     ) -> Result<TransitionBuilder, InternalError> {
-        self.runtime
+        self.stock
             .transition_builder(contract_id, iface, transition_name)
             .map_err(InternalError::from)
     }
@@ -472,7 +469,10 @@ impl RgbRuntime {
 
 impl Drop for RgbRuntime {
     fn drop(&mut self) {
-        std::fs::remove_file(self.wallet_dir.join(RGB_RUNTIME_LOCK_FILE))
+        self.stock
+            .store(&self.stock_path)
+            .expect("unable to save stock");
+        fs::remove_file(self.wallet_dir.join(RGB_RUNTIME_LOCK_FILE))
             .expect("should be able to drop lockfile")
     }
 }
@@ -496,15 +496,266 @@ fn _write_rgb_runtime_lockfile(wallet_dir: &Path) {
 ///
 /// <div class="warning">This method is meant for special usage and is normally not needed, use
 /// it only if you know what you're doing</div>
-pub fn load_rgb_runtime(
-    wallet_dir: PathBuf,
-    bitcoin_network: BitcoinNetwork,
-) -> Result<RgbRuntime, Error> {
+pub fn load_rgb_runtime(wallet_dir: PathBuf) -> Result<RgbRuntime, Error> {
     _write_rgb_runtime_lockfile(&wallet_dir);
-    let runtime = Runtime::load(wallet_dir.clone(), RgbNetwork::from(bitcoin_network))
-        .map_err(InternalError::from)?;
+
+    let rgb_dir = wallet_dir.join(RGB_RUNTIME_DIR);
+    fs::create_dir_all(&rgb_dir)?;
+    let stock_path = rgb_dir.join("stock.dat");
+    let stock = Stock::load(&stock_path).or_else(|err| {
+        if matches!(err, DeserializeError::Decode(DecodeError::Io(ref err)) if err.kind() == ErrorKind::NotFound) {
+            let stock = Stock::default();
+            stock.store(&stock_path).expect("unable to save stock");
+            return Ok(stock)
+        }
+        Err(Error::IO { details: err.to_string() })
+    })?;
+
     Ok(RgbRuntime {
-        runtime,
+        stock_path,
+        stock,
         wallet_dir,
     })
+}
+
+fn convert_prop_key(prop_key: PropKey) -> ProprietaryKey {
+    ProprietaryKey {
+        prefix: prop_key.identifier.into(),
+        subtype: prop_key.subtype as u8,
+        key: prop_key.data.to_vec(),
+    }
+}
+
+trait RgbPropKey {
+    fn opret_host() -> ProprietaryKey {
+        convert_prop_key(PropKey::opret_host())
+    }
+
+    fn rgb_transition(opid: OpId) -> ProprietaryKey {
+        convert_prop_key(PropKey::rgb_transition(opid))
+    }
+
+    fn rgb_closing_methods(opid: OpId) -> ProprietaryKey {
+        convert_prop_key(PropKey::rgb_closing_methods(opid))
+    }
+
+    fn rgb_in_consumed_by(contract_id: ContractId) -> ProprietaryKey {
+        convert_prop_key(PropKey::rgb_in_consumed_by(contract_id))
+    }
+}
+
+impl RgbPropKey for ProprietaryKey {}
+
+/// Methods adding RGB functionality to rust-bitcoin Input
+pub trait RgbInExt {
+    /// See upstream method for details
+    fn rgb_consumer(&self, contract_id: ContractId) -> Result<Option<OpId>, FromSliceError>;
+    /// See upstream method for details
+    fn set_rgb_consumer(&mut self, contract_id: ContractId, opid: OpId) -> Result<bool, Error>;
+}
+
+impl RgbInExt for Input {
+    fn rgb_consumer(&self, contract_id: ContractId) -> Result<Option<OpId>, FromSliceError> {
+        let Some(data) = self
+            .proprietary
+            .get(&ProprietaryKey::rgb_in_consumed_by(contract_id))
+        else {
+            return Ok(None);
+        };
+        Ok(Some(OpId::copy_from_slice(data)?))
+    }
+
+    fn set_rgb_consumer(&mut self, contract_id: ContractId, opid: OpId) -> Result<bool, Error> {
+        let key = ProprietaryKey::rgb_in_consumed_by(contract_id);
+        match self.rgb_consumer(contract_id) {
+            Ok(None) | Err(_) => {
+                let _ = self.proprietary.insert(key, opid.to_vec());
+                Ok(true)
+            }
+            Ok(Some(id)) if id == opid => Ok(false),
+            Ok(Some(_)) => Err(Error::Internal {
+                details: s!("proprietary key is already present"),
+            }),
+        }
+    }
+}
+
+/// Methods adding RGB functionality to rust-bitcoin Output
+pub trait RgbOutExt {
+    /// See upstream method for details
+    fn set_opret_host(&mut self);
+}
+
+impl RgbOutExt for Output {
+    fn set_opret_host(&mut self) {
+        self.proprietary
+            .insert(ProprietaryKey::opret_host(), vec![]);
+    }
+}
+
+/// Methods adding RGB functionality to rust-bitcoin Psbt
+pub trait RgbPsbtExt {
+    /// See upstream method for details
+    fn rgb_contract_ids(&self) -> Result<BTreeSet<ContractId>, FromSliceError>;
+
+    /// See upstream method for details
+    fn rgb_contract_consumers(
+        &self,
+        contract_id: ContractId,
+    ) -> Result<BTreeSet<(OpId, Vin)>, FromSliceError>;
+
+    /// See upstream method for details
+    fn rgb_transition(&self, opid: OpId) -> Result<Option<Transition>, InternalError>;
+
+    /// See upstream method for details
+    fn rgb_close_methods(&self, opid: OpId) -> Result<Option<CloseMethodSet>, Error>;
+
+    /// See upstream method for details
+    fn push_rgb_transition(
+        &mut self,
+        transition: Transition,
+        methods: CloseMethodSet,
+    ) -> Result<bool, Error>;
+
+    /// See upstream method for details
+    fn rgb_bundles(
+        &self,
+    ) -> Result<BTreeMap<ContractId, (TransitionBundle, CloseMethodSet)>, Error>;
+}
+
+impl RgbPsbtExt for PartiallySignedTransaction {
+    fn rgb_contract_ids(&self) -> Result<BTreeSet<ContractId>, FromSliceError> {
+        self.inputs
+            .iter()
+            .flat_map(|input| {
+                input
+                    .proprietary
+                    .keys()
+                    .filter(|proprietary_key| {
+                        let prop_key = PropKey::rgb_in_consumed_by(
+                            ContractId::copy_from_slice([0u8; 32]).unwrap(),
+                        );
+                        str::from_utf8(&proprietary_key.prefix).unwrap() == prop_key.identifier
+                            && proprietary_key.subtype as u64 == prop_key.subtype
+                    })
+                    .map(|proprietary_key| proprietary_key.key.clone())
+                    .map(ContractId::copy_from_slice)
+            })
+            .collect()
+    }
+
+    fn rgb_contract_consumers(
+        &self,
+        contract_id: ContractId,
+    ) -> Result<BTreeSet<(OpId, Vin)>, FromSliceError> {
+        let mut consumers: BTreeSet<(OpId, Vin)> = bset! {};
+        for (no, input) in self.inputs.iter().enumerate() {
+            if let Some(opid) = input.rgb_consumer(contract_id)? {
+                consumers.insert((opid, Vin::from_u32(no as u32)));
+            }
+        }
+        Ok(consumers)
+    }
+
+    fn rgb_transition(&self, opid: OpId) -> Result<Option<Transition>, InternalError> {
+        let Some(data) = self.proprietary.get(&ProprietaryKey::rgb_transition(opid)) else {
+            return Ok(None);
+        };
+        let data = Confined::try_from_iter(data.iter().copied())?;
+        let transition = Transition::from_strict_serialized::<U24>(data).unwrap();
+        Ok(Some(transition))
+    }
+
+    fn rgb_close_methods(&self, opid: OpId) -> Result<Option<CloseMethodSet>, Error> {
+        let Some(m) = self
+            .proprietary
+            .get(&ProprietaryKey::rgb_closing_methods(opid))
+        else {
+            return Ok(None);
+        };
+        if m.len() == 1 {
+            if let Ok(method) = CloseMethodSet::try_from(m[0]) {
+                return Ok(Some(method));
+            }
+        }
+        Err(Error::Internal {
+            details: s!("invalid close method"),
+        })
+    }
+
+    fn push_rgb_transition(
+        &mut self,
+        mut transition: Transition,
+        mut methods: CloseMethodSet,
+    ) -> Result<bool, Error> {
+        let opid = transition.id();
+        let prev_methods = self.rgb_close_methods(opid)?;
+        let prev_transition = self.rgb_transition(opid)?;
+        if let Some(ref prev_transition) = prev_transition {
+            transition = transition
+                .merge_reveal(prev_transition.clone())
+                .map_err(|e| Error::Internal {
+                    details: e.to_string(),
+                })?;
+        }
+        let serialized_transition =
+            transition
+                .to_strict_serialized::<U24>()
+                .map_err(|e| Error::Internal {
+                    details: e.to_string(),
+                })?;
+        let _ = self.proprietary.insert(
+            ProprietaryKey::rgb_transition(opid),
+            serialized_transition.into_inner(),
+        );
+        methods |= prev_methods;
+        let _ = self.proprietary.insert(
+            ProprietaryKey::rgb_closing_methods(opid),
+            vec![methods as u8],
+        );
+        Ok(prev_transition.is_none())
+    }
+
+    fn rgb_bundles(
+        &self,
+    ) -> Result<BTreeMap<ContractId, (TransitionBundle, CloseMethodSet)>, Error> {
+        let mut map = BTreeMap::new();
+        for contract_id in self.rgb_contract_ids().map_err(InternalError::from)? {
+            let mut input_map = SmallOrdMap::<Vin, OpId>::new();
+            let mut known_transitions = SmallOrdMap::<OpId, Transition>::new();
+            let mut method_set = None::<CloseMethodSet>;
+            for (opid, vin) in self
+                .rgb_contract_consumers(contract_id)
+                .map_err(InternalError::from)?
+            {
+                let (transition, methods) = (
+                    self.rgb_transition(opid)?,
+                    self.rgb_close_methods(opid)?.ok_or(Error::Internal {
+                        details: s!("missing close method info"),
+                    })?,
+                );
+                method_set |= methods;
+                input_map.insert(vin, opid).map_err(InternalError::from)?;
+                if let Some(transition) = transition {
+                    known_transitions
+                        .insert(opid, transition)
+                        .map_err(InternalError::from)?;
+                }
+            }
+            let bundle = TransitionBundle {
+                input_map: InputMap::from(Confined::try_from(input_map.into_inner()).map_err(
+                    |_| Error::Internal {
+                        details: s!("zero known transitions"),
+                    },
+                )?),
+                known_transitions: Confined::try_from(known_transitions.into_inner()).map_err(
+                    |_| Error::Internal {
+                        details: s!("zero known transitions"),
+                    },
+                )?,
+            };
+            map.insert(contract_id, (bundle, method_set.expect("type guarantees")));
+        }
+        Ok(map)
+    }
 }

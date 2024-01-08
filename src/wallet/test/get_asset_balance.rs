@@ -89,9 +89,8 @@ fn transfer_balances() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data_fail.recipient_id).unwrap(),
-            ),
+            recipient_id: receive_data_fail.recipient_id.clone(),
+            witness_data: None,
             amount: amount_1,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -105,9 +104,8 @@ fn transfer_balances() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data_1.recipient_id).unwrap(),
-            ),
+            recipient_id: receive_data_1.recipient_id.clone(),
+            witness_data: None,
             amount: amount_1,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -215,9 +213,8 @@ fn transfer_balances() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data_2.recipient_id).unwrap(),
-            ),
+            recipient_id: receive_data_2.recipient_id.clone(),
+            witness_data: None,
             amount: amount_2,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],

@@ -171,31 +171,6 @@ pub enum Error {
         network: String,
     },
 
-    /// The provided blinded UTXO is invalid
-    #[error("Invalid blinded UTXO: {details}")]
-    InvalidBlindedUTXO {
-        /// Error details
-        details: String,
-    },
-
-    /// The provided recipient ID is neither a blinded UTXO or a script
-    #[error("The provided recipient ID is neither a blinded UTXO or a script")]
-    InvalidRecipientID,
-
-    /// The provided transport endpoint is invalid
-    #[error("Invalid transport endpoint: {details}")]
-    InvalidTransportEndpoint {
-        /// Error details
-        details: String,
-    },
-
-    /// The provided transport endpoints are invalid
-    #[error("Invalid transport endpoints: {details}")]
-    InvalidTransportEndpoints {
-        /// Error details
-        details: String,
-    },
-
     /// The provided asset details is invalid
     #[error("Invalid details: {details}")]
     InvalidDetails {
@@ -236,13 +211,6 @@ pub enum Error {
         details: String,
     },
 
-    /// The provided invoice data is invalid
-    #[error("Invalid invoice data: {details}")]
-    InvalidInvoiceData {
-        /// Error details
-        details: String,
-    },
-
     /// The provided mnemonic phrase is invalid
     #[error("Invalid mnemonic error: {details}")]
     InvalidMnemonic {
@@ -278,6 +246,21 @@ pub enum Error {
         details: String,
     },
 
+    /// The provided recipient data is invalid
+    #[error("The provided recipient data is invalid: {details}")]
+    InvalidRecipientData {
+        /// Error details
+        details: String,
+    },
+
+    /// The provided recipient ID is neither a blinded UTXO or a script
+    #[error("The provided recipient ID is neither a blinded UTXO or a script")]
+    InvalidRecipientID,
+
+    /// The provided recipient ID is for a different network than the wallet's one
+    #[error("The provided recipient ID is for a different network than the wallet's one")]
+    InvalidRecipientNetwork,
+
     /// The provided script is invalid
     #[error("Invalid script: {details}")]
     InvalidScript {
@@ -288,6 +271,20 @@ pub enum Error {
     /// The provided asset ticker is invalid
     #[error("Invalid ticker: {details}")]
     InvalidTicker {
+        /// Error details
+        details: String,
+    },
+
+    /// The provided transport endpoint is invalid
+    #[error("Invalid transport endpoint: {details}")]
+    InvalidTransportEndpoint {
+        /// Error details
+        details: String,
+    },
+
+    /// The provided transport endpoints are invalid
+    #[error("Invalid transport endpoints: {details}")]
+    InvalidTransportEndpoints {
         /// Error details
         details: String,
     },
@@ -352,13 +349,20 @@ pub enum Error {
         version: String,
     },
 
-    /// The given transport type is not supported
-    #[error("Transport type is not supported")]
-    UnsupportedTransportType,
-
     /// The given invoice type is not supported
     #[error("Invoice type is not supported")]
     UnsupportedInvoice,
+
+    /// The given layer 1 is not supported
+    #[error("Layer 1 {layer_1} is not supported")]
+    UnsupportedLayer1 {
+        /// Layer 1
+        layer_1: String,
+    },
+
+    /// The given transport type is not supported
+    #[error("Transport type is not supported")]
+    UnsupportedTransportType,
 
     /// The requested operation cannot be processed by a watch-only wallet
     #[error("Operation not allowed on watch only wallet")]
@@ -389,11 +393,17 @@ pub enum InternalError {
     #[error("Cannot query rgb-node")]
     CannotQueryRgbNode,
 
+    #[error("Confinement error: {0}")]
+    Confinement(#[from] amplify::confinement::Error),
+
     #[error("Database error: {0}")]
     Database(#[from] sea_orm::DbErr),
 
     #[error("Encode error: {0}")]
     Encode(#[from] bitcoin::consensus::encode::Error),
+
+    #[error("From slice error: {0}")]
+    FromSlice(#[from] amplify::FromSliceError),
 
     #[error("Hash error: {0}")]
     HashError(#[from] scrypt::password_hash::Error),
@@ -410,14 +420,8 @@ pub enum InternalError {
     #[error("Restore directory is not empty")]
     RestoreDirNotEmpty,
 
-    #[error("RGB builder error: {0}")]
-    RgbBuilder(#[from] rgbstd::interface::BuilderError),
-
     #[error("RGB consigner error: {0}")]
     RgbConsigner(String),
-
-    #[error("RGB DBC PSBT error: {0}")]
-    RgbDbcPsbtError(#[from] rgbwallet::psbt::DbcPsbtError),
 
     #[error("RGB inventory error: {0}")]
     RgbInventory(String),
@@ -432,7 +436,7 @@ pub enum InternalError {
     RgbPsbtError(String),
 
     #[error("RGB runtime error: {0}")]
-    RgbRuntime(#[from] rgb::RuntimeError),
+    RgbRuntime(#[from] rgb_rt::RuntimeError),
 
     #[error("RGB stash error: {0}")]
     RgbStash(#[from] rgbstd::persistence::StashError<std::convert::Infallible>),
@@ -488,6 +492,14 @@ impl From<bdk::bitcoin::psbt::PsbtParseError> for Error {
     }
 }
 
+impl From<electrum::Error> for Error {
+    fn from(e: electrum::Error) -> Self {
+        Error::Electrum {
+            details: e.to_string(),
+        }
+    }
+}
+
 impl From<electrum_client::Error> for Error {
     fn from(e: electrum_client::Error) -> Self {
         Error::Electrum {
@@ -518,14 +530,8 @@ impl From<rgbstd::persistence::InventoryError<std::convert::Infallible>> for Int
     }
 }
 
-impl From<rgbwallet::psbt::RgbPsbtError> for InternalError {
-    fn from(e: rgbwallet::psbt::RgbPsbtError) -> Self {
-        InternalError::RgbPsbtError(e.to_string())
-    }
-}
-
-impl From<rgbwallet::TransportParseError> for Error {
-    fn from(e: rgbwallet::TransportParseError) -> Self {
+impl From<invoice::TransportParseError> for Error {
+    fn from(e: invoice::TransportParseError) -> Self {
         Error::InvalidTransportEndpoint {
             details: e.to_string(),
         }
@@ -550,6 +556,14 @@ impl From<std::io::Error> for Error {
 
 impl From<InternalError> for Error {
     fn from(e: InternalError) -> Self {
+        Error::Internal {
+            details: e.to_string(),
+        }
+    }
+}
+
+impl From<rgbstd::interface::BuilderError> for Error {
+    fn from(e: rgbstd::interface::BuilderError) -> Self {
         Error::Internal {
             details: e.to_string(),
         }

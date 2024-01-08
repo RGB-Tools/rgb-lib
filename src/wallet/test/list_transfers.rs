@@ -49,18 +49,17 @@ fn success() {
         vec![
             Recipient {
                 amount,
-                recipient_data: RecipientData::BlindedUTXO(
-                    SecretSeal::from_str(&receive_data_1.recipient_id).unwrap(),
-                ),
+                recipient_id: receive_data_1.recipient_id.clone(),
+                witness_data: None,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
             Recipient {
                 amount: amount * 2,
-                recipient_data: RecipientData::WitnessData {
-                    script_buf: ScriptBuf::from_hex(&receive_data_2.recipient_id).unwrap(),
+                recipient_id: receive_data_2.recipient_id.clone(),
+                witness_data: Some(WitnessData {
                     amount_sat: 1000,
                     blinding: None,
-                },
+                }),
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
         ],

@@ -2,6 +2,8 @@ use super::*;
 use serial_test::parallel;
 use std::ffi::OsString;
 
+use crate::utils::RGB_RUNTIME_DIR;
+
 #[test]
 #[parallel]
 fn success() {
@@ -124,7 +126,7 @@ fn consistency_check_fail_bitcoins() {
                 .file_name()
                 .into_string()
                 .unwrap()
-                .starts_with("rgb_db")
+                .starts_with(RGB_LIB_DB_NAME)
         })
         .map(|e| e.as_ref().unwrap().file_name())
         .collect();
@@ -218,7 +220,7 @@ fn consistency_check_fail_utxos() {
                 .file_name()
                 .into_string()
                 .unwrap()
-                .starts_with("rgb_db")
+                .starts_with(RGB_LIB_DB_NAME)
         })
         .map(|e| e.as_ref().unwrap().file_name())
         .collect();
@@ -315,7 +317,7 @@ fn consistency_check_fail_asset_ids() {
     assert!(result.is_ok());
 
     // introduce asset id inconsistency by removing RGB data from wallet dir
-    fs::remove_dir_all(wallet_dir_prefill_2.join("regtest")).unwrap();
+    fs::remove_dir_all(wallet_dir_prefill_2.join(RGB_RUNTIME_DIR)).unwrap();
 
     // detect inconsistency
     let err = "DB assets do not match with ones stored in RGB";
