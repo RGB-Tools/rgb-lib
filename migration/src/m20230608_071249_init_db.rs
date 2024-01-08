@@ -73,12 +73,7 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(ColumnDef::new(Asset::MediaIdx).integer())
-                    .col(
-                        ColumnDef::new(Asset::AssetId)
-                            .string()
-                            .not_null()
-                            .unique_key(),
-                    )
+                    .col(ColumnDef::new(Asset::Id).string().not_null().unique_key())
                     .col(ColumnDef::new(Asset::Schema).tiny_unsigned().not_null())
                     .col(ColumnDef::new(Asset::AddedAt).big_unsigned().not_null())
                     .col(ColumnDef::new(Asset::Details).string())
@@ -172,7 +167,7 @@ impl MigrationTrait for Migration {
                         ForeignKey::create()
                             .name("fk-assettransfer-asset")
                             .from(AssetTransfer::Table, AssetTransfer::AssetId)
-                            .to(Asset::Table, Asset::AssetId)
+                            .to(Asset::Table, Asset::Id)
                             .on_delete(ForeignKeyAction::Cascade)
                             .on_update(ForeignKeyAction::Cascade),
                     )
@@ -198,11 +193,7 @@ impl MigrationTrait for Migration {
                             .integer()
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(Coloring::ColoringType)
-                            .tiny_unsigned()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(Coloring::Type).tiny_unsigned().not_null())
                     .col(ColumnDef::new(Coloring::Amount).string().not_null())
                     .foreign_key(
                         ForeignKey::create()
@@ -441,7 +432,7 @@ impl MigrationTrait for Migration {
                     )
                     .col(ColumnDef::new(WalletTransaction::Txid).string().not_null())
                     .col(
-                        ColumnDef::new(WalletTransaction::WalletTransactionType)
+                        ColumnDef::new(WalletTransaction::Type)
                             .tiny_unsigned()
                             .not_null(),
                     )
@@ -562,7 +553,7 @@ pub enum Asset {
     Table,
     Idx,
     MediaIdx,
-    AssetId,
+    Id,
     Schema,
     AddedAt,
     Details,
@@ -600,7 +591,7 @@ pub enum Coloring {
     Idx,
     TxoIdx,
     AssetTransferIdx,
-    ColoringType,
+    Type,
     Amount,
 }
 
@@ -669,7 +660,7 @@ enum WalletTransaction {
     Table,
     Idx,
     Txid,
-    WalletTransactionType,
+    Type,
 }
 
 #[derive(DeriveIden)]

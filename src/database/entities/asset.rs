@@ -17,7 +17,7 @@ impl EntityName for Entity {
 pub struct Model {
     pub idx: i32,
     pub media_idx: Option<i32>,
-    pub asset_id: String,
+    pub id: String,
     pub schema: AssetSchema,
     pub added_at: i64,
     pub details: Option<String>,
@@ -32,7 +32,7 @@ pub struct Model {
 pub enum Column {
     Idx,
     MediaIdx,
-    AssetId,
+    Id,
     Schema,
     AddedAt,
     Details,
@@ -68,7 +68,7 @@ impl ColumnTrait for Column {
         match self {
             Self::Idx => ColumnType::Integer.def(),
             Self::MediaIdx => ColumnType::Integer.def().null(),
-            Self::AssetId => ColumnType::String(None).def().unique(),
+            Self::Id => ColumnType::String(None).def().unique(),
             Self::Schema => ColumnType::SmallInteger.def(),
             Self::AddedAt => ColumnType::BigInteger.def(),
             Self::Details => ColumnType::String(None).def().null(),

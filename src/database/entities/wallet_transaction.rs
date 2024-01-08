@@ -17,14 +17,14 @@ impl EntityName for Entity {
 pub struct Model {
     pub idx: i32,
     pub txid: String,
-    pub wallet_transaction_type: WalletTransactionType,
+    pub r#type: WalletTransactionType,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
 pub enum Column {
     Idx,
     Txid,
-    WalletTransactionType,
+    Type,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DerivePrimaryKey)]
@@ -48,7 +48,7 @@ impl ColumnTrait for Column {
         match self {
             Self::Idx => ColumnType::Integer.def(),
             Self::Txid => ColumnType::String(None).def(),
-            Self::WalletTransactionType => ColumnType::SmallInteger.def(),
+            Self::Type => ColumnType::SmallInteger.def(),
         }
     }
 }

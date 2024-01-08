@@ -18,7 +18,7 @@ pub struct Model {
     pub idx: i32,
     pub txo_idx: i32,
     pub asset_transfer_idx: i32,
-    pub coloring_type: ColoringType,
+    pub r#type: ColoringType,
     pub amount: String,
 }
 
@@ -27,7 +27,7 @@ pub enum Column {
     Idx,
     TxoIdx,
     AssetTransferIdx,
-    ColoringType,
+    Type,
     Amount,
 }
 
@@ -56,7 +56,7 @@ impl ColumnTrait for Column {
             Self::Idx => ColumnType::Integer.def(),
             Self::TxoIdx => ColumnType::Integer.def(),
             Self::AssetTransferIdx => ColumnType::Integer.def(),
-            Self::ColoringType => ColumnType::SmallInteger.def(),
+            Self::Type => ColumnType::SmallInteger.def(),
             Self::Amount => ColumnType::String(None).def(),
         }
     }

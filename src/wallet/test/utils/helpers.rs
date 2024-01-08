@@ -413,7 +413,7 @@ pub(crate) fn show_unspent_colorings(wallet: &Wallet, msg: &str) {
             println!(
                 "\t- {:?} {:?} of {:?} for {:?}",
                 db_batch_transfer.status,
-                db_coloring.coloring_type,
+                db_coloring.r#type,
                 db_coloring.amount,
                 db_asset_transfer.asset_id.as_ref(),
             );

@@ -497,9 +497,9 @@ fn uda_with_preview_and_reserves() {
     };
     let token_data = TokenData {
         index: TokenIndex::from_inner(index_int),
-        ticker: Some(Ticker::try_from(TICKER).unwrap()),
-        name: Some(Name::try_from(NAME).unwrap()),
-        details: Some(Details::try_from(DETAILS).unwrap()),
+        ticker: Some(Ticker::from(TICKER)),
+        name: Some(Name::from(NAME)),
+        details: Some(Details::from(DETAILS)),
         preview: Some(preview),
         media: None,
         attachments: Confined::try_from(BTreeMap::new()).unwrap(),

@@ -202,7 +202,7 @@ impl AssetIface {
             AssetIface::RGB21 => None,
         };
         let balance = wallet.database.get_asset_balance(
-            asset.asset_id.clone(),
+            asset.id.clone(),
             transfers,
             asset_transfers,
             batch_transfers,
@@ -212,7 +212,7 @@ impl AssetIface {
         let issued_supply = asset.issued_supply.parse::<u64>().unwrap();
         Ok(match &self {
             AssetIface::RGB20 => AssetType::AssetNIA(AssetNIA {
-                asset_id: asset.asset_id.clone(),
+                asset_id: asset.id.clone(),
                 asset_iface: self.clone(),
                 ticker: asset.ticker.clone().unwrap(),
                 name: asset.name.clone(),
@@ -225,7 +225,7 @@ impl AssetIface {
                 media,
             }),
             AssetIface::RGB21 => AssetType::AssetUDA(AssetUDA {
-                asset_id: asset.asset_id.clone(),
+                asset_id: asset.id.clone(),
                 asset_iface: self.clone(),
                 details: asset.details.clone(),
                 ticker: asset.ticker.clone().unwrap(),
@@ -238,7 +238,7 @@ impl AssetIface {
                 token,
             }),
             AssetIface::RGB25 => AssetType::AssetCFA(AssetCFA {
-                asset_id: asset.asset_id.clone(),
+                asset_id: asset.id.clone(),
                 asset_iface: self.clone(),
                 name: asset.name.clone(),
                 details: asset.details.clone(),
@@ -1954,7 +1954,7 @@ impl Wallet {
         let db_coloring = DbColoringActMod {
             txo_idx: ActiveValue::Set(utxo.idx),
             asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
-            coloring_type: ActiveValue::Set(ColoringType::Receive),
+            r#type: ActiveValue::Set(ColoringType::Receive),
             amount: ActiveValue::Set(s!("0")),
             ..Default::default()
         };
@@ -2209,7 +2209,7 @@ impl Wallet {
         self.database
             .set_wallet_transaction(DbWalletTransactionActMod {
                 txid: ActiveValue::Set(tx.txid().to_string()),
-                wallet_transaction_type: ActiveValue::Set(WalletTransactionType::CreateUtxos),
+                r#type: ActiveValue::Set(WalletTransactionType::CreateUtxos),
                 ..Default::default()
             })?;
 
@@ -2458,7 +2458,7 @@ impl Wallet {
         self.database
             .set_wallet_transaction(DbWalletTransactionActMod {
                 txid: ActiveValue::Set(tx.txid().to_string()),
-                wallet_transaction_type: ActiveValue::Set(WalletTransactionType::Drain),
+                r#type: ActiveValue::Set(WalletTransactionType::Drain),
                 ..Default::default()
             })?;
 
@@ -3151,7 +3151,7 @@ impl Wallet {
         let mut db_asset = DbAssetActMod {
             idx: ActiveValue::NotSet,
             media_idx: ActiveValue::Set(media_idx),
-            asset_id: ActiveValue::Set(asset_id),
+            id: ActiveValue::Set(asset_id),
             schema: ActiveValue::Set(*schema),
             added_at: ActiveValue::Set(added_at),
             details: ActiveValue::Set(details),
@@ -3365,7 +3365,7 @@ impl Wallet {
             let db_coloring = DbColoringActMod {
                 txo_idx: ActiveValue::Set(utxo.idx),
                 asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
-                coloring_type: ActiveValue::Set(ColoringType::Issue),
+                r#type: ActiveValue::Set(ColoringType::Issue),
                 amount: ActiveValue::Set(amount.to_string()),
                 ..Default::default()
             };
@@ -3575,7 +3575,7 @@ impl Wallet {
         let db_coloring = DbColoringActMod {
             txo_idx: ActiveValue::Set(issue_utxo.idx),
             asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
-            coloring_type: ActiveValue::Set(ColoringType::Issue),
+            r#type: ActiveValue::Set(ColoringType::Issue),
             amount: ActiveValue::Set(settled.to_string()),
             ..Default::default()
         };
@@ -3765,7 +3765,7 @@ impl Wallet {
             let db_coloring = DbColoringActMod {
                 txo_idx: ActiveValue::Set(utxo.idx),
                 asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
-                coloring_type: ActiveValue::Set(ColoringType::Issue),
+                r#type: ActiveValue::Set(ColoringType::Issue),
                 amount: ActiveValue::Set(amount.to_string()),
                 ..Default::default()
             };
@@ -3959,7 +3959,7 @@ impl Wallet {
         let mut drain_txids = vec![];
         let wallet_transactions = self.database.iter_wallet_transactions()?;
         for tx in wallet_transactions {
-            match tx.wallet_transaction_type {
+            match tx.r#type {
                 WalletTransactionType::CreateUtxos => create_utxos_txids.push(tx.txid),
                 WalletTransactionType::Drain => drain_txids.push(tx.txid),
             }
@@ -4650,8 +4650,7 @@ impl Wallet {
                 .clone()
                 .into_iter()
                 .filter(|c| {
-                    c.asset_transfer_idx == asset_transfer.idx
-                        && c.coloring_type == ColoringType::Receive
+                    c.asset_transfer_idx == asset_transfer.idx && c.r#type == ColoringType::Receive
                 })
                 .collect::<Vec<DbColoring>>()
                 .first()
@@ -4819,7 +4818,7 @@ impl Wallet {
                 let db_coloring = DbColoringActMod {
                     txo_idx: ActiveValue::Set(utxo.idx),
                     asset_transfer_idx: ActiveValue::Set(asset_transfer.idx),
-                    coloring_type: ActiveValue::Set(ColoringType::Receive),
+                    r#type: ActiveValue::Set(ColoringType::Receive),
                     amount: ActiveValue::Set(transfer.amount),
                     ..Default::default()
                 };
@@ -5463,7 +5462,7 @@ impl Wallet {
                 let db_coloring = DbColoringActMod {
                     txo_idx: ActiveValue::Set(input_idx),
                     asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
-                    coloring_type: ActiveValue::Set(ColoringType::Input),
+                    r#type: ActiveValue::Set(ColoringType::Input),
                     amount: ActiveValue::Set(amount.to_string()),
                     ..Default::default()
                 };
@@ -5473,7 +5472,7 @@ impl Wallet {
                 let db_coloring = DbColoringActMod {
                     txo_idx: ActiveValue::Set(change_utxo_idx.unwrap()),
                     asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
-                    coloring_type: ActiveValue::Set(ColoringType::Change),
+                    r#type: ActiveValue::Set(ColoringType::Change),
                     amount: ActiveValue::Set(asset_spend.change_amount.to_string()),
                     ..Default::default()
                 };
@@ -5506,7 +5505,7 @@ impl Wallet {
             let db_coloring = DbColoringActMod {
                 txo_idx: ActiveValue::Set(change_utxo_idx.unwrap()),
                 asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
-                coloring_type: ActiveValue::Set(ColoringType::Change),
+                r#type: ActiveValue::Set(ColoringType::Change),
                 amount: ActiveValue::Set(amt.to_string()),
                 ..Default::default()
             };

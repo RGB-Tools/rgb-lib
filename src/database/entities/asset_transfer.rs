@@ -64,7 +64,7 @@ impl RelationTrait for Relation {
         match self {
             Self::Asset => Entity::belongs_to(super::asset::Entity)
                 .from(Column::AssetId)
-                .to(super::asset::Column::AssetId)
+                .to(super::asset::Column::Id)
                 .into(),
             Self::BatchTransfer => Entity::belongs_to(super::batch_transfer::Entity)
                 .from(Column::BatchTransferIdx)
