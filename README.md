@@ -67,6 +67,6 @@ and the state transitions of an asset transfer.
 [bdk]: https://github.com/bitcoindevkit/bdk
 [bitcoind]: https://github.com/bitcoin/bitcoin
 [electrs]: https://github.com/romanz/electrs
-[RGB proxy]: https://github.com/grunch/rgb-proxy-server
+[RGB proxy]: https://github.com/RGB-Tools/rgb-proxy-server
 [rgb-lib-ffi]: /rgb-lib-ffi/
 [rgb-core]: https://github.com/RGB-WG/rgb-core
