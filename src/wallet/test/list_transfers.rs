@@ -11,7 +11,7 @@ fn success() {
     let (wallet, online) = get_funded_wallet!();
     let (rcv_wallet, rcv_online) = get_funded_wallet!();
 
-    // issue RGB20 asset
+    // issue NIA asset
     let asset = test_issue_asset_nia(&wallet, &online, None);
 
     // single transfer (issuance)
@@ -31,7 +31,7 @@ fn success() {
     fund_wallet(test_get_address(&wallet));
     test_create_utxos_default(&wallet, &online);
 
-    // issue RGB25 asset
+    // issue CFA asset
     let asset = test_issue_asset_cfa(&wallet, &online, None, None);
 
     // single transfer (issuance)

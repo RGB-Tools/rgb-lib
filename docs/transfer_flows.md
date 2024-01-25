@@ -5,7 +5,7 @@ rgb-lib wallets. Sending assets can be done in two ways. See the sections for
 the [default](#2.-asset-transfer-(non-donation)) and
 [donation](#3.-asset-transfer-(donation)) ways below for details.
 
-These examples use RGB20 (fungible) assets but the same applies to RGB121
+These examples use NIA (fungible) assets but the same applies to UDA
 (non-fungible) assets as well.
 
 You might also want to have a look at the similar [flow for RGB protocol in

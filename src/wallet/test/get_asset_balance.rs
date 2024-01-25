@@ -8,7 +8,7 @@ fn success() {
 
     let (wallet, online) = get_funded_wallet!();
 
-    // issue an RGB20 asset
+    // issue an NIA asset
     let asset = test_issue_asset_nia(&wallet, &online, None);
 
     // balances after issuance
@@ -28,7 +28,7 @@ fn success() {
         }
     );
 
-    // issue an RGB25 asset
+    // issue an CFA asset
     let asset = test_issue_asset_cfa(&wallet, &online, None, None);
 
     // balances after issuance

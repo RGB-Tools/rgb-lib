@@ -18,7 +18,7 @@ fn success() {
     );
     assert_eq!(assets.nia.unwrap().len(), 0);
 
-    // one issued RGB20 asset
+    // one issued NIA asset
     let asset_1 = test_issue_asset_nia(&wallet, &online, None);
     let assets = test_list_assets(&wallet, &[]);
     let nia_assets = assets.nia.unwrap();
@@ -39,7 +39,7 @@ fn success() {
         }
     );
 
-    // two issued RGB20 assets
+    // two issued NIA assets
     let asset_2 = wallet
         .issue_asset_nia(
             online.clone(),
@@ -68,7 +68,7 @@ fn success() {
         }
     );
 
-    // three issued assets: 2x RGB20 + 1x RGB25
+    // three issued assets: 2x NIA + 1x CFA
     let asset_3 = test_issue_asset_cfa(&wallet, &online, Some(&[AMOUNT * 3]), None);
     let assets = test_list_assets(&wallet, &[]);
     let nia_assets = assets.nia.unwrap();

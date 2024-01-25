@@ -996,7 +996,7 @@ fn send_received_success() {
     assert_eq!(change_allocation_a.amount, amount_1a - amount_2a);
     assert_eq!(change_allocation_b.amount, amount_1b - amount_2b);
 
-    // check RGB25 asset has the correct media after being received
+    // check CFA asset has the correct media after being received
     let cfa_assets = wallet_3
         .list_assets(vec![AssetSchema::Cfa])
         .unwrap()
@@ -2848,15 +2848,15 @@ fn cfa_blank_success() {
     let (wallet, online) = get_funded_wallet!();
     let (rcv_wallet, _rcv_online) = get_funded_wallet!();
 
-    // issue RGB20
+    // issue NIA
     let asset_nia = test_issue_asset_nia(&wallet, &online, None);
 
-    // issue RGB25
+    // issue CFA
     let _asset_cfa = test_issue_asset_cfa(&wallet, &online, None, None);
 
     let receive_data = test_blind_receive(&rcv_wallet);
 
-    // try sending RGB20
+    // try sending NIA
     let recipient_map = HashMap::from([(
         asset_nia.asset_id,
         vec![Recipient {
@@ -2885,7 +2885,7 @@ fn psbt_rgb_consumer_success() {
     let num_utxos_created = test_create_utxos(&wallet, &online, true, Some(1), None, FEE_RATE);
     assert_eq!(num_utxos_created, 1);
 
-    // issue an RGB20 asset
+    // issue an NIA asset
     println!("issue 1");
     let asset_nia_a = test_issue_asset_nia(&wallet, &online, None);
 
@@ -2910,7 +2910,7 @@ fn psbt_rgb_consumer_success() {
     let result = test_send_begin_result(&wallet, &online, &recipient_map);
     assert!(!result.unwrap().is_empty());
 
-    // issue one more RGB20 asset, should go to the same UTXO as the 1st issuance
+    // issue one more NIA asset, should go to the same UTXO as the 1st issuance
     println!("issue 2");
     let asset_nia_b = test_issue_asset_nia(&wallet, &online, None);
 
@@ -2997,7 +2997,7 @@ fn insufficient_bitcoins() {
     assert_eq!(num_utxos_created, 1);
     test_drain_to_keep(&wallet, &online, &test_get_address(&rcv_wallet));
 
-    // issue an RGB20 asset
+    // issue an NIA asset
     let asset_nia_a = test_issue_asset_nia(&wallet, &online, None);
 
     // send with no colorable UTXOs available as additional bitcoin inputs and no other funds
@@ -3063,7 +3063,7 @@ fn insufficient_allocations_fail() {
     );
     assert_eq!(num_utxos_created, 1);
 
-    // issue an RGB20 asset
+    // issue an NIA asset
     let asset_nia_a = test_issue_asset_nia(&wallet, &online, None);
 
     // send with no colorable UTXOs available as change
@@ -3109,7 +3109,7 @@ fn insufficient_allocations_success() {
         test_create_utxos(&wallet, &online, false, Some(1), Some(300), FEE_RATE);
     assert_eq!(num_utxos_created, 1);
 
-    // issue an RGB20 asset on the unspendable UTXO
+    // issue an NIA asset on the unspendable UTXO
     let asset_nia_a = test_issue_asset_nia(&wallet, &online, None);
 
     // create 2 more UTXOs, 1 for change + 1 as additional bitcoin input
