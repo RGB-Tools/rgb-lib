@@ -1,4 +1,4 @@
-FROM ghcr.io/rgb-tools/rgb-proxy-server:0.2.0
+FROM ghcr.io/rgb-tools/rgb-proxy-server:0.2.1
 
 # change consignment.post json-rpc method to return null
 RUN sed -i '/consignment.post/{n;s/Promise<boolean>/Promise<void>/;}' \
