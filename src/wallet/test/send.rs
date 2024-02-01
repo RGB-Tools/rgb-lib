@@ -3792,6 +3792,120 @@ fn witness_multiple_assets_success() {
 
 #[test]
 #[parallel]
+fn witness_multiple_inputs_success() {
+    initialize();
+
+    let amount: u64 = 66;
+
+    // wallets
+    let (wallet_1, online_1) = get_funded_wallet!();
+    let (wallet_2, online_2) = get_funded_wallet!();
+
+    // issue
+    let asset = test_issue_asset_nia(&wallet_1, &online_1, None);
+
+    // send
+    println!("send 1");
+    let receive_data_1a = test_witness_receive(&wallet_2);
+    let receive_data_1b = test_witness_receive(&wallet_2);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![
+            Recipient {
+                amount,
+                recipient_id: receive_data_1a.recipient_id.clone(),
+                witness_data: Some(WitnessData {
+                    amount_sat: 1000,
+                    blinding: None,
+                }),
+                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+            },
+            Recipient {
+                amount: amount * 2,
+                recipient_id: receive_data_1b.recipient_id.clone(),
+                witness_data: Some(WitnessData {
+                    amount_sat: 1200,
+                    blinding: Some(7777),
+                }),
+                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+            },
+        ],
+    )]);
+    let txid = test_send(&wallet_1, &online_1, &recipient_map);
+    assert!(!txid.is_empty());
+
+    stop_mining();
+
+    // settle transfers
+    test_refresh_all(&wallet_2, &online_2);
+    test_refresh_all(&wallet_1, &online_1);
+    mine(true);
+    test_refresh_all(&wallet_2, &online_2);
+    test_refresh_asset(&wallet_1, &online_1, &asset.asset_id);
+
+    println!("send 2");
+    let receive_data_2 = test_witness_receive(&wallet_1);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            amount: 77,
+            recipient_id: receive_data_2.recipient_id.clone(),
+            witness_data: Some(WitnessData {
+                amount_sat: 1000,
+                blinding: None,
+            }),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid = test_send(&wallet_2, &online_2, &recipient_map);
+    assert!(!txid.is_empty());
+
+    stop_mining();
+
+    // settle transfers
+    test_refresh_all(&wallet_1, &online_1);
+    test_refresh_all(&wallet_2, &online_2);
+    mine(true);
+    test_refresh_all(&wallet_1, &online_1);
+    test_refresh_asset(&wallet_2, &online_2, &asset.asset_id);
+
+    println!("send 3");
+    let receive_data_3 = test_witness_receive(&wallet_2);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            amount: 40,
+            recipient_id: receive_data_3.recipient_id.clone(),
+            witness_data: Some(WitnessData {
+                amount_sat: 1000,
+                blinding: None,
+            }),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid = test_send(&wallet_1, &online_1, &recipient_map);
+    assert!(!txid.is_empty());
+
+    stop_mining();
+
+    // settle transfers
+    test_refresh_all(&wallet_2, &online_2);
+    test_refresh_all(&wallet_1, &online_1);
+    mine(true);
+    test_refresh_all(&wallet_2, &online_2);
+    test_refresh_asset(&wallet_1, &online_1, &asset.asset_id);
+
+    // check transfers have settled
+    let rcv_transfer = get_test_transfer_recipient(&wallet_2, &receive_data_3.recipient_id);
+    let (rcv_transfer_data, _) = get_test_transfer_data(&wallet_2, &rcv_transfer);
+    let (transfer, _, _) = get_test_transfer_sender(&wallet_1, &txid);
+    let (transfer_data, _) = get_test_transfer_data(&wallet_1, &transfer);
+    assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
+    assert_eq!(transfer_data.status, TransferStatus::Settled);
+}
+
+#[test]
+#[parallel]
 fn min_confirmations() {
     initialize();
 
