@@ -23,10 +23,11 @@ fn success() {
     assert!(receive_data.expiration_timestamp.is_some());
     let timestamp = now_timestamp + DURATION_RCV_TRANSFER as i64;
     assert!(receive_data.expiration_timestamp.unwrap() - timestamp <= 1);
-    // TODO: this needs the network to be rendered in the invoice's string
-    //       see https://github.com/RGB-WG/rgb-wallet/issues/103
-    //let decoded_invoice = Invoice::new(receive_data.invoice).unwrap();
-    //assert!(decoded_invoice.invoice_data.network.is_some());
+    let decoded_invoice = Invoice::new(receive_data.invoice).unwrap();
+    assert_eq!(
+        decoded_invoice.invoice_data.network,
+        BitcoinNetwork::Regtest
+    );
     let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
     let (_, batch_transfer) = get_test_transfer_related(&wallet, &transfer);
     assert_eq!(batch_transfer.min_confirmations, MIN_CONFIRMATIONS);
