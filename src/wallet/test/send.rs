@@ -2524,7 +2524,7 @@ fn fail() {
 
     // amount 0
     let recipient_map = HashMap::from([(
-        asset.asset_id,
+        asset.asset_id.clone(),
         vec![Recipient {
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
@@ -2534,6 +2534,39 @@ fn fail() {
     )]);
     let result = test_send_begin_result(&wallet, &online, &recipient_map);
     assert!(matches!(result, Err(Error::InvalidAmountZero)));
+
+    // blinded with witness data
+    let receive_data_blinded = test_blind_receive(&rcv_wallet);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            amount: 1,
+            recipient_id: receive_data_blinded.recipient_id.clone(),
+            witness_data: Some(WitnessData {
+                amount_sat: 1000,
+                blinding: None,
+            }),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let result = test_send_begin_result(&wallet, &online, &recipient_map);
+    let details = "cannot provide witness data for a blinded recipient";
+    assert!(matches!(result, Err(Error::InvalidRecipientData { details: m }) if m == details));
+
+    // witness with no witness data
+    let receive_data_witness = test_witness_receive(&rcv_wallet);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            amount: 1,
+            recipient_id: receive_data_witness.recipient_id.clone(),
+            witness_data: None,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let result = test_send_begin_result(&wallet, &online, &recipient_map);
+    let details = "missing witness data for a witness recipient";
+    assert!(matches!(result, Err(Error::InvalidRecipientData { details: m }) if m == details));
 }
 
 #[test]
