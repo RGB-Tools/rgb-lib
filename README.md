@@ -37,12 +37,12 @@ Native language bindings for this library are also available via the
 ## Tests
 In order to run the available tests, execute:
 ```bash
-cargo test --workspace
+cargo test --workspace --all-features
 ```
 
-This command will run a [bitcoind] node, three [electrs] nodes and three [RGB
-proxy] instances, in order to perform integration tests in a regtest
-environment.
+This command will run a [bitcoind] node, three [electrs] nodes, one [esplora]
+node and three [RGB proxy] instances, in order to perform integration tests in
+a regtest environment.
 
 Services will not be stopped automatically after the test run. To stop them and
 remove all containers, from the project root execute:
@@ -67,6 +67,7 @@ and the state transitions of an asset transfer.
 [bdk]: https://github.com/bitcoindevkit/bdk
 [bitcoind]: https://github.com/bitcoin/bitcoin
 [electrs]: https://github.com/romanz/electrs
+[esplora]: https://github.com/Blockstream/esplora
 [RGB proxy]: https://github.com/RGB-Tools/rgb-proxy-server
 [rgb-lib-ffi]: /rgb-lib-ffi/
 [rgb-core]: https://github.com/RGB-WG/rgb-core

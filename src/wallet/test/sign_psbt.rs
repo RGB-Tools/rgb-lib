@@ -1,6 +1,7 @@
 use super::*;
 use serial_test::parallel;
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn success() {
@@ -24,11 +25,12 @@ fn success() {
     assert!(BdkPsbt::from_str(&signed_psbt).is_ok());
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn fail() {
     initialize();
-    let (wallet, _online) = get_funded_wallet!();
+    let wallet = get_test_wallet(true, None);
 
     let result = wallet.sign_psbt("rgb1invalid".to_string(), None);
     assert!(matches!(result, Err(Error::InvalidPsbt { details: _ })));

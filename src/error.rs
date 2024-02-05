@@ -40,13 +40,6 @@ pub enum Error {
     #[error("Batch transfer cannot be set to failed status")]
     CannotFailBatchTransfer,
 
-    /// An error was received from the Electrum server
-    #[error("Electrum error: {details}")]
-    Electrum {
-        /// Error details
-        details: String,
-    },
-
     /// The provided file is empty
     #[error("Empty file: {file_path}")]
     EmptyFile {
@@ -93,6 +86,13 @@ pub enum Error {
     /// (BDK, RGB) data
     #[error("Data is inconsistent ({details}). Please check its integrity.")]
     Inconsistency {
+        /// Error details
+        details: String,
+    },
+
+    /// An error was received from the indexer
+    #[error("Indexer error: {details}")]
+    Indexer {
         /// Error details
         details: String,
     },
@@ -178,7 +178,7 @@ pub enum Error {
         details: String,
     },
 
-    /// Electrum server is for the wrong network or does not provide the required functionality
+    /// Electrum server does not provide the required functionality
     ///
     /// There are multiple electrum server variants and one with `verbose` support in
     /// `blockchain.transaction.get` is required, see this
@@ -202,6 +202,13 @@ pub enum Error {
     InvalidFilePath {
         /// File path
         file_path: String,
+    },
+
+    /// The provided indexer is invalid
+    #[error("Invalid indexer: {details}")]
+    InvalidIndexer {
+        /// Error details
+        details: String,
     },
 
     /// The provided invoice is invalid
@@ -492,17 +499,28 @@ impl From<bdk::bitcoin::psbt::PsbtParseError> for Error {
     }
 }
 
+#[cfg(feature = "electrum")]
 impl From<electrum::Error> for Error {
     fn from(e: electrum::Error) -> Self {
-        Error::Electrum {
+        Error::Indexer {
             details: e.to_string(),
         }
     }
 }
 
+#[cfg(feature = "electrum")]
 impl From<electrum_client::Error> for Error {
     fn from(e: electrum_client::Error) -> Self {
-        Error::Electrum {
+        Error::Indexer {
+            details: e.to_string(),
+        }
+    }
+}
+
+#[cfg(feature = "esplora")]
+impl From<bdk::blockchain::esplora::EsploraError> for Error {
+    fn from(e: bdk::blockchain::esplora::EsploraError) -> Self {
+        Error::Indexer {
             details: e.to_string(),
         }
     }

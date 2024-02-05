@@ -1,6 +1,7 @@
 use super::*;
 use serial_test::parallel;
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn success() {
@@ -152,6 +153,7 @@ fn success() {
     assert_eq!(token.attachments, token_attachments);
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn no_issue_on_pending_send() {
@@ -224,6 +226,7 @@ fn no_issue_on_pending_send() {
     assert_ne!(unspent_1.utxo.outpoint, unspent_3.utxo.outpoint);
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn fail() {
@@ -239,7 +242,7 @@ fn fail() {
     // bad online object
     let other_online = Online {
         id: 1,
-        electrum_url: wallet.online_data.as_ref().unwrap().electrum_url.clone(),
+        indexer_url: wallet.online_data.as_ref().unwrap().indexer_url.clone(),
     };
     let result = test_issue_asset_uda_result(&wallet, &other_online, None, None, vec![]);
     assert!(matches!(result, Err(Error::CannotChangeOnline)));

@@ -2,7 +2,7 @@ use sea_orm::{ActiveValue, DeriveActiveEnum, EnumIter, IntoActiveValue};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    wallet::{NUM_KNOWN_SCHEMAS, SCHEMA_ID_CFA, SCHEMA_ID_NIA, SCHEMA_ID_UDA},
+    wallet::offline::{NUM_KNOWN_SCHEMAS, SCHEMA_ID_CFA, SCHEMA_ID_NIA, SCHEMA_ID_UDA},
     Error,
 };
 

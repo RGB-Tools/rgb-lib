@@ -34,6 +34,8 @@ fn check_wallet(wallet: &Wallet, network: BitcoinNetwork, keychain_vanilla: Opti
 #[test]
 #[parallel]
 fn success() {
+    create_test_data_dir();
+
     // with private keys
     let wallet = get_test_wallet(true, None);
     let bak_info_after = wallet.database.get_backup_info().unwrap();
@@ -60,44 +62,47 @@ fn success() {
     check_wallet(&wallet, bitcoin_network, vanilla_keychain);
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn signet_success() {
-    fs::create_dir_all(get_test_data_dir_string()).unwrap();
+    create_test_data_dir();
 
     let bitcoin_network = BitcoinNetwork::Signet;
     let mut wallet = get_test_wallet_with_net(true, None, bitcoin_network);
     check_wallet(&wallet, bitcoin_network, None);
-    let electrum_url = "ssl://electrum.iriswallet.com:50033";
-    test_go_online(&mut wallet, false, Some(electrum_url));
+    let indexer_url = "ssl://electrum.iriswallet.com:50033";
+    test_go_online(&mut wallet, false, Some(indexer_url));
     assert!(!wallet.watch_only);
     assert_eq!(wallet.wallet_data.bitcoin_network, bitcoin_network);
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn testnet_success() {
-    fs::create_dir_all(get_test_data_dir_string()).unwrap();
+    create_test_data_dir();
 
     let bitcoin_network = BitcoinNetwork::Testnet;
     let mut wallet = get_test_wallet_with_net(true, None, bitcoin_network);
     check_wallet(&wallet, bitcoin_network, None);
-    let electrum_url = "ssl://electrum.iriswallet.com:50013";
-    test_go_online(&mut wallet, false, Some(electrum_url));
+    let indexer_url = "ssl://electrum.iriswallet.com:50013";
+    test_go_online(&mut wallet, false, Some(indexer_url));
     assert!(!wallet.watch_only);
     assert_eq!(wallet.wallet_data.bitcoin_network, bitcoin_network);
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn mainnet_success() {
-    fs::create_dir_all(get_test_data_dir_string()).unwrap();
+    create_test_data_dir();
 
     let bitcoin_network = BitcoinNetwork::Mainnet;
     let mut wallet = get_test_wallet_with_net(true, None, bitcoin_network);
     check_wallet(&wallet, bitcoin_network, None);
-    let electrum_url = "ssl://electrum.iriswallet.com:50003";
-    test_go_online(&mut wallet, false, Some(electrum_url));
+    let indexer_url = "ssl://electrum.iriswallet.com:50003";
+    test_go_online(&mut wallet, false, Some(indexer_url));
     assert!(!wallet.watch_only);
     assert_eq!(wallet.wallet_data.bitcoin_network, bitcoin_network);
 }
@@ -151,6 +156,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidBitcoinKeys)));
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn re_instantiate_wallet() {
@@ -208,12 +214,13 @@ fn re_instantiate_wallet() {
     let _online = wallet.go_online(true, ELECTRUM_URL.to_string()).unwrap();
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn watch_only() {
     initialize();
 
-    fs::create_dir_all(get_test_data_dir_path()).unwrap();
+    create_test_data_dir();
     let bitcoin_network = BitcoinNetwork::Regtest;
     let keys = generate_keys(bitcoin_network);
 

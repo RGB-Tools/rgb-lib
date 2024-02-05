@@ -1,6 +1,7 @@
 use super::*;
 use serial_test::parallel;
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn success() {
@@ -33,6 +34,7 @@ fn success() {
     assert_eq!(unspents.len(), (UTXO_NUM * 2 + 2) as usize);
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn up_to_allocation_checks() {
@@ -159,6 +161,7 @@ fn up_to_allocation_checks() {
     }
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn fail() {
@@ -193,6 +196,7 @@ fn fail() {
 // if casting to u8 is done improperly, this would result in trying to create 0 UTXOs
 //
 // see https://github.com/RGB-Tools/rgb-lib/issues/35 for context
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn casting() {
@@ -202,7 +206,7 @@ fn casting() {
     let utxo_size = funds as u32 / 256;
 
     let (wallet, online) = get_empty_wallet!();
-    fund_wallet(test_get_address(&wallet));
+    send_to_address(test_get_address(&wallet));
     let expected_balance = BtcBalance {
         vanilla: Balance {
             settled: 0,

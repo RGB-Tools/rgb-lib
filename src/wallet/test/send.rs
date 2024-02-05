@@ -1,9 +1,11 @@
+#[cfg(feature = "electrum")]
 const TINY_BTC_AMOUNT: u32 = 294;
 
 use super::*;
 use serial_test::{parallel, serial};
 use std::collections::BTreeSet;
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn success() {
@@ -349,6 +351,7 @@ fn success() {
     assert_eq!(unspents_color_count_after, unspents_color_count_before - 2);
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn spend_all() {
@@ -489,6 +492,7 @@ fn spend_all() {
     assert!(found);
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn send_twice_success() {
@@ -599,6 +603,7 @@ fn send_twice_success() {
     );
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn send_blank_success() {
@@ -769,6 +774,7 @@ fn send_blank_success() {
     change_outpoint_set.insert(RgbOutpoint::from(change_utxo.clone()));
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn send_received_success() {
@@ -782,7 +788,7 @@ fn send_received_success() {
 
     // wallets
     let (wallet_1, online_1) = get_funded_wallet!();
-    let (wallet_2, online_2) = get_funded_wallet!(true, true);
+    let (wallet_2, online_2) = get_funded_wallet!();
     let (wallet_3, online_3) = get_funded_wallet!();
 
     // issue
@@ -968,6 +974,7 @@ fn send_received_success() {
     assert_eq!(src_digest, dst_digest);
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn send_received_uda_success() {
@@ -1135,6 +1142,7 @@ fn send_received_uda_success() {
     assert_eq!(src_digest, dst_digest);
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn send_received_cfa_success() {
@@ -1280,6 +1288,7 @@ fn send_received_cfa_success() {
     assert_eq!(src_digest, dst_digest);
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn receive_multiple_same_asset_success() {
@@ -1541,6 +1550,7 @@ fn receive_multiple_same_asset_success() {
     assert!(change_unspent.is_some());
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn receive_multiple_different_assets_success() {
@@ -1852,6 +1862,7 @@ fn receive_multiple_different_assets_success() {
     assert!(change_unspent.is_some());
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn batch_donation_success() {
@@ -1971,6 +1982,7 @@ fn batch_donation_success() {
     show_unspent_colorings(&wallet, "after send, settled");
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn reuse_failed_blinded_success() {
@@ -2021,6 +2033,7 @@ fn reuse_failed_blinded_success() {
     assert!(matches!(result, Err(Error::RecipientIDAlreadyUsed)));
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn ack() {
@@ -2106,6 +2119,7 @@ fn ack() {
     ));
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn nack() {
@@ -2161,6 +2175,7 @@ fn nack() {
     ));
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn expire() {
@@ -2208,12 +2223,13 @@ fn expire() {
     //
     // expire transfer + check status goes to Failed
     let mut db_data = wallet.database.get_db_data(false).unwrap();
-    wallet._handle_expired_transfers(&mut db_data).unwrap();
+    wallet.handle_expired_transfers(&mut db_data).unwrap();
     let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
     let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
     assert_eq!(transfer_data.status, TransferStatus::Failed);
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn no_change_on_pending_send() {
@@ -2305,6 +2321,7 @@ fn no_change_on_pending_send() {
     resume_mining();
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn fail() {
@@ -2587,6 +2604,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidRecipientNetwork)));
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn pending_incoming_transfer_fail() {
@@ -2668,6 +2686,7 @@ fn pending_incoming_transfer_fail() {
     );
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn pending_outgoing_transfer_fail() {
@@ -2757,6 +2776,7 @@ fn pending_outgoing_transfer_fail() {
     );
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn pending_transfer_input_fail() {
@@ -2793,6 +2813,7 @@ fn pending_transfer_input_fail() {
     );
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn already_used_fail() {
@@ -2834,6 +2855,7 @@ fn already_used_fail() {
     assert!(matches!(result, Err(Error::RecipientIDAlreadyUsed)));
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn cfa_blank_success() {
@@ -2865,6 +2887,7 @@ fn cfa_blank_success() {
     assert!(!result.unwrap().is_empty());
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn psbt_rgb_consumer_success() {
@@ -2966,6 +2989,7 @@ fn psbt_rgb_consumer_success() {
     assert!(!result.unwrap().is_empty());
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn insufficient_bitcoins() {
@@ -3032,6 +3056,7 @@ fn insufficient_bitcoins() {
     assert!(!txid.is_empty());
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn insufficient_allocations_fail() {
@@ -3083,6 +3108,7 @@ fn insufficient_allocations_fail() {
     assert!(!txid.is_empty());
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn insufficient_allocations_success() {
@@ -3119,6 +3145,7 @@ fn insufficient_allocations_success() {
     assert!(!result.unwrap().is_empty());
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn send_to_oneself() {
@@ -3161,6 +3188,7 @@ fn send_to_oneself() {
     }
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn send_received_back_success() {
@@ -3321,6 +3349,7 @@ fn send_received_back_success() {
     assert_eq!(change_allocations.first().unwrap().amount, change_3);
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn witness_success() {
@@ -3457,6 +3486,7 @@ fn witness_success() {
     ));
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn witness_multiple_assets_success() {
@@ -3604,10 +3634,15 @@ fn witness_multiple_assets_success() {
         }
     );
     // transfer vout + BTC amount match tx outputs
-    let rcv_online_data = rcv_wallet.online_data.as_ref().unwrap();
-    let tx_details = rcv_wallet
-        ._get_tx_details(txid.clone(), Some(&rcv_online_data.electrum_client))
-        .unwrap();
+    let tx_details = match rcv_wallet.indexer() {
+        Indexer::Electrum(client) => client
+            .raw_call(
+                "blockchain.transaction.get",
+                vec![Param::String(txid.clone()), Param::Bool(true)],
+            )
+            .unwrap(),
+        _ => unreachable!("wallet using electrum"),
+    };
     let tx_outputs = tx_details.get("vout").unwrap().as_array().unwrap();
     for (rcv_xfer, btc_amt) in [
         (rcv_xfer_1a, btc_amount_1a),
@@ -3790,6 +3825,7 @@ fn witness_multiple_assets_success() {
     );
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn witness_multiple_inputs_success() {
@@ -3904,23 +3940,26 @@ fn witness_multiple_inputs_success() {
     assert_eq!(transfer_data.status, TransferStatus::Settled);
 }
 
-#[test]
-#[parallel]
-fn min_confirmations() {
-    initialize();
-
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+fn _min_confirmations_common(
+    wallet: Wallet,
+    online: Online,
+    rcv_wallet: Wallet,
+    rcv_online: Online,
+    esplora: bool,
+) {
     let amount: u64 = 66;
 
     // 2 minimum confirmations
     println!("2 confirmations");
     let min_confirmations = 2;
 
-    // wallets
-    let (wallet, online) = get_funded_wallet!();
-    let (rcv_wallet, rcv_online) = get_funded_wallet!();
-
     // issue
     let asset = test_issue_asset_nia(&wallet, &online, None);
+
+    // avoid bitcoind sync issues
+    stop_mining_when_alone();
+    mine_but_no_resume(esplora);
 
     // send
     let receive_data = rcv_wallet
@@ -3967,8 +4006,6 @@ fn min_confirmations() {
     );
     assert_eq!(transfer_data.status, TransferStatus::WaitingCounterparty);
 
-    stop_mining();
-
     // transfers progress to status WaitingConfirmations after a refresh
     test_refresh_all(&rcv_wallet, &rcv_online);
     test_refresh_asset(&wallet, &online, &asset.asset_id);
@@ -3982,7 +4019,7 @@ fn min_confirmations() {
     assert_eq!(transfer_data.status, TransferStatus::WaitingConfirmations);
 
     // transfers remain in status WaitingConfirmations after a block is mined
-    mine(true);
+    mine_but_no_resume(esplora);
     test_refresh_all(&rcv_wallet, &rcv_online);
     test_refresh_asset(&wallet, &online, &asset.asset_id);
 
@@ -3995,7 +4032,7 @@ fn min_confirmations() {
     assert_eq!(transfer_data.status, TransferStatus::WaitingConfirmations);
 
     // transfers progress to status Settled after a second block is mined
-    mine(false);
+    mine_but_no_resume(esplora);
     test_refresh_all(&rcv_wallet, &rcv_online);
     test_refresh_asset(&wallet, &online, &asset.asset_id);
 
@@ -4053,8 +4090,6 @@ fn min_confirmations() {
     );
     assert_eq!(transfer_data.status, TransferStatus::WaitingCounterparty);
 
-    stop_mining();
-
     // transfers progress to status WaitingConfirmations after a refresh
     test_refresh_all(&rcv_wallet, &rcv_online);
     test_refresh_asset(&wallet, &online, &asset.asset_id);
@@ -4075,8 +4110,36 @@ fn min_confirmations() {
     let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
     assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
     assert_eq!(transfer_data.status, TransferStatus::Settled);
+    resume_mining();
 }
 
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn min_confirmations_electrum() {
+    initialize();
+
+    // wallets
+    let (wallet, online) = get_funded_wallet!();
+    let (rcv_wallet, rcv_online) = get_funded_wallet!();
+
+    _min_confirmations_common(wallet, online, rcv_wallet, rcv_online, false);
+}
+
+#[cfg(feature = "esplora")]
+#[test]
+#[parallel]
+fn min_confirmations_esplora() {
+    initialize();
+
+    // wallets
+    let (wallet, online) = get_funded_wallet!(ESPLORA_URL.to_string());
+    let (rcv_wallet, rcv_online) = get_funded_wallet!(ESPLORA_URL.to_string());
+
+    _min_confirmations_common(wallet, online, rcv_wallet, rcv_online, true);
+}
+
+#[cfg(feature = "electrum")]
 #[test]
 #[serial]
 fn spend_double_receive() {
@@ -4281,6 +4344,7 @@ fn spend_double_receive() {
     );
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn input_sorting() {
@@ -4330,6 +4394,7 @@ fn input_sorting() {
     assert_eq!(cur_amounts, expected_amounts);
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn spend_witness_receive_utxo() {
@@ -4414,6 +4479,7 @@ fn spend_witness_receive_utxo() {
     );
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn rgb_change_on_btc_change() {
@@ -4495,6 +4561,7 @@ fn rgb_change_on_btc_change() {
     assert_eq!(transfer_data.status, TransferStatus::Settled);
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn no_inexistent_utxos() {

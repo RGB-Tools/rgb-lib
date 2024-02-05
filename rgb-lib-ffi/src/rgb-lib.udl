@@ -17,7 +17,6 @@ interface RgbLibError {
   CannotChangeOnline();
   CannotDeleteBatchTransfer();
   CannotFailBatchTransfer();
-  Electrum(string details);
   EmptyFile(string file_path);
   FailedBdkSync(string details);
   FailedBroadcast(string details);
@@ -25,6 +24,7 @@ interface RgbLibError {
   FileAlreadyExists(string path);
   IO(string details);
   Inconsistency(string details);
+  Indexer(string details);
   InexistentDataDir();
   InsufficientAllocationSlots();
   InsufficientBitcoins(u64 needed, u64 available);
@@ -41,6 +41,7 @@ interface RgbLibError {
   InvalidElectrum(string details);
   InvalidFeeRate(string details);
   InvalidFilePath(string file_path);
+  InvalidIndexer(string details);
   InvalidInvoice(string details);
   InvalidMnemonic(string details);
   InvalidName(string details);
@@ -257,7 +258,7 @@ dictionary Metadata {
 
 dictionary Online {
   u64 id;
-  string electrum_url;
+  string indexer_url;
 };
 
 dictionary Outpoint {
@@ -435,7 +436,7 @@ interface Wallet {
   Metadata get_asset_metadata(string asset_id);
 
   [Throws=RgbLibError]
-  Online go_online(boolean skip_consistency_check, string electrum_url);
+  Online go_online(boolean skip_consistency_check, string indexer_url);
 
   [Throws=RgbLibError]
   AssetNIA issue_asset_nia(

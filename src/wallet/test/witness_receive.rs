@@ -1,6 +1,7 @@
 use super::*;
 use serial_test::parallel;
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn success() {
@@ -22,7 +23,7 @@ fn success() {
     let decoded_invoice = Invoice::new(receive_data.invoice).unwrap();
     assert_eq!(
         decoded_invoice.invoice_data.network,
-        wallet._bitcoin_network()
+        wallet.bitcoin_network()
     );
     let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
     let (_, batch_transfer) = get_test_transfer_related(&wallet, &transfer);

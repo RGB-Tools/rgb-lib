@@ -18,8 +18,14 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: clippy
-      - name: Lint
-        run: cargo clippy --lib -- -D warnings
+      - name: Lint with all features
+        run: cargo clippy --lib --all-features -- -D warnings
+      - name: Lint with no features
+        run: cargo clippy --lib --no-default-features -- -D warnings
+      - name: Lint with electrum feature
+        run: cargo clippy --lib --no-default-features --features electrum -- -D warnings
+      - name: Lint with esplora feature
+        run: cargo clippy --lib --no-default-features --features esplora -- -D warnings
 
   format:
     runs-on: ubuntu-latest
@@ -52,8 +58,8 @@ jobs:
           host=$(rustc -Vv | grep host | sed 's/host: //')
           curl -fsSL $LLVM_COV_RELEASES/latest/download/cargo-llvm-cov-$host.tar.gz | tar xzf - -C "$HOME/.cargo/bin"
 
-      - name: Generate coverage report
-        run: cargo llvm-cov --lcov --output-path coverage.lcov --workspace
+      - name: Test with all features and generate coverage report
+        run: cargo llvm-cov --lcov --output-path coverage.lcov --workspace --all-features
 
       - name: Upload coverage report
         uses: codecov/codecov-action@v4
@@ -62,3 +68,21 @@ jobs:
           file: coverage.lcov
           flags: rust
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  test_features:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Test with electrum feature
+        run: |
+          cargo test --no-default-features --features electrum go_online::fail
+          cargo test --no-default-features --features electrum send::min_confirmations_electrum
+      - name: Test with esplora feature
+        run: |
+          cargo test --no-default-features --features esplora go_online::fail
+          cargo test --no-default-features --features esplora send::min_confirmations_esplora
+      - name: Test with no features
+        run: |
+          cargo test --no-default-features

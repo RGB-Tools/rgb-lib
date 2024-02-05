@@ -1,6 +1,7 @@
 use super::*;
 use serial_test::parallel;
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn success() {
@@ -71,6 +72,7 @@ fn success() {
     );
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn fail() {
@@ -90,7 +92,7 @@ fn fail() {
     // bad online
     let wrong_online = Online {
         id: 1,
-        electrum_url: wallet.online_data.as_ref().unwrap().electrum_url.clone(),
+        indexer_url: wallet.online_data.as_ref().unwrap().indexer_url.clone(),
     };
     let result = test_send_btc_result(
         &wallet,

@@ -280,10 +280,10 @@ impl Wallet {
     fn go_online(
         &self,
         skip_consistency_check: bool,
-        electrum_url: String,
+        indexer_url: String,
     ) -> Result<Online, RgbLibError> {
         self._get_wallet()
-            .go_online(skip_consistency_check, electrum_url)
+            .go_online(skip_consistency_check, indexer_url)
     }
 
     fn issue_asset_nia(

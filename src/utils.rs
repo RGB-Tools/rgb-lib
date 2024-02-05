@@ -159,6 +159,7 @@ impl From<BitcoinNetwork> for RgbNetwork {
     }
 }
 
+#[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
 pub(crate) fn get_genesis_hash(bitcoin_network: &BitcoinNetwork) -> &str {
     match bitcoin_network {
         BitcoinNetwork::Mainnet => {
@@ -176,6 +177,7 @@ pub(crate) fn get_genesis_hash(bitcoin_network: &BitcoinNetwork) -> &str {
     }
 }
 
+#[cfg_attr(not(feature = "electrum"), allow(dead_code))]
 pub(crate) fn get_valid_txid_for_network(bitcoin_network: &BitcoinNetwork) -> String {
     match bitcoin_network {
         BitcoinNetwork::Mainnet => {
@@ -333,6 +335,7 @@ pub struct RgbRuntime {
 }
 
 impl RgbRuntime {
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn accept_transfer<R: ResolveHeight>(
         &mut self,
         transfer: Transfer,
@@ -347,6 +350,7 @@ impl RgbRuntime {
             .map_err(InternalError::from)
     }
 
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn blank_builder(
         &mut self,
         contract_id: ContractId,
@@ -357,10 +361,12 @@ impl RgbRuntime {
             .map_err(InternalError::from)
     }
 
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn consume(&mut self, fascia: Fascia) -> Result<(), InternalError> {
         self.stock.consume(fascia).map_err(InternalError::from)
     }
 
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn contract_ids(&self) -> Result<BTreeSet<ContractId>, InternalError> {
         self.stock.contract_ids().map_err(InternalError::from)
     }
@@ -375,6 +381,7 @@ impl RgbRuntime {
             .map_err(InternalError::from)
     }
 
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn contracts_by_outputs(
         &mut self,
         outputs: impl IntoIterator<Item = impl Into<XOutputSeal>>,
@@ -384,6 +391,7 @@ impl RgbRuntime {
             .map_err(InternalError::from)
     }
 
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn genesis(&self, contract_id: ContractId) -> Result<&Genesis, InternalError> {
         self.stock.genesis(contract_id).map_err(InternalError::from)
     }
@@ -392,6 +400,7 @@ impl RgbRuntime {
         self.stock.iface_by_name(name).map_err(InternalError::from)
     }
 
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn import_contract<R: ResolveHeight>(
         &mut self,
         contract: Contract,
@@ -425,6 +434,7 @@ impl RgbRuntime {
         self.stock.schema_ids().map_err(InternalError::from)
     }
 
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn state_for_outpoints(
         &mut self,
         contract_id: ContractId,
@@ -444,6 +454,7 @@ impl RgbRuntime {
             .map_err(InternalError::from)
     }
 
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn transfer(
         &mut self,
         contract_id: ContractId,
@@ -455,6 +466,7 @@ impl RgbRuntime {
             .map_err(|_| InternalError::Unexpected)
     }
 
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn transition_builder(
         &mut self,
         contract_id: ContractId,
@@ -500,7 +512,9 @@ pub fn load_rgb_runtime(wallet_dir: PathBuf) -> Result<RgbRuntime, Error> {
     _write_rgb_runtime_lockfile(&wallet_dir);
 
     let rgb_dir = wallet_dir.join(RGB_RUNTIME_DIR);
-    fs::create_dir_all(&rgb_dir)?;
+    if !rgb_dir.exists() {
+        fs::create_dir_all(&rgb_dir)?;
+    }
     let stock_path = rgb_dir.join("stock.dat");
     let stock = Stock::load(&stock_path).or_else(|err| {
         if matches!(err, DeserializeError::Decode(DecodeError::Io(ref err)) if err.kind() == ErrorKind::NotFound) {

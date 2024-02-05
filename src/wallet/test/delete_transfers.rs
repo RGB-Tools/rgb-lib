@@ -1,6 +1,7 @@
 use super::*;
 use serial_test::parallel;
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn success() {
@@ -121,6 +122,7 @@ fn success() {
     ));
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn batch_success() {
@@ -162,6 +164,7 @@ fn batch_success() {
     test_delete_transfers(&wallet, Some(send_result.batch_transfer_idx), false);
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn fail() {

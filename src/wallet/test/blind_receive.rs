@@ -5,6 +5,7 @@ use serial_test::parallel;
 
 use super::*;
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn success() {
@@ -145,6 +146,7 @@ fn success() {
     assert_eq!(tte_data.len(), transport_endpoints.len());
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn respect_max_allocations() {
@@ -174,6 +176,7 @@ fn respect_max_allocations() {
     assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn expire() {
@@ -210,6 +213,7 @@ fn expire() {
     assert_eq!(transfer_data.status, TransferStatus::Failed);
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn pending_outgoing_transfer_fail() {
@@ -274,6 +278,7 @@ fn pending_outgoing_transfer_fail() {
     assert_ne!(unspent_issue.utxo.outpoint, unspent_blind_2.utxo.outpoint);
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn fail() {
@@ -417,6 +422,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::UnsupportedLayer1 { layer_1: l }) if l == "liquid" ));
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn wrong_asset_fail() {
@@ -508,6 +514,7 @@ fn new_transport_endpoint() {
     ));
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn multiple_receive_same_utxo() {

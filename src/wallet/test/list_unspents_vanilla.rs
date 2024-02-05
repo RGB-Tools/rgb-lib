@@ -1,6 +1,7 @@
 use super::*;
 use serial_test::parallel;
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn success() {
@@ -17,7 +18,7 @@ fn success() {
     assert!(bak_info_after.is_none());
     assert_eq!(unspent_list.len(), 0);
 
-    fund_wallet(test_get_address(&wallet));
+    send_to_address(test_get_address(&wallet));
 
     // one unspent, no confirmations
     let unspent_list = test_list_unspents_vanilla(&wallet, &online, None);

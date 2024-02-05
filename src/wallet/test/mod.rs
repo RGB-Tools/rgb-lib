@@ -1,15 +1,55 @@
-use amplify::s;
+use amplify::confinement::Confined;
+use amplify::{s, Wrapper};
+use bdk::bitcoin::bip32::ExtendedPubKey;
+use bdk::bitcoin::secp256k1::Secp256k1;
+use bdk::bitcoin::{psbt::Psbt as BdkPsbt, Network as BdkNetwork};
+use bdk::keys::ExtendedKey;
+use bdk::{KeychainKind, LocalUtxo, SignOptions};
+use bitcoin::hashes::{sha256, Hash as Sha256Hash};
+use bp::Outpoint as RgbOutpoint;
+#[cfg(feature = "electrum")]
+use electrum_client::{ElectrumApi, Param};
+use futures::executor::block_on;
 use lazy_static::lazy_static;
 use once_cell::sync::Lazy;
 use regex::RegexSet;
+use rgbstd::containers::FileContent;
+use rgbstd::containers::Transfer as RgbTransfer;
+use rgbstd::contract::ContractId;
+use rgbstd::interface::rgb21::{TokenData, TokenIndex};
+use rgbstd::invoice::ChainNet;
+use rgbstd::stl::{AssetTerms, Attachment, Details, MediaType, Name, RicardianContract, Ticker};
+use sea_orm::ActiveValue;
+use serde::Deserialize;
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::fs;
 use std::path::MAIN_SEPARATOR;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::str::FromStr;
 use std::sync::{Mutex, Once, RwLock};
+use std::time::Duration;
 use time::OffsetDateTime;
 
-use crate::generate_keys;
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+use crate::api::proxy::Proxy;
+use crate::database::entities::asset::ActiveModel as DbAssetActMod;
+use crate::database::entities::asset_transfer::Model as DbAssetTransfer;
+use crate::database::entities::batch_transfer::{
+    ActiveModel as DbBatchTransferActMod, Model as DbBatchTransfer,
+};
+use crate::database::entities::coloring::Model as DbColoring;
+use crate::database::entities::transfer::Model as DbTransfer;
+use crate::database::entities::txo::Model as DbTxo;
+use crate::database::{LocalUnspent, TransferData};
+use crate::utils::now;
+use crate::wallet::offline::*;
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+use crate::wallet::online::*;
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+use crate::wallet::online::{BtcBalance, Indexer};
+use crate::*;
 
-use super::*;
 use utils::api::*;
 use utils::chain::*;
 use utils::helpers::*;
@@ -25,6 +65,7 @@ static TRANSPORT_ENDPOINTS: Lazy<Vec<String>> = Lazy::new(|| vec![PROXY_ENDPOINT
 const ELECTRUM_URL: &str = "127.0.0.1:50001";
 const ELECTRUM_2_URL: &str = "127.0.0.1:50002";
 const ELECTRUM_BLOCKSTREAM_URL: &str = "127.0.0.1:50003";
+const ESPLORA_URL: &str = "http://127.0.0.1:8094/regtest/api";
 const TEST_DATA_DIR_PARTS: [&str; 2] = ["tests", "tmp"];
 const TICKER: &str = "TICKER";
 const NAME: &str = "asset name";
@@ -55,7 +96,7 @@ pub fn get_regtest_txid() -> String {
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .arg("compose")
-        .args(_bitcoin_cli())
+        .args(bitcoin_cli())
         .arg("getbestblockhash")
         .output()
         .expect("failed to call getblockcount");
@@ -67,7 +108,7 @@ pub fn get_regtest_txid() -> String {
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .arg("compose")
-        .args(_bitcoin_cli())
+        .args(bitcoin_cli())
         .arg("getblock")
         .arg(bestblockhash_str)
         .output()
@@ -94,28 +135,33 @@ pub fn initialize() {
 }
 
 // the get_*_wallet! macros can be called with no arguments to use defaults
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 macro_rules! get_empty_wallet {
-    ($p: expr, $k: expr) => {
-        get_empty_wallet($p, $k)
+    ($i: expr) => {
+        get_funded_wallet(true, Some($i))
     };
     () => {
-        get_empty_wallet(false, true)
+        get_empty_wallet(true, None)
     };
 }
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 macro_rules! get_funded_noutxo_wallet {
-    ($p: expr, $k: expr) => {
-        get_funded_noutxo_wallet($p, $k)
+    ($i: expr) => {
+        get_funded_wallet(true, Some($i))
     };
     () => {
-        get_funded_noutxo_wallet(false, true)
+        get_funded_noutxo_wallet(true, None)
     };
 }
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 macro_rules! get_funded_wallet {
-    ($p: expr, $k: expr) => {
-        get_funded_wallet($p, $k)
+    ($i: expr) => {
+        get_funded_wallet(true, Some($i))
     };
     () => {
-        get_funded_wallet(false, true)
+        get_funded_wallet(true, None)
     };
 }
 
@@ -123,6 +169,7 @@ lazy_static! {
     static ref MOCK_CONTRACT_DATA: Mutex<Vec<Attachment>> = Mutex::new(vec![]);
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub fn mock_asset_terms(
     wallet: &Wallet,
     text: RicardianContract,
@@ -130,10 +177,10 @@ pub fn mock_asset_terms(
 ) -> AssetTerms {
     let mut mock_reqs = MOCK_CONTRACT_DATA.lock().unwrap();
     if mock_reqs.is_empty() {
-        wallet._new_asset_terms(text, media)
+        wallet.new_asset_terms(text, media)
     } else {
         let mocked_media = mock_reqs.pop();
-        wallet._new_asset_terms(text, mocked_media)
+        wallet.new_asset_terms(text, mocked_media)
     }
 }
 
@@ -141,6 +188,7 @@ lazy_static! {
     static ref MOCK_TOKEN_DATA: Mutex<Vec<TokenData>> = Mutex::new(vec![]);
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub fn mock_token_data(
     wallet: &Wallet,
     index: TokenIndex,
@@ -149,7 +197,7 @@ pub fn mock_token_data(
 ) -> TokenData {
     let mut mock_reqs = MOCK_TOKEN_DATA.lock().unwrap();
     if mock_reqs.is_empty() {
-        wallet._new_token_data(index, media_data, attachments)
+        wallet.new_token_data(index, media_data, attachments)
     } else {
         mock_reqs.pop().unwrap()
     }
@@ -159,10 +207,11 @@ lazy_static! {
     static ref MOCK_INPUT_UNSPENTS: Mutex<Vec<LocalUnspent>> = Mutex::new(vec![]);
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub fn mock_input_unspents(wallet: &Wallet, unspents: &[LocalUnspent]) -> Vec<LocalUnspent> {
     let mut mock_input_unspents = MOCK_INPUT_UNSPENTS.lock().unwrap();
     if mock_input_unspents.is_empty() {
-        wallet._get_input_unspents(unspents).unwrap()
+        wallet.get_input_unspents(unspents).unwrap()
     } else {
         mock_input_unspents.drain(..).collect()
     }
@@ -172,12 +221,13 @@ lazy_static! {
     static ref MOCK_CONTRACT_DETAILS: Mutex<Option<&'static str>> = Mutex::new(None);
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub fn mock_contract_details(wallet: &Wallet) -> Option<Details> {
     MOCK_CONTRACT_DETAILS
         .lock()
         .unwrap()
         .take()
-        .map(|d| wallet._check_details(d.to_string()).unwrap())
+        .map(|d| wallet.check_details(d.to_string()).unwrap())
 }
 
 lazy_static! {
@@ -187,7 +237,7 @@ lazy_static! {
 pub fn mock_chain_net(wallet: &Wallet) -> ChainNet {
     match MOCK_CHAIN_NET.lock().unwrap().take() {
         Some(chain_net) => chain_net,
-        None => wallet._bitcoin_network().into(),
+        None => wallet.bitcoin_network().into(),
     }
 }
 

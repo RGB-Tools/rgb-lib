@@ -2,6 +2,7 @@ use super::*;
 use rgbstd::persistence::Inventory;
 use serial_test::parallel;
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn success() {
@@ -98,6 +99,7 @@ fn success() {
     assert_eq!(asset_model.schema, AssetSchema::Uda);
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn fail() {
@@ -107,7 +109,7 @@ fn fail() {
 
     let asset_nia = test_issue_asset_nia(&wallet, &online, None);
     let asset_nia_cid = ContractId::from_str(&asset_nia.asset_id).unwrap();
-    let mut runtime = wallet._rgb_runtime().unwrap();
+    let mut runtime = wallet.rgb_runtime().unwrap();
     let contract = runtime.stock.export_contract(asset_nia_cid).unwrap();
     let result = wallet.save_new_asset(&mut runtime, &AssetSchema::Cfa, asset_nia_cid, contract);
     assert!(matches!(result, Err(Error::AssetIfaceMismatch)));

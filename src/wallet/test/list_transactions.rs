@@ -1,6 +1,7 @@
 use super::*;
 use serial_test::parallel;
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn success() {
@@ -12,7 +13,6 @@ fn success() {
     let (wallet, online) = get_funded_wallet!();
     let (rcv_wallet, rcv_online) = get_funded_wallet!();
 
-    mine(false);
     // don't sync wallet without online
     let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
     let transactions = test_list_transactions(&wallet, None);
@@ -36,12 +36,12 @@ fn success() {
     assert!(rcv_transactions
         .iter()
         .any(|t| matches!(t.transaction_type, TransactionType::CreateUtxos)));
-    assert!(transactions.iter().all(|t| t.confirmation_time.is_none()));
+    assert!(transactions.iter().any(|t| t.confirmation_time.is_none()));
     assert!(rcv_transactions
         .iter()
-        .all(|t| t.confirmation_time.is_none()));
-    resume_mining();
+        .any(|t| t.confirmation_time.is_none()));
     // sync wallet when online is provided
+    mine(true);
     let transactions = test_list_transactions(&wallet, Some(&online));
     let rcv_transactions = test_list_transactions(&rcv_wallet, Some(&rcv_online));
     assert!(transactions.iter().all(|t| t.confirmation_time.is_some()));

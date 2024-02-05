@@ -1,4 +1,5 @@
 use super::*;
+use amplify::none;
 
 pub(crate) fn test_blind_receive(wallet: &Wallet) -> ReceiveData {
     test_blind_receive_result(wallet).unwrap()
@@ -26,10 +27,12 @@ pub(crate) fn test_witness_receive(wallet: &Wallet) -> ReceiveData {
         .unwrap()
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_create_utxos_default(wallet: &Wallet, online: &Online) -> u8 {
     _test_create_utxos(wallet, online, false, None, None, FEE_RATE)
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_create_utxos(
     wallet: &Wallet,
     online: &Online,
@@ -41,6 +44,7 @@ pub(crate) fn test_create_utxos(
     _test_create_utxos(wallet, online, up_to, num, size, fee_rate)
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_create_utxos_begin_result(
     wallet: &Wallet,
     online: &Online,
@@ -52,6 +56,7 @@ pub(crate) fn test_create_utxos_begin_result(
     wallet.create_utxos_begin(online.clone(), up_to, num, size, fee_rate)
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn _test_create_utxos(
     wallet: &Wallet,
     online: &Online,
@@ -105,6 +110,7 @@ pub(crate) fn test_delete_transfers_result(
     wallet.delete_transfers(batch_transfer_idx, no_asset_only)
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_drain_to_result(
     wallet: &Wallet,
     online: &Online,
@@ -119,6 +125,7 @@ pub(crate) fn test_drain_to_result(
     )
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_drain_to_begin_result(
     wallet: &Wallet,
     online: &Online,
@@ -134,22 +141,26 @@ pub(crate) fn test_drain_to_begin_result(
     )
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_drain_to_destroy(wallet: &Wallet, online: &Online, address: &str) -> String {
     wallet
         .drain_to(online.clone(), address.to_string(), true, FEE_RATE)
         .unwrap()
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_drain_to_keep(wallet: &Wallet, online: &Online, address: &str) -> String {
     wallet
         .drain_to(online.clone(), address.to_string(), false, FEE_RATE)
         .unwrap()
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_fail_transfers_all(wallet: &Wallet, online: &Online) -> bool {
     wallet.fail_transfers(online.clone(), None, false).unwrap()
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_fail_transfers_single(
     wallet: &Wallet,
     online: &Online,
@@ -186,6 +197,7 @@ pub(crate) fn test_get_asset_metadata_result(
     wallet.get_asset_metadata(asset_id.to_string())
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_get_btc_balance(wallet: &Wallet, online: &Online) -> BtcBalance {
     wallet.get_btc_balance(online.clone()).unwrap()
 }
@@ -198,23 +210,26 @@ pub(crate) fn test_get_wallet_dir(wallet: &Wallet) -> PathBuf {
     wallet.get_wallet_dir()
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_go_online(
     wallet: &mut Wallet,
     skip_consistency_check: bool,
-    electrum_url: Option<&str>,
+    indexer_url: Option<&str>,
 ) -> Online {
-    test_go_online_result(wallet, skip_consistency_check, electrum_url).unwrap()
+    test_go_online_result(wallet, skip_consistency_check, indexer_url).unwrap()
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_go_online_result(
     wallet: &mut Wallet,
     skip_consistency_check: bool,
-    electrum_url: Option<&str>,
+    indexer_url: Option<&str>,
 ) -> Result<Online, Error> {
-    let electrum = electrum_url.unwrap_or(ELECTRUM_URL).to_string();
+    let electrum = indexer_url.unwrap_or(ELECTRUM_URL).to_string();
     wallet.go_online(skip_consistency_check, electrum)
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_issue_asset_uda(
     wallet: &Wallet,
     online: &Online,
@@ -232,6 +247,7 @@ pub(crate) fn test_issue_asset_uda(
     .unwrap()
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_issue_asset_uda_result(
     wallet: &Wallet,
     online: &Online,
@@ -253,6 +269,7 @@ pub(crate) fn test_issue_asset_uda_result(
     )
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_issue_asset_cfa(
     wallet: &Wallet,
     online: &Online,
@@ -262,6 +279,7 @@ pub(crate) fn test_issue_asset_cfa(
     test_issue_asset_cfa_result(wallet, online, amounts, file_path).unwrap()
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_issue_asset_cfa_result(
     wallet: &Wallet,
     online: &Online,
@@ -283,6 +301,7 @@ pub(crate) fn test_issue_asset_cfa_result(
     )
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_issue_asset_nia(
     wallet: &Wallet,
     online: &Online,
@@ -291,6 +310,7 @@ pub(crate) fn test_issue_asset_nia(
     test_issue_asset_nia_result(wallet, online, amounts).unwrap()
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_issue_asset_nia_result(
     wallet: &Wallet,
     online: &Online,
@@ -340,6 +360,7 @@ pub(crate) fn test_list_unspents(
     wallet.list_unspents(online, settled_only).unwrap()
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_list_unspents_vanilla(
     wallet: &Wallet,
     online: &Online,
@@ -351,16 +372,19 @@ pub(crate) fn test_list_unspents_vanilla(
         .unwrap()
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_refresh_all(wallet: &Wallet, online: &Online) -> bool {
     wallet.refresh(online.clone(), None, vec![]).unwrap()
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_refresh_asset(wallet: &Wallet, online: &Online, asset_id: &str) -> bool {
     wallet
         .refresh(online.clone(), Some(asset_id.to_string()), vec![])
         .unwrap()
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_save_new_asset(
     wallet: &Wallet,
     online: &Online,
@@ -384,7 +408,7 @@ pub(crate) fn test_save_new_asset(
     let txid = test_send(wallet, online, &recipient_map);
     assert!(!txid.is_empty());
 
-    let txid_dir = wallet._transfers_dir().join(txid);
+    let txid_dir = wallet.transfers_dir().join(txid);
     let asset_transfer_dir = txid_dir.join(asset_id);
     let consignment_path = asset_transfer_dir.join(CONSIGNMENT_FILE);
 
@@ -394,18 +418,18 @@ pub(crate) fn test_save_new_asset(
     contract.bundles = none!();
     contract.terminals = none!();
     let minimal_contract_validated = match contract.validate(
-        &mut rcv_wallet._blockchain_resolver().unwrap(),
-        rcv_wallet._testnet(),
+        &mut rcv_wallet.blockchain_resolver().unwrap(),
+        rcv_wallet.testnet(),
     ) {
         Ok(consignment) => consignment,
         Err(consignment) => consignment,
     };
 
-    let mut runtime = rcv_wallet._rgb_runtime().unwrap();
+    let mut runtime = rcv_wallet.rgb_runtime().unwrap();
     runtime
         .import_contract(
             minimal_contract_validated.clone(),
-            &mut rcv_wallet._blockchain_resolver().unwrap(),
+            &mut rcv_wallet.blockchain_resolver().unwrap(),
         )
         .unwrap();
     let schema_id = minimal_contract_validated.schema_id().to_string();
@@ -420,6 +444,7 @@ pub(crate) fn test_save_new_asset(
         .unwrap();
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_send(
     wallet: &Wallet,
     online: &Online,
@@ -430,6 +455,7 @@ pub(crate) fn test_send(
         .txid
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_send_result(
     wallet: &Wallet,
     online: &Online,
@@ -444,6 +470,7 @@ pub(crate) fn test_send_result(
     )
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_send_begin_result(
     wallet: &Wallet,
     online: &Online,
@@ -458,6 +485,7 @@ pub(crate) fn test_send_begin_result(
     )
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_send_btc(
     wallet: &Wallet,
     online: &Online,
@@ -467,6 +495,7 @@ pub(crate) fn test_send_btc(
     test_send_btc_result(wallet, online, address, amount).unwrap()
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_send_btc_result(
     wallet: &Wallet,
     online: &Online,

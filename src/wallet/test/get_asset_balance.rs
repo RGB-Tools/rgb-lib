@@ -1,6 +1,7 @@
 use super::*;
 use serial_test::parallel;
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn success() {
@@ -43,6 +44,7 @@ fn success() {
     );
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn transfer_balances() {
@@ -306,7 +308,7 @@ fn transfer_balances() {
 #[test]
 #[parallel]
 fn fail() {
-    let (wallet, _online) = get_empty_wallet!();
+    let wallet = get_test_wallet(true, None);
 
     // bad asset_id returns an error
     let result = test_get_asset_balance_result(&wallet, "rgb1inexistent");

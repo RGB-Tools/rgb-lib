@@ -4,6 +4,7 @@ use rgbstd::stl::ProofOfReserves as RgbProofOfReserves;
 use sea_orm::EntityTrait;
 use serial_test::{parallel, serial};
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn success() {
@@ -280,6 +281,7 @@ fn success() {
     ));
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn fail() {
@@ -292,6 +294,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::AssetNotFound { asset_id: _ })));
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[serial]
 fn nia_with_media() {
@@ -318,9 +321,9 @@ fn nia_with_media() {
     MOCK_CONTRACT_DATA.lock().unwrap().push(attachment.clone());
     let asset = test_issue_asset_nia(&wallet_1, &online_1, None);
     let media_idx = wallet_1
-        ._copy_media_and_save(
+        .copy_media_and_save(
             fp,
-            &Media::from_attachment(&attachment, wallet_1._media_dir()),
+            &Media::from_attachment(&attachment, wallet_1.media_dir()),
         )
         .unwrap();
     let db_asset = wallet_1
@@ -385,6 +388,7 @@ fn nia_with_media() {
     assert_eq!(transfer_data.status, TransferStatus::Settled);
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[serial]
 fn nia_with_details() {
@@ -464,6 +468,7 @@ fn nia_with_details() {
     );
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[serial]
 fn uda_with_preview_and_reserves() {

@@ -1,6 +1,7 @@
 use super::*;
 use serial_test::parallel;
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn success() {
@@ -109,7 +110,7 @@ fn success() {
 fn fail() {
     initialize();
 
-    let (wallet, _online) = get_empty_wallet!();
+    let wallet = get_test_wallet(true, None);
 
     let result = test_get_asset_metadata_result(&wallet, "");
     assert!(matches!(result, Err(Error::AssetNotFound { asset_id: _ })));

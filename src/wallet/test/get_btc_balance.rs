@@ -1,6 +1,7 @@
 use super::*;
 use serial_test::parallel;
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn success() {
@@ -30,7 +31,7 @@ fn success() {
 
     // future balance after funding
     stop_mining();
-    fund_wallet(test_get_address(&wallet));
+    send_to_address(test_get_address(&wallet));
     let expected_balance = BtcBalance {
         vanilla: Balance {
             settled: 0,

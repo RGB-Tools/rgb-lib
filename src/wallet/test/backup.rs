@@ -3,6 +3,7 @@ use crate::wallet::backup::{restore_backup, ScryptParams};
 use scrypt::Params;
 use serial_test::parallel;
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn success() {
@@ -116,7 +117,7 @@ fn fail() {
     let backup_file_path = get_test_data_dir_path().join("test_backup_fail.rgb-lib_backup");
     let backup_file = backup_file_path.to_str().unwrap();
 
-    let (wallet, _online) = get_empty_wallet!();
+    let wallet = get_test_wallet(true, None);
 
     // backup
     wallet.backup(backup_file, "password").unwrap();
@@ -132,6 +133,7 @@ fn fail() {
     std::fs::remove_file(backup_file).unwrap_or_default();
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn double_restore() {
@@ -253,7 +255,7 @@ fn backup_info() {
     initialize();
 
     // wallets
-    let (wallet, _online) = get_empty_wallet!();
+    let wallet = get_test_wallet(true, None);
 
     // backup not required for new wallets
     let backup_required = wallet.backup_info().unwrap();

@@ -1,6 +1,7 @@
 use super::*;
 use serial_test::parallel;
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn success() {
@@ -62,6 +63,7 @@ fn success() {
     assert_eq!(unspents.len(), 0);
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn pending_witness_receive() {
@@ -115,6 +117,7 @@ fn pending_witness_receive() {
     assert_eq!(unspents.len(), 0);
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn fail() {
@@ -158,7 +161,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_HIGH));
 
     // no private keys
-    let (wallet, online) = get_funded_noutxo_wallet!(false, false);
+    let (wallet, online) = get_funded_noutxo_wallet(false, None);
     let result = test_drain_to_result(&wallet, &online, &test_get_address(&rcv_wallet), false);
     assert!(matches!(result, Err(Error::WatchOnly)));
 }

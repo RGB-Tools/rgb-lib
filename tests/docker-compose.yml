@@ -33,6 +33,19 @@ services:
       - 50003:60401
     depends_on:
       - bitcoind
+  esplora:
+    image: blockstream/esplora:956c74f42eb6ad803d8aedc272ba83d3aa6dcf5c
+    command: /srv/explorer/run.sh bitcoin-regtest explorer
+    environment:
+      DEBUG: verbose
+      NO_PRECACHE: 1
+      NO_ADDRESS_SEARCH: 1
+      NO_REGTEST_MINING: 1
+    volumes:
+      - ./tmp/esplora:/data
+    ports:
+      - 50004:50001
+      - 8094:80
   proxy:
     image: ghcr.io/rgb-tools/rgb-proxy-server:0.2.1
     ports:

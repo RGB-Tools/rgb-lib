@@ -19,8 +19,8 @@ use std::path::{Path, PathBuf};
 use crate::database::entities::backup_info::{
     ActiveModel as DbBackupInfoActMod, Model as DbBackupInfo,
 };
-use crate::utils::now;
-use crate::wallet::{setup_logger, InternalError, LOG_FILE};
+use crate::error::InternalError;
+use crate::utils::{now, setup_logger, LOG_FILE};
 use crate::{Error, Wallet};
 
 const BACKUP_BUFFER_LEN_ENCRYPT: usize = 239; // 255 max, leaving 16 for the checksum

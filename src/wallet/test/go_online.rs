@@ -4,6 +4,7 @@ use std::ffi::OsString;
 
 use crate::utils::RGB_RUNTIME_DIR;
 
+#[cfg(all(feature = "electrum", feature = "esplora"))]
 #[test]
 #[parallel]
 fn success() {
@@ -27,8 +28,13 @@ fn success() {
     // can go online again with a different electrum URL
     let result_3 = test_go_online_result(&mut wallet, false, Some(ELECTRUM_2_URL));
     assert!(result_3.is_ok());
+
+    // can go online again with esplora URL
+    let result_4 = test_go_online_result(&mut wallet, false, Some(ESPLORA_URL));
+    assert!(result_4.is_ok());
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 #[test]
 #[parallel]
 fn fail() {
@@ -38,35 +44,52 @@ fn fail() {
     let mut wallet = get_test_wallet(true, None);
     let mut wallet_testnet = get_test_wallet_with_net(true, None, BitcoinNetwork::Testnet);
 
-    // cannot go online with a broken electrum URL
+    // cannot go online with an invalid indexer URL
     let result = test_go_online_result(&mut wallet, false, Some("other:50001"));
-    let details = "I/O error";
-    assert!(matches!(result, Err(Error::InvalidElectrum { details: m }) if m == details ));
+    let details = "not a valid electrum nor esplora server";
+    assert!(matches!(result, Err(Error::InvalidIndexer { details: m }) if m == details ));
 
-    // cannot go online again with broken electrum URL
-    test_go_online(&mut wallet, false, None);
+    // cannot go online again with an invalid indexer URL
+    let indexer_url = if cfg!(feature = "electrum") {
+        ELECTRUM_URL
+    } else {
+        ESPLORA_URL
+    };
+    test_go_online(&mut wallet, false, Some(indexer_url));
     let result = test_go_online_result(&mut wallet, false, Some("other:50001"));
-    assert!(matches!(result, Err(Error::InvalidElectrum { details: m }) if m == details ));
+    assert!(matches!(result, Err(Error::InvalidIndexer { details: m }) if m == details ));
 
-    // wrong network
-    let result = test_go_online_result(&mut wallet_testnet, false, None);
-    let details = "The provided electrum URL is for a network different from the wallet's one";
-    assert!(matches!(result, Err(Error::InvalidElectrum { details: m }) if m == details ));
+    #[cfg(feature = "electrum")]
+    {
+        // electrs wrong network
+        let result = test_go_online_result(&mut wallet_testnet, false, None);
+        let details = "indexer is for a network different from the wallet's one";
+        assert!(matches!(result, Err(Error::InvalidIndexer { details: m }) if m == details ));
 
-    // unsupported electrs variant
-    let result = test_go_online_result(&mut wallet, false, Some(ELECTRUM_BLOCKSTREAM_URL));
-    let details = "Electrum server error: \"verbose transactions are currently unsupported\"";
-    assert!(matches!(result, Err(Error::InvalidElectrum { details: m }) if m == details ));
+        // unsupported electrs variant
+        let result = test_go_online_result(&mut wallet, false, Some(ELECTRUM_BLOCKSTREAM_URL));
+        let details = "verbose transactions are currently unsupported";
+        assert!(matches!(result, Err(Error::InvalidElectrum { details: m }) if m == details ));
+    }
+
+    #[cfg(feature = "esplora")]
+    {
+        // esplora wrong network
+        let result = test_go_online_result(&mut wallet_testnet, false, Some(ESPLORA_URL));
+        let details = "indexer is for a network different from the wallet's one";
+        assert!(matches!(result, Err(Error::InvalidIndexer { details: m }) if m == details ));
+    }
 
     // bad online object
     let wrong_online = Online {
         id: 1,
-        electrum_url: wallet.online_data.as_ref().unwrap().electrum_url.clone(),
+        indexer_url: indexer_url.to_string(),
     };
-    let result = wallet._check_online(wrong_online);
+    let result = wallet.check_online(wrong_online);
     assert!(matches!(result, Err(Error::CannotChangeOnline)));
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn consistency_check_fail_bitcoins() {
@@ -161,6 +184,7 @@ fn consistency_check_fail_bitcoins() {
     assert!(matches!(result, Err(Error::Inconsistency { details: e }) if e == err));
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn consistency_check_fail_utxos() {
@@ -255,6 +279,7 @@ fn consistency_check_fail_utxos() {
     assert!(matches!(result, Err(Error::Inconsistency { details: e }) if e == err));
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn consistency_check_fail_asset_ids() {
@@ -333,6 +358,7 @@ fn consistency_check_fail_asset_ids() {
     assert!(matches!(result, Err(Error::Inconsistency { details: e }) if e == err));
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn consistency_check_fail_media() {
@@ -413,6 +439,7 @@ fn consistency_check_fail_media() {
     assert!(matches!(result, Err(Error::Inconsistency { details: e }) if e == err));
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn on_off_online() {
@@ -432,6 +459,7 @@ fn on_off_online() {
     test_go_online(&mut wallet, false, None);
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn offline() {
@@ -441,7 +469,7 @@ fn offline() {
     let wallet = get_test_wallet(true, Some(MAX_ALLOCATIONS_PER_UTXO));
     let online = Online {
         id: 0,
-        electrum_url: s!(""),
+        indexer_url: s!(""),
     };
 
     // the online check should report that the wallet is offline

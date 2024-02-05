@@ -21,7 +21,6 @@ base64 = { version = "0.22.0", default-features = false, features = [
     "std",
 ] }
 bdk = { version = "0.29", default-features = false, features = [
-    "electrum",
     "key-value-db",
     "keys-bip39",
     "std",
@@ -31,7 +30,7 @@ chacha20poly1305 = { version = "0.10.1", default-features = false, features = [
     "alloc",
     "stream",
 ] }
-electrum-client = { version = "0.19.0", default-features = false, features = [
+electrum-client = { version = "0.19.0", optional = true, default-features = false, features = [
     "proxy",
     "use-rustls",
 ] }
@@ -80,7 +79,7 @@ zip = { version = "0.6.6", default-features = false, features = [
 amplify = { version = "=4.6.0", default-features = false }
 bp-consensus = { version = "=0.11.0-beta.5", default-features = false }
 bp-core = { version = "=0.11.0-beta.5", default-features = false }
-bp-electrum = { version = "=0.11.0-beta.5", default-features = false, features = [
+bp-electrum = { version = "=0.11.0-beta.5", optional = true, default-features = false, features = [
     "proxy",
     "use-rustls",
 ] }
@@ -94,7 +93,6 @@ rgb-invoice = { version = "=0.11.0-beta.5", default-features = false }
 rgb-persist-fs = { version = "=0.11.1", default-features = false }
 rgb-psbt = { version = "=0.11.0-beta.5", default-features = false }
 rgb-runtime = { version = "=0.11.0-beta.5", default-features = false, features = [
-    "electrum",
     "serde",
 ] }
 rgb-schemata = { version = "=0.11.0-beta.5", default-features = false }
@@ -109,3 +107,17 @@ lazy_static = { version = "1.4.0", default-features = false }
 once_cell = { version = "1.19.0", default-features = false }
 regex = { version = "1.10.4", default-features = false }
 serial_test = { version = "3.0.0", default-features = false }
+
+[features]
+default = ["electrum"]
+all = ["electrum", "esplora"]
+electrum = [
+    "bdk/electrum",
+    "bp-electrum",
+    "electrum-client",
+    "rgb-runtime/electrum",
+]
+esplora = [
+    "bdk/use-esplora-blocking",
+    "rgb-runtime/esplora_blocking",
+]

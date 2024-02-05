@@ -20,6 +20,15 @@ pub(crate) fn get_test_data_dir_path() -> PathBuf {
     PathBuf::from(get_test_data_dir_string())
 }
 
+pub(crate) fn create_test_data_dir() -> PathBuf {
+    initialize();
+    let test_data_dir = get_test_data_dir_path();
+    if !test_data_dir.exists() {
+        fs::create_dir_all(&test_data_dir).unwrap();
+    }
+    test_data_dir
+}
+
 pub(crate) fn get_test_wallet_data(data_dir: &str, pubkey: &str, mnemonic: &str) -> WalletData {
     WalletData {
         data_dir: data_dir.to_string(),
@@ -38,14 +47,14 @@ pub(crate) fn get_test_wallet_with_net(
     max_allocations_per_utxo: Option<u32>,
     bitcoin_network: BitcoinNetwork,
 ) -> Wallet {
-    fs::create_dir_all(get_test_data_dir_path()).unwrap();
+    create_test_data_dir();
 
     let keys = generate_keys(bitcoin_network);
     let mut mnemonic = None;
     if private_keys {
         mnemonic = Some(keys.mnemonic)
     }
-    Wallet::new(WalletData {
+    let wallet = Wallet::new(WalletData {
         data_dir: get_test_data_dir_string(),
         bitcoin_network,
         database_type: DatabaseType::Sqlite,
@@ -54,7 +63,9 @@ pub(crate) fn get_test_wallet_with_net(
         mnemonic,
         vanilla_keychain: None,
     })
-    .unwrap()
+    .unwrap();
+    println!("wallet directory: {:?}", test_get_wallet_dir(&wallet));
+    wallet
 }
 
 // return a regtest wallet for testing
@@ -66,39 +77,51 @@ pub(crate) fn get_test_wallet(private_keys: bool, max_allocations_per_utxo: Opti
     )
 }
 
-pub(crate) fn get_empty_wallet(print_log: bool, private_keys: bool) -> (Wallet, Online) {
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) fn get_empty_wallet(
+    private_keys: bool,
+    indexer_url: Option<String>,
+) -> (Wallet, Online) {
     let mut wallet = get_test_wallet(private_keys, None);
-    if print_log {
-        println!("wallet directory: {:?}", test_get_wallet_dir(&wallet));
-    }
-    let online = wallet.go_online(true, ELECTRUM_URL.to_string()).unwrap();
+    let online = wallet
+        .go_online(true, indexer_url.unwrap_or(ELECTRUM_URL.to_string()))
+        .unwrap();
     (wallet, online)
 }
 
-pub(crate) fn get_funded_noutxo_wallet(print_log: bool, private_keys: bool) -> (Wallet, Online) {
-    let (wallet, online) = get_empty_wallet(print_log, private_keys);
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) fn get_funded_noutxo_wallet(
+    private_keys: bool,
+    indexer_url: Option<String>,
+) -> (Wallet, Online) {
+    let (wallet, online) = get_empty_wallet(private_keys, indexer_url);
     fund_wallet(wallet.get_address().unwrap());
     (wallet, online)
 }
 
-pub(crate) fn get_funded_wallet(print_log: bool, private_keys: bool) -> (Wallet, Online) {
-    let (wallet, online) = get_funded_noutxo_wallet(print_log, private_keys);
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) fn get_funded_wallet(
+    private_keys: bool,
+    indexer_url: Option<String>,
+) -> (Wallet, Online) {
+    let (wallet, online) = get_funded_noutxo_wallet(private_keys, indexer_url);
     test_create_utxos_default(&wallet, &online);
     (wallet, online)
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn drain_wallet(wallet: &Wallet, online: &Online) {
     let rcv_wallet = get_test_wallet(false, None);
     test_drain_to_destroy(wallet, online, &rcv_wallet.get_address().unwrap());
 }
 
-pub(crate) fn fund_wallet(address: String) {
+pub(crate) fn send_to_address(address: String) {
     let status = Command::new("docker")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .arg("compose")
-        .args(_bitcoin_cli())
+        .args(bitcoin_cli())
         .arg("-rpcwallet=miner")
         .arg("sendtoaddress")
         .arg(address)
@@ -106,6 +129,11 @@ pub(crate) fn fund_wallet(address: String) {
         .status()
         .expect("failed to fund wallet");
     assert!(status.success());
+}
+
+pub(crate) fn fund_wallet(address: String) {
+    send_to_address(address);
+    mine(false);
 }
 
 pub(crate) fn check_test_transfer_status_recipient(
@@ -353,6 +381,7 @@ pub(crate) fn list_test_unspents(wallet: &Wallet, msg: &str) -> Vec<Unspent> {
     unspents
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn wait_for_btc_balance(
     wallet: &Wallet,
     online: &Online,

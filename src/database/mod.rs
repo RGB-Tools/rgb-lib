@@ -8,7 +8,7 @@ use std::str::FromStr;
 
 use crate::error::InternalError;
 use crate::utils::now;
-use crate::wallet::{Balance, Outpoint, TransferKind};
+use crate::wallet::offline::{Balance, Outpoint, TransferKind};
 use crate::Error;
 
 pub(crate) mod entities;
@@ -59,6 +59,7 @@ pub(crate) struct DbAssetTransferData {
 }
 
 impl DbBatchTransfer {
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn incoming(
         &self,
         asset_transfers: &[DbAssetTransfer],
@@ -86,6 +87,7 @@ impl DbBatchTransfer {
             .collect())
     }
 
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn get_transfers(
         &self,
         asset_transfers: &[DbAssetTransfer],
@@ -113,6 +115,7 @@ impl DbBatchTransfer {
         self.status.failed()
     }
 
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn pending(&self) -> bool {
         self.status.pending()
     }
@@ -121,6 +124,7 @@ impl DbBatchTransfer {
         self.status.waiting_confirmations()
     }
 
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn waiting_counterparty(&self) -> bool {
         self.status.waiting_counterparty()
     }
@@ -151,6 +155,7 @@ pub(crate) struct DbData {
 }
 
 impl DbPendingWitnessOutpoint {
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn outpoint(&self) -> Outpoint {
         Outpoint {
             txid: self.txid.to_string(),
@@ -224,6 +229,7 @@ pub(crate) struct LocalUnspent {
 }
 
 impl LocalUnspent {
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn outpoint(&self) -> Outpoint {
         self.utxo.outpoint()
     }
@@ -243,6 +249,7 @@ pub(crate) enum LocalRecipientData {
 }
 
 impl LocalRecipientData {
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn vout(&self) -> Option<u32> {
         match &self {
             LocalRecipientData::Blind(_) => None,
@@ -352,6 +359,7 @@ impl RgbLibDatabase {
         Ok(res.last_insert_id)
     }
 
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn set_pending_witness_outpoint(
         &self,
         pending_witness_outpoint: DbPendingWitnessOutpointActMod,
@@ -410,11 +418,13 @@ impl RgbLibDatabase {
         Ok(res.last_insert_id)
     }
 
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn set_txo(&self, txo: DbTxoActMod) -> Result<i32, InternalError> {
         let res = block_on(Txo::insert(txo).exec(self.get_connection()))?;
         Ok(res.last_insert_id)
     }
 
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn set_wallet_transaction(
         &self,
         wallet_transaction: DbWalletTransactionActMod,
@@ -424,11 +434,13 @@ impl RgbLibDatabase {
         Ok(res.last_insert_id)
     }
 
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn update_coloring(&self, coloring: DbColoringActMod) -> Result<(), InternalError> {
         block_on(Coloring::update(coloring).exec(self.get_connection()))?;
         Ok(())
     }
 
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn update_transfer(
         &self,
         transfer: &mut DbTransferActMod,
@@ -438,6 +450,7 @@ impl RgbLibDatabase {
         )?)
     }
 
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn update_asset_transfer(
         &self,
         asset_transfer: &mut DbAssetTransferActMod,
@@ -456,6 +469,7 @@ impl RgbLibDatabase {
         )?)
     }
 
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn update_batch_transfer(
         &self,
         batch_transfer: &mut DbBatchTransferActMod,
@@ -467,6 +481,7 @@ impl RgbLibDatabase {
         )?)
     }
 
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn update_transfer_transport_endpoint(
         &self,
         transfer_transport_endpoint: &mut DbTransferTransportEndpointActMod,
@@ -477,6 +492,7 @@ impl RgbLibDatabase {
         )?)
     }
 
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn update_txo(&self, txo: DbTxoActMod) -> Result<(), InternalError> {
         block_on(Txo::update(txo).exec(self.get_connection()))?;
         Ok(())
@@ -504,6 +520,7 @@ impl RgbLibDatabase {
         Ok(())
     }
 
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn del_pending_witness_outpoint(
         &self,
         outpoint: Outpoint,
@@ -517,6 +534,7 @@ impl RgbLibDatabase {
         Ok(())
     }
 
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn del_pending_witness_script(&self, script: String) -> Result<(), InternalError> {
         block_on(
             PendingWitnessScript::delete_many()
@@ -543,6 +561,7 @@ impl RgbLibDatabase {
         Ok(block_on(BackupInfo::find().one(self.get_connection()))?)
     }
 
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn get_media(&self, media_idx: i32) -> Result<Option<DbMedia>, InternalError> {
         Ok(block_on(
             Media::find()
@@ -573,6 +592,7 @@ impl RgbLibDatabase {
         )?)
     }
 
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn get_txo(&self, outpoint: &Outpoint) -> Result<Option<DbTxo>, InternalError> {
         Ok(block_on(
             Txo::find()
@@ -602,6 +622,7 @@ impl RgbLibDatabase {
         Ok(block_on(Media::find().all(self.get_connection()))?)
     }
 
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn iter_pending_witness_outpoints(
         &self,
     ) -> Result<Vec<DbPendingWitnessOutpoint>, InternalError> {
@@ -610,6 +631,7 @@ impl RgbLibDatabase {
         )?)
     }
 
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn iter_pending_witness_scripts(
         &self,
     ) -> Result<Vec<DbPendingWitnessScript>, InternalError> {
@@ -812,6 +834,7 @@ impl RgbLibDatabase {
         })
     }
 
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn get_asset_ids(&self) -> Result<Vec<String>, InternalError> {
         Ok(self.iter_assets()?.iter().map(|a| a.id.clone()).collect())
     }
@@ -835,6 +858,7 @@ impl RgbLibDatabase {
         }
     }
 
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn get_incoming_transfer(
         &self,
         batch_transfer_data: &DbBatchTransferData,

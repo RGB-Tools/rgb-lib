@@ -1,6 +1,7 @@
 use super::*;
 use serial_test::parallel;
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn success() {
@@ -197,6 +198,7 @@ fn success() {
     ));
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn batch_success() {
@@ -298,6 +300,7 @@ fn batch_success() {
         .unwrap();
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn fail() {
@@ -426,6 +429,7 @@ fn fail() {
     ));
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn batch_fail() {
