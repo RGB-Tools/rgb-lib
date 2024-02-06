@@ -19,8 +19,7 @@ use bdk::database::{
     AnyDatabase, BatchDatabase, ConfigurableDatabase as BdkConfigurableDatabase, MemoryDatabase,
 };
 use bdk::descriptor::IntoWalletDescriptor;
-use bdk::keys::bip39::{Language, Mnemonic};
-use bdk::keys::{DerivableKey, ExtendedKey};
+use bdk::keys::ExtendedKey;
 use bdk::wallet::AddressIndex;
 pub use bdk::BlockTime;
 use bdk::{FeeRate, KeychainKind, LocalUtxo, SignOptions, SyncOptions, Wallet as BdkWallet};
@@ -105,9 +104,9 @@ use crate::database::{
 };
 use crate::error::{Error, InternalError};
 use crate::utils::{
-    calculate_descriptor_from_xprv, calculate_descriptor_from_xpub, get_genesis_hash,
-    get_valid_txid_for_network, load_rgb_runtime, now, setup_logger, BitcoinNetwork, RgbRuntime,
-    LOG_FILE,
+    calculate_descriptor_from_xprv, calculate_descriptor_from_xpub,
+    derive_account_xprv_from_mnemonic, get_genesis_hash, get_valid_txid_for_network,
+    get_xpub_from_xprv, load_rgb_runtime, now, setup_logger, BitcoinNetwork, RgbRuntime, LOG_FILE,
 };
 
 #[cfg(test)]
@@ -1216,7 +1215,7 @@ pub struct WalletData {
     pub database_type: DatabaseType,
     /// The max number of RGB allocations allowed per UTXO
     pub max_allocations_per_utxo: u32,
-    /// Wallet xPub
+    /// Wallet account-level xPub
     pub pubkey: String,
     /// Wallet mnemonic phrase
     pub mnemonic: Option<String>,
@@ -1292,25 +1291,13 @@ impl Wallet {
         let bdk_database =
             AnyDatabase::from_config(&bdk_config.into()).map_err(InternalError::from)?;
         let bdk_wallet = if let Some(mnemonic) = wdata.mnemonic {
-            let mnemonic = Mnemonic::parse_in(Language::English, mnemonic)?;
-            let xkey: ExtendedKey = mnemonic
-                .clone()
-                .into_extended_key()
-                .expect("a valid key should have been provided");
-            let xpub_from_mnemonic = &xkey.into_xpub(bdk_network, &Secp256k1::new());
-            if *xpub_from_mnemonic != xpub {
+            let account_xprv = derive_account_xprv_from_mnemonic(wdata.bitcoin_network, &mnemonic)?;
+            let account_xpub = get_xpub_from_xprv(&account_xprv);
+            if account_xpub != xpub {
                 return Err(Error::InvalidBitcoinKeys);
             }
-            let xkey: ExtendedKey = mnemonic
-                .into_extended_key()
-                .expect("a valid key should have been provided");
-            let xprv = xkey
-                .into_xprv(bdk_network)
-                .expect("should be possible to get an extended private key");
-            let descriptor =
-                calculate_descriptor_from_xprv(xprv, wdata.bitcoin_network, KEYCHAIN_RGB_OPRET);
-            let change_descriptor =
-                calculate_descriptor_from_xprv(xprv, wdata.bitcoin_network, vanilla_keychain);
+            let descriptor = calculate_descriptor_from_xprv(account_xprv, KEYCHAIN_RGB_OPRET)?;
+            let change_descriptor = calculate_descriptor_from_xprv(account_xprv, vanilla_keychain)?;
             BdkWallet::new(
                 &descriptor,
                 Some(&change_descriptor),
@@ -1319,10 +1306,8 @@ impl Wallet {
             )
             .map_err(InternalError::from)?
         } else {
-            let descriptor_pub =
-                calculate_descriptor_from_xpub(xpub, wdata.bitcoin_network, KEYCHAIN_RGB_OPRET)?;
-            let change_descriptor_pub =
-                calculate_descriptor_from_xpub(xpub, wdata.bitcoin_network, vanilla_keychain)?;
+            let descriptor_pub = calculate_descriptor_from_xpub(xpub, KEYCHAIN_RGB_OPRET)?;
+            let change_descriptor_pub = calculate_descriptor_from_xpub(xpub, vanilla_keychain)?;
             BdkWallet::new(
                 &descriptor_pub,
                 Some(&change_descriptor_pub),

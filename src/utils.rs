@@ -8,8 +8,11 @@ use bdk::bitcoin::bip32::{DerivationPath, ExtendedPubKey, KeySource};
 use bdk::bitcoin::secp256k1::Secp256k1;
 use bdk::bitcoin::Network as BdkNetwork;
 use bdk::descriptor::Segwitv0;
-use bdk::keys::DescriptorKey::Public;
-use bdk::keys::{DerivableKey, DescriptorKey};
+use bdk::keys::bip39::{Language, Mnemonic};
+use bdk::keys::DescriptorKey::{Public, Secret};
+use bdk::keys::{DerivableKey, DescriptorKey, DescriptorSecretKey};
+use bdk::miniscript::DescriptorPublicKey;
+use bitcoin::bip32::ChildNumber;
 use bp::{Outpoint, Txid};
 use commit_verify::mpc::MerkleBlock;
 use rgb::Runtime;
@@ -162,35 +165,56 @@ pub(crate) fn get_valid_txid_for_network(bitcoin_network: &BitcoinNetwork) -> St
     }
 }
 
-pub(crate) fn _get_derivation_path(
-    watch_only: bool,
-    bitcoin_network: BitcoinNetwork,
-    keychain: u8,
-) -> String {
-    let coin_type = i32::from(bitcoin_network != BitcoinNetwork::Mainnet);
-    let hardened = if watch_only { "" } else { "'" };
-    let child_number = if watch_only { "" } else { "/*" };
-    let master = if watch_only { "m" } else { "" };
-    format!("{master}/{PURPOSE}{hardened}/{coin_type}{hardened}/{ACCOUNT}{hardened}/{keychain}{child_number}")
+fn get_coin_type(bitcoin_network: BitcoinNetwork) -> u32 {
+    u32::from(bitcoin_network != BitcoinNetwork::Mainnet)
 }
 
-pub(crate) fn calculate_descriptor_from_xprv(
+pub(crate) fn derive_account_xprv_from_mnemonic(
+    bitcoin_network: BitcoinNetwork,
+    mnemonic: &str,
+) -> Result<ExtendedPrivKey, Error> {
+    let coin_type = get_coin_type(bitcoin_network);
+    let account_derivation_path = vec![
+        ChildNumber::from_hardened_idx(PURPOSE as u32).unwrap(),
+        ChildNumber::from_hardened_idx(coin_type).unwrap(),
+        ChildNumber::from_hardened_idx(ACCOUNT as u32).unwrap(),
+    ];
+    let mnemonic = Mnemonic::parse_in(Language::English, mnemonic.to_string())?;
+    let master_xprv =
+        ExtendedPrivKey::new_master(bitcoin_network.into(), &mnemonic.to_seed("")).unwrap();
+    Ok(master_xprv.derive_priv(&Secp256k1::new(), &account_derivation_path)?)
+}
+
+pub(crate) fn get_xpub_from_xprv(xprv: &ExtendedPrivKey) -> ExtendedPubKey {
+    ExtendedPubKey::from_priv(&Secp256k1::new(), xprv)
+}
+
+fn get_descriptor_priv_key(
     xprv: ExtendedPrivKey,
-    bitcoin_network: BitcoinNetwork,
     keychain: u8,
-) -> String {
-    let derivation_path = _get_derivation_path(false, bitcoin_network, keychain);
-    format!("wpkh({xprv}{derivation_path})")
+) -> Result<DescriptorSecretKey, Error> {
+    let derivation_path = vec![ChildNumber::from_normal_idx(keychain as u32).unwrap()];
+    let path = DerivationPath::from_iter(derivation_path.clone());
+    let der_xprv = &xprv
+        .derive_priv(&Secp256k1::new(), &path)
+        .expect("provided path should be derivable in an xprv");
+    let origin_prv: KeySource = (xprv.fingerprint(&Secp256k1::new()), path);
+    let der_xprv_desc_key: DescriptorKey<Segwitv0> = der_xprv
+        .into_descriptor_key(Some(origin_prv), DerivationPath::default())
+        .expect("should be able to convert xprv in a descriptor key");
+    if let Secret(key, _, _) = der_xprv_desc_key {
+        Ok(key)
+    } else {
+        Err(InternalError::Unexpected)?
+    }
 }
 
-pub(crate) fn calculate_descriptor_from_xpub(
+fn get_descriptor_pub_key(
     xpub: ExtendedPubKey,
-    bitcoin_network: BitcoinNetwork,
     keychain: u8,
-) -> Result<String, Error> {
-    let derivation_path = _get_derivation_path(true, bitcoin_network, keychain);
-    let path =
-        DerivationPath::from_str(&derivation_path).expect("derivation path should be well-formed");
+) -> Result<DescriptorPublicKey, Error> {
+    let derivation_path = vec![ChildNumber::from_normal_idx(keychain as u32).unwrap()];
+    let path = DerivationPath::from_iter(derivation_path.clone());
     let der_xpub = &xpub
         .derive_pub(&Secp256k1::new(), &path)
         .expect("provided path should be derivable in an xpub");
@@ -199,10 +223,26 @@ pub(crate) fn calculate_descriptor_from_xpub(
         .into_descriptor_key(Some(origin_pub), DerivationPath::default())
         .expect("should be able to convert xpub in a descriptor key");
     if let Public(key, _, _) = der_xpub_desc_key {
-        Ok(format!("wpkh({key})"))
+        Ok(key)
     } else {
         Err(InternalError::Unexpected)?
     }
+}
+
+pub(crate) fn calculate_descriptor_from_xprv(
+    xprv: ExtendedPrivKey,
+    keychain: u8,
+) -> Result<String, Error> {
+    let key = get_descriptor_priv_key(xprv, keychain)?;
+    Ok(format!("wpkh({key})"))
+}
+
+pub(crate) fn calculate_descriptor_from_xpub(
+    xpub: ExtendedPubKey,
+    keychain: u8,
+) -> Result<String, Error> {
+    let key = get_descriptor_pub_key(xpub, keychain)?;
+    Ok(format!("wpkh({key})"))
 }
 
 fn convert_time_fmt_error(cause: time::error::Format) -> io::Error {

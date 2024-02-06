@@ -1,18 +1,8 @@
 use super::*;
-use crate::utils::{ACCOUNT, PURPOSE};
 use bdk::descriptor::Descriptor;
 use serial_test::parallel;
 
 fn check_wallet(wallet: &Wallet, network: BitcoinNetwork, keychain_vanilla: Option<u8>) {
-    let hardened = wallet.wallet_data.mnemonic.is_some();
-    let mut coin_type = i32::from(network != BitcoinNetwork::Mainnet).to_string();
-    let mut purpose = PURPOSE.to_string();
-    let mut account = ACCOUNT.to_string();
-    if hardened {
-        coin_type = format!("{coin_type}'");
-        purpose = format!("{purpose}'");
-        account = format!("{account}'");
-    }
     let external_descriptor = &wallet
         .bdk_wallet
         .get_descriptor_for_keychain(KeychainKind::External);
@@ -20,10 +10,7 @@ fn check_wallet(wallet: &Wallet, network: BitcoinNetwork, keychain_vanilla: Opti
         Descriptor::Wpkh(ref wpkh) => {
             let full_derivation_path = wpkh.as_inner().full_derivation_path().unwrap().to_string();
             let split: Vec<&str> = full_derivation_path.split('/').collect();
-            assert_eq!(split[1], purpose);
-            assert_eq!(split[2], coin_type);
-            assert_eq!(split[3], account);
-            assert_eq!(split[4], KEYCHAIN_RGB_OPRET.to_string());
+            assert_eq!(split[1], KEYCHAIN_RGB_OPRET.to_string());
         }
         _ => panic!("wrong descriptor type"),
     }
@@ -34,11 +21,8 @@ fn check_wallet(wallet: &Wallet, network: BitcoinNetwork, keychain_vanilla: Opti
         Descriptor::Wpkh(ref wpkh) => {
             let full_derivation_path = wpkh.as_inner().full_derivation_path().unwrap().to_string();
             let split: Vec<&str> = full_derivation_path.split('/').collect();
-            assert_eq!(split[1], purpose);
-            assert_eq!(split[2], coin_type);
-            assert_eq!(split[3], account);
             assert_eq!(
-                split[4],
+                split[1],
                 keychain_vanilla.unwrap_or(KEYCHAIN_BTC).to_string()
             );
         }
@@ -68,7 +52,7 @@ fn success() {
         bitcoin_network,
         database_type: DatabaseType::Sqlite,
         max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
-        pubkey: keys.xpub.clone(),
+        pubkey: keys.account_xpub,
         mnemonic: Some(keys.mnemonic),
         vanilla_keychain,
     })
@@ -219,4 +203,63 @@ fn re_instantiate_wallet() {
     wallet_data.mnemonic = None;
     let mut wallet = Wallet::new(wallet_data).unwrap();
     let _online = wallet.go_online(true, ELECTRUM_URL.to_string()).unwrap();
+}
+
+#[test]
+#[parallel]
+fn watch_only() {
+    initialize();
+
+    fs::create_dir_all(get_test_data_dir_path()).unwrap();
+    let bitcoin_network = BitcoinNetwork::Regtest;
+    let keys = generate_keys(bitcoin_network);
+
+    // watch-only wallet
+    let mut wallet_watch = Wallet::new(WalletData {
+        data_dir: get_test_data_dir_string(),
+        bitcoin_network,
+        database_type: DatabaseType::Sqlite,
+        max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
+        pubkey: keys.account_xpub.clone(),
+        mnemonic: None,
+        vanilla_keychain: None,
+    })
+    .unwrap();
+    let online_watch = wallet_watch
+        .go_online(true, ELECTRUM_URL.to_string())
+        .unwrap();
+
+    // signer wallet
+    let wallet_sign = Wallet::new(WalletData {
+        data_dir: get_test_data_dir_string(),
+        bitcoin_network,
+        database_type: DatabaseType::Sqlite,
+        max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
+        pubkey: keys.account_xpub,
+        mnemonic: Some(keys.mnemonic),
+        vanilla_keychain: None,
+    })
+    .unwrap();
+
+    // check generated addresses are the same
+    let address_watch = wallet_watch.get_address().unwrap();
+    let address_signer = wallet_sign.get_address().unwrap();
+    assert_eq!(address_watch, address_signer);
+
+    // fund wallet
+    fund_wallet(address_watch);
+    mine(false);
+    let unspents = test_list_unspents(&wallet_watch, Some(&online_watch), false);
+    assert_eq!(unspents.len(), 1);
+
+    // create UTXOs
+    let unsigned_psbt =
+        test_create_utxos_begin_result(&wallet_watch, &online_watch, false, None, None, FEE_RATE)
+            .unwrap();
+    let signed_psbt = wallet_sign.sign_psbt(unsigned_psbt, None).unwrap();
+    wallet_watch
+        .create_utxos_end(online_watch.clone(), signed_psbt)
+        .unwrap();
+    let unspents = test_list_unspents(&wallet_watch, Some(&online_watch), false);
+    assert_eq!(unspents.len(), UTXO_NUM as usize + 1);
 }

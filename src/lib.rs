@@ -49,7 +49,7 @@
 //!         bitcoin_network: BitcoinNetwork::Regtest,
 //!         database_type: DatabaseType::Sqlite,
 //!         max_allocations_per_utxo: 5,
-//!         pubkey: keys.xpub,
+//!         pubkey: keys.account_xpub,
 //!         mnemonic: Some(keys.mnemonic),
 //!         vanilla_keychain: None,
 //!     };

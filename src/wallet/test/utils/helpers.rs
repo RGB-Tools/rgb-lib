@@ -50,7 +50,7 @@ pub(crate) fn get_test_wallet_with_net(
         bitcoin_network,
         database_type: DatabaseType::Sqlite,
         max_allocations_per_utxo: max_allocations_per_utxo.unwrap_or(MAX_ALLOCATIONS_PER_UTXO),
-        pubkey: keys.xpub,
+        pubkey: keys.account_xpub,
         mnemonic,
         vanilla_keychain: None,
     })

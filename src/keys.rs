@@ -8,6 +8,7 @@ use bdk::keys::bip39::{Language, Mnemonic, WordCount};
 use bdk::keys::{DerivableKey, ExtendedKey, GeneratableKey};
 use serde::{Deserialize, Serialize};
 
+use crate::utils::{derive_account_xprv_from_mnemonic, get_xpub_from_xprv};
 use crate::{BitcoinNetwork, Error};
 
 /// A set of Bitcoin keys used by the wallet.
@@ -15,10 +16,12 @@ use crate::{BitcoinNetwork, Error};
 pub struct Keys {
     /// Mnemonic phrase
     pub mnemonic: String,
-    /// xPub corresponding to the mnemonic phrase
+    /// Master xPub
     pub xpub: String,
     /// Fingerprint of the xPub
     pub xpub_fingerprint: String,
+    /// Account-level xPub
+    pub account_xpub: String,
 }
 
 /// Generate a set of [`Keys`] for the given Bitcoin network.
@@ -31,16 +34,22 @@ pub fn generate_keys(bitcoin_network: BitcoinNetwork) -> Keys {
         .into_extended_key()
         .expect("a valid key should have been provided");
     let xpub = &xkey.into_xpub(bdk_network, &Secp256k1::new());
+    let mnemonic_str = mnemonic.to_string();
+    let account_xprv = derive_account_xprv_from_mnemonic(bitcoin_network, &mnemonic_str).unwrap();
+    let account_xpub = get_xpub_from_xprv(&account_xprv);
     Keys {
-        mnemonic: mnemonic.to_string(),
+        mnemonic: mnemonic_str,
         xpub: xpub.clone().to_string(),
         xpub_fingerprint: xpub.fingerprint().to_string(),
+        account_xpub: account_xpub.to_string(),
     }
 }
 
 /// Recreate a set of [`Keys`] from the given mnemonic phrase.
 pub fn restore_keys(bitcoin_network: BitcoinNetwork, mnemonic: String) -> Result<Keys, Error> {
     let bdk_network = BdkNetwork::from(bitcoin_network);
+    let account_xprv = derive_account_xprv_from_mnemonic(bitcoin_network, &mnemonic).unwrap();
+    let account_xpub = get_xpub_from_xprv(&account_xprv);
     let mnemonic = Mnemonic::parse_in(Language::English, mnemonic)?;
     let xkey: ExtendedKey = mnemonic
         .clone()
@@ -51,6 +60,7 @@ pub fn restore_keys(bitcoin_network: BitcoinNetwork, mnemonic: String) -> Result
         mnemonic: mnemonic.to_string(),
         xpub: xpub.clone().to_string(),
         xpub_fingerprint: xpub.fingerprint().to_string(),
+        account_xpub: account_xpub.to_string(),
     })
 }
 
@@ -66,12 +76,15 @@ mod test {
             mnemonic,
             xpub,
             xpub_fingerprint,
+            account_xpub,
         } = generate_keys(BitcoinNetwork::Regtest);
 
         assert!(Mnemonic::from_str(&mnemonic).is_ok());
         let pubkey = ExtendedPubKey::from_str(&xpub);
         assert!(pubkey.is_ok());
         assert_eq!(pubkey.unwrap().fingerprint().to_string(), xpub_fingerprint);
+        let account_pubkey = ExtendedPubKey::from_str(&account_xpub);
+        assert!(account_pubkey.is_ok());
     }
 
     #[test]
@@ -81,10 +94,12 @@ mod test {
             mnemonic,
             xpub,
             xpub_fingerprint,
+            account_xpub,
         } = generate_keys(network);
 
         let keys = restore_keys(network, mnemonic).unwrap();
         assert_eq!(keys.xpub, xpub);
         assert_eq!(keys.xpub_fingerprint, xpub_fingerprint);
+        assert_eq!(keys.account_xpub, account_xpub);
     }
 }
