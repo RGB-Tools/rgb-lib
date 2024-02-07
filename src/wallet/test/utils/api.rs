@@ -290,6 +290,7 @@ pub(crate) fn test_issue_asset_cfa_result(
         PRECISION,
         amounts,
         file_path,
+        false,
     )
 }
 
@@ -317,6 +318,7 @@ pub(crate) fn test_issue_asset_nia_result(
         NAME.to_string(),
         PRECISION,
         amounts,
+        false,
     )
 }
 
@@ -404,6 +406,7 @@ pub(crate) fn test_send_begin_result(
         false,
         FEE_RATE,
         MIN_CONFIRMATIONS,
+        false,
     )
 }
 

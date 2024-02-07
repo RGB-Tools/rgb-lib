@@ -26,6 +26,7 @@ fn success() {
             PRECISION,
             vec![AMOUNT, AMOUNT],
             None,
+            false,
         )
         .unwrap();
     let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
@@ -259,6 +260,7 @@ fn fail() {
         PRECISION,
         vec![AMOUNT],
         None,
+        false,
     );
     assert!(matches!(result, Err(Error::InvalidName { details: m }) if m == IDENT_EMPTY_MSG));
 
@@ -270,6 +272,7 @@ fn fail() {
         PRECISION,
         vec![AMOUNT],
         None,
+        false,
     );
     assert!(matches!(result, Err(Error::InvalidName { details: m }) if m == IDENT_TOO_LONG_MSG));
 
@@ -281,6 +284,7 @@ fn fail() {
         PRECISION,
         vec![AMOUNT],
         None,
+        false,
     );
     assert!(matches!(result, Err(Error::InvalidName { details: m }) if m == IDENT_NOT_ASCII_MSG));
 
@@ -292,6 +296,7 @@ fn fail() {
         PRECISION,
         vec![AMOUNT],
         None,
+        false,
     );
     assert!(matches!(result, Err(Error::InvalidDetails { details: m }) if m == IDENT_EMPTY_MSG));
 
@@ -303,6 +308,7 @@ fn fail() {
         PRECISION,
         vec![AMOUNT],
         None,
+        false,
     );
     assert!(matches!(result, Err(Error::InvalidDetails { details: m }) if m == IDENT_TOO_LONG_MSG));
 
@@ -314,6 +320,7 @@ fn fail() {
         19,
         vec![AMOUNT],
         None,
+        false,
     );
     assert!(matches!(
         result,
