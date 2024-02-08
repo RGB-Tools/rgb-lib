@@ -119,6 +119,8 @@ use crate::utils::{
     get_xpub_from_xprv, load_rgb_runtime, now, setup_logger, BitcoinNetwork, RgbInExt, RgbOutExt,
     RgbPsbtExt, RgbRuntime, LOG_FILE,
 };
+#[cfg(test)]
+use crate::wallet::test::mock_chain_net;
 
 #[cfg(test)]
 use self::test::get_regtest_txid;
@@ -1819,8 +1821,13 @@ impl Wallet {
         beneficiary: Beneficiary,
         recipient_type: RecipientType,
     ) -> Result<(String, String, Option<i64>, i32, i32), Error> {
-        let chain_net = self._bitcoin_network().into();
-        let recipient_id = XChainNet::with(chain_net, beneficiary).to_string();
+        #[cfg(test)]
+        let network = mock_chain_net(self);
+        #[cfg(not(test))]
+        let network: ChainNet = self._bitcoin_network().into();
+
+        let beneficiary = XChainNet::with(network, beneficiary);
+        let recipient_id = beneficiary.to_string();
         debug!(self.logger, "Recipient ID: {recipient_id}");
         let (iface, contract_id) = if let Some(aid) = asset_id.clone() {
             let asset = self.database.check_asset_exists(aid.clone())?;
@@ -1858,9 +1865,6 @@ impl Wallet {
                 }
             }
         }
-
-        let network: ChainNet = self._bitcoin_network().into();
-        let beneficiary = XChainNet::with(network, beneficiary);
 
         let mut invoice_builder = RgbInvoiceBuilder::new(beneficiary);
         if let Some(iface) = iface {

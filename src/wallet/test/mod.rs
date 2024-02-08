@@ -180,6 +180,17 @@ pub fn mock_contract_details(wallet: &Wallet) -> Option<Details> {
         .map(|d| wallet._check_details(d.to_string()).unwrap())
 }
 
+lazy_static! {
+    static ref MOCK_CHAIN_NET: Mutex<Option<ChainNet>> = Mutex::new(None);
+}
+
+pub fn mock_chain_net(wallet: &Wallet) -> ChainNet {
+    match MOCK_CHAIN_NET.lock().unwrap().take() {
+        Some(chain_net) => chain_net,
+        None => wallet._bitcoin_network().into(),
+    }
+}
+
 // test utilities
 mod utils;
 
