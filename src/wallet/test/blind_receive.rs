@@ -409,6 +409,12 @@ fn fail() {
         result,
         Err(Error::InvalidTransportEndpoints { details: m }) if m == msg
     ));
+
+    // invoice: unsupported layer 1
+    *MOCK_CHAIN_NET.lock().unwrap() = Some(ChainNet::LiquidTestnet);
+    let recipient_data = test_blind_receive(&wallet);
+    let result = Invoice::new(recipient_data.invoice);
+    assert!(matches!(result, Err(Error::UnsupportedLayer1 { layer_1: l }) if l == "liquid" ));
 }
 
 #[test]
