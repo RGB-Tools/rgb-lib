@@ -2567,6 +2567,24 @@ fn fail() {
     let result = test_send_begin_result(&wallet, &online, &recipient_map);
     let details = "missing witness data for a witness recipient";
     assert!(matches!(result, Err(Error::InvalidRecipientData { details: m }) if m == details));
+
+    // unsupported layer 1
+    *MOCK_CHAIN_NET.lock().unwrap() = Some(ChainNet::LiquidTestnet);
+    let receive_data_liquid = test_witness_receive(&rcv_wallet);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            amount: 1,
+            recipient_id: receive_data_liquid.recipient_id,
+            witness_data: Some(WitnessData {
+                amount_sat: 1000,
+                blinding: None,
+            }),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let result = test_send_begin_result(&wallet, &online, &recipient_map);
+    assert!(matches!(result, Err(Error::InvalidRecipientNetwork)));
 }
 
 #[test]
