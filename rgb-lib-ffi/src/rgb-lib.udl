@@ -215,7 +215,8 @@ dictionary InvoiceData {
 dictionary Keys {
   string mnemonic;
   string xpub;
-  string xpub_fingerprint;
+  string account_xpub;
+  string account_xpub_fingerprint;
 };
 
 dictionary EmbeddedMedia {

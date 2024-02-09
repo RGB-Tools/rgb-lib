@@ -18,10 +18,10 @@ pub struct Keys {
     pub mnemonic: String,
     /// Master xPub
     pub xpub: String,
-    /// Fingerprint of the xPub
-    pub xpub_fingerprint: String,
     /// Account-level xPub
     pub account_xpub: String,
+    /// Fingerprint of the account-level xPub
+    pub account_xpub_fingerprint: String,
 }
 
 /// Generate a set of [`Keys`] for the given Bitcoin network.
@@ -37,10 +37,11 @@ pub fn generate_keys(bitcoin_network: BitcoinNetwork) -> Keys {
     let mnemonic_str = mnemonic.to_string();
     let account_xprv = derive_account_xprv_from_mnemonic(bitcoin_network, &mnemonic_str).unwrap();
     let account_xpub = get_xpub_from_xprv(&account_xprv);
+    let account_xpub_fingerprint = account_xpub.fingerprint().to_string();
     Keys {
         mnemonic: mnemonic_str,
         xpub: xpub.clone().to_string(),
-        xpub_fingerprint: xpub.fingerprint().to_string(),
+        account_xpub_fingerprint,
         account_xpub: account_xpub.to_string(),
     }
 }
@@ -56,10 +57,11 @@ pub fn restore_keys(bitcoin_network: BitcoinNetwork, mnemonic: String) -> Result
         .into_extended_key()
         .expect("a valid key should have been provided");
     let xpub = &xkey.into_xpub(bdk_network, &Secp256k1::new());
+    let account_xpub_fingerprint = account_xpub.fingerprint().to_string();
     Ok(Keys {
         mnemonic: mnemonic.to_string(),
         xpub: xpub.clone().to_string(),
-        xpub_fingerprint: xpub.fingerprint().to_string(),
+        account_xpub_fingerprint,
         account_xpub: account_xpub.to_string(),
     })
 }
@@ -75,16 +77,19 @@ mod test {
         let Keys {
             mnemonic,
             xpub,
-            xpub_fingerprint,
+            account_xpub_fingerprint,
             account_xpub,
         } = generate_keys(BitcoinNetwork::Regtest);
 
         assert!(Mnemonic::from_str(&mnemonic).is_ok());
         let pubkey = ExtendedPubKey::from_str(&xpub);
         assert!(pubkey.is_ok());
-        assert_eq!(pubkey.unwrap().fingerprint().to_string(), xpub_fingerprint);
         let account_pubkey = ExtendedPubKey::from_str(&account_xpub);
         assert!(account_pubkey.is_ok());
+        assert_eq!(
+            account_pubkey.unwrap().fingerprint().to_string(),
+            account_xpub_fingerprint
+        );
     }
 
     #[test]
@@ -93,13 +98,13 @@ mod test {
         let Keys {
             mnemonic,
             xpub,
-            xpub_fingerprint,
+            account_xpub_fingerprint,
             account_xpub,
         } = generate_keys(network);
 
         let keys = restore_keys(network, mnemonic).unwrap();
         assert_eq!(keys.xpub, xpub);
-        assert_eq!(keys.xpub_fingerprint, xpub_fingerprint);
+        assert_eq!(keys.account_xpub_fingerprint, account_xpub_fingerprint);
         assert_eq!(keys.account_xpub, account_xpub);
     }
 }
