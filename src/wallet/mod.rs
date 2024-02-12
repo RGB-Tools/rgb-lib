@@ -1438,7 +1438,7 @@ impl Wallet {
             })
     }
 
-    fn _check_transport_endpoints(&self, transport_endpoints: &Vec<String>) -> Result<(), Error> {
+    fn _check_transport_endpoints(&self, transport_endpoints: &[String]) -> Result<(), Error> {
         if transport_endpoints.is_empty() {
             return Err(Error::InvalidTransportEndpoints {
                 details: s!("must provide at least a transport endpoint"),
@@ -1606,7 +1606,7 @@ impl Wallet {
             .filter(|t| t.waiting_counterparty() && t.expiration.unwrap_or(now) < now)
             .collect();
         for transfer in expired_transfers.iter() {
-            let updated_batch_transfer = self._refresh_transfer(transfer, db_data, &vec![])?;
+            let updated_batch_transfer = self._refresh_transfer(transfer, db_data, &[])?;
             if updated_batch_transfer.is_none() {
                 let mut updated_batch_transfer: DbBatchTransferActMod = transfer.clone().into();
                 updated_batch_transfer.status = ActiveValue::Set(TransferStatus::Failed);
@@ -2469,7 +2469,7 @@ impl Wallet {
         throw_err: bool,
         db_data: &mut DbData,
     ) -> Result<(), Error> {
-        let updated_batch_transfer = self._refresh_transfer(batch_transfer, db_data, &vec![])?;
+        let updated_batch_transfer = self._refresh_transfer(batch_transfer, db_data, &[])?;
         // fail transfer if the status didn't change after a refresh
         if updated_batch_transfer.is_none() {
             self._fail_batch_transfer(batch_transfer)?;
@@ -3151,7 +3151,7 @@ impl Wallet {
         Ok(db_asset.try_into_model().unwrap())
     }
 
-    fn _get_total_issue_amount(&self, amounts: &Vec<u64>) -> Result<u64, Error> {
+    fn _get_total_issue_amount(&self, amounts: &[u64]) -> Result<u64, Error> {
         if amounts.is_empty() {
             return Err(Error::NoIssuanceAmounts);
         }
@@ -4171,7 +4171,7 @@ impl Wallet {
     fn _fail_batch_transfer_if_no_endpoints(
         &self,
         batch_transfer: &DbBatchTransfer,
-        transfer_transport_endpoints_data: &Vec<(DbTransferTransportEndpoint, DbTransportEndpoint)>,
+        transfer_transport_endpoints_data: &[(DbTransferTransportEndpoint, DbTransportEndpoint)],
     ) -> Result<bool, Error> {
         if transfer_transport_endpoints_data.is_empty() {
             self._fail_batch_transfer(batch_transfer)?;
@@ -4855,7 +4855,7 @@ impl Wallet {
         &self,
         transfer: &DbBatchTransfer,
         db_data: &mut DbData,
-        filter: &Vec<RefreshFilter>,
+        filter: &[RefreshFilter],
     ) -> Result<Option<DbBatchTransfer>, Error> {
         debug!(self.logger, "Refreshing transfer: {:?}", transfer);
         let incoming = transfer.incoming(&db_data.asset_transfers, &db_data.transfers)?;

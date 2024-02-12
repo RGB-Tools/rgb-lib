@@ -40,7 +40,7 @@ In order to run the available tests, execute:
 cargo test
 ```
 
-This command will run a [bitcoind] node, two [electrs] nodes and three [RGB
+This command will run a [bitcoind] node, three [electrs] nodes and three [RGB
 proxy] instances, in order to perform integration tests in a regtest
 environment.
 
