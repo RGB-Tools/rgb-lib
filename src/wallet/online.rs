@@ -16,7 +16,9 @@ use bdk::blockchain::any::AnyBlockchain;
 #[cfg(feature = "electrum")]
 use bdk::blockchain::electrum::ElectrumBlockchainConfig;
 #[cfg(feature = "esplora")]
-use bdk::blockchain::esplora::{EsploraBlockchain as EsploraClient, EsploraBlockchainConfig};
+use bdk::blockchain::esplora::{
+    EsploraBlockchain as EsploraClient, EsploraBlockchainConfig, EsploraError,
+};
 use bdk::blockchain::{AnyBlockchainConfig, Blockchain, ConfigurableBlockchain};
 use bdk::database::{BatchDatabase, MemoryDatabase};
 use bdk::descriptor::IntoWalletDescriptor;
@@ -107,7 +109,8 @@ use crate::wallet::offline::{
 };
 #[cfg(test)]
 use crate::wallet::test::{
-    get_regtest_txid, mock_asset_terms, mock_contract_details, mock_input_unspents, mock_token_data,
+    get_regtest_txid, mock_asset_terms, mock_contract_details, mock_input_unspents,
+    mock_token_data, skip_check_fee_rate,
 };
 
 const TRANSFER_DIR: &str = "transfers";
@@ -124,7 +127,7 @@ pub(crate) const UTXO_NUM: u8 = 5;
 
 pub(crate) const MAX_ATTACHMENTS: usize = 20;
 
-const MIN_FEE_RATE: f32 = 1.0;
+pub(crate) const MIN_FEE_RATE: f32 = 1.0;
 const MAX_FEE_RATE: f32 = 1000.0;
 
 pub(crate) const DURATION_SEND_TRANSFER: i64 = 3600;
@@ -269,6 +272,28 @@ pub struct RefreshFilter {
     pub incoming: bool,
 }
 
+/// A refreshed transfer
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct RefreshedTransfer {
+    /// The updated transfer status, if it has changed
+    pub updated_status: Option<TransferStatus>,
+    /// Optional failure
+    pub failure: Option<Error>,
+}
+
+/// The result of a refresh operation
+pub type RefreshResult = HashMap<i32, RefreshedTransfer>;
+
+pub(crate) trait RefreshResultTrait {
+    fn transfers_changed(&self) -> bool;
+}
+
+impl RefreshResultTrait for RefreshResult {
+    fn transfers_changed(&self) -> bool {
+        self.values().any(|rt| rt.updated_status.is_some())
+    }
+}
+
 /// The pending status of a [`Transfer`] (eligible for refresh).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub enum RefreshTransferStatus {
@@ -345,6 +370,11 @@ impl Wallet {
     }
 
     fn _check_fee_rate(&self, fee_rate: f32) -> Result<(), Error> {
+        #[cfg(test)]
+        if skip_check_fee_rate() {
+            println!("skipping fee rate check");
+            return Ok(());
+        };
         if fee_rate < MIN_FEE_RATE {
             return Err(Error::InvalidFeeRate {
                 details: format!("value under minimum {MIN_FEE_RATE}"),
@@ -459,12 +489,35 @@ impl Wallet {
 
     fn _broadcast_psbt(&self, signed_psbt: BdkPsbt) -> Result<BdkTransaction, Error> {
         let tx = signed_psbt.extract_tx();
-        self._bdk_blockchain()?
-            .broadcast(&tx)
-            .map_err(|e| Error::FailedBroadcast {
-                details: e.to_string(),
-            })?;
-        debug!(self.logger, "Broadcasted TX with ID '{}'", tx.txid());
+        let txid = tx.txid().to_string();
+        self._bdk_blockchain()?.broadcast(&tx).map_err(|e| {
+            let mut min_relay_fee_not_met = false;
+            match self.indexer() {
+                #[cfg(feature = "electrum")]
+                Indexer::Electrum(_) => {
+                    if e.to_string().contains("min relay fee not met") {
+                        min_relay_fee_not_met = true;
+                    }
+                }
+                #[cfg(feature = "esplora")]
+                Indexer::Esplora(_) => {
+                    if let bdk::Error::Esplora(ref box_err) = e {
+                        // wait for new esplora_client release to check message
+                        if matches!(**box_err, EsploraError::HttpResponse(400)) {
+                            min_relay_fee_not_met = true;
+                        }
+                    }
+                }
+            }
+            if min_relay_fee_not_met {
+                Error::MinRelayFeeNotMet { txid: txid.clone() }
+            } else {
+                Error::FailedBroadcast {
+                    details: e.to_string(),
+                }
+            }
+        })?;
+        debug!(self.logger, "Broadcasted TX with ID '{}'", txid);
 
         let internal_unspents_outpoints: Vec<(String, u32)> = self
             .internal_unspents()?
@@ -861,7 +914,11 @@ impl Wallet {
         throw_err: bool,
         db_data: &mut DbData,
     ) -> Result<(), Error> {
-        let updated_batch_transfer = self._refresh_transfer(batch_transfer, db_data, &[])?;
+        let updated_batch_transfer = match self._refresh_transfer(batch_transfer, db_data, &[]) {
+            Err(Error::MinRelayFeeNotMet { txid: _ }) => Ok(None),
+            Err(e) => Err(e),
+            Ok(v) => Ok(v),
+        }?;
         // fail transfer if the status didn't change after a refresh
         if updated_batch_transfer.is_none() {
             self._fail_batch_transfer(batch_transfer)?;
@@ -2526,8 +2583,8 @@ impl Wallet {
         }
     }
 
-    /// Update pending RGB transfers, based on their current status, and return true if any
-    /// transfer has changed.
+    /// Update pending RGB transfers, based on their current status, and return a
+    /// [`RefreshResult`].
     ///
     /// An optional `asset_id` can be provided to refresh transfers related to a specific asset.
     ///
@@ -2539,7 +2596,7 @@ impl Wallet {
         online: Online,
         asset_id: Option<String>,
         filter: Vec<RefreshFilter>,
-    ) -> Result<bool, Error> {
+    ) -> Result<RefreshResult, Error> {
         if let Some(aid) = asset_id.clone() {
             info!(self.logger, "Refreshing asset {}...", aid);
             self.database.check_asset_exists(aid)?;
@@ -2563,22 +2620,30 @@ impl Wallet {
         };
         db_data.batch_transfers.retain(|t| t.pending());
 
-        let mut transfers_changed = false;
+        let mut refresh_result = HashMap::new();
         for transfer in db_data.batch_transfers.clone().into_iter() {
-            if self
-                ._refresh_transfer(&transfer, &mut db_data, &filter)?
-                .is_some()
-            {
-                transfers_changed = true;
+            let mut failure = None;
+            let mut updated_status = None;
+            match self._refresh_transfer(&transfer, &mut db_data, &filter) {
+                Ok(Some(updated_transfer)) => updated_status = Some(updated_transfer.status),
+                Err(e) => failure = Some(e),
+                _ => {}
             }
+            refresh_result.insert(
+                transfer.idx,
+                RefreshedTransfer {
+                    updated_status,
+                    failure,
+                },
+            );
         }
 
-        if transfers_changed {
+        if refresh_result.transfers_changed() {
             self.update_backup_info(false)?;
         }
 
         info!(self.logger, "Refresh completed");
-        Ok(transfers_changed)
+        Ok(refresh_result)
     }
 
     fn _select_rgb_inputs(

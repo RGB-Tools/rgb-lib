@@ -27,6 +27,7 @@ type ProofOfReserves = rgb_lib::wallet::ProofOfReserves;
 type ReceiveData = rgb_lib::wallet::ReceiveData;
 type Recipient = rgb_lib::wallet::Recipient;
 type RefreshFilter = rgb_lib::wallet::RefreshFilter;
+type RefreshedTransfer = rgb_lib::wallet::RefreshedTransfer;
 type RefreshTransferStatus = rgb_lib::wallet::RefreshTransferStatus;
 type RgbAllocation = rgb_lib::wallet::RgbAllocation;
 type RgbLibError = rgb_lib::Error;
@@ -357,7 +358,7 @@ impl Wallet {
         online: Online,
         asset_id: Option<String>,
         filter: Vec<RefreshFilter>,
-    ) -> Result<bool, RgbLibError> {
+    ) -> Result<HashMap<i32, RefreshedTransfer>, RgbLibError> {
         self._get_wallet().refresh(online, asset_id, filter)
     }
 

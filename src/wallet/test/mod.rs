@@ -6,6 +6,7 @@ use bdk::bitcoin::{psbt::Psbt as BdkPsbt, Network as BdkNetwork};
 use bdk::keys::ExtendedKey;
 use bdk::{KeychainKind, LocalUtxo, SignOptions};
 use bitcoin::hashes::{sha256, Hash as Sha256Hash};
+use bitcoin::psbt::PartiallySignedTransaction;
 use bp::Outpoint as RgbOutpoint;
 #[cfg(feature = "electrum")]
 use electrum_client::{ElectrumApi, Param};
@@ -47,7 +48,7 @@ use crate::wallet::offline::*;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use crate::wallet::online::*;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-use crate::wallet::online::{BtcBalance, Indexer};
+use crate::wallet::online::{BtcBalance, Indexer, RefreshResultTrait};
 use crate::*;
 
 use utils::api::*;
@@ -72,6 +73,7 @@ const NAME: &str = "asset name";
 const DETAILS: &str = "details with ℧nicode characters";
 const PRECISION: u8 = 7;
 const AMOUNT: u64 = 666;
+const AMOUNT_SMALL: u64 = 66;
 const FEE_RATE: f32 = 1.5;
 const FEE_MSG_LOW: &str = "value under minimum 1";
 const FEE_MSG_HIGH: &str = "value above maximum 1000";
@@ -238,6 +240,20 @@ pub fn mock_chain_net(wallet: &Wallet) -> ChainNet {
     match MOCK_CHAIN_NET.lock().unwrap().take() {
         Some(chain_net) => chain_net,
         None => wallet.bitcoin_network().into(),
+    }
+}
+
+lazy_static! {
+    static ref MOCK_CHECK_FEE_RATE: Mutex<bool> = Mutex::new(false);
+}
+
+pub fn skip_check_fee_rate() -> bool {
+    let mut mock = MOCK_CHECK_FEE_RATE.lock().unwrap();
+    if *mock {
+        *mock = false;
+        true
+    } else {
+        false
     }
 }
 

@@ -56,6 +56,7 @@ interface RgbLibError {
   InvalidTransportEndpoint(string details);
   InvalidTransportEndpoints(string details);
   InvalidVanillaKeychain();
+  MinRelayFeeNotMet(string txid);
   NoIssuanceAmounts();
   NoValidTransportEndpoint();
   Offline();
@@ -288,6 +289,11 @@ dictionary RefreshFilter {
   boolean incoming;
 };
 
+dictionary RefreshedTransfer {
+  TransferStatus? updated_status;
+  RgbLibError? failure;
+};
+
 enum RefreshTransferStatus {
   "WaitingCounterparty",
   "WaitingConfirmations",
@@ -466,7 +472,7 @@ interface Wallet {
   sequence<Unspent> list_unspents(Online? online, boolean settled_only);
 
   [Throws=RgbLibError]
-  boolean refresh(Online online, string? asset_id, sequence<RefreshFilter> filter);
+  record<i32, RefreshedTransfer> refresh(Online online, string? asset_id, sequence<RefreshFilter> filter);
 
   [Throws=RgbLibError]
   SendResult send(

@@ -79,10 +79,12 @@ jobs:
         run: |
           cargo test --no-default-features --features electrum go_online::fail
           cargo test --no-default-features --features electrum send::min_confirmations_electrum
+          cargo test --no-default-features --features electrum send::min_relay_fee_electrum
       - name: Test with esplora feature
         run: |
           cargo test --no-default-features --features esplora go_online::fail
           cargo test --no-default-features --features esplora send::min_confirmations_esplora
+          cargo test --no-default-features --features esplora send::min_relay_fee_esplora
       - name: Test with no features
         run: |
           cargo test --no-default-features

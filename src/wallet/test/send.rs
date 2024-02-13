@@ -4639,3 +4639,195 @@ fn no_inexistent_utxos() {
     let result = test_send_begin_result(&wallet, &online, &recipient_map);
     assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 }
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn min_fee_rate() {
+    initialize();
+
+    let amount: u64 = 66;
+    let amount_sat: u64 = 698;
+    let fee_rate = MIN_FEE_RATE;
+
+    // wallets
+    let (wallet, online) = get_funded_wallet!();
+    let (rcv_wallet, rcv_online) = get_empty_wallet!();
+
+    // issue
+    let asset = test_issue_asset_nia(&wallet, &online, None);
+
+    // prepare transfer data
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        (1..=5)
+            .map(|_| {
+                let receive_data = test_witness_receive(&rcv_wallet);
+                Recipient {
+                    amount,
+                    recipient_id: receive_data.recipient_id,
+                    witness_data: Some(WitnessData {
+                        amount_sat,
+                        blinding: None,
+                    }),
+                    transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+                }
+            })
+            .collect(),
+    )]);
+
+    // check fee amount is the expected one
+    let psbt_str = wallet
+        .send_begin(
+            online.clone(),
+            recipient_map.clone(),
+            false,
+            fee_rate,
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+    let psbt = PartiallySignedTransaction::from_str(&psbt_str).unwrap();
+    let fee = psbt.fee().unwrap().to_sat();
+    assert_eq!(fee, 510);
+
+    // actual send
+    let txid = wallet
+        .send(
+            online.clone(),
+            recipient_map.clone(),
+            false,
+            fee_rate,
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap()
+        .txid;
+    assert!(!txid.is_empty());
+
+    // ACK transfer
+    test_refresh_all(&rcv_wallet, &rcv_online);
+    // broadcast tx
+    assert!(test_refresh_asset(&wallet, &online, &asset.asset_id));
+}
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+fn _min_relay_fee_common(
+    asset_id: &str,
+    wallet: &Wallet,
+    online: &Online,
+    rcv_wallet: &Wallet,
+    rcv_online: &Online,
+    transfer_idx: i32,
+) {
+    let fee_rate = 0.1;
+    let amount = AMOUNT_SMALL;
+    let amount_sat: u64 = 698;
+
+    // prepare transfer data
+    let recipient_map = HashMap::from([(
+        asset_id.to_string(),
+        (1..=5)
+            .map(|_| {
+                let receive_data = test_witness_receive(rcv_wallet);
+                Recipient {
+                    amount,
+                    recipient_id: receive_data.recipient_id,
+                    witness_data: Some(WitnessData {
+                        amount_sat,
+                        blinding: None,
+                    }),
+                    transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+                }
+            })
+            .collect(),
+    )]);
+
+    // check fee amount is the expected one
+    *MOCK_CHECK_FEE_RATE.lock().unwrap() = true;
+    let psbt_str = wallet
+        .send_begin(
+            online.clone(),
+            recipient_map.clone(),
+            false,
+            fee_rate,
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+    let psbt = PartiallySignedTransaction::from_str(&psbt_str).unwrap();
+    let fee = psbt.fee().unwrap().to_sat();
+    assert_eq!(fee, 57);
+
+    // actual send
+    *MOCK_CHECK_FEE_RATE.lock().unwrap() = true;
+    let send_result = wallet
+        .send(
+            online.clone(),
+            recipient_map.clone(),
+            false,
+            fee_rate,
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+    assert!(!send_result.txid.is_empty());
+
+    // ACK transfer
+    test_refresh_all(rcv_wallet, rcv_online);
+    // broadcast tx
+    let result = wallet.refresh(online.clone(), None, vec![]).unwrap();
+    assert_eq!(
+        result,
+        HashMap::from([(
+            transfer_idx,
+            RefreshedTransfer {
+                updated_status: None,
+                failure: Some(Error::MinRelayFeeNotMet {
+                    txid: send_result.txid.clone()
+                }),
+            }
+        )])
+    );
+    test_fail_transfers_single(wallet, online, send_result.batch_transfer_idx);
+    let result = wallet.refresh(online.clone(), None, vec![]).unwrap();
+    assert_eq!(result, HashMap::new());
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[serial]
+fn min_relay_fee_electrum() {
+    initialize();
+
+    let (wallet, online) = get_funded_wallet!();
+    let (rcv_wallet, rcv_online) = get_empty_wallet!();
+
+    let asset = test_issue_asset_nia(&wallet, &online, None);
+
+    _min_relay_fee_common(
+        &asset.asset_id,
+        &wallet,
+        &online,
+        &rcv_wallet,
+        &rcv_online,
+        2,
+    );
+}
+
+#[cfg(feature = "esplora")]
+#[test]
+#[serial]
+fn min_relay_fee_esplora() {
+    initialize();
+
+    let (wallet, online) = get_funded_wallet!(ESPLORA_URL.to_string());
+    let (rcv_wallet, rcv_online) = get_empty_wallet!(ESPLORA_URL.to_string());
+
+    let asset = test_issue_asset_nia(&wallet, &online, None);
+
+    _min_relay_fee_common(
+        &asset.asset_id,
+        &wallet,
+        &online,
+        &rcv_wallet,
+        &rcv_online,
+        2,
+    );
+}

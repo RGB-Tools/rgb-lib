@@ -3,8 +3,10 @@
 //! This module defines the [`Error`] enum, containing all error variants returned by functions in
 //! the library.
 
+use serde::{Deserialize, Serialize};
+
 /// The error variants returned by functions.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, thiserror::Error, Deserialize, Serialize)]
 pub enum Error {
     /// No need to create more allocations
     #[error("Allocations already available")]
@@ -299,6 +301,13 @@ pub enum Error {
     /// The provided vanilla keychain is invalid
     #[error("Invalid vanilla keychain")]
     InvalidVanillaKeychain,
+
+    /// The minimum relay fee is not met
+    #[error("Min relay fee not met for transfer with TXID: {txid}")]
+    MinRelayFeeNotMet {
+        /// TXID of the transfer having fee issues
+        txid: String,
+    },
 
     /// Cannot issue an asset without knowing the amounts
     #[error("Issuance request with no provided amounts")]
