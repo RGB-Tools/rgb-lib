@@ -2263,7 +2263,12 @@ impl Wallet {
                     }
                 }
 
-                self.save_new_asset(&mut runtime, &asset_schema, contract_id, minimal_contract)?;
+                self.save_new_asset(
+                    &mut runtime,
+                    &asset_schema,
+                    contract_id,
+                    Some(minimal_contract),
+                )?;
             }
 
             let mut updated_asset_transfer: DbAssetTransferActMod = asset_transfer.clone().into();

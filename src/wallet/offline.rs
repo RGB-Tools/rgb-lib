@@ -2439,8 +2439,13 @@ impl Wallet {
         runtime: &mut RgbRuntime,
         asset_schema: &AssetSchema,
         contract_id: ContractId,
-        contract: Contract,
+        contract: Option<Contract>,
     ) -> Result<(), Error> {
+        let contract = if let Some(contract) = contract {
+            contract
+        } else {
+            runtime.export_contract(contract_id)?
+        };
         let contract_iface = self.get_contract_iface(runtime, asset_schema, contract_id)?;
 
         let timestamp = contract.genesis.timestamp;

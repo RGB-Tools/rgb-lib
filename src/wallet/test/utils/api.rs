@@ -443,7 +443,7 @@ pub(crate) fn test_save_new_asset(
             &mut runtime,
             &asset_schema,
             minimal_contract_validated.contract_id(),
-            minimal_contract_validated,
+            Some(minimal_contract_validated),
         )
         .unwrap();
 }

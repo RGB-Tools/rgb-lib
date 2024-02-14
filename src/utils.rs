@@ -391,6 +391,15 @@ impl RgbRuntime {
             .map_err(InternalError::from)
     }
 
+    pub(crate) fn export_contract(
+        &self,
+        contract_id: ContractId,
+    ) -> Result<Contract, InternalError> {
+        self.stock
+            .export_contract(contract_id)
+            .map_err(InternalError::from)
+    }
+
     #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn genesis(&self, contract_id: ContractId) -> Result<&Genesis, InternalError> {
         self.stock.genesis(contract_id).map_err(InternalError::from)
@@ -556,6 +565,10 @@ trait RgbPropKey {
     fn rgb_in_consumed_by(contract_id: ContractId) -> ProprietaryKey {
         convert_prop_key(PropKey::rgb_in_consumed_by(contract_id))
     }
+
+    fn mpc_entropy() -> ProprietaryKey {
+        convert_prop_key(PropKey::mpc_entropy())
+    }
 }
 
 impl RgbPropKey for ProprietaryKey {}
@@ -598,12 +611,20 @@ impl RgbInExt for Input {
 pub trait RgbOutExt {
     /// See upstream method for details
     fn set_opret_host(&mut self);
+
+    /// See upstream method for details
+    fn set_mpc_entropy(&mut self, entropy: u64);
 }
 
 impl RgbOutExt for Output {
     fn set_opret_host(&mut self) {
         self.proprietary
             .insert(ProprietaryKey::opret_host(), vec![]);
+    }
+
+    fn set_mpc_entropy(&mut self, entropy: u64) {
+        let val = entropy.to_le_bytes().to_vec();
+        self.proprietary.insert(ProprietaryKey::mpc_entropy(), val);
     }
 }
 
