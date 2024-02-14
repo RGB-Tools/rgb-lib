@@ -1,4 +1,5 @@
 **/target
+/.vim
 /tests/tmp
 
 tarpaulin-report.html
