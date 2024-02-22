@@ -134,11 +134,12 @@ dependencies = [
 
 [[package]]
 name = "amplify_num"
-version = "0.5.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ddce3bc63e807ea02065e8d8b702695f3d302ae4158baddff8b0ce5c73947251"
+checksum = "9681187211554ab98f138ba159e90861b136c20afc680dcff2ba82d020721e27"
 dependencies = [
  "serde",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -3050,6 +3051,7 @@ name = "rgb-lib"
 version = "0.2.2"
 dependencies = [
  "amplify",
+ "amplify_num",
  "base64 0.21.5",
  "bdk",
  "bitcoin",
@@ -3424,9 +3426,9 @@ dependencies = [
 
 [[package]]
 name = "sea-orm"
-version = "0.12.8"
+version = "0.12.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8e2dd2f8a2d129c1632ec45dcfc15c44cc3d8b969adc8ac58c5f011ca7aecee"
+checksum = "cf9195a2b2a182cbee3f76cf2a97c20204022f91259bdf8a48b537788202775b"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -3452,9 +3454,9 @@ dependencies = [
 
 [[package]]
 name = "sea-orm-cli"
-version = "0.12.6"
+version = "0.12.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "507c2b99f83129f4d5d511012ab47c9f40d1c7923fd4698c19fae23f0bf62913"
+checksum = "747f032e4abd58a6cacdb21275cc13448b4ff4b368f5f578ece465957ae7b417"
 dependencies = [
  "chrono",
  "clap",
@@ -3469,9 +3471,9 @@ dependencies = [
 
 [[package]]
 name = "sea-orm-macros"
-version = "0.12.6"
+version = "0.12.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "816183a751bf9c22087679b20b6142da0b5c6d8981835ebb7b99bf1bf924640a"
+checksum = "ec13bfb4c4aef208f68dbea970dd40d13830c868aa8dcb4e106b956e6bb4f2fa"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -3483,9 +3485,9 @@ dependencies = [
 
 [[package]]
 name = "sea-orm-migration"
-version = "0.12.6"
+version = "0.12.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d45937e5d4869a0dcf0222bb264df564c077cbe9b312265f3717401d023a633"
+checksum = "b3d06dac448288ceb630994b420cd8d5410543c0b09367f40ed505c2f03b266a"
 dependencies = [
  "async-trait",
  "clap",
@@ -3500,9 +3502,9 @@ dependencies = [
 
 [[package]]
 name = "sea-query"
-version = "0.30.4"
+version = "0.30.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41558fa9bb5f4d73952dac0b9d9c2ce23966493fc9ee0008037b01d709838a68"
+checksum = "e40446e3c048cec0802375f52462a05cc774b9ea6af1dffba6c646b7825e4cf9"
 dependencies = [
  "bigdecimal",
  "chrono",
@@ -4131,9 +4133,9 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "strict_encoding"
-version = "2.6.1"
+version = "2.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab7b75b4af0aff9dd97b68df262bf0e807b7d007cc860fa217943f898a05a5ab"
+checksum = "fa76decc8ac190a56ba7857c023b69ed52b781ed974c5a181eac62cdbfc99521"
 dependencies = [
  "amplify",
  "half",

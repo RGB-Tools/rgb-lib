@@ -629,6 +629,8 @@ pub struct ReceiveData {
     pub recipient_id: String,
     /// Expiration of the receive operation
     pub expiration_timestamp: Option<i64>,
+    /// Batch transfer idx
+    pub batch_transfer_idx: i32,
 }
 
 /// An RGB blinded UTXO, which is used to refer to an UTXO without revealing it.
@@ -647,6 +649,14 @@ impl BlindedUTXO {
         })?;
         Ok(BlindedUTXO { blinded_utxo })
     }
+}
+
+/// The result of a send operation
+pub struct SendResult {
+    /// ID of the transaction
+    pub txid: String,
+    /// Batch transfer idx
+    pub batch_transfer_idx: i32,
 }
 
 /// An RGB transport endpoint.
@@ -1052,6 +1062,8 @@ pub enum TransactionType {
 pub struct Transfer {
     /// ID of the transfer
     pub idx: i32,
+    /// ID of the batch transfer containing this transfer
+    pub batch_transfer_idx: i32,
     /// Timestamp of the transfer creation
     pub created_at: i64,
     /// Timestamp of the transfer last update
@@ -1084,6 +1096,7 @@ impl Transfer {
     ) -> Transfer {
         Transfer {
             idx: x.idx,
+            batch_transfer_idx: td.batch_transfer_idx,
             created_at: td.created_at,
             updated_at: td.updated_at,
             status: td.status,
@@ -1751,7 +1764,7 @@ impl Wallet {
         beneficiary: Beneficiary,
         recipient_type: RecipientType,
         recipient_id: String,
-    ) -> Result<(String, Option<i64>, i32), Error> {
+    ) -> Result<(String, Option<i64>, i32, i32), Error> {
         debug!(self.logger, "Recipient ID: {recipient_id}");
         let (iface, contract_id) = if let Some(aid) = asset_id.clone() {
             let asset = self.database.check_asset_exists(aid.clone())?;
@@ -1856,7 +1869,12 @@ impl Wallet {
             )?;
         }
 
-        Ok((invoice.to_string(), expiry, asset_transfer_idx))
+        Ok((
+            invoice.to_string(),
+            expiry,
+            batch_transfer_idx,
+            asset_transfer_idx,
+        ))
     }
 
     /// Blind an UTXO to receive RGB assets and return the resulting [`ReceiveData`].
@@ -1922,16 +1940,17 @@ impl Wallet {
         let concealed_seal = seal.to_concealed_seal();
         let blinded_utxo = concealed_seal.to_string();
 
-        let (invoice, expiration_timestamp, asset_transfer_idx) = self._receive(
-            asset_id,
-            amount,
-            duration_seconds,
-            transport_endpoints,
-            min_confirmations,
-            concealed_seal.into(),
-            RecipientType::Blind,
-            blinded_utxo.clone(),
-        )?;
+        let (invoice, expiration_timestamp, batch_transfer_idx, asset_transfer_idx) = self
+            ._receive(
+                asset_id,
+                amount,
+                duration_seconds,
+                transport_endpoints,
+                min_confirmations,
+                concealed_seal.into(),
+                RecipientType::Blind,
+                blinded_utxo.clone(),
+            )?;
 
         let mut runtime = self._rgb_runtime()?;
         runtime.store_seal_secret(seal)?;
@@ -1952,6 +1971,7 @@ impl Wallet {
             invoice,
             recipient_id: blinded_utxo,
             expiration_timestamp,
+            batch_transfer_idx,
         })
     }
 
@@ -1996,7 +2016,7 @@ impl Wallet {
         let address = Address::from_str(&address_str).unwrap().assume_checked();
         let script_buf_str = address.script_pubkey().to_hex_string();
 
-        let (invoice, expiration_timestamp, _) = self._receive(
+        let (invoice, expiration_timestamp, batch_transfer_idx, _) = self._receive(
             asset_id,
             amount,
             duration_seconds,
@@ -2014,6 +2034,7 @@ impl Wallet {
             invoice,
             recipient_id: script_buf_str,
             expiration_timestamp,
+            batch_transfer_idx,
         })
     }
 
@@ -2230,78 +2251,48 @@ impl Wallet {
     /// Delete eligible transfers from the database and return true if any transfer has been
     /// deleted.
     ///
-    /// An optional `recipient_id` can be provided to operate on a single transfer.
-    /// An optional `txid` can be provided to operate on a batch transfer.
+    /// An optional `batch_transfer_idx` can be provided to operate on a single batch transfer.
     ///
-    /// If both a `recipient_id` and a `txid` are provided, they need to belong to the same batch
-    /// transfer or an error is returned.
+    /// If a `batch_transfer_idx` is provided and `no_asset_only` is true, transfers with an
+    /// associated asset ID will not be deleted and instead return an error.
     ///
-    /// If at least one of `recipient_id` or `txid` are provided and `no_asset_only` is true,
-    /// transfers with an associated asset ID will not be deleted and instead return an error.
-    ///
-    /// If neither `recipient_id` nor `txid` are provided, all failed transfers will be deleted,
-    /// unless `no_asset_only` is true, in which case transfers with an associated asset ID will be
-    /// skipped.
+    /// If no `batch_transfer_idx` is provided, all failed transfers will be deleted, and if
+    /// `no_asset_only` is true transfers with an associated asset ID will be skipped.
     ///
     /// Eligible transfers are the ones in status [`TransferStatus::Failed`].
     pub fn delete_transfers(
         &self,
-        recipient_id: Option<String>,
-        txid: Option<String>,
+        batch_transfer_idx: Option<i32>,
         no_asset_only: bool,
     ) -> Result<bool, Error> {
         info!(
             self.logger,
-            "Deleting transfer with recipient ID {:?} and TXID {:?}...", recipient_id, txid
+            "Deleting batch transfer with idx {:?}...", batch_transfer_idx
         );
 
         let db_data = self.database.get_db_data(false)?;
         let mut transfers_changed = false;
 
-        if recipient_id.is_some() || txid.is_some() {
-            let (batch_transfer, asset_transfers) = if let Some(recipient_id) = recipient_id {
-                let db_transfer = &self
-                    .database
-                    .get_transfer_or_fail(recipient_id, &db_data.transfers)?;
-                let (_, batch_transfer) = db_transfer
-                    .related_transfers(&db_data.asset_transfers, &db_data.batch_transfers)?;
-                let asset_transfers =
-                    batch_transfer.get_asset_transfers(&db_data.asset_transfers)?;
-                let asset_transfer_ids: Vec<i32> = asset_transfers.iter().map(|t| t.idx).collect();
-                if (db_data
-                    .transfers
-                    .into_iter()
-                    .filter(|t| asset_transfer_ids.contains(&t.asset_transfer_idx))
-                    .count()
-                    > 1
-                    || txid.is_some())
-                    && txid != batch_transfer.txid
-                {
-                    return Err(Error::CannotDeleteTransfer);
-                }
-                (batch_transfer, asset_transfers)
-            } else {
-                let batch_transfer = self
-                    .database
-                    .get_batch_transfer_or_fail(txid.expect("TXID"), &db_data.batch_transfers)?;
-                let asset_transfers =
-                    batch_transfer.get_asset_transfers(&db_data.asset_transfers)?;
-                (batch_transfer, asset_transfers)
-            };
+        if let Some(batch_transfer_idx) = batch_transfer_idx {
+            let batch_transfer = &self
+                .database
+                .get_batch_transfer_or_fail(batch_transfer_idx, &db_data.batch_transfers)?;
 
             if !batch_transfer.failed() {
-                return Err(Error::CannotDeleteTransfer);
+                return Err(Error::CannotDeleteBatchTransfer);
             }
+
+            let asset_transfers = batch_transfer.get_asset_transfers(&db_data.asset_transfers)?;
 
             if no_asset_only {
                 let connected_assets = asset_transfers.iter().any(|t| t.asset_id.is_some());
                 if connected_assets {
-                    return Err(Error::CannotDeleteTransfer);
+                    return Err(Error::CannotDeleteBatchTransfer);
                 }
             }
 
             transfers_changed = true;
-            self._delete_batch_transfer(&batch_transfer, &asset_transfers)?
+            self._delete_batch_transfer(batch_transfer, &asset_transfers)?
         } else {
             // delete all failed transfers
             let mut batch_transfers: Vec<DbBatchTransfer> = db_data
@@ -2474,7 +2465,7 @@ impl Wallet {
         if updated_batch_transfer.is_none() {
             self._fail_batch_transfer(batch_transfer)?;
         } else if throw_err {
-            return Err(Error::CannotFailTransfer);
+            return Err(Error::CannotFailBatchTransfer);
         }
 
         Ok(())
@@ -2483,16 +2474,12 @@ impl Wallet {
     /// Set the status for eligible transfers to [`TransferStatus::Failed`] and return true if any
     /// transfer has changed.
     ///
-    /// An optional `recipient_id` can be provided to operate on a single transfer.
-    /// An optional `txid` can be provided to operate on a batch transfer.
+    /// An optional `batch_transfer_idx` can be provided to operate on a single batch transfer.
     ///
-    /// If both a `recipient_id` and a `txid` are provided, they need to belong to the same batch
-    /// transfer or an error is returned.
+    /// If a `batch_transfer_idx` is provided and `no_asset_only` is true, transfers with an
+    /// associated asset ID will not be failed and instead return an error.
     ///
-    /// If at least one of `recipient_id` or `txid` are provided and `no_asset_only` is true,
-    /// transfers with an associated asset ID will not be failed and instead return an error.
-    ///
-    /// If neither `recipient_id` nor `txid` are provided, only expired transfers will be failed,
+    /// If no `batch_transfer_idx` is provided, only expired transfers will be failed,
     /// and if `no_asset_only` is true transfers with an associated asset ID will be skipped.
     ///
     /// Transfers are eligible if they remain in status [`TransferStatus::WaitingCounterparty`]
@@ -2500,49 +2487,25 @@ impl Wallet {
     pub fn fail_transfers(
         &self,
         online: Online,
-        recipient_id: Option<String>,
-        txid: Option<String>,
+        batch_transfer_idx: Option<i32>,
         no_asset_only: bool,
     ) -> Result<bool, Error> {
         info!(
             self.logger,
-            "Failing transfer with recipient ID {:?} and TXID {:?}...", recipient_id, txid
+            "Failing batch transfer with idx {:?}...", batch_transfer_idx
         );
         self._check_online(online)?;
 
         let mut db_data = self.database.get_db_data(false)?;
         let mut transfers_changed = false;
 
-        if recipient_id.is_some() || txid.is_some() {
-            let batch_transfer = if let Some(recipient_id) = recipient_id {
-                let db_transfer = &self
-                    .database
-                    .get_transfer_or_fail(recipient_id, &db_data.transfers)?;
-                let (_, batch_transfer) = db_transfer
-                    .related_transfers(&db_data.asset_transfers, &db_data.batch_transfers)?;
-                let asset_transfers =
-                    batch_transfer.get_asset_transfers(&db_data.asset_transfers)?;
-                let asset_transfer_ids: Vec<i32> = asset_transfers.iter().map(|t| t.idx).collect();
-                if (db_data
-                    .transfers
-                    .clone()
-                    .into_iter()
-                    .filter(|t| asset_transfer_ids.contains(&t.asset_transfer_idx))
-                    .count()
-                    > 1
-                    || txid.is_some())
-                    && txid != batch_transfer.txid
-                {
-                    return Err(Error::CannotFailTransfer);
-                }
-                batch_transfer
-            } else {
-                self.database
-                    .get_batch_transfer_or_fail(txid.expect("TXID"), &db_data.batch_transfers)?
-            };
+        if let Some(batch_transfer_idx) = batch_transfer_idx {
+            let batch_transfer = &self
+                .database
+                .get_batch_transfer_or_fail(batch_transfer_idx, &db_data.batch_transfers)?;
 
             if !batch_transfer.waiting_counterparty() {
-                return Err(Error::CannotFailTransfer);
+                return Err(Error::CannotFailBatchTransfer);
             }
 
             if no_asset_only {
@@ -2550,12 +2513,12 @@ impl Wallet {
                     batch_transfer.get_asset_transfers(&db_data.asset_transfers)?;
                 let connected_assets = asset_transfers.iter().any(|t| t.asset_id.is_some());
                 if connected_assets {
-                    return Err(Error::CannotFailTransfer);
+                    return Err(Error::CannotFailBatchTransfer);
                 }
             }
 
             transfers_changed = true;
-            self._try_fail_batch_transfer(&batch_transfer, true, &mut db_data)?
+            self._try_fail_batch_transfer(batch_transfer, true, &mut db_data)?
         } else {
             // fail all transfers in status WaitingCounterparty
             let now = now().unix_timestamp();
@@ -5424,7 +5387,7 @@ impl Wallet {
         change_utxo_idx: Option<i32>,
         status: TransferStatus,
         min_confirmations: u8,
-    ) -> Result<(), Error> {
+    ) -> Result<i32, Error> {
         let created_at = now().unix_timestamp();
         let expiration = Some(created_at + DURATION_SEND_TRANSFER);
 
@@ -5504,7 +5467,7 @@ impl Wallet {
             self.database.set_coloring(db_coloring)?;
         }
 
-        Ok(())
+        Ok(batch_transfer_idx)
     }
 
     fn _get_input_unspents(&self, unspents: &[LocalUnspent]) -> Vec<LocalUnspent> {
@@ -5534,7 +5497,7 @@ impl Wallet {
         donation: bool,
         fee_rate: f32,
         min_confirmations: u8,
-    ) -> Result<String, Error> {
+    ) -> Result<SendResult, Error> {
         info!(self.logger, "Sending to: {:?}...", recipient_map);
         self._check_xprv()?;
 
@@ -5772,8 +5735,8 @@ impl Wallet {
     ///
     /// This doesn't require the wallet to have private keys.
     ///
-    /// Returns the TXID of the signed PSBT that's been saved and optionally broadcast.
-    pub fn send_end(&self, online: Online, signed_psbt: String) -> Result<String, Error> {
+    /// Returns a [`SendResult`].
+    pub fn send_end(&self, online: Online, signed_psbt: String) -> Result<SendResult, Error> {
         info!(self.logger, "Sending (end)...");
         self._check_online(online)?;
 
@@ -5847,7 +5810,7 @@ impl Wallet {
         } else {
             TransferStatus::WaitingCounterparty
         };
-        self._save_transfers(
+        let batch_transfer_idx = self._save_transfers(
             txid.clone(),
             transfer_info_map,
             blank_allocations,
@@ -5859,7 +5822,10 @@ impl Wallet {
         self.update_backup_info(false)?;
 
         info!(self.logger, "Send (end) completed");
-        Ok(txid)
+        Ok(SendResult {
+            txid,
+            batch_transfer_idx,
+        })
     }
 
     /// Send bitcoins using the vanilla wallet.

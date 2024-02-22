@@ -22,23 +22,23 @@ pub enum Error {
     },
 
     /// The requested batch transfer was not found
-    #[error("Batch transfer with TXID {txid} not found")]
+    #[error("Batch transfer with idx {idx} not found")]
     BatchTransferNotFound {
-        /// Transaction ID
-        txid: String,
+        /// Transfer idx
+        idx: i32,
     },
 
     /// A wallet cannot go online twice with different data
     #[error("Cannot change online object")]
     CannotChangeOnline,
 
-    /// Requested transfer cannot be deleted
-    #[error("Transfer cannot be deleted")]
-    CannotDeleteTransfer,
+    /// Requested batch transfer cannot be deleted
+    #[error("Batch transfer cannot be deleted")]
+    CannotDeleteBatchTransfer,
 
-    /// Requested transfer cannot be failed
-    #[error("Transfer cannot be set to failed status")]
-    CannotFailTransfer,
+    /// Requested batch transfer cannot be failed
+    #[error("Batch transfer cannot be set to failed status")]
+    CannotFailBatchTransfer,
 
     /// An error was received from the Electrum server
     #[error("Electrum error: {details}")]
@@ -330,13 +330,6 @@ pub enum Error {
     /// Trying to issue too many assets
     #[error("Trying to issue too many assets")]
     TooHighIssuanceAmounts,
-
-    /// The requested transfer was not found
-    #[error("Transfer with recipient ID {recipient_id} not found")]
-    TransferNotFound {
-        /// Recipient ID
-        recipient_id: String,
-    },
 
     /// The detected RGB interface is unknown
     #[error("Unknown RGB interface: {interface}")]

@@ -247,6 +247,7 @@ impl LocalRgbAllocation {
 pub(crate) struct TransferData {
     pub(crate) kind: TransferKind,
     pub(crate) status: TransferStatus,
+    pub(crate) batch_transfer_idx: i32,
     pub(crate) txid: Option<String>,
     pub(crate) receive_utxo: Option<Outpoint>,
     pub(crate) change_utxo: Option<Outpoint>,
@@ -719,31 +720,13 @@ impl RgbLibDatabase {
 
     pub(crate) fn get_batch_transfer_or_fail(
         &self,
-        txid: String,
+        idx: i32,
         batch_transfers: &[DbBatchTransfer],
     ) -> Result<DbBatchTransfer, Error> {
-        if let Some(batch_transfer) = batch_transfers
-            .iter()
-            .find(|t| t.txid == Some(txid.clone()))
-        {
+        if let Some(batch_transfer) = batch_transfers.iter().find(|t| t.idx == idx) {
             Ok(batch_transfer.clone())
         } else {
-            Err(Error::BatchTransferNotFound { txid })
-        }
-    }
-
-    pub(crate) fn get_transfer_or_fail(
-        &self,
-        recipient_id: String,
-        transfers: &[DbTransfer],
-    ) -> Result<DbTransfer, Error> {
-        if let Some(transfer) = transfers
-            .iter()
-            .find(|t| t.recipient_id == Some(recipient_id.clone()))
-        {
-            Ok(transfer.clone())
-        } else {
-            Err(Error::TransferNotFound { recipient_id })
+            Err(Error::BatchTransferNotFound { idx })
         }
     }
 
@@ -858,6 +841,7 @@ impl RgbLibDatabase {
         Ok(TransferData {
             kind,
             status: batch_transfer.status,
+            batch_transfer_idx: batch_transfer.idx,
             txid: batch_transfer.txid.clone(),
             receive_utxo,
             change_utxo,

@@ -48,20 +48,24 @@ fn up_to_allocation_checks() {
     //  - check unspent counted as allocatable
     let num_utxos_created = test_create_utxos(&wallet, &online, false, Some(1), None, FEE_RATE);
     assert_eq!(num_utxos_created, 1);
-    let mut blinded_utxos: Vec<String> = vec![];
+    let mut batch_transfer_idxs: Vec<i32> = vec![];
     let mut txo_list: HashSet<DbTxo> = HashSet::new();
     for _ in 0..MAX_ALLOCATIONS_PER_UTXO {
         let receive_data = test_blind_receive(&wallet);
         let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
         let coloring = get_test_coloring(&wallet, transfer.asset_transfer_idx);
         let txo = get_test_txo(&wallet, coloring.txo_idx);
-        blinded_utxos.push(receive_data.recipient_id);
+        batch_transfer_idxs.push(receive_data.batch_transfer_idx);
         txo_list.insert(txo);
     }
-    // check all blinds are on the same UTXO + fail all of them
+    // check all transfers are on the same UTXO + fail all of them
     assert_eq!(txo_list.len(), 1);
-    for blinded_utxo in blinded_utxos {
-        assert!(test_fail_transfers_blind(&wallet, &online, &blinded_utxo));
+    for batch_transfer_idx in batch_transfer_idxs {
+        assert!(test_fail_transfers_single(
+            &wallet,
+            &online,
+            batch_transfer_idx
+        ));
     }
     // request 1 new UTXO, expecting the existing one is still allocatable
     let result = wallet.create_utxos(online.clone(), true, Some(1), None, FEE_RATE);

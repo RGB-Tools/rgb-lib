@@ -302,7 +302,8 @@ fn success() {
     let unspents_color_count_before = unspents.iter().filter(|u| u.utxo.colorable).count();
     let txid = wallet
         .send(online.clone(), recipient_map, false, 5.0, MIN_CONFIRMATIONS)
-        .unwrap();
+        .unwrap()
+        .txid;
     assert!(!txid.is_empty());
     let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
     let tte_data = wallet
@@ -1983,7 +1984,8 @@ fn batch_donation_success() {
     ]);
     let txid = wallet
         .send(online, recipient_map, true, FEE_RATE, MIN_CONFIRMATIONS)
-        .unwrap();
+        .unwrap()
+        .txid;
     assert!(!txid.is_empty());
 
     show_unspent_colorings(&wallet, "after send");
@@ -2061,8 +2063,8 @@ fn reuse_failed_blinded_success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&wallet, &online, &recipient_map);
-    assert!(!txid.is_empty());
+    let send_result = test_send_result(&wallet, &online, &recipient_map).unwrap();
+    assert!(!send_result.txid.is_empty());
 
     // try to send again and check the asset is not spendable
     let result = test_send_result(&wallet, &online, &recipient_map);
@@ -2071,7 +2073,7 @@ fn reuse_failed_blinded_success() {
     );
 
     // fail transfer so asset allocation can be spent again
-    test_fail_transfers_txid(&wallet, &online, &txid);
+    test_fail_transfers_single(&wallet, &online, send_result.batch_transfer_idx);
 
     // 2nd transfer using the same blinded UTXO
     let result = test_send_result(&wallet, &online, &recipient_map);
@@ -2332,12 +2334,13 @@ fn no_change_on_pending_send() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid_2 = test_send(&wallet, &online, &recipient_map);
+    let send_result = test_send_result(&wallet, &online, &recipient_map).unwrap();
+    let txid_2 = send_result.txid;
     assert!(!txid_2.is_empty());
     // check change was not allocated on issue 1 UTXO (pending Input coloring)
     assert!(!unspent_1.rgb_allocations.iter().any(|a| !a.settled));
     // fail send asset_2
-    test_fail_transfers_txid(&wallet, &online, &txid_2);
+    test_fail_transfers_single(&wallet, &online, send_result.batch_transfer_idx);
 
     stop_mining();
 
@@ -3853,7 +3856,8 @@ fn min_confirmations() {
             FEE_RATE,
             min_confirmations,
         )
-        .unwrap();
+        .unwrap()
+        .txid;
     assert!(!txid.is_empty());
 
     let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &receive_data.recipient_id);
@@ -3939,7 +3943,8 @@ fn min_confirmations() {
             FEE_RATE,
             min_confirmations,
         )
-        .unwrap();
+        .unwrap()
+        .txid;
     assert!(!txid.is_empty());
 
     let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &receive_data.recipient_id);
@@ -4021,7 +4026,8 @@ fn spend_double_receive() {
             FEE_RATE,
             MIN_CONFIRMATIONS,
         )
-        .unwrap();
+        .unwrap()
+        .txid;
     assert!(!txid_1.is_empty());
     // settle transfer
     mine(false);
@@ -4059,7 +4065,8 @@ fn spend_double_receive() {
             FEE_RATE,
             MIN_CONFIRMATIONS,
         )
-        .unwrap();
+        .unwrap()
+        .txid;
     assert!(!txid_2.is_empty());
     // settle transfer
     mine(false);

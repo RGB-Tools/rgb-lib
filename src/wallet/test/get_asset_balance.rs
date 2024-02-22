@@ -80,7 +80,11 @@ fn transfer_balances() {
 
     // blind + fail to check failed blinds are not counted in balance
     let receive_data_fail = test_blind_receive(&wallet_recv);
-    test_fail_transfers_blind(&wallet_recv, &online_recv, &receive_data_fail.recipient_id);
+    test_fail_transfers_single(
+        &wallet_recv,
+        &online_recv,
+        receive_data_fail.batch_transfer_idx,
+    );
     // send + fail to check failed inputs + changes are not counted in balance
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -92,8 +96,10 @@ fn transfer_balances() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&wallet_send, &online_send, &recipient_map);
-    test_fail_transfers_txid(&wallet_send, &online_send, &txid);
+    let batch_transfer_idx = test_send_result(&wallet_send, &online_send, &recipient_map)
+        .unwrap()
+        .batch_transfer_idx;
+    test_fail_transfers_single(&wallet_send, &online_send, batch_transfer_idx);
     // send some assets
     let receive_data_1 = test_blind_receive(&wallet_recv);
     let recipient_map = HashMap::from([(

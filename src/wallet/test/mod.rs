@@ -41,6 +41,7 @@ const RESTORE_DIR_PARTS: [&str; 3] = ["tests", "tmp", "restored"];
 const MAX_ALLOCATIONS_PER_UTXO: u32 = 5;
 const MIN_CONFIRMATIONS: u8 = 1;
 const FAKE_TXID: &str = "e5a3e577309df31bd606f48049049d2e1e02b048206ba232944fcc053a176ccb:0";
+const UNKNOWN_IDX: i32 = 9999;
 
 static INIT: Once = Once::new();
 

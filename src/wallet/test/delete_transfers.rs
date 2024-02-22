@@ -10,7 +10,7 @@ fn success() {
 
     // return false if no transfer has changed
     let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
-    assert!(!test_delete_transfers(&wallet, None, None, false));
+    assert!(!test_delete_transfers(&wallet, None, false));
     let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
     assert_eq!(
         bak_info_after.last_operation_timestamp,
@@ -19,7 +19,7 @@ fn success() {
 
     // delete single transfer
     let receive_data = test_blind_receive(&wallet);
-    test_fail_transfers_blind(&wallet, &online, &receive_data.recipient_id);
+    test_fail_transfers_single(&wallet, &online, receive_data.batch_transfer_idx);
     assert!(check_test_transfer_status_recipient(
         &wallet,
         &receive_data.recipient_id,
@@ -28,8 +28,7 @@ fn success() {
     let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
     assert!(test_delete_transfers(
         &wallet,
-        Some(&receive_data.recipient_id),
-        None,
+        Some(receive_data.batch_transfer_idx),
         false
     ));
     let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
@@ -39,8 +38,8 @@ fn success() {
     let receive_data_1 = test_blind_receive(&wallet);
     let receive_data_2 = test_blind_receive(&wallet);
     let receive_data_3 = test_blind_receive(&wallet);
-    test_fail_transfers_blind(&wallet, &online, &receive_data_1.recipient_id);
-    test_fail_transfers_blind(&wallet, &online, &receive_data_2.recipient_id);
+    test_fail_transfers_single(&wallet, &online, receive_data_1.batch_transfer_idx);
+    test_fail_transfers_single(&wallet, &online, receive_data_2.batch_transfer_idx);
     assert!(check_test_transfer_status_recipient(
         &wallet,
         &receive_data_1.recipient_id,
@@ -52,7 +51,7 @@ fn success() {
         TransferStatus::Failed
     ));
     show_unspent_colorings(&wallet, "run 1 before delete");
-    test_delete_transfers(&wallet, None, None, false);
+    test_delete_transfers(&wallet, None, false);
     show_unspent_colorings(&wallet, "run 1 after delete");
     let transfers = wallet.database.iter_transfers().unwrap();
     assert_eq!(transfers.len(), 1);
@@ -63,15 +62,14 @@ fn success() {
     ));
 
     // fail and delete remaining pending transfers
-    assert!(test_fail_transfers_blind(
+    assert!(test_fail_transfers_single(
         &wallet,
         &online,
-        &receive_data_3.recipient_id
+        receive_data_3.batch_transfer_idx
     ));
     assert!(test_delete_transfers(
         &wallet,
-        Some(&receive_data_3.recipient_id),
-        None,
+        Some(receive_data_3.batch_transfer_idx),
         false
     ));
     let transfers = wallet.database.iter_transfers().unwrap();
@@ -91,15 +89,15 @@ fn success() {
             MIN_CONFIRMATIONS,
         )
         .unwrap();
-    assert!(test_fail_transfers_blind(
+    assert!(test_fail_transfers_single(
         &wallet,
         &online,
-        &receive_data_1.recipient_id
+        receive_data_1.batch_transfer_idx
     ));
-    assert!(test_fail_transfers_blind(
+    assert!(test_fail_transfers_single(
         &wallet,
         &online,
-        &receive_data_2.recipient_id
+        receive_data_2.batch_transfer_idx
     ));
     assert!(check_test_transfer_status_recipient(
         &wallet,
@@ -112,7 +110,7 @@ fn success() {
         TransferStatus::Failed
     ));
     show_unspent_colorings(&wallet, "run 2 before delete");
-    assert!(test_delete_transfers(&wallet, None, None, true));
+    assert!(test_delete_transfers(&wallet, None, true));
     show_unspent_colorings(&wallet, "run 2 after delete");
     let transfers = wallet.database.iter_transfers().unwrap();
     assert_eq!(transfers.len(), 2);
@@ -138,7 +136,7 @@ fn batch_success() {
     let asset = test_issue_asset_nia(&wallet, &online, None);
     let asset_id = asset.asset_id;
 
-    // failed transfer can be deleted, using both blinded_utxo + txid
+    // failed transfer can be deleted
     let receive_data_1 = test_blind_receive(&rcv_wallet_1);
     let receive_data_2 = test_blind_receive(&rcv_wallet_2);
     let recipient_map = HashMap::from([(
@@ -160,42 +158,10 @@ fn batch_success() {
             },
         ],
     )]);
-    let txid = test_send(&wallet, &online, &recipient_map);
-    assert!(!txid.is_empty());
-    test_fail_transfers_txid(&wallet, &online, &txid);
-    test_delete_transfers(
-        &wallet,
-        Some(&receive_data_1.recipient_id),
-        Some(&txid),
-        false,
-    );
-
-    // ...and can be deleted using txid only
-    let receive_data_1 = test_blind_receive(&rcv_wallet_1);
-    let receive_data_2 = test_blind_receive(&rcv_wallet_2);
-    let recipient_map = HashMap::from([(
-        asset_id,
-        vec![
-            Recipient {
-                recipient_data: RecipientData::BlindedUTXO(
-                    SecretSeal::from_str(&receive_data_1.recipient_id).unwrap(),
-                ),
-                amount,
-                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
-            },
-            Recipient {
-                recipient_data: RecipientData::BlindedUTXO(
-                    SecretSeal::from_str(&receive_data_2.recipient_id).unwrap(),
-                ),
-                amount,
-                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
-            },
-        ],
-    )]);
-    let txid = test_send(&wallet, &online, &recipient_map);
-    assert!(!txid.is_empty());
-    test_fail_transfers_txid(&wallet, &online, &txid);
-    test_delete_transfers(&wallet, None, Some(&txid), false);
+    let send_result = test_send_result(&wallet, &online, &recipient_map).unwrap();
+    assert!(!send_result.txid.is_empty());
+    test_fail_transfers_single(&wallet, &online, send_result.batch_transfer_idx);
+    test_delete_transfers(&wallet, Some(send_result.batch_transfer_idx), false);
 }
 
 #[test]
@@ -214,14 +180,14 @@ fn fail() {
         TransferStatus::Failed
     ));
     let result =
-        test_delete_transfers_result(&wallet, Some(&receive_data.recipient_id), None, false);
-    assert!(matches!(result, Err(Error::CannotDeleteTransfer)));
+        test_delete_transfers_result(&wallet, Some(receive_data.batch_transfer_idx), false);
+    assert!(matches!(result, Err(Error::CannotDeleteBatchTransfer)));
 
-    // don't delete unknown blinded UTXO
-    let result = test_delete_transfers_result(&wallet, Some("txob1inexistent"), None, false);
+    // don't delete unknown transfer
+    let result = test_delete_transfers_result(&wallet, Some(UNKNOWN_IDX), false);
     assert!(matches!(
         result,
-        Err(Error::TransferNotFound { recipient_id: _ })
+        Err(Error::BatchTransferNotFound { idx }) if idx == UNKNOWN_IDX
     ));
 
     // issue
@@ -239,111 +205,6 @@ fn fail() {
         )
         .unwrap();
     test_fail_transfers_all(&wallet, &online);
-    let result =
-        test_delete_transfers_result(&wallet, Some(&receive_data.recipient_id), None, true);
-    assert!(matches!(result, Err(Error::CannotDeleteTransfer)));
-}
-
-#[test]
-#[parallel]
-fn batch_fail() {
-    initialize();
-
-    let amount = 66;
-
-    let (wallet, online) = get_funded_wallet!();
-    let (rcv_wallet_1, _rcv_online_1) = get_funded_wallet!();
-    let (rcv_wallet_2, _rcv_online_2) = get_funded_wallet!();
-
-    // issue
-    let asset = test_issue_asset_nia(&wallet, &online, None);
-    let asset_id = asset.asset_id;
-
-    // only blinded UTXO given but multiple transfers in batch
-    let receive_data_1 = test_blind_receive(&rcv_wallet_1);
-    let receive_data_2 = test_blind_receive(&rcv_wallet_2);
-    let recipient_map = HashMap::from([(
-        asset_id.clone(),
-        vec![
-            Recipient {
-                recipient_data: RecipientData::BlindedUTXO(
-                    SecretSeal::from_str(&receive_data_1.recipient_id).unwrap(),
-                ),
-                amount,
-                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
-            },
-            Recipient {
-                recipient_data: RecipientData::BlindedUTXO(
-                    SecretSeal::from_str(&receive_data_2.recipient_id).unwrap(),
-                ),
-                amount,
-                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
-            },
-        ],
-    )]);
-    let txid = test_send(&wallet, &online, &recipient_map);
-    test_fail_transfers_txid(&wallet, &online, &txid);
-    assert!(check_test_transfer_status_sender(
-        &wallet,
-        &txid,
-        TransferStatus::Failed
-    ));
-    let result =
-        test_delete_transfers_result(&wallet, Some(&receive_data_1.recipient_id), None, false);
-    assert!(matches!(result, Err(Error::CannotDeleteTransfer)));
-
-    // blinded UTXO + txid given but blinded UTXO transfer not part of batch transfer
-    let receive_data_1 = test_blind_receive(&rcv_wallet_1);
-    let receive_data_2 = test_blind_receive(&rcv_wallet_2);
-    let recipient_map_1 = HashMap::from([(
-        asset_id.clone(),
-        vec![
-            Recipient {
-                recipient_data: RecipientData::BlindedUTXO(
-                    SecretSeal::from_str(&receive_data_1.recipient_id).unwrap(),
-                ),
-                amount,
-                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
-            },
-            Recipient {
-                recipient_data: RecipientData::BlindedUTXO(
-                    SecretSeal::from_str(&receive_data_2.recipient_id).unwrap(),
-                ),
-                amount,
-                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
-            },
-        ],
-    )]);
-    let txid_1 = test_send(&wallet, &online, &recipient_map_1);
-    test_fail_transfers_txid(&wallet, &online, &txid_1);
-    assert!(check_test_transfer_status_sender(
-        &wallet,
-        &txid_1,
-        TransferStatus::Failed
-    ));
-    let receive_data_3 = test_blind_receive(&rcv_wallet_2);
-    let recipient_map_2 = HashMap::from([(
-        asset_id,
-        vec![Recipient {
-            recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data_3.recipient_id).unwrap(),
-            ),
-            amount,
-            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
-        }],
-    )]);
-    let txid_2 = test_send(&wallet, &online, &recipient_map_2);
-    test_fail_transfers_txid(&wallet, &online, &txid_2);
-    assert!(check_test_transfer_status_sender(
-        &wallet,
-        &txid_2,
-        TransferStatus::Failed
-    ));
-    let result = test_delete_transfers_result(
-        &wallet,
-        Some(&receive_data_3.recipient_id),
-        Some(&txid_1),
-        false,
-    );
-    assert!(matches!(result, Err(Error::CannotDeleteTransfer)));
+    let result = test_delete_transfers_result(&wallet, Some(receive_data.batch_transfer_idx), true);
+    assert!(matches!(result, Err(Error::CannotDeleteBatchTransfer)));
 }

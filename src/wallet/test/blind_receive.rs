@@ -256,9 +256,9 @@ fn pending_outgoing_transfer_fail() {
         .find(|u| u.rgb_allocations.iter().any(|a| a.asset_id.is_none()))
         .unwrap();
     assert_ne!(unspent_issue.utxo.outpoint, unspent_blind_1.utxo.outpoint);
-    // remove blind
-    test_fail_transfers_blind(&wallet, &online, &receive_data.recipient_id);
-    test_delete_transfers(&wallet, Some(&receive_data.recipient_id), None, false);
+    // remove transfer
+    test_fail_transfers_single(&wallet, &online, receive_data.batch_transfer_idx);
+    test_delete_transfers(&wallet, Some(receive_data.batch_transfer_idx), false);
 
     // take transfer from WaitingCounterparty to WaitingConfirmations
     rcv_wallet.refresh(rcv_online, None, vec![]).unwrap();

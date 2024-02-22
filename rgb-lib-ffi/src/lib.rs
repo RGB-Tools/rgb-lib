@@ -37,6 +37,7 @@ type RgbLibInvoice = rgb_lib::wallet::Invoice;
 type RgbLibRecipient = rgb_lib::wallet::Recipient;
 type RgbLibTransportEndpoint = rgb_lib::wallet::TransportEndpoint;
 type RgbLibWallet = rgb_lib::wallet::Wallet;
+type SendResult = rgb_lib::wallet::SendResult;
 type Token = rgb_lib::wallet::Token;
 type TokenLight = rgb_lib::wallet::TokenLight;
 type Transaction = rgb_lib::wallet::Transaction;
@@ -239,12 +240,11 @@ impl Wallet {
 
     fn delete_transfers(
         &self,
-        blinded_utxo: Option<String>,
-        txid: Option<String>,
+        batch_transfer_idx: Option<i32>,
         no_asset_only: bool,
     ) -> Result<bool, RgbLibError> {
         self._get_wallet()
-            .delete_transfers(blinded_utxo, txid, no_asset_only)
+            .delete_transfers(batch_transfer_idx, no_asset_only)
     }
 
     fn drain_to(
@@ -276,12 +276,11 @@ impl Wallet {
     fn fail_transfers(
         &self,
         online: Online,
-        blinded_utxo: Option<String>,
-        txid: Option<String>,
+        batch_transfer_idx: Option<i32>,
         no_asset_only: bool,
     ) -> Result<bool, RgbLibError> {
         self._get_wallet()
-            .fail_transfers(online, blinded_utxo, txid, no_asset_only)
+            .fail_transfers(online, batch_transfer_idx, no_asset_only)
     }
 
     fn get_address(&self) -> Result<String, RgbLibError> {
@@ -391,7 +390,7 @@ impl Wallet {
         donation: bool,
         fee_rate: f32,
         min_confirmations: u8,
-    ) -> Result<String, RgbLibError> {
+    ) -> Result<SendResult, RgbLibError> {
         self._get_wallet().send(
             online,
             _convert_recipient_map(recipient_map)?,
@@ -418,7 +417,7 @@ impl Wallet {
         )
     }
 
-    fn send_end(&self, online: Online, signed_psbt: String) -> Result<String, RgbLibError> {
+    fn send_end(&self, online: Online, signed_psbt: String) -> Result<SendResult, RgbLibError> {
         self._get_wallet().send_end(online, signed_psbt)
     }
 

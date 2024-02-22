@@ -62,7 +62,11 @@ fn success() {
 
     // multiple unspents, one failed blind, not listed
     let receive_data_fail = test_blind_receive(&rcv_wallet);
-    test_fail_transfers_blind(&rcv_wallet, &rcv_online, &receive_data_fail.recipient_id);
+    test_fail_transfers_single(
+        &rcv_wallet,
+        &rcv_online,
+        receive_data_fail.batch_transfer_idx,
+    );
     show_unspent_colorings(&rcv_wallet, "after blind fail");
     let unspent_list_all = test_list_unspents(&rcv_wallet, None, false);
     let mut allocations = vec![];
@@ -82,9 +86,10 @@ fn success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&wallet, &online, &recipient_map);
+    let send_result = test_send_result(&wallet, &online, &recipient_map).unwrap();
+    let txid = send_result.txid;
     assert!(!txid.is_empty());
-    test_fail_transfers_txid(&wallet, &online, &txid);
+    test_fail_transfers_single(&wallet, &online, send_result.batch_transfer_idx);
     show_unspent_colorings(&wallet, "after send fail");
     let unspent_list_all = test_list_unspents(&wallet, None, false);
     assert_eq!(

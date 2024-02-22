@@ -13,11 +13,12 @@ interface RgbLibError {
   AllocationsAlreadyAvailable();
   AssetIfaceMismatch();
   AssetNotFound(string asset_id);
-  BatchTransferNotFound(string txid);
+  BatchTransferNotFound(i32 idx);
   CannotChangeOnline();
-  CannotDeleteTransfer();
-  CannotFailTransfer();
+  CannotDeleteBatchTransfer();
+  CannotFailBatchTransfer();
   Electrum(string details);
+  EmptyFile(string file_path);
   FailedBdkSync(string details);
   FailedBroadcast(string details);
   FailedIssuance(string details);
@@ -62,7 +63,6 @@ interface RgbLibError {
   RecipientIDAlreadyUsed();
   RecipientIDDuplicated();
   TooHighIssuanceAmounts();
-  TransferNotFound(string recipient_id);
   UnknownRgbInterface(string interface);
   UnknownRgbSchema(string schema_id);
   UnsupportedBackupVersion(string version);
@@ -169,6 +169,7 @@ dictionary ReceiveData {
   string invoice;
   string recipient_id;
   i64? expiration_timestamp;
+  i32 batch_transfer_idx;
 };
 
 interface BlindedUTXO {
@@ -269,6 +270,11 @@ dictionary ScriptData {
   u64? blinding;
 };
 
+dictionary SendResult {
+  string txid;
+  i32 batch_transfer_idx;
+};
+
 dictionary Recipient {
   string? blinded_utxo;
   ScriptData? script_data;
@@ -335,6 +341,7 @@ dictionary BlockTime {
 
 dictionary Transfer {
   i32 idx;
+  i32 batch_transfer_idx;
   i64 created_at;
   i64 updated_at;
   TransferStatus status;
@@ -400,7 +407,7 @@ interface Wallet {
   u8 create_utxos_end(Online online, string signed_psbt);
 
   [Throws=RgbLibError]
-  boolean delete_transfers(string? blinded_utxo, string? txid, boolean no_asset_only);
+  boolean delete_transfers(i32? batch_transfer_idx, boolean no_asset_only);
 
   [Throws=RgbLibError]
   string drain_to(Online online, string address, boolean destroy_assets, f32 fee_rate);
@@ -412,7 +419,7 @@ interface Wallet {
   string drain_to_end(Online online, string signed_psbt);
 
   [Throws=RgbLibError]
-  boolean fail_transfers(Online online, string? blinded_utxo, string? txid, boolean no_asset_only);
+  boolean fail_transfers(Online online, i32? batch_transfer_idx, boolean no_asset_only);
 
   [Throws=RgbLibError]
   string get_address();
@@ -460,7 +467,7 @@ interface Wallet {
   boolean refresh(Online online, string? asset_id, sequence<RefreshFilter> filter);
 
   [Throws=RgbLibError]
-  string send(
+  SendResult send(
     Online online, record<DOMString, sequence<Recipient>> recipient_map,
     boolean donation, f32 fee_rate, u8 min_confirmations);
 
@@ -470,7 +477,7 @@ interface Wallet {
     boolean donation, f32 fee_rate, u8 min_confirmations);
 
   [Throws=RgbLibError]
-  string send_end(Online online, string signed_psbt);
+  SendResult send_end(Online online, string signed_psbt);
 
   [Throws=RgbLibError]
   string send_btc(Online online, string address, u64 amount, f32 fee_rate);
