@@ -55,6 +55,7 @@ zip = { version = "0.6.6", default-features = false, features = ["zstd"] }
 
 # RGB-related deps
 amplify = "=4.5.0"
+amplify_num = "=0.5.1"  # temporary dependency pin
 bp-core = "=0.10.11"
 commit_verify = "=0.10.6"
 rgb-contracts = "=0.10.2"
