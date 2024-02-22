@@ -2035,7 +2035,7 @@ impl Wallet {
         unsigned_psbt: String,
         sign_options: Option<SignOptions>,
     ) -> Result<String, Error> {
-        let mut psbt = BdkPsbt::from_str(&unsigned_psbt).map_err(InternalError::from)?;
+        let mut psbt = BdkPsbt::from_str(&unsigned_psbt)?;
         self._sign_psbt(&mut psbt, sign_options)?;
         Ok(psbt.to_string())
     }
@@ -2691,7 +2691,9 @@ impl Wallet {
     ) -> Result<ContractIface, Error> {
         let iface_name = AssetIface::from(*asset_schema).to_typename();
         let iface = runtime.iface_by_name(&iface_name)?.clone();
-        Ok(runtime.contract_iface(contract_id, iface.iface_id())?)
+        runtime
+            .contract_iface(contract_id, iface.iface_id())
+            .map_err(|_| Error::AssetIfaceMismatch)
     }
 
     fn _get_asset_timestamp(&self, contract: &ContractIface) -> Result<i64, Error> {

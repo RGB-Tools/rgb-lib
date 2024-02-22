@@ -10,6 +10,10 @@ pub enum Error {
     #[error("Allocations already available")]
     AllocationsAlreadyAvailable,
 
+    /// The provided asset iface doesn't match
+    #[error("Asset iface mismatch")]
+    AssetIfaceMismatch,
+
     /// Requested asset was not found
     #[error("Asset with id {asset_id} not found")]
     AssetNotFound {

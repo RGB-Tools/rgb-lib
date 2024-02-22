@@ -11,6 +11,7 @@ namespace rgb_lib {
 [Error]
 interface RgbLibError {
   AllocationsAlreadyAvailable();
+  AssetIfaceMismatch();
   AssetNotFound(string asset_id);
   BatchTransferNotFound(string txid);
   CannotChangeOnline();

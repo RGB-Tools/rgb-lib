@@ -31,5 +31,5 @@ fn fail() {
     let (wallet, _online) = get_funded_wallet!();
 
     let result = wallet.sign_psbt("rgb1invalid".to_string(), None);
-    assert!(matches!(result, Err(Error::Internal { details: _ }))); // PSBT parse error
+    assert!(matches!(result, Err(Error::InvalidPsbt { details: _ })));
 }

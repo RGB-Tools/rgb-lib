@@ -109,5 +109,5 @@ fn fail() {
     let mut runtime = wallet._rgb_runtime().unwrap();
 
     let result = wallet.save_new_asset(&mut runtime, &AssetSchema::Cfa, asset_nia_cid);
-    assert!(matches!(result, Err(Error::Internal { details: _ })));
+    assert!(matches!(result, Err(Error::AssetIfaceMismatch)));
 }
