@@ -4239,3 +4239,87 @@ fn input_sorting() {
     expected_amounts.sort();
     assert_eq!(cur_amounts, expected_amounts);
 }
+
+#[test]
+#[parallel]
+fn spend_witness_receive_utxo() {
+    initialize();
+
+    let amount: u64 = 66;
+
+    // wallets
+    let (wallet_1, online_1) = get_funded_wallet!();
+    let (wallet_2, online_2) = get_funded_noutxo_wallet!();
+
+    // issue
+    let asset_a = test_issue_asset_nia(&wallet_1, &online_1, None);
+
+    // send
+    let receive_data_1 = test_witness_receive(&wallet_2);
+    let recipient_map_1 = HashMap::from([(
+        asset_a.asset_id.clone(),
+        vec![Recipient {
+            amount,
+            recipient_data: RecipientData::WitnessData {
+                script_buf: ScriptBuf::from_hex(&receive_data_1.recipient_id).unwrap(),
+                amount_sat: 1000,
+                blinding: None,
+            },
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid_1 = test_send(&wallet_1, &online_1, &recipient_map_1);
+    assert!(!txid_1.is_empty());
+
+    stop_mining();
+
+    // transfers progress to status WaitingConfirmations after a refresh
+    test_refresh_all(&wallet_2, &online_2);
+    let transfer_1_recv = get_test_transfer_recipient(&wallet_2, &receive_data_1.recipient_id);
+    let (transfer_1_recv_data, _) = get_test_transfer_data(&wallet_2, &transfer_1_recv);
+    test_refresh_asset(&wallet_1, &online_1, &asset_a.asset_id);
+    let (transfer_1_send, _, _) = get_test_transfer_sender(&wallet_1, &txid_1);
+    let (transfer_1_send_data, _) = get_test_transfer_data(&wallet_1, &transfer_1_send);
+    assert_eq!(
+        transfer_1_recv_data.status,
+        TransferStatus::WaitingConfirmations
+    );
+    assert_eq!(
+        transfer_1_send_data.status,
+        TransferStatus::WaitingConfirmations
+    );
+
+    // mine and refresh the sender wallet only (receiver transfer still WaitingConfirmations)
+    mine(true);
+    test_refresh_asset(&wallet_1, &online_1, &asset_a.asset_id);
+
+    // sync DB TXOs for the receiver wallet
+    test_create_utxos_begin_result(&wallet_2, &online_2, false, None, None, FEE_RATE).unwrap();
+
+    // make sure the witness receive UTXO is available
+    assert!(test_list_unspents(&wallet_2, Some(&online_2), false).len() > 1);
+
+    // issue an asset on the witness receive UTXO
+    let asset_b = test_issue_asset_nia(&wallet_2, &online_2, None);
+
+    // spending the witness receive UTXO should fail
+    let receive_data_2 = test_witness_receive(&wallet_1);
+    let recipient_map_2 = HashMap::from([(
+        asset_b.asset_id.clone(),
+        vec![Recipient {
+            amount: amount * 2,
+            recipient_data: RecipientData::WitnessData {
+                script_buf: ScriptBuf::from_hex(&receive_data_2.recipient_id).unwrap(),
+                amount_sat: 1000,
+                blinding: None,
+            },
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    _test_create_utxos(&wallet_2, &online_2, false, Some(2), None, FEE_RATE);
+    let result = test_send_result(&wallet_2, &online_2, &recipient_map_2);
+    assert!(
+        matches!(result, Err(Error::InsufficientSpendableAssets { asset_id: ref id })
+            if id == &asset_b.asset_id )
+    );
+}
