@@ -4287,3 +4287,85 @@ fn spend_witness_receive_utxo() {
             if id == &asset_b.asset_id )
     );
 }
+
+#[test]
+#[parallel]
+fn rgb_change_on_btc_change() {
+    initialize();
+
+    let amount: u64 = 66;
+
+    // wallets
+    let (wallet, online) = get_funded_noutxo_wallet!();
+    let (rcv_wallet, rcv_online) = get_funded_wallet!();
+
+    // issue
+    test_create_utxos(&wallet, &online, false, Some(1), None, FEE_RATE);
+    let asset = test_issue_asset_nia(&wallet, &online, None);
+
+    // send with no available colorable UTXOs (need to allocate change to BTC change UTXO)
+    let receive_data = test_blind_receive(&rcv_wallet);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            amount,
+            recipient_data: RecipientData::BlindedUTXO(
+                SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
+            ),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid = test_send(&wallet, &online, &recipient_map);
+    assert!(!txid.is_empty());
+
+    // RGB change has been allocated to the same UTXO as the BTC change (exists = false)
+    let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
+    let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
+    let unspents = test_list_unspents(&wallet, None, false);
+    assert_eq!(
+        unspents
+            .iter()
+            .filter(|u| u.utxo.colorable)
+            .collect::<Vec<&Unspent>>()
+            .len(),
+        2
+    );
+    let change_unspent = unspents
+        .into_iter()
+        .find(|u| Some(u.utxo.outpoint.clone()) == transfer_data.change_utxo)
+        .unwrap();
+    assert!(!change_unspent.utxo.exists);
+    let change_rgb_allocations = change_unspent.rgb_allocations;
+    assert_eq!(change_rgb_allocations.len(), 1);
+    let allocation = change_rgb_allocations.first().unwrap();
+    assert_eq!(allocation.asset_id, Some(asset.asset_id));
+    assert_eq!(allocation.amount, AMOUNT - amount);
+
+    stop_mining();
+
+    // transfers progress to status WaitingConfirmations after a refresh
+    test_refresh_all(&rcv_wallet, &rcv_online);
+    let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &receive_data.recipient_id);
+    let (rcv_transfer_data, _) = get_test_transfer_data(&rcv_wallet, &rcv_transfer);
+    test_refresh_all(&wallet, &online);
+    let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
+    let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
+
+    assert_eq!(
+        rcv_transfer_data.status,
+        TransferStatus::WaitingConfirmations
+    );
+    assert_eq!(transfer_data.status, TransferStatus::WaitingConfirmations);
+
+    // transfers progress to status Settled after tx mining + refresh
+    mine(true);
+    test_refresh_all(&rcv_wallet, &rcv_online);
+    test_refresh_all(&wallet, &online);
+
+    let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &receive_data.recipient_id);
+    let (rcv_transfer_data, _) = get_test_transfer_data(&rcv_wallet, &rcv_transfer);
+    let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
+    let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
+    assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
+    assert_eq!(transfer_data.status, TransferStatus::Settled);
+}
