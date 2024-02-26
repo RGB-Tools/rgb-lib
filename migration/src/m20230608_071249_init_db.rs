@@ -441,6 +441,65 @@ impl MigrationTrait for Migration {
             .await?;
 
         manager
+            .create_table(
+                Table::create()
+                    .table(PendingWitnessScript::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(PendingWitnessScript::Idx)
+                            .integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(PendingWitnessScript::Script)
+                            .string()
+                            .not_null()
+                            .unique_key(),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_table(
+                Table::create()
+                    .table(PendingWitnessOutpoint::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(PendingWitnessOutpoint::Idx)
+                            .integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(PendingWitnessOutpoint::Txid)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PendingWitnessOutpoint::Vout)
+                            .big_unsigned()
+                            .not_null(),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                sea_query::Index::create()
+                    .name("idx-pendingwitnessoutpoint-txid-vout")
+                    .table(PendingWitnessOutpoint::Table)
+                    .col(PendingWitnessOutpoint::Txid)
+                    .col(PendingWitnessOutpoint::Vout)
+                    .unique()
+                    .clone(),
+            )
+            .await?;
+
+        manager
             .create_index(
                 sea_query::Index::create()
                     .name("idx-coloring-assettransferidx-txoidx")
@@ -530,6 +589,18 @@ impl MigrationTrait for Migration {
 
         manager
             .drop_table(Table::drop().table(WalletTransaction::Table).to_owned())
+            .await?;
+
+        manager
+            .drop_table(
+                Table::drop()
+                    .table(PendingWitnessOutpoint::Table)
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .drop_table(Table::drop().table(PendingWitnessScript::Table).to_owned())
             .await?;
 
         manager
@@ -661,6 +732,21 @@ enum WalletTransaction {
     Idx,
     Txid,
     Type,
+}
+
+#[derive(DeriveIden)]
+enum PendingWitnessScript {
+    Table,
+    Idx,
+    Script,
+}
+
+#[derive(DeriveIden)]
+enum PendingWitnessOutpoint {
+    Table,
+    Idx,
+    Txid,
+    Vout,
 }
 
 #[derive(DeriveIden)]

@@ -24,6 +24,12 @@ use crate::database::entities::batch_transfer::{
 use entities::asset::{ActiveModel as DbAssetActMod, Model as DbAsset};
 use entities::coloring::{ActiveModel as DbColoringActMod, Model as DbColoring};
 use entities::media::{ActiveModel as DbMediaActMod, Model as DbMedia};
+use entities::pending_witness_outpoint::{
+    ActiveModel as DbPendingWitnessOutpointActMod, Model as DbPendingWitnessOutpoint,
+};
+use entities::pending_witness_script::{
+    ActiveModel as DbPendingWitnessScriptActMod, Model as DbPendingWitnessScript,
+};
 use entities::prelude::*;
 use entities::token::{ActiveModel as DbTokenActMod, Model as DbToken};
 use entities::token_media::{ActiveModel as DbTokenMediaActMod, Model as DbTokenMedia};
@@ -38,7 +44,10 @@ use entities::txo::{ActiveModel as DbTxoActMod, Model as DbTxo};
 use entities::wallet_transaction::{
     ActiveModel as DbWalletTransactionActMod, Model as DbWalletTransaction,
 };
-use entities::{asset, coloring, media, transfer_transport_endpoint, transport_endpoint, txo};
+use entities::{
+    asset, coloring, media, pending_witness_outpoint, pending_witness_script,
+    transfer_transport_endpoint, transport_endpoint, txo,
+};
 
 use self::enums::{ColoringType, RecipientType, TransferStatus, TransportType};
 
@@ -140,6 +149,15 @@ pub(crate) struct DbData {
     pub(crate) txos: Vec<DbTxo>,
 }
 
+impl DbPendingWitnessOutpoint {
+    pub(crate) fn outpoint(&self) -> Outpoint {
+        Outpoint {
+            txid: self.txid.to_string(),
+            vout: self.vout,
+        }
+    }
+}
+
 impl DbTransfer {
     pub(crate) fn related_transfers(
         &self,
@@ -201,6 +219,12 @@ pub(crate) struct LocalUnspent {
     pub utxo: DbTxo,
     /// RGB allocations on the UTXO
     pub rgb_allocations: Vec<LocalRgbAllocation>,
+}
+
+impl LocalUnspent {
+    pub(crate) fn outpoint(&self) -> Outpoint {
+        self.utxo.outpoint()
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -307,6 +331,26 @@ impl RgbLibDatabase {
 
     pub(crate) fn set_media(&self, media: DbMediaActMod) -> Result<i32, InternalError> {
         let res = block_on(Media::insert(media).exec(self.get_connection()))?;
+        Ok(res.last_insert_id)
+    }
+
+    pub(crate) fn set_pending_witness_outpoint(
+        &self,
+        pending_witness_outpoint: DbPendingWitnessOutpointActMod,
+    ) -> Result<i32, InternalError> {
+        let res = block_on(
+            PendingWitnessOutpoint::insert(pending_witness_outpoint).exec(self.get_connection()),
+        )?;
+        Ok(res.last_insert_id)
+    }
+
+    pub(crate) fn set_pending_witness_script(
+        &self,
+        pending_witness_script: DbPendingWitnessScriptActMod,
+    ) -> Result<i32, InternalError> {
+        let res = block_on(
+            PendingWitnessScript::insert(pending_witness_script).exec(self.get_connection()),
+        )?;
         Ok(res.last_insert_id)
     }
 
@@ -442,6 +486,28 @@ impl RgbLibDatabase {
         Ok(())
     }
 
+    pub(crate) fn del_pending_witness_outpoint(
+        &self,
+        outpoint: Outpoint,
+    ) -> Result<(), InternalError> {
+        block_on(
+            PendingWitnessOutpoint::delete_many()
+                .filter(pending_witness_outpoint::Column::Txid.eq(outpoint.txid))
+                .filter(pending_witness_outpoint::Column::Vout.eq(outpoint.vout))
+                .exec(self.get_connection()),
+        )?;
+        Ok(())
+    }
+
+    pub(crate) fn del_pending_witness_script(&self, script: String) -> Result<(), InternalError> {
+        block_on(
+            PendingWitnessScript::delete_many()
+                .filter(pending_witness_script::Column::Script.eq(script))
+                .exec(self.get_connection()),
+        )?;
+        Ok(())
+    }
+
     pub(crate) fn get_asset(&self, asset_id: String) -> Result<Option<DbAsset>, InternalError> {
         Ok(block_on(
             Asset::find()
@@ -484,10 +550,10 @@ impl RgbLibDatabase {
         )?)
     }
 
-    pub(crate) fn get_txo(&self, outpoint: Outpoint) -> Result<Option<DbTxo>, InternalError> {
+    pub(crate) fn get_txo(&self, outpoint: &Outpoint) -> Result<Option<DbTxo>, InternalError> {
         Ok(block_on(
             Txo::find()
-                .filter(txo::Column::Txid.eq(outpoint.txid))
+                .filter(txo::Column::Txid.eq(outpoint.txid.clone()))
                 .filter(txo::Column::Vout.eq(outpoint.vout))
                 .one(self.get_connection()),
         )?)
@@ -511,6 +577,22 @@ impl RgbLibDatabase {
 
     pub(crate) fn iter_media(&self) -> Result<Vec<DbMedia>, InternalError> {
         Ok(block_on(Media::find().all(self.get_connection()))?)
+    }
+
+    pub(crate) fn iter_pending_witness_outpoints(
+        &self,
+    ) -> Result<Vec<DbPendingWitnessOutpoint>, InternalError> {
+        Ok(block_on(
+            PendingWitnessOutpoint::find().all(self.get_connection()),
+        )?)
+    }
+
+    pub(crate) fn iter_pending_witness_scripts(
+        &self,
+    ) -> Result<Vec<DbPendingWitnessScript>, InternalError> {
+        Ok(block_on(
+            PendingWitnessScript::find().all(self.get_connection()),
+        )?)
     }
 
     pub(crate) fn iter_token_medias(&self) -> Result<Vec<DbTokenMedia>, InternalError> {

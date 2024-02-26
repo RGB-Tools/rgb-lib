@@ -82,6 +82,8 @@ use crate::database::entities::batch_transfer::{
 };
 use crate::database::entities::coloring::{ActiveModel as DbColoringActMod, Model as DbColoring};
 use crate::database::entities::media::{ActiveModel as DbMediaActMod, Model as DbMedia};
+use crate::database::entities::pending_witness_outpoint::ActiveModel as DbPendingWitnessOutpointActMod;
+use crate::database::entities::pending_witness_script::ActiveModel as DbPendingWitnessScriptActMod;
 use crate::database::entities::token::{ActiveModel as DbTokenActMod, Model as DbToken};
 use crate::database::entities::token_media::{
     ActiveModel as DbTokenMediaActMod, Model as DbTokenMedia,
@@ -1523,14 +1525,35 @@ impl Wallet {
             .bdk_wallet
             .list_unspent()
             .map_err(InternalError::from)?;
-        let new_utxos: Vec<DbTxoActMod> = bdk_utxos
+        let new_utxos: Vec<LocalUtxo> = bdk_utxos
             .into_iter()
             .filter(|u| u.keychain == KeychainKind::External)
             .filter(|u| !db_outpoints.contains(&u.outpoint.to_string()))
-            .map(DbTxoActMod::from)
             .collect();
+
+        let pending_witness_scripts: Vec<String> = self
+            .database
+            .iter_pending_witness_scripts()?
+            .into_iter()
+            .map(|s| s.script)
+            .collect();
+
         for new_utxo in new_utxos.iter().cloned() {
-            self.database.set_txo(new_utxo)?;
+            let new_db_utxo: DbTxoActMod = new_utxo.clone().into();
+            if !pending_witness_scripts.is_empty() {
+                let pending_witness_script = new_utxo.txout.script_pubkey.to_hex_string();
+                if pending_witness_scripts.contains(&pending_witness_script) {
+                    self.database
+                        .set_pending_witness_outpoint(DbPendingWitnessOutpointActMod {
+                            txid: new_db_utxo.txid.clone(),
+                            vout: new_db_utxo.vout.clone(),
+                            ..Default::default()
+                        })?;
+                    self.database
+                        .del_pending_witness_script(pending_witness_script)?;
+                }
+            }
+            self.database.set_txo(new_db_utxo)?;
         }
 
         Ok(())
@@ -1572,7 +1595,7 @@ impl Wallet {
             }
             let mut db_txo: DbTxoActMod = self
                 .database
-                .get_txo(Outpoint { txid, vout })?
+                .get_txo(&Outpoint { txid, vout })?
                 .expect("outpoint should be in the DB")
                 .into();
             db_txo.spent = ActiveValue::Set(true);
@@ -2026,6 +2049,12 @@ impl Wallet {
             RecipientType::Witness,
             script_buf_str.clone(),
         )?;
+
+        self.database
+            .set_pending_witness_script(DbPendingWitnessScriptActMod {
+                script: ActiveValue::Set(script_buf_str.clone()),
+                ..Default::default()
+            })?;
 
         self.update_backup_info(false)?;
 
@@ -4762,12 +4791,13 @@ impl Wallet {
 
             if transfer.recipient_type == Some(RecipientType::Witness) {
                 self._sync_db_txos()?;
+                let outpoint = Outpoint {
+                    txid,
+                    vout: transfer.vout.unwrap(),
+                };
                 let utxo = self
                     .database
-                    .get_txo(Outpoint {
-                        txid,
-                        vout: transfer.vout.unwrap(),
-                    })?
+                    .get_txo(&outpoint)?
                     .expect("outpoint should be in the DB");
 
                 let db_coloring = DbColoringActMod {
@@ -4778,6 +4808,8 @@ impl Wallet {
                     ..Default::default()
                 };
                 self.database.set_coloring(db_coloring)?;
+
+                self.database.del_pending_witness_outpoint(outpoint)?;
             }
 
             // accept consignment
@@ -5470,8 +5502,18 @@ impl Wallet {
         Ok(batch_transfer_idx)
     }
 
-    fn _get_input_unspents(&self, unspents: &[LocalUnspent]) -> Vec<LocalUnspent> {
+    fn _get_input_unspents(&self, unspents: &[LocalUnspent]) -> Result<Vec<LocalUnspent>, Error> {
+        let pending_witness_outpoints: Vec<Outpoint> = self
+            .database
+            .iter_pending_witness_outpoints()?
+            .iter()
+            .map(|o| o.outpoint())
+            .collect();
         let mut input_unspents = unspents.to_vec();
+        // consider the following UTXOs unspendable:
+        // - incoming and pending
+        // - outgoing and in waiting counterparty status
+        // - pending incoming witness
         input_unspents.retain(|u| {
             !((u.rgb_allocations
                 .iter()
@@ -5479,9 +5521,11 @@ impl Wallet {
                 || (u
                     .rgb_allocations
                     .iter()
-                    .any(|a| !a.incoming && a.status.waiting_counterparty())))
+                    .any(|a| !a.incoming && a.status.waiting_counterparty()))
+                || (!pending_witness_outpoints.is_empty()
+                    && pending_witness_outpoints.contains(&u.outpoint())))
         });
-        input_unspents
+        Ok(input_unspents)
     }
 
     /// Send RGB assets.
@@ -5585,7 +5629,7 @@ impl Wallet {
         #[cfg(test)]
         let input_unspents = test::mock_input_unspents(self, &unspents);
         #[cfg(not(test))]
-        let input_unspents = self._get_input_unspents(&unspents);
+        let input_unspents = self._get_input_unspents(&unspents)?;
 
         let mut runtime = self._rgb_runtime()?;
         let mut witness_recipients: Vec<(ScriptBuf, u64)> = vec![];

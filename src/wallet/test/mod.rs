@@ -162,7 +162,7 @@ lazy_static! {
 pub fn mock_input_unspents(wallet: &Wallet, unspents: &[LocalUnspent]) -> Vec<LocalUnspent> {
     let mut mock_input_unspents = MOCK_INPUT_UNSPENTS.lock().unwrap();
     if mock_input_unspents.is_empty() {
-        wallet._get_input_unspents(unspents)
+        wallet._get_input_unspents(unspents).unwrap()
     } else {
         mock_input_unspents.drain(..).collect()
     }

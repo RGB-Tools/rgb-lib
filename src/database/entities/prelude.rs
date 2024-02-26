@@ -6,6 +6,8 @@ pub use super::backup_info::Entity as BackupInfo;
 pub use super::batch_transfer::Entity as BatchTransfer;
 pub use super::coloring::Entity as Coloring;
 pub use super::media::Entity as Media;
+pub use super::pending_witness_outpoint::Entity as PendingWitnessOutpoint;
+pub use super::pending_witness_script::Entity as PendingWitnessScript;
 pub use super::token::Entity as Token;
 pub use super::token_media::Entity as TokenMedia;
 pub use super::transfer::Entity as Transfer;
