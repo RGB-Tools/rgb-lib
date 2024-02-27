@@ -112,10 +112,7 @@ fn fail() {
     let mut wallet_data_bad = wallet_data.clone();
     wallet_data_bad.data_dir = s!("");
     let result = Wallet::new(wallet_data_bad);
-    assert!(matches!(result, Err(Error::IO { details: _ })));
-    if let Err(Error::IO { details: err }) = result {
-        assert_eq!(err, "No such file or directory (os error 2)");
-    }
+    assert!(matches!(result, Err(Error::InexistentDataDir)));
 
     // pubkey too short
     let mut wallet_data_bad = wallet_data.clone();
