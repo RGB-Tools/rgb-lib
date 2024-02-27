@@ -1277,14 +1277,14 @@ impl Wallet {
         let bdk_network = BdkNetwork::from(wdata.bitcoin_network);
         let xpub = extended_key.into_xpub(bdk_network, &Secp256k1::new());
         let fingerprint = xpub.fingerprint().to_string();
-        let absolute_data_dir = fs::canonicalize(wdata.data_dir)?;
-        let data_dir_path = Path::new(&absolute_data_dir);
-        let wallet_dir = data_dir_path.join(fingerprint);
+        let data_dir_path = Path::new(&wdata.data_dir);
         if !data_dir_path.exists() {
-            return Err(Error::InexistentDataDir)?;
+            return Err(Error::InexistentDataDir);
         }
+        let data_dir_path = fs::canonicalize(data_dir_path)?;
+        let wallet_dir = data_dir_path.join(fingerprint);
         if !wallet_dir.exists() {
-            fs::create_dir(wallet_dir.clone())?;
+            fs::create_dir(&wallet_dir)?;
             fs::create_dir(wallet_dir.join(MEDIA_DIR))?;
         }
         let logger = setup_logger(wallet_dir.clone(), None)?;
