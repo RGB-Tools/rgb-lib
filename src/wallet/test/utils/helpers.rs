@@ -396,8 +396,15 @@ pub(crate) fn show_unspent_colorings(wallet: &Wallet, msg: &str) {
             .filter(|c| c.txo_idx == db_txo.idx)
             .collect();
         println!(
-            "> {}:{}, {} sat",
-            outpoint.txid, outpoint.vout, unspent.utxo.btc_amount,
+            "> {}:{}, {} sat{}",
+            outpoint.txid,
+            outpoint.vout,
+            unspent.utxo.btc_amount,
+            if !unspent.utxo.exists {
+                " - tx not broadcast yet"
+            } else {
+                ""
+            },
         );
         for db_coloring in db_colorings {
             let db_asset_transfers = wallet.database.iter_asset_transfers().unwrap();
