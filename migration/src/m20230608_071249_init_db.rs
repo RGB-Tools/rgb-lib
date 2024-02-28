@@ -22,6 +22,7 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Txo::Vout).big_unsigned().not_null())
                     .col(ColumnDef::new(Txo::BtcAmount).string().not_null())
                     .col(ColumnDef::new(Txo::Spent).boolean().not_null())
+                    .col(ColumnDef::new(Txo::Exists).boolean().not_null())
                     .to_owned(),
             )
             .await?;
@@ -617,6 +618,7 @@ pub enum Txo {
     Vout,
     BtcAmount,
     Spent,
+    Exists,
 }
 
 #[derive(DeriveIden)]

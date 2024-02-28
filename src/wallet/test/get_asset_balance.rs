@@ -240,7 +240,7 @@ fn transfer_balances() {
         Balance {
             settled: AMOUNT * 3 - amount_1,
             future: AMOUNT * 3 - amount_1 - amount_2,
-            spendable: AMOUNT * 2 - amount_1,
+            spendable: AMOUNT * 2,
         }
     );
 
@@ -262,7 +262,7 @@ fn transfer_balances() {
         Balance {
             settled: AMOUNT * 3 - amount_1,
             future: AMOUNT * 3 - amount_1 - amount_2,
-            spendable: AMOUNT * 2 - amount_1,
+            spendable: AMOUNT * 2,
         }
     );
     let asset_balance_recv = test_get_asset_balance(&wallet_recv, &asset.asset_id);

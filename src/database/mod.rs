@@ -201,6 +201,7 @@ impl From<LocalUtxo> for DbTxoActMod {
             vout: ActiveValue::Set(x.outpoint.vout),
             btc_amount: ActiveValue::Set(x.txout.value.to_string()),
             spent: ActiveValue::Set(false),
+            exists: ActiveValue::Set(true),
         }
     }
 }
@@ -505,6 +506,11 @@ impl RgbLibDatabase {
                 .filter(pending_witness_script::Column::Script.eq(script))
                 .exec(self.get_connection()),
         )?;
+        Ok(())
+    }
+
+    pub(crate) fn del_txo(&self, idx: i32) -> Result<(), InternalError> {
+        block_on(Coloring::delete_by_id(idx).exec(self.get_connection()))?;
         Ok(())
     }
 

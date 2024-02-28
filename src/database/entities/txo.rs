@@ -18,6 +18,7 @@ pub struct Model {
     pub vout: u32,
     pub btc_amount: String,
     pub spent: bool,
+    pub exists: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
@@ -27,6 +28,7 @@ pub enum Column {
     Vout,
     BtcAmount,
     Spent,
+    Exists,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DerivePrimaryKey)]
@@ -55,6 +57,7 @@ impl ColumnTrait for Column {
             Self::Vout => ColumnType::BigInteger.def(),
             Self::BtcAmount => ColumnType::String(None).def(),
             Self::Spent => ColumnType::Boolean.def(),
+            Self::Exists => ColumnType::Boolean.def(),
         }
     }
 }

@@ -93,8 +93,18 @@ fn success() {
     show_unspent_colorings(&wallet, "after send fail");
     let unspent_list_all = test_list_unspents(&wallet, None, false);
     assert_eq!(
-        unspent_list_all.iter().filter(|u| u.utxo.colorable).count(),
+        unspent_list_all
+            .iter()
+            .filter(|u| u.utxo.colorable && u.utxo.exists)
+            .count(),
         UTXO_NUM as usize
+    );
+    assert_eq!(
+        unspent_list_all
+            .iter()
+            .filter(|u| u.utxo.colorable && !u.utxo.exists)
+            .count(),
+        1
     );
     assert_eq!(
         unspent_list_all
@@ -112,14 +122,9 @@ fn success() {
         .iter()
         .all(|a| a.asset_id == Some(asset.asset_id.clone()) && a.amount == AMOUNT && a.settled));
 
-    drain_wallet(&wallet, &online);
-    fund_wallet(test_get_address(&wallet));
-    mine(false);
-    test_create_utxos_default(&wallet, &online);
-    drain_wallet(&rcv_wallet, &rcv_online);
-    fund_wallet(test_get_address(&rcv_wallet));
-    mine(false);
-    test_create_utxos_default(&rcv_wallet, &rcv_online);
+    // new wallets
+    let (wallet, online) = get_funded_wallet!();
+    let (rcv_wallet, rcv_online) = get_funded_wallet!();
 
     // issue + send some asset
     let asset = test_issue_asset_nia(&wallet, &online, None);
@@ -164,7 +169,10 @@ fn success() {
     // check sender lists one pending change + 1 settled issue
     let unspent_list_all = test_list_unspents(&wallet, None, false);
     assert_eq!(
-        unspent_list_all.iter().filter(|u| u.utxo.colorable).count(),
+        unspent_list_all
+            .iter()
+            .filter(|u| u.utxo.colorable && u.utxo.exists)
+            .count(),
         UTXO_NUM as usize
     );
     assert_eq!(

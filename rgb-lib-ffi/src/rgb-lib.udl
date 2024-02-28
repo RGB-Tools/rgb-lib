@@ -364,6 +364,7 @@ dictionary Utxo {
   Outpoint outpoint;
   u64 btc_amount;
   boolean colorable;
+  boolean exists;
 };
 
 dictionary WalletData {
