@@ -166,7 +166,7 @@ fn success() {
     assert!(settled_allocations
         .iter()
         .all(|a| a.asset_id == Some(asset.asset_id.clone()) && a.amount == AMOUNT && a.settled));
-    // check sender lists one pending change + 1 settled issue
+    // check sender lists one pending change (exists = false) + 1 settled issue
     let unspent_list_all = test_list_unspents(&wallet, None, false);
     assert_eq!(
         unspent_list_all
@@ -174,6 +174,13 @@ fn success() {
             .filter(|u| u.utxo.colorable && u.utxo.exists)
             .count(),
         UTXO_NUM as usize
+    );
+    assert_eq!(
+        unspent_list_all
+            .iter()
+            .filter(|u| u.utxo.colorable && !u.utxo.exists)
+            .count(),
+        1
     );
     assert_eq!(
         unspent_list_all
@@ -232,7 +239,7 @@ fn success() {
     assert!(settled_allocations
         .iter()
         .all(|a| a.asset_id == Some(asset.asset_id.clone()) && a.amount == AMOUNT && a.settled));
-    // check sender lists one pending change
+    // check sender lists one pending change (exists = true)
     let unspent_list_all = test_list_unspents(&wallet, None, false);
     let mut pending_allocations = vec![];
     unspent_list_all
@@ -242,6 +249,13 @@ fn success() {
     assert!(pending_allocations
         .iter()
         .all(|a| a.asset_id == Some(asset.asset_id.clone()) && a.amount == AMOUNT - amount));
+    assert_eq!(
+        unspent_list_all
+            .iter()
+            .filter(|u| u.utxo.colorable && !u.utxo.exists)
+            .count(),
+        0
+    );
 
     // transfer progresses to status Settled
     mine(true);
