@@ -2679,35 +2679,67 @@ fn pending_outgoing_transfer_fail() {
 
     // wallets
     let (wallet, online) = get_funded_wallet!();
-    let (rcv_wallet, rcv_online) = get_funded_wallet!();
+    let (rcv_wallet, rcv_online) = get_empty_wallet!();
 
     // issue asset
     let asset = test_issue_asset_nia(&wallet, &online, None);
 
     // 1st send
-    let receive_data = test_blind_receive(&rcv_wallet);
+    let receive_data = test_witness_receive(&rcv_wallet);
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
-            ),
             amount,
+            recipient_data: RecipientData::WitnessData {
+                script_buf: ScriptBuf::from_hex(&receive_data.recipient_id.clone()).unwrap(),
+                amount_sat: 1000,
+                blinding: None,
+            },
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
     let txid = test_send(&wallet, &online, &recipient_map);
     assert!(!txid.is_empty());
 
+    show_unspent_colorings(&wallet, "sender after 1st send");
+
+    // check change UTXO has exists = false and unspents list it
+    let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
+    let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
+    let unspents = test_list_unspents(&wallet, Some(&online), false);
+    let change_unspent = unspents
+        .iter()
+        .find(|u| Some(u.utxo.outpoint.clone()) == transfer_data.change_utxo)
+        .unwrap();
+    assert!(!change_unspent.utxo.exists);
+    assert_eq!(unspents.len(), UTXO_NUM as usize + 2);
+    assert_eq!(
+        unspents
+            .iter()
+            .filter(|u| u.utxo.colorable && u.utxo.exists)
+            .count(),
+        UTXO_NUM as usize
+    );
+    assert_eq!(
+        unspents
+            .iter()
+            .filter(|u| u.utxo.colorable && !u.utxo.exists)
+            .count(),
+        1
+    );
+    assert_eq!(unspents.iter().filter(|u| !u.utxo.colorable).count(), 1);
+
     // 2nd send (1st still pending)
-    let receive_data = test_blind_receive(&rcv_wallet);
+    let receive_data = test_witness_receive(&rcv_wallet);
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            recipient_data: RecipientData::BlindedUTXO(
-                SecretSeal::from_str(&receive_data.recipient_id).unwrap(),
-            ),
             amount: amount / 2,
+            recipient_data: RecipientData::WitnessData {
+                script_buf: ScriptBuf::from_hex(&receive_data.recipient_id.clone()).unwrap(),
+                amount_sat: 1000,
+                blinding: None,
+            },
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
