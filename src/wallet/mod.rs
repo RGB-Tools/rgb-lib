@@ -614,7 +614,7 @@ pub struct Balance {
 /// balances.
 /// The spendable balances include the settled balance and also the untrusted and trusted pending
 /// balances.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct BtcBalance {
     /// Funds that will never hold RGB assets
     pub vanilla: Balance,
@@ -623,7 +623,7 @@ pub struct BtcBalance {
 }
 
 /// Data to receive an RGB transfer.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ReceiveData {
     /// Invoice string
     pub invoice: String,
@@ -636,7 +636,7 @@ pub struct ReceiveData {
 }
 
 /// An RGB blinded UTXO, which is used to refer to an UTXO without revealing it.
-#[derive(Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct BlindedUTXO {
     /// Blinded UTXO in string form
     pub blinded_utxo: String,
@@ -654,6 +654,7 @@ impl BlindedUTXO {
 }
 
 /// The result of a send operation
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SendResult {
     /// ID of the transaction
     pub txid: String,
@@ -662,7 +663,7 @@ pub struct SendResult {
 }
 
 /// An RGB transport endpoint.
-#[derive(Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TransportEndpoint {
     /// Endpoint address
     pub endpoint: String,
@@ -699,7 +700,7 @@ impl TryFrom<RgbTransport> for TransportEndpoint {
 }
 
 /// Supported database types.
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum DatabaseType {
     /// A SQLite database
     Sqlite,
@@ -721,7 +722,7 @@ struct InfoAssetTransfer {
 }
 
 /// An RGB invoice.
-#[derive(Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Invoice {
     /// The RGB invoice string
     invoice_string: String,
@@ -1220,7 +1221,7 @@ impl From<LocalUtxo> for Utxo {
 }
 
 /// Data that defines a [`Wallet`].
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct WalletData {
     /// Directory where the wallet directory is stored
     pub data_dir: String,
