@@ -2524,6 +2524,30 @@ fn fail() {
         Err(Error::InvalidTransportEndpoints { details: m }) if m == msg
     ));
 
+    // transport endpoints: no valid endpoints
+    let transport_endpoints = vec![format!("rpc://{PROXY_HOST_MOD_API}")];
+    let receive_data_te = rcv_wallet
+        .blind_receive(
+            None,
+            None,
+            None,
+            transport_endpoints.clone(),
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            recipient_data: RecipientData::BlindedUTXO(
+                SecretSeal::from_str(&receive_data_te.recipient_id).unwrap(),
+            ),
+            amount: AMOUNT / 2,
+            transport_endpoints,
+        }],
+    )]);
+    let result = test_send_result(&wallet, &online, &recipient_map);
+    assert!(matches!(result, Err(Error::NoValidTransportEndpoint)));
+
     // fee min/max
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
