@@ -61,12 +61,12 @@ serde_json = { version = "^1.0", default-features = false, features = [
 slog = { version = "2.7.0", default-features = false }
 slog-async = { version = "2.8.0", default-features = false }
 slog-term = { version = "2.9.0", default-features = false }
-tempfile = { version = "3.8.0", default-features = false }
+tempfile = { version = "3.10.1", default-features = false }
 thiserror = { version = "1.0", default-features = false }
 time = { version = "0.3.28", default-features = false }
 tree_magic = { version = "0.2.3", default-features = false }
-typenum = { version = "1.16.0", default-features = false }
-walkdir = { version = "2.3.3", default-features = false }
+typenum = { version = "1.17.0", default-features = false }
+walkdir = { version = "2.4.0", default-features = false }
 zip = { version = "0.6.6", default-features = false, features = [
     "zstd",
 ] }

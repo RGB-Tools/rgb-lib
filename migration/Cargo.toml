@@ -17,7 +17,7 @@ name = "rgb_lib_migration"
 path = "src/lib.rs"
 
 [dependencies]
-async-std = { version = "1", default-features = false, features = [
+async-std = { version = "1.12", default-features = false, features = [
     "attributes",
     "tokio1",
 ] }
