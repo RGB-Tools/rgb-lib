@@ -67,6 +67,100 @@ fn fail() {
 
 #[test]
 #[parallel]
+fn consistency_check_fail_bitcoins() {
+    initialize();
+
+    // prepare test wallet with UTXOs + an asset
+    let (wallet_orig, online_orig) = get_funded_wallet!();
+    let wallet_data_orig = test_get_wallet_data(&wallet_orig);
+    test_issue_asset_nia(&wallet_orig, &online_orig, None);
+
+    // get wallet fingerprint
+    let wallet_dir_orig = test_get_wallet_dir(&wallet_orig);
+    let pubkey = ExtendedPubKey::from_str(&wallet_data_orig.pubkey).unwrap();
+    let extended_key: ExtendedKey = ExtendedKey::from(pubkey);
+    let bdk_network = BdkNetwork::from(BitcoinNetwork::Regtest);
+    let xpub = extended_key.into_xpub(bdk_network, &Secp256k1::new());
+    let fingerprint = xpub.fingerprint().to_string();
+    // prepare directories
+    let data_dir_prefill_1 = get_test_data_dir_path().join("test_consistency.bitcoin.prefill_1");
+    let data_dir_prefill_2 = get_test_data_dir_path().join("test_consistency.bitcoin.prefill_2");
+    let data_dir_prefill_3 = get_test_data_dir_path().join("test_consistency.bitcoin.prefill_3");
+    let wallet_dir_prefill = PathBuf::from(&data_dir_prefill_2).join(&fingerprint);
+    let wallet_dir_prefill_2 = PathBuf::from(&data_dir_prefill_3).join(&fingerprint);
+    for dir in [
+        &data_dir_prefill_1,
+        &data_dir_prefill_2,
+        &wallet_dir_prefill,
+        &wallet_dir_prefill_2,
+    ] {
+        if PathBuf::from(dir).is_dir() {
+            fs::remove_dir_all(dir.clone()).unwrap();
+        }
+        fs::create_dir_all(dir).unwrap();
+    }
+    // prepare wallet data objects
+    let wallet_data_empty = get_test_wallet_data(
+        data_dir_prefill_1.to_str().unwrap(),
+        &wallet_data_orig.pubkey,
+        wallet_data_orig.mnemonic.as_ref().unwrap(),
+    );
+    let wallet_data_prefill = get_test_wallet_data(
+        data_dir_prefill_2.to_str().unwrap(),
+        &wallet_data_orig.pubkey,
+        wallet_data_orig.mnemonic.as_ref().unwrap(),
+    );
+    let wallet_data_prefill_2 = get_test_wallet_data(
+        data_dir_prefill_3.to_str().unwrap(),
+        &wallet_data_orig.pubkey,
+        wallet_data_orig.mnemonic.as_ref().unwrap(),
+    );
+    // copy original wallet's db data to prefilled wallet data dir
+    let db_files: Vec<OsString> = fs::read_dir(&wallet_dir_orig)
+        .unwrap()
+        .filter(|e| {
+            e.as_ref()
+                .unwrap()
+                .file_name()
+                .into_string()
+                .unwrap()
+                .starts_with("rgb_db")
+        })
+        .map(|e| e.as_ref().unwrap().file_name())
+        .collect();
+    for file in &db_files {
+        let src = PathBuf::from(&wallet_dir_orig).join(file);
+        let dst = PathBuf::from(&wallet_dir_prefill).join(file);
+        fs::copy(src, dst).unwrap();
+    }
+
+    // introduce asset inconsistency by spending UTXOs from other instance of the same wallet,
+    // simulating a wallet used on multiple devices (which needs to be avoided to prevent asset
+    // loss)
+    let mut wallet_empty = Wallet::new(wallet_data_empty).unwrap();
+    let online_empty = test_go_online(&mut wallet_empty, false, None);
+    let (rcv_wallet, _rcv_online) = get_funded_wallet!();
+    test_drain_to_destroy(&wallet_empty, &online_empty, &test_get_address(&rcv_wallet));
+
+    // detect asset inconsistency
+    let err = "spent bitcoins with another wallet";
+    let mut wallet_prefill = Wallet::new(wallet_data_prefill).unwrap();
+    let result = test_go_online_result(&mut wallet_prefill, false, None);
+    assert!(matches!(result, Err(Error::Inconsistency { details: e }) if e == err));
+
+    // make sure detection works multiple times (doesn't get reset on first failed check)
+    let mut wallet_prefill_2 = Wallet::new(wallet_data_prefill_2).unwrap();
+    for file in &db_files {
+        let src = PathBuf::from(&wallet_dir_prefill).join(file);
+        let dst = PathBuf::from(&wallet_dir_prefill_2).join(file);
+        fs::copy(src, dst).unwrap();
+    }
+    let result = test_go_online_result(&mut wallet_prefill_2, false, None);
+    assert!(matches!(result, Err(Error::Inconsistency { details: e }) if e == err));
+}
+
+#[test]
+#[parallel]
 fn consistency_check_fail_utxos() {
     initialize();
 
@@ -83,14 +177,14 @@ fn consistency_check_fail_utxos() {
     let xpub = extended_key.into_xpub(bdk_network, &Secp256k1::new());
     let fingerprint = xpub.fingerprint().to_string();
     // prepare directories
-    let data_dir_empty = get_test_data_dir_path().join("test_consistency.empty");
-    let data_dir_prefill = get_test_data_dir_path().join("test_consistency.prefill");
-    let data_dir_prefill_2 = get_test_data_dir_path().join("test_consistency.prefill_2");
-    let wallet_dir_prefill = PathBuf::from(&data_dir_prefill).join(&fingerprint);
-    let wallet_dir_prefill_2 = PathBuf::from(&data_dir_prefill_2).join(&fingerprint);
+    let data_dir_prefill_1 = get_test_data_dir_path().join("test_consistency.utxos.prefill_1");
+    let data_dir_prefill_2 = get_test_data_dir_path().join("test_consistency.utxos.prefill_2");
+    let data_dir_prefill_3 = get_test_data_dir_path().join("test_consistency.utxos.prefill_3");
+    let wallet_dir_prefill = PathBuf::from(&data_dir_prefill_2).join(&fingerprint);
+    let wallet_dir_prefill_2 = PathBuf::from(&data_dir_prefill_3).join(&fingerprint);
     for dir in [
-        &data_dir_empty,
-        &data_dir_prefill,
+        &data_dir_prefill_1,
+        &data_dir_prefill_2,
         &wallet_dir_prefill,
         &wallet_dir_prefill_2,
     ] {
@@ -101,24 +195,23 @@ fn consistency_check_fail_utxos() {
     }
     // prepare wallet data objects
     let wallet_data_empty = get_test_wallet_data(
-        data_dir_empty.to_str().unwrap(),
+        data_dir_prefill_1.to_str().unwrap(),
         &wallet_data_orig.pubkey,
         wallet_data_orig.mnemonic.as_ref().unwrap(),
     );
     let wallet_data_prefill = get_test_wallet_data(
-        data_dir_prefill.to_str().unwrap(),
-        &wallet_data_orig.pubkey,
-        wallet_data_orig.mnemonic.as_ref().unwrap(),
-    );
-    let wallet_data_prefill_2 = get_test_wallet_data(
         data_dir_prefill_2.to_str().unwrap(),
         &wallet_data_orig.pubkey,
         wallet_data_orig.mnemonic.as_ref().unwrap(),
     );
+    let wallet_data_prefill_2 = get_test_wallet_data(
+        data_dir_prefill_3.to_str().unwrap(),
+        &wallet_data_orig.pubkey,
+        wallet_data_orig.mnemonic.as_ref().unwrap(),
+    );
     // copy original wallet's db data to prefilled wallet data dir
-    let wallet_dir_entries = fs::read_dir(&wallet_dir_orig).unwrap();
-    let db_files: Vec<OsString> = wallet_dir_entries
-        .into_iter()
+    let db_files: Vec<OsString> = fs::read_dir(&wallet_dir_orig)
+        .unwrap()
         .filter(|e| {
             e.as_ref()
                 .unwrap()
@@ -144,9 +237,10 @@ fn consistency_check_fail_utxos() {
     test_drain_to_keep(&wallet_empty, &online_empty, &test_get_address(&rcv_wallet));
 
     // detect asset inconsistency
+    let err = "DB assets do not match with ones stored in RGB";
     let mut wallet_prefill = Wallet::new(wallet_data_prefill).unwrap();
     let result = test_go_online_result(&mut wallet_prefill, false, None);
-    assert!(matches!(result, Err(Error::Inconsistency { details: _ })));
+    assert!(matches!(result, Err(Error::Inconsistency { details: e }) if e == err));
 
     // make sure detection works multiple times (doesn't get reset on first failed check)
     let mut wallet_prefill_2 = Wallet::new(wallet_data_prefill_2).unwrap();
@@ -156,7 +250,7 @@ fn consistency_check_fail_utxos() {
         fs::copy(src, dst).unwrap();
     }
     let result = test_go_online_result(&mut wallet_prefill_2, false, None);
-    assert!(matches!(result, Err(Error::Inconsistency { details: _ })));
+    assert!(matches!(result, Err(Error::Inconsistency { details: e }) if e == err));
 }
 
 #[test]
@@ -167,7 +261,7 @@ fn consistency_check_fail_asset_ids() {
     // prepare test wallet with UTXOs + an asset
     let (wallet_orig, online_orig) = get_funded_wallet!();
     let wallet_data_orig = test_get_wallet_data(&wallet_orig);
-    let _asset = test_issue_asset_nia(&wallet_orig, &online_orig, None);
+    test_issue_asset_nia(&wallet_orig, &online_orig, None);
 
     // get wallet fingerprint
     let wallet_dir_orig = test_get_wallet_dir(&wallet_orig);
@@ -177,9 +271,9 @@ fn consistency_check_fail_asset_ids() {
     let xpub = extended_key.into_xpub(bdk_network, &Secp256k1::new());
     let fingerprint = xpub.fingerprint().to_string();
     // prepare directories
-    let data_dir_prefill_1 = get_test_data_dir_path().join("test_consistency.prefill_1");
-    let data_dir_prefill_2 = get_test_data_dir_path().join("test_consistency.prefill_2");
-    let data_dir_prefill_3 = get_test_data_dir_path().join("test_consistency.prefill_3");
+    let data_dir_prefill_1 = get_test_data_dir_path().join("test_consistency.assets.prefill_1");
+    let data_dir_prefill_2 = get_test_data_dir_path().join("test_consistency.assets.prefill_2");
+    let data_dir_prefill_3 = get_test_data_dir_path().join("test_consistency.assets.prefill_3");
     let wallet_dir_prefill_1 = PathBuf::from(&data_dir_prefill_1).join(&fingerprint);
     let wallet_dir_prefill_2 = PathBuf::from(&data_dir_prefill_2).join(&fingerprint);
     let wallet_dir_prefill_3 = PathBuf::from(&data_dir_prefill_3).join(&fingerprint);
@@ -224,16 +318,97 @@ fn consistency_check_fail_asset_ids() {
     fs::remove_dir_all(wallet_dir_prefill_2.join("regtest")).unwrap();
 
     // detect inconsistency
+    let err = "DB assets do not match with ones stored in RGB";
     let mut wallet_prefill_2 = Wallet::new(wallet_data_prefill_2).unwrap();
     let result = test_go_online_result(&mut wallet_prefill_2, false, None);
-    assert!(matches!(result, Err(Error::Inconsistency { details: _ })));
+    assert!(matches!(result, Err(Error::Inconsistency { details: e }) if e == err));
 
     // make sure detection works multiple times
     let result = copy_dir::copy_dir(wallet_dir_prefill_2, wallet_dir_prefill_3);
     assert!(result.unwrap().is_empty());
     let mut wallet_prefill_3 = Wallet::new(wallet_data_prefill_3).unwrap();
     let result = test_go_online_result(&mut wallet_prefill_3, false, None);
-    assert!(matches!(result, Err(Error::Inconsistency { details: _ })));
+    assert!(matches!(result, Err(Error::Inconsistency { details: e }) if e == err));
+}
+
+#[test]
+#[parallel]
+fn consistency_check_fail_media() {
+    initialize();
+
+    let file_str = "README.md";
+
+    // prepare test wallet with UTXOs + an asset
+    let (wallet_orig, online_orig) = get_funded_wallet!();
+    let wallet_data_orig = test_get_wallet_data(&wallet_orig);
+    test_issue_asset_cfa(&wallet_orig, &online_orig, None, Some(file_str.to_string()));
+
+    // get wallet fingerprint
+    let wallet_dir_orig = test_get_wallet_dir(&wallet_orig);
+    let pubkey = ExtendedPubKey::from_str(&wallet_data_orig.pubkey).unwrap();
+    let extended_key: ExtendedKey = ExtendedKey::from(pubkey);
+    let bdk_network = BdkNetwork::from(BitcoinNetwork::Regtest);
+    let xpub = extended_key.into_xpub(bdk_network, &Secp256k1::new());
+    let fingerprint = xpub.fingerprint().to_string();
+    // prepare directories
+    let data_dir_prefill_1 = get_test_data_dir_path().join("test_consistency.media.prefill_1");
+    let data_dir_prefill_2 = get_test_data_dir_path().join("test_consistency.media.prefill_2");
+    let data_dir_prefill_3 = get_test_data_dir_path().join("test_consistency.media.prefill_3");
+    let wallet_dir_prefill_1 = PathBuf::from(&data_dir_prefill_1).join(&fingerprint);
+    let wallet_dir_prefill_2 = PathBuf::from(&data_dir_prefill_2).join(&fingerprint);
+    let wallet_dir_prefill_3 = PathBuf::from(&data_dir_prefill_3).join(&fingerprint);
+    for dir in [
+        &data_dir_prefill_1,
+        &data_dir_prefill_2,
+        &data_dir_prefill_3,
+    ] {
+        if PathBuf::from(dir).is_dir() {
+            fs::remove_dir_all(dir.clone()).unwrap();
+        }
+        fs::create_dir_all(dir).unwrap();
+    }
+    // prepare wallet data objects
+    let wallet_data_prefill_1 = get_test_wallet_data(
+        data_dir_prefill_1.to_str().unwrap(),
+        &wallet_data_orig.pubkey,
+        wallet_data_orig.mnemonic.as_ref().unwrap(),
+    );
+    let wallet_data_prefill_2 = get_test_wallet_data(
+        data_dir_prefill_2.to_str().unwrap(),
+        &wallet_data_orig.pubkey,
+        wallet_data_orig.mnemonic.as_ref().unwrap(),
+    );
+    let wallet_data_prefill_3 = get_test_wallet_data(
+        data_dir_prefill_3.to_str().unwrap(),
+        &wallet_data_orig.pubkey,
+        wallet_data_orig.mnemonic.as_ref().unwrap(),
+    );
+    // copy original wallet's data to prefilled wallets 1 + 2 data dir
+    for destination in [&wallet_dir_prefill_1, &wallet_dir_prefill_2] {
+        let result = copy_dir::copy_dir(&wallet_dir_orig, destination);
+        assert!(result.unwrap().is_empty());
+    }
+
+    // check the first wallet copy works ok
+    let mut wallet_prefill_1 = Wallet::new(wallet_data_prefill_1).unwrap();
+    let result = test_go_online_result(&mut wallet_prefill_1, false, None);
+    assert!(result.is_ok());
+
+    // introduce media inconsistency by removing media dir
+    fs::remove_dir_all(wallet_dir_prefill_2.join(MEDIA_DIR)).unwrap();
+
+    // detect inconsistency
+    let err = "DB media do not match with the ones stored in media directory";
+    let mut wallet_prefill_2 = Wallet::new(wallet_data_prefill_2.clone()).unwrap();
+    let result = test_go_online_result(&mut wallet_prefill_2, false, None);
+    assert!(matches!(result, Err(Error::Inconsistency { details: e }) if e == err));
+
+    // make sure detection works multiple times
+    let result = copy_dir::copy_dir(wallet_dir_prefill_2, wallet_dir_prefill_3);
+    assert!(result.unwrap().is_empty());
+    let mut wallet_prefill_3 = Wallet::new(wallet_data_prefill_3).unwrap();
+    let result = test_go_online_result(&mut wallet_prefill_3, false, None);
+    assert!(matches!(result, Err(Error::Inconsistency { details: e }) if e == err));
 }
 
 #[test]
