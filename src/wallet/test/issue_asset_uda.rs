@@ -234,6 +234,7 @@ fn fail() {
     let empty_str = ["tests", "empty"].join(&MAIN_SEPARATOR.to_string());
     let missing_str = "missing";
 
+    // wallet
     let (wallet, online) = get_funded_wallet!();
 
     // bad online object
@@ -364,7 +365,8 @@ fn fail() {
     let result = test_issue_asset_uda_result(&wallet, &online, None, None, vec![&empty_str]);
     assert!(matches!(result, Err(Error::EmptyFile { file_path: m }) if m == empty_str));
 
-    drain_wallet(&wallet, &online);
+    // new wallet
+    let (wallet, online) = get_empty_wallet!();
 
     // insufficient funds
     let result = test_issue_asset_uda_result(&wallet, &online, None, None, vec![]);

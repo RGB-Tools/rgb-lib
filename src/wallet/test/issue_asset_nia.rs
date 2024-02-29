@@ -149,6 +149,7 @@ fn no_issue_on_pending_send() {
 fn fail() {
     initialize();
 
+    // wallet
     let (wallet, online) = get_funded_wallet!();
 
     // supply overflow
@@ -252,7 +253,8 @@ fn fail() {
     let result = test_issue_asset_nia_result(&wallet, &online, Some(&[]));
     assert!(matches!(result, Err(Error::NoIssuanceAmounts)));
 
-    drain_wallet(&wallet, &online);
+    // new wallet
+    let (wallet, online) = get_empty_wallet!();
 
     // insufficient funds
     let result = test_issue_asset_nia_result(&wallet, &online, None);

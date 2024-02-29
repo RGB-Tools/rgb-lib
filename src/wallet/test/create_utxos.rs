@@ -73,8 +73,8 @@ fn up_to_allocation_checks() {
     let unspents = test_list_unspents(&wallet, None, false);
     assert_eq!(unspents.len(), 2);
 
-    drain_wallet(&wallet, &online);
-    fund_wallet(test_get_address(&wallet));
+    // new wallet
+    let (wallet, online) = get_funded_noutxo_wallet!();
 
     // MAX_ALLOCATIONS_PER_UTXO allocations
     let num_utxos_created = test_create_utxos(&wallet, &online, true, Some(1), None, FEE_RATE);
@@ -96,8 +96,8 @@ fn up_to_allocation_checks() {
     assert_eq!(unspents.len(), 3);
 
     if MAX_ALLOCATIONS_PER_UTXO > 2 {
-        drain_wallet(&wallet, &online);
-        fund_wallet(test_get_address(&wallet));
+        // new wallet
+        let (wallet, online) = get_funded_noutxo_wallet!();
         fund_wallet(test_get_address(&rcv_wallet));
 
         let num_utxos_created = test_create_utxos(&wallet, &online, true, Some(1), None, FEE_RATE);

@@ -8,6 +8,7 @@ fn success() {
 
     let amount: u64 = 66;
 
+    // wallets
     let (wallet, online) = get_funded_wallet!();
     let (rcv_wallet, rcv_online) = get_funded_wallet!();
 
@@ -27,9 +28,8 @@ fn success() {
     assert_eq!(transfer.amount, AMOUNT);
     assert_eq!(transfer.status, TransferStatus::Settled);
 
-    drain_wallet(&wallet, &online);
-    fund_wallet(test_get_address(&wallet));
-    test_create_utxos_default(&wallet, &online);
+    // new wallet
+    let (wallet, online) = get_funded_wallet!();
 
     // issue CFA asset
     let asset = test_issue_asset_cfa(&wallet, &online, None, None);

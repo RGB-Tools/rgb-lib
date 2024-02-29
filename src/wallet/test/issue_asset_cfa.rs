@@ -237,6 +237,7 @@ fn no_issue_on_pending_send() {
 fn fail() {
     initialize();
 
+    // wallet
     let (wallet, online) = get_funded_wallet!();
 
     // supply overflow
@@ -341,7 +342,8 @@ fn fail() {
         Err(Error::EmptyFile { file_path: t }) if t == empty_file_path
     ));
 
-    drain_wallet(&wallet, &online);
+    // new wallet
+    let (wallet, online) = get_empty_wallet!();
 
     // insufficient funds
     let result = test_issue_asset_cfa_result(&wallet, &online, None, None);
