@@ -123,9 +123,9 @@ fn up_to_allocation_checks() {
         assert!(!txid.is_empty());
 
         // - wait counterparty
-        // UTXO 1 (input) locked, new UTXO created for change
+        // UTXO 1 (input) locked, new UTXO created for change (exists = false)
         show_unspent_colorings(&wallet, "sender after send - WaitingCounterparty");
-        let num_utxos_created = test_create_utxos(&wallet, &online, true, Some(2), None, FEE_RATE);
+        let num_utxos_created = test_create_utxos(&wallet, &online, true, Some(1), None, FEE_RATE);
         assert_eq!(num_utxos_created, 1);
         // UTXO 1 (blind) has at least 1 free allocation
         show_unspent_colorings(&rcv_wallet, "receiver after send - WaitingCounterparty");
