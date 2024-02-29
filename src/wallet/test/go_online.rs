@@ -254,3 +254,20 @@ fn on_off_online() {
     let mut wallet = Wallet::new(wallet_data).unwrap();
     test_go_online(&mut wallet, false, None);
 }
+
+#[test]
+#[parallel]
+fn offline() {
+    initialize();
+
+    // don't go online and manually craft the Online object
+    let wallet = get_test_wallet(true, Some(MAX_ALLOCATIONS_PER_UTXO));
+    let online = Online {
+        id: 0,
+        electrum_url: s!(""),
+    };
+
+    // the online check should report that the wallet is offline
+    let result = test_create_utxos_begin_result(&wallet, &online, true, None, None, FEE_RATE);
+    assert!(matches!(result, Err(Error::Offline)));
+}
