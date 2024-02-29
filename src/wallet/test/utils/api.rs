@@ -1,15 +1,17 @@
 use super::*;
 
 pub(crate) fn test_blind_receive(wallet: &Wallet) -> ReceiveData {
-    wallet
-        .blind_receive(
-            None,
-            None,
-            None,
-            TRANSPORT_ENDPOINTS.clone(),
-            MIN_CONFIRMATIONS,
-        )
-        .unwrap()
+    test_blind_receive_result(wallet).unwrap()
+}
+
+pub(crate) fn test_blind_receive_result(wallet: &Wallet) -> Result<ReceiveData, Error> {
+    wallet.blind_receive(
+        None,
+        None,
+        None,
+        TRANSPORT_ENDPOINTS.clone(),
+        MIN_CONFIRMATIONS,
+    )
 }
 
 pub(crate) fn test_witness_receive(wallet: &Wallet) -> ReceiveData {

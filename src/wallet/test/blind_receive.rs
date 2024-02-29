@@ -163,13 +163,7 @@ fn respect_max_allocations() {
     }
     assert_eq!(available_allocations, created_allocations);
 
-    let result = wallet.blind_receive(
-        None,
-        None,
-        None,
-        TRANSPORT_ENDPOINTS.clone(),
-        MIN_CONFIRMATIONS,
-    );
+    let result = test_blind_receive_result(&wallet);
     assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 }
 
@@ -290,13 +284,7 @@ fn fail() {
     let online = test_go_online(&mut wallet, true, None);
 
     // insufficient funds
-    let result = wallet.blind_receive(
-        None,
-        None,
-        None,
-        TRANSPORT_ENDPOINTS.clone(),
-        MIN_CONFIRMATIONS,
-    );
+    let result = test_blind_receive_result(&wallet);
     assert!(matches!(
         result,
         Err(Error::InsufficientBitcoins {
@@ -332,13 +320,7 @@ fn fail() {
 
     // cannot blind if all UTXOS already have an allocation
     let _asset = test_issue_asset_nia(&wallet, &online, None);
-    let result = wallet.blind_receive(
-        None,
-        None,
-        None,
-        TRANSPORT_ENDPOINTS.clone(),
-        MIN_CONFIRMATIONS,
-    );
+    let result = test_blind_receive_result(&wallet);
     assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 
     // transport endpoints: malformed string
