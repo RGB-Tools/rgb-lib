@@ -2394,7 +2394,8 @@ impl Wallet {
     /// `fee_rate` (in sat/vB).
     ///
     /// <div class="warning">Warning: setting <code>destroy_assets</code> to true is dangerous,
-    /// only do this if you know what you're doing!</div>
+    /// only do this if you know what you're doing! After destroying assets the wallet's RGB state
+    /// could be compromised and therefore the wallet should not be used anymore.</div>
     ///
     /// Signing of the returned PSBT needs to be carried out separately. The signed PSBT then needs
     /// to be fed to the [`drain_to_end`](Wallet::drain_to_end) function.
