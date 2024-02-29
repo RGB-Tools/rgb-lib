@@ -2,8 +2,8 @@
 name = "rgb-lib"
 version = "0.2.2"
 authors = [
-	"Zoe Faltibà <zoefaltiba@gmail.com>",
-	"Nicola Busanello <nicola.busanello@gmail.com>",
+    "Zoe Faltibà <zoefaltiba@gmail.com>",
+    "Nicola Busanello <nicola.busanello@gmail.com>",
 ]
 edition = "2021"
 rust-version = "1.67"
@@ -17,60 +17,80 @@ exclude = ["migration"]
 members = [".", "migration"]
 
 [dependencies]
-base64 = "0.21.0"
-bdk = { version = "0.29", features = ["electrum", "keys-bip39"] }
-bitcoin = "0.30.1"
-chacha20poly1305 = { version = "0.10.1", features = ["stream"] }
-copy_dir = "0.1.3"
-electrum-client = "0.17.0"
-futures = "0.3"
-hex = "0.4.3"
-rand = "0.8.5"
+base64 = { version = "0.21.0", default-features = false }
+bdk = { version = "0.29", default-features = false, features = [
+    "electrum",
+    "key-value-db",
+    "keys-bip39",
+    "std",
+] }
+bitcoin = { version = "0.30.1", default-features = false }
+chacha20poly1305 = { version = "0.10.1", default-features = false, features = [
+    "alloc",
+    "stream",
+] }
+electrum-client = { version = "0.17.0", default-features = false }
+futures = { version = "0.3", default-features = false, features = [
+    "executor",
+] }
+hex = { version = "0.4.3", default-features = false }
+rand = { version = "0.8.5", default-features = false }
 rgb-lib-migration = { path = "migration", version = "0.2.0" }
 reqwest = { version = "0.11", default-features = false, features = [
-	"blocking",
-	"json",
-	"multipart",
-	"native-tls",
+    "blocking",
+    "json",
+    "multipart",
+    "native-tls",
 ] }
-scrypt = "0.11.0"
-sea-orm = { version = "=0.12.14", features = [
-	"sqlx-sqlite",
-	"runtime-async-std-native-tls",
-	"macros",
+scrypt = { version = "0.11.0", default-features = false, features = [
+    "simple",
+    "std",
 ] }
-sea-query = "=0.30.7"
-serde = { version = "^1.0", features = ["derive"] }
-serde_json = { version = "^1.0", features = ["preserve_order"] }
-slog = "2.7.0"
-slog-async = "2.8.0"
-slog-term = "2.9.0"
-tempfile = "3.8.0"
-thiserror = "1.0"
-time = "0.3.28"
-tree_magic = "0.2.3"
-typenum = "1.16.0"
-walkdir = "2.3.3"
-zip = { version = "0.6.6", default-features = false, features = ["zstd"] }
+sea-orm = { version = "=0.12.14", default-features = false, features = [
+    "macros",
+    "runtime-async-std-native-tls",
+    "sqlx-sqlite",
+] }
+sea-query = { version = "=0.30.7", default-features = false }
+serde = { version = "^1.0", default-features = false, features = [
+    "derive",
+] }
+serde_json = { version = "^1.0", default-features = false, features = [
+    "preserve_order",
+] }
+slog = { version = "2.7.0", default-features = false }
+slog-async = { version = "2.8.0", default-features = false }
+slog-term = { version = "2.9.0", default-features = false }
+tempfile = { version = "3.8.0", default-features = false }
+thiserror = { version = "1.0", default-features = false }
+time = { version = "0.3.28", default-features = false }
+tree_magic = { version = "0.2.3", default-features = false }
+typenum = { version = "1.16.0", default-features = false }
+walkdir = { version = "2.3.3", default-features = false }
+zip = { version = "0.6.6", default-features = false, features = [
+    "zstd",
+] }
 
 # RGB-related deps
-amplify = "=4.5.0"
-amplify_num = "=0.5.1"  # temporary dependency pin
-bp-core = "=0.10.11"
-commit_verify = "=0.10.6"
-rgb-contracts = "=0.10.2"
-rgb-schemata = "=0.10.1"
-rgb-std = "=0.10.9"
-rgb-wallet = "=0.10.9"
-rgb_core = { package = "rgb-core", version = "=0.10.8" }
-strict_encoding = "=2.6.2"
-strict_types = "=1.6.3"
+amplify = { version = "=4.5.0", default-features = false }
+amplify_num = { version = "=0.5.1", default-features = false }  # temporary dependency pin
+bp-core = { version = "=0.10.11", default-features = false }
+commit_verify = { version = "=0.10.6", default-features = false }
+rgb-contracts = { version = "=0.10.2", default-features = false, features = [
+    "electrum",
+] }
+rgb-schemata = { version = "=0.10.1", default-features = false }
+rgb-std = { version = "=0.10.9", default-features = false }
+rgb-wallet = { version = "=0.10.9", default-features = false }
+rgb_core = { package = "rgb-core", version = "=0.10.8", default-features = false }
+strict_encoding = { version = "=2.6.2", default-features = false }
+strict_types = { version = "=1.6.3", default-features = false }
 
 [dev-dependencies]
-dircmp = "0.2.0"
-electrum-client = "0.17.0"
-lazy_static = "1.4.0"
-once_cell = "1.18.0"
-regex = "1.9.5"
-serial_test = "2.0.0"
-tempfile = "3.8"
+copy_dir = { version = "0.1.3", default-features = false }
+dircmp = { version = "0.2.0", default-features = false }
+lazy_static = { version = "1.4.0", default-features = false }
+once_cell = { version = "1.18.0", default-features = false }
+regex = { version = "1.9.5", default-features = false }
+serial_test = { version = "2.0.0", default-features = false }
+tempfile = { version = "3.8", default-features = false }

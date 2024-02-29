@@ -1,7 +1,10 @@
 [package]
 name = "rgb-lib-migration"
 version = "0.2.0"
-authors = ["Zoe Faltibà <zoefaltiba@gmail.com>", "Nicola Busanello <nicola.busanello@gmail.com>"]
+authors = [
+    "Zoe Faltibà <zoefaltiba@gmail.com>",
+    "Nicola Busanello <nicola.busanello@gmail.com>",
+]
 edition = "2021"
 rust-version = "1.67"
 repository = "https://github.com/RGB-Tools/rgb-lib"
@@ -14,5 +17,13 @@ name = "rgb_lib_migration"
 path = "src/lib.rs"
 
 [dependencies]
-async-std = { version = "1", features = ["attributes", "tokio1"] }
-sea-orm-migration = { version = "=0.12.14", features = ["sqlx-mysql", "sqlx-postgres", "sqlx-sqlite", "runtime-async-std-native-tls"] }
+async-std = { version = "1", default-features = false, features = [
+    "attributes",
+    "tokio1",
+] }
+sea-orm-migration = { version = "=0.12.14", default-features = false, features = [
+    "sqlx-mysql",
+    "sqlx-postgres",
+    "sqlx-sqlite",
+    "runtime-async-std-native-tls"
+] }
