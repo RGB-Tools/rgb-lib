@@ -4401,3 +4401,81 @@ fn rgb_change_on_btc_change() {
     assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
     assert_eq!(transfer_data.status, TransferStatus::Settled);
 }
+
+#[test]
+#[parallel]
+fn no_inexistent_utxos() {
+    initialize();
+
+    let amount: u64 = 66;
+
+    // wallets
+    let (wallet, online) = get_funded_noutxo_wallet!();
+    let (rcv_wallet, _) = get_empty_wallet!();
+
+    // create 1 UTXO
+    let size = Some(UTXO_SIZE * 2);
+    let num_utxos_created = test_create_utxos(&wallet, &online, true, Some(1), size, FEE_RATE);
+    assert_eq!(num_utxos_created, 1);
+
+    // issue
+    let asset = test_issue_asset_nia(&wallet, &online, Some(&[AMOUNT]));
+
+    // send
+    let receive_data = test_witness_receive(&rcv_wallet);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            amount,
+            recipient_data: RecipientData::WitnessData {
+                script_buf: ScriptBuf::from_hex(&receive_data.recipient_id).unwrap(),
+                amount_sat: UTXO_SIZE as u64,
+                blinding: None,
+            },
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid = test_send(&wallet, &online, &recipient_map);
+    assert!(!txid.is_empty());
+
+    show_unspent_colorings(&wallet, "after send (WaitingCounterparty)");
+
+    // 1 UTXO being spent, 1 UTXO with exists = false
+    // trying to get an UTXO for a blind receive should fail
+    let result = test_blind_receive_result(&wallet);
+    assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
+    // trying to issue an asset should fail
+    let result = test_issue_asset_nia_result(&wallet, &online, None);
+    assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
+    let result = test_issue_asset_cfa_result(&wallet, &online, None, None);
+    assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
+    let result = test_issue_asset_uda_result(&wallet, &online, None, None, vec![]);
+    assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
+    // trying to create 1 UTXO with up_to = true should create 1
+    let num_utxos_created = test_create_utxos(&wallet, &online, true, Some(1), None, FEE_RATE);
+    assert_eq!(num_utxos_created, 1);
+
+    // 1 UTXO being spent, 1 UTXO with exists = false, 1 new UTXO
+    // issuing an asset should now succeed
+    let asset_2 = test_issue_asset_nia(&wallet, &online, Some(&[AMOUNT * 2]));
+
+    show_unspent_colorings(&wallet, "after 2nd issue");
+
+    // 1 UTXO being spent, 1 UTXO with exists = false, 1 UTXO with an allocated asset
+    // trying to send more BTC than what's available in the UTXO being spent should fail
+    let receive_data = test_witness_receive(&rcv_wallet);
+    let recipient_map = HashMap::from([(
+        asset_2.asset_id.clone(),
+        vec![Recipient {
+            amount,
+            recipient_data: RecipientData::WitnessData {
+                script_buf: ScriptBuf::from_hex(&receive_data.recipient_id).unwrap(),
+                amount_sat: UTXO_SIZE as u64,
+                blinding: None,
+            },
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let result = test_send_begin_result(&wallet, &online, &recipient_map);
+    assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
+}
