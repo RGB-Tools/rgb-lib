@@ -11,6 +11,19 @@ fn success() {
 
     // drain funded wallet with no allocation UTXOs
     let (wallet, online) = get_funded_noutxo_wallet!();
+    let expected_balance = BtcBalance {
+        vanilla: Balance {
+            settled: 0,
+            future: 100000000,
+            spendable: 100000000,
+        },
+        colored: Balance {
+            settled: 0,
+            future: 0,
+            spendable: 0,
+        },
+    };
+    wait_for_btc_balance(&wallet, &online, &expected_balance);
     let address = test_get_address(&rcv_wallet); // also updates backup_info
     let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
     test_drain_to_keep(&wallet, &online, &address);
@@ -26,6 +39,19 @@ fn success() {
     test_issue_asset_nia(&wallet, &online, None);
 
     // drain funded wallet with RGB allocations
+    let expected_balance = BtcBalance {
+        vanilla: Balance {
+            settled: 0,
+            future: 99994601,
+            spendable: 99994601,
+        },
+        colored: Balance {
+            settled: 0,
+            future: 5000,
+            spendable: 5000,
+        },
+    };
+    wait_for_btc_balance(&wallet, &online, &expected_balance);
     test_drain_to_keep(&wallet, &online, &test_get_address(&rcv_wallet));
     mine(false);
     let unspents = list_test_unspents(&wallet, "funded with allocations after draining (false)");
