@@ -1487,7 +1487,8 @@ impl Wallet {
             return Err(Error::InvalidFeeRate {
                 details: format!("value under minimum {MIN_FEE_RATE}"),
             });
-        } else if fee_rate > MAX_FEE_RATE {
+        }
+        if fee_rate > MAX_FEE_RATE {
             return Err(Error::InvalidFeeRate {
                 details: format!("value above maximum {MAX_FEE_RATE}"),
             });
@@ -4810,9 +4811,8 @@ impl Wallet {
                 {
                     debug!(self.logger, "Cannot find transaction");
                     return Ok(None);
-                } else {
-                    Err(e)
                 }
+                Err(e)
             }
         }?;
         debug!(
@@ -5452,25 +5452,25 @@ impl Wallet {
                         return Err(Error::RecipientIDAlreadyUsed)?;
                     }
                     continue;
-                } else if consignment_res.result.is_none() {
-                    continue;
-                } else {
-                    for media in &medias {
-                        let media_res = self.rest_client.clone().post_media(
-                            &proxy_url,
-                            media.get_digest(),
-                            &media.file_path,
-                        )?;
-                        debug!(self.logger, "Attachment POST response: {:?}", media_res);
-                        if let Some(_err) = media_res.error {
-                            return Err(InternalError::Unexpected)?;
-                        }
-                    }
-
-                    transport_endpoint.used = true;
-                    found_valid = true;
-                    break;
                 }
+                if consignment_res.result.is_none() {
+                    continue;
+                }
+                for media in &medias {
+                    let media_res = self.rest_client.clone().post_media(
+                        &proxy_url,
+                        media.get_digest(),
+                        &media.file_path,
+                    )?;
+                    debug!(self.logger, "Attachment POST response: {:?}", media_res);
+                    if let Some(_err) = media_res.error {
+                        return Err(InternalError::Unexpected)?;
+                    }
+                }
+
+                transport_endpoint.used = true;
+                found_valid = true;
+                break;
             }
             if !found_valid {
                 return Err(Error::NoValidTransportEndpoint);
