@@ -5112,14 +5112,25 @@ impl Wallet {
                 Err(Error::InsufficientBitcoins { .. }) => {
                     let used_txos: Vec<Outpoint> =
                         all_inputs.clone().into_iter().map(|o| o.into()).collect();
-                    if let Some(a) = self
-                        ._get_available_allocations(
-                            input_unspents.to_vec(),
-                            used_txos.clone(),
-                            Some(0),
-                        )?
-                        .pop()
-                    {
+                    let mut free_utxos = self._get_available_allocations(
+                        input_unspents.to_vec(),
+                        used_txos.clone(),
+                        Some(0),
+                    )?;
+                    // sort UTXOs by BTC amount
+                    if !free_utxos.is_empty() {
+                        // pre-parse BTC amounts to make sure no one will fail
+                        for u in &free_utxos {
+                            u.utxo
+                                .btc_amount
+                                .parse::<u64>()
+                                .map_err(|e| Error::Internal {
+                                    details: e.to_string(),
+                                })?;
+                        }
+                        free_utxos.sort_by_key(|u| u.utxo.btc_amount.parse::<u64>().unwrap());
+                    }
+                    if let Some(a) = free_utxos.pop() {
                         all_inputs.push(a.utxo.into());
                         continue;
                     }
