@@ -259,9 +259,12 @@ fn log_timestamp(io: &mut dyn io::Write) -> io::Result<()> {
     )
 }
 
-pub(crate) fn setup_logger(log_path: PathBuf, log_name: Option<&str>) -> Result<Logger, Error> {
+pub(crate) fn setup_logger<P: AsRef<Path>>(
+    log_path: P,
+    log_name: Option<&str>,
+) -> Result<Logger, Error> {
     let log_file = log_name.unwrap_or(LOG_FILE);
-    let log_filepath = log_path.join(log_file);
+    let log_filepath = log_path.as_ref().join(log_file);
     let file = OpenOptions::new()
         .create(true)
         .write(true)

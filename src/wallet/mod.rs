@@ -1287,7 +1287,7 @@ impl Wallet {
             fs::create_dir(&wallet_dir)?;
             fs::create_dir(wallet_dir.join(MEDIA_DIR))?;
         }
-        let logger = setup_logger(wallet_dir.clone(), None)?;
+        let logger = setup_logger(&wallet_dir, None)?;
         info!(logger.clone(), "New wallet in '{:?}'", wallet_dir);
         let panic_logger = logger.clone();
         let prev_hook = panic::take_hook();
