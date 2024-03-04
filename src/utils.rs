@@ -189,12 +189,25 @@ pub(crate) fn get_xpub_from_xprv(xprv: &ExtendedPrivKey) -> ExtendedPubKey {
     ExtendedPubKey::from_priv(&Secp256k1::new(), xprv)
 }
 
+/// Get account-level xPub for the given mnemonic and Bitcoin network
+pub fn get_account_xpub(
+    bitcoin_network: BitcoinNetwork,
+    mnemonic: &str,
+) -> Result<ExtendedPubKey, Error> {
+    let account_xprv = derive_account_xprv_from_mnemonic(bitcoin_network, mnemonic)?;
+    Ok(get_xpub_from_xprv(&account_xprv))
+}
+
+fn get_derivation_path(keychain: u8) -> DerivationPath {
+    let derivation_path = vec![ChildNumber::from_normal_idx(keychain as u32).unwrap()];
+    DerivationPath::from_iter(derivation_path.clone())
+}
+
 fn get_descriptor_priv_key(
     xprv: ExtendedPrivKey,
     keychain: u8,
 ) -> Result<DescriptorSecretKey, Error> {
-    let derivation_path = vec![ChildNumber::from_normal_idx(keychain as u32).unwrap()];
-    let path = DerivationPath::from_iter(derivation_path.clone());
+    let path = get_derivation_path(keychain);
     let der_xprv = &xprv
         .derive_priv(&Secp256k1::new(), &path)
         .expect("provided path should be derivable in an xprv");
@@ -213,8 +226,7 @@ fn get_descriptor_pub_key(
     xpub: ExtendedPubKey,
     keychain: u8,
 ) -> Result<DescriptorPublicKey, Error> {
-    let derivation_path = vec![ChildNumber::from_normal_idx(keychain as u32).unwrap()];
-    let path = DerivationPath::from_iter(derivation_path.clone());
+    let path = get_derivation_path(keychain);
     let der_xpub = &xpub
         .derive_pub(&Secp256k1::new(), &path)
         .expect("provided path should be derivable in an xpub");
