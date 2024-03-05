@@ -55,7 +55,7 @@ cargo install cargo-llvm-cov
 
 _tit "generating coverage report"
 # shellcheck disable=2086
-cargo llvm-cov --html $LLVM_COV_OPTS $CARGO_TEST_OPTS
+cargo llvm-cov --html $LLVM_COV_OPTS --workspace $CARGO_TEST_OPTS
 
 ## show html report location
 echo "generated html report: target/llvm-cov/html/index.html"

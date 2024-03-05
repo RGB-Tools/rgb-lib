@@ -37,7 +37,7 @@ Native language bindings for this library are also available via the
 ## Tests
 In order to run the available tests, execute:
 ```bash
-cargo test
+cargo test --workspace
 ```
 
 This command will run a [bitcoind] node, three [electrs] nodes and three [RGB

@@ -53,7 +53,7 @@ jobs:
           curl -fsSL $LLVM_COV_RELEASES/latest/download/cargo-llvm-cov-$host.tar.gz | tar xzf - -C "$HOME/.cargo/bin"
 
       - name: Generate coverage report
-        run: cargo llvm-cov --lcov --output-path coverage.lcov
+        run: cargo llvm-cov --lcov --output-path coverage.lcov --workspace
 
       - name: Upload coverage report
         uses: codecov/codecov-action@v4

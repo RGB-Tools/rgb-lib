@@ -33,6 +33,9 @@ docker run -p 127.0.0.1:5432:5432/tcp --name migration-postgres \
     -e POSTGRES_PASSWORD=mysecretpassword -d postgres
 
 DATABASE_URL=postgres://postgres:mysecretpassword@localhost:5432 \
+    sea-orm-cli migrate up
+
+DATABASE_URL=postgres://postgres:mysecretpassword@localhost:5432 \
     sea-orm-cli migrate refresh
 
 DATABASE_URL=postgres://postgres:mysecretpassword@localhost:5432/postgres \

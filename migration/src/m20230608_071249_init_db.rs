@@ -541,31 +541,19 @@ impl MigrationTrait for Migration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
-            .drop_table(Table::drop().table(Txo::Table).to_owned())
-            .await?;
-
-        manager
-            .drop_table(Table::drop().table(Asset::Table).to_owned())
-            .await?;
-
-        manager
-            .drop_table(Table::drop().table(BatchTransfer::Table).to_owned())
-            .await?;
-
-        manager
-            .drop_table(Table::drop().table(AssetTransfer::Table).to_owned())
-            .await?;
-
-        manager
             .drop_table(Table::drop().table(Coloring::Table).to_owned())
             .await?;
 
         manager
-            .drop_table(Table::drop().table(Transfer::Table).to_owned())
+            .drop_table(Table::drop().table(Txo::Table).to_owned())
             .await?;
 
         manager
-            .drop_table(Table::drop().table(TransportEndpoint::Table).to_owned())
+            .drop_table(Table::drop().table(TokenMedia::Table).to_owned())
+            .await?;
+
+        manager
+            .drop_table(Table::drop().table(Token::Table).to_owned())
             .await?;
 
         manager
@@ -577,7 +565,19 @@ impl MigrationTrait for Migration {
             .await?;
 
         manager
-            .drop_table(Table::drop().table(Token::Table).to_owned())
+            .drop_table(Table::drop().table(Transfer::Table).to_owned())
+            .await?;
+
+        manager
+            .drop_table(Table::drop().table(AssetTransfer::Table).to_owned())
+            .await?;
+
+        manager
+            .drop_table(Table::drop().table(BatchTransfer::Table).to_owned())
+            .await?;
+
+        manager
+            .drop_table(Table::drop().table(Asset::Table).to_owned())
             .await?;
 
         manager
@@ -585,7 +585,7 @@ impl MigrationTrait for Migration {
             .await?;
 
         manager
-            .drop_table(Table::drop().table(TokenMedia::Table).to_owned())
+            .drop_table(Table::drop().table(TransportEndpoint::Table).to_owned())
             .await?;
 
         manager
