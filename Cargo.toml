@@ -17,7 +17,9 @@ exclude = ["migration"]
 members = [".", "migration"]
 
 [dependencies]
-base64 = { version = "0.21.0", default-features = false }
+base64 = { version = "0.22.0", default-features = false, features = [
+    "std",
+] }
 bdk = { version = "0.29", default-features = false, features = [
     "electrum",
     "key-value-db",
@@ -36,7 +38,7 @@ futures = { version = "0.3", default-features = false, features = [
 hex = { version = "0.4.3", default-features = false }
 rand = { version = "0.8.5", default-features = false }
 rgb-lib-migration = { path = "migration", version = "0.2.0" }
-reqwest = { version = "0.11", default-features = false, features = [
+reqwest = { version = "0.12", default-features = false, features = [
     "blocking",
     "json",
     "multipart",
@@ -46,7 +48,7 @@ scrypt = { version = "0.11.0", default-features = false, features = [
     "simple",
     "std",
 ] }
-sea-orm = { version = "=0.12.14", default-features = false, features = [
+sea-orm = { version = "=0.12.15", default-features = false, features = [
     "macros",
     "runtime-async-std-native-tls",
     "sqlx-sqlite",
@@ -60,13 +62,13 @@ serde_json = { version = "^1.0", default-features = false, features = [
 ] }
 slog = { version = "2.7.0", default-features = false }
 slog-async = { version = "2.8.0", default-features = false }
-slog-term = { version = "2.9.0", default-features = false }
+slog-term = { version = "2.9.1", default-features = false }
 tempfile = { version = "3.10.1", default-features = false }
 thiserror = { version = "1.0", default-features = false }
-time = { version = "0.3.28", default-features = false }
+time = { version = "0.3.34", default-features = false }
 tree_magic = { version = "0.2.3", default-features = false }
 typenum = { version = "1.17.0", default-features = false }
-walkdir = { version = "2.4.0", default-features = false }
+walkdir = { version = "2.5.0", default-features = false }
 zip = { version = "0.6.6", default-features = false, features = [
     "zstd",
 ] }
@@ -74,6 +76,7 @@ zip = { version = "0.6.6", default-features = false, features = [
 # RGB-related deps
 amplify = { version = "=4.5.0", default-features = false }
 amplify_num = { version = "=0.5.1", default-features = false }  # temporary dependency pin
+aluvm = { version = "=0.10.6", default-features = false }  # temporary dependency pin
 bp-core = { version = "=0.10.11", default-features = false }
 commit_verify = { version = "=0.10.6", default-features = false }
 rgb-contracts = { version = "=0.10.2", default-features = false, features = [
@@ -90,7 +93,6 @@ strict_types = { version = "=1.6.3", default-features = false }
 copy_dir = { version = "0.1.3", default-features = false }
 dircmp = { version = "0.2.0", default-features = false }
 lazy_static = { version = "1.4.0", default-features = false }
-once_cell = { version = "1.18.0", default-features = false }
-regex = { version = "1.9.5", default-features = false }
-serial_test = { version = "2.0.0", default-features = false }
-tempfile = { version = "3.8", default-features = false }
+once_cell = { version = "1.19.0", default-features = false }
+regex = { version = "1.10.4", default-features = false }
+serial_test = { version = "3.0.0", default-features = false }

@@ -21,9 +21,10 @@ async-std = { version = "1.12", default-features = false, features = [
     "attributes",
     "tokio1",
 ] }
-sea-orm-migration = { version = "=0.12.14", default-features = false, features = [
+sea-orm-migration = { version = "=0.12.15", default-features = false, features = [
+    "cli",
+    "runtime-async-std-native-tls",
     "sqlx-mysql",
     "sqlx-postgres",
     "sqlx-sqlite",
-    "runtime-async-std-native-tls"
 ] }
