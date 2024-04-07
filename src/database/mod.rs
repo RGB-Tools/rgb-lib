@@ -279,6 +279,7 @@ pub(crate) struct TransferData {
     pub(crate) created_at: i64,
     pub(crate) updated_at: i64,
     pub(crate) expiration: Option<i64>,
+    pub(crate) exact_expiry: Option<bool>,
 }
 
 pub struct RgbLibDatabase {
@@ -936,6 +937,7 @@ impl RgbLibDatabase {
             created_at: batch_transfer.created_at,
             updated_at: batch_transfer.updated_at,
             expiration: batch_transfer.expiration,
+            exact_expiry: batch_transfer.exact_expiry,
         })
     }
 
