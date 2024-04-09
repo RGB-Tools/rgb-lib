@@ -1093,7 +1093,7 @@ pub struct Transfer {
     /// Change UTXO of an outgoing transfer
     pub change_utxo: Option<Outpoint>,
     /// Expiration of the transfer
-    pub expiration: Option<i64>,
+    pub expiration: Option<(i64, bool)>,
     /// Transport endpoints for the transfer
     pub transport_endpoints: Vec<TransferTransportEndpoint>,
 }
@@ -1119,7 +1119,7 @@ impl Transfer {
             recipient_id: x.recipient_id.clone(),
             receive_utxo: td.receive_utxo,
             change_utxo: td.change_utxo,
-            expiration: td.expiration,
+            expiration: td.expiration.map(|e| (e, td.exact_expiry.unwrap())),
             transport_endpoints,
         }
     }
