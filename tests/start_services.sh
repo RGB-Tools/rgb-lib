@@ -20,10 +20,6 @@ $COMPOSE build $PROXY_MOD_PROTO
 $COMPOSE build $PROXY_MOD_API
 
 $COMPOSE down -v
-# cleaning esplora data dir
-if [ -d "$TEST_DIR/esplora" ]; then
-    $COMPOSE run --rm esplora bash -c "rm -rf /data/.bitcoin.conf /data/*"
-fi
 rm -rf $TEST_DIR
 mkdir -p $TEST_DIR
 # see docker-compose.yml for the exposed ports

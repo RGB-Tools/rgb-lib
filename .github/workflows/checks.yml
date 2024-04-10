@@ -75,6 +75,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
       - name: Test with electrum feature
         run: |
           cargo test --no-default-features --features electrum go_online::fail
