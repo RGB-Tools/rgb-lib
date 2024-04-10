@@ -14,7 +14,7 @@ fn success() {
     let (wallet, online) = get_funded_noutxo_wallet!();
     let expected_balance = BtcBalance {
         vanilla: Balance {
-            settled: 0,
+            settled: 100000000,
             future: 100000000,
             spendable: 100000000,
         },
@@ -42,12 +42,12 @@ fn success() {
     // drain funded wallet with RGB allocations
     let expected_balance = BtcBalance {
         vanilla: Balance {
-            settled: 0,
+            settled: 99994601,
             future: 99994601,
             spendable: 99994601,
         },
         colored: Balance {
-            settled: 0,
+            settled: 5000,
             future: 5000,
             spendable: 5000,
         },
