@@ -49,7 +49,7 @@ use time::OffsetDateTime;
 use crate::error::InternalError;
 use crate::Error;
 
-const TIMESTAMP_FORMAT: &[time::format_description::FormatItem] = time::macros::format_description!(
+const TIMESTAMP_FORMAT: &[time::format_description::BorrowedFormatItem] = time::macros::format_description!(
     "[year]-[month]-[day]T[hour repr:24]:[minute]:[second].[subsecond digits:3]+00"
 );
 
