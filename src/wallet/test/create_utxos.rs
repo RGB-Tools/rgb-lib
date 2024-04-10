@@ -206,10 +206,10 @@ fn casting() {
     let utxo_size = funds as u32 / 256;
 
     let (wallet, online) = get_empty_wallet!();
-    send_to_address(test_get_address(&wallet));
+    fund_wallet(test_get_address(&wallet));
     let expected_balance = BtcBalance {
         vanilla: Balance {
-            settled: 0,
+            settled: funds,
             future: funds,
             spendable: funds,
         },
