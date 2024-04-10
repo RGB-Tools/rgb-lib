@@ -127,12 +127,13 @@ pub fn initialize() {
     let start_services_file = ["tests", "start_services.sh"].join(&MAIN_SEPARATOR.to_string());
     INIT.call_once(|| {
         println!("starting test services...");
-        let status = Command::new(start_services_file)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
+        let output = Command::new(start_services_file)
+            .output()
             .expect("failed to start test services");
-        assert!(status.success());
+        if !output.status.success() {
+            println!("{output:?}");
+            panic!("failed to start test services");
+        }
     });
 }
 
