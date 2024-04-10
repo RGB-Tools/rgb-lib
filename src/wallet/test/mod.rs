@@ -1,17 +1,16 @@
 use std::{
     ffi::OsString,
-    path::MAIN_SEPARATOR,
+    path::MAIN_SEPARATOR_STR,
     process::{Command, Stdio},
     sync::{Mutex, Once, RwLock},
 };
 
 use bdk::descriptor::Descriptor;
+use ifaces::rgb21::EmbeddedMedia as RgbEmbeddedMedia;
 use lazy_static::lazy_static;
 use once_cell::sync::Lazy;
 use regex::RegexSet;
-use rgbstd::{
-    interface::rgb21::EmbeddedMedia as RgbEmbeddedMedia, stl::ProofOfReserves as RgbProofOfReserves,
-};
+use rgbstd::stl::ProofOfReserves as RgbProofOfReserves;
 use serial_test::{parallel, serial};
 use time::OffsetDateTime;
 
@@ -52,9 +51,10 @@ const AMOUNT_SMALL: u64 = 66;
 const FEE_RATE: f32 = 1.5;
 const FEE_MSG_LOW: &str = "value under minimum 1";
 const FEE_MSG_HIGH: &str = "value above maximum 1000";
+const EMPTY_MSG: &str = "must contain at least one character.";
 const IDENT_EMPTY_MSG: &str = "ident must contain at least one character";
-const IDENT_TOO_LONG_MSG: &str = "identifier name has invalid length";
-const IDENT_NOT_ASCII_MSG: &str = "identifier name contains non-ASCII character(s)";
+const IDENT_TOO_LONG_MSG: &str = "string has invalid length.";
+const IDENT_NOT_ASCII_MSG: &str = "string '{0}' contains invalid character '{1}' at position {2}.";
 const RESTORE_DIR_PARTS: [&str; 3] = ["tests", "tmp", "restored"];
 const MAX_ALLOCATIONS_PER_UTXO: u32 = 5;
 const MIN_CONFIRMATIONS: u8 = 1;
@@ -72,7 +72,7 @@ pub fn initialize() {
             println!("skipping services initialization");
             return;
         }
-        let regtest_script = ["tests", "regtest.sh"].join(&MAIN_SEPARATOR.to_string());
+        let regtest_script = ["tests", "regtest.sh"].join(MAIN_SEPARATOR_STR);
         println!("starting test services...");
         let output = Command::new(regtest_script)
             .arg("prepare_tests_environment")
@@ -126,7 +126,7 @@ pub fn mock_asset_terms(
     wallet: &Wallet,
     text: RicardianContract,
     media: Option<Attachment>,
-) -> AssetTerms {
+) -> ContractTerms {
     let mut mock_reqs = MOCK_CONTRACT_DATA.lock().unwrap();
     if mock_reqs.is_empty() {
         wallet.new_asset_terms(text, media)

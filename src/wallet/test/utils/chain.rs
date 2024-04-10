@@ -8,7 +8,7 @@ pub(crate) struct Miner {
 }
 
 pub(crate) fn bitcoin_cli() -> Vec<String> {
-    let compose_file = ["tests", "docker-compose.yml"].join(&MAIN_SEPARATOR.to_string());
+    let compose_file = ["tests", "docker-compose.yml"].join(MAIN_SEPARATOR_STR);
     vec![
         s!("-f"),
         compose_file,
@@ -23,7 +23,7 @@ pub(crate) fn bitcoin_cli() -> Vec<String> {
 }
 
 fn _esplora_bitcoin_cli() -> Vec<String> {
-    let compose_file = ["tests", "docker-compose.yml"].join(&MAIN_SEPARATOR.to_string());
+    let compose_file = ["tests", "docker-compose.yml"].join(MAIN_SEPARATOR_STR);
     vec![
         s!("-f"),
         compose_file,

@@ -32,6 +32,9 @@ uniffi = { version = "0.28.0", default-features = false, features = [
 ] }
 
 [target.'cfg(target_os = "android")'.dependencies]
+aws-lc-rs = { version = "1.9.0", default-features = false, features = [
+    "bindgen",
+] }
 openssl = { version = "0.10", default-features = false, features = [
     "vendored",
 ] }

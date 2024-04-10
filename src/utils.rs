@@ -205,8 +205,8 @@ pub fn script_buf_from_recipient_id(recipient_id: String) -> Result<Option<Scrip
     let xchainnet_beneficiary =
         XChainNet::<Beneficiary>::from_str(&recipient_id).map_err(|_| Error::InvalidRecipientID)?;
     match xchainnet_beneficiary.into_inner() {
-        Beneficiary::WitnessVout(address_payload) => {
-            let script_pubkey = address_payload.script_pubkey();
+        Beneficiary::WitnessVout(pay_2_vout) => {
+            let script_pubkey = pay_2_vout.address.script_pubkey();
             let script_bytes = script_pubkey.as_script_bytes();
             let script_bytes_vec = script_bytes.clone().into_vec();
             let script_buf = ScriptBuf::from_bytes(script_bytes_vec);
@@ -220,7 +220,10 @@ pub(crate) fn beneficiary_from_script_buf(script_buf: ScriptBuf) -> Beneficiary 
     let address_payload =
         AddressPayload::from_script(&ScriptPubkey::try_from(script_buf.into_bytes()).unwrap())
             .unwrap();
-    Beneficiary::WitnessVout(address_payload)
+    Beneficiary::WitnessVout(Pay2Vout {
+        address: address_payload,
+        method: CloseMethod::OpretFirst,
+    })
 }
 
 /// Return the recipient ID for a specific script buf
@@ -332,8 +335,6 @@ pub(crate) fn now() -> OffsetDateTime {
 
 /// Wrapper for the RGB stock and its lockfile.
 pub(crate) struct RgbRuntime {
-    /// Path to the RGB stock
-    stock_path: PathBuf,
     /// The RGB stock
     stock: Stock,
     /// The wallet directory, where the lockfile for the runtime is to be held
@@ -342,17 +343,13 @@ pub(crate) struct RgbRuntime {
 
 impl RgbRuntime {
     #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
-    pub(crate) fn accept_transfer<R: ResolveHeight>(
+    pub(crate) fn accept_transfer<R: ResolveWitness>(
         &mut self,
-        transfer: RgbTransfer,
-        resolver: &mut R,
-        force: bool,
-    ) -> Result<Status, InternalError>
-    where
-        R::Error: 'static,
-    {
+        contract: ValidTransfer,
+        resolver: &R,
+    ) -> Result<Status, InternalError> {
         self.stock
-            .accept_transfer(transfer, resolver, force)
+            .accept_transfer(contract, resolver)
             .map_err(InternalError::from)
     }
 
@@ -360,7 +357,7 @@ impl RgbRuntime {
     pub(crate) fn blank_builder(
         &self,
         contract_id: ContractId,
-        iface: impl Into<TypeName>,
+        iface: impl Into<IfaceRef>,
     ) -> Result<TransitionBuilder, InternalError> {
         self.stock
             .blank_builder(contract_id, iface)
@@ -368,33 +365,76 @@ impl RgbRuntime {
     }
 
     #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
-    pub(crate) fn consume(&mut self, fascia: Fascia) -> Result<(), InternalError> {
-        self.stock.consume(fascia).map_err(InternalError::from)
-    }
+    pub(crate) fn consume_fascia(
+        &mut self,
+        fascia: Fascia,
+        witness_txid: RgbTxid,
+    ) -> Result<(), InternalError> {
+        struct FasciaResolver {
+            witness_id: XWitnessId,
+        }
+        impl ResolveWitness for FasciaResolver {
+            fn resolve_pub_witness(
+                &self,
+                _: XWitnessId,
+            ) -> Result<XWitnessTx, WitnessResolverError> {
+                unreachable!()
+            }
+            fn resolve_pub_witness_ord(
+                &self,
+                witness_id: XWitnessId,
+            ) -> Result<WitnessOrd, WitnessResolverError> {
+                assert_eq!(witness_id, self.witness_id);
+                Ok(WitnessOrd::Tentative)
+            }
+        }
 
-    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
-    pub(crate) fn contract_ids(&self) -> Result<BTreeSet<ContractId>, InternalError> {
-        self.stock.contract_ids().map_err(InternalError::from)
-    }
+        let resolver = FasciaResolver {
+            witness_id: XChain::Bitcoin(witness_txid),
+        };
 
-    pub(crate) fn contract_iface_id(
-        &self,
-        contract_id: ContractId,
-        iface_id: IfaceId,
-    ) -> Result<ContractIface, InternalError> {
         self.stock
-            .contract_iface_id(contract_id, iface_id)
+            .consume_fascia(fascia, resolver)
             .map_err(InternalError::from)
     }
 
     #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
-    pub(crate) fn contracts_by_outputs(
+    pub(crate) fn contracts(&self) -> Result<Vec<ContractInfo>, InternalError> {
+        Ok(self
+            .stock
+            .contracts()
+            .map_err(InternalError::from)?
+            .collect())
+    }
+
+    pub(crate) fn contract_iface_class<C: IfaceClass>(
+        &self,
+        contract_id: ContractId,
+    ) -> Result<C::Wrapper<MemContract<&MemContractState>>, Error> {
+        self.stock
+            .contract_iface_class::<C>(contract_id)
+            .map_err(|err| {
+                if matches!(
+                    err,
+                    StockError::StashData(StashDataError::NoAbstractIface(
+                        ContractIfaceError::NoAbstractImpl(_, _)
+                    ))
+                ) {
+                    return Error::AssetIfaceMismatch;
+                }
+                Error::from(InternalError::from(err))
+            })
+    }
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
+    pub(crate) fn contracts_assigning(
         &self,
         outputs: impl IntoIterator<Item = impl Into<XOutputSeal>>,
     ) -> Result<BTreeSet<ContractId>, InternalError> {
-        self.stock
-            .contracts_by_outputs(outputs)
-            .map_err(InternalError::from)
+        Ok(FromIterator::from_iter(
+            self.stock
+                .contracts_assigning(outputs)
+                .map_err(InternalError::from)?,
+        ))
     }
 
     pub(crate) fn export_contract(
@@ -408,64 +448,52 @@ impl RgbRuntime {
 
     #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn genesis(&self, contract_id: ContractId) -> Result<&Genesis, InternalError> {
-        self.stock.genesis(contract_id).map_err(InternalError::from)
-    }
-
-    pub(crate) fn iface_by_name(&self, name: &TypeName) -> Result<&Iface, InternalError> {
-        self.stock.iface_by_name(name).map_err(InternalError::from)
+        self.stock
+            .as_stash_provider()
+            .genesis(contract_id)
+            .map_err(InternalError::from)
     }
 
     #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
-    pub(crate) fn import_contract<R: ResolveHeight>(
+    pub(crate) fn import_contract<R: ResolveWitness>(
         &mut self,
-        contract: Contract,
-        resolver: &mut R,
-    ) -> Result<Status, InternalError>
-    where
-        R::Error: 'static,
-    {
+        contract: ValidContract,
+        resolver: &R,
+    ) -> Result<Status, InternalError> {
         self.stock
             .import_contract(contract, resolver)
             .map_err(InternalError::from)
     }
 
-    pub(crate) fn import_iface(&mut self, iface: Iface) -> Result<Status, InternalError> {
-        self.stock.import_iface(iface).map_err(InternalError::from)
-    }
-
-    pub(crate) fn import_iface_impl(&mut self, iimpl: IfaceImpl) -> Result<Status, InternalError> {
-        self.stock
-            .import_iface_impl(iimpl)
-            .map_err(InternalError::from)
-    }
-
-    pub(crate) fn import_schema(&mut self, schema: SubSchema) -> Result<Status, InternalError> {
-        self.stock
-            .import_schema(schema)
-            .map_err(InternalError::from)
-    }
-
-    pub(crate) fn schema_ids(&self) -> Result<BTreeSet<SchemaId>, InternalError> {
-        self.stock.schema_ids().map_err(InternalError::from)
+    pub(crate) fn import_kit(&mut self, kit: ValidKit) -> Result<Status, InternalError> {
+        self.stock.import_kit(kit).map_err(InternalError::from)
     }
 
     #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
-    pub(crate) fn state_for_outpoints(
+    pub(crate) fn contract_assignments_for(
         &self,
         contract_id: ContractId,
         outpoints: impl IntoIterator<Item = impl Into<XOutpoint>>,
-    ) -> Result<BTreeMap<(Opout, XOutputSeal), PersistedState>, InternalError> {
+    ) -> Result<HashMap<XOutputSeal, HashMap<Opout, PersistedState>>, InternalError> {
         self.stock
-            .state_for_outpoints(contract_id, outpoints)
+            .contract_assignments_for(contract_id, outpoints)
             .map_err(InternalError::from)
     }
 
-    pub(crate) fn store_seal_secret(
+    pub(crate) fn schemata(&self) -> Result<Vec<SchemaInfo>, InternalError> {
+        Ok(self
+            .stock
+            .schemata()
+            .map_err(InternalError::from)?
+            .collect())
+    }
+
+    pub(crate) fn store_secret_seal(
         &mut self,
         seal: XChain<GraphSeal>,
-    ) -> Result<(), InternalError> {
+    ) -> Result<bool, InternalError> {
         self.stock
-            .store_seal_secret(seal)
+            .store_secret_seal(seal)
             .map_err(InternalError::from)
     }
 
@@ -474,18 +502,18 @@ impl RgbRuntime {
         &self,
         contract_id: ContractId,
         outputs: impl AsRef<[XOutputSeal]>,
-        secret_seals: impl AsRef<[XChain<SecretSeal>]>,
+        secret_seal: Option<XChain<SecretSeal>>,
     ) -> Result<RgbTransfer, InternalError> {
         self.stock
-            .transfer(contract_id, outputs, secret_seals)
-            .map_err(|_| InternalError::Unexpected)
+            .transfer(contract_id, outputs, secret_seal)
+            .map_err(InternalError::from)
     }
 
     #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn transition_builder(
         &self,
         contract_id: ContractId,
-        iface: impl Into<TypeName>,
+        iface: impl Into<IfaceRef>,
         transition_name: Option<impl Into<FieldName>>,
     ) -> Result<TransitionBuilder, InternalError> {
         self.stock
@@ -496,9 +524,7 @@ impl RgbRuntime {
 
 impl Drop for RgbRuntime {
     fn drop(&mut self) {
-        self.stock
-            .store(&self.stock_path)
-            .expect("unable to save stock");
+        self.stock.store().expect("unable to save stock");
         fs::remove_file(self.wallet_dir.join(RGB_RUNTIME_LOCK_FILE))
             .expect("should be able to drop lockfile")
     }
@@ -539,21 +565,22 @@ pub(crate) fn load_rgb_runtime(wallet_dir: PathBuf) -> Result<RgbRuntime, Error>
     if !rgb_dir.exists() {
         fs::create_dir_all(&rgb_dir)?;
     }
-    let stock_path = rgb_dir.join("stock.dat");
-    let stock = Stock::load(&stock_path).or_else(|err| {
-        if matches!(err, DeserializeError::Decode(DecodeError::Io(ref err)) if err.kind() == ErrorKind::NotFound) {
-            let stock = Stock::default();
-            stock.store(&stock_path).expect("unable to save stock");
+    let provider = FsBinStore::new(rgb_dir.clone())?;
+    let stock = Stock::load(provider.clone(), true).or_else(|err| {
+        if err
+            .0
+            .downcast_ref::<DeserializeError>()
+            .map(|e| matches!(e, DeserializeError::Decode(DecodeError::Io(ref e)) if e.kind() == ErrorKind::NotFound))
+            .unwrap_or_default()
+        {
+            let mut stock = Stock::in_memory();
+            stock.make_persistent(provider, true).expect("unable to save stock");
             return Ok(stock)
         }
         Err(Error::IO { details: err.to_string() })
     })?;
 
-    Ok(RgbRuntime {
-        stock_path,
-        stock,
-        wallet_dir,
-    })
+    Ok(RgbRuntime { stock, wallet_dir })
 }
 
 fn convert_prop_key(prop_key: PropKey) -> ProprietaryKey {
@@ -649,14 +676,14 @@ pub(crate) trait RgbPsbtExt {
     fn rgb_transition(&self, opid: OpId) -> Result<Option<Transition>, InternalError>;
 
     /// See upstream method for details
-    fn rgb_close_methods(&self, opid: OpId) -> Result<Option<CloseMethodSet>, Error>;
+    fn rgb_close_method(&self, opid: OpId) -> Result<Option<CloseMethod>, InternalError>;
 
     /// See upstream method for details
     fn push_rgb_transition(
         &mut self,
         transition: Transition,
-        methods: CloseMethodSet,
-    ) -> Result<bool, Error>;
+        methods: CloseMethod,
+    ) -> Result<bool, InternalError>;
 }
 
 impl RgbPsbtExt for PartiallySignedTransaction {
@@ -669,7 +696,7 @@ impl RgbPsbtExt for PartiallySignedTransaction {
         Ok(Some(transition))
     }
 
-    fn rgb_close_methods(&self, opid: OpId) -> Result<Option<CloseMethodSet>, Error> {
+    fn rgb_close_method(&self, opid: OpId) -> Result<Option<CloseMethod>, InternalError> {
         let Some(m) = self
             .proprietary
             .get(&ProprietaryKey::rgb_closing_methods(opid))
@@ -677,44 +704,50 @@ impl RgbPsbtExt for PartiallySignedTransaction {
             return Ok(None);
         };
         if m.len() == 1 {
-            if let Ok(method) = CloseMethodSet::try_from(m[0]) {
+            if let Ok(method) = CloseMethod::try_from(m[0]) {
                 return Ok(Some(method));
             }
         }
-        Err(Error::Internal {
-            details: s!("invalid close method"),
-        })
+        Err(RgbPsbtError::InvalidCloseMethod(opid).into())
     }
 
     fn push_rgb_transition(
         &mut self,
         mut transition: Transition,
-        mut methods: CloseMethodSet,
-    ) -> Result<bool, Error> {
+        method: CloseMethod,
+    ) -> Result<bool, InternalError> {
         let opid = transition.id();
-        let prev_methods = self.rgb_close_methods(opid)?;
+
+        let prev_method = self.rgb_close_method(opid)?;
+        if matches!(prev_method, Some(prev_method) if prev_method != method) {
+            return Err(RgbPsbtError::InvalidCloseMethod(opid).into());
+        }
+
         let prev_transition = self.rgb_transition(opid)?;
         if let Some(ref prev_transition) = prev_transition {
             transition = transition
                 .merge_reveal(prev_transition.clone())
-                .map_err(|e| Error::Internal {
-                    details: e.to_string(),
+                .map_err(|err| {
+                    Into::<InternalError>::into(RgbPsbtError::UnrelatedTransitions(
+                        prev_transition.id(),
+                        opid,
+                        err,
+                    ))
                 })?;
         }
-        let serialized_transition =
-            transition
-                .to_strict_serialized::<U24>()
-                .map_err(|e| Error::Internal {
-                    details: e.to_string(),
-                })?;
+        let serialized_transition = transition
+            .to_strict_serialized::<U24>()
+            .map_err(|_| RgbPsbtError::TransitionTooBig(opid))?;
+
+        // Since we update transition it's ok to ignore the fact that it previously
+        // existed
         let _ = self.proprietary.insert(
             ProprietaryKey::rgb_transition(opid),
-            serialized_transition.into_inner(),
+            serialized_transition.to_unconfined(),
         );
-        methods |= prev_methods;
         let _ = self.proprietary.insert(
             ProprietaryKey::rgb_closing_methods(opid),
-            vec![methods as u8],
+            vec![method as u8],
         );
         Ok(prev_transition.is_none())
     }

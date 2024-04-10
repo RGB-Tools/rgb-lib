@@ -65,11 +65,9 @@ pub mod wallet;
 
 pub use bdk;
 pub use bitcoin;
-pub use invoice::RgbTransport;
-pub use rgbstd::{
-    containers::{Contract, Fascia, FileContent, Transfer as RgbTransfer},
-    contract::ContractId,
-};
+pub use rgb::ContractId;
+pub use rgbinvoice::RgbTransport;
+pub use rgbstd::containers::{Contract, Fascia, FileContent, Transfer as RgbTransfer};
 
 pub use crate::{
     database::enums::{AssetSchema, RecipientType, TransferStatus, TransportType},
@@ -100,10 +98,10 @@ use std::{
 use amplify::{
     bmap,
     confinement::{Confined, U24},
-    s, ByteArray, FromSliceError,
+    s, FromSliceError,
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-use amplify::{hex::ToHex, none, Wrapper};
+use amplify::{hex::ToHex, none, ByteArray, Wrapper};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use base64::{engine::general_purpose, Engine as _};
 #[cfg(feature = "electrum")]
@@ -170,10 +168,11 @@ use electrum_client::{Client as ElectrumClient, ConfigBuilder, ElectrumApi, Para
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use file_format::FileFormat;
 use futures::executor::block_on;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-use invoice::{Amount, Precision};
-use invoice::{Beneficiary, RgbInvoice, RgbInvoiceBuilder, XChainNet};
-use psbt::{PropKey, ProprietaryKeyRgb, Psbt as RgbPsbt, RgbPsbt as RgbPsbtTrait};
+use ifaces::{
+    rgb21::{EmbeddedMedia as RgbEmbeddedMedia, TokenData},
+    IssuerWrapper, Rgb20, Rgb21, Rgb25,
+};
+use psrgbt::{PropKey, ProprietaryKeyRgb, Psbt as RgbPsbt, RgbPsbt as RgbPsbtTrait, RgbPsbtError};
 use rand::{distributions::Alphanumeric, Rng};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use reqwest::{
@@ -181,44 +180,38 @@ use reqwest::{
     header::CONTENT_TYPE,
 };
 use rgb::{
-    validation::Status, BlindingFactor, Genesis, Layer1, OpId, Opout, SchemaId, SubSchema,
-    Transition, WitnessId, XChain, XOutpoint, XOutputSeal,
+    info::{ContractInfo, SchemaInfo},
+    invoice::Pay2Vout,
+    persistence::{ContractIfaceError, MemContract, MemContractState, Stock},
+    validation::{ResolveWitness, Status, WitnessResolverError},
+    vm::{WitnessOrd, XWitnessTx},
+    BlindingFactor, Genesis, GraphSeal, Layer1, OpId, Opout, Transition, XChain, XOutpoint,
+    XOutputSeal, XWitnessId,
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-use rgb::{validation::Validity, Assign};
+use rgb::{
+    resolvers::AnyResolver, stl::ContractTerms, validation::Validity, Assign, GenesisSeal, Identity,
+};
 use rgb_lib_migration::{Migrator, MigratorTrait};
-#[cfg(feature = "electrum")]
-use rgb_rt::electrum::Resolver as ElectrumResolver;
-#[cfg(feature = "esplora")]
-use rgb_rt::esplora_blocking::Resolver as EsploraResolver;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-use rgb_rt::AnyResolver;
-use rgb_schemata::{cfa_rgb25, cfa_schema, uda_rgb21, uda_schema, NonInflatableAsset};
-use rgbfs::StockFs;
+use rgbinvoice::{Amount, Precision};
+use rgbinvoice::{Beneficiary, RgbInvoice, RgbInvoiceBuilder, XChainNet};
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 use rgbstd::{
-    accessors::MergeReveal,
-    containers::BuilderSeal,
-    containers::CloseMethodSet,
-    contract::GraphSeal,
-    interface::{
-        ContractIface, Iface, IfaceClass, IfaceId, IfaceImpl, IssuerClass, Rgb20, Rgb21, Rgb25,
-        TransitionBuilder,
-    },
+    containers::ConsignmentExt,
+    interface::ContractBuilder,
+    stl::{AssetSpec, Details, MediaType, Name, RicardianContract, Ticker},
+    Allocation, OwnedFraction, TokenIndex,
+};
+use rgbstd::{
+    containers::{BuilderSeal, Kit, ValidContract, ValidKit, ValidTransfer},
+    interface::{IfaceClass, IfaceRef, TransitionBuilder},
     invoice::{ChainNet, InvoiceState},
-    persistence::{Inventory, PersistedState, Stash, Stock},
-    resolvers::ResolveHeight,
-    stl::{Attachment, MediaType},
-    Operation, Txid as RgbTxid,
+    persistence::{fs::FsBinStore, PersistedState, StashDataError, StashReadProvider, StockError},
+    stl::{Attachment, ProofOfReserves as RgbProofOfReserves},
+    MergeReveal, Operation, Txid as RgbTxid,
 };
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-use rgbstd::{
-    contract::GenesisSeal,
-    interface::{
-        rgb21::{Allocation, OwnedFraction, TokenData, TokenIndex},
-        ContractBuilder,
-    },
-    stl::{AssetSpec, AssetTerms, Details, Name, RicardianContract, Ticker},
-};
+use schemata::{CollectibleFungibleAsset, NonInflatableAsset, UniqueDigitalAsset};
 use scrypt::{
     password_hash::{PasswordHasher, Salt, SaltString},
     Params, Scrypt,
@@ -235,7 +228,6 @@ use slog_term::{FullFormat, PlainDecorator};
 use strict_encoding::{
     tn, DecodeError, DeserializeError, FieldName, StrictDeserialize, StrictSerialize, TypeName,
 };
-use strict_types::StrictVal;
 use tempfile::TempDir;
 use time::OffsetDateTime;
 use typenum::consts::U32;

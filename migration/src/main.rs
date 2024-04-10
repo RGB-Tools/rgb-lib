@@ -7,7 +7,7 @@ async fn main() {
 
 #[cfg(test)]
 mod tests {
-    use std::path::{PathBuf, MAIN_SEPARATOR};
+    use std::path::{PathBuf, MAIN_SEPARATOR_STR};
 
     use rgb_lib_migration::Migrator;
     use sea_orm_migration::sea_orm::{ConnectOptions, Database};
@@ -18,7 +18,7 @@ mod tests {
 
     #[async_std::test]
     async fn test_migrations() {
-        let db_path = PathBuf::from(TEST_DATA_DIR_PARTS.join(&MAIN_SEPARATOR.to_string()));
+        let db_path = PathBuf::from(TEST_DATA_DIR_PARTS.join(MAIN_SEPARATOR_STR));
         std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
         if db_path.exists() {
             std::fs::remove_file(&db_path).unwrap();

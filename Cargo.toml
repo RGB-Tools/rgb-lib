@@ -6,7 +6,7 @@ authors = [
     "Nicola Busanello <nicola.busanello@gmail.com>",
 ]
 edition = "2021"
-rust-version = "1.67"
+rust-version = "1.76.0"
 repository = "https://github.com/RGB-Tools/rgb-lib"
 homepage = "https://github.com/RGB-Tools/rgb-lib"
 license = "MIT"
@@ -78,29 +78,31 @@ zip = { version = "2.1.5", default-features = false, features = [
 ] }
 
 # RGB-related deps
-amplify = { version = "=4.6.0", default-features = false }
-bp-core = { version = "=0.11.0-beta.5", default-features = false }
-bp-electrum = { version = "=0.11.0-beta.5", optional = true, default-features = false, features = [
+amplify = { version = "=4.7.0", default-features = false }
+bp-core = { version = "=0.11.0-beta.8", default-features = false }
+bp-electrum = { version = "=0.11.0-beta.8.1", optional = true, default-features = false, features = [
     "proxy",
     "use-rustls",
 ] }
-bp-seals = { version = "=0.11.0-beta.5", default-features = false }
-bp-std = { version = "=0.11.0-beta.5", default-features = false }
-commit_verify = { version = "=0.11.0-beta.5", default-features = false }
-rgb-core = { version = "=0.11.0-beta.5", default-features = false, features = [
+bp-esplora = { version = "=0.11.0-beta.8", optional = true, default-features = false, features = [
+    "blocking",
+] }
+bp-seals = { version = "=0.11.0-beta.8", default-features = false }
+bp-std = { version = "=0.11.0-beta.8", default-features = false }
+commit_verify = { version = "=0.11.0-beta.8", default-features = false }
+rgb-core = { version = "=0.11.0-beta.8", default-features = false, features = [
     "stl",
 ] }
-rgb-invoice = { version = "=0.11.0-beta.5", default-features = false }
-rgb-persist-fs = { version = "=0.11.1", default-features = false }
-rgb-psbt = { version = "=0.11.0-beta.5", default-features = false }
-rgb-runtime = { version = "=0.11.0-beta.5", default-features = false, features = [
+rgb-interfaces = { version = "=0.11.0-beta.8", default-features = false }
+rgb-invoice = { version = "=0.11.0-beta.8", default-features = false }
+rgb-psbt = { version = "=0.11.0-beta.8", default-features = false }
+rgb-runtime = { version = "=0.11.0-beta.8", default-features = false, features = [
+    "fs",
     "serde",
 ] }
-rgb-schemata = { version = "=0.11.0-beta.5", default-features = false }
-rgb-std = { version = "=0.11.0-beta.5", default-features = false }
-strict_encoding = { version = "=2.7.0-beta.1", default-features = false }
-strict_encoding_derive = { version = "=2.7.0-beta.1", default-features = false } # temporary dependency pin
-strict_types = { version = "=2.7.0-beta.2", default-features = false }
+rgb-schemata = { version = "=0.11.0-beta.8", default-features = false }
+rgb-std = { version = "=0.11.0-beta.8", default-features = false }
+strict_encoding = { version = "=2.7.0", default-features = false }
 
 [dev-dependencies]
 copy_dir = { version = "0.1.3", default-features = false }
@@ -118,10 +120,11 @@ electrum = [
     "bp-electrum",
     "electrum-client",
     "reqwest",
-    "rgb-runtime/electrum",
+    "rgb-runtime/electrum_blocking",
 ]
 esplora = [
     "bdk/use-esplora-blocking",
+    "bp-esplora",
     "reqwest",
     "rgb-runtime/esplora_blocking",
 ]

@@ -459,29 +459,26 @@ pub enum InternalError {
     #[error("Restore directory is not empty")]
     RestoreDirNotEmpty,
 
-    #[error("RGB consigner error: {0}")]
-    RgbConsigner(String),
-
-    #[error("RGB inventory error: {0}")]
-    RgbInventory(String),
-
-    #[error("RGB inventory data error: {0}")]
-    RgbInventoryData(String),
+    #[error("RGB consign error: {0}")]
+    RgbConsign(String),
 
     #[error("RGB load error: {0}")]
     RgbLoad(#[from] rgbstd::containers::LoadError),
 
-    #[error("RGB runtime error: {0}")]
-    RgbRuntime(#[from] rgb_rt::RuntimeError),
-
-    #[error("RGB stash error: {0}")]
-    RgbStash(#[from] rgbstd::persistence::StashError<std::convert::Infallible>),
+    #[error("RGB PSBT error: {0}")]
+    RgbPsbtError(String),
 
     #[error("Seal parse error: {0}")]
     SealParse(#[from] bp::seals::txout::explicit::ParseError),
 
     #[error("Serde JSON error: {0}")]
     SerdeJSON(#[from] serde_json::Error),
+
+    #[error("Stash error: {0}")]
+    StashError(String),
+
+    #[error("Stock error: {0}")]
+    StockError(String),
 
     #[error("Strip prefix error: {0}")]
     StripPrefix(#[from] std::path::StripPrefixError),
@@ -555,30 +552,92 @@ impl From<bdk::blockchain::esplora::EsploraError> for Error {
     }
 }
 
-impl From<rgbstd::persistence::ConsignerError<std::convert::Infallible, std::convert::Infallible>>
-    for InternalError
+impl From<psrgbt::RgbPsbtError> for InternalError {
+    fn from(e: psrgbt::RgbPsbtError) -> Self {
+        InternalError::RgbPsbtError(e.to_string())
+    }
+}
+
+impl From<rgbstd::persistence::StashProviderError<std::convert::Infallible>> for InternalError {
+    fn from(e: rgbstd::persistence::StashProviderError<std::convert::Infallible>) -> Self {
+        InternalError::StashError(e.to_string())
+    }
+}
+
+impl From<rgbstd::persistence::StockError> for InternalError {
+    fn from(e: rgbstd::persistence::StockError) -> Self {
+        InternalError::StockError(e.to_string())
+    }
+}
+
+impl
+    From<
+        rgbstd::persistence::StockError<
+            rgbstd::persistence::MemStash,
+            rgbstd::persistence::MemState,
+            rgbstd::persistence::MemIndex,
+            rgbstd::persistence::ConsignError,
+        >,
+    > for InternalError
 {
     fn from(
-        e: rgbstd::persistence::ConsignerError<std::convert::Infallible, std::convert::Infallible>,
+        e: rgbstd::persistence::StockError<
+            rgbstd::persistence::MemStash,
+            rgbstd::persistence::MemState,
+            rgbstd::persistence::MemIndex,
+            rgbstd::persistence::ConsignError,
+        >,
     ) -> Self {
-        InternalError::RgbConsigner(e.to_string())
+        InternalError::StockError(e.to_string())
     }
 }
 
-impl From<rgbstd::persistence::InventoryDataError<std::convert::Infallible>> for InternalError {
-    fn from(e: rgbstd::persistence::InventoryDataError<std::convert::Infallible>) -> Self {
-        InternalError::RgbInventoryData(e.to_string())
+impl
+    From<
+        rgbstd::persistence::StockError<
+            rgbstd::persistence::MemStash,
+            rgbstd::persistence::MemState,
+            rgbstd::persistence::MemIndex,
+            rgbstd::persistence::ContractIfaceError,
+        >,
+    > for InternalError
+{
+    fn from(
+        e: rgbstd::persistence::StockError<
+            rgbstd::persistence::MemStash,
+            rgbstd::persistence::MemState,
+            rgbstd::persistence::MemIndex,
+            rgbstd::persistence::ContractIfaceError,
+        >,
+    ) -> Self {
+        InternalError::StockError(e.to_string())
     }
 }
 
-impl From<rgbstd::persistence::InventoryError<std::convert::Infallible>> for InternalError {
-    fn from(e: rgbstd::persistence::InventoryError<std::convert::Infallible>) -> Self {
-        InternalError::RgbInventory(e.to_string())
+impl
+    From<
+        rgbstd::persistence::StockError<
+            rgbstd::persistence::MemStash,
+            rgbstd::persistence::MemState,
+            rgbstd::persistence::MemIndex,
+            rgbstd::persistence::FasciaError,
+        >,
+    > for InternalError
+{
+    fn from(
+        e: rgbstd::persistence::StockError<
+            rgbstd::persistence::MemStash,
+            rgbstd::persistence::MemState,
+            rgbstd::persistence::MemIndex,
+            rgbstd::persistence::FasciaError,
+        >,
+    ) -> Self {
+        InternalError::StockError(e.to_string())
     }
 }
 
-impl From<invoice::TransportParseError> for Error {
-    fn from(e: invoice::TransportParseError) -> Self {
+impl From<rgbinvoice::TransportParseError> for Error {
+    fn from(e: rgbinvoice::TransportParseError) -> Self {
         Error::InvalidTransportEndpoint {
             details: e.to_string(),
         }

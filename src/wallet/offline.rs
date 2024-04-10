@@ -25,11 +25,11 @@ pub(crate) const DURATION_RCV_TRANSFER: u32 = 86400;
 const PROXY_TIMEOUT: u8 = 90;
 
 pub(crate) const SCHEMA_ID_NIA: &str =
-    "urn:lnp-bp:sc:2wFrMq-DQGYEXLx-YN5TgGiv-M7uxbA56-yqCtf7rd-MNTSvC#carol-politic-lima";
+    "rgb:sch:RDYhMTR!9gv8Y2GLv9UNBEK1hcrCmdLDFk9Qd5fnO8k#brave-dinner-banana";
 pub(crate) const SCHEMA_ID_UDA: &str =
-    "urn:lnp-bp:sc:bBaser-EMBDKaHk-o1gnNUrN-JzoYNYWW-PkEqD1t3-VHcvx#vital-papa-time";
+    "rgb:sch:$$bAmeZTo5kK3RJHgeUr06qG86vQ0ozgtug7Yi9zdZo#korea-trumpet-dexter";
 pub(crate) const SCHEMA_ID_CFA: &str =
-    "urn:lnp-bp:sc:MCpHX1-1FrUH41Q-7vb9EABB-CaggZc6b-qDiZUZhi-4HvSt#alien-profile-sushi";
+    "rgb:sch:cJjPZfUpkOqIWhpCTqYJtFYzLfz$AB3JNxIEOJZYn28#circus-version-silence";
 
 /// The interface of an RGB asset.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
@@ -44,7 +44,12 @@ pub enum AssetIface {
 
 impl AssetIface {
     pub(crate) fn to_typename(&self) -> TypeName {
-        tn!(format!("{self:?}"))
+        let variant = match self {
+            Self::RGB20 => "Fixed",
+            Self::RGB21 => "Unique",
+            Self::RGB25 => "Base",
+        };
+        tn!(format!("{self:?}{variant}"))
     }
 
     fn get_asset_details(
@@ -140,9 +145,9 @@ impl TryFrom<TypeName> for AssetIface {
 
     fn try_from(value: TypeName) -> Result<Self, Self::Error> {
         match value.to_string().as_str() {
-            "RGB20" => Ok(AssetIface::RGB20),
-            "RGB21" => Ok(AssetIface::RGB21),
-            "RGB25" => Ok(AssetIface::RGB25),
+            "RGB20Fixed" => Ok(AssetIface::RGB20),
+            "RGB21Unique" => Ok(AssetIface::RGB21),
+            "RGB25Base" => Ok(AssetIface::RGB25),
             _ => Err(Error::UnknownRgbInterface {
                 interface: value.to_string(),
             }),
@@ -312,6 +317,15 @@ pub struct EmbeddedMedia {
     pub data: Vec<u8>,
 }
 
+impl From<RgbEmbeddedMedia> for EmbeddedMedia {
+    fn from(value: RgbEmbeddedMedia) -> Self {
+        Self {
+            mime: value.ty.to_string(),
+            data: value.data.to_unconfined(),
+        }
+    }
+}
+
 /// A proof of reserves.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
@@ -320,6 +334,15 @@ pub struct ProofOfReserves {
     pub utxo: Outpoint,
     /// Proof bytes
     pub proof: Vec<u8>,
+}
+
+impl From<RgbProofOfReserves> for ProofOfReserves {
+    fn from(value: RgbProofOfReserves) -> Self {
+        Self {
+            utxo: value.utxo.into(),
+            proof: value.proof.to_unconfined(),
+        }
+    }
 }
 
 /// An RGB21 token.
@@ -342,6 +365,29 @@ pub struct Token {
     pub attachments: HashMap<u8, Media>,
     /// Proof of reserves of the token
     pub reserves: Option<ProofOfReserves>,
+}
+
+impl Token {
+    pub(crate) fn from_token_data<P: AsRef<Path>>(token_data: &TokenData, media_dir: P) -> Self {
+        Self {
+            index: token_data.index.into(),
+            ticker: token_data.ticker.clone().map(Into::into),
+            name: token_data.name.clone().map(Into::into),
+            details: token_data.details.clone().map(|d| d.to_string()),
+            embedded_media: token_data.preview.clone().map(Into::into),
+            media: token_data
+                .media
+                .clone()
+                .map(|a| Media::from_attachment(&a, &media_dir)),
+            attachments: token_data
+                .attachments
+                .to_unconfined()
+                .into_iter()
+                .map(|(i, a)| (i, Media::from_attachment(&a, &media_dir)))
+                .collect(),
+            reserves: token_data.reserves.clone().map(Into::into),
+        }
+    }
 }
 
 /// A Unique Digital Asset.
@@ -1147,18 +1193,45 @@ impl Wallet {
 
         // RGB setup
         let mut runtime = load_rgb_runtime(wallet_dir.clone())?;
-        if runtime.schema_ids()?.len() < NUM_KNOWN_SCHEMAS {
-            runtime.import_iface(Rgb20::iface())?;
-            runtime.import_schema(NonInflatableAsset::schema())?;
-            runtime.import_iface_impl(NonInflatableAsset::issue_impl())?;
+        if runtime.schemata()?.len() < NUM_KNOWN_SCHEMAS {
+            let schema = NonInflatableAsset::schema();
+            let iimpl = NonInflatableAsset::issue_impl();
+            let lib = NonInflatableAsset::scripts();
+            let types = NonInflatableAsset::types();
+            let mut kit = Kit::default();
+            kit.schemata.push(schema).unwrap();
+            kit.ifaces.push(Rgb20::iface(&Rgb20::FIXED)).unwrap();
+            kit.iimpls.push(iimpl).unwrap();
+            kit.scripts.extend(lib.into_values()).unwrap();
+            kit.types = types;
+            let valid_kit = kit.validate().map_err(|_| InternalError::Unexpected)?;
+            runtime.import_kit(valid_kit)?;
 
-            runtime.import_iface(Rgb21::iface())?;
-            runtime.import_schema(uda_schema())?;
-            runtime.import_iface_impl(uda_rgb21())?;
+            let schema = UniqueDigitalAsset::schema();
+            let iimpl = UniqueDigitalAsset::issue_impl();
+            let lib = UniqueDigitalAsset::scripts();
+            let types = UniqueDigitalAsset::types();
+            let mut kit = Kit::default();
+            kit.schemata.push(schema).unwrap();
+            kit.ifaces.push(Rgb21::iface(&Rgb21::NONE)).unwrap();
+            kit.iimpls.push(iimpl).unwrap();
+            kit.scripts.extend(lib.into_values()).unwrap();
+            kit.types = types;
+            let valid_kit = kit.validate().map_err(|_| InternalError::Unexpected)?;
+            runtime.import_kit(valid_kit)?;
 
-            runtime.import_iface(Rgb25::iface())?;
-            runtime.import_schema(cfa_schema())?;
-            runtime.import_iface_impl(cfa_rgb25())?;
+            let schema = CollectibleFungibleAsset::schema();
+            let iimpl = CollectibleFungibleAsset::issue_impl();
+            let lib = CollectibleFungibleAsset::scripts();
+            let types = CollectibleFungibleAsset::types();
+            let mut kit = Kit::default();
+            kit.schemata.push(schema).unwrap();
+            kit.ifaces.push(Rgb25::iface(&Rgb25::NONE)).unwrap();
+            kit.iimpls.push(iimpl).unwrap();
+            kit.scripts.extend(lib.into_values()).unwrap();
+            kit.types = types;
+            let valid_kit = kit.validate().map_err(|_| InternalError::Unexpected)?;
+            runtime.import_kit(valid_kit)?;
         }
 
         // RGB-LIB setup
@@ -1559,7 +1632,7 @@ impl Wallet {
             )?;
 
         let mut runtime = self.rgb_runtime()?;
-        runtime.store_seal_secret(seal)?;
+        runtime.store_secret_seal(seal)?;
 
         let db_coloring = DbColoringActMod {
             txo_idx: ActiveValue::Set(utxo.idx),
@@ -1819,114 +1892,6 @@ impl Wallet {
         balance
     }
 
-    pub(crate) fn get_contract_iface(
-        &self,
-        runtime: &mut RgbRuntime,
-        asset_schema: &AssetSchema,
-        contract_id: ContractId,
-    ) -> Result<ContractIface, Error> {
-        let iface_name = AssetIface::from(*asset_schema).to_typename();
-        let iface = runtime.iface_by_name(&iface_name)?.clone();
-        runtime
-            .contract_iface_id(contract_id, iface.iface_id())
-            .map_err(|_| Error::AssetIfaceMismatch)
-    }
-
-    pub(crate) fn get_uda_token(&self, contract: ContractIface) -> Result<Option<Token>, Error> {
-        if let Ok(tokens) = contract.global("tokens") {
-            if tokens.is_empty() {
-                return Ok(None);
-            }
-            let val = &tokens[0];
-
-            let index = val.unwrap_struct("index").unwrap_num().unwrap_uint();
-
-            let ticker = val
-                .unwrap_struct("ticker")
-                .unwrap_option()
-                .map(StrictVal::unwrap_string);
-
-            let name = val
-                .unwrap_struct("name")
-                .unwrap_option()
-                .map(StrictVal::unwrap_string);
-
-            let details = val
-                .unwrap_struct("details")
-                .unwrap_option()
-                .map(StrictVal::unwrap_string);
-
-            let embedded_media = if let Some(preview) = val.unwrap_struct("preview").unwrap_option()
-            {
-                let ty = MediaType::from_strict_val_unchecked(preview.unwrap_struct("type"));
-                let mime = ty.to_string();
-                let data = preview.unwrap_struct("data").unwrap_bytes().to_vec();
-                Some(EmbeddedMedia { mime, data })
-            } else {
-                None
-            };
-
-            let media_dir = self.get_media_dir();
-
-            let media = val
-                .unwrap_struct("media")
-                .unwrap_option()
-                .map(Attachment::from_strict_val_unchecked)
-                .map(|a| Media::from_attachment(&a, &media_dir));
-
-            let attachments = match val.unwrap_struct("attachments") {
-                StrictVal::Map(fields) => {
-                    let mut map = HashMap::new();
-                    for (attachment_id, attachment_struct) in fields {
-                        let attachment = Attachment::from_strict_val_unchecked(attachment_struct);
-                        map.insert(
-                            attachment_id.unwrap_num().unwrap_uint(),
-                            Media::from_attachment(&attachment, &media_dir),
-                        );
-                    }
-                    map
-                }
-                _ => return Err(InternalError::Unexpected.into()),
-            };
-
-            let reserves: Option<ProofOfReserves> =
-                if let Some(reserves) = val.unwrap_struct("reserves").unwrap_option() {
-                    let utxo = reserves.unwrap_struct("utxo");
-                    let txid = utxo.unwrap_struct("txid").unwrap_bytes();
-                    let txid: [u8; 32] = if txid.len() == 32 {
-                        let mut array = [0; 32];
-                        array.copy_from_slice(txid);
-                        array
-                    } else {
-                        return Err(InternalError::Unexpected.into());
-                    };
-                    let txid = RgbTxid::from_byte_array(txid);
-                    let vout: u32 = utxo.unwrap_struct("vout").unwrap_num().unwrap_uint();
-                    let utxo = RgbOutpoint::new(txid, vout);
-                    let proof = reserves.unwrap_struct("proof").unwrap_bytes().to_vec();
-                    Some(ProofOfReserves {
-                        utxo: utxo.into(),
-                        proof,
-                    })
-                } else {
-                    None
-                };
-
-            Ok(Some(Token {
-                index,
-                ticker,
-                name,
-                details,
-                embedded_media,
-                media,
-                attachments,
-                reserves,
-            }))
-        } else {
-            Ok(None)
-        }
-    }
-
     /// Return the [`Metadata`] for the RGB asset with the provided ID.
     pub fn get_asset_metadata(&self, asset_id: String) -> Result<Metadata, Error> {
         info!(self.logger, "Getting metadata for asset '{}'...", asset_id);
@@ -1951,11 +1916,11 @@ impl Wallet {
                     reserves: None,
                 };
                 if token_light.embedded_media || token_light.reserves {
-                    let mut runtime = self.rgb_runtime()?;
+                    let runtime = self.rgb_runtime()?;
                     let contract_id = ContractId::from_str(&asset_id).expect("invalid contract ID");
-                    let contract_iface =
-                        self.get_contract_iface(&mut runtime, &asset.schema, contract_id)?;
-                    let uda_token = self.get_uda_token(contract_iface)?.unwrap();
+                    let contract = runtime.contract_iface_class::<Rgb21>(contract_id)?;
+                    let uda_token =
+                        Token::from_token_data(&contract.token_data(), self.get_media_dir());
                     token.embedded_media = uda_token.embedded_media;
                     token.reserves = uda_token.reserves;
                 }

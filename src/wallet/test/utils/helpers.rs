@@ -1,7 +1,7 @@
 use super::*;
 
 pub(crate) fn join_with_sep(parts: &[&str]) -> String {
-    parts.join(&MAIN_SEPARATOR.to_string())
+    parts.join(MAIN_SEPARATOR_STR)
 }
 
 pub(crate) fn get_restore_dir_string() -> String {
