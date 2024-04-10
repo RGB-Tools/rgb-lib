@@ -18,6 +18,8 @@ fn success() {
     assert!(bak_info_after.is_none());
     assert_eq!(unspent_list.len(), 0);
 
+    stop_mining();
+
     send_to_address(test_get_address(&wallet));
 
     // one unspent, no confirmations
@@ -26,7 +28,7 @@ fn success() {
     let unspent_list = test_list_unspents_vanilla(&wallet, &online, Some(0));
     assert_eq!(unspent_list.len(), 1);
 
-    mine(false);
+    mine(true);
 
     // one unspent, 1 confirmation
     let unspent_list = test_list_unspents_vanilla(&wallet, &online, None);
