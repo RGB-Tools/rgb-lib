@@ -448,9 +448,6 @@ pub enum InternalError {
     #[error("RGB load error: {0}")]
     RgbLoad(#[from] rgbstd::containers::LoadError),
 
-    #[error("RGB PSBT error: {0}")]
-    RgbPsbtError(String),
-
     #[error("RGB runtime error: {0}")]
     RgbRuntime(#[from] rgb_rt::RuntimeError),
 

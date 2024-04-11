@@ -2,8 +2,8 @@
 //!
 //! This module defines some utility methods.
 
-use amplify::confinement::{Confined, SmallOrdMap, U24};
-use amplify::{bset, s, FromSliceError};
+use amplify::confinement::{Confined, U24};
+use amplify::{s, FromSliceError};
 use bdk::bitcoin::bip32::ExtendedPrivKey;
 use bdk::bitcoin::bip32::{DerivationPath, ExtendedPubKey, KeySource};
 use bdk::bitcoin::secp256k1::Secp256k1;
@@ -20,8 +20,8 @@ use bpstd::Network as RgbNetwork;
 use psbt::{PropKey, ProprietaryKeyRgb};
 use rgb::validation::Status;
 use rgb::{
-    ContractId, Genesis, GraphSeal, InputMap, OpId, Opout, SchemaId, SubSchema, Transition,
-    TransitionBundle, XChain, XOutpoint, XOutputSeal,
+    ContractId, Genesis, GraphSeal, OpId, Opout, SchemaId, SubSchema, Transition, XChain,
+    XOutpoint, XOutputSeal,
 };
 use rgbfs::StockFs;
 use rgbstd::accessors::MergeReveal;
@@ -30,7 +30,7 @@ use rgbstd::interface::{ContractIface, Iface, IfaceId, IfaceImpl, TransitionBuil
 use rgbstd::invoice::ChainNet;
 use rgbstd::persistence::{Inventory, PersistedState, Stash, Stock};
 use rgbstd::resolvers::ResolveHeight;
-use rgbstd::{Operation, Vin};
+use rgbstd::Operation;
 use seals::SecretSeal;
 use serde::{Deserialize, Serialize};
 use slog::{Drain, Logger};
@@ -631,15 +631,6 @@ impl RgbOutExt for Output {
 /// Methods adding RGB functionality to rust-bitcoin Psbt
 pub trait RgbPsbtExt {
     /// See upstream method for details
-    fn rgb_contract_ids(&self) -> Result<BTreeSet<ContractId>, FromSliceError>;
-
-    /// See upstream method for details
-    fn rgb_contract_consumers(
-        &self,
-        contract_id: ContractId,
-    ) -> Result<BTreeSet<(OpId, Vin)>, FromSliceError>;
-
-    /// See upstream method for details
     fn rgb_transition(&self, opid: OpId) -> Result<Option<Transition>, InternalError>;
 
     /// See upstream method for details
@@ -651,47 +642,9 @@ pub trait RgbPsbtExt {
         transition: Transition,
         methods: CloseMethodSet,
     ) -> Result<bool, Error>;
-
-    /// See upstream method for details
-    fn rgb_bundles(
-        &self,
-    ) -> Result<BTreeMap<ContractId, (TransitionBundle, CloseMethodSet)>, Error>;
 }
 
 impl RgbPsbtExt for PartiallySignedTransaction {
-    fn rgb_contract_ids(&self) -> Result<BTreeSet<ContractId>, FromSliceError> {
-        self.inputs
-            .iter()
-            .flat_map(|input| {
-                input
-                    .proprietary
-                    .keys()
-                    .filter(|proprietary_key| {
-                        let prop_key = PropKey::rgb_in_consumed_by(
-                            ContractId::copy_from_slice([0u8; 32]).unwrap(),
-                        );
-                        str::from_utf8(&proprietary_key.prefix).unwrap() == prop_key.identifier
-                            && proprietary_key.subtype as u64 == prop_key.subtype
-                    })
-                    .map(|proprietary_key| proprietary_key.key.clone())
-                    .map(ContractId::copy_from_slice)
-            })
-            .collect()
-    }
-
-    fn rgb_contract_consumers(
-        &self,
-        contract_id: ContractId,
-    ) -> Result<BTreeSet<(OpId, Vin)>, FromSliceError> {
-        let mut consumers: BTreeSet<(OpId, Vin)> = bset! {};
-        for (no, input) in self.inputs.iter().enumerate() {
-            if let Some(opid) = input.rgb_consumer(contract_id)? {
-                consumers.insert((opid, Vin::from_u32(no as u32)));
-            }
-        }
-        Ok(consumers)
-    }
-
     fn rgb_transition(&self, opid: OpId) -> Result<Option<Transition>, InternalError> {
         let Some(data) = self.proprietary.get(&ProprietaryKey::rgb_transition(opid)) else {
             return Ok(None);
@@ -749,48 +702,5 @@ impl RgbPsbtExt for PartiallySignedTransaction {
             vec![methods as u8],
         );
         Ok(prev_transition.is_none())
-    }
-
-    fn rgb_bundles(
-        &self,
-    ) -> Result<BTreeMap<ContractId, (TransitionBundle, CloseMethodSet)>, Error> {
-        let mut map = BTreeMap::new();
-        for contract_id in self.rgb_contract_ids().map_err(InternalError::from)? {
-            let mut input_map = SmallOrdMap::<Vin, OpId>::new();
-            let mut known_transitions = SmallOrdMap::<OpId, Transition>::new();
-            let mut method_set = None::<CloseMethodSet>;
-            for (opid, vin) in self
-                .rgb_contract_consumers(contract_id)
-                .map_err(InternalError::from)?
-            {
-                let (transition, methods) = (
-                    self.rgb_transition(opid)?,
-                    self.rgb_close_methods(opid)?.ok_or(Error::Internal {
-                        details: s!("missing close method info"),
-                    })?,
-                );
-                method_set |= methods;
-                input_map.insert(vin, opid).map_err(InternalError::from)?;
-                if let Some(transition) = transition {
-                    known_transitions
-                        .insert(opid, transition)
-                        .map_err(InternalError::from)?;
-                }
-            }
-            let bundle = TransitionBundle {
-                input_map: InputMap::from(Confined::try_from(input_map.into_inner()).map_err(
-                    |_| Error::Internal {
-                        details: s!("zero known transitions"),
-                    },
-                )?),
-                known_transitions: Confined::try_from(known_transitions.into_inner()).map_err(
-                    |_| Error::Internal {
-                        details: s!("zero known transitions"),
-                    },
-                )?,
-            };
-            map.insert(contract_id, (bundle, method_set.expect("type guarantees")));
-        }
-        Ok(map)
     }
 }
