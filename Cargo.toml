@@ -77,7 +77,6 @@ zip = { version = "0.6.6", default-features = false, features = [
 
 # RGB-related deps
 amplify = { version = "=4.6.0", default-features = false }
-bp-consensus = { version = "=0.11.0-beta.5", default-features = false }
 bp-core = { version = "=0.11.0-beta.5", default-features = false }
 bp-electrum = { version = "=0.11.0-beta.5", optional = true, default-features = false, features = [
     "proxy",

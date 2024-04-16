@@ -6,7 +6,6 @@ use amplify::confinement::Confined;
 use amplify::hex::ToHex;
 use amplify::{bmap, none, s, ByteArray, Wrapper};
 use base64::{engine::general_purpose, Engine as _};
-use bc::Txid as BcTxid;
 use bdk::bitcoin::secp256k1::Secp256k1;
 use bdk::bitcoin::{
     psbt::Psbt as BdkPsbt, Address as BdkAddress, OutPoint as BdkOutPoint,
@@ -1482,7 +1481,7 @@ impl Wallet {
             issue_utxos.insert(utxo.clone(), *amount);
 
             let blind_seal =
-                BlindSeal::opret_first_rand(BcTxid::from_str(&utxo.txid).unwrap(), utxo.vout);
+                BlindSeal::opret_first_rand(BpTxid::from_str(&utxo.txid).unwrap(), utxo.vout);
             let genesis_seal = GenesisSeal::from(blind_seal);
             let seal: XChain<BlindSeal<BpTxid>> = XChain::with(Layer1::Bitcoin, genesis_seal);
 
@@ -1641,7 +1640,7 @@ impl Wallet {
         debug!(self.logger, "Issuing on UTXO: {issue_utxo:?}");
 
         let blind_seal = BlindSeal::opret_first_rand(
-            BcTxid::from_str(&issue_utxo.txid).unwrap(),
+            BpTxid::from_str(&issue_utxo.txid).unwrap(),
             issue_utxo.vout,
         );
         let genesis_seal = GenesisSeal::from(blind_seal);
@@ -1869,7 +1868,7 @@ impl Wallet {
             issue_utxos.insert(utxo.clone(), *amount);
 
             let blind_seal =
-                BlindSeal::opret_first_rand(BcTxid::from_str(&utxo.txid).unwrap(), utxo.vout);
+                BlindSeal::opret_first_rand(BpTxid::from_str(&utxo.txid).unwrap(), utxo.vout);
             let genesis_seal = GenesisSeal::from(blind_seal);
             let seal: XChain<BlindSeal<BpTxid>> = XChain::with(Layer1::Bitcoin, genesis_seal);
 
@@ -2830,7 +2829,7 @@ impl Wallet {
             }
             let change_utxo = change_utxo_option.clone().unwrap();
             let blind_seal = BlindSeal::opret_first_rand(
-                BcTxid::from_str(&change_utxo.txid).unwrap(),
+                BpTxid::from_str(&change_utxo.txid).unwrap(),
                 change_utxo.vout,
             );
             GraphSeal::from(blind_seal)

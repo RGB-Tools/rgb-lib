@@ -3,7 +3,6 @@
 //! This module defines the offline methods of the [`Wallet`] structure and all its related data.
 
 use amplify::{s, ByteArray};
-use bc::Txid as BcTxid;
 use bdk::bitcoin::bip32::ExtendedPubKey;
 use bdk::bitcoin::secp256k1::Secp256k1;
 use bdk::bitcoin::{psbt::Psbt as BdkPsbt, Address as BdkAddress, Network as BdkNetwork};
@@ -15,7 +14,7 @@ pub use bdk::BlockTime;
 use bdk::{KeychainKind, LocalUtxo, SignOptions, Wallet as BdkWallet};
 use bitcoin::{Address, OutPoint};
 use bp::seals::txout::BlindSeal;
-use bp::{Outpoint as RgbOutpoint, ScriptPubkey};
+use bp::{Outpoint as RgbOutpoint, ScriptPubkey, Txid as BpTxid};
 use bpstd::AddressPayload;
 use commit_verify::Conceal;
 use futures::executor::block_on;
@@ -1575,7 +1574,7 @@ impl Wallet {
             utxo.outpoint().to_string()
         );
         let blind_seal =
-            BlindSeal::opret_first_rand(BcTxid::from_str(&utxo.txid).unwrap(), utxo.vout);
+            BlindSeal::opret_first_rand(BpTxid::from_str(&utxo.txid).unwrap(), utxo.vout);
         let graph_seal = GraphSeal::from(blind_seal);
         let seal = XChain::with(Layer1::Bitcoin, graph_seal);
         let beneficiary = Beneficiary::BlindedSeal(graph_seal.conceal());
