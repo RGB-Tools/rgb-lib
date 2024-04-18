@@ -221,6 +221,7 @@ impl TryFrom<TypeName> for AssetIface {
     fn try_from(value: TypeName) -> Result<Self, Self::Error> {
         match value.to_string().as_str() {
             "RGB20" => Ok(AssetIface::RGB20),
+            "RGB21" => Ok(AssetIface::RGB21),
             "RGB25" => Ok(AssetIface::RGB25),
             _ => Err(Error::UnknownRgbInterface {
                 interface: value.to_string(),

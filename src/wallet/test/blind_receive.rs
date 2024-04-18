@@ -75,7 +75,39 @@ fn success() {
     let (_, batch_transfer) = get_test_transfer_related(&wallet, &transfer);
     assert_eq!(batch_transfer.min_confirmations, min_confirmations);
 
-    // asset id is set
+    // asset id is set (NIA)
+    let asset = test_issue_asset_nia(&wallet, &online, None);
+    let asset_id = asset.asset_id;
+    let result = wallet.blind_receive(
+        Some(asset_id.clone()),
+        None,
+        None,
+        TRANSPORT_ENDPOINTS.clone(),
+        MIN_CONFIRMATIONS,
+    );
+    assert!(result.is_ok());
+    let receive_data = result.unwrap();
+    let invoice = Invoice::new(receive_data.invoice).unwrap();
+    let invoice_data = invoice.invoice_data();
+    assert_eq!(invoice_data.asset_iface, Some(AssetIface::RGB20));
+
+    // asset id is set (UDA)
+    let asset = test_issue_asset_uda(&wallet, &online, None, None, vec![]);
+    let asset_id = asset.asset_id;
+    let result = wallet.blind_receive(
+        Some(asset_id.clone()),
+        None,
+        None,
+        TRANSPORT_ENDPOINTS.clone(),
+        MIN_CONFIRMATIONS,
+    );
+    assert!(result.is_ok());
+    let receive_data = result.unwrap();
+    let invoice = Invoice::new(receive_data.invoice).unwrap();
+    let invoice_data = invoice.invoice_data();
+    assert_eq!(invoice_data.asset_iface, Some(AssetIface::RGB21));
+
+    // asset id is set (CFA)
     let asset = test_issue_asset_cfa(&wallet, &online, None, None);
     let asset_id = asset.asset_id;
     let result = wallet.blind_receive(
@@ -86,6 +118,10 @@ fn success() {
         MIN_CONFIRMATIONS,
     );
     assert!(result.is_ok());
+    let receive_data = result.unwrap();
+    let invoice = Invoice::new(receive_data.invoice).unwrap();
+    let invoice_data = invoice.invoice_data();
+    assert_eq!(invoice_data.asset_iface, Some(AssetIface::RGB25));
 
     // all set
     let now_timestamp = now().unix_timestamp();
