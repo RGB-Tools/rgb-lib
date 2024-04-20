@@ -1,54 +1,25 @@
 #![allow(clippy::too_many_arguments)]
 
-use std::collections::HashMap;
-use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard};
+use std::{
+    collections::HashMap,
+    sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard},
+};
+
+use rgb_lib::{
+    keys::Keys,
+    wallet::{
+        AssetCFA, AssetIface, AssetNIA, AssetUDA, Assets, Balance, BtcBalance, DatabaseType,
+        EmbeddedMedia, Invoice as RgbLibInvoice, InvoiceData, Media, Metadata, Online, Outpoint,
+        ProofOfReserves, ReceiveData, Recipient, RecipientInfo as RgbLibRecipientInfo,
+        RefreshFilter, RefreshTransferStatus, RefreshedTransfer, RgbAllocation, SendResult, Token,
+        TokenLight, Transaction, TransactionType, Transfer, TransferKind,
+        TransferTransportEndpoint, TransportEndpoint as RgbLibTransportEndpoint, Unspent, Utxo,
+        Wallet as RgbLibWallet, WalletData, WitnessData,
+    },
+    AssetSchema, BitcoinNetwork, BlockTime, Error as RgbLibError, TransferStatus, TransportType,
+};
 
 uniffi::include_scaffolding!("rgb-lib");
-
-type AssetCFA = rgb_lib::wallet::AssetCFA;
-type AssetIface = rgb_lib::wallet::AssetIface;
-type AssetNIA = rgb_lib::wallet::AssetNIA;
-type AssetSchema = rgb_lib::AssetSchema;
-type AssetUDA = rgb_lib::wallet::AssetUDA;
-type Assets = rgb_lib::wallet::Assets;
-type Balance = rgb_lib::wallet::Balance;
-type BitcoinNetwork = rgb_lib::BitcoinNetwork;
-type BlockTime = rgb_lib::wallet::BlockTime;
-type BtcBalance = rgb_lib::wallet::BtcBalance;
-type DatabaseType = rgb_lib::wallet::DatabaseType;
-type EmbeddedMedia = rgb_lib::wallet::EmbeddedMedia;
-type InvoiceData = rgb_lib::wallet::InvoiceData;
-type Keys = rgb_lib::keys::Keys;
-type Media = rgb_lib::wallet::Media;
-type Metadata = rgb_lib::wallet::Metadata;
-type Online = rgb_lib::wallet::Online;
-type Outpoint = rgb_lib::wallet::Outpoint;
-type ProofOfReserves = rgb_lib::wallet::ProofOfReserves;
-type ReceiveData = rgb_lib::wallet::ReceiveData;
-type Recipient = rgb_lib::wallet::Recipient;
-type RefreshFilter = rgb_lib::wallet::RefreshFilter;
-type RefreshedTransfer = rgb_lib::wallet::RefreshedTransfer;
-type RefreshTransferStatus = rgb_lib::wallet::RefreshTransferStatus;
-type RgbAllocation = rgb_lib::wallet::RgbAllocation;
-type RgbLibError = rgb_lib::Error;
-type RgbLibInvoice = rgb_lib::wallet::Invoice;
-type RgbLibRecipientInfo = rgb_lib::wallet::RecipientInfo;
-type RgbLibTransportEndpoint = rgb_lib::wallet::TransportEndpoint;
-type RgbLibWallet = rgb_lib::wallet::Wallet;
-type SendResult = rgb_lib::wallet::SendResult;
-type Token = rgb_lib::wallet::Token;
-type TokenLight = rgb_lib::wallet::TokenLight;
-type Transaction = rgb_lib::wallet::Transaction;
-type TransactionType = rgb_lib::wallet::TransactionType;
-type Transfer = rgb_lib::wallet::Transfer;
-type TransferKind = rgb_lib::wallet::TransferKind;
-type TransferStatus = rgb_lib::TransferStatus;
-type TransferTransportEndpoint = rgb_lib::wallet::TransferTransportEndpoint;
-type TransportType = rgb_lib::TransportType;
-type Unspent = rgb_lib::wallet::Unspent;
-type Utxo = rgb_lib::wallet::Utxo;
-type WalletData = rgb_lib::wallet::WalletData;
-type WitnessData = rgb_lib::wallet::WitnessData;
 
 fn generate_keys(bitcoin_network: BitcoinNetwork) -> Keys {
     rgb_lib::generate_keys(bitcoin_network)

@@ -1,10 +1,4 @@
-use amplify::s;
-use reqwest::blocking::{multipart, Client};
-use reqwest::header::CONTENT_TYPE;
-use serde::{Deserialize, Serialize};
-use std::path::Path;
-
-use crate::error::{Error, InternalError};
+use super::*;
 
 const JSON: &str = "application/json";
 
@@ -119,7 +113,7 @@ pub trait Proxy {
     ) -> Result<JsonRpcResponse<bool>, Error>;
 }
 
-impl Proxy for Client {
+impl Proxy for RestClient {
     fn get_info(self, url: &str) -> Result<JsonRpcResponse<ServerInfoResponse>, Error> {
         let body: JsonRpcRequest<NullRequest> = JsonRpcRequest {
             method: s!("server.info"),

@@ -1,8 +1,4 @@
 use super::*;
-use serial_test::parallel;
-use std::ffi::OsString;
-
-use crate::utils::RGB_RUNTIME_DIR;
 
 #[cfg(all(feature = "electrum", feature = "esplora"))]
 #[test]

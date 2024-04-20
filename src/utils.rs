@@ -2,52 +2,7 @@
 //!
 //! This module defines some utility methods.
 
-use amplify::confinement::{Confined, U24};
-use amplify::{s, FromSliceError};
-use bdk::bitcoin::bip32::ExtendedPrivKey;
-use bdk::bitcoin::bip32::{DerivationPath, ExtendedPubKey, KeySource};
-use bdk::bitcoin::secp256k1::Secp256k1;
-use bdk::bitcoin::Network as BdkNetwork;
-use bdk::descriptor::Segwitv0;
-use bdk::keys::bip39::{Language, Mnemonic};
-use bdk::keys::DescriptorKey::{Public, Secret};
-use bdk::keys::{DerivableKey, DescriptorKey, DescriptorSecretKey};
-use bdk::miniscript::DescriptorPublicKey;
-use bitcoin::bip32::ChildNumber;
-use bitcoin::psbt::raw::ProprietaryKey;
-use bitcoin::psbt::{Input, Output, PartiallySignedTransaction};
-use bpstd::Network as RgbNetwork;
-use psbt::{PropKey, ProprietaryKeyRgb};
-use rgb::validation::Status;
-use rgb::{
-    ContractId, Genesis, GraphSeal, OpId, Opout, SchemaId, SubSchema, Transition, XChain,
-    XOutpoint, XOutputSeal,
-};
-use rgbfs::StockFs;
-use rgbstd::accessors::MergeReveal;
-use rgbstd::containers::{CloseMethodSet, Contract, Fascia, Transfer};
-use rgbstd::interface::{ContractIface, Iface, IfaceId, IfaceImpl, TransitionBuilder};
-use rgbstd::invoice::ChainNet;
-use rgbstd::persistence::{Inventory, PersistedState, Stash, Stock};
-use rgbstd::resolvers::ResolveHeight;
-use rgbstd::Operation;
-use seals::SecretSeal;
-use serde::{Deserialize, Serialize};
-use slog::{Drain, Logger};
-use slog_term::{FullFormat, PlainDecorator};
-use std::collections::{BTreeMap, BTreeSet};
-use std::io::{self, ErrorKind};
-use std::path::Path;
-use std::str::{self, FromStr};
-use std::{fmt, fs};
-use std::{fs::OpenOptions, path::PathBuf};
-use strict_encoding::{
-    DecodeError, DeserializeError, FieldName, StrictDeserialize, StrictSerialize, TypeName,
-};
-use time::OffsetDateTime;
-
-use crate::error::InternalError;
-use crate::Error;
+use super::*;
 
 const TIMESTAMP_FORMAT: &[time::format_description::BorrowedFormatItem] = time::macros::format_description!(
     "[year]-[month]-[day]T[hour repr:24]:[minute]:[second].[subsecond digits:3]+00"
@@ -305,7 +260,7 @@ pub(crate) fn setup_logger<P: AsRef<Path>>(
 ) -> Result<Logger, Error> {
     let log_file = log_name.unwrap_or(LOG_FILE);
     let log_filepath = log_path.as_ref().join(log_file);
-    let file = OpenOptions::new()
+    let file = fs::OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
@@ -338,7 +293,7 @@ impl RgbRuntime {
     #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn accept_transfer<R: ResolveHeight>(
         &mut self,
-        transfer: Transfer,
+        transfer: RgbTransfer,
         resolver: &mut R,
         force: bool,
     ) -> Result<Status, InternalError>
@@ -469,7 +424,7 @@ impl RgbRuntime {
         contract_id: ContractId,
         outputs: impl AsRef<[XOutputSeal]>,
         secret_seals: impl AsRef<[XChain<SecretSeal>]>,
-    ) -> Result<Transfer, InternalError> {
+    ) -> Result<RgbTransfer, InternalError> {
         self.stock
             .transfer(contract_id, outputs, secret_seals)
             .map_err(|_| InternalError::Unexpected)
@@ -501,7 +456,7 @@ impl Drop for RgbRuntime {
 fn _write_rgb_runtime_lockfile(wallet_dir: &Path) {
     let lock_file_path = wallet_dir.join(RGB_RUNTIME_LOCK_FILE);
     loop {
-        match OpenOptions::new()
+        match fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(lock_file_path.clone())

@@ -1,8 +1,3 @@
-use crate::database::entities::transfer_transport_endpoint;
-use crate::wallet::MAX_TRANSPORT_ENDPOINTS;
-use sea_orm::EntityTrait;
-use serial_test::parallel;
-
 use super::*;
 
 #[cfg(feature = "electrum")]

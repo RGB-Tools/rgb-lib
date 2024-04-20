@@ -1,6 +1,4 @@
 use super::*;
-use bdk::descriptor::Descriptor;
-use serial_test::parallel;
 
 fn check_wallet(wallet: &Wallet, network: BitcoinNetwork, keychain_vanilla: Option<u8>) {
     let external_descriptor = &wallet

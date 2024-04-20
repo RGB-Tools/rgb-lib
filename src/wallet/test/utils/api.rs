@@ -1,5 +1,4 @@
 use super::*;
-use amplify::none;
 
 pub(crate) fn test_blind_receive(wallet: &Wallet) -> ReceiveData {
     test_blind_receive_result(wallet).unwrap()

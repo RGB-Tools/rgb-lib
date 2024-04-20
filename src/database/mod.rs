@@ -1,56 +1,11 @@
-use bdk::bitcoin::OutPoint as BdkOutPoint;
-use bdk::LocalUtxo;
-use futures::executor::block_on;
-use sea_orm::{ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder};
-use seals::SecretSeal;
-use serde::{Deserialize, Serialize};
-use std::str::FromStr;
-
-use crate::error::InternalError;
-use crate::utils::now;
-use crate::wallet::offline::{Balance, Outpoint, TransferKind};
-use crate::Error;
-
 pub(crate) mod entities;
 
-use crate::database::entities::asset_transfer::{
-    ActiveModel as DbAssetTransferActMod, Model as DbAssetTransfer,
-};
-use crate::database::entities::backup_info::{
-    ActiveModel as DbBackupInfoActMod, Model as DbBackupInfo,
-};
-use crate::database::entities::batch_transfer::{
-    ActiveModel as DbBatchTransferActMod, Model as DbBatchTransfer,
-};
-use entities::asset::{ActiveModel as DbAssetActMod, Model as DbAsset};
-use entities::coloring::{ActiveModel as DbColoringActMod, Model as DbColoring};
-use entities::media::{ActiveModel as DbMediaActMod, Model as DbMedia};
-use entities::pending_witness_outpoint::{
-    ActiveModel as DbPendingWitnessOutpointActMod, Model as DbPendingWitnessOutpoint,
-};
-use entities::pending_witness_script::{
-    ActiveModel as DbPendingWitnessScriptActMod, Model as DbPendingWitnessScript,
-};
-use entities::prelude::*;
-use entities::token::{ActiveModel as DbTokenActMod, Model as DbToken};
-use entities::token_media::{ActiveModel as DbTokenMediaActMod, Model as DbTokenMedia};
-use entities::transfer::{ActiveModel as DbTransferActMod, Model as DbTransfer};
-use entities::transfer_transport_endpoint::{
-    ActiveModel as DbTransferTransportEndpointActMod, Model as DbTransferTransportEndpoint,
-};
-use entities::transport_endpoint::{
-    ActiveModel as DbTransportEndpointActMod, Model as DbTransportEndpoint,
-};
-use entities::txo::{ActiveModel as DbTxoActMod, Model as DbTxo};
-use entities::wallet_transaction::{
-    ActiveModel as DbWalletTransactionActMod, Model as DbWalletTransaction,
-};
-use entities::{
-    asset, coloring, media, pending_witness_outpoint, pending_witness_script,
+use super::*;
+
+use crate::database::entities::{
+    asset, coloring, media, pending_witness_outpoint, pending_witness_script, prelude::*,
     transfer_transport_endpoint, transport_endpoint, txo,
 };
-
-use self::enums::{ColoringType, RecipientType, TransferStatus, TransportType};
 
 #[derive(Clone, Debug)]
 pub(crate) struct DbAssetTransferData {

@@ -1,7 +1,4 @@
 use super::*;
-use crate::wallet::backup::{restore_backup, ScryptParams};
-use scrypt::Params;
-use serial_test::parallel;
 
 #[cfg(feature = "electrum")]
 #[test]

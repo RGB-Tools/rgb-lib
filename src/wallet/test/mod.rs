@@ -1,59 +1,30 @@
-use amplify::confinement::Confined;
-use amplify::{s, Wrapper};
-use bdk::bitcoin::bip32::ExtendedPubKey;
-use bdk::bitcoin::secp256k1::Secp256k1;
-use bdk::bitcoin::{psbt::Psbt as BdkPsbt, Network as BdkNetwork};
-use bdk::keys::ExtendedKey;
-use bdk::{KeychainKind, LocalUtxo, SignOptions};
-use bitcoin::hashes::{sha256, Hash as Sha256Hash};
-use bitcoin::psbt::PartiallySignedTransaction;
-use bp::Outpoint as RgbOutpoint;
-#[cfg(feature = "electrum")]
-use electrum_client::{ElectrumApi, Param};
-use futures::executor::block_on;
+use std::{
+    ffi::OsString,
+    path::MAIN_SEPARATOR,
+    process::{Command, Stdio},
+    sync::{Mutex, Once, RwLock},
+};
+
+use bdk::descriptor::Descriptor;
 use lazy_static::lazy_static;
 use once_cell::sync::Lazy;
 use regex::RegexSet;
-use rgbstd::containers::FileContent;
-use rgbstd::containers::Transfer as RgbTransfer;
-use rgbstd::contract::ContractId;
-use rgbstd::interface::rgb21::{TokenData, TokenIndex};
-use rgbstd::invoice::ChainNet;
-use rgbstd::stl::{AssetTerms, Attachment, Details, MediaType, Name, RicardianContract, Ticker};
-use sea_orm::ActiveValue;
-use serde::Deserialize;
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::fs;
-use std::path::MAIN_SEPARATOR;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::str::FromStr;
-use std::sync::{Mutex, Once, RwLock};
-use std::time::Duration;
+use rgbstd::{
+    interface::rgb21::EmbeddedMedia as RgbEmbeddedMedia, stl::ProofOfReserves as RgbProofOfReserves,
+};
+use serial_test::{parallel, serial};
 use time::OffsetDateTime;
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-use crate::api::proxy::Proxy;
-use crate::database::entities::asset::ActiveModel as DbAssetActMod;
-use crate::database::entities::asset_transfer::Model as DbAssetTransfer;
-use crate::database::entities::batch_transfer::{
-    ActiveModel as DbBatchTransferActMod, Model as DbBatchTransfer,
-};
-use crate::database::entities::coloring::Model as DbColoring;
-use crate::database::entities::transfer::Model as DbTransfer;
-use crate::database::entities::txo::Model as DbTxo;
-use crate::database::{LocalUnspent, TransferData};
-use crate::utils::now;
-use crate::wallet::offline::*;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-use crate::wallet::online::*;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-use crate::wallet::online::{BtcBalance, Indexer, RefreshResultTrait};
-use crate::*;
+use super::*;
 
-use utils::api::*;
-use utils::chain::*;
-use utils::helpers::*;
+use crate::{
+    database::entities::transfer_transport_endpoint,
+    utils::RGB_RUNTIME_DIR,
+    wallet::{
+        backup::ScryptParams,
+        test::utils::{api::*, chain::*, helpers::*},
+    },
+};
 
 const PROXY_HOST: &str = "127.0.0.1:3000/json-rpc";
 const PROXY_HOST_MOD_API: &str = "127.0.0.1:3002/json-rpc";
@@ -85,6 +56,8 @@ const MAX_ALLOCATIONS_PER_UTXO: u32 = 5;
 const MIN_CONFIRMATIONS: u8 = 1;
 const FAKE_TXID: &str = "e5a3e577309df31bd606f48049049d2e1e02b048206ba232944fcc053a176ccb:0";
 const UNKNOWN_IDX: i32 = 9999;
+#[cfg(feature = "electrum")]
+const TINY_BTC_AMOUNT: u32 = 294;
 
 static INIT: Once = Once::new();
 
@@ -187,6 +160,7 @@ pub fn mock_asset_terms(
     }
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 lazy_static! {
     static ref MOCK_TOKEN_DATA: Mutex<Vec<TokenData>> = Mutex::new(vec![]);
 }

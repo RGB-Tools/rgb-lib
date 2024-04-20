@@ -1,27 +1,4 @@
-use amplify::s;
-use chacha20poly1305::aead::{generic_array::GenericArray, stream};
-use chacha20poly1305::{Key, KeyInit, XChaCha20Poly1305};
-use rand::{distributions::Alphanumeric, Rng};
-use scrypt::password_hash::{PasswordHasher, Salt, SaltString};
-use scrypt::{Params, Scrypt};
-use sea_orm::ActiveValue;
-use serde::{Deserialize, Serialize};
-use slog::Logger;
-use tempfile::TempDir;
-use typenum::consts::U32;
-use walkdir::WalkDir;
-use zip::write::FileOptions;
-
-use std::fs::{create_dir_all, read_to_string, remove_file, write, File};
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
-
-use crate::database::entities::backup_info::{
-    ActiveModel as DbBackupInfoActMod, Model as DbBackupInfo,
-};
-use crate::error::InternalError;
-use crate::utils::{now, setup_logger, LOG_FILE};
-use crate::{Error, Wallet};
+use super::*;
 
 const BACKUP_BUFFER_LEN_ENCRYPT: usize = 239; // 255 max, leaving 16 for the checksum
 const BACKUP_BUFFER_LEN_DECRYPT: usize = BACKUP_BUFFER_LEN_ENCRYPT + 16;
@@ -177,7 +154,7 @@ impl Wallet {
         _encrypt_file(&files.zip, &files.encrypted, password, &backup_pub_data)?;
 
         // add backup nonce + salt + version to final zip file
-        write(
+        fs::write(
             files.backup_pub_data,
             serde_json::to_string(&backup_pub_data).unwrap(),
         )?;
@@ -245,7 +222,7 @@ impl Wallet {
 /// Restore a backup from the given file and password to the provided target directory.
 pub fn restore_backup(backup_path: &str, password: &str, target_dir: &str) -> Result<(), Error> {
     // setup
-    create_dir_all(target_dir)?;
+    fs::create_dir_all(target_dir)?;
     let log_dir = Path::new(&target_dir);
     let log_name = format!("restore_{}", now().unix_timestamp());
     let logger = setup_logger(log_dir, Some(&log_name))?;
@@ -258,7 +235,7 @@ pub fn restore_backup(backup_path: &str, password: &str, target_dir: &str) -> Re
     // unpack given zip file and retrieve backup data
     info!(logger, "unzipping {:?}", backup_file);
     _unzip(&backup_file, &PathBuf::from(files.tempdir.path()), &logger)?;
-    let json_pub_data = read_to_string(files.backup_pub_data)?;
+    let json_pub_data = fs::read_to_string(files.backup_pub_data)?;
     debug!(logger, "using retrieved backup_pub_data: {}", json_pub_data);
     let backup_pub_data: BackupPubData =
         serde_json::from_str(json_pub_data.as_str()).map_err(InternalError::from)?;
@@ -287,7 +264,7 @@ pub fn restore_backup(backup_path: &str, password: &str, target_dir: &str) -> Re
 }
 
 fn _get_backup_paths(tmp_base_path: &Path) -> Result<BackupPaths, Error> {
-    create_dir_all(tmp_base_path)?;
+    fs::create_dir_all(tmp_base_path)?;
     let tempdir = tempfile::tempdir_in(tmp_base_path)?;
     let encrypted = tempdir.path().join("backup.enc");
     let backup_pub_data = tempdir.path().join("backup.pub_data");
@@ -317,7 +294,7 @@ fn _zip_dir(
     logger: &Logger,
 ) -> Result<(), Error> {
     // setup
-    let writer = File::create(path_out)?;
+    let writer = fs::File::create(path_out)?;
     let mut zip = zip::ZipWriter::new(writer);
     let options = FileOptions::default().compression_method(zip::CompressionMethod::Zstd);
     let mut buffer = [0u8; 4096];
@@ -346,7 +323,7 @@ fn _zip_dir(
             debug!(logger, "adding file {path:?} as {name:?}");
             zip.start_file(name_str, options)
                 .map_err(InternalError::from)?;
-            let mut f = File::open(path)?;
+            let mut f = fs::File::open(path)?;
             loop {
                 let read_count = f.read(&mut buffer)?;
                 if read_count != 0 {
@@ -372,7 +349,7 @@ fn _zip_dir(
 
 fn _unzip(zip_path: &PathBuf, path_out: &Path, logger: &Logger) -> Result<(), Error> {
     // setup
-    let file = File::open(zip_path).map_err(InternalError::from)?;
+    let file = fs::File::open(zip_path).map_err(InternalError::from)?;
     let mut archive = zip::ZipArchive::new(file).map_err(InternalError::from)?;
 
     // extract
@@ -384,7 +361,7 @@ fn _unzip(zip_path: &PathBuf, path_out: &Path, logger: &Logger) -> Result<(), Er
         };
         if file.name().ends_with('/') {
             debug!(logger, "creating directory {i} as {}", outpath.display());
-            create_dir_all(&outpath)?;
+            fs::create_dir_all(&outpath)?;
         } else {
             debug!(
                 logger,
@@ -395,10 +372,10 @@ fn _unzip(zip_path: &PathBuf, path_out: &Path, logger: &Logger) -> Result<(), Er
             if let Some(p) = outpath.parent() {
                 if !p.exists() {
                     debug!(logger, "creating parent dir {}", p.display());
-                    create_dir_all(p)?;
+                    fs::create_dir_all(p)?;
                 }
             }
-            let mut outfile = File::create(&outpath)?;
+            let mut outfile = fs::File::create(&outpath)?;
             std::io::copy(&mut file, &mut outfile)?;
         }
     }
@@ -450,8 +427,8 @@ fn _encrypt_file(
     let nonce = GenericArray::from_slice(&nonce);
     let mut stream_encryptor = stream::EncryptorBE32::from_aead(aead, nonce);
     let mut buffer = [0u8; BACKUP_BUFFER_LEN_ENCRYPT];
-    let mut source_file = File::open(path_cleartext)?;
-    let mut destination_file = File::create(path_encrypted)?;
+    let mut source_file = fs::File::open(path_cleartext)?;
+    let mut destination_file = fs::File::create(path_encrypted)?;
 
     // encrypt file
     loop {
@@ -471,7 +448,7 @@ fn _encrypt_file(
     }
 
     // remove cleartext source file
-    remove_file(path_cleartext)?;
+    fs::remove_file(path_cleartext)?;
 
     Ok(())
 }
@@ -490,8 +467,8 @@ fn _decrypt_file(
     let nonce = GenericArray::from_slice(&nonce);
     let mut stream_decryptor = stream::DecryptorBE32::from_aead(aead, nonce);
     let mut buffer = [0u8; BACKUP_BUFFER_LEN_DECRYPT];
-    let mut source_file = File::open(path_encrypted)?;
-    let mut destination_file = File::create(path_cleartext)?;
+    let mut source_file = fs::File::open(path_encrypted)?;
+    let mut destination_file = fs::File::create(path_cleartext)?;
 
     // decrypt file
     loop {

@@ -3,7 +3,7 @@
 //! This module defines the [`Error`] enum, containing all error variants returned by functions in
 //! the library.
 
-use serde::{Deserialize, Serialize};
+use super::*;
 
 /// The error variants returned by functions.
 #[derive(Debug, Clone, PartialEq, thiserror::Error, Deserialize, Serialize)]

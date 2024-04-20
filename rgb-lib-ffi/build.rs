@@ -1,5 +1,7 @@
-use std::env;
-use std::path::{Path, MAIN_SEPARATOR};
+use std::{
+    env,
+    path::{Path, MAIN_SEPARATOR},
+};
 
 const DEFAULT_CLANG_VERSION: &str = "14.0.7";
 

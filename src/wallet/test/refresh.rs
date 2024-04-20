@@ -1,8 +1,4 @@
 use super::*;
-use rgbstd::interface::rgb21::EmbeddedMedia as RgbEmbeddedMedia;
-use rgbstd::stl::ProofOfReserves as RgbProofOfReserves;
-use sea_orm::EntityTrait;
-use serial_test::{parallel, serial};
 
 #[cfg(feature = "electrum")]
 #[test]

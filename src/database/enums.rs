@@ -1,10 +1,4 @@
-use sea_orm::{ActiveValue, DeriveActiveEnum, EnumIter, IntoActiveValue};
-use serde::{Deserialize, Serialize};
-
-use crate::{
-    wallet::offline::{NUM_KNOWN_SCHEMAS, SCHEMA_ID_CFA, SCHEMA_ID_NIA, SCHEMA_ID_UDA},
-    Error,
-};
+use super::*;
 
 /// The schema of an asset.
 #[derive(

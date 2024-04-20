@@ -1,9 +1,4 @@
-#[cfg(feature = "electrum")]
-const TINY_BTC_AMOUNT: u32 = 294;
-
 use super::*;
-use serial_test::{parallel, serial};
-use std::collections::BTreeSet;
 
 #[cfg(feature = "electrum")]
 #[test]

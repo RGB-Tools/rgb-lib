@@ -2,14 +2,7 @@
 //!
 //! This module defines the [`Keys`] structure and its related functions.
 
-use bdk::bitcoin::secp256k1::Secp256k1;
-use bdk::bitcoin::Network as BdkNetwork;
-use bdk::keys::bip39::{Language, Mnemonic, WordCount};
-use bdk::keys::{DerivableKey, ExtendedKey, GeneratableKey};
-use serde::{Deserialize, Serialize};
-
-use crate::utils::{derive_account_xprv_from_mnemonic, get_xpub_from_xprv};
-use crate::{BitcoinNetwork, Error};
+use super::*;
 
 /// A set of Bitcoin keys used by the wallet.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -69,8 +62,6 @@ pub fn restore_keys(bitcoin_network: BitcoinNetwork, mnemonic: String) -> Result
 #[cfg(test)]
 mod test {
     use super::*;
-    use bitcoin::bip32::ExtendedPubKey;
-    use std::str::FromStr;
 
     #[test]
     fn generate_success() {

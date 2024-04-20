@@ -1,5 +1,4 @@
 use super::*;
-use serial_test::parallel;
 
 #[test]
 #[parallel]
