@@ -3136,6 +3136,7 @@ dependencies = [
  "slog-async",
  "slog-term",
  "strict_encoding",
+ "strict_encoding_derive",
  "strict_types",
  "tempfile",
  "thiserror",
