@@ -12,13 +12,17 @@ if ! $COMPOSE >/dev/null; then
     exit 1
 fi
 COMPOSE="$COMPOSE -f tests/docker-compose.yml"
+BCLI="$COMPOSE exec -T -u blits bitcoind bitcoin-cli -regtest"
+BCLI_ESPLORA="$COMPOSE exec -T esplora cli"
 PROXY_MOD_PROTO="proxy-mod-proto"
 PROXY_MOD_API="proxy-mod-api"
 TEST_DIR="./tests/tmp"
 
+# build modified docker images
 $COMPOSE build $PROXY_MOD_PROTO
 $COMPOSE build $PROXY_MOD_API
 
+# restart services (down + up) checking for ports availability
 $COMPOSE down -v
 rm -rf $TEST_DIR
 mkdir -p $TEST_DIR
@@ -31,21 +35,10 @@ for port in "${EXPOSED_PORTS[@]}"; do
 done
 $COMPOSE up -d
 
-BCLI="$COMPOSE exec -T -u blits bitcoind bitcoin-cli -regtest"
-BCLI_ESPLORA="$COMPOSE exec -T esplora cli"
-
 # wait for bitcoind to be up
 until $COMPOSE logs bitcoind |grep 'Bound to'; do
     sleep 1
 done
-
-# wait for esplora to have completed setup
-until $COMPOSE logs esplora |grep -q 'waiting for bitcoind sync to finish'; do
-    sleep 1
-done
-
-$BCLI addnode "esplora:18444" "onetry"
-$BCLI_ESPLORA addnode "bitcoind:18444" "onetry"
 
 # prepare bitcoin funds
 $BCLI createwallet miner
@@ -75,3 +68,12 @@ done
 until $COMPOSE logs $PROXY_MOD_API |grep 'App is running at http://localhost:3000'; do
     sleep 1
 done
+
+# wait for esplora to have completed setup
+until $COMPOSE logs esplora |grep -q 'Bootstrapped 100%'; do
+    sleep 1
+done
+
+# connect the 2 bitcoind services
+$BCLI addnode "esplora:18444" "onetry"
+$BCLI_ESPLORA addnode "bitcoind:18444" "onetry"
