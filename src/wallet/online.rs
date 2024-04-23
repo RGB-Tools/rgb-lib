@@ -2181,6 +2181,7 @@ impl Wallet {
         } else {
             None
         };
+        let mut not_opret = false;
         if let Some(anchored_bundle) = consignment
             .bundles
             .into_iter()
@@ -2196,10 +2197,12 @@ impl Wallet {
                             }
                         };
                         if let Assign::Revealed { seal, state, .. } = fungible_assignment {
-                            let blind_seal = seal.as_reduced_unsafe();
-                            if blind_seal.txid == TxPtr::WitnessTx
-                                && Some(blind_seal.vout.into_u32()) == vout
-                            {
+                            let seal = seal.as_reduced_unsafe();
+                            if seal.txid == TxPtr::WitnessTx && Some(seal.vout.into_u32()) == vout {
+                                if seal.method != CloseMethod::OpretFirst {
+                                    not_opret = true;
+                                    break 'outer;
+                                }
                                 amount = state.value.as_u64();
                                 break 'outer;
                             }
@@ -2213,10 +2216,12 @@ impl Wallet {
                             }
                         }
                         if let Assign::Revealed { seal, .. } = structured_assignment {
-                            let blind_seal = seal.as_reduced_unsafe();
-                            if blind_seal.txid == TxPtr::WitnessTx
-                                && Some(blind_seal.vout.into_u32()) == vout
-                            {
+                            let seal = seal.as_reduced_unsafe();
+                            if seal.txid == TxPtr::WitnessTx && Some(seal.vout.into_u32()) == vout {
+                                if seal.method != CloseMethod::OpretFirst {
+                                    not_opret = true;
+                                    break 'outer;
+                                }
                                 amount = 1;
                                 break 'outer;
                             }
@@ -2224,6 +2229,11 @@ impl Wallet {
                     }
                 }
             }
+        }
+
+        if not_opret {
+            error!(self.logger, "Found a non opret seal");
+            return self._refuse_consignment(proxy_url, recipient_id, &mut updated_batch_transfer);
         }
 
         if amount == 0 {
