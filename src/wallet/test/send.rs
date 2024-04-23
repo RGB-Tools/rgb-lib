@@ -3114,8 +3114,14 @@ fn insufficient_allocations_success() {
     let (rcv_wallet, _rcv_online) = get_funded_wallet!();
 
     // create 1 UTXO with not enough bitcoins for a send
-    let num_utxos_created =
-        test_create_utxos(&wallet, &online, false, Some(1), Some(300), FEE_RATE);
+    let num_utxos_created = test_create_utxos(
+        &wallet,
+        &online,
+        false,
+        Some(1),
+        Some(TINY_BTC_AMOUNT),
+        FEE_RATE,
+    );
     assert_eq!(num_utxos_created, 1);
 
     // issue an NIA asset on the unspendable UTXO
@@ -4683,7 +4689,7 @@ fn min_fee_rate() {
         .unwrap();
     let psbt = PartiallySignedTransaction::from_str(&psbt_str).unwrap();
     let fee = psbt.fee().unwrap().to_sat();
-    assert_eq!(fee, 510);
+    assert_eq!(fee, 637);
 
     // actual send
     let txid = wallet
@@ -4749,7 +4755,7 @@ fn _min_relay_fee_common(
         .unwrap();
     let psbt = PartiallySignedTransaction::from_str(&psbt_str).unwrap();
     let fee = psbt.fee().unwrap().to_sat();
-    assert_eq!(fee, 57);
+    assert_eq!(fee, 60);
 
     // actual send
     *MOCK_CHECK_FEE_RATE.lock().unwrap() = true;

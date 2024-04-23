@@ -18,9 +18,9 @@ fn success() {
     mine(false);
     let expected_balance = BtcBalance {
         vanilla: Balance {
-            settled: 99994601,
-            future: 99994601,
-            spendable: 99994601,
+            settled: 99994508,
+            future: 99994508,
+            spendable: 99994508,
         },
         colored: Balance {
             settled: 5000,
@@ -42,9 +42,9 @@ fn success() {
     mine(false);
     let expected_balance = BtcBalance {
         vanilla: Balance {
-            settled: 99993388,
-            future: 99993388,
-            spendable: 99993388,
+            settled: 99993274,
+            future: 99993274,
+            spendable: 99993274,
         },
         colored: Balance {
             settled: 5000,

@@ -42,9 +42,9 @@ fn success() {
     // drain funded wallet with RGB allocations
     let expected_balance = BtcBalance {
         vanilla: Balance {
-            settled: 99994601,
-            future: 99994601,
-            spendable: 99994601,
+            settled: 99994508,
+            future: 99994508,
+            spendable: 99994508,
         },
         colored: Balance {
             settled: 5000,

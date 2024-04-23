@@ -13,7 +13,7 @@ const RGB_RUNTIME_LOCK_FILE: &str = "rgb_runtime.lock";
 pub(crate) const RGB_RUNTIME_DIR: &str = "rgb";
 
 pub(crate) const LOG_FILE: &str = "log";
-pub(crate) const PURPOSE: u8 = 84;
+pub(crate) const PURPOSE: u8 = 86;
 pub(crate) const ACCOUNT: u8 = 0;
 
 /// Supported Bitcoin networks.
@@ -245,7 +245,7 @@ pub(crate) fn calculate_descriptor_from_xprv(
     keychain: u8,
 ) -> Result<String, Error> {
     let key = get_descriptor_priv_key(xprv, keychain)?;
-    Ok(format!("wpkh({key})"))
+    Ok(format!("tr({key})"))
 }
 
 pub(crate) fn calculate_descriptor_from_xpub(
@@ -253,7 +253,7 @@ pub(crate) fn calculate_descriptor_from_xpub(
     keychain: u8,
 ) -> Result<String, Error> {
     let key = get_descriptor_pub_key(xpub, keychain)?;
-    Ok(format!("wpkh({key})"))
+    Ok(format!("tr({key})"))
 }
 
 fn convert_time_fmt_error(cause: time::error::Format) -> io::Error {
