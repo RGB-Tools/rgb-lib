@@ -50,6 +50,7 @@ impl IntoActiveValue<ColoringType> for ColoringType {
     }
 }
 
+/// The type of an RGB recipient
 #[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, DeriveActiveEnum, Deserialize, Serialize)]
 #[sea_orm(rs_type = "u16", db_type = "Integer")]
 pub enum RecipientType {

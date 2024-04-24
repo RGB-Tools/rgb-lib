@@ -178,6 +178,15 @@ dictionary ReceiveData {
 interface RecipientInfo {
   [Throws=RgbLibError]
   constructor(string recipient_id);
+
+  BitcoinNetwork network();
+
+  RecipientType recipient_type();
+};
+
+enum RecipientType {
+  "Blind",
+  "Witness",
 };
 
 interface TransportEndpoint {

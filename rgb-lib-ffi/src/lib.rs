@@ -16,7 +16,8 @@ use rgb_lib::{
         TransferTransportEndpoint, TransportEndpoint as RgbLibTransportEndpoint, Unspent, Utxo,
         Wallet as RgbLibWallet, WalletData, WitnessData,
     },
-    AssetSchema, BitcoinNetwork, BlockTime, Error as RgbLibError, TransferStatus, TransportType,
+    AssetSchema, BitcoinNetwork, BlockTime, Error as RgbLibError, RecipientType, TransferStatus,
+    TransportType,
 };
 
 uniffi::include_scaffolding!("rgb-lib");
@@ -38,14 +39,26 @@ fn restore_backup(
 }
 
 struct RecipientInfo {
-    _recipient_info: RwLock<RgbLibRecipientInfo>,
+    recipient_info: RwLock<RgbLibRecipientInfo>,
 }
 
 impl RecipientInfo {
     fn new(recipient_id: String) -> Result<Self, RgbLibError> {
         Ok(RecipientInfo {
-            _recipient_info: RwLock::new(RgbLibRecipientInfo::new(recipient_id)?),
+            recipient_info: RwLock::new(RgbLibRecipientInfo::new(recipient_id)?),
         })
+    }
+
+    fn _get_recipient_info(&self) -> RwLockReadGuard<RgbLibRecipientInfo> {
+        self.recipient_info.read().expect("recipient_info")
+    }
+
+    fn network(&self) -> BitcoinNetwork {
+        self._get_recipient_info().network
+    }
+
+    fn recipient_type(&self) -> RecipientType {
+        self._get_recipient_info().recipient_type
     }
 }
 

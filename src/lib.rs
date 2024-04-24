@@ -70,7 +70,7 @@ pub use bdk::{BlockTime, SignOptions};
 pub use rgbstd::{containers::Contract, contract::ContractId};
 
 pub use crate::{
-    database::enums::{AssetSchema, TransferStatus, TransportType},
+    database::enums::{AssetSchema, RecipientType, TransferStatus, TransportType},
     error::Error,
     keys::{generate_keys, restore_keys},
     utils::BitcoinNetwork,
@@ -282,7 +282,7 @@ use crate::{
                 ActiveModel as DbWalletTransactionActMod, Model as DbWalletTransaction,
             },
         },
-        enums::{ColoringType, RecipientType, WalletTransactionType},
+        enums::{ColoringType, WalletTransactionType},
         LocalRgbAllocation, LocalTransportEndpoint, LocalUnspent, RgbLibDatabase, TransferData,
     },
     error::InternalError,
