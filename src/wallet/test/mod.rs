@@ -97,8 +97,12 @@ pub fn get_regtest_txid() -> String {
 }
 
 pub fn initialize() {
-    let start_services_file = ["tests", "start_services.sh"].join(&MAIN_SEPARATOR.to_string());
     INIT.call_once(|| {
+        if std::env::var("SKIP_INIT").is_ok() {
+            println!("skipping services initialization");
+            return;
+        }
+        let start_services_file = ["tests", "start_services.sh"].join(&MAIN_SEPARATOR.to_string());
         println!("starting test services...");
         let output = Command::new(start_services_file)
             .output()
