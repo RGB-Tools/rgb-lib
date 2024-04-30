@@ -606,7 +606,14 @@ impl Wallet {
                 Err(e) => {
                     (btc_needed, btc_available) = match e {
                         bdk::Error::InsufficientFunds { needed, available } => (needed, available),
-                        _ => return Err(InternalError::Unexpected.into()),
+                        bdk::Error::OutputBelowDustLimit(_) => {
+                            return Err(Error::OutputBelowDustLimit)
+                        }
+                        _ => {
+                            return Err(Error::Internal {
+                                details: e.to_string(),
+                            })
+                        }
                     };
                     num_try_creating -= 1
                 }
@@ -752,7 +759,10 @@ impl Wallet {
                 bdk::Error::InsufficientFunds { needed, available } => {
                     Error::InsufficientBitcoins { needed, available }
                 }
-                _ => Error::from(InternalError::from(e)),
+                bdk::Error::OutputBelowDustLimit(_) => Error::OutputBelowDustLimit,
+                _ => Error::Internal {
+                    details: e.to_string(),
+                },
             })?
             .0
             .to_string();
@@ -2645,7 +2655,10 @@ impl Wallet {
             bdk::Error::InsufficientFunds { needed, available } => {
                 Error::InsufficientBitcoins { needed, available }
             }
-            _ => Error::from(InternalError::from(e)),
+            bdk::Error::OutputBelowDustLimit(_) => Error::OutputBelowDustLimit,
+            _ => Error::Internal {
+                details: e.to_string(),
+            },
         })?;
 
         let btc_change = psbt
@@ -3663,7 +3676,9 @@ impl Wallet {
                     Error::InsufficientBitcoins { needed, available }
                 }
                 bdk::Error::OutputBelowDustLimit(_) => Error::OutputBelowDustLimit,
-                _ => Error::from(InternalError::from(e)),
+                _ => Error::Internal {
+                    details: e.to_string(),
+                },
             })?
             .0;
 
