@@ -36,6 +36,7 @@ fn success() {
     // issue asset (to produce an RGB allocation)
     fund_wallet(test_get_address(&wallet));
     test_create_utxos_default(&wallet, &online);
+    mine(false);
     test_issue_asset_nia(&wallet, &online, None);
 
     // drain funded wallet with RGB allocations
