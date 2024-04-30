@@ -64,33 +64,9 @@ pub(crate) fn _test_create_utxos(
     size: Option<u32>,
     fee_rate: f32,
 ) -> u8 {
-    let delay = 200;
-    let mut retries = 3;
-    let mut num_utxos_created = 0;
-    while retries > 0 {
-        retries -= 1;
-        let result = wallet.create_utxos(online.clone(), up_to, num, size, fee_rate);
-        match result {
-            Ok(_) => {
-                num_utxos_created = result.unwrap();
-                break;
-            }
-            Err(Error::InsufficientBitcoins {
-                needed: _,
-                available: _,
-            }) => {
-                std::thread::sleep(Duration::from_millis(delay));
-                continue;
-            }
-            Err(error) => {
-                panic!("error creating UTXOs for wallet: {error:?}");
-            }
-        }
-    }
-    if num_utxos_created == 0 {
-        panic!("error creating UTXOs for wallet: insufficient bitcoins");
-    }
-    num_utxos_created
+    wallet
+        .create_utxos(online.clone(), up_to, num, size, fee_rate)
+        .unwrap()
 }
 
 pub(crate) fn test_delete_transfers(
