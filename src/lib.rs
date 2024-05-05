@@ -239,13 +239,13 @@ use zip::write::FileOptions;
 
 #[cfg(feature = "electrum")]
 use crate::utils::get_valid_txid_for_network;
-#[cfg(test)]
-use crate::wallet::test::{get_regtest_txid, mock_chain_net, skip_check_fee_rate};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 #[cfg(test)]
 use crate::wallet::test::{
     mock_asset_terms, mock_contract_details, mock_input_unspents, mock_token_data,
 };
+#[cfg(test)]
+use crate::wallet::test::{mock_chain_net, skip_check_fee_rate};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use crate::{
     api::proxy::Proxy,

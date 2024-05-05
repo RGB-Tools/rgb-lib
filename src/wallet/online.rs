@@ -115,6 +115,10 @@ impl Indexer {
                             .contains("No such mempool or blockchain transaction")
                         {
                             return Ok(None);
+                        } else if e.to_string().contains(
+                            "genesis block coinbase is not considered an ordinary transaction",
+                        ) {
+                            return Ok(Some(u64::MAX));
                         } else {
                             Err(e)
                         }
@@ -1123,23 +1127,11 @@ impl Wallet {
         #[cfg(feature = "electrum")]
         if matches!(indexer, Indexer::Electrum(_)) {
             // check the electrum server has the required functionality (verbose transactions)
-            let txid = if self.bitcoin_network() == BitcoinNetwork::Regtest {
-                #[cfg(test)]
-                {
-                    Some(get_regtest_txid())
-                }
-                #[cfg(not(test))]
-                None
-            } else {
-                Some(get_valid_txid_for_network(&bitcoin_network))
-            };
-            if let Some(txid) = txid {
-                indexer
-                    .get_tx_confirmations(&txid)
-                    .map_err(|_| Error::InvalidElectrum {
-                        details: s!("verbose transactions are currently unsupported"),
-                    })?;
-            }
+            indexer
+                .get_tx_confirmations(&get_valid_txid_for_network(&bitcoin_network))
+                .map_err(|_| Error::InvalidElectrum {
+                    details: s!("verbose transactions are currently unsupported"),
+                })?;
         }
 
         // BDK setup

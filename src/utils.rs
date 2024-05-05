@@ -152,16 +152,19 @@ pub(crate) fn get_genesis_hash(bitcoin_network: &BitcoinNetwork) -> &str {
 pub(crate) fn get_valid_txid_for_network(bitcoin_network: &BitcoinNetwork) -> String {
     match bitcoin_network {
         BitcoinNetwork::Mainnet => {
-            s!("33e794d097969002ee05d336686fc03c9e15a597c1b9827669460fac98799036")
+            "33e794d097969002ee05d336686fc03c9e15a597c1b9827669460fac98799036"
         }
         BitcoinNetwork::Testnet => {
-            s!("5e6560fd518aadbed67ee4a55bdc09f19e619544f5511e9343ebba66d2f62653")
+            "5e6560fd518aadbed67ee4a55bdc09f19e619544f5511e9343ebba66d2f62653"
         }
         BitcoinNetwork::Signet => {
-            s!("8153034f45e695453250a8fb7225a5e545144071d8ed7b0d3211efa1f3c92ad8")
+            "8153034f45e695453250a8fb7225a5e545144071d8ed7b0d3211efa1f3c92ad8"
         }
-        BitcoinNetwork::Regtest => s!("_"),
+        BitcoinNetwork::Regtest => {
+            "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"
+        }
     }
+    .to_string()
 }
 
 fn get_coin_type(bitcoin_network: BitcoinNetwork) -> u32 {

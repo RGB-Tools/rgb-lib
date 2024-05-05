@@ -61,41 +61,6 @@ const TINY_BTC_AMOUNT: u32 = 330;
 
 static INIT: Once = Once::new();
 
-#[derive(Debug, Deserialize)]
-struct Block {
-    tx: Vec<String>,
-}
-
-pub fn get_regtest_txid() -> String {
-    let bestblockhash = Command::new("docker")
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .arg("compose")
-        .args(bitcoin_cli())
-        .arg("getbestblockhash")
-        .output()
-        .expect("failed to call getblockcount");
-    assert!(bestblockhash.status.success());
-    let bestblockhash_str = std::str::from_utf8(&bestblockhash.stdout)
-        .expect("could not parse bestblockhash output")
-        .trim();
-    let block = Command::new("docker")
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .arg("compose")
-        .args(bitcoin_cli())
-        .arg("getblock")
-        .arg(bestblockhash_str)
-        .output()
-        .expect("failed to call getblockcount");
-    assert!(block.status.success());
-    let block_str =
-        std::str::from_utf8(&block.stdout).expect("could not parse bestblockhash output");
-    let block: Block = serde_json::from_str(block_str).expect("failed to deserialize block JSON");
-    assert!(!block.tx.is_empty());
-    block.tx.first().unwrap().clone()
-}
-
 pub fn initialize() {
     INIT.call_once(|| {
         if std::env::var("SKIP_INIT").is_ok() {
