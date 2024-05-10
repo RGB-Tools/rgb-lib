@@ -302,9 +302,9 @@ pub enum Error {
     #[error("Invalid vanilla keychain")]
     InvalidVanillaKeychain,
 
-    /// The minimum relay fee is not met
-    #[error("Min relay fee not met for transfer with TXID: {txid}")]
-    MinRelayFeeNotMet {
+    /// The minimum fee is not met
+    #[error("Min fee not met for transfer with TXID: {txid}")]
+    MinFeeNotMet {
         /// TXID of the transfer having fee issues
         txid: String,
     },

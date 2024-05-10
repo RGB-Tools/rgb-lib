@@ -386,12 +386,15 @@ impl Wallet {
         let tx = signed_psbt.extract_tx();
         let txid = tx.txid().to_string();
         self._bdk_blockchain()?.broadcast(&tx).map_err(|e| {
-            let mut min_relay_fee_not_met = false;
+            let mut min_fee_not_met = false;
             match self.indexer() {
                 #[cfg(feature = "electrum")]
                 Indexer::Electrum(_) => {
-                    if e.to_string().contains("min relay fee not met") {
-                        min_relay_fee_not_met = true;
+                    let err_str = e.to_string();
+                    if err_str.contains("min relay fee not met")
+                        || err_str.contains("mempool min fee not met")
+                    {
+                        min_fee_not_met = true;
                     }
                 }
                 #[cfg(feature = "esplora")]
@@ -399,13 +402,13 @@ impl Wallet {
                     if let bdk::Error::Esplora(ref box_err) = e {
                         // wait for new esplora_client release to check message
                         if matches!(**box_err, EsploraError::HttpResponse(400)) {
-                            min_relay_fee_not_met = true;
+                            min_fee_not_met = true;
                         }
                     }
                 }
             }
-            if min_relay_fee_not_met {
-                Error::MinRelayFeeNotMet { txid: txid.clone() }
+            if min_fee_not_met {
+                Error::MinFeeNotMet { txid: txid.clone() }
             } else {
                 Error::FailedBroadcast {
                     details: e.to_string(),
@@ -820,7 +823,7 @@ impl Wallet {
         db_data: &mut DbData,
     ) -> Result<(), Error> {
         let updated_batch_transfer = match self._refresh_transfer(batch_transfer, db_data, &[]) {
-            Err(Error::MinRelayFeeNotMet { txid: _ }) => Ok(None),
+            Err(Error::MinFeeNotMet { txid: _ }) => Ok(None),
             Err(e) => Err(e),
             Ok(v) => Ok(v),
         }?;

@@ -56,7 +56,7 @@ interface RgbLibError {
   InvalidTransportEndpoint(string details);
   InvalidTransportEndpoints(string details);
   InvalidVanillaKeychain();
-  MinRelayFeeNotMet(string txid);
+  MinFeeNotMet(string txid);
   NoIssuanceAmounts();
   NoValidTransportEndpoint();
   Offline();

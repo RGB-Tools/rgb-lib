@@ -4780,7 +4780,7 @@ fn _min_relay_fee_common(
             transfer_idx,
             RefreshedTransfer {
                 updated_status: None,
-                failure: Some(Error::MinRelayFeeNotMet {
+                failure: Some(Error::MinFeeNotMet {
                     txid: send_result.txid.clone()
                 }),
             }
