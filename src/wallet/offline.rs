@@ -1129,7 +1129,8 @@ impl Wallet {
 
         // RGB-LIB setup
         let db_path = wallet_dir.join(RGB_LIB_DB_NAME);
-        let connection_string = format!("sqlite://{}?mode=rwc", db_path.as_path().display());
+        let display_db_path = adjust_canonicalization(db_path);
+        let connection_string = format!("sqlite:{}?mode=rwc", display_db_path);
         let mut opt = ConnectOptions::new(connection_string);
         opt.max_connections(1)
             .min_connections(0)

@@ -287,7 +287,7 @@ use crate::{
     },
     error::InternalError,
     utils::{
-        calculate_descriptor_from_xprv, calculate_descriptor_from_xpub,
+        adjust_canonicalization, calculate_descriptor_from_xprv, calculate_descriptor_from_xpub,
         derive_account_xprv_from_mnemonic, get_xpub_from_xprv, load_rgb_runtime, now, setup_logger,
         RgbRuntime, LOG_FILE,
     },
