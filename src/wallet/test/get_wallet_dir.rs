@@ -7,7 +7,7 @@ fn success() {
 
     let keys = generate_keys(BitcoinNetwork::Regtest);
     let wallet = Wallet::new(get_test_wallet_data(
-        &test_data_dir.to_string_lossy().to_string(),
+        test_data_dir.to_string_lossy().as_ref(),
         &keys.account_xpub,
         &keys.mnemonic,
     ))
