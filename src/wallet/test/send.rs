@@ -3635,6 +3635,7 @@ fn witness_multiple_assets_success() {
         }
     );
     // transfer vout + BTC amount match tx outputs
+    #[allow(unreachable_patterns)]
     let tx_details = match rcv_wallet.indexer() {
         Indexer::Electrum(client) => client
             .raw_call(

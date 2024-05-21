@@ -19,7 +19,7 @@ mod tests {
     #[async_std::test]
     async fn test_migrations() {
         let db_path = PathBuf::from(TEST_DATA_DIR_PARTS.join(&MAIN_SEPARATOR.to_string()));
-        std::fs::create_dir_all(&db_path.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
         if db_path.exists() {
             std::fs::remove_file(&db_path).unwrap();
         }
