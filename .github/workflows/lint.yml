@@ -1,0 +1,28 @@
+name: Lint code
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: clippy
+      - name: Lint with all features
+        run: cargo clippy --lib --workspace --all-features --all-targets -- -D warnings
+      - name: Lint with no features
+        run: cargo clippy --lib --workspace --no-default-features -- -D warnings
+      - name: Lint with electrum feature
+        run: cargo clippy --lib --workspace --no-default-features --features electrum -- -D warnings
+      - name: Lint with esplora feature
+        run: cargo clippy --lib --workspace --no-default-features --features esplora -- -D warnings
