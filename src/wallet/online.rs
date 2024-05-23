@@ -633,11 +633,12 @@ impl Wallet {
                 available: btc_available,
             })
         } else {
-            info!(self.logger, "Create UTXOs completed");
-            Ok(self
+            let psbt = self
                 ._create_split_tx(inputs, num_try_creating, utxo_size, fee_rate)
                 .map_err(InternalError::from)?
-                .to_string())
+                .to_string();
+            info!(self.logger, "Create UTXOs (begin) completed");
+            Ok(psbt)
         }
     }
 
@@ -677,7 +678,7 @@ impl Wallet {
 
         self.update_backup_info(false)?;
 
-        info!(self.logger, "Create UTXOs completed");
+        info!(self.logger, "Create UTXOs (end) completed");
         Ok(num_utxos_created)
     }
 
@@ -1874,12 +1875,13 @@ impl Wallet {
         online: Online,
         min_confirmations: u8,
     ) -> Result<Vec<LocalUtxo>, Error> {
+        info!(self.logger, "Listing unspents vanilla...");
         self.check_online(online)?;
         self.sync_wallet(&self.bdk_wallet)?;
 
         let unspents = self.internal_unspents()?;
 
-        if min_confirmations > 0 {
+        let res = if min_confirmations > 0 {
             unspents
                 .filter_map(|u| {
                     match self
@@ -1900,7 +1902,10 @@ impl Wallet {
                 .collect::<Result<Vec<LocalUtxo>, Error>>()
         } else {
             Ok(unspents.collect())
-        }
+        };
+
+        info!(self.logger, "List unspents vanilla completed");
+        res
     }
 
     fn _get_signed_psbt(&self, transfer_dir: PathBuf) -> Result<BdkPsbt, Error> {

@@ -1626,8 +1626,10 @@ impl Wallet {
         unsigned_psbt: String,
         sign_options: Option<SignOptions>,
     ) -> Result<String, Error> {
+        info!(self.logger, "Signing PSBT...");
         let mut psbt = BdkPsbt::from_str(&unsigned_psbt)?;
         self._sign_psbt(&mut psbt, sign_options)?;
+        info!(self.logger, "Sign PSBT completed");
         Ok(psbt.to_string())
     }
 
@@ -1888,6 +1890,7 @@ impl Wallet {
         info!(self.logger, "Getting metadata for asset '{}'...", asset_id);
         let asset = self.database.check_asset_exists(asset_id.clone())?;
 
+        let issued_supply = asset.issued_supply.parse::<u64>().unwrap();
         let token = if matches!(asset.schema, AssetSchema::Uda) {
             let medias = self.database.iter_media()?;
             let tokens = self.database.iter_tokens()?;
@@ -1922,10 +1925,11 @@ impl Wallet {
             None
         };
 
+        info!(self.logger, "Get asset metadata completed");
         Ok(Metadata {
             asset_iface: AssetIface::from(asset.schema),
             asset_schema: asset.schema,
-            issued_supply: asset.issued_supply.parse::<u64>().unwrap(),
+            issued_supply,
             timestamp: asset.timestamp,
             name: asset.name,
             precision: asset.precision,
@@ -2362,6 +2366,7 @@ impl Wallet {
         contract_id: ContractId,
         contract: Option<Contract>,
     ) -> Result<(), Error> {
+        info!(self.logger, "Saving new asset...");
         let contract = if let Some(contract) = contract {
             contract
         } else {
@@ -2484,6 +2489,7 @@ impl Wallet {
 
         self.update_backup_info(false)?;
 
+        info!(self.logger, "Save new asset completed");
         Ok(())
     }
 }
