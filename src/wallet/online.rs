@@ -101,7 +101,7 @@ impl Indexer {
         })
     }
 
-    fn get_tx_confirmations(&self, txid: &str) -> Result<Option<u64>, Error> {
+    pub(crate) fn get_tx_confirmations(&self, txid: &str) -> Result<Option<u64>, Error> {
         Ok(match self {
             #[cfg(feature = "electrum")]
             Indexer::Electrum(client) => {
@@ -211,7 +211,7 @@ impl TryFrom<TransferStatus> for RefreshTransferStatus {
 }
 
 impl Wallet {
-    fn _bdk_blockchain(&self) -> Result<&AnyBlockchain, InternalError> {
+    pub(crate) fn bdk_blockchain(&self) -> Result<&AnyBlockchain, InternalError> {
         match self.online_data {
             Some(ref x) => Ok(&x.bdk_blockchain),
             None => Err(InternalError::Unexpected),
@@ -287,7 +287,7 @@ impl Wallet {
     where
         D: BatchDatabase,
     {
-        self._sync_wallet_with_blockchain(wallet, self._bdk_blockchain()?)?;
+        self._sync_wallet_with_blockchain(wallet, self.bdk_blockchain()?)?;
         Ok(())
     }
 
@@ -378,44 +378,12 @@ impl Wallet {
     }
 
     fn _sync_db_txos(&self) -> Result<(), Error> {
-        self._sync_db_txos_with_blockchain(self._bdk_blockchain()?)?;
+        self._sync_db_txos_with_blockchain(self.bdk_blockchain()?)?;
         Ok(())
     }
 
     fn _broadcast_psbt(&self, signed_psbt: BdkPsbt) -> Result<BdkTransaction, Error> {
-        let tx = signed_psbt.extract_tx();
-        let txid = tx.txid().to_string();
-        self._bdk_blockchain()?.broadcast(&tx).map_err(|e| {
-            let mut min_fee_not_met = false;
-            match self.indexer() {
-                #[cfg(feature = "electrum")]
-                Indexer::Electrum(_) => {
-                    let err_str = e.to_string();
-                    if err_str.contains("min relay fee not met")
-                        || err_str.contains("mempool min fee not met")
-                    {
-                        min_fee_not_met = true;
-                    }
-                }
-                #[cfg(feature = "esplora")]
-                Indexer::Esplora(_) => {
-                    if let bdk::Error::Esplora(ref box_err) = e {
-                        // wait for new esplora_client release to check message
-                        if matches!(**box_err, EsploraError::HttpResponse(400)) {
-                            min_fee_not_met = true;
-                        }
-                    }
-                }
-            }
-            if min_fee_not_met {
-                Error::MinFeeNotMet { txid: txid.clone() }
-            } else {
-                Error::FailedBroadcast {
-                    details: e.to_string(),
-                }
-            }
-        })?;
-        debug!(self.logger, "Broadcasted TX with ID '{}'", txid);
+        let tx = self.broadcast_tx(signed_psbt.extract_tx())?;
 
         let internal_unspents_outpoints: Vec<(String, u32)> = self
             .internal_unspents()?
@@ -1195,7 +1163,7 @@ impl Wallet {
 
         if !skip_consistency_check {
             let runtime = self.rgb_runtime()?;
-            self._check_consistency(self._bdk_blockchain()?, &runtime)?;
+            self._check_consistency(self.bdk_blockchain()?, &runtime)?;
         }
 
         info!(self.logger, "Go online completed");
@@ -1868,49 +1836,6 @@ impl Wallet {
         Ok(asset_medias)
     }
 
-    /// List the Bitcoin unspents of the vanilla wallet, using BDK's objects, filtered by
-    /// `min_confirmations`.
-    ///
-    /// <div class="warning">This method is meant for special usage, for most cases the method
-    /// <code>list_unspents</code> is sufficient</div>
-    pub fn list_unspents_vanilla(
-        &self,
-        online: Online,
-        min_confirmations: u8,
-    ) -> Result<Vec<LocalUtxo>, Error> {
-        info!(self.logger, "Listing unspents vanilla...");
-        self.check_online(online)?;
-        self.sync_wallet(&self.bdk_wallet)?;
-
-        let unspents = self.internal_unspents()?;
-
-        let res = if min_confirmations > 0 {
-            unspents
-                .filter_map(|u| {
-                    match self
-                        .indexer()
-                        .get_tx_confirmations(&u.outpoint.txid.to_string())
-                    {
-                        Ok(confirmations) => {
-                            if let Some(confirmations) = confirmations {
-                                if confirmations >= min_confirmations as u64 {
-                                    return Some(Ok(u));
-                                }
-                            }
-                            None
-                        }
-                        Err(e) => Some(Err(e)),
-                    }
-                })
-                .collect::<Result<Vec<LocalUtxo>, Error>>()
-        } else {
-            Ok(unspents.collect())
-        };
-
-        info!(self.logger, "List unspents vanilla completed");
-        res
-    }
-
     fn _get_signed_psbt(&self, transfer_dir: PathBuf) -> Result<BdkPsbt, Error> {
         let psbt_file = transfer_dir.join(SIGNED_PSBT_FILE);
         let psbt_str = fs::read_to_string(psbt_file)?;
@@ -1952,6 +1877,96 @@ impl Wallet {
         ))
     }
 
+    pub(crate) fn get_consignment(
+        &self,
+        proxy_url: &str,
+        recipient_id: String,
+    ) -> Result<GetConsignmentResponse, Error> {
+        let consignment_res = self
+            .rest_client
+            .clone()
+            .get_consignment(proxy_url, recipient_id);
+
+        if consignment_res.is_err() || consignment_res.as_ref().unwrap().result.as_ref().is_none() {
+            debug!(
+                self.logger,
+                "Consignment GET response error: {:?}", &consignment_res
+            );
+            return Err(Error::NoConsignment);
+        }
+
+        let consignment_res = consignment_res.unwrap().result.unwrap();
+        #[cfg(test)]
+        debug!(
+            self.logger,
+            "Consignment GET response: {:?}", consignment_res
+        );
+
+        Ok(consignment_res)
+    }
+
+    pub(crate) fn extract_received_amount(
+        &self,
+        consignment: &RgbTransfer,
+        txid: String,
+        vout: Option<u32>,
+        known_concealed: Option<XChain<SecretSeal>>,
+    ) -> (u64, bool) {
+        let mut amount = 0;
+        let mut not_opret = false;
+        if let Some(anchored_bundle) = consignment
+            .clone()
+            .bundles
+            .into_iter()
+            .find(|ab| ab.anchor.witness_id_unchecked().to_string() == format!("bc:{txid}"))
+        {
+            'outer: for transition in anchored_bundle.bundle.known_transitions.values() {
+                for assignment in transition.assignments.values() {
+                    for fungible_assignment in assignment.as_fungible() {
+                        if let Assign::ConfidentialSeal { seal, state, .. } = fungible_assignment {
+                            if Some(*seal) == known_concealed {
+                                amount = state.value.as_u64();
+                                break 'outer;
+                            }
+                        };
+                        if let Assign::Revealed { seal, state, .. } = fungible_assignment {
+                            let seal = seal.as_reduced_unsafe();
+                            if seal.txid == TxPtr::WitnessTx && Some(seal.vout.into_u32()) == vout {
+                                if seal.method != CloseMethod::OpretFirst {
+                                    not_opret = true;
+                                    break 'outer;
+                                }
+                                amount = state.value.as_u64();
+                                break 'outer;
+                            }
+                        };
+                    }
+                    for structured_assignment in assignment.as_structured() {
+                        if let Assign::ConfidentialSeal { seal, .. } = structured_assignment {
+                            if Some(*seal) == known_concealed {
+                                amount = 1;
+                                break 'outer;
+                            }
+                        }
+                        if let Assign::Revealed { seal, .. } = structured_assignment {
+                            let seal = seal.as_reduced_unsafe();
+                            if seal.txid == TxPtr::WitnessTx && Some(seal.vout.into_u32()) == vout {
+                                if seal.method != CloseMethod::OpretFirst {
+                                    not_opret = true;
+                                    break 'outer;
+                                }
+                                amount = 1;
+                                break 'outer;
+                            }
+                        };
+                    }
+                }
+            }
+        }
+
+        (amount, not_opret)
+    }
+
     fn _wait_consignment(
         &self,
         batch_transfer: &DbBatchTransfer,
@@ -1978,42 +1993,31 @@ impl Wallet {
         }
         let mut proxy_res = None;
         for (transfer_transport_endpoint, transport_endpoint) in tte_data {
-            let consignment_res = self
-                .rest_client
-                .clone()
-                .get_consignment(&transport_endpoint.endpoint, recipient_id.clone());
-            if consignment_res.is_err() {
-                debug!(
-                    self.logger,
-                    "Consignment GET response error: {:?}", &consignment_res
-                );
-                info!(
-                    self.logger,
-                    "Skipping transport endpoint: {:?}", &transport_endpoint
-                );
-                continue;
-            }
-            let consignment_res = consignment_res.unwrap();
-            #[cfg(test)]
-            debug!(
-                self.logger,
-                "Consignment GET response: {:?}", consignment_res
-            );
+            let result =
+                match self.get_consignment(&transport_endpoint.endpoint, recipient_id.clone()) {
+                    Err(Error::NoConsignment) => {
+                        info!(
+                            self.logger,
+                            "Skipping transport endpoint: {:?}", &transport_endpoint
+                        );
+                        continue;
+                    }
+                    Err(e) => return Err(e),
+                    Ok(r) => r,
+                };
 
-            if let Some(result) = consignment_res.result {
-                proxy_res = Some((
-                    result.consignment,
-                    transport_endpoint.endpoint,
-                    result.txid,
-                    result.vout,
-                ));
-                let mut updated_transfer_transport_endpoint: DbTransferTransportEndpointActMod =
-                    transfer_transport_endpoint.into();
-                updated_transfer_transport_endpoint.used = ActiveValue::Set(true);
-                self.database
-                    .update_transfer_transport_endpoint(&mut updated_transfer_transport_endpoint)?;
-                break;
-            }
+            proxy_res = Some((
+                result.consignment,
+                transport_endpoint.endpoint,
+                result.txid,
+                result.vout,
+            ));
+            let mut updated_transfer_transport_endpoint: DbTransferTransportEndpointActMod =
+                transfer_transport_endpoint.into();
+            updated_transfer_transport_endpoint.used = ActiveValue::Set(true);
+            self.database
+                .update_transfer_transport_endpoint(&mut updated_transfer_transport_endpoint)?;
+            break;
         }
 
         let (consignment, proxy_url, txid, vout) = if let Some(res) = proxy_res {
@@ -2167,12 +2171,9 @@ impl Wallet {
                     }
                 }
 
-                self.save_new_asset(
-                    &mut runtime,
-                    &asset_schema,
-                    contract_id,
-                    Some(minimal_contract),
-                )?;
+                drop(runtime);
+
+                self.save_new_asset(&asset_schema, contract_id, Some(minimal_contract))?;
             }
 
             let mut updated_asset_transfer: DbAssetTransferActMod = asset_transfer.clone().into();
@@ -2181,7 +2182,6 @@ impl Wallet {
                 .update_asset_transfer(&mut updated_asset_transfer)?;
         }
 
-        let mut amount = 0;
         let known_concealed = if transfer.recipient_type == Some(RecipientType::Blind) {
             let beneficiary = XChainNet::<Beneficiary>::from_str(&recipient_id)
                 .expect("saved recipient ID is invalid");
@@ -2194,55 +2194,9 @@ impl Wallet {
         } else {
             None
         };
-        let mut not_opret = false;
-        if let Some(anchored_bundle) = consignment
-            .bundles
-            .into_iter()
-            .find(|ab| ab.anchor.witness_id_unchecked().to_string() == format!("bc:{txid}"))
-        {
-            'outer: for transition in anchored_bundle.bundle.known_transitions.values() {
-                for assignment in transition.assignments.values() {
-                    for fungible_assignment in assignment.as_fungible() {
-                        if let Assign::ConfidentialSeal { seal, state, .. } = fungible_assignment {
-                            if Some(*seal) == known_concealed {
-                                amount = state.value.as_u64();
-                                break 'outer;
-                            }
-                        };
-                        if let Assign::Revealed { seal, state, .. } = fungible_assignment {
-                            let seal = seal.as_reduced_unsafe();
-                            if seal.txid == TxPtr::WitnessTx && Some(seal.vout.into_u32()) == vout {
-                                if seal.method != CloseMethod::OpretFirst {
-                                    not_opret = true;
-                                    break 'outer;
-                                }
-                                amount = state.value.as_u64();
-                                break 'outer;
-                            }
-                        };
-                    }
-                    for structured_assignment in assignment.as_structured() {
-                        if let Assign::ConfidentialSeal { seal, .. } = structured_assignment {
-                            if Some(*seal) == known_concealed {
-                                amount = 1;
-                                break 'outer;
-                            }
-                        }
-                        if let Assign::Revealed { seal, .. } = structured_assignment {
-                            let seal = seal.as_reduced_unsafe();
-                            if seal.txid == TxPtr::WitnessTx && Some(seal.vout.into_u32()) == vout {
-                                if seal.method != CloseMethod::OpretFirst {
-                                    not_opret = true;
-                                    break 'outer;
-                                }
-                                amount = 1;
-                                break 'outer;
-                            }
-                        };
-                    }
-                }
-            }
-        }
+
+        let (amount, not_opret) =
+            self.extract_received_amount(&consignment, txid.clone(), vout, known_concealed);
 
         if not_opret {
             error!(self.logger, "Found a non opret seal");
@@ -3049,27 +3003,20 @@ impl Wallet {
                     self.logger,
                     "Posting consignment for recipient ID: {recipient_id}"
                 );
-                let consignment_res = self.rest_client.clone().post_consignment(
+                match self.post_consignment(
                     &proxy_url,
                     recipient_id.clone(),
-                    consignment_path.clone(),
+                    &consignment_path,
                     txid.clone(),
                     recipient.local_recipient_data.vout(),
-                )?;
-                debug!(
-                    self.logger,
-                    "Consignment POST response: {:?}", consignment_res
-                );
-
-                if let Some(err) = consignment_res.error {
-                    if err.code == -101 {
-                        return Err(Error::RecipientIDAlreadyUsed)?;
+                ) {
+                    Err(Error::RecipientIDAlreadyUsed) => {
+                        return Err(Error::RecipientIDAlreadyUsed)
                     }
-                    continue;
+                    Err(_) => continue,
+                    Ok(()) => {}
                 }
-                if consignment_res.result.is_none() {
-                    continue;
-                }
+
                 for media in &medias {
                     let media_res = self.rest_client.clone().post_media(
                         &proxy_url,

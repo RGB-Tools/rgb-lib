@@ -200,6 +200,37 @@ pub fn get_account_xpub(
     Ok(get_xpub_from_xprv(&account_xprv))
 }
 
+/// Extract the witness script if recipient is a Witness one
+pub fn script_buf_from_recipient_id(recipient_id: String) -> Option<ScriptBuf> {
+    let xchainnet_beneficiary = XChainNet::<Beneficiary>::from_str(&recipient_id).unwrap();
+    match xchainnet_beneficiary.into_inner() {
+        Beneficiary::WitnessVout(address_payload) => {
+            let script_pubkey = address_payload.script_pubkey();
+            let script_bytes = script_pubkey.as_script_bytes();
+            let script_bytes_vec = script_bytes.clone().into_vec();
+            let script_buf = ScriptBuf::from_bytes(script_bytes_vec);
+            Some(script_buf)
+        }
+        Beneficiary::BlindedSeal(_) => None,
+    }
+}
+
+pub(crate) fn beneficiary_from_script_buf(script_buf: ScriptBuf) -> Beneficiary {
+    let address_payload =
+        AddressPayload::from_script(&ScriptPubkey::try_from(script_buf.into_bytes()).unwrap())
+            .unwrap();
+    Beneficiary::WitnessVout(address_payload)
+}
+
+/// Return the recipient ID for a specific script buf
+pub fn recipient_id_from_script_buf(
+    script_buf: ScriptBuf,
+    bitcoin_network: BitcoinNetwork,
+) -> String {
+    let beneficiary = beneficiary_from_script_buf(script_buf);
+    XChainNet::with(bitcoin_network.into(), beneficiary).to_string()
+}
+
 fn get_derivation_path(keychain: u8) -> DerivationPath {
     let derivation_path = vec![ChildNumber::from_normal_idx(keychain as u32).unwrap()];
     DerivationPath::from_iter(derivation_path.clone())
@@ -276,22 +307,22 @@ fn log_timestamp(io: &mut dyn io::Write) -> io::Result<()> {
 pub(crate) fn setup_logger<P: AsRef<Path>>(
     log_path: P,
     log_name: Option<&str>,
-) -> Result<Logger, Error> {
+) -> Result<(Logger, AsyncGuard), Error> {
     let log_file = log_name.unwrap_or(LOG_FILE);
     let log_filepath = log_path.as_ref().join(log_file);
     let file = fs::OpenOptions::new()
         .create(true)
-        .write(true)
-        .truncate(true)
+        .append(true)
         .open(log_filepath)?;
 
     let decorator = PlainDecorator::new(file);
     let drain = FullFormat::new(decorator)
         .use_custom_timestamp(log_timestamp)
         .use_file_location();
-    let drain = slog_async::Async::new(drain.build().fuse()).build().fuse();
+    let (drain, async_guard) = slog_async::Async::new(drain.build().fuse()).build_with_guard();
+    let logger = Logger::root(drain.fuse(), o!());
 
-    Ok(Logger::root(drain, o!()))
+    Ok((logger, async_guard))
 }
 
 pub(crate) fn now() -> OffsetDateTime {
@@ -299,13 +330,13 @@ pub(crate) fn now() -> OffsetDateTime {
 }
 
 /// Wrapper for the RGB stock and its lockfile.
-pub struct RgbRuntime {
+pub(crate) struct RgbRuntime {
     /// Path to the RGB stock
-    pub stock_path: PathBuf,
+    stock_path: PathBuf,
     /// The RGB stock
-    pub stock: Stock,
+    stock: Stock,
     /// The wallet directory, where the lockfile for the runtime is to be held
-    pub wallet_dir: PathBuf,
+    wallet_dir: PathBuf,
 }
 
 impl RgbRuntime {
@@ -326,7 +357,7 @@ impl RgbRuntime {
 
     #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn blank_builder(
-        &mut self,
+        &self,
         contract_id: ContractId,
         iface: impl Into<TypeName>,
     ) -> Result<TransitionBuilder, InternalError> {
@@ -346,7 +377,7 @@ impl RgbRuntime {
     }
 
     pub(crate) fn contract_iface_id(
-        &mut self,
+        &self,
         contract_id: ContractId,
         iface_id: IfaceId,
     ) -> Result<ContractIface, InternalError> {
@@ -357,7 +388,7 @@ impl RgbRuntime {
 
     #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn contracts_by_outputs(
-        &mut self,
+        &self,
         outputs: impl IntoIterator<Item = impl Into<XOutputSeal>>,
     ) -> Result<BTreeSet<ContractId>, InternalError> {
         self.stock
@@ -419,7 +450,7 @@ impl RgbRuntime {
 
     #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn state_for_outpoints(
-        &mut self,
+        &self,
         contract_id: ContractId,
         outpoints: impl IntoIterator<Item = impl Into<XOutpoint>>,
     ) -> Result<BTreeMap<(Opout, XOutputSeal), PersistedState>, InternalError> {
@@ -439,7 +470,7 @@ impl RgbRuntime {
 
     #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn transfer(
-        &mut self,
+        &self,
         contract_id: ContractId,
         outputs: impl AsRef<[XOutputSeal]>,
         secret_seals: impl AsRef<[XChain<SecretSeal>]>,
@@ -451,7 +482,7 @@ impl RgbRuntime {
 
     #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn transition_builder(
-        &mut self,
+        &self,
         contract_id: ContractId,
         iface: impl Into<TypeName>,
         transition_name: Option<impl Into<FieldName>>,
@@ -486,12 +517,7 @@ fn _write_rgb_runtime_lockfile(wallet_dir: &Path) {
     }
 }
 
-/// Write the lock file for write access in the provided `wallet_dir`, load the RGB runtime for the
-/// provided `bitcoin_network` and return the loaded runtime.
-///
-/// <div class="warning">This method is meant for special usage and is normally not needed, use
-/// it only if you know what you're doing</div>
-pub fn load_rgb_runtime(wallet_dir: PathBuf) -> Result<RgbRuntime, Error> {
+pub(crate) fn load_rgb_runtime(wallet_dir: PathBuf) -> Result<RgbRuntime, Error> {
     _write_rgb_runtime_lockfile(&wallet_dir);
 
     let rgb_dir = wallet_dir.join(RGB_RUNTIME_DIR);
@@ -548,7 +574,7 @@ trait RgbPropKey {
 impl RgbPropKey for ProprietaryKey {}
 
 /// Methods adding RGB functionality to rust-bitcoin Input
-pub trait RgbInExt {
+pub(crate) trait RgbInExt {
     /// See upstream method for details
     fn rgb_consumer(&self, contract_id: ContractId) -> Result<Option<OpId>, FromSliceError>;
     /// See upstream method for details
@@ -582,7 +608,7 @@ impl RgbInExt for Input {
 }
 
 /// Methods adding RGB functionality to rust-bitcoin Output
-pub trait RgbOutExt {
+pub(crate) trait RgbOutExt {
     /// See upstream method for details
     fn set_opret_host(&mut self);
 
@@ -603,7 +629,7 @@ impl RgbOutExt for Output {
 }
 
 /// Methods adding RGB functionality to rust-bitcoin Psbt
-pub trait RgbPsbtExt {
+pub(crate) trait RgbPsbtExt {
     /// See upstream method for details
     fn rgb_transition(&self, opid: OpId) -> Result<Option<Transition>, InternalError>;
 

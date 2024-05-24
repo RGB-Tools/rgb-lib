@@ -6,6 +6,7 @@ pub(crate) mod backup;
 pub(crate) mod offline;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) mod online;
+pub mod rust_only;
 
 #[cfg(test)]
 pub(crate) mod test;

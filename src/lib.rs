@@ -66,8 +66,13 @@ pub mod keys;
 pub mod utils;
 pub mod wallet;
 
-pub use bdk::{BlockTime, SignOptions};
-pub use rgbstd::{containers::Contract, contract::ContractId};
+pub use bdk;
+pub use bitcoin;
+pub use invoice::RgbTransport;
+pub use rgbstd::{
+    containers::{Contract, Fascia, FileContent, Transfer as RgbTransfer},
+    contract::ContractId,
+};
 
 pub use crate::{
     database::enums::{AssetSchema, RecipientType, TransferStatus, TransportType},
@@ -140,21 +145,22 @@ use bdk::{
     },
     miniscript::DescriptorPublicKey,
     wallet::AddressIndex,
-    KeychainKind, LocalUtxo, Wallet as BdkWallet,
+    BlockTime, KeychainKind, LocalUtxo, SignOptions, Wallet as BdkWallet,
 };
 use bitcoin::{
     bip32::ChildNumber,
+    hashes::Hash as Sha256Hash,
     psbt::{raw::ProprietaryKey, Input, Output, PartiallySignedTransaction},
-    Address, OutPoint,
+    Address, OutPoint, ScriptBuf, TxOut,
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-use bitcoin::{
-    hashes::{sha256, Hash as Sha256Hash},
-    ScriptBuf, Txid,
-};
+use bitcoin::{hashes::sha256, Txid};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-use bp::seals::txout::{ChainBlindSeal, CloseMethod, ExplicitSeal, TxPtr};
-use bp::{seals::txout::BlindSeal, Outpoint as RgbOutpoint, ScriptPubkey, Txid as BpTxid};
+use bp::seals::txout::{ChainBlindSeal, TxPtr};
+use bp::{
+    seals::txout::{BlindSeal, CloseMethod, ExplicitSeal},
+    Outpoint as RgbOutpoint, ScriptPubkey, Txid as BpTxid,
+};
 use bpstd::{AddressPayload, Network as RgbNetwork};
 use chacha20poly1305::{
     aead::{generic_array::GenericArray, stream},
@@ -166,10 +172,8 @@ use electrum_client::{Client as ElectrumClient, ConfigBuilder, ElectrumApi, Para
 use futures::executor::block_on;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use invoice::{Amount, Precision};
-use invoice::{Beneficiary, RgbInvoice, RgbInvoiceBuilder, RgbTransport, XChainNet};
-use psbt::{PropKey, ProprietaryKeyRgb};
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-use psbt::{Psbt as RgbPsbt, RgbPsbt as RgbPsbtTrait};
+use invoice::{Beneficiary, RgbInvoice, RgbInvoiceBuilder, XChainNet};
+use psbt::{PropKey, ProprietaryKeyRgb, Psbt as RgbPsbt, RgbPsbt as RgbPsbtTrait};
 use rand::{distributions::Alphanumeric, Rng};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use reqwest::{
@@ -177,11 +181,11 @@ use reqwest::{
     header::CONTENT_TYPE,
 };
 use rgb::{
-    validation::Status, Genesis, Layer1, OpId, Opout, SchemaId, SubSchema, Transition, XChain,
-    XOutpoint, XOutputSeal,
+    validation::Status, BlindingFactor, Genesis, Layer1, OpId, Opout, SchemaId, SubSchema,
+    Transition, WitnessId, XChain, XOutpoint, XOutputSeal,
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-use rgb::{validation::Validity, Assign, BlindingFactor, WitnessId};
+use rgb::{validation::Validity, Assign};
 use rgb_lib_migration::{Migrator, MigratorTrait};
 #[cfg(feature = "electrum")]
 use rgb_rt::electrum::Resolver as ElectrumResolver;
@@ -193,7 +197,8 @@ use rgb_schemata::{cfa_rgb25, cfa_schema, uda_rgb21, uda_schema, NonInflatableAs
 use rgbfs::StockFs;
 use rgbstd::{
     accessors::MergeReveal,
-    containers::{CloseMethodSet, Fascia, Transfer as RgbTransfer},
+    containers::BuilderSeal,
+    containers::CloseMethodSet,
     contract::GraphSeal,
     interface::{
         ContractIface, Iface, IfaceClass, IfaceId, IfaceImpl, IssuerClass, Rgb20, Rgb21, Rgb25,
@@ -207,7 +212,6 @@ use rgbstd::{
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use rgbstd::{
-    containers::{BuilderSeal, FileContent},
     contract::GenesisSeal,
     interface::{
         rgb21::{Allocation, OwnedFraction, TokenData, TokenIndex},
@@ -226,6 +230,7 @@ use sea_orm::{
 use seals::SecretSeal;
 use serde::{Deserialize, Serialize};
 use slog::{debug, error, info, o, warn, Drain, Logger};
+use slog_async::AsyncGuard;
 use slog_term::{FullFormat, PlainDecorator};
 use strict_encoding::{
     tn, DecodeError, DeserializeError, FieldName, StrictDeserialize, StrictSerialize, TypeName,
@@ -248,9 +253,9 @@ use crate::wallet::test::{
 use crate::wallet::test::{mock_chain_net, skip_check_fee_rate};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use crate::{
-    api::proxy::Proxy,
+    api::proxy::{GetConsignmentResponse, Proxy},
     database::{DbData, LocalRecipient, LocalRecipientData, LocalWitnessData},
-    utils::{get_genesis_hash, RgbInExt, RgbOutExt, RgbPsbtExt},
+    utils::get_genesis_hash,
 };
 use crate::{
     database::{
@@ -287,9 +292,9 @@ use crate::{
     },
     error::InternalError,
     utils::{
-        adjust_canonicalization, calculate_descriptor_from_xprv, calculate_descriptor_from_xpub,
-        derive_account_xprv_from_mnemonic, get_xpub_from_xprv, load_rgb_runtime, now, setup_logger,
-        RgbRuntime, LOG_FILE,
+        adjust_canonicalization, beneficiary_from_script_buf, calculate_descriptor_from_xprv,
+        calculate_descriptor_from_xpub, derive_account_xprv_from_mnemonic, get_xpub_from_xprv,
+        load_rgb_runtime, now, setup_logger, RgbInExt, RgbOutExt, RgbPsbtExt, RgbRuntime, LOG_FILE,
     },
     wallet::{Balance, Outpoint, NUM_KNOWN_SCHEMAS, SCHEMA_ID_CFA, SCHEMA_ID_NIA, SCHEMA_ID_UDA},
 };

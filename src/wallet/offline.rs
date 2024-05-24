@@ -505,7 +505,7 @@ impl RecipientInfo {
             Beneficiary::WitnessVout(_) => RecipientType::Witness,
             Beneficiary::BlindedSeal(_) => RecipientType::Blind,
         };
-        Ok(RecipientInfo {
+        Ok(Self {
             recipient_id,
             recipient_type,
             network: xchainnet_beneficiary.chain_network().try_into()?,
@@ -1021,6 +1021,7 @@ pub struct WalletData {
 pub struct Wallet {
     pub(crate) wallet_data: WalletData,
     pub(crate) logger: Logger,
+    pub(crate) _logger_guard: AsyncGuard,
     #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) watch_only: bool,
     pub(crate) database: Arc<RgbLibDatabase>,
@@ -1054,7 +1055,7 @@ impl Wallet {
             fs::create_dir(&wallet_dir)?;
             fs::create_dir(wallet_dir.join(MEDIA_DIR))?;
         }
-        let logger = setup_logger(&wallet_dir, None)?;
+        let (logger, _logger_guard) = setup_logger(&wallet_dir, None)?;
         info!(logger.clone(), "New wallet in '{:?}'", wallet_dir);
         let panic_logger = logger.clone();
         let prev_hook = panic::take_hook();
@@ -1150,6 +1151,7 @@ impl Wallet {
         Ok(Wallet {
             wallet_data,
             logger,
+            _logger_guard,
             watch_only,
             database: Arc::new(database),
             wallet_dir,
@@ -1575,11 +1577,7 @@ impl Wallet {
         let address_str = self.get_new_address().to_string();
         let address = Address::from_str(&address_str).unwrap().assume_checked();
         let script_buf = address.script_pubkey();
-        let address_payload = AddressPayload::from_script(
-            &ScriptPubkey::try_from(script_buf.clone().into_bytes()).unwrap(),
-        )
-        .unwrap();
-        let beneficiary = Beneficiary::WitnessVout(address_payload);
+        let beneficiary = beneficiary_from_script_buf(script_buf.clone());
 
         let (recipient_id, invoice, expiration_timestamp, batch_transfer_idx, _) = self._receive(
             asset_id,
@@ -1790,7 +1788,7 @@ impl Wallet {
             .map_err(|_| Error::AssetIfaceMismatch)
     }
 
-    fn _get_uda_token(&self, contract: ContractIface) -> Result<Option<Token>, Error> {
+    pub(crate) fn get_uda_token(&self, contract: ContractIface) -> Result<Option<Token>, Error> {
         if let Ok(tokens) = contract.global("tokens") {
             if tokens.is_empty() {
                 return Ok(None);
@@ -1913,7 +1911,7 @@ impl Wallet {
                     let contract_id = ContractId::from_str(&asset_id).expect("invalid contract ID");
                     let contract_iface =
                         self.get_contract_iface(&mut runtime, &asset.schema, contract_id)?;
-                    let uda_token = self._get_uda_token(contract_iface)?.unwrap();
+                    let uda_token = self.get_uda_token(contract_iface)?.unwrap();
                     token.embedded_media = uda_token.embedded_media;
                     token.reserves = uda_token.reserves;
                 }
@@ -2353,143 +2351,5 @@ impl Wallet {
 
         info!(self.logger, "List unspents completed");
         Ok(unspents)
-    }
-
-    /// Extract the metadata of a new RGB asset and save the asset into the DB.
-    ///
-    /// <div class="warning">This method is meant for special usage and is normally not needed, use
-    /// it only if you know what you're doing</div>
-    pub fn save_new_asset(
-        &self,
-        runtime: &mut RgbRuntime,
-        asset_schema: &AssetSchema,
-        contract_id: ContractId,
-        contract: Option<Contract>,
-    ) -> Result<(), Error> {
-        info!(self.logger, "Saving new asset...");
-        let contract = if let Some(contract) = contract {
-            contract
-        } else {
-            runtime.export_contract(contract_id)?
-        };
-        let contract_iface = self.get_contract_iface(runtime, asset_schema, contract_id)?;
-
-        let timestamp = contract.genesis.timestamp;
-        let (name, precision, issued_supply, ticker, details, media_idx, token) =
-            match &asset_schema {
-                AssetSchema::Nia => {
-                    let iface_nia = Rgb20::from(contract_iface.clone());
-                    let spec = iface_nia.spec();
-                    let ticker = spec.ticker().to_string();
-                    let name = spec.name().to_string();
-                    let details = spec.details().map(|d| d.to_string());
-                    let precision = spec.precision.into();
-                    let issued_supply = iface_nia.total_issued_supply().into();
-                    let media_idx = if let Some(attachment) = iface_nia.contract_terms().media {
-                        Some(self.get_or_insert_media(
-                            hex::encode(attachment.digest),
-                            attachment.ty.to_string(),
-                        )?)
-                    } else {
-                        None
-                    };
-                    (
-                        name,
-                        precision,
-                        issued_supply,
-                        Some(ticker),
-                        details,
-                        media_idx,
-                        None,
-                    )
-                }
-                AssetSchema::Uda => {
-                    let iface_uda = Rgb21::from(contract_iface.clone());
-                    let spec = iface_uda.spec();
-                    let ticker = spec.ticker().to_string();
-                    let name = spec.name().to_string();
-                    let details = spec.details().map(|d| d.to_string());
-                    let precision = spec.precision.into();
-                    let issued_supply = 1;
-                    let token_full = self._get_uda_token(contract_iface.clone())?;
-                    (
-                        name,
-                        precision,
-                        issued_supply,
-                        Some(ticker),
-                        details,
-                        None,
-                        token_full,
-                    )
-                }
-                AssetSchema::Cfa => {
-                    let iface_cfa = Rgb25::from(contract_iface.clone());
-                    let name = iface_cfa.name().to_string();
-                    let details = iface_cfa.details().map(|d| d.to_string());
-                    let precision = iface_cfa.precision().into();
-                    let issued_supply = iface_cfa.total_issued_supply().into();
-                    let media_idx = if let Some(attachment) = iface_cfa.contract_terms().media {
-                        Some(self.get_or_insert_media(
-                            hex::encode(attachment.digest),
-                            attachment.ty.to_string(),
-                        )?)
-                    } else {
-                        None
-                    };
-                    (
-                        name,
-                        precision,
-                        issued_supply,
-                        None,
-                        details,
-                        media_idx,
-                        None,
-                    )
-                }
-            };
-
-        let db_asset = self.add_asset_to_db(
-            contract_id.to_string(),
-            asset_schema,
-            None,
-            details,
-            issued_supply,
-            name,
-            precision,
-            ticker,
-            timestamp,
-            media_idx,
-        )?;
-
-        if let Some(token) = token {
-            let db_token = DbTokenActMod {
-                asset_idx: ActiveValue::Set(db_asset.idx),
-                index: ActiveValue::Set(token.index),
-                ticker: ActiveValue::Set(token.ticker),
-                name: ActiveValue::Set(token.name),
-                details: ActiveValue::Set(token.details),
-                embedded_media: ActiveValue::Set(token.embedded_media.is_some()),
-                reserves: ActiveValue::Set(token.reserves.is_some()),
-                ..Default::default()
-            };
-            let token_idx = self.database.set_token(db_token)?;
-
-            if let Some(media) = &token.media {
-                self.save_token_media(token_idx, media.get_digest(), media.mime.clone(), None)?;
-            }
-            for (attachment_id, media) in token.attachments {
-                self.save_token_media(
-                    token_idx,
-                    media.get_digest(),
-                    media.mime.clone(),
-                    Some(attachment_id),
-                )?;
-            }
-        }
-
-        self.update_backup_info(false)?;
-
-        info!(self.logger, "Save new asset completed");
-        Ok(())
     }
 }

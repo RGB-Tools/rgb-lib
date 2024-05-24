@@ -173,6 +173,10 @@ pub enum Error {
         network: String,
     },
 
+    /// The consignment is invalid
+    #[error("Invalid consignment")]
+    InvalidConsignment,
+
     /// The provided asset details is invalid
     #[error("Invalid details: {details}")]
     InvalidDetails {
@@ -309,6 +313,10 @@ pub enum Error {
         txid: String,
     },
 
+    /// No consignment found
+    #[error("No consignment found")]
+    NoConsignment,
+
     /// Cannot issue an asset without knowing the amounts
     #[error("Issuance request with no provided amounts")]
     NoIssuanceAmounts,
@@ -394,6 +402,7 @@ pub enum InternalError {
     #[error("Aead error: {0}")]
     AeadError(String),
 
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
     #[error("API error: {0}")]
     Api(#[from] reqwest::Error),
 
@@ -562,6 +571,7 @@ impl From<invoice::TransportParseError> for Error {
     }
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 impl From<reqwest::Error> for Error {
     fn from(e: reqwest::Error) -> Self {
         Error::Proxy {

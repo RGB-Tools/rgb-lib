@@ -107,7 +107,6 @@ fn fail() {
 
     let asset_nia = test_issue_asset_nia(&wallet, &online, None);
     let asset_nia_cid = ContractId::from_str(&asset_nia.asset_id).unwrap();
-    let mut runtime = wallet.rgb_runtime().unwrap();
-    let result = wallet.save_new_asset(&mut runtime, &AssetSchema::Cfa, asset_nia_cid, None);
+    let result = wallet.save_new_asset(&AssetSchema::Cfa, asset_nia_cid, None);
     assert!(matches!(result, Err(Error::AssetIfaceMismatch)));
 }

@@ -5,7 +5,7 @@ const JSON: &str = "application/json";
 #[derive(Debug, Deserialize, Serialize)]
 pub struct JsonRpcError {
     pub(crate) code: i64,
-    message: String,
+    pub(crate) message: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

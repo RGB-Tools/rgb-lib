@@ -411,11 +411,11 @@ pub(crate) fn test_save_new_asset(
             &mut rcv_wallet.blockchain_resolver().unwrap(),
         )
         .unwrap();
+    drop(runtime);
     let schema_id = minimal_contract_validated.schema_id().to_string();
     let asset_schema = AssetSchema::from_schema_id(schema_id).unwrap();
     rcv_wallet
         .save_new_asset(
-            &mut runtime,
             &asset_schema,
             minimal_contract_validated.contract_id(),
             Some(minimal_contract_validated),

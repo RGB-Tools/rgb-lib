@@ -37,6 +37,7 @@ interface RgbLibError {
   InvalidAttachments(string details);
   InvalidBitcoinKeys();
   InvalidBitcoinNetwork(string network);
+  InvalidConsignment();
   InvalidDetails(string details);
   InvalidElectrum(string details);
   InvalidFeeRate(string details);
@@ -57,6 +58,7 @@ interface RgbLibError {
   InvalidTransportEndpoints(string details);
   InvalidVanillaKeychain();
   MinFeeNotMet(string txid);
+  NoConsignment();
   NoIssuanceAmounts();
   NoValidTransportEndpoint();
   Offline();

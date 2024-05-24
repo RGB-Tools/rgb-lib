@@ -6,6 +6,7 @@ use std::{
 };
 
 use rgb_lib::{
+    bdk::BlockTime,
     keys::Keys,
     wallet::{
         AssetCFA, AssetIface, AssetNIA, AssetUDA, Assets, Balance, BtcBalance, DatabaseType,
@@ -16,7 +17,7 @@ use rgb_lib::{
         TransferTransportEndpoint, TransportEndpoint as RgbLibTransportEndpoint, Unspent, Utxo,
         Wallet as RgbLibWallet, WalletData, WitnessData,
     },
-    AssetSchema, BitcoinNetwork, BlockTime, Error as RgbLibError, RecipientType, TransferStatus,
+    AssetSchema, BitcoinNetwork, Error as RgbLibError, RecipientType, TransferStatus,
     TransportType,
 };
 

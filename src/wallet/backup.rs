@@ -225,7 +225,7 @@ pub fn restore_backup(backup_path: &str, password: &str, target_dir: &str) -> Re
     fs::create_dir_all(target_dir)?;
     let log_dir = Path::new(&target_dir);
     let log_name = format!("restore_{}", now().unix_timestamp());
-    let logger = setup_logger(log_dir, Some(&log_name))?;
+    let (logger, _logger_guard) = setup_logger(log_dir, Some(&log_name))?;
     info!(logger, "starting restore...");
     let backup_file = PathBuf::from(backup_path);
     let tmp_base_path = _get_parent_path(&backup_file)?;
