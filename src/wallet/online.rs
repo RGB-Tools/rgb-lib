@@ -598,6 +598,9 @@ impl Wallet {
         let inputs: &[BdkOutPoint] = &inputs;
         let usable_btc_amount = self.get_uncolorable_btc_sum()?;
         let utxo_size = size.unwrap_or(UTXO_SIZE);
+        if utxo_size == 0 {
+            return Err(Error::InvalidAmountZero);
+        }
         let possible_utxos = usable_btc_amount / utxo_size as u64;
         let max_possible_utxos: u8 = if possible_utxos > u8::MAX as u64 {
             u8::MAX
