@@ -189,6 +189,16 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_LOW));
     let result = test_create_utxos_begin_result(&wallet, &online, false, Some(1), None, 1000.1);
     assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_HIGH));
+
+    // invalid amount
+    let result =
+        test_create_utxos_begin_result(&wallet, &online, false, Some(1), Some(0), FEE_RATE);
+    assert!(matches!(result, Err(Error::InvalidAmountZero)));
+
+    // output below dust limit
+    let result =
+        test_create_utxos_begin_result(&wallet, &online, false, Some(1), Some(1), FEE_RATE);
+    assert!(matches!(result, Err(Error::OutputBelowDustLimit)));
 }
 
 // create UTXOs of size funds/256 + check UTXO_NUM are created

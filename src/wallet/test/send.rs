@@ -2580,6 +2580,22 @@ fn fail() {
     let details = "missing witness data for a witness recipient";
     assert!(matches!(result, Err(Error::InvalidRecipientData { details: m }) if m == details));
 
+    // output below dust limit
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            recipient_id: receive_data_witness.recipient_id.clone(),
+            witness_data: Some(WitnessData {
+                amount_sat: 0,
+                blinding: None,
+            }),
+            amount: AMOUNT / 2,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let result = test_send_result(&wallet, &online, &recipient_map);
+    assert!(matches!(result, Err(Error::OutputBelowDustLimit)));
+
     // unsupported layer 1
     *MOCK_CHAIN_NET.lock().unwrap() = Some(ChainNet::LiquidTestnet);
     let receive_data_liquid = test_witness_receive(&rcv_wallet);
