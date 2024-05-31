@@ -116,19 +116,34 @@ pub(crate) fn drain_wallet(wallet: &Wallet, online: &Online) {
 }
 
 pub(crate) fn send_to_address(address: String) {
-    let status = Command::new("docker")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .arg("compose")
-        .args(bitcoin_cli())
-        .arg("-rpcwallet=miner")
-        .arg("sendtoaddress")
-        .arg(address)
-        .arg("1")
-        .status()
-        .expect("failed to fund wallet");
-    assert!(status.success());
+    let t_0 = OffsetDateTime::now_utc();
+    let bitcoin_cli = bitcoin_cli();
+    loop {
+        if (OffsetDateTime::now_utc() - t_0).as_seconds_f32() > 120.0 {
+            panic!("could not send to address ({QUEUE_DEPTH_EXCEEDED})");
+        }
+        let output = Command::new("docker")
+            .stdin(Stdio::null())
+            .arg("compose")
+            .args(&bitcoin_cli)
+            .arg("-rpcwallet=miner")
+            .arg("sendtoaddress")
+            .arg(&address)
+            .arg("1")
+            .output()
+            .expect("failed to fund wallet");
+        if !output.status.success()
+            && String::from_utf8(output.stderr)
+                .unwrap()
+                .contains(QUEUE_DEPTH_EXCEEDED)
+        {
+            eprintln!("work queue depth exceeded");
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            continue;
+        }
+        assert!(output.status.success());
+        break;
+    }
 }
 
 pub(crate) fn fund_wallet(address: String) {

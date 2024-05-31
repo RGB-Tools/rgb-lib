@@ -48,19 +48,33 @@ impl Miner {
         } else {
             bitcoin_cli()
         };
-        let status = Command::new("docker")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .arg("compose")
-            .args(bitcoin_cli)
-            .arg("-rpcwallet=miner")
-            .arg("-generate")
-            .arg("1")
-            .status()
-            .expect("failed to mine");
-        assert!(status.success());
-        wait_indexers_sync();
+        let t_0 = OffsetDateTime::now_utc();
+        loop {
+            if (OffsetDateTime::now_utc() - t_0).as_seconds_f32() > 120.0 {
+                panic!("could not mine ({QUEUE_DEPTH_EXCEEDED})");
+            }
+            let output = Command::new("docker")
+                .stdin(Stdio::null())
+                .arg("compose")
+                .args(&bitcoin_cli)
+                .arg("-rpcwallet=miner")
+                .arg("-generate")
+                .arg("1")
+                .output()
+                .expect("failed to mine");
+            if !output.status.success()
+                && String::from_utf8(output.stderr)
+                    .unwrap()
+                    .contains(QUEUE_DEPTH_EXCEEDED)
+            {
+                eprintln!("work queue depth exceeded");
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                continue;
+            }
+            assert!(output.status.success());
+            wait_indexers_sync();
+            break;
+        }
         true
     }
 
@@ -139,15 +153,30 @@ pub(crate) fn wait_indexers_sync() {
     let t_0 = OffsetDateTime::now_utc();
     let mut max_blockcount = 0;
     for bitcoin_cli in [bitcoin_cli(), _esplora_bitcoin_cli()] {
-        let output = Command::new("docker")
-            .stdin(Stdio::null())
-            .stderr(Stdio::null())
-            .arg("compose")
-            .args(bitcoin_cli)
-            .arg("getblockcount")
-            .output()
-            .expect("failed to call getblockcount");
-        assert!(output.status.success());
+        let t_0 = OffsetDateTime::now_utc();
+        let output = loop {
+            if (OffsetDateTime::now_utc() - t_0).as_seconds_f32() > 120.0 {
+                panic!("could not get blockcount ({QUEUE_DEPTH_EXCEEDED})");
+            }
+            let output = Command::new("docker")
+                .stdin(Stdio::null())
+                .arg("compose")
+                .args(&bitcoin_cli)
+                .arg("getblockcount")
+                .output()
+                .expect("failed to call getblockcount");
+            if !output.status.success()
+                && String::from_utf8(output.stderr.clone())
+                    .unwrap()
+                    .contains(QUEUE_DEPTH_EXCEEDED)
+            {
+                eprintln!("work queue depth exceeded");
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                continue;
+            }
+            assert!(output.status.success());
+            break output;
+        };
         let blockcount_str =
             std::str::from_utf8(&output.stdout).expect("could not parse blockcount output");
         let blockcount = blockcount_str
@@ -181,7 +210,7 @@ pub(crate) fn wait_indexers_sync() {
         if all_synced {
             break;
         };
-        if (OffsetDateTime::now_utc() - t_0).as_seconds_f32() > 10.0 {
+        if (OffsetDateTime::now_utc() - t_0).as_seconds_f32() > 60.0 {
             panic!("indexers not syncing with bitcoind");
         }
     }

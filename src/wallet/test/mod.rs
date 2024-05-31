@@ -58,6 +58,7 @@ const FAKE_TXID: &str = "e5a3e577309df31bd606f48049049d2e1e02b048206ba232944fcc0
 const UNKNOWN_IDX: i32 = 9999;
 #[cfg(feature = "electrum")]
 const TINY_BTC_AMOUNT: u32 = 330;
+const QUEUE_DEPTH_EXCEEDED: &str = "Work queue depth exceeded";
 
 static INIT: Once = Once::new();
 
