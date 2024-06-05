@@ -1,6 +1,6 @@
 [package]
 name = "rgb-lib"
-version = "0.3.0-alpha.2"
+version = "0.3.0-alpha.3"
 authors = [
     "Zoe Faltibà <zoefaltiba@gmail.com>",
     "Nicola Busanello <nicola.busanello@gmail.com>",
