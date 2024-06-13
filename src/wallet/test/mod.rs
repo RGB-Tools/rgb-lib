@@ -211,6 +211,7 @@ mod blind_receive;
 mod create_utxos;
 mod delete_transfers;
 mod drain_to;
+mod export_contract;
 mod fail_transfers;
 mod get_address;
 mod get_asset_balance;
