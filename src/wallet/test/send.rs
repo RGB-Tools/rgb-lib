@@ -4849,3 +4849,37 @@ fn min_relay_fee_esplora() {
         2,
     );
 }
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn script_buf_to_from_recipient_id() {
+    initialize();
+
+    // wallets
+    let (wallet, _online) = get_funded_wallet!();
+
+    // get a script bug from an address (witness receive)
+    let address_str = test_get_address(&wallet);
+    let address = Address::from_str(&address_str).unwrap().assume_checked();
+    let script_buf = address.script_pubkey();
+
+    // recipient ID from script buf
+    let recipient_id = recipient_id_from_script_buf(script_buf.clone(), BitcoinNetwork::Regtest);
+
+    // script buf from recipient ID Some
+    let script_from_recipient = script_buf_from_recipient_id(recipient_id).unwrap();
+
+    // checks
+    assert!(script_from_recipient.is_some());
+    assert_eq!(script_from_recipient.unwrap(), script_buf);
+
+    // script buf from recipient ID None (blinded)
+    let receive_data = test_blind_receive(&wallet);
+    let script_from_recipient = script_buf_from_recipient_id(receive_data.recipient_id).unwrap();
+    assert!(script_from_recipient.is_none());
+
+    // script buf from recipient ID None (bad recipient ID)
+    let result = script_buf_from_recipient_id(s!(""));
+    assert!(matches!(result, Err(Error::InvalidRecipientID)));
+}

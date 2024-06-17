@@ -19,7 +19,10 @@ use super::*;
 
 use crate::{
     database::entities::transfer_transport_endpoint,
-    utils::{RGB_RUNTIME_DIR, get_account_xpub},
+    utils::{
+        get_account_xpub, recipient_id_from_script_buf, script_buf_from_recipient_id,
+        RGB_RUNTIME_DIR,
+    },
     wallet::{
         backup::ScryptParams,
         test::utils::{api::*, chain::*, helpers::*},
