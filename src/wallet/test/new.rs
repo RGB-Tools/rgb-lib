@@ -302,3 +302,24 @@ fn watch_only() {
     let unspents = test_list_unspents(&wallet_watch, Some(&online_watch), false);
     assert_eq!(unspents.len(), UTXO_NUM as usize + 1);
 }
+
+#[test]
+#[parallel]
+fn get_account_xpub_success() {
+    // wallets
+    let wallet = get_test_wallet(true, None);
+
+    // get account xpub
+    let account_xpub = get_account_xpub(
+        BitcoinNetwork::Regtest,
+        &wallet.wallet_data.mnemonic.unwrap(),
+    )
+    .unwrap();
+
+    // checks
+    assert_eq!(
+        BitcoinNetwork::from(account_xpub.network),
+        BitcoinNetwork::Regtest
+    );
+    assert_eq!(account_xpub.depth, 3);
+}
