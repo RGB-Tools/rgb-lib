@@ -1,5 +1,7 @@
 use super::*;
 
+use std::os::unix::fs::PermissionsExt;
+
 fn check_wallet(wallet: &Wallet, network: BitcoinNetwork, keychain_vanilla: Option<u8>) {
     let external_descriptor = &wallet
         .bdk_wallet
@@ -160,6 +162,27 @@ fn fail() {
     wallet_data_bad.pubkey = alt_keys.xpub;
     let result = Wallet::new(wallet_data_bad.clone());
     assert!(matches!(result, Err(Error::InvalidBitcoinKeys)));
+
+    // non-writable wallet dir
+    let non_writable_path = "non_writable";
+    let _ = fs::remove_dir(non_writable_path);
+    fs::create_dir(non_writable_path).unwrap();
+    // set the permissions to read and execute only (no write permissions)
+    let permissions = fs::Permissions::from_mode(0o555);
+    fs::set_permissions(non_writable_path, permissions).unwrap();
+    // try to load runtime, expecting it to receive a permission denied error
+    let result = load_rgb_runtime(PathBuf::from_str(non_writable_path).unwrap());
+    let err = result.err().unwrap();
+    assert!(matches!(err, Error::IO { details: m } if m.starts_with("Permission denied")));
+    // try to setup logger, expecting it to receive a permission denied error
+    let result = std::panic::catch_unwind(|| setup_logger(non_writable_path, Some("log")));
+    assert!(result.is_ok());
+    let res = result.unwrap();
+    assert!(res.is_err());
+    let err = res.err().unwrap();
+    assert!(matches!(err, Error::IO { details: m } if m.starts_with("Permission denied")));
+    // remove non writable directory
+    fs::remove_dir(non_writable_path).unwrap();
 }
 
 #[cfg(feature = "electrum")]
