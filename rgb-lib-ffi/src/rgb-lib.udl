@@ -37,6 +37,7 @@ interface RgbLibError {
   InvalidAttachments(string details);
   InvalidBitcoinKeys();
   InvalidBitcoinNetwork(string network);
+  InvalidColoringInfo(string details);
   InvalidConsignment();
   InvalidDetails(string details);
   InvalidElectrum(string details);

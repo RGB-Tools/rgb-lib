@@ -100,12 +100,13 @@ use std::{
     time::Duration,
 };
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-use amplify::{bmap, hex::ToHex, none, Wrapper};
 use amplify::{
+    bmap,
     confinement::{Confined, U24},
     s, ByteArray, FromSliceError,
 };
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+use amplify::{hex::ToHex, none, Wrapper};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use base64::{engine::general_purpose, Engine as _};
 #[cfg(feature = "electrum")]

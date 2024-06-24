@@ -173,6 +173,13 @@ pub enum Error {
         network: String,
     },
 
+    /// The provided coloring info is invalid
+    #[error("Invalid coloring info")]
+    InvalidColoringInfo {
+        /// Error details
+        details: String,
+    },
+
     /// The consignment is invalid
     #[error("Invalid consignment")]
     InvalidConsignment,

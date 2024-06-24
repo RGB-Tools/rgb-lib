@@ -4,20 +4,30 @@
 
 use super::*;
 
-/// RGB information to color a transaction
+/// RGB asset-specific information to color a transaction
 #[derive(Clone, Debug)]
-pub struct ColoringInfo {
-    /// Contract ID of the transaction to be colored
-    pub contract_id: ContractId,
+pub struct AssetColoringInfo {
     /// Contract iface
     pub iface: AssetIface,
-    /// Input outpoint of the transaction to be colored
-    pub input_outpoint: Outpoint,
+    /// Input outpoints of the assets being spent
+    pub input_outpoints: Vec<Outpoint>,
     /// Map of vouts and asset amounts to color the transaction outputs
     pub output_map: HashMap<u32, u64>,
     /// Static blinding to keep the transaction construction deterministic
-    pub static_blinding: u64,
+    pub static_blinding: Option<u64>,
 }
+
+/// RGB information to color a transaction
+#[derive(Clone, Debug)]
+pub struct ColoringInfo {
+    /// Asset-specific information
+    pub asset_info_map: HashMap<ContractId, AssetColoringInfo>,
+    /// Static blinding to keep the transaction construction deterministic
+    pub static_blinding: Option<u64>,
+}
+
+/// Map of contract ID and list of its beneficiaries
+pub type AssetBeneficiariesMap = BTreeMap<ContractId, Vec<BuilderSeal<GraphSeal>>>;
 
 impl Wallet {
     /// Color a PSBT.
@@ -28,7 +38,8 @@ impl Wallet {
         &self,
         psbt_to_color: &mut PartiallySignedTransaction,
         coloring_info: ColoringInfo,
-    ) -> Result<(Fascia, Vec<BuilderSeal<GraphSeal>>), Error> {
+        skip_amt_check: bool, // temporary due to issue in LN
+    ) -> Result<(Fascia, AssetBeneficiariesMap), Error> {
         info!(self.logger, "Coloring PSBT...");
         let mut transaction = psbt_to_color.clone().extract_tx();
         let mut psbt = if !transaction
@@ -47,40 +58,6 @@ impl Wallet {
 
         let runtime = self.rgb_runtime()?;
 
-        let mut static_blinding_32_bytes: [u8; 32] = [0; 32];
-        static_blinding_32_bytes[0..8]
-            .copy_from_slice(&coloring_info.static_blinding.to_le_bytes());
-        let static_blinding_factor = BlindingFactor::try_from(static_blinding_32_bytes).unwrap();
-
-        let mut asset_transition_builder = runtime.transition_builder(
-            coloring_info.contract_id,
-            coloring_info.iface.to_typename(),
-            None::<&str>,
-        )?;
-        let assignment_id = asset_transition_builder
-            .assignments_type(&FieldName::from("assetOwner"))
-            .ok_or(InternalError::Unexpected)?;
-
-        let mut beneficiaries = vec![];
-        for (vout, amount) in coloring_info.output_map {
-            if amount == 0 {
-                continue;
-            }
-            let graph_seal = GraphSeal::with_blinded_vout(
-                CloseMethod::OpretFirst,
-                vout,
-                coloring_info.static_blinding,
-            );
-            let seal = BuilderSeal::Revealed(XChain::with(Layer1::Bitcoin, graph_seal));
-            beneficiaries.push(seal);
-            asset_transition_builder = asset_transition_builder.add_fungible_state_raw(
-                assignment_id,
-                seal,
-                amount,
-                static_blinding_factor,
-            )?;
-        }
-
         let prev_outputs = psbt
             .unsigned_tx
             .input
@@ -93,12 +70,75 @@ impl Wallet {
                 )
             })
             .collect::<HashSet<XOutputSeal>>();
-        for ((opout, _), state) in
-            runtime.state_for_outpoints(coloring_info.contract_id, prev_outputs.iter().copied())?
-        {
-            asset_transition_builder = asset_transition_builder.add_input(opout, state)?;
+
+        let mut all_transitions: HashMap<ContractId, Transition> = HashMap::new();
+        let mut asset_beneficiaries: AssetBeneficiariesMap = bmap![];
+        let assignment_name = FieldName::from("assetOwner");
+
+        for (contract_id, asset_coloring_info) in coloring_info.asset_info_map.clone() {
+            let mut asset_transition_builder = runtime.transition_builder(
+                contract_id,
+                asset_coloring_info.iface.to_typename(),
+                None::<&str>,
+            )?;
+            let assignment_id = asset_transition_builder
+                .assignments_type(&assignment_name)
+                .ok_or(InternalError::Unexpected)?;
+
+            let mut asset_available_amt = 0;
+            for ((opout, _), state) in
+                runtime.state_for_outpoints(contract_id, prev_outputs.iter().copied())?
+            {
+                if let PersistedState::Amount(amt, _, _) = &state {
+                    asset_available_amt += amt.value();
+                }
+                asset_transition_builder = asset_transition_builder.add_input(opout, state)?;
+            }
+
+            let mut beneficiaries = vec![];
+            let mut sending_amt = 0;
+            for (vout, amount) in asset_coloring_info.output_map {
+                if amount == 0 {
+                    continue;
+                }
+                sending_amt += amount;
+                if vout as usize > psbt.outputs.len() {
+                    return Err(Error::InvalidColoringInfo {
+                        details: s!("invalid vout in output_map, does not exist in the given PSBT"),
+                    });
+                }
+                let graph_seal = if let Some(blinding) = asset_coloring_info.static_blinding {
+                    GraphSeal::with_blinded_vout(CloseMethod::OpretFirst, vout, blinding)
+                } else {
+                    GraphSeal::new_random_vout(CloseMethod::OpretFirst, vout)
+                };
+                let seal = BuilderSeal::Revealed(XChain::with(Layer1::Bitcoin, graph_seal));
+                beneficiaries.push(seal);
+
+                let blinding_factor = if let Some(blinding) = asset_coloring_info.static_blinding {
+                    let mut blinding_32_bytes: [u8; 32] = [0; 32];
+                    blinding_32_bytes[0..8].copy_from_slice(&blinding.to_le_bytes());
+                    BlindingFactor::try_from(blinding_32_bytes).unwrap()
+                } else {
+                    BlindingFactor::random()
+                };
+                asset_transition_builder = asset_transition_builder.add_fungible_state_raw(
+                    assignment_id,
+                    seal,
+                    amount,
+                    blinding_factor,
+                )?;
+            }
+            if !skip_amt_check && sending_amt > asset_available_amt {
+                return Err(Error::InvalidColoringInfo {
+                    details: s!("total amount in output_map greater than available"),
+                });
+            }
+
+            let transition = asset_transition_builder.complete_transition()?;
+            all_transitions.insert(contract_id, transition);
+            asset_beneficiaries.insert(contract_id, beneficiaries);
         }
-        let transition = asset_transition_builder.complete_transition()?;
 
         let (opreturn_index, _) = psbt
             .unsigned_tx
@@ -114,41 +154,38 @@ impl Wallet {
             .find(|(i, _)| i == &opreturn_index)
             .unwrap();
         opreturn_output.set_opret_host();
-        opreturn_output.set_mpc_entropy(coloring_info.static_blinding);
-
-        let inputs: &[XOutputSeal; 1] = &[XChain::with(
-            Layer1::Bitcoin,
-            ExplicitSeal::new(
-                CloseMethod::OpretFirst,
-                RgbOutpoint::new(
-                    RgbTxid::from_str(&coloring_info.input_outpoint.txid).unwrap(),
-                    coloring_info.input_outpoint.vout,
-                ),
-            ),
-        )];
-        for (input, txin) in psbt.inputs.iter_mut().zip(&psbt.unsigned_tx.input) {
-            let prevout = txin.previous_output;
-            let outpoint = RgbOutpoint::new(prevout.txid.to_byte_array().into(), prevout.vout);
-            let output = XChain::with(
-                Layer1::Bitcoin,
-                ExplicitSeal::new(CloseMethod::OpretFirst, outpoint),
-            );
-            if inputs.contains(&output) {
-                input.set_rgb_consumer(coloring_info.contract_id, transition.id())?;
-            }
+        if let Some(blinding) = coloring_info.static_blinding {
+            opreturn_output.set_mpc_entropy(blinding);
         }
-        psbt.push_rgb_transition(transition, CloseMethodSet::OpretFirst)?;
+
+        for (contract_id, transition) in all_transitions {
+            for (input, txin) in psbt.inputs.iter_mut().zip(&psbt.unsigned_tx.input) {
+                let prevout = txin.previous_output;
+                let outpoint = RgbOutpoint::new(prevout.txid.to_byte_array().into(), prevout.vout);
+                if coloring_info
+                    .asset_info_map
+                    .clone()
+                    .get(&contract_id)
+                    .unwrap()
+                    .input_outpoints
+                    .contains(&outpoint.into())
+                {
+                    input.set_rgb_consumer(contract_id, transition.id())?;
+                }
+            }
+            psbt.push_rgb_transition(transition, CloseMethodSet::OpretFirst)?;
+        }
 
         let mut rgb_psbt = RgbPsbt::from_str(&psbt.to_string()).unwrap();
         rgb_psbt.complete_construction();
-        let fascia = rgb_psbt
-            .rgb_commit()
-            .map_err(|_| InternalError::Unexpected)?;
+        let fascia = rgb_psbt.rgb_commit().map_err(|e| Error::Internal {
+            details: e.to_string(),
+        })?;
 
         *psbt_to_color = PartiallySignedTransaction::from_str(&rgb_psbt.to_string()).unwrap();
 
         info!(self.logger, "Color PSBT completed");
-        Ok((fascia, beneficiaries))
+        Ok((fascia, asset_beneficiaries))
     }
 
     /// Color a PSBT, consume the RGB fascia and return the related consignment.
@@ -159,49 +196,56 @@ impl Wallet {
         &self,
         psbt_to_color: &mut PartiallySignedTransaction,
         coloring_info: ColoringInfo,
-    ) -> Result<RgbTransfer, Error> {
+    ) -> Result<Vec<RgbTransfer>, Error> {
         info!(self.logger, "Coloring PSBT and consuming...");
-        let (fascia, beneficiaries) = self.color_psbt(psbt_to_color, coloring_info.clone())?;
+        let (fascia, asset_beneficiaries) =
+            self.color_psbt(psbt_to_color, coloring_info.clone(), false)?;
 
         let mut runtime = self.rgb_runtime()?;
         runtime.consume(fascia)?;
 
+        let mut transfers = vec![];
+
         let rgb_psbt = RgbPsbt::from_str(&psbt_to_color.to_string()).unwrap();
         let witness_txid = rgb_psbt.txid();
-        let mut beneficiaries_outputs = vec![];
-        let mut beneficiaries_secret_seals = vec![];
-        for beneficiary in beneficiaries {
-            match beneficiary {
-                BuilderSeal::Revealed(seal) => {
-                    beneficiaries_outputs.push(XChain::Bitcoin(ExplicitSeal::new(
-                        CloseMethod::OpretFirst,
-                        RgbOutpoint::new(witness_txid, seal.as_reduced_unsafe().vout),
-                    )))
-                }
-                BuilderSeal::Concealed(seal) => beneficiaries_secret_seals.push(seal),
-            };
-        }
-        let mut transfer = runtime.transfer(
-            coloring_info.contract_id,
-            beneficiaries_outputs,
-            beneficiaries_secret_seals,
-        )?;
-
-        let mut terminals = transfer.terminals.to_inner();
-        for (bundle_id, terminal) in terminals.iter_mut() {
-            let Some(ab) = transfer.anchored_bundle(*bundle_id) else {
-                continue;
-            };
-            if ab.anchor.witness_id_unchecked() == WitnessId::Bitcoin(witness_txid) {
-                terminal.witness_tx = Some(XChain::Bitcoin(rgb_psbt.to_unsigned_tx().into()));
+        for (contract_id, beneficiaries) in asset_beneficiaries {
+            let mut beneficiaries_outputs = vec![];
+            let mut beneficiaries_secret_seals = vec![];
+            for beneficiary in beneficiaries {
+                match beneficiary {
+                    BuilderSeal::Revealed(seal) => {
+                        beneficiaries_outputs.push(XChain::Bitcoin(ExplicitSeal::new(
+                            CloseMethod::OpretFirst,
+                            RgbOutpoint::new(witness_txid, seal.as_reduced_unsafe().vout),
+                        )))
+                    }
+                    BuilderSeal::Concealed(seal) => beneficiaries_secret_seals.push(seal),
+                };
             }
+
+            let mut transfer = runtime.transfer(
+                contract_id,
+                beneficiaries_outputs,
+                beneficiaries_secret_seals,
+            )?;
+            let mut terminals = transfer.terminals.to_inner();
+            for (bundle_id, terminal) in terminals.iter_mut() {
+                let Some(ab) = transfer.anchored_bundle(*bundle_id) else {
+                    continue;
+                };
+                if ab.anchor.witness_id_unchecked() == WitnessId::Bitcoin(witness_txid) {
+                    terminal.witness_tx = Some(XChain::Bitcoin(rgb_psbt.to_unsigned_tx().into()));
+                }
+            }
+            transfer.terminals = Confined::from_collection_unsafe(terminals);
+
+            transfers.push(transfer);
         }
-        transfer.terminals = Confined::from_collection_unsafe(terminals);
 
         *psbt_to_color = PartiallySignedTransaction::from_str(&rgb_psbt.to_string()).unwrap();
 
         info!(self.logger, "Color PSBT and consume completed");
-        Ok(transfer)
+        Ok(transfers)
     }
 
     /// Accept an RGB transfer using a TXID to retrieve its consignment.
@@ -214,7 +258,7 @@ impl Wallet {
         txid: String,
         vout: u32,
         consignment_endpoint: RgbTransport,
-        static_blinding: u64,
+        blinding: u64,
         force: bool,
     ) -> Result<(RgbTransfer, u64), Error> {
         info!(self.logger, "Accepting transfer...");
@@ -234,15 +278,11 @@ impl Wallet {
 
         let mut runtime = self.rgb_runtime()?;
 
-        let blind_seal = BlindSeal::with_blinding(
-            CloseMethod::OpretFirst,
-            TxPtr::WitnessTx,
-            vout,
-            static_blinding,
-        );
+        let blind_seal =
+            BlindSeal::with_blinding(CloseMethod::OpretFirst, TxPtr::WitnessTx, vout, blinding);
         let graph_seal = GraphSeal::from(blind_seal);
-        let funding_seal = XChain::with(Layer1::Bitcoin, graph_seal);
-        runtime.store_seal_secret(funding_seal)?;
+        let seal = XChain::with(Layer1::Bitcoin, graph_seal);
+        runtime.store_seal_secret(seal)?;
 
         let validated_transfer = match consignment
             .clone()
@@ -476,48 +516,6 @@ impl Wallet {
 
         info!(self.logger, "Save new asset completed");
         Ok(())
-    }
-
-    /// Broadcast the given transaction.
-    ///
-    /// <div class="warning">This method is meant for special usage and is normally not needed, use
-    /// it only if you know what you're doing.</div>
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
-    pub fn broadcast_tx(&self, tx: BdkTransaction) -> Result<BdkTransaction, Error> {
-        let txid = tx.txid().to_string();
-        self.bdk_blockchain()?.broadcast(&tx).map_err(|e| {
-            let mut min_fee_not_met = false;
-            match self.indexer() {
-                #[cfg(feature = "electrum")]
-                Indexer::Electrum(_) => {
-                    let err_str = e.to_string();
-                    if err_str.contains("min relay fee not met")
-                        || err_str.contains("mempool min fee not met")
-                    {
-                        min_fee_not_met = true;
-                    }
-                }
-                #[cfg(feature = "esplora")]
-                Indexer::Esplora(_) => {
-                    if let bdk::Error::Esplora(ref box_err) = e {
-                        // wait for new esplora_client release to check message
-                        if matches!(**box_err, EsploraError::HttpResponse(400)) {
-                            min_fee_not_met = true;
-                        }
-                    }
-                }
-            }
-            if min_fee_not_met {
-                Error::MinFeeNotMet { txid: txid.clone() }
-            } else {
-                Error::FailedBroadcast {
-                    details: e.to_string(),
-                }
-            }
-        })?;
-        debug!(self.logger, "Broadcasted TX with ID '{}'", txid);
-
-        Ok(tx)
     }
 
     /// List the Bitcoin unspents of the vanilla wallet, using BDK's objects, filtered by
