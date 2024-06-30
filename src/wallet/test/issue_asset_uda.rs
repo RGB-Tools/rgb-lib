@@ -138,12 +138,13 @@ fn success() {
     let attachment_path = wallet
         .get_wallet_dir()
         .join(MEDIA_DIR)
-        .join(attachment_digest);
+        .join(&attachment_digest);
     let mut token_attachments = HashMap::new();
     for i in 0..MAX_ATTACHMENTS {
         token_attachments.insert(
             i as u8,
             Media {
+                digest: attachment_digest.clone(),
                 file_path: attachment_path.to_str().unwrap().to_string(),
                 mime: s!("image/png"),
             },

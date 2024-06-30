@@ -69,7 +69,7 @@ impl AssetIface {
                 medias
                     .iter()
                     .find(|m| Some(m.idx) == asset.media_idx)
-                    .map(|m| Media::from_db_media(m, wallet.media_dir()))
+                    .map(|m| Media::from_db_media(m, wallet.get_media_dir()))
             }
             AssetIface::RGB21 => None,
         };
@@ -155,6 +155,8 @@ impl TryFrom<TypeName> for AssetIface {
 pub struct Media {
     /// Path of the media file
     pub file_path: String,
+    /// Digest of the media file
+    pub digest: String,
     /// Mime type of the media file
     pub mime: String,
 }
@@ -169,24 +171,28 @@ impl Media {
     }
 
     pub(crate) fn from_attachment<P: AsRef<Path>>(attachment: &Attachment, media_dir: P) -> Self {
+        let digest = hex::encode(attachment.digest);
         let file_path = media_dir
             .as_ref()
-            .join(hex::encode(attachment.digest))
+            .join(&digest)
             .to_string_lossy()
             .to_string();
         Self {
+            digest,
             mime: attachment.ty.to_string(),
             file_path,
         }
     }
 
     pub(crate) fn from_db_media<P: AsRef<Path>>(db_media: &DbMedia, media_dir: P) -> Self {
+        let digest = db_media.digest.clone();
         let file_path = media_dir
             .as_ref()
-            .join(db_media.digest.clone())
+            .join(&digest)
             .to_string_lossy()
             .to_string();
         Self {
+            digest,
             mime: db_media.mime.clone(),
             file_path,
         }
@@ -1172,7 +1178,18 @@ impl Wallet {
         load_rgb_runtime(self.wallet_dir.clone())
     }
 
-    pub(crate) fn media_dir(&self) -> PathBuf {
+    /// Return the data that defines the wallet.
+    pub fn get_wallet_data(&self) -> WalletData {
+        self.wallet_data.clone()
+    }
+
+    /// Return the wallet directory.
+    pub fn get_wallet_dir(&self) -> PathBuf {
+        self.wallet_dir.clone()
+    }
+
+    /// Return the media directory.
+    pub fn get_media_dir(&self) -> PathBuf {
         self.wallet_dir.join(MEDIA_DIR)
     }
 
@@ -1822,7 +1839,7 @@ impl Wallet {
                 None
             };
 
-            let media_dir = self.media_dir();
+            let media_dir = self.get_media_dir();
 
             let media = val
                 .unwrap_struct("media")
@@ -1937,16 +1954,6 @@ impl Wallet {
         })
     }
 
-    /// Return the data that defines the wallet.
-    pub fn get_wallet_data(&self) -> WalletData {
-        self.wallet_data.clone()
-    }
-
-    /// Return the wallet directory.
-    pub fn get_wallet_dir(&self) -> PathBuf {
-        self.wallet_dir.clone()
-    }
-
     pub(crate) fn get_or_insert_media(&self, digest: String, mime: String) -> Result<i32, Error> {
         Ok(match self.database.get_media_by_digest(digest.clone())? {
             Some(media) => media.idx,
@@ -2020,7 +2027,7 @@ impl Wallet {
             if let Some(db_token) = tokens.iter().find(|t| t.asset_idx == asset_idx) {
                 let mut media = None;
                 let mut attachments = HashMap::new();
-                let media_dir = self.media_dir();
+                let media_dir = self.get_media_dir();
                 token_medias
                     .iter()
                     .filter(|tm| tm.token_idx == db_token.idx)

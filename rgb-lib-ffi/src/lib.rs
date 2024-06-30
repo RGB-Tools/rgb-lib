@@ -128,6 +128,18 @@ impl Wallet {
         self.wallet_mutex.lock().expect("wallet")
     }
 
+    fn get_wallet_data(&self) -> WalletData {
+        self._get_wallet().get_wallet_data()
+    }
+
+    fn get_wallet_dir(&self) -> String {
+        self._get_wallet().get_wallet_dir().to_string_lossy().to_string()
+    }
+
+    fn get_media_dir(&self) -> String {
+        self._get_wallet().get_media_dir().to_string_lossy().to_string()
+    }
+
     fn backup(&self, backup_path: String, password: String) -> Result<(), RgbLibError> {
         self._get_wallet().backup(&backup_path, &password)
     }

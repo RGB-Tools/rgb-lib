@@ -1022,7 +1022,7 @@ impl Wallet {
         }
 
         let medias = self.database.iter_media()?;
-        let media_dir = self.media_dir();
+        let media_dir = self.get_media_dir();
         for media in medias {
             if !media_dir.join(media.digest).exists() {
                 return Err(Error::Inconsistency {
@@ -1232,21 +1232,26 @@ impl Wallet {
             });
         }
         let file_hash: sha256::Hash = Sha256Hash::hash(&file_bytes[..]);
-        let digest = file_hash.to_byte_array();
+        let digest_bytes = file_hash.to_byte_array();
         let mime = tree_magic::from_filepath(original_file_path.as_ref());
         let media_ty: &'static str = Box::leak(mime.clone().into_boxed_str());
         let media_type = MediaType::with(media_ty);
+        let digest = hex::encode(digest_bytes);
         let file_path = self
-            .media_dir()
-            .join(hex::encode(digest))
+            .get_media_dir()
+            .join(&digest)
             .to_string_lossy()
             .to_string();
         Ok((
             Attachment {
                 ty: media_type,
-                digest,
+                digest: digest_bytes,
             },
-            Media { mime, file_path },
+            Media {
+                digest,
+                mime,
+                file_path,
+            },
         ))
     }
 
@@ -1831,7 +1836,7 @@ impl Wallet {
             }
         } else if let Some(media_idx) = media_idx {
             let db_media = self.database.get_media(media_idx)?.unwrap();
-            asset_medias.push(Media::from_db_media(&db_media, self.media_dir()))
+            asset_medias.push(Media::from_db_media(&db_media, self.get_media_dir()))
         }
         Ok(asset_medias)
     }
@@ -2130,7 +2135,7 @@ impl Wallet {
                 };
                 for attachment in attachments {
                     let digest = hex::encode(attachment.digest);
-                    let media_path = self.media_dir().join(&digest);
+                    let media_path = self.get_media_dir().join(&digest);
                     // download media only if file not already present
                     if !media_path.exists() {
                         let media_res = self

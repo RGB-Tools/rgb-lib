@@ -91,6 +91,7 @@ enum AssetSchema {
 
 dictionary Media {
   string file_path;
+  string digest;
   string mime;
 };
 
@@ -398,6 +399,12 @@ dictionary WalletData {
 interface Wallet {
   [Throws=RgbLibError]
   constructor(WalletData wallet_data);
+
+  WalletData get_wallet_data();
+
+  string get_wallet_dir();
+
+  string get_media_dir();
 
   [Throws=RgbLibError]
   void backup(string backup_path, string password);

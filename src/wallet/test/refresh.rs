@@ -333,7 +333,7 @@ fn nia_with_media() {
     let media_idx = wallet_1
         .copy_media_and_save(
             fp,
-            &Media::from_attachment(&attachment, wallet_1.media_dir()),
+            &Media::from_attachment(&attachment, wallet_1.get_media_dir()),
         )
         .unwrap();
     let db_asset = wallet_1
