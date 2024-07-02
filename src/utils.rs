@@ -201,17 +201,18 @@ pub fn get_account_xpub(
 }
 
 /// Extract the witness script if recipient is a Witness one
-pub fn script_buf_from_recipient_id(recipient_id: String) -> Option<ScriptBuf> {
-    let xchainnet_beneficiary = XChainNet::<Beneficiary>::from_str(&recipient_id).unwrap();
+pub fn script_buf_from_recipient_id(recipient_id: String) -> Result<Option<ScriptBuf>, Error> {
+    let xchainnet_beneficiary =
+        XChainNet::<Beneficiary>::from_str(&recipient_id).map_err(|_| Error::InvalidRecipientID)?;
     match xchainnet_beneficiary.into_inner() {
         Beneficiary::WitnessVout(address_payload) => {
             let script_pubkey = address_payload.script_pubkey();
             let script_bytes = script_pubkey.as_script_bytes();
             let script_bytes_vec = script_bytes.clone().into_vec();
             let script_buf = ScriptBuf::from_bytes(script_bytes_vec);
-            Some(script_buf)
+            Ok(Some(script_buf))
         }
-        Beneficiary::BlindedSeal(_) => None,
+        Beneficiary::BlindedSeal(_) => Ok(None),
     }
 }
 
