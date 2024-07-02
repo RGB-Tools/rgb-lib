@@ -503,22 +503,36 @@ impl Drop for RgbRuntime {
     }
 }
 
-fn _write_rgb_runtime_lockfile(wallet_dir: &Path) {
+fn _write_rgb_runtime_lockfile(wallet_dir: &Path) -> Result<(), Error> {
     let lock_file_path = wallet_dir.join(RGB_RUNTIME_LOCK_FILE);
+    let t_0 = OffsetDateTime::now_utc();
     loop {
         match fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(lock_file_path.clone())
         {
-            Ok(_) => break,
-            Err(_) => std::thread::sleep(std::time::Duration::from_millis(400)),
+            Ok(_) => return Ok(()),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+                if (OffsetDateTime::now_utc() - t_0).as_seconds_f32() > 3600.0 {
+                    return Err(Error::Internal {
+                        details: s!("unreleased lock file"),
+                    });
+                } else {
+                    std::thread::sleep(std::time::Duration::from_millis(400))
+                }
+            }
+            Err(e) => {
+                return Err(Error::IO {
+                    details: e.to_string(),
+                })
+            }
         }
     }
 }
 
 pub(crate) fn load_rgb_runtime(wallet_dir: PathBuf) -> Result<RgbRuntime, Error> {
-    _write_rgb_runtime_lockfile(&wallet_dir);
+    _write_rgb_runtime_lockfile(&wallet_dir)?;
 
     let rgb_dir = wallet_dir.join(RGB_RUNTIME_DIR);
     if !rgb_dir.exists() {
