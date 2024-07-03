@@ -81,6 +81,7 @@ pub fn initialize() {
             println!("{output:?}");
             panic!("failed to start test services");
         }
+        wait_indexers_sync()
     });
 }
 
