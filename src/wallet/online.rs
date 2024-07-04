@@ -1270,7 +1270,9 @@ impl Wallet {
         }
         let file_hash: sha256::Hash = Sha256Hash::hash(&file_bytes[..]);
         let digest_bytes = file_hash.to_byte_array();
-        let mime = tree_magic::from_filepath(original_file_path.as_ref());
+        let mime = tree_magic_mini::from_filepath(original_file_path.as_ref())
+            .unwrap_or("application/octet-stream")
+            .to_string();
         let media_ty: &'static str = Box::leak(mime.clone().into_boxed_str());
         let media_type = MediaType::with(media_ty);
         let digest = hex::encode(digest_bytes);
