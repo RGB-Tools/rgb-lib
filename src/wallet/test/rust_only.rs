@@ -6,7 +6,6 @@ use super::*;
 fn success() {
     initialize();
 
-    let amount = 66;
     let amt_sat = 500;
     let blinding = 777;
 
@@ -49,7 +48,7 @@ fn success() {
         .find(|(_, o)| o.value == amt_sat)
         .unwrap();
     let vout = output.0 as u32;
-    output_map.insert(vout, amount);
+    output_map.insert(vout, AMOUNT); // sending AMOUNT since color_psbt doesn't support change
     let asset_coloring_info = AssetColoringInfo {
         iface: AssetIface::RGB20,
         input_outpoints: vec![input_outpoint.into()],
@@ -103,7 +102,7 @@ fn success() {
     assert_eq!(blindseal.txid, TxPtr::WitnessTx);
     assert_eq!(blindseal.vout.into_u32(), vout);
     assert_eq!(blindseal.blinding, blinding);
-    assert_eq!(state.value.as_u64(), amount);
+    assert_eq!(state.value.as_u64(), AMOUNT);
 
     // check beneficiaries
     assert_eq!(beneficiaries.len(), 1);
@@ -307,7 +306,6 @@ fn save_new_asset_success() {
 fn color_psbt_fail() {
     initialize();
 
-    let amount = 66;
     let amt_sat = 500;
     let blinding = 777;
 
@@ -342,7 +340,7 @@ fn color_psbt_fail() {
         .enumerate()
         .find(|(_, o)| o.value == amt_sat)
         .unwrap();
-    output_map.insert(output.0 as u32, amount);
+    output_map.insert(output.0 as u32, AMOUNT);
 
     // wrong contract ID
     let fake_cid = "rgb:2rW1x8L-ZFNxV9MEo-fZpcxcpHo-yfNC1Fx5u-pJyuiY1Yh-1DLhceq";
@@ -427,7 +425,7 @@ fn color_psbt_fail() {
     assert!(matches!(result, Err(Error::Internal { details: m }) if m == msg));
 
     // wrong output map vout
-    let fake_o_map: HashMap<u32, u64> = HashMap::from_iter([(666, amount)]);
+    let fake_o_map: HashMap<u32, u64> = HashMap::from_iter([(666, AMOUNT)]);
     let asset_coloring_info = AssetColoringInfo {
         iface: AssetIface::RGB20,
         input_outpoints: vec![input_outpoint.into()],
