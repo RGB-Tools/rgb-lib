@@ -133,11 +133,17 @@ impl Wallet {
     }
 
     fn get_wallet_dir(&self) -> String {
-        self._get_wallet().get_wallet_dir().to_string_lossy().to_string()
+        self._get_wallet()
+            .get_wallet_dir()
+            .to_string_lossy()
+            .to_string()
     }
 
     fn get_media_dir(&self) -> String {
-        self._get_wallet().get_media_dir().to_string_lossy().to_string()
+        self._get_wallet()
+            .get_media_dir()
+            .to_string_lossy()
+            .to_string()
     }
 
     fn backup(&self, backup_path: String, password: String) -> Result<(), RgbLibError> {

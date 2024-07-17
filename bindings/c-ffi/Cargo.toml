@@ -18,9 +18,6 @@ rgb-lib = { version = "0.3.0-alpha.7", path = "../../", features = [
     "electrum",
     "esplora",
 ] }
-openssl = { version = "0.10", default-features = false, features = [
-    "vendored",
-] }
 serde = { version = "1.0", default-features = false, features = [
     "derive",
 ] }
