@@ -62,14 +62,9 @@ impl Wallet {
             .unsigned_tx
             .input
             .iter()
-            .map(|txin| txin.previous_output)
-            .map(|outpoint| {
-                XChain::with(
-                    Layer1::Bitcoin,
-                    ExplicitSeal::new(CloseMethod::OpretFirst, Outpoint::from(outpoint).into()),
-                )
-            })
-            .collect::<HashSet<XOutputSeal>>();
+            .map(|txin| Outpoint::from(txin.previous_output).into())
+            .map(|outpoint: RgbOutpoint| XOutpoint::from(XChain::Bitcoin(outpoint)))
+            .collect::<HashSet<XOutpoint>>();
 
         let mut all_transitions: HashMap<ContractId, Transition> = HashMap::new();
         let mut asset_beneficiaries: AssetBeneficiariesMap = bmap![];
