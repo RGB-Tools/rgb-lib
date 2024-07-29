@@ -964,7 +964,7 @@ fn send_received_success() {
     let dst_bytes = std::fs::read(PathBuf::from(dst_path.clone())).unwrap();
     assert_eq!(src_bytes, dst_bytes);
     let src_hash: sha256::Hash = Sha256Hash::hash(&src_bytes[..]);
-    let src_digest = hex::encode(src_hash.to_byte_array());
+    let src_digest = src_hash.to_string();
     let dst_digest = Path::new(&dst_path).file_name().unwrap().to_string_lossy();
     assert_eq!(src_digest, dst_digest);
 }
@@ -1111,7 +1111,7 @@ fn send_received_uda_success() {
     assert_eq!(src_bytes, dst_bytes);
     // check digest for provided file matches
     let src_hash: sha256::Hash = Sha256Hash::hash(&src_bytes[..]);
-    let src_digest = hex::encode(src_hash.to_byte_array());
+    let src_digest = src_hash.to_string();
     let dst_digest = Path::new(&dst_path).file_name().unwrap().to_string_lossy();
     assert_eq!(src_digest, dst_digest);
     // check attachments
@@ -1278,7 +1278,7 @@ fn send_received_cfa_success() {
     assert_eq!(src_bytes, dst_bytes);
     // check digest for provided file matches
     let src_hash: sha256::Hash = Sha256Hash::hash(&src_bytes[..]);
-    let src_digest = hex::encode(src_hash.to_byte_array());
+    let src_digest = src_hash.to_string();
     let dst_digest = Path::new(&dst_path).file_name().unwrap().to_string_lossy();
     assert_eq!(src_digest, dst_digest);
 }

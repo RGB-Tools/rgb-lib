@@ -1275,7 +1275,7 @@ impl Wallet {
             .to_string();
         let media_ty: &'static str = Box::leak(mime.clone().into_boxed_str());
         let media_type = MediaType::with(media_ty);
-        let digest = hex::encode(digest_bytes);
+        let digest = file_hash.to_string();
         let file_path = self
             .get_media_dir()
             .join(&digest)
@@ -2192,7 +2192,7 @@ impl Wallet {
                                 .decode(media_res)
                                 .map_err(InternalError::from)?;
                             let file_hash: sha256::Hash = Sha256Hash::hash(&file_bytes[..]);
-                            let actual_digest = hex::encode(file_hash.to_byte_array());
+                            let actual_digest = file_hash.to_string();
                             if digest != actual_digest {
                                 error!(
                                     self.logger,
