@@ -9,7 +9,7 @@ fn success() {
     let file_str = "README.md";
     let image_str = ["tests", "qrcode.png"].join(&MAIN_SEPARATOR.to_string());
 
-    let (wallet, online) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_wallet!();
 
     // add a pending operation to an UTXO so spendable balance will be != settled / future
     let _receive_data = test_blind_receive(&wallet);
@@ -49,7 +49,7 @@ fn success() {
     // include a text file
     println!("\nasset 2");
     let asset_2 = test_issue_asset_cfa(
-        &wallet,
+        &mut wallet,
         &online,
         Some(&[AMOUNT * 2]),
         Some(file_str.to_string()),
@@ -83,7 +83,7 @@ fn success() {
     // include an image file
     println!("\nasset 3");
     let asset_3 = test_issue_asset_cfa(
-        &wallet,
+        &mut wallet,
         &online,
         Some(&[AMOUNT * 3]),
         Some(image_str.to_string()),
@@ -122,9 +122,14 @@ fn multi_success() {
     let sum: u64 = amounts.iter().sum();
     let file_str = "README.md";
 
-    let (wallet, online) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_wallet!();
 
-    let asset = test_issue_asset_cfa(&wallet, &online, Some(&amounts), Some(file_str.to_string()));
+    let asset = test_issue_asset_cfa(
+        &mut wallet,
+        &online,
+        Some(&amounts),
+        Some(file_str.to_string()),
+    );
 
     // check balance is the sum of the amounts
     assert_eq!(asset.balance.settled, sum);
@@ -168,11 +173,11 @@ fn no_issue_on_pending_send() {
 
     let amount: u64 = 66;
 
-    let (wallet, online) = get_funded_wallet!();
-    let (rcv_wallet, rcv_online) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_wallet!();
+    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
 
     // issue 1st asset
-    let asset_1 = test_issue_asset_cfa(&wallet, &online, None, None);
+    let asset_1 = test_issue_asset_cfa(&mut wallet, &online, None, None);
     // get 1st issuance UTXO
     let unspents = test_list_unspents(&wallet, None, false);
     let unspent_1 = unspents
@@ -194,11 +199,11 @@ fn no_issue_on_pending_send() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&wallet, &online, &recipient_map);
+    let txid = test_send(&mut wallet, &online, &recipient_map);
     assert!(!txid.is_empty());
 
     // issue 2nd asset
-    let asset_2 = test_issue_asset_cfa(&wallet, &online, Some(&[AMOUNT * 2]), None);
+    let asset_2 = test_issue_asset_cfa(&mut wallet, &online, Some(&[AMOUNT * 2]), None);
     show_unspent_colorings(&wallet, "after 2nd issuance");
     // get 2nd issuance UTXO
     let unspents = test_list_unspents(&wallet, None, false);
@@ -215,9 +220,9 @@ fn no_issue_on_pending_send() {
 
     // progress transfer to WaitingConfirmations
     rcv_wallet.refresh(rcv_online, None, vec![]).unwrap();
-    test_refresh_asset(&wallet, &online, &asset_1.asset_id);
+    test_refresh_asset(&mut wallet, &online, &asset_1.asset_id);
     // issue 3rd asset
-    let asset_3 = test_issue_asset_cfa(&wallet, &online, Some(&[AMOUNT * 3]), None);
+    let asset_3 = test_issue_asset_cfa(&mut wallet, &online, Some(&[AMOUNT * 3]), None);
     show_unspent_colorings(&wallet, "after 3rd issuance");
     // get 3rd issuance UTXO
     let unspents = test_list_unspents(&wallet, None, false);
@@ -240,10 +245,11 @@ fn fail() {
     initialize();
 
     // wallet
-    let (wallet, online) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_wallet!();
 
     // supply overflow
-    let result = test_issue_asset_cfa_result(&wallet, &online, Some(&[u64::MAX, u64::MAX]), None);
+    let result =
+        test_issue_asset_cfa_result(&mut wallet, &online, Some(&[u64::MAX, u64::MAX]), None);
     assert!(matches!(result, Err(Error::TooHighIssuanceAmounts)));
 
     // bad online object
@@ -251,7 +257,7 @@ fn fail() {
         id: 1,
         indexer_url: wallet.online_data.as_ref().unwrap().indexer_url.clone(),
     };
-    let result = test_issue_asset_cfa_result(&wallet, &other_online, None, None);
+    let result = test_issue_asset_cfa_result(&mut wallet, &other_online, None, None);
     assert!(matches!(result, Err(Error::CannotChangeOnline)));
 
     // invalid name: empty
@@ -324,13 +330,13 @@ fn fail() {
     ));
 
     // invalid amount list
-    let result = test_issue_asset_cfa_result(&wallet, &online, Some(&[]), None);
+    let result = test_issue_asset_cfa_result(&mut wallet, &online, Some(&[]), None);
     assert!(matches!(result, Err(Error::NoIssuanceAmounts)));
 
     // invalid file_path
     let invalid_file_path = s!("invalid");
     let result =
-        test_issue_asset_cfa_result(&wallet, &online, None, Some(invalid_file_path.clone()));
+        test_issue_asset_cfa_result(&mut wallet, &online, None, Some(invalid_file_path.clone()));
     assert!(matches!(
         result,
         Err(Error::InvalidFilePath { file_path: t }) if t == invalid_file_path
@@ -338,17 +344,18 @@ fn fail() {
 
     // empty file
     let empty_file_path = ["tests", "empty"].join(&MAIN_SEPARATOR.to_string());
-    let result = test_issue_asset_cfa_result(&wallet, &online, None, Some(empty_file_path.clone()));
+    let result =
+        test_issue_asset_cfa_result(&mut wallet, &online, None, Some(empty_file_path.clone()));
     assert!(matches!(
         result,
         Err(Error::EmptyFile { file_path: t }) if t == empty_file_path
     ));
 
     // new wallet
-    let (wallet, online) = get_empty_wallet!();
+    let (mut wallet, online) = get_empty_wallet!();
 
     // insufficient funds
-    let result = test_issue_asset_cfa_result(&wallet, &online, None, None);
+    let result = test_issue_asset_cfa_result(&mut wallet, &online, None, None);
     assert!(matches!(
         result,
         Err(Error::InsufficientBitcoins {
@@ -361,6 +368,6 @@ fn fail() {
     mine(false);
 
     // insufficient allocations
-    let result = test_issue_asset_cfa_result(&wallet, &online, None, None);
+    let result = test_issue_asset_cfa_result(&mut wallet, &online, None, None);
     assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 }

@@ -156,6 +156,7 @@ pub(crate) struct OnlineData {
     bdk_blockchain: AnyBlockchain,
     pub(crate) indexer_url: String,
     indexer: Indexer,
+    resolver: AnyResolver,
 }
 
 /// A transfer refresh filter.
@@ -226,22 +227,8 @@ impl Wallet {
         &self.online_data.as_ref().unwrap().indexer
     }
 
-    pub(crate) fn blockchain_resolver(&self) -> Result<AnyResolver, Error> {
-        let indexer_url = &self.online_data.as_ref().unwrap().indexer_url;
-        Ok(match &self.online_data.as_ref().unwrap().indexer {
-            #[cfg(feature = "electrum")]
-            Indexer::Electrum(_) => AnyResolver::Electrum(Box::new(
-                ElectrumResolver::new(indexer_url).map_err(|e| Error::InvalidIndexer {
-                    details: e.to_string(),
-                })?,
-            )),
-            #[cfg(feature = "esplora")]
-            Indexer::Esplora(_) => AnyResolver::Esplora(Box::new(
-                EsploraResolver::new(indexer_url).map_err(|e| Error::InvalidIndexer {
-                    details: e.to_string(),
-                })?,
-            )),
-        })
+    pub(crate) fn blockchain_resolver(&mut self) -> &mut AnyResolver {
+        &mut self.online_data.as_mut().unwrap().resolver
     }
 
     pub(crate) fn transfers_dir(&self) -> PathBuf {
@@ -468,7 +455,7 @@ impl Wallet {
         Ok(())
     }
 
-    pub(crate) fn handle_expired_transfers(&self, db_data: &mut DbData) -> Result<(), Error> {
+    pub(crate) fn handle_expired_transfers(&mut self, db_data: &mut DbData) -> Result<(), Error> {
         self._sync_db_txos()?;
         let now = now().unix_timestamp();
         let expired_transfers: Vec<DbBatchTransfer> = db_data
@@ -826,7 +813,7 @@ impl Wallet {
     }
 
     fn _try_fail_batch_transfer(
-        &self,
+        &mut self,
         batch_transfer: &DbBatchTransfer,
         throw_err: bool,
         db_data: &mut DbData,
@@ -860,7 +847,7 @@ impl Wallet {
     /// Transfers are eligible if they remain in status [`TransferStatus::WaitingCounterparty`]
     /// after a `refresh` has been performed.
     pub fn fail_transfers(
-        &self,
+        &mut self,
         online: Online,
         batch_transfer_idx: Option<i32>,
         no_asset_only: bool,
@@ -1146,6 +1133,21 @@ impl Wallet {
                 })?;
         }
 
+        let resolver = match indexer {
+            #[cfg(feature = "electrum")]
+            Indexer::Electrum(_) => AnyResolver::Electrum(Box::new(
+                ElectrumResolver::new(&indexer_url).map_err(|e| Error::InvalidIndexer {
+                    details: e.to_string(),
+                })?,
+            )),
+            #[cfg(feature = "esplora")]
+            Indexer::Esplora(_) => AnyResolver::Esplora(Box::new(
+                EsploraResolver::new(&indexer_url).map_err(|e| Error::InvalidIndexer {
+                    details: e.to_string(),
+                })?,
+            )),
+        };
+
         // BDK setup
         let bdk_blockchain =
             AnyBlockchain::from_config(&indexer_config).map_err(|e| Error::InvalidIndexer {
@@ -1157,6 +1159,7 @@ impl Wallet {
             bdk_blockchain,
             indexer_url,
             indexer,
+            resolver,
         };
 
         Ok((online, online_data))
@@ -1324,7 +1327,7 @@ impl Wallet {
     /// If `amounts` contains more than 1 element, each one will be issued as a separate allocation
     /// for the same asset (on a separate UTXO that needs to be already available).
     pub fn issue_asset_nia(
-        &self,
+        &mut self,
         online: Online,
         ticker: String,
         name: String,
@@ -1410,11 +1413,12 @@ impl Wallet {
 
         let contract = builder.issue_contract().expect("failure issuing contract");
         let asset_id = contract.contract_id().to_string();
+        let testnet = self.testnet();
         let validated_contract = contract
-            .validate(&mut self.blockchain_resolver()?, self.testnet())
+            .validate(self.blockchain_resolver(), testnet)
             .expect("internal error: failed validating self-issued contract");
         runtime
-            .import_contract(validated_contract, &mut self.blockchain_resolver()?)
+            .import_contract(validated_contract, self.blockchain_resolver())
             .expect("failure importing issued contract");
 
         let asset = self.add_asset_to_db(
@@ -1495,7 +1499,7 @@ impl Wallet {
     /// An optional `attachments_file_paths` containing paths to extra media files can be provided.
     /// Their hash and mime type will be encoded in the contract.
     pub fn issue_asset_uda(
-        &self,
+        &mut self,
         online: Online,
         ticker: String,
         name: String,
@@ -1609,12 +1613,13 @@ impl Wallet {
 
         let contract = builder.issue_contract().expect("failure issuing contract");
         let asset_id = contract.contract_id().to_string();
+        let testnet = self.testnet();
         let validated_contract = contract
             .clone()
-            .validate(&mut self.blockchain_resolver()?, self.testnet())
+            .validate(self.blockchain_resolver(), testnet)
             .expect("internal error: failed validating self-issued contract");
         runtime
-            .import_contract(validated_contract, &mut self.blockchain_resolver()?)
+            .import_contract(validated_contract, self.blockchain_resolver())
             .expect("failure importing issued contract");
 
         if let Some((_, media)) = &media_data {
@@ -1708,7 +1713,7 @@ impl Wallet {
     /// If `amounts` contains more than 1 element, each one will be issued as a separate allocation
     /// for the same asset (on a separate UTXO that needs to be already available).
     pub fn issue_asset_cfa(
-        &self,
+        &mut self,
         online: Online,
         name: String,
         details: Option<String>,
@@ -1797,11 +1802,12 @@ impl Wallet {
 
         let contract = builder.issue_contract().expect("failure issuing contract");
         let asset_id = contract.contract_id().to_string();
+        let testnet = self.testnet();
         let validated_contract = contract
-            .validate(&mut self.blockchain_resolver()?, self.testnet())
+            .validate(self.blockchain_resolver(), testnet)
             .expect("internal error: failed validating self-issued contract");
         runtime
-            .import_contract(validated_contract, &mut self.blockchain_resolver()?)
+            .import_contract(validated_contract, self.blockchain_resolver())
             .expect("failure importing issued contract");
 
         let media_idx = if let Some(file_path) = file_path {
@@ -2016,7 +2022,7 @@ impl Wallet {
     }
 
     fn _wait_consignment(
-        &self,
+        &mut self,
         batch_transfer: &DbBatchTransfer,
         db_data: &DbData,
     ) -> Result<Option<DbBatchTransfer>, Error> {
@@ -2107,9 +2113,10 @@ impl Wallet {
         }
 
         debug!(self.logger, "Validating consignment...");
+        let testnet = self.testnet();
         let validated_consignment = match consignment
             .clone()
-            .validate(&mut self.blockchain_resolver()?, self.testnet())
+            .validate(self.blockchain_resolver(), testnet)
         {
             Ok(consignment) => consignment,
             Err(consignment) => consignment,
@@ -2144,13 +2151,13 @@ impl Wallet {
                 minimal_contract.terminals = none!();
                 let minimal_contract_validated = match minimal_contract
                     .clone()
-                    .validate(&mut self.blockchain_resolver()?, self.testnet())
+                    .validate(self.blockchain_resolver(), testnet)
                 {
                     Ok(consignment) => consignment,
                     Err(consignment) => consignment,
                 };
                 runtime
-                    .import_contract(minimal_contract_validated, &mut self.blockchain_resolver()?)
+                    .import_contract(minimal_contract_validated, self.blockchain_resolver())
                     .expect("failure importing received contract");
                 debug!(self.logger, "Contract registered");
 
@@ -2377,7 +2384,7 @@ impl Wallet {
     }
 
     fn _wait_confirmations(
-        &self,
+        &mut self,
         batch_transfer: &DbBatchTransfer,
         db_data: &DbData,
         incoming: bool,
@@ -2441,13 +2448,14 @@ impl Wallet {
             }
 
             // accept consignment
+            let testnet = self.testnet();
             let consignment = consignment
-                .validate(&mut self.blockchain_resolver()?, self.testnet())
+                .validate(self.blockchain_resolver(), testnet)
                 .unwrap_or_else(|c| c);
             let mut runtime = self.rgb_runtime()?;
             let force = false;
             let validation_status =
-                runtime.accept_transfer(consignment, &mut self.blockchain_resolver()?, force)?;
+                runtime.accept_transfer(consignment, self.blockchain_resolver(), force)?;
             let validity = validation_status.validity();
             if !matches!(validity, Validity::Valid) {
                 return Err(InternalError::Unexpected)?;
@@ -2464,7 +2472,7 @@ impl Wallet {
     }
 
     fn _wait_counterparty(
-        &self,
+        &mut self,
         transfer: &DbBatchTransfer,
         db_data: &mut DbData,
         incoming: bool,
@@ -2477,7 +2485,7 @@ impl Wallet {
     }
 
     fn _refresh_transfer(
-        &self,
+        &mut self,
         transfer: &DbBatchTransfer,
         db_data: &mut DbData,
         filter: &[RefreshFilter],
@@ -2513,7 +2521,7 @@ impl Wallet {
     /// matching any provided filter are skipped. If the vector is empty, all transfers are
     /// refreshed.
     pub fn refresh(
-        &self,
+        &mut self,
         online: Online,
         asset_id: Option<String>,
         filter: Vec<RefreshFilter>,
@@ -3245,7 +3253,7 @@ impl Wallet {
     ///
     /// A wallet with private keys is required.
     pub fn send(
-        &self,
+        &mut self,
         online: Online,
         recipient_map: HashMap<String, Vec<Recipient>>,
         donation: bool,
@@ -3294,7 +3302,7 @@ impl Wallet {
     ///
     /// Returns a PSBT ready to be signed.
     pub fn send_begin(
-        &self,
+        &mut self,
         online: Online,
         recipient_map: HashMap<String, Vec<Recipient>>,
         donation: bool,

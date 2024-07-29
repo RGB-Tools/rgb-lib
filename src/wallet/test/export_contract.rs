@@ -7,10 +7,10 @@ fn success() {
     initialize();
 
     // wallets
-    let (wallet, online) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_wallet!();
 
     // issue
-    let asset = test_issue_asset_nia(&wallet, &online, Some(&[AMOUNT, AMOUNT]));
+    let asset = test_issue_asset_nia(&mut wallet, &online, Some(&[AMOUNT, AMOUNT]));
 
     // export
     let bak_info_before = wallet.database.get_backup_info().unwrap();

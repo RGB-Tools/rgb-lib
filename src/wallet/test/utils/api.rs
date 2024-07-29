@@ -131,13 +131,13 @@ pub(crate) fn test_drain_to_keep(wallet: &Wallet, online: &Online, address: &str
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) fn test_fail_transfers_all(wallet: &Wallet, online: &Online) -> bool {
+pub(crate) fn test_fail_transfers_all(wallet: &mut Wallet, online: &Online) -> bool {
     wallet.fail_transfers(online.clone(), None, false).unwrap()
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_fail_transfers_single(
-    wallet: &Wallet,
+    wallet: &mut Wallet,
     online: &Online,
     batch_transfer_idx: i32,
 ) -> bool {
@@ -206,7 +206,7 @@ pub(crate) fn test_go_online_result(
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_issue_asset_uda(
-    wallet: &Wallet,
+    wallet: &mut Wallet,
     online: &Online,
     details: Option<&str>,
     media_file_path: Option<&str>,
@@ -224,7 +224,7 @@ pub(crate) fn test_issue_asset_uda(
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_issue_asset_uda_result(
-    wallet: &Wallet,
+    wallet: &mut Wallet,
     online: &Online,
     details: Option<&str>,
     media_file_path: Option<&str>,
@@ -246,7 +246,7 @@ pub(crate) fn test_issue_asset_uda_result(
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_issue_asset_cfa(
-    wallet: &Wallet,
+    wallet: &mut Wallet,
     online: &Online,
     amounts: Option<&[u64]>,
     file_path: Option<String>,
@@ -256,7 +256,7 @@ pub(crate) fn test_issue_asset_cfa(
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_issue_asset_cfa_result(
-    wallet: &Wallet,
+    wallet: &mut Wallet,
     online: &Online,
     amounts: Option<&[u64]>,
     file_path: Option<String>,
@@ -278,7 +278,7 @@ pub(crate) fn test_issue_asset_cfa_result(
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_issue_asset_nia(
-    wallet: &Wallet,
+    wallet: &mut Wallet,
     online: &Online,
     amounts: Option<&[u64]>,
 ) -> AssetNIA {
@@ -287,7 +287,7 @@ pub(crate) fn test_issue_asset_nia(
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_issue_asset_nia_result(
-    wallet: &Wallet,
+    wallet: &mut Wallet,
     online: &Online,
     amounts: Option<&[u64]>,
 ) -> Result<AssetNIA, Error> {
@@ -348,7 +348,7 @@ pub(crate) fn test_list_unspents_vanilla(
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) fn test_refresh_all(wallet: &Wallet, online: &Online) -> bool {
+pub(crate) fn test_refresh_all(wallet: &mut Wallet, online: &Online) -> bool {
     wallet
         .refresh(online.clone(), None, vec![])
         .unwrap()
@@ -356,7 +356,7 @@ pub(crate) fn test_refresh_all(wallet: &Wallet, online: &Online) -> bool {
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) fn test_refresh_asset(wallet: &Wallet, online: &Online, asset_id: &str) -> bool {
+pub(crate) fn test_refresh_asset(wallet: &mut Wallet, online: &Online, asset_id: &str) -> bool {
     wallet
         .refresh(online.clone(), Some(asset_id.to_string()), vec![])
         .unwrap()
@@ -365,9 +365,9 @@ pub(crate) fn test_refresh_asset(wallet: &Wallet, online: &Online, asset_id: &st
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_save_new_asset(
-    wallet: &Wallet,
+    wallet: &mut Wallet,
     online: &Online,
-    rcv_wallet: &Wallet,
+    rcv_wallet: &mut Wallet,
     asset_id: &String,
     amount: u64,
 ) {
@@ -396,19 +396,18 @@ pub(crate) fn test_save_new_asset(
 
     contract.bundles = none!();
     contract.terminals = none!();
-    let minimal_contract_validated = match contract.validate(
-        &mut rcv_wallet.blockchain_resolver().unwrap(),
-        rcv_wallet.testnet(),
-    ) {
-        Ok(consignment) => consignment,
-        Err(consignment) => consignment,
-    };
+    let testnet = rcv_wallet.testnet();
+    let minimal_contract_validated =
+        match contract.validate(rcv_wallet.blockchain_resolver(), testnet) {
+            Ok(consignment) => consignment,
+            Err(consignment) => consignment,
+        };
 
     let mut runtime = rcv_wallet.rgb_runtime().unwrap();
     runtime
         .import_contract(
             minimal_contract_validated.clone(),
-            &mut rcv_wallet.blockchain_resolver().unwrap(),
+            rcv_wallet.blockchain_resolver(),
         )
         .unwrap();
     drop(runtime);
@@ -425,7 +424,7 @@ pub(crate) fn test_save_new_asset(
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_send(
-    wallet: &Wallet,
+    wallet: &mut Wallet,
     online: &Online,
     recipient_map: &HashMap<String, Vec<Recipient>>,
 ) -> String {
@@ -436,7 +435,7 @@ pub(crate) fn test_send(
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_send_result(
-    wallet: &Wallet,
+    wallet: &mut Wallet,
     online: &Online,
     recipient_map: &HashMap<String, Vec<Recipient>>,
 ) -> Result<SendResult, Error> {
@@ -451,7 +450,7 @@ pub(crate) fn test_send_result(
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_send_begin_result(
-    wallet: &Wallet,
+    wallet: &mut Wallet,
     online: &Online,
     recipient_map: &HashMap<String, Vec<Recipient>>,
 ) -> Result<String, Error> {

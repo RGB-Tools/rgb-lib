@@ -10,7 +10,7 @@ fn success() {
     let blinding = 777;
 
     // wallets
-    let (wallet_send, online_send) = get_funded_noutxo_wallet!();
+    let (mut wallet_send, online_send) = get_funded_noutxo_wallet!();
     let (mut wallet_recv, _online_recv) = get_empty_wallet!();
 
     // create 1 UTXO and drain the rest
@@ -19,7 +19,7 @@ fn success() {
     test_drain_to_keep(&wallet_send, &online_send, &test_get_address(&wallet_recv));
 
     // issue
-    let asset = test_issue_asset_nia(&wallet_send, &online_send, Some(&[AMOUNT]));
+    let asset = test_issue_asset_nia(&mut wallet_send, &online_send, Some(&[AMOUNT]));
 
     // prepare PSBT
     let address = BdkAddress::from_str(&test_get_address(&wallet_recv)).unwrap();
@@ -211,15 +211,15 @@ fn save_new_asset_success() {
     let asset_amount: u64 = 66;
 
     // wallets
-    let (wallet, online) = get_funded_wallet!();
-    let (rcv_wallet, _rcv_online) = get_empty_wallet!();
+    let (mut wallet, online) = get_funded_wallet!();
+    let (mut rcv_wallet, _rcv_online) = get_empty_wallet!();
 
     // NIA
-    let nia_asset = test_issue_asset_nia(&wallet, &online, None);
+    let nia_asset = test_issue_asset_nia(&mut wallet, &online, None);
     test_save_new_asset(
-        &wallet,
+        &mut wallet,
         &online,
-        &rcv_wallet,
+        &mut rcv_wallet,
         &nia_asset.asset_id,
         asset_amount,
     );
@@ -240,11 +240,11 @@ fn save_new_asset_success() {
     assert_eq!(asset_model.schema, AssetSchema::Nia);
 
     // CFA
-    let cfa_asset = test_issue_asset_cfa(&wallet, &online, None, None);
+    let cfa_asset = test_issue_asset_cfa(&mut wallet, &online, None, None);
     test_save_new_asset(
-        &wallet,
+        &mut wallet,
         &online,
-        &rcv_wallet,
+        &mut rcv_wallet,
         &cfa_asset.asset_id,
         asset_amount,
     );
@@ -269,7 +269,7 @@ fn save_new_asset_success() {
     let file_str = "README.md";
     let image_str = ["tests", "qrcode.png"].join(&MAIN_SEPARATOR.to_string());
     let uda_asset = test_issue_asset_uda(
-        &wallet,
+        &mut wallet,
         &online,
         Some(DETAILS),
         Some(file_str),
@@ -277,9 +277,9 @@ fn save_new_asset_success() {
     );
     test_create_utxos(&wallet, &online, false, None, None, FEE_RATE);
     test_save_new_asset(
-        &wallet,
+        &mut wallet,
         &online,
-        &rcv_wallet,
+        &mut rcv_wallet,
         &uda_asset.asset_id,
         uda_amount,
     );
@@ -310,7 +310,7 @@ fn color_psbt_fail() {
     let blinding = 777;
 
     // wallets
-    let (wallet_send, online_send) = get_funded_noutxo_wallet!();
+    let (mut wallet_send, online_send) = get_funded_noutxo_wallet!();
     let (wallet_recv, _online_recv) = get_empty_wallet!();
 
     // create 1 UTXO and drain the rest
@@ -319,7 +319,7 @@ fn color_psbt_fail() {
     test_drain_to_keep(&wallet_send, &online_send, &test_get_address(&wallet_recv));
 
     // issue
-    let asset = test_issue_asset_nia(&wallet_send, &online_send, Some(&[AMOUNT]));
+    let asset = test_issue_asset_nia(&mut wallet_send, &online_send, Some(&[AMOUNT]));
 
     // prepare PSBT
     let address = BdkAddress::from_str(&test_get_address(&wallet_recv)).unwrap();
@@ -517,9 +517,9 @@ fn post_consignment_fail() {
 fn save_new_asset_fail() {
     initialize();
 
-    let (wallet, online) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_wallet!();
 
-    let asset_nia = test_issue_asset_nia(&wallet, &online, None);
+    let asset_nia = test_issue_asset_nia(&mut wallet, &online, None);
     let asset_nia_cid = ContractId::from_str(&asset_nia.asset_id).unwrap();
     let result = wallet.save_new_asset(&AssetSchema::Cfa, asset_nia_cid, None);
     assert!(matches!(result, Err(Error::AssetIfaceMismatch)));

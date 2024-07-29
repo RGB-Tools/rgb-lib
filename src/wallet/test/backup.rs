@@ -12,13 +12,13 @@ fn success() {
     let password = "password";
 
     // wallets
-    let (wallet, online) = get_funded_wallet!();
-    let (rcv_wallet, rcv_online) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_wallet!();
+    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
     let mut wallet_data = wallet.wallet_data.clone();
     let wallet_dir = wallet.wallet_dir.clone();
 
     // issue
-    let asset = test_issue_asset_nia(&wallet, &online, None);
+    let asset = test_issue_asset_nia(&mut wallet, &online, None);
 
     // send
     let receive_data = test_blind_receive(&rcv_wallet);
@@ -31,15 +31,15 @@ fn success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&wallet, &online, &recipient_map);
+    let txid = test_send(&mut wallet, &online, &recipient_map);
     assert!(!txid.is_empty());
     // take transfers from WaitingCounterparty to Settled
     stop_mining();
-    test_refresh_all(&rcv_wallet, &rcv_online);
-    test_refresh_asset(&wallet, &online, &asset.asset_id);
+    test_refresh_all(&mut rcv_wallet, &rcv_online);
+    test_refresh_asset(&mut wallet, &online, &asset.asset_id);
     mine(true);
-    test_refresh_asset(&rcv_wallet, &rcv_online, &asset.asset_id);
-    test_refresh_asset(&wallet, &online, &asset.asset_id);
+    test_refresh_asset(&mut rcv_wallet, &rcv_online, &asset.asset_id);
+    test_refresh_asset(&mut wallet, &online, &asset.asset_id);
 
     // pre-backup wallet data
     check_test_wallet_data(&wallet, &asset, None, 1, amount);
@@ -88,19 +88,19 @@ fn success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&wallet, &online, &recipient_map);
+    let txid = test_send(&mut wallet, &online, &recipient_map);
     assert!(!txid.is_empty());
     // take transfers from WaitingCounterparty to Settled
     stop_mining();
-    test_refresh_all(&rcv_wallet, &rcv_online);
-    test_refresh_asset(&wallet, &online, &asset.asset_id);
+    test_refresh_all(&mut rcv_wallet, &rcv_online);
+    test_refresh_asset(&mut wallet, &online, &asset.asset_id);
     mine(true);
-    test_refresh_asset(&rcv_wallet, &rcv_online, &asset.asset_id);
-    test_refresh_asset(&wallet, &online, &asset.asset_id);
+    test_refresh_asset(&mut rcv_wallet, &rcv_online, &asset.asset_id);
+    test_refresh_asset(&mut wallet, &online, &asset.asset_id);
     check_test_wallet_data(&wallet, &asset, None, 2, amount * 2);
 
     // issue a second asset with the restored wallet
-    let _asset = test_issue_asset_nia(&wallet, &online, None);
+    let _asset = test_issue_asset_nia(&mut wallet, &online, None);
 
     // cleanup
     std::fs::remove_file(backup_file).unwrap_or_default();
@@ -145,9 +145,9 @@ fn double_restore() {
     let password_2 = "password2";
 
     // wallets
-    let (wallet_1, online_1) = get_funded_wallet!();
-    let (wallet_2, online_2) = get_funded_wallet!();
-    let (rcv_wallet, rcv_online) = get_funded_wallet!();
+    let (mut wallet_1, online_1) = get_funded_wallet!();
+    let (mut wallet_2, online_2) = get_funded_wallet!();
+    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
     let mut wallet_1_data = wallet_1.wallet_data.clone();
     let mut wallet_2_data = wallet_2.wallet_data.clone();
     let wallet_1_dir = wallet_1.wallet_dir.clone();
@@ -155,8 +155,8 @@ fn double_restore() {
     let asset_2_supply = AMOUNT * 2;
 
     // issue
-    let asset_1 = test_issue_asset_nia(&wallet_1, &online_1, None);
-    let asset_2 = test_issue_asset_nia(&wallet_2, &online_2, Some(&[asset_2_supply]));
+    let asset_1 = test_issue_asset_nia(&mut wallet_1, &online_1, None);
+    let asset_2 = test_issue_asset_nia(&mut wallet_2, &online_2, Some(&[asset_2_supply]));
 
     // send
     let receive_data_1 = test_blind_receive(&rcv_wallet);
@@ -179,19 +179,19 @@ fn double_restore() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid_1 = test_send(&wallet_1, &online_1, &recipient_map_1);
-    let txid_2 = test_send(&wallet_2, &online_2, &recipient_map_2);
+    let txid_1 = test_send(&mut wallet_1, &online_1, &recipient_map_1);
+    let txid_2 = test_send(&mut wallet_2, &online_2, &recipient_map_2);
     assert!(!txid_1.is_empty());
     assert!(!txid_2.is_empty());
     // take transfers from WaitingCounterparty to Settled
     stop_mining();
-    test_refresh_all(&rcv_wallet, &rcv_online);
-    test_refresh_asset(&wallet_1, &online_1, &asset_1.asset_id);
-    test_refresh_asset(&wallet_2, &online_2, &asset_2.asset_id);
+    test_refresh_all(&mut rcv_wallet, &rcv_online);
+    test_refresh_asset(&mut wallet_1, &online_1, &asset_1.asset_id);
+    test_refresh_asset(&mut wallet_2, &online_2, &asset_2.asset_id);
     mine(true);
-    test_refresh_asset(&rcv_wallet, &rcv_online, &asset_1.asset_id);
-    test_refresh_asset(&wallet_1, &online_1, &asset_1.asset_id);
-    test_refresh_asset(&wallet_2, &online_2, &asset_2.asset_id);
+    test_refresh_asset(&mut rcv_wallet, &rcv_online, &asset_1.asset_id);
+    test_refresh_asset(&mut wallet_1, &online_1, &asset_1.asset_id);
+    test_refresh_asset(&mut wallet_2, &online_2, &asset_2.asset_id);
 
     // pre-backup wallet data
     check_test_wallet_data(&wallet_1, &asset_1, None, 1, amount);
@@ -238,8 +238,8 @@ fn double_restore() {
     check_test_wallet_data(&wallet_2, &asset_2, Some(asset_2_supply), 1, amount * 2);
 
     // issue a second asset with the restored wallets
-    test_issue_asset_nia(&wallet_1, &online_1, None);
-    test_issue_asset_nia(&wallet_2, &online_2, None);
+    test_issue_asset_nia(&mut wallet_1, &online_1, None);
+    test_issue_asset_nia(&mut wallet_2, &online_2, None);
 
     // cleanup
     std::fs::remove_file(backup_file_1).unwrap_or_default();

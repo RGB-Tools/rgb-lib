@@ -42,8 +42,8 @@ fn up_to_allocation_checks() {
     let amount = 66;
 
     // wallets
-    let (wallet, online) = get_funded_noutxo_wallet!();
-    let (rcv_wallet, rcv_online) = get_empty_wallet!();
+    let (mut wallet, online) = get_funded_noutxo_wallet!();
+    let (mut rcv_wallet, rcv_online) = get_empty_wallet!();
 
     // MAX_ALLOCATIONS_PER_UTXO failed allocations
     //  - check unspent counted as allocatable
@@ -63,7 +63,7 @@ fn up_to_allocation_checks() {
     assert_eq!(txo_list.len(), 1);
     for batch_transfer_idx in batch_transfer_idxs {
         assert!(test_fail_transfers_single(
-            &wallet,
+            &mut wallet,
             &online,
             batch_transfer_idx
         ));
@@ -98,7 +98,7 @@ fn up_to_allocation_checks() {
 
     if MAX_ALLOCATIONS_PER_UTXO > 2 {
         // new wallet
-        let (wallet, online) = get_funded_noutxo_wallet!();
+        let (mut wallet, online) = get_funded_noutxo_wallet!();
         fund_wallet(test_get_address(&rcv_wallet));
 
         let num_utxos_created = test_create_utxos(&wallet, &online, true, Some(1), None, FEE_RATE);
@@ -107,7 +107,7 @@ fn up_to_allocation_checks() {
             test_create_utxos(&rcv_wallet, &rcv_online, true, Some(1), None, FEE_RATE);
         assert_eq!(num_utxos_created, 1);
         // issue
-        let asset = test_issue_asset_nia(&wallet, &online, None);
+        let asset = test_issue_asset_nia(&mut wallet, &online, None);
         // send
         let receive_data = test_blind_receive(&rcv_wallet);
         let recipient_map = HashMap::from([(
@@ -119,7 +119,7 @@ fn up_to_allocation_checks() {
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             }],
         )]);
-        let txid = test_send(&wallet, &online, &recipient_map);
+        let txid = test_send(&mut wallet, &online, &recipient_map);
         assert!(!txid.is_empty());
 
         // - wait counterparty
@@ -134,8 +134,8 @@ fn up_to_allocation_checks() {
 
         // - wait confirmations
         stop_mining();
-        test_refresh_all(&rcv_wallet, &rcv_online);
-        test_refresh_asset(&wallet, &online, &asset.asset_id);
+        test_refresh_all(&mut rcv_wallet, &rcv_online);
+        test_refresh_asset(&mut wallet, &online, &asset.asset_id);
         // UTXO 1 now spent, UTXO 2 (RGB+BTC change) has at least 1 free allocation, UTXO 3 is empty
         show_unspent_colorings(&wallet, "sender after send - WaitingConfirmations");
         let result = wallet.create_utxos(online.clone(), true, Some(2), None, FEE_RATE);
@@ -147,8 +147,8 @@ fn up_to_allocation_checks() {
 
         // - settled
         mine(true);
-        test_refresh_all(&rcv_wallet, &rcv_online);
-        test_refresh_asset(&wallet, &online, &asset.asset_id);
+        test_refresh_all(&mut rcv_wallet, &rcv_online);
+        test_refresh_asset(&mut wallet, &online, &asset.asset_id);
         // UTXO 1 now spent, UTXO 2 (RGB+BTC change) has at least 1 free allocation, UTXO 3 is empty
         show_unspent_colorings(&wallet, "sender after send - Settled");
         let num_utxos_created = test_create_utxos(&wallet, &online, true, Some(3), None, FEE_RATE);

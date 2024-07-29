@@ -6,7 +6,7 @@ use super::*;
 fn success() {
     initialize();
 
-    let (wallet, online) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_wallet!();
 
     // return false if no transfer has changed
     let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
@@ -19,7 +19,7 @@ fn success() {
 
     // delete single transfer
     let receive_data = test_blind_receive(&wallet);
-    test_fail_transfers_single(&wallet, &online, receive_data.batch_transfer_idx);
+    test_fail_transfers_single(&mut wallet, &online, receive_data.batch_transfer_idx);
     assert!(check_test_transfer_status_recipient(
         &wallet,
         &receive_data.recipient_id,
@@ -38,8 +38,8 @@ fn success() {
     let receive_data_1 = test_blind_receive(&wallet);
     let receive_data_2 = test_blind_receive(&wallet);
     let receive_data_3 = test_blind_receive(&wallet);
-    test_fail_transfers_single(&wallet, &online, receive_data_1.batch_transfer_idx);
-    test_fail_transfers_single(&wallet, &online, receive_data_2.batch_transfer_idx);
+    test_fail_transfers_single(&mut wallet, &online, receive_data_1.batch_transfer_idx);
+    test_fail_transfers_single(&mut wallet, &online, receive_data_2.batch_transfer_idx);
     assert!(check_test_transfer_status_recipient(
         &wallet,
         &receive_data_1.recipient_id,
@@ -63,7 +63,7 @@ fn success() {
 
     // fail and delete remaining pending transfers
     assert!(test_fail_transfers_single(
-        &wallet,
+        &mut wallet,
         &online,
         receive_data_3.batch_transfer_idx
     ));
@@ -76,7 +76,7 @@ fn success() {
     assert_eq!(transfers.len(), 0);
 
     // issue
-    let asset = test_issue_asset_nia(&wallet, &online, None);
+    let asset = test_issue_asset_nia(&mut wallet, &online, None);
 
     // don't delete failed transfer with asset_id if no_asset_only is true
     let receive_data_1 = test_blind_receive(&wallet);
@@ -90,12 +90,12 @@ fn success() {
         )
         .unwrap();
     assert!(test_fail_transfers_single(
-        &wallet,
+        &mut wallet,
         &online,
         receive_data_1.batch_transfer_idx
     ));
     assert!(test_fail_transfers_single(
-        &wallet,
+        &mut wallet,
         &online,
         receive_data_2.batch_transfer_idx
     ));
@@ -129,12 +129,12 @@ fn batch_success() {
 
     let amount = 66;
 
-    let (wallet, online) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_wallet!();
     let (rcv_wallet_1, _rcv_online_1) = get_funded_wallet!();
     let (rcv_wallet_2, _rcv_online_2) = get_funded_wallet!();
 
     // issue
-    let asset = test_issue_asset_nia(&wallet, &online, None);
+    let asset = test_issue_asset_nia(&mut wallet, &online, None);
     let asset_id = asset.asset_id;
 
     // failed transfer can be deleted
@@ -157,9 +157,9 @@ fn batch_success() {
             },
         ],
     )]);
-    let send_result = test_send_result(&wallet, &online, &recipient_map).unwrap();
+    let send_result = test_send_result(&mut wallet, &online, &recipient_map).unwrap();
     assert!(!send_result.txid.is_empty());
-    test_fail_transfers_single(&wallet, &online, send_result.batch_transfer_idx);
+    test_fail_transfers_single(&mut wallet, &online, send_result.batch_transfer_idx);
     test_delete_transfers(&wallet, Some(send_result.batch_transfer_idx), false);
 }
 
@@ -169,7 +169,7 @@ fn batch_success() {
 fn fail() {
     initialize();
 
-    let (wallet, online) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_wallet!();
 
     let receive_data = test_blind_receive(&wallet);
 
@@ -191,7 +191,7 @@ fn fail() {
     ));
 
     // issue
-    let asset = test_issue_asset_nia(&wallet, &online, None);
+    let asset = test_issue_asset_nia(&mut wallet, &online, None);
     show_unspent_colorings(&wallet, "after issuance");
 
     // don't delete failed transfer with asset_id if no_asset_only is true
@@ -204,7 +204,7 @@ fn fail() {
             MIN_CONFIRMATIONS,
         )
         .unwrap();
-    test_fail_transfers_all(&wallet, &online);
+    test_fail_transfers_all(&mut wallet, &online);
     let result = test_delete_transfers_result(&wallet, Some(receive_data.batch_transfer_idx), true);
     assert!(matches!(result, Err(Error::CannotDeleteBatchTransfer)));
 }

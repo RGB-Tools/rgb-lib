@@ -9,8 +9,8 @@ fn success() {
     let amount: u64 = 66;
 
     stop_mining();
-    let (wallet, online) = get_funded_wallet!();
-    let (rcv_wallet, rcv_online) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_wallet!();
+    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
 
     // don't sync wallet without online
     let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
@@ -48,7 +48,7 @@ fn success() {
         .iter()
         .all(|t| t.confirmation_time.is_some()));
 
-    let asset = test_issue_asset_nia(&wallet, &online, None);
+    let asset = test_issue_asset_nia(&mut wallet, &online, None);
     let receive_data = test_witness_receive(&rcv_wallet);
     let recipient_map = HashMap::from([(
         asset.asset_id,
@@ -62,12 +62,12 @@ fn success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    test_send(&wallet, &online, &recipient_map);
+    test_send(&mut wallet, &online, &recipient_map);
     // settle the transfer so the tx gets broadcasted and receiver sees the new UTXO
-    test_refresh_all(&rcv_wallet, &rcv_online);
+    test_refresh_all(&mut rcv_wallet, &rcv_online);
     wallet.refresh(online.clone(), None, vec![]).unwrap();
     mine(false);
-    test_refresh_all(&rcv_wallet, &rcv_online);
+    test_refresh_all(&mut rcv_wallet, &rcv_online);
     wallet.refresh(online.clone(), None, vec![]).unwrap();
     let transactions = test_list_transactions(&wallet, Some(&online));
     let rcv_transactions = test_list_transactions(&rcv_wallet, Some(&rcv_online));

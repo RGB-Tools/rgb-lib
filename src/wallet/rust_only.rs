@@ -279,9 +279,10 @@ impl Wallet {
         let seal = XChain::with(Layer1::Bitcoin, graph_seal);
         runtime.store_seal_secret(seal)?;
 
+        let testnet = self.testnet();
         let validated_transfer = match consignment
             .clone()
-            .validate(&mut self.blockchain_resolver()?, self.testnet())
+            .validate(self.blockchain_resolver(), testnet)
         {
             Ok(consignment) => consignment,
             Err(consignment) => consignment,
@@ -302,19 +303,19 @@ impl Wallet {
         minimal_contract.bundles = none!();
         minimal_contract.terminals = none!();
         let minimal_contract_validated =
-            match minimal_contract.validate(&mut self.blockchain_resolver()?, self.testnet()) {
+            match minimal_contract.validate(self.blockchain_resolver(), testnet) {
                 Ok(consignment) => consignment,
                 Err(consignment) => consignment,
             };
         runtime
-            .import_contract(minimal_contract_validated, &mut self.blockchain_resolver()?)
+            .import_contract(minimal_contract_validated, self.blockchain_resolver())
             .expect("failure importing validated contract");
 
         let (remote_rgb_amount, _not_opret) =
             self.extract_received_amount(&validated_transfer, txid, Some(vout), None);
 
         let _status =
-            runtime.accept_transfer(validated_transfer, &mut self.blockchain_resolver()?, force)?;
+            runtime.accept_transfer(validated_transfer, self.blockchain_resolver(), force)?;
 
         info!(self.logger, "Accept transfer completed");
         Ok((consignment, remote_rgb_amount))
