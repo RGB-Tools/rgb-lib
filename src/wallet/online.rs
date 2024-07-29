@@ -1299,7 +1299,11 @@ impl Wallet {
         original_file_path: P,
         media: &Media,
     ) -> Result<i32, Error> {
-        fs::copy(original_file_path, media.clone().file_path)?;
+        let src = original_file_path.as_ref().to_string_lossy().to_string();
+        let dst = media.clone().file_path;
+        if src != dst {
+            fs::copy(src, dst)?;
+        }
         self.get_or_insert_media(media.get_digest(), media.mime.clone())
     }
 
