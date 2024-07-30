@@ -241,7 +241,7 @@ use tempfile::TempDir;
 use time::OffsetDateTime;
 use typenum::consts::U32;
 use walkdir::WalkDir;
-use zip::write::FileOptions;
+use zip::write::SimpleFileOptions;
 
 #[cfg(feature = "electrum")]
 use crate::utils::get_valid_txid_for_network;

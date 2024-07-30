@@ -17,7 +17,7 @@ exclude = ["migration"]
 members = [".", "migration"]
 
 [dependencies]
-base64 = { version = "0.22.0", default-features = false, features = [
+base64 = { version = "0.22.1", default-features = false, features = [
     "std",
 ] }
 bdk = { version = "0.29", default-features = false, features = [
@@ -67,11 +67,11 @@ slog-async = { version = "2.8.0", default-features = false }
 slog-term = { version = "2.9.1", default-features = false }
 tempfile = { version = "3.10.1", default-features = false }
 thiserror = { version = "1.0", default-features = false }
-time = { version = "0.3.34", default-features = false }
+time = { version = "0.3.36", default-features = false }
 tree_magic_mini = { version = "3.1.5", default-features = false }
 typenum = { version = "1.17.0", default-features = false }
 walkdir = { version = "2.5.0", default-features = false }
-zip = { version = "0.6.6", default-features = false, features = [
+zip = { version = "2.1.5", default-features = false, features = [
     "zstd",
 ] }
 
@@ -103,10 +103,10 @@ strict_types = { version = "=2.7.0-beta.2", default-features = false }
 [dev-dependencies]
 copy_dir = { version = "0.1.3", default-features = false }
 dircmp = { version = "0.2.0", default-features = false }
-lazy_static = { version = "1.4.0", default-features = false }
+lazy_static = { version = "1.5.0", default-features = false }
 once_cell = { version = "1.19.0", default-features = false }
-regex = { version = "1.10.4", default-features = false }
-serial_test = { version = "3.0.0", default-features = false }
+regex = { version = "1.10.5", default-features = false }
+serial_test = { version = "3.1.1", default-features = false }
 
 [features]
 default = ["electrum"]

@@ -296,7 +296,7 @@ fn _zip_dir(
     // setup
     let writer = fs::File::create(path_out)?;
     let mut zip = zip::ZipWriter::new(writer);
-    let options = FileOptions::default().compression_method(zip::CompressionMethod::Zstd);
+    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Zstd);
     let mut buffer = [0u8; 4096];
 
     // archive
