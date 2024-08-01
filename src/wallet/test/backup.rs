@@ -58,17 +58,17 @@ fn success() {
 
     // restore
     println!("\nrestoring...");
-    restore_backup(backup_file, password, &get_restore_dir_string()).unwrap();
+    let target_dir_path = get_restore_dir_path(Some("success"));
+    let target_dir = target_dir_path.to_str().unwrap();
+    restore_backup(backup_file, password, target_dir).unwrap();
 
     // check original and restored data are the same
     println!("\ncomparing data...");
-    let restore_wallet_dir = PathBuf::from_str(&get_restore_dir_string())
-        .unwrap()
-        .join(wallet_dir.file_name().unwrap());
+    let restore_wallet_dir = target_dir_path.join(wallet_dir.file_name().unwrap());
     compare_test_directories(&wallet_dir, &restore_wallet_dir, &["log"]);
 
     // post-restore wallet data
-    wallet_data.data_dir = get_restore_dir_string();
+    wallet_data.data_dir = target_dir.to_string();
     let mut wallet = Wallet::new(wallet_data).unwrap();
     let online = test_go_online(&mut wallet, true, None);
     check_test_wallet_data(&wallet, &asset, None, 1, amount);
@@ -103,7 +103,7 @@ fn success() {
     let _asset = test_issue_asset_nia(&mut wallet, &online, None);
 
     // cleanup
-    std::fs::remove_file(backup_file).unwrap_or_default();
+    std::fs::remove_file(backup_file).unwrap();
 }
 
 #[test]
@@ -123,11 +123,63 @@ fn fail() {
     let result = wallet.backup(backup_file, "password");
     assert!(matches!(result, Err(Error::FileAlreadyExists { path: _ })));
 
+    // restore on existing wallet directory
+    let wallet_dir = wallet.get_wallet_dir();
+    let target_dir = wallet_dir.parent().unwrap();
+    let result = restore_backup(backup_file, "password", target_dir.to_str().unwrap());
+    assert!(
+        matches!(result, Err(Error::WalletDirAlreadyExists { path: td }) if td == wallet_dir.to_str().unwrap())
+    );
+
     // restore with wrong password
-    let result = restore_backup(backup_file, "wrong password", &get_restore_dir_string());
+    let target_dir_path = get_restore_dir_path(Some("wrong_password"));
+    let target_dir = target_dir_path.to_str().unwrap();
+    let result = restore_backup(backup_file, "wrong password", target_dir);
     assert!(matches!(result, Err(Error::WrongPassword)));
 
-    std::fs::remove_file(backup_file).unwrap_or_default();
+    // restore with wrong version
+    let target_dir_path = get_restore_dir_path(Some("wrong_version"));
+    let target_dir = target_dir_path.to_str().unwrap();
+    let backup_parent = backup_file_path.parent().unwrap().to_path_buf();
+    let files = get_backup_paths(&backup_parent).unwrap();
+    std::fs::create_dir_all(target_dir).unwrap();
+    let (logger, _logger_guard) =
+        setup_logger(Path::new(&target_dir), Some("restore_bad_version")).unwrap();
+    unzip(
+        &backup_file_path,
+        &PathBuf::from(files.tempdir.path()),
+        &logger,
+    )
+    .unwrap();
+    let json_pub_data = fs::read_to_string(&files.backup_pub_data).unwrap();
+    let mut backup_pub_data: BackupPubData = serde_json::from_str(json_pub_data.as_str())
+        .map_err(InternalError::from)
+        .unwrap();
+    let wrong_ver = 0;
+    backup_pub_data.version = wrong_ver;
+    fs::write(
+        &files.backup_pub_data,
+        serde_json::to_string(&backup_pub_data).unwrap(),
+    )
+    .unwrap();
+    let backup_file_wrong_ver_path =
+        get_test_data_dir_path().join("test_backup_fail.rgb-lib_backup.wrong_ver");
+    let backup_file_wrong_ver = backup_file_wrong_ver_path.to_str().unwrap();
+    zip_dir(
+        &PathBuf::from(files.tempdir.path()),
+        &PathBuf::from(backup_file_wrong_ver),
+        false,
+        &logger,
+    )
+    .unwrap();
+    let result = restore_backup(backup_file_wrong_ver, "password", target_dir);
+    assert!(
+        matches!(result, Err(Error::UnsupportedBackupVersion { version: v }) if v == wrong_ver.to_string())
+    );
+    std::fs::remove_file(backup_file_wrong_ver).unwrap();
+
+    // cleanup
+    std::fs::remove_file(backup_file).unwrap();
 }
 
 #[cfg(feature = "electrum")]
@@ -217,19 +269,23 @@ fn double_restore() {
 
     // restore
     println!("\nrestoring...");
-    restore_backup(backup_file_1, password_1, &get_restore_dir_string()).unwrap();
-    restore_backup(backup_file_2, password_2, &get_restore_dir_string()).unwrap();
+    let target_dir_path_1 = get_restore_dir_path(Some("double_1"));
+    let target_dir_path_2 = get_restore_dir_path(Some("double_2"));
+    let target_dir_1 = target_dir_path_1.to_str().unwrap();
+    let target_dir_2 = target_dir_path_2.to_str().unwrap();
+    restore_backup(backup_file_1, password_1, target_dir_1).unwrap();
+    restore_backup(backup_file_2, password_2, target_dir_2).unwrap();
 
     // check original and restored data are the same
     println!("\ncomparing data for wallet 1...");
-    let restore_wallet_1_dir = get_restore_dir_path().join(wallet_1_dir.file_name().unwrap());
+    let restore_wallet_1_dir = target_dir_path_1.join(wallet_1_dir.file_name().unwrap());
     compare_test_directories(&wallet_1_dir, &restore_wallet_1_dir, &["log"]);
-    let restore_wallet_2_dir = get_restore_dir_path().join(wallet_2_dir.file_name().unwrap());
+    let restore_wallet_2_dir = target_dir_path_2.join(wallet_2_dir.file_name().unwrap());
     compare_test_directories(&wallet_2_dir, &restore_wallet_2_dir, &["log"]);
 
     // post-restore wallet data
-    wallet_1_data.data_dir = get_restore_dir_string();
-    wallet_2_data.data_dir = get_restore_dir_string();
+    wallet_1_data.data_dir = target_dir_1.to_string();
+    wallet_2_data.data_dir = target_dir_2.to_string();
     let mut wallet_1 = Wallet::new(wallet_1_data).unwrap();
     let mut wallet_2 = Wallet::new(wallet_2_data).unwrap();
     let online_1 = test_go_online(&mut wallet_1, true, None);

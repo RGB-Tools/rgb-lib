@@ -3421,7 +3421,7 @@ fn witness_success() {
             },
         ],
     )]);
-    _test_create_utxos(&wallet, &online, false, None, None, FEE_RATE);
+    test_create_utxos(&wallet, &online, false, None, None, FEE_RATE);
     let txid = test_send(&mut wallet, &online, &recipient_map);
     assert!(!txid.is_empty());
 
@@ -3581,7 +3581,7 @@ fn witness_multiple_assets_success() {
             ],
         ),
     ]);
-    _test_create_utxos(&wallet, &online, false, None, None, FEE_RATE);
+    test_create_utxos(&wallet, &online, false, None, None, FEE_RATE);
     let txid = test_send(&mut wallet, &online, &recipient_map);
     assert!(!txid.is_empty());
 
@@ -4493,7 +4493,7 @@ fn spend_witness_receive_utxo() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    _test_create_utxos(&wallet_2, &online_2, false, Some(2), None, FEE_RATE);
+    test_create_utxos(&wallet_2, &online_2, false, Some(2), None, FEE_RATE);
     let result = test_send_result(&mut wallet_2, &online_2, &recipient_map_2);
     assert!(
         matches!(result, Err(Error::InsufficientSpendableAssets { asset_id: ref id })

@@ -12,8 +12,12 @@ pub(crate) fn get_test_data_dir_string() -> String {
     join_with_sep(&TEST_DATA_DIR_PARTS)
 }
 
-pub(crate) fn get_restore_dir_path() -> PathBuf {
-    PathBuf::from(get_restore_dir_string())
+pub(crate) fn get_restore_dir_path<P: AsRef<Path>>(last: Option<P>) -> PathBuf {
+    let mut path = PathBuf::from(get_restore_dir_string());
+    if let Some(l) = last {
+        path = path.join(l);
+    }
+    path
 }
 
 pub(crate) fn get_test_data_dir_path() -> PathBuf {

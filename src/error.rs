@@ -395,6 +395,13 @@ pub enum Error {
     #[error("Transport type is not supported")]
     UnsupportedTransportType,
 
+    /// The specified wallet directory already exists
+    #[error("The specified wallet directory already exists: {path}")]
+    WalletDirAlreadyExists {
+        /// The directory path
+        path: String,
+    },
+
     /// The requested operation cannot be processed by a watch-only wallet
     #[error("Operation not allowed on watch only wallet")]
     WatchOnly,

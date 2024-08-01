@@ -6,14 +6,14 @@ const BACKUP_KEY_LENGTH: usize = 32;
 const BACKUP_NONCE_LENGTH: usize = 19;
 const BACKUP_VERSION: u8 = 1;
 
-struct BackupPaths {
+pub(crate) struct BackupPaths {
     encrypted: PathBuf,
-    backup_pub_data: PathBuf,
-    tempdir: TempDir,
+    pub(crate) backup_pub_data: PathBuf,
+    pub(crate) tempdir: TempDir,
     zip: PathBuf,
 }
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub(crate) struct ScryptParams {
     log_n: u8,
     r: u32,
@@ -52,12 +52,12 @@ impl TryInto<Params> for ScryptParams {
     }
 }
 
-#[derive(Deserialize, Serialize)]
-struct BackupPubData {
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct BackupPubData {
     scrypt_params: ScryptParams,
     salt: String,
     nonce: String,
-    version: u8,
+    pub(crate) version: u8,
 }
 
 impl BackupPubData {
@@ -120,7 +120,7 @@ impl Wallet {
             })?;
         }
         let tmp_base_path = _get_parent_path(&backup_file)?;
-        let files = _get_backup_paths(&tmp_base_path)?;
+        let files = get_backup_paths(&tmp_base_path)?;
         let scrypt_params = scrypt_params.unwrap_or_default();
         let mut rng = rand::thread_rng();
         let salt = SaltString::generate(&mut rng);
@@ -144,7 +144,7 @@ impl Wallet {
             self.logger,
             "\nzipping {:?} to {:?}", &self.wallet_dir, &files.zip
         );
-        _zip_dir(&self.wallet_dir, &files.zip, true, &self.logger)?;
+        zip_dir(&self.wallet_dir, &files.zip, true, &self.logger)?;
 
         // encrypt the backup file
         debug!(
@@ -162,7 +162,7 @@ impl Wallet {
             self.logger,
             "\nzipping {:?} to {:?}", &files.tempdir, &backup_file
         );
-        _zip_dir(
+        zip_dir(
             &PathBuf::from(files.tempdir.path()),
             &backup_file,
             false,
@@ -229,12 +229,12 @@ pub fn restore_backup(backup_path: &str, password: &str, target_dir: &str) -> Re
     info!(logger, "starting restore...");
     let backup_file = PathBuf::from(backup_path);
     let tmp_base_path = _get_parent_path(&backup_file)?;
-    let files = _get_backup_paths(&tmp_base_path)?;
+    let files = get_backup_paths(&tmp_base_path)?;
     let target_dir_path = PathBuf::from(&target_dir);
 
     // unpack given zip file and retrieve backup data
     info!(logger, "unzipping {:?}", backup_file);
-    _unzip(&backup_file, &PathBuf::from(files.tempdir.path()), &logger)?;
+    unzip(&backup_file, &PathBuf::from(files.tempdir.path()), &logger)?;
     let json_pub_data = fs::read_to_string(files.backup_pub_data)?;
     debug!(logger, "using retrieved backup_pub_data: {}", json_pub_data);
     let backup_pub_data: BackupPubData =
@@ -247,23 +247,34 @@ pub fn restore_backup(backup_path: &str, password: &str, target_dir: &str) -> Re
         });
     }
 
-    // decrypt backup and restore files
+    // decrypt backup
     info!(
         logger.clone(),
         "decrypting {:?} to {:?}", files.encrypted, files.zip
     );
     _decrypt_file(&files.encrypted, &files.zip, password, &backup_pub_data)?;
+
+    // check the target wallet directory doesn't already exist
+    let fingerprint = _get_fingerprint_from_zip(&files.zip)?;
+    let wallet_dir = target_dir_path.join(fingerprint);
+    if wallet_dir.exists() {
+        return Err(Error::WalletDirAlreadyExists {
+            path: wallet_dir.to_string_lossy().to_string(),
+        });
+    }
+
+    // restore files
     info!(
         logger.clone(),
         "unzipping {:?} to {:?}", &files.zip, &target_dir_path
     );
-    _unzip(&files.zip, &target_dir_path, &logger)?;
+    unzip(&files.zip, &target_dir_path, &logger)?;
 
     info!(logger, "restore completed");
     Ok(())
 }
 
-fn _get_backup_paths(tmp_base_path: &Path) -> Result<BackupPaths, Error> {
+pub(crate) fn get_backup_paths(tmp_base_path: &Path) -> Result<BackupPaths, Error> {
     fs::create_dir_all(tmp_base_path)?;
     let tempdir = tempfile::tempdir_in(tmp_base_path)?;
     let encrypted = tempdir.path().join("backup.enc");
@@ -287,7 +298,7 @@ fn _get_parent_path(file: &Path) -> Result<PathBuf, Error> {
     }
 }
 
-fn _zip_dir(
+pub(crate) fn zip_dir(
     path_in: &PathBuf,
     path_out: &PathBuf,
     keep_last_path_component: bool,
@@ -347,12 +358,19 @@ fn _zip_dir(
     Ok(())
 }
 
-fn _unzip(zip_path: &PathBuf, path_out: &Path, logger: &Logger) -> Result<(), Error> {
-    // setup
+fn _get_zip_archive(zip_path: &PathBuf) -> Result<zip::ZipArchive<std::fs::File>, Error> {
     let file = fs::File::open(zip_path).map_err(InternalError::from)?;
-    let mut archive = zip::ZipArchive::new(file).map_err(InternalError::from)?;
+    Ok(zip::ZipArchive::new(file).map_err(InternalError::from)?)
+}
 
-    // extract
+fn _get_fingerprint_from_zip(zip_path: &PathBuf) -> Result<String, Error> {
+    let archive = _get_zip_archive(zip_path)?;
+    let fingerprint = archive.name_for_index(0).unwrap_or_default();
+    Ok(fingerprint.to_string().replace("/", ""))
+}
+
+pub(crate) fn unzip(zip_path: &PathBuf, path_out: &Path, logger: &Logger) -> Result<(), Error> {
+    let mut archive = _get_zip_archive(zip_path)?;
     for i in 0..archive.len() {
         let mut file = archive.by_index(i).map_err(InternalError::from)?;
         let outpath = match file.enclosed_name() {

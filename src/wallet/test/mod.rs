@@ -24,7 +24,7 @@ use crate::{
         RGB_RUNTIME_DIR,
     },
     wallet::{
-        backup::ScryptParams,
+        backup::{get_backup_paths, unzip, zip_dir, BackupPubData, ScryptParams},
         rust_only::{AssetColoringInfo, ColoringInfo},
         test::utils::{api::*, chain::*, helpers::*},
     },

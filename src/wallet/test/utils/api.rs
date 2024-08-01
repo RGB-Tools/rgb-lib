@@ -28,7 +28,7 @@ pub(crate) fn test_witness_receive(wallet: &Wallet) -> ReceiveData {
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_create_utxos_default(wallet: &Wallet, online: &Online) -> u8 {
-    _test_create_utxos(wallet, online, false, None, None, FEE_RATE)
+    test_create_utxos(wallet, online, false, None, None, FEE_RATE)
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -40,7 +40,9 @@ pub(crate) fn test_create_utxos(
     size: Option<u32>,
     fee_rate: f32,
 ) -> u8 {
-    _test_create_utxos(wallet, online, up_to, num, size, fee_rate)
+    wallet
+        .create_utxos(online.clone(), up_to, num, size, fee_rate)
+        .unwrap()
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -53,20 +55,6 @@ pub(crate) fn test_create_utxos_begin_result(
     fee_rate: f32,
 ) -> Result<String, Error> {
     wallet.create_utxos_begin(online.clone(), up_to, num, size, fee_rate)
-}
-
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) fn _test_create_utxos(
-    wallet: &Wallet,
-    online: &Online,
-    up_to: bool,
-    num: Option<u8>,
-    size: Option<u32>,
-    fee_rate: f32,
-) -> u8 {
-    wallet
-        .create_utxos(online.clone(), up_to, num, size, fee_rate)
-        .unwrap()
 }
 
 pub(crate) fn test_delete_transfers(
