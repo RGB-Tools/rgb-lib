@@ -1,15 +1,15 @@
 services:
   bitcoind:
-    image: registry.gitlab.com/hashbeam/docker/bitcoind:25.0
+    image: registry.gitlab.com/hashbeam/docker/bitcoind:27.1
     command: "-fallbackfee=0.0002"
   electrs:
-    image: registry.gitlab.com/hashbeam/docker/electrs:0.9.14
+    image: registry.gitlab.com/hashbeam/docker/electrs:0.10.0
     ports:
       - 50001:50001
     depends_on:
       - bitcoind
   electrs-2:
-    image: registry.gitlab.com/hashbeam/docker/electrs:0.9.14
+    image: registry.gitlab.com/hashbeam/docker/electrs:0.10.0
     ports:
       - 50002:50001
     depends_on:
