@@ -376,7 +376,7 @@ pub(crate) fn test_save_new_asset(
     assert!(!txid.is_empty());
 
     let txid_dir = wallet.transfers_dir().join(txid);
-    let asset_transfer_dir = txid_dir.join(asset_id);
+    let asset_transfer_dir = wallet.asset_transfer_dir(&txid_dir, &asset_id.to_owned());
     let consignment_path = asset_transfer_dir.join(CONSIGNMENT_FILE);
 
     let consignment = RgbTransfer::load_file(consignment_path).unwrap();

@@ -28,6 +28,8 @@ const INDEXER_TIMEOUT: u8 = 4;
 
 const PROXY_PROTOCOL_VERSION: &str = "0.2";
 
+const ASSET_ID_PREFIX: &str = "rgb:";
+
 pub(crate) const UDA_FIXED_INDEX: u32 = 0;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -237,6 +239,15 @@ impl Wallet {
 
     pub(crate) fn transfers_dir(&self) -> PathBuf {
         self.wallet_dir.join(TRANSFER_DIR)
+    }
+
+    pub(crate) fn asset_transfer_dir<P: AsRef<Path>>(
+        &self,
+        transfer_dir: P,
+        asset_id: &str,
+    ) -> PathBuf {
+        let asset_id_no_prefix = asset_id.replace(ASSET_ID_PREFIX, "");
+        transfer_dir.as_ref().join(&asset_id_no_prefix)
     }
 
     fn _check_genesis_hash(
@@ -2881,7 +2892,7 @@ impl Wallet {
             all_transitions.insert(contract_id, transition);
             asset_beneficiaries.insert(asset_id.clone(), beneficiaries);
 
-            let asset_transfer_dir = transfer_dir.join(&asset_id);
+            let asset_transfer_dir = self.asset_transfer_dir(&transfer_dir, &asset_id);
             if asset_transfer_dir.is_dir() {
                 fs::remove_dir_all(&asset_transfer_dir)?;
             }
@@ -2980,7 +2991,7 @@ impl Wallet {
         runtime.consume(fascia)?;
 
         for (asset_id, _transfer_info) in transfer_info_map {
-            let asset_transfer_dir = transfer_dir.join(&asset_id);
+            let asset_transfer_dir = self.asset_transfer_dir(&transfer_dir, &asset_id);
             let consignment_path = asset_transfer_dir.join(CONSIGNMENT_FILE);
             let contract_id = ContractId::from_str(&asset_id).expect("invalid contract ID");
             let beneficiaries = asset_beneficiaries[&asset_id].clone();
@@ -3557,12 +3568,13 @@ impl Wallet {
             let serialized_info = fs::read_to_string(info_file)?;
             let mut info_contents: InfoAssetTransfer =
                 serde_json::from_str(&serialized_info).map_err(InternalError::from)?;
-            let asset_id: String = asset_transfer_dir
+            let asset_id_no_prefix: String = asset_transfer_dir
                 .file_name()
                 .expect("valid directory name")
                 .to_str()
                 .expect("should be possible to convert path to a string")
                 .to_string();
+            let asset_id = format!("{ASSET_ID_PREFIX}{asset_id_no_prefix}");
             let asset = self.database.get_asset(asset_id.clone())?.unwrap();
             let token = match asset.schema {
                 AssetSchema::Uda => {
