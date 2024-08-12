@@ -90,7 +90,7 @@ pub fn initialize() {
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 macro_rules! get_empty_wallet {
     ($i: expr) => {
-        get_funded_wallet(true, Some($i))
+        get_empty_wallet(true, Some($i))
     };
     () => {
         get_empty_wallet(true, None)
@@ -100,7 +100,7 @@ macro_rules! get_empty_wallet {
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 macro_rules! get_funded_noutxo_wallet {
     ($i: expr) => {
-        get_funded_wallet(true, Some($i))
+        get_funded_noutxo_wallet(true, Some($i))
     };
     () => {
         get_funded_noutxo_wallet(true, None)
