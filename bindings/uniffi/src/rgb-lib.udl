@@ -74,6 +74,7 @@ interface RgbLibError {
   UnsupportedInvoice();
   UnsupportedLayer1(string layer_1);
   UnsupportedTransportType();
+  WalletDirAlreadyExists(string path);
   WatchOnly();
   WrongPassword();
 };
