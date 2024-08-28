@@ -35,11 +35,11 @@ fn success() {
     assert!(!txid.is_empty());
     // take transfers from WaitingCounterparty to Settled
     stop_mining();
-    test_refresh_all(&rcv_wallet, &rcv_online);
-    test_refresh_asset(&wallet, &online, &asset.asset_id);
+    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
+    wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
     mine(true);
-    test_refresh_asset(&rcv_wallet, &rcv_online, &asset.asset_id);
-    test_refresh_asset(&wallet, &online, &asset.asset_id);
+    wait_for_refresh(&rcv_wallet, &rcv_online, Some(&asset.asset_id), None);
+    wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
 
     // pre-backup wallet data
     check_test_wallet_data(&wallet, &asset, None, 1, amount);
@@ -92,11 +92,11 @@ fn success() {
     assert!(!txid.is_empty());
     // take transfers from WaitingCounterparty to Settled
     stop_mining();
-    test_refresh_all(&rcv_wallet, &rcv_online);
-    test_refresh_asset(&wallet, &online, &asset.asset_id);
+    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
+    wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
     mine(true);
-    test_refresh_asset(&rcv_wallet, &rcv_online, &asset.asset_id);
-    test_refresh_asset(&wallet, &online, &asset.asset_id);
+    wait_for_refresh(&rcv_wallet, &rcv_online, Some(&asset.asset_id), None);
+    wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
     check_test_wallet_data(&wallet, &asset, None, 2, amount * 2);
 
     // issue a second asset with the restored wallet
@@ -109,8 +109,6 @@ fn success() {
 #[test]
 #[parallel]
 fn fail() {
-    initialize();
-
     let backup_file_path = get_test_data_dir_path().join("test_backup_fail.rgb-lib_backup");
     let backup_file = backup_file_path.to_str().unwrap();
 
@@ -237,13 +235,13 @@ fn double_restore() {
     assert!(!txid_2.is_empty());
     // take transfers from WaitingCounterparty to Settled
     stop_mining();
-    test_refresh_all(&rcv_wallet, &rcv_online);
-    test_refresh_asset(&wallet_1, &online_1, &asset_1.asset_id);
-    test_refresh_asset(&wallet_2, &online_2, &asset_2.asset_id);
+    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
+    wait_for_refresh(&wallet_1, &online_1, Some(&asset_1.asset_id), None);
+    wait_for_refresh(&wallet_2, &online_2, Some(&asset_2.asset_id), None);
     mine(true);
-    test_refresh_asset(&rcv_wallet, &rcv_online, &asset_1.asset_id);
-    test_refresh_asset(&wallet_1, &online_1, &asset_1.asset_id);
-    test_refresh_asset(&wallet_2, &online_2, &asset_2.asset_id);
+    wait_for_refresh(&rcv_wallet, &rcv_online, Some(&asset_1.asset_id), None);
+    wait_for_refresh(&wallet_1, &online_1, Some(&asset_1.asset_id), None);
+    wait_for_refresh(&wallet_2, &online_2, Some(&asset_2.asset_id), None);
 
     // pre-backup wallet data
     check_test_wallet_data(&wallet_1, &asset_1, None, 1, amount);
@@ -305,8 +303,6 @@ fn double_restore() {
 #[test]
 #[parallel]
 fn backup_info() {
-    initialize();
-
     // wallets
     let wallet = get_test_wallet(true, None);
 

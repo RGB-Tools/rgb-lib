@@ -12,6 +12,7 @@ use once_cell::sync::Lazy;
 use regex::RegexSet;
 use rgbstd::stl::ProofOfReserves as RgbProofOfReserves;
 use serial_test::{parallel, serial};
+use std::time::Instant;
 use time::OffsetDateTime;
 
 use super::*;

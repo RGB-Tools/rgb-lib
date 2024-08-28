@@ -4,6 +4,13 @@ pub(crate) fn join_with_sep(parts: &[&str]) -> String {
     parts.join(MAIN_SEPARATOR_STR)
 }
 
+pub(crate) fn get_current_time() -> u128 {
+    let now = std::time::SystemTime::now();
+    now.duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis()
+}
+
 pub(crate) fn get_restore_dir_string() -> String {
     join_with_sep(&RESTORE_DIR_PARTS)
 }
@@ -401,23 +408,113 @@ pub(crate) fn list_test_unspents(wallet: &Wallet, msg: &str) -> Vec<Unspent> {
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) fn wait_for_asset_balance(wallet: &Wallet, asset_id: &str, expected_balance: &Balance) {
+    println!("waiting for asset balance");
+    let mut current_balance = test_get_asset_balance(wallet, asset_id);
+    let check = || {
+        current_balance = test_get_asset_balance(wallet, asset_id);
+        if &current_balance == expected_balance {
+            return true;
+        }
+        false
+    };
+    if !wait_for_function(check, 10, 500) {
+        println!("current balance: {current_balance:?}");
+        println!("expected balance: {expected_balance:?}");
+        panic!("asset balance is not becoming the expected one");
+    }
+}
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn wait_for_btc_balance(
     wallet: &Wallet,
     online: &Online,
     expected_balance: &BtcBalance,
 ) {
-    let t_0 = OffsetDateTime::now_utc();
-    loop {
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        let current_balance = test_get_btc_balance(wallet, online);
+    println!("waiting for BTC balance");
+    let mut current_balance = test_get_btc_balance(wallet, online);
+    let check = || {
+        current_balance = test_get_btc_balance(wallet, online);
         if &current_balance == expected_balance {
-            break;
+            return true;
         }
-        if (OffsetDateTime::now_utc() - t_0).as_seconds_f32() > 10.0 {
-            println!("current balance: {current_balance:?}");
-            println!("expected balance: {expected_balance:?}");
-            panic!("BTC balance is not becoming the expected one");
+        false
+    };
+    if !wait_for_function(check, 10, 500) {
+        println!("current balance: {current_balance:?}");
+        println!("expected balance: {expected_balance:?}");
+        panic!("BTC balance is not becoming the expected one");
+    }
+}
+
+pub(crate) fn wait_for_function<F>(mut func: F, timeout_secs: u8, interval_ms: u16) -> bool
+where
+    F: FnMut() -> bool,
+{
+    let start = Instant::now();
+    let timeout = Duration::from_secs(timeout_secs as u64);
+    while start.elapsed() < timeout {
+        if func() {
+            return true;
         }
+        std::thread::sleep(Duration::from_millis(interval_ms as u64));
+    }
+    false
+}
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) fn wait_for_refresh(
+    wallet: &Wallet,
+    online: &Online,
+    asset_id: Option<&str>,
+    transfer_ids: Option<&[i32]>,
+) {
+    println!("waiting for refresh");
+    let mut seen = HashSet::new();
+    let mut target_set = HashSet::new();
+    if let Some(t_ids) = transfer_ids {
+        assert!(!t_ids.is_empty());
+        target_set = t_ids.iter().copied().collect();
+    }
+    let check = || {
+        let refresh_res = test_refresh_result(wallet, online, asset_id, &[]).unwrap();
+        if transfer_ids.is_some() {
+            for (id, _rt) in refresh_res {
+                if target_set.contains(&id) {
+                    seen.insert(id);
+                }
+            }
+            if seen == target_set {
+                return true;
+            }
+        } else if refresh_res.transfers_changed() {
+            return true;
+        }
+        false
+    };
+    if !wait_for_function(check, 10, 500) {
+        panic!("transfer(s) are not refreshing");
+    }
+}
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) fn wait_for_unspents(
+    wallet: &Wallet,
+    online: Option<&Online>,
+    settled_only: bool,
+    expected_len: u8,
+) {
+    println!("waiting for unspents");
+    let mut unspents = test_list_unspents(wallet, online, settled_only);
+    let check = || {
+        unspents = test_list_unspents(wallet, online, settled_only);
+        unspents.len() == expected_len as usize
+    };
+    if !wait_for_function(check, 10, 500) {
+        panic!(
+            "UTXO num {} is not becoming the expected {expected_len}",
+            unspents.len()
+        );
     }
 }
 

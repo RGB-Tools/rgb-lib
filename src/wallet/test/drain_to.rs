@@ -30,8 +30,7 @@ fn success() {
     let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     mine(false);
-    let unspents = list_test_unspents(&wallet, "funded noutxo after draining");
-    assert_eq!(unspents.len(), 0);
+    wait_for_unspents(&wallet, None, false, 0);
 
     // issue asset (to produce an RGB allocation)
     fund_wallet(test_get_address(&wallet));
@@ -55,12 +54,10 @@ fn success() {
     wait_for_btc_balance(&wallet, &online, &expected_balance);
     test_drain_to_keep(&wallet, &online, &test_get_address(&rcv_wallet));
     mine(false);
-    let unspents = list_test_unspents(&wallet, "funded with allocations after draining (false)");
-    assert_eq!(unspents.len() as u8, UTXO_NUM);
+    wait_for_unspents(&wallet, None, false, UTXO_NUM);
     test_drain_to_destroy(&wallet, &online, &test_get_address(&rcv_wallet));
     mine(false);
-    let unspents = list_test_unspents(&wallet, "funded with allocations after draining (true)");
-    assert_eq!(unspents.len(), 0);
+    wait_for_unspents(&wallet, None, false, 0);
 }
 
 #[cfg(feature = "electrum")]
@@ -80,6 +77,7 @@ fn pending_witness_receive() {
     let asset = test_issue_asset_nia(&wallet, &online, None);
 
     // send
+    stop_mining();
     let receive_data = test_witness_receive(&rcv_wallet);
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -97,9 +95,9 @@ fn pending_witness_receive() {
     assert!(!txid.is_empty());
 
     // refresh receiver (no UTXOs created) + sender (to broadcast) + mine
-    test_refresh_all(&rcv_wallet, &rcv_online);
-    test_refresh_asset(&wallet, &online, &asset.asset_id);
-    mine(false);
+    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
+    wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
+    mine(true);
 
     // receiver still doesn't see the new UTXO (not refreshed a 2nd time yet)
     let unspents = list_test_unspents(&rcv_wallet, "before draining");
@@ -112,7 +110,7 @@ fn pending_witness_receive() {
     assert_eq!(unspents.len(), 0);
 
     // refresh receiver, if draining hadn't synced (before draining) a new UTXO would appear
-    test_refresh_all(&rcv_wallet, &rcv_online);
+    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     let unspents = list_test_unspents(&rcv_wallet, "after receiver refresh 2");
     assert_eq!(unspents.len(), 0);
 }

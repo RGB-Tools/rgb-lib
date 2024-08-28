@@ -207,8 +207,8 @@ fn success() {
     stop_mining();
 
     // transfer progresses to status WaitingConfirmations
-    test_refresh_all(&rcv_wallet, &rcv_online);
-    test_refresh_asset(&wallet, &online, &asset.asset_id);
+    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
+    wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
     show_unspent_colorings(&rcv_wallet, "receiver after send - WaitingConfirmations");
     show_unspent_colorings(&wallet, "sender after send - WaitingConfirmations");
     // check receiver lists no settled allocations
@@ -257,8 +257,8 @@ fn success() {
 
     // transfer progresses to status Settled
     mine(true);
-    rcv_wallet.refresh(rcv_online, None, vec![]).unwrap();
-    test_refresh_asset(&wallet, &online, &asset.asset_id);
+    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
+    wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
     show_unspent_colorings(&rcv_wallet, "receiver after send - Settled");
     show_unspent_colorings(&wallet, "sender after send - Settled");
     // check receiver lists one settled allocation

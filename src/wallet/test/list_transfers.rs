@@ -92,8 +92,8 @@ fn success() {
     assert_eq!(transfer_send_2.txid, Some(txid.clone()));
 
     // refresh once, so the asset appears on the receiver side
-    test_refresh_all(&rcv_wallet, &rcv_online);
-    test_refresh_all(&wallet, &online);
+    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
+    wait_for_refresh(&wallet, &online, None, None);
 
     // multiple transfers (receiver)
     let transfer_list_rcv = test_list_transfers(&rcv_wallet, Some(&asset.asset_id));
@@ -121,8 +121,8 @@ fn success() {
 
     // refresh a second time to settle the transfers
     mine(false);
-    test_refresh_all(&rcv_wallet, &rcv_online);
-    test_refresh_all(&wallet, &online);
+    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
+    wait_for_refresh(&wallet, &online, None, None);
 
     // check all transfers are now in status Settled
     let transfer_list = test_list_transfers(&wallet, Some(&asset.asset_id));

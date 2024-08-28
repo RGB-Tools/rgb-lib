@@ -134,8 +134,8 @@ fn up_to_allocation_checks() {
 
         // - wait confirmations
         stop_mining();
-        test_refresh_all(&rcv_wallet, &rcv_online);
-        test_refresh_asset(&wallet, &online, &asset.asset_id);
+        wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
+        wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
         // UTXO 1 now spent, UTXO 2 (RGB+BTC change) has at least 1 free allocation, UTXO 3 is empty
         show_unspent_colorings(&wallet, "sender after send - WaitingConfirmations");
         let result = wallet.create_utxos(online.clone(), true, Some(2), None, FEE_RATE);
@@ -147,8 +147,8 @@ fn up_to_allocation_checks() {
 
         // - settled
         mine(true);
-        test_refresh_all(&rcv_wallet, &rcv_online);
-        test_refresh_asset(&wallet, &online, &asset.asset_id);
+        wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
+        wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
         // UTXO 1 now spent, UTXO 2 (RGB+BTC change) has at least 1 free allocation, UTXO 3 is empty
         show_unspent_colorings(&wallet, "sender after send - Settled");
         let num_utxos_created = test_create_utxos(&wallet, &online, true, Some(3), None, FEE_RATE);

@@ -216,11 +216,11 @@ fn re_instantiate_wallet() {
     assert!(!txid.is_empty());
     // take transfers from WaitingCounterparty to Settled
     stop_mining();
-    test_refresh_all(&rcv_wallet, &rcv_online);
-    test_refresh_asset(&wallet, &online, &asset.asset_id);
+    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
+    wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
     mine(true);
-    test_refresh_asset(&rcv_wallet, &rcv_online, &asset.asset_id);
-    test_refresh_asset(&wallet, &online, &asset.asset_id);
+    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
+    wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
 
     // drop wallet
     drop(online);

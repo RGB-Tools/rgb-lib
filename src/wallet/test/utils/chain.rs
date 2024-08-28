@@ -43,16 +43,13 @@ impl Miner {
     }
 
     fn force_mine(&self, esplora: bool) -> bool {
+        println!("mining (esplora: {esplora}), time: {}", get_current_time());
         let bitcoin_cli = if esplora {
             _esplora_bitcoin_cli()
         } else {
             bitcoin_cli()
         };
-        let t_0 = OffsetDateTime::now_utc();
-        loop {
-            if (OffsetDateTime::now_utc() - t_0).as_seconds_f32() > 120.0 {
-                panic!("could not mine ({QUEUE_DEPTH_EXCEEDED})");
-            }
+        let cmd = || {
             let output = Command::new("docker")
                 .stdin(Stdio::null())
                 .arg("compose")
@@ -62,19 +59,24 @@ impl Miner {
                 .arg("1")
                 .output()
                 .expect("failed to mine");
-            if !output.status.success()
-                && String::from_utf8(output.stderr)
+            if output.status.success() {
+                true
+            } else if !output.status.success()
+                && String::from_utf8(output.stderr.clone())
                     .unwrap()
                     .contains(QUEUE_DEPTH_EXCEEDED)
             {
-                eprintln!("work queue depth exceeded");
-                std::thread::sleep(std::time::Duration::from_millis(500));
-                continue;
+                false
+            } else {
+                println!("stdout: {:?}", output.stdout);
+                println!("stderr: {:?}", output.stderr);
+                panic!("unexpected error");
             }
-            assert!(output.status.success());
-            wait_indexers_sync();
-            break;
+        };
+        if !wait_for_function(cmd, 120, 500) {
+            panic!("could not mine ({QUEUE_DEPTH_EXCEEDED})");
         }
+        wait_indexers_sync();
         true
     }
 
@@ -96,8 +98,7 @@ pub(crate) fn mine(resume: bool) {
     }
     loop {
         if (OffsetDateTime::now_utc() - t_0).as_seconds_f32() > 120.0 {
-            println!("forcibly breaking mining wait");
-            resume_mining();
+            panic!("unable to mine");
         }
         let mined = MINER.read().as_ref().unwrap().mine();
         if mined {
@@ -107,12 +108,11 @@ pub(crate) fn mine(resume: bool) {
     }
 }
 
-pub(crate) fn mine_but_no_resume(esplora: bool) {
+pub(crate) fn force_mine_no_resume_when_alone(esplora: bool) {
     let t_0 = OffsetDateTime::now_utc();
     loop {
         if (OffsetDateTime::now_utc() - t_0).as_seconds_f32() > 120.0 {
-            println!("forcibly breaking mining wait");
-            resume_mining();
+            panic!("unable to mine but no resume when alone");
         }
         let miner = MINER.write().unwrap();
         if miner.no_mine_count <= 1 {
@@ -132,8 +132,7 @@ pub(crate) fn stop_mining_when_alone() {
     let t_0 = OffsetDateTime::now_utc();
     loop {
         if (OffsetDateTime::now_utc() - t_0).as_seconds_f32() > 120.0 {
-            println!("forcibly breaking stop wait");
-            stop_mining();
+            panic!("unable to stop mining when alone");
         }
         let mut miner = MINER.write().unwrap();
         if miner.no_mine_count == 0 {

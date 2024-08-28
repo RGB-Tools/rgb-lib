@@ -337,18 +337,30 @@ pub(crate) fn test_list_unspents_vanilla(
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_refresh_all(wallet: &Wallet, online: &Online) -> bool {
-    wallet
-        .refresh(online.clone(), None, vec![])
+    test_refresh_result(wallet, online, None, &[])
         .unwrap()
         .transfers_changed()
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_refresh_asset(wallet: &Wallet, online: &Online, asset_id: &str) -> bool {
-    wallet
-        .refresh(online.clone(), Some(asset_id.to_string()), vec![])
+    test_refresh_result(wallet, online, Some(asset_id), &[])
         .unwrap()
         .transfers_changed()
+}
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) fn test_refresh_result(
+    wallet: &Wallet,
+    online: &Online,
+    asset_id: Option<&str>,
+    filter: &[RefreshFilter],
+) -> Result<RefreshResult, Error> {
+    wallet.refresh(
+        online.clone(),
+        asset_id.map(|a| a.to_string()),
+        filter.to_vec(),
+    )
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]

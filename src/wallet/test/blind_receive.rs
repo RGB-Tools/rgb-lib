@@ -296,8 +296,8 @@ fn pending_outgoing_transfer_fail() {
     test_delete_transfers(&wallet, Some(receive_data.batch_transfer_idx), false);
 
     // take transfer from WaitingCounterparty to WaitingConfirmations
-    rcv_wallet.refresh(rcv_online, None, vec![]).unwrap();
-    test_refresh_asset(&wallet, &online, &asset_id);
+    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
+    wait_for_refresh(&wallet, &online, Some(&asset_id), None);
     // check blind doesn't get allocated to UTXO being spent
     let _receive_data = test_blind_receive(&wallet);
     show_unspent_colorings(&wallet, "after 2nd blind");
@@ -428,7 +428,7 @@ fn fail() {
         .unwrap();
     }
     assert_eq!(transfer_data.status, TransferStatus::WaitingCounterparty);
-    wallet.refresh(online, None, vec![]).unwrap();
+    wait_for_refresh(&wallet, &online, None, None);
     let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
     let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
     assert_eq!(transfer_data.status, TransferStatus::Failed);
@@ -499,8 +499,8 @@ fn wrong_asset_fail() {
     );
 
     // transfer doesn't progress to status WaitingConfirmations on the receiving side
-    wallet_1.refresh(online_1, None, vec![]).unwrap();
-    wallet_2.refresh(online_2, None, vec![]).unwrap();
+    wait_for_refresh(&wallet_1, &online_1, None, None);
+    wait_for_refresh(&wallet_2, &online_2, None, None);
 
     // transfer has been NACKed
     let (rcv_transfer_data_a, _) = get_test_transfer_data(&wallet_1, &rcv_transfer_a);
@@ -602,7 +602,7 @@ fn multiple_receive_same_utxo() {
     assert!(!txid_2.is_empty());
 
     // refresh receiver + check both RGB allocations are on the same UTXO
-    test_refresh_all(&wallet_recv, &online_recv);
+    wait_for_refresh(&wallet_recv, &online_recv, None, None);
     let unspents_recv = test_list_unspents(&wallet_recv, None, false);
     let unspents_recv_colorable: Vec<&Unspent> =
         unspents_recv.iter().filter(|u| u.utxo.colorable).collect();

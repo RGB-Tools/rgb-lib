@@ -161,8 +161,12 @@ fn no_issue_on_pending_send() {
 
     let amount: u64 = 1;
 
-    let (wallet, online) = get_funded_wallet!();
-    let (rcv_wallet, rcv_online) = get_funded_wallet!();
+    let (wallet, online) = get_funded_noutxo_wallet!();
+    let (rcv_wallet, rcv_online) = get_empty_wallet!();
+
+    // prepare UTXO
+    let num_created = test_create_utxos(&wallet, &online, true, Some(1), Some(5000), FEE_RATE);
+    assert_eq!(num_created, 1);
 
     // issue 1st asset
     let asset_1 = test_issue_asset_uda(&wallet, &online, None, None, vec![]);
@@ -177,20 +181,29 @@ fn no_issue_on_pending_send() {
         })
         .unwrap();
     // send 1st asset
-    let receive_data = test_blind_receive(&rcv_wallet);
+    let receive_data = test_witness_receive(&rcv_wallet);
     let recipient_map = HashMap::from([(
         asset_1.asset_id.clone(),
         vec![Recipient {
             amount,
             recipient_id: receive_data.recipient_id.clone(),
-            witness_data: None,
+            witness_data: Some(WitnessData {
+                amount_sat: 1000,
+                blinding: None,
+            }),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
     let txid = test_send(&wallet, &online, &recipient_map);
     assert!(!txid.is_empty());
 
-    // issue 2nd asset
+    // issuing a 2nd asset fails due to missing free allocation slot
+    let result = test_issue_asset_uda_result(&wallet, &online, None, None, vec![]);
+    assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
+
+    // create 1 more UTXO issue 2nd asset
+    let num_created = test_create_utxos(&wallet, &online, false, Some(1), None, FEE_RATE);
+    assert_eq!(num_created, 1);
     let asset_2 = test_issue_asset_uda(&wallet, &online, None, None, vec![]);
     show_unspent_colorings(&wallet, "after 2nd issuance");
     // get 2nd issuance UTXO
@@ -207,8 +220,9 @@ fn no_issue_on_pending_send() {
     assert_ne!(unspent_1.utxo.outpoint, unspent_2.utxo.outpoint);
 
     // progress transfer to WaitingConfirmations
-    rcv_wallet.refresh(rcv_online, None, vec![]).unwrap();
-    test_refresh_asset(&wallet, &online, &asset_1.asset_id);
+    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
+    wait_for_refresh(&wallet, &online, Some(&asset_1.asset_id), None);
+
     // issue 3rd asset
     let asset_3 = test_issue_asset_uda(&wallet, &online, None, None, vec![]);
     show_unspent_colorings(&wallet, "after 3rd issuance");

@@ -8,9 +8,16 @@ fn success() {
 
     let amount: u64 = 66;
 
-    stop_mining();
-    let (wallet, online) = get_funded_wallet!();
-    let (rcv_wallet, rcv_online) = get_funded_wallet!();
+    stop_mining_when_alone();
+    let (wallet, online) = get_empty_wallet!();
+    let (rcv_wallet, rcv_online) = get_empty_wallet!();
+
+    send_to_address(test_get_address(&wallet));
+    send_to_address(test_get_address(&rcv_wallet));
+    force_mine_no_resume_when_alone(false);
+    test_create_utxos_default(&wallet, &online);
+    test_create_utxos_default(&rcv_wallet, &rcv_online);
+    force_mine_no_resume_when_alone(false);
 
     // don't sync wallet without online
     let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
@@ -40,7 +47,7 @@ fn success() {
         .iter()
         .any(|t| t.confirmation_time.is_none()));
     // sync wallet when online is provided
-    mine(true);
+    resume_mining();
     let transactions = test_list_transactions(&wallet, Some(&online));
     let rcv_transactions = test_list_transactions(&rcv_wallet, Some(&rcv_online));
     assert!(transactions.iter().all(|t| t.confirmation_time.is_some()));
@@ -64,11 +71,11 @@ fn success() {
     )]);
     test_send(&wallet, &online, &recipient_map);
     // settle the transfer so the tx gets broadcasted and receiver sees the new UTXO
-    test_refresh_all(&rcv_wallet, &rcv_online);
-    wallet.refresh(online.clone(), None, vec![]).unwrap();
+    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
+    wait_for_refresh(&wallet, &online, None, None);
     mine(false);
-    test_refresh_all(&rcv_wallet, &rcv_online);
-    wallet.refresh(online.clone(), None, vec![]).unwrap();
+    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
+    wait_for_refresh(&wallet, &online, None, None);
     let transactions = test_list_transactions(&wallet, Some(&online));
     let rcv_transactions = test_list_transactions(&rcv_wallet, Some(&rcv_online));
     assert_eq!(transactions.len(), 3);

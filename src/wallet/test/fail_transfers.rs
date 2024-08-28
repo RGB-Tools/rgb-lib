@@ -68,7 +68,7 @@ fn success() {
     let txid = test_send(&wallet, &online, &recipient_map);
     assert!(!txid.is_empty());
     stop_mining();
-    test_refresh_all(&rcv_wallet, &rcv_online);
+    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     show_unspent_colorings(&rcv_wallet, "receiver run 1 after refresh 1");
     show_unspent_colorings(&wallet, "sender run 1 no refresh");
     assert!(check_test_transfer_status_recipient(
@@ -106,10 +106,10 @@ fn success() {
     ));
 
     // progress transfer to Settled
-    wallet.refresh(online.clone(), None, vec![]).unwrap();
+    wait_for_refresh(&wallet, &online, None, None);
     mine(true);
-    test_refresh_all(&rcv_wallet, &rcv_online);
-    wallet.refresh(online.clone(), None, vec![]).unwrap();
+    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
+    wait_for_refresh(&wallet, &online, None, None);
 
     // fail all expired WaitingCounterparty transfers with no asset_id
     let receive_data_1 = test_blind_receive(&rcv_wallet);
@@ -148,7 +148,7 @@ fn success() {
     )]);
     let txid = test_send(&wallet, &online, &recipient_map);
     assert!(!txid.is_empty());
-    test_refresh_all(&rcv_wallet, &rcv_online);
+    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
 
     show_unspent_colorings(&rcv_wallet, "receiver run 2 after refresh 1");
     show_unspent_colorings(&wallet, "sender run 2 no refresh");
@@ -278,7 +278,7 @@ fn batch_success() {
     let send_result = test_send_result(&wallet, &online, &recipient_map).unwrap();
     let txid = send_result.txid;
     assert!(!txid.is_empty());
-    rcv_wallet_1.refresh(rcv_online_1, None, vec![]).unwrap();
+    wait_for_refresh(&rcv_wallet_1, &rcv_online_1, None, None);
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet_1,
         &receive_data_1.recipient_id,
@@ -407,8 +407,8 @@ fn fail() {
 
     // mine and refresh so transfers can settle
     mine(true);
-    test_refresh_asset(&wallet, &online, &asset_id);
-    test_refresh_asset(&rcv_wallet, &rcv_online, &asset_id);
+    wait_for_refresh(&wallet, &online, Some(&asset_id), None);
+    wait_for_refresh(&rcv_wallet, &rcv_online, Some(&asset_id), None);
 
     // don't fail incoming transfer: settled
     let result = rcv_wallet.fail_transfers(rcv_online, Some(batch_transfer_idx), false);

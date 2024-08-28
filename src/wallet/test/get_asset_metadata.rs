@@ -25,7 +25,7 @@ fn success() {
         }],
     )]);
     test_send(&wallet, &online, &recipient_map);
-    rcv_wallet.refresh(rcv_online, None, vec![]).unwrap();
+    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
     let nia_metadata = test_get_asset_metadata(&rcv_wallet, &asset_nia.asset_id);
     let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();

@@ -89,6 +89,13 @@ _wait_for_proxy() {
 }
 
 stop_services() {
+    # cleanly stop esplora
+    if $COMPOSE ps |grep -q esplora; then
+        for SRV in socat electrs; do
+            $COMPOSE exec esplora bash -c "sv -w 60 force-stop /etc/service/$SRV"
+        done
+    fi
+    # bring all services down
     $COMPOSE --profile '*' down -v --remove-orphans
 }
 

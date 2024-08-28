@@ -62,15 +62,12 @@ fn transfer_balances() {
     show_unspent_colorings(&wallet_recv, "recv after issuance");
 
     // balances after issuance
-    let asset_balance_send = test_get_asset_balance(&wallet_send, &asset.asset_id);
-    assert_eq!(
-        asset_balance_send,
-        Balance {
-            settled: AMOUNT * 3,
-            future: AMOUNT * 3,
-            spendable: AMOUNT * 3,
-        }
-    );
+    let expected_balance = Balance {
+        settled: AMOUNT * 3,
+        future: AMOUNT * 3,
+        spendable: AMOUNT * 3,
+    };
+    wait_for_asset_balance(&wallet_send, &asset.asset_id, &expected_balance);
     // receiver side after issuance (no asset yet)
     let result = test_get_asset_balance_result(&wallet_recv, &asset.asset_id);
     assert!(matches!(result, Err(Error::AssetNotFound { asset_id: _ })));
@@ -124,21 +121,18 @@ fn transfer_balances() {
         transfers.last().unwrap().status,
         TransferStatus::WaitingCounterparty
     );
-    let asset_balance_send = test_get_asset_balance(&wallet_send, &asset.asset_id);
-    assert_eq!(
-        asset_balance_send,
-        Balance {
-            settled: AMOUNT * 3,
-            future: AMOUNT * 3 - amount_1,
-            spendable: AMOUNT * 2,
-        }
-    );
+    let expected_balance = Balance {
+        settled: AMOUNT * 3,
+        future: AMOUNT * 3 - amount_1,
+        spendable: AMOUNT * 2,
+    };
+    wait_for_asset_balance(&wallet_send, &asset.asset_id, &expected_balance);
 
     stop_mining();
 
     // take transfers from WaitingCounterparty to WaitingConfirmations
-    test_refresh_all(&wallet_recv, &online_recv);
-    test_refresh_asset(&wallet_send, &online_send, &asset.asset_id);
+    wait_for_refresh(&wallet_recv, &online_recv, None, None);
+    wait_for_refresh(&wallet_send, &online_send, Some(&asset.asset_id), None);
 
     // balances with transfer WaitingConfirmations
     let transfers = test_list_transfers(&wallet_send, Some(&asset.asset_id));
@@ -146,34 +140,28 @@ fn transfer_balances() {
         transfers.last().unwrap().status,
         TransferStatus::WaitingConfirmations
     );
-    let asset_balance_send = test_get_asset_balance(&wallet_send, &asset.asset_id);
-    assert_eq!(
-        asset_balance_send,
-        Balance {
-            settled: AMOUNT * 3,
-            future: AMOUNT * 3 - amount_1,
-            spendable: AMOUNT * 2,
-        }
-    );
+    let expected_balance = Balance {
+        settled: AMOUNT * 3,
+        future: AMOUNT * 3 - amount_1,
+        spendable: AMOUNT * 2,
+    };
+    wait_for_asset_balance(&wallet_send, &asset.asset_id, &expected_balance);
     let transfers_recv = test_list_transfers(&wallet_recv, Some(&asset.asset_id));
     assert_eq!(
         transfers_recv.last().unwrap().status,
         TransferStatus::WaitingConfirmations
     );
-    let asset_balance_recv = test_get_asset_balance(&wallet_recv, &asset.asset_id);
-    assert_eq!(
-        asset_balance_recv,
-        Balance {
-            settled: 0,
-            future: amount_1,
-            spendable: 0,
-        }
-    );
+    let expected_balance = Balance {
+        settled: 0,
+        future: amount_1,
+        spendable: 0,
+    };
+    wait_for_asset_balance(&wallet_recv, &asset.asset_id, &expected_balance);
 
     // take transfers from WaitingConfirmations to Settled
     mine(true);
-    test_refresh_asset(&wallet_recv, &online_recv, &asset.asset_id);
-    test_refresh_asset(&wallet_send, &online_send, &asset.asset_id);
+    wait_for_refresh(&wallet_recv, &online_recv, Some(&asset.asset_id), None);
+    wait_for_refresh(&wallet_send, &online_send, Some(&asset.asset_id), None);
 
     show_unspent_colorings(&wallet_send, "send after 1st send, settled");
     show_unspent_colorings(&wallet_recv, "recv after 1st send, settled");
@@ -181,29 +169,23 @@ fn transfer_balances() {
     // balances with transfer Settled
     let transfers = test_list_transfers(&wallet_send, Some(&asset.asset_id));
     assert_eq!(transfers.last().unwrap().status, TransferStatus::Settled);
-    let asset_balance_send = test_get_asset_balance(&wallet_send, &asset.asset_id);
-    assert_eq!(
-        asset_balance_send,
-        Balance {
-            settled: AMOUNT * 3 - amount_1,
-            future: AMOUNT * 3 - amount_1,
-            spendable: AMOUNT * 3 - amount_1,
-        }
-    );
+    let expected_balance = Balance {
+        settled: AMOUNT * 3 - amount_1,
+        future: AMOUNT * 3 - amount_1,
+        spendable: AMOUNT * 3 - amount_1,
+    };
+    wait_for_asset_balance(&wallet_send, &asset.asset_id, &expected_balance);
     let transfers_recv = test_list_transfers(&wallet_recv, Some(&asset.asset_id));
     assert_eq!(
         transfers_recv.last().unwrap().status,
         TransferStatus::Settled
     );
-    let asset_balance_recv = test_get_asset_balance(&wallet_recv, &asset.asset_id);
-    assert_eq!(
-        asset_balance_recv,
-        Balance {
-            settled: amount_1,
-            future: amount_1,
-            spendable: amount_1,
-        }
-    );
+    let expected_balance = Balance {
+        settled: amount_1,
+        future: amount_1,
+        spendable: amount_1,
+    };
+    wait_for_asset_balance(&wallet_recv, &asset.asset_id, &expected_balance);
 
     //
     // a 2nd transfer
@@ -232,21 +214,18 @@ fn transfer_balances() {
         transfers.last().unwrap().status,
         TransferStatus::WaitingCounterparty
     );
-    let asset_balance_send = test_get_asset_balance(&wallet_send, &asset.asset_id);
-    assert_eq!(
-        asset_balance_send,
-        Balance {
-            settled: AMOUNT * 3 - amount_1,
-            future: AMOUNT * 3 - amount_1 - amount_2,
-            spendable: AMOUNT * 2,
-        }
-    );
+    let expected_balance = Balance {
+        settled: AMOUNT * 3 - amount_1,
+        future: AMOUNT * 3 - amount_1 - amount_2,
+        spendable: AMOUNT * 2,
+    };
+    wait_for_asset_balance(&wallet_send, &asset.asset_id, &expected_balance);
 
     stop_mining();
 
     // take transfers from WaitingCounterparty to WaitingConfirmations
-    test_refresh_all(&wallet_recv, &online_recv);
-    test_refresh_asset(&wallet_send, &online_send, &asset.asset_id);
+    wait_for_refresh(&wallet_recv, &online_recv, None, None);
+    wait_for_refresh(&wallet_send, &online_send, Some(&asset.asset_id), None);
 
     // balances with transfer WaitingConfirmations
     let transfers = test_list_transfers(&wallet_send, Some(&asset.asset_id));
@@ -254,29 +233,23 @@ fn transfer_balances() {
         transfers.last().unwrap().status,
         TransferStatus::WaitingConfirmations
     );
-    let asset_balance_send = test_get_asset_balance(&wallet_send, &asset.asset_id);
-    assert_eq!(
-        asset_balance_send,
-        Balance {
-            settled: AMOUNT * 3 - amount_1,
-            future: AMOUNT * 3 - amount_1 - amount_2,
-            spendable: AMOUNT * 2,
-        }
-    );
-    let asset_balance_recv = test_get_asset_balance(&wallet_recv, &asset.asset_id);
-    assert_eq!(
-        asset_balance_recv,
-        Balance {
-            settled: amount_1,
-            future: amount_1 + amount_2,
-            spendable: amount_1,
-        }
-    );
+    let expected_balance = Balance {
+        settled: AMOUNT * 3 - amount_1,
+        future: AMOUNT * 3 - amount_1 - amount_2,
+        spendable: AMOUNT * 2,
+    };
+    wait_for_asset_balance(&wallet_send, &asset.asset_id, &expected_balance);
+    let expected_balance = Balance {
+        settled: amount_1,
+        future: amount_1 + amount_2,
+        spendable: amount_1,
+    };
+    wait_for_asset_balance(&wallet_recv, &asset.asset_id, &expected_balance);
 
     // take transfers from WaitingConfirmations to Settled
     mine(true);
-    test_refresh_asset(&wallet_recv, &online_recv, &asset.asset_id);
-    test_refresh_asset(&wallet_send, &online_send, &asset.asset_id);
+    wait_for_refresh(&wallet_recv, &online_recv, Some(&asset.asset_id), None);
+    wait_for_refresh(&wallet_send, &online_send, Some(&asset.asset_id), None);
 
     show_unspent_colorings(&wallet_send, "send after 2nd send, settled");
     show_unspent_colorings(&wallet_recv, "recv after 2nd send, settled");
@@ -284,24 +257,18 @@ fn transfer_balances() {
     // balances with transfer Settled
     let transfers = test_list_transfers(&wallet_send, Some(&asset.asset_id));
     assert_eq!(transfers.last().unwrap().status, TransferStatus::Settled);
-    let asset_balance_send = test_get_asset_balance(&wallet_send, &asset.asset_id);
-    assert_eq!(
-        asset_balance_send,
-        Balance {
-            settled: AMOUNT * 3 - amount_1 - amount_2,
-            future: AMOUNT * 3 - amount_1 - amount_2,
-            spendable: AMOUNT * 3 - amount_1 - amount_2,
-        }
-    );
-    let asset_balance_recv = test_get_asset_balance(&wallet_recv, &asset.asset_id);
-    assert_eq!(
-        asset_balance_recv,
-        Balance {
-            settled: amount_1 + amount_2,
-            future: amount_1 + amount_2,
-            spendable: amount_1 + amount_2,
-        }
-    );
+    let expected_balance = Balance {
+        settled: AMOUNT * 3 - amount_1 - amount_2,
+        future: AMOUNT * 3 - amount_1 - amount_2,
+        spendable: AMOUNT * 3 - amount_1 - amount_2,
+    };
+    wait_for_asset_balance(&wallet_send, &asset.asset_id, &expected_balance);
+    let expected_balance = Balance {
+        settled: amount_1 + amount_2,
+        future: amount_1 + amount_2,
+        spendable: amount_1 + amount_2,
+    };
+    wait_for_asset_balance(&wallet_recv, &asset.asset_id, &expected_balance);
 }
 
 #[test]
