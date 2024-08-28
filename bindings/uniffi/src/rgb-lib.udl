@@ -14,6 +14,7 @@ interface RgbLibError {
   AssetIfaceMismatch();
   AssetNotFound(string asset_id);
   BatchTransferNotFound(i32 idx);
+  BitcoinNetworkMismatch();
   CannotChangeOnline();
   CannotDeleteBatchTransfer();
   CannotEstimateFees();
@@ -355,7 +356,7 @@ dictionary Transaction {
     string txid;
     u64 received;
     u64 sent;
-    u64? fee;
+    u64 fee;
     BlockTime? confirmation_time;
 };
 
@@ -440,12 +441,12 @@ interface Wallet {
 
   [Throws=RgbLibError]
   u8 create_utxos(
-    Online online, boolean up_to, u8? num, u32? size, f32 fee_rate,
+    Online online, boolean up_to, u8? num, u32? size, u64 fee_rate,
     boolean skip_sync);
 
   [Throws=RgbLibError]
   string create_utxos_begin(
-    Online online, boolean up_to, u8? num, u32? size, f32 fee_rate,
+    Online online, boolean up_to, u8? num, u32? size, u64 fee_rate,
     boolean skip_sync);
 
   [Throws=RgbLibError]
@@ -456,11 +457,11 @@ interface Wallet {
 
   [Throws=RgbLibError]
   string drain_to(
-    Online online, string address, boolean destroy_assets, f32 fee_rate);
+    Online online, string address, boolean destroy_assets, u64 fee_rate);
 
   [Throws=RgbLibError]
   string drain_to_begin(
-    Online online, string address, boolean destroy_assets, f32 fee_rate);
+    Online online, string address, boolean destroy_assets, u64 fee_rate);
 
   [Throws=RgbLibError]
   string drain_to_end(Online online, string signed_psbt);
@@ -524,23 +525,23 @@ interface Wallet {
   [Throws=RgbLibError]
   SendResult send(
     Online online, record<DOMString, sequence<Recipient>> recipient_map,
-    boolean donation, f32 fee_rate, u8 min_confirmations, boolean skip_sync);
+    boolean donation, u64 fee_rate, u8 min_confirmations, boolean skip_sync);
 
   [Throws=RgbLibError]
   string send_begin(
     Online online, record<DOMString, sequence<Recipient>> recipient_map,
-    boolean donation, f32 fee_rate, u8 min_confirmations);
+    boolean donation, u64 fee_rate, u8 min_confirmations);
 
   [Throws=RgbLibError]
   SendResult send_end(Online online, string signed_psbt, boolean skip_sync);
 
   [Throws=RgbLibError]
   string send_btc(
-    Online online, string address, u64 amount, f32 fee_rate, boolean skip_sync);
+    Online online, string address, u64 amount, u64 fee_rate, boolean skip_sync);
 
   [Throws=RgbLibError]
   string send_btc_begin(
-    Online online, string address, u64 amount, f32 fee_rate, boolean skip_sync);
+    Online online, string address, u64 amount, u64 fee_rate, boolean skip_sync);
 
   [Throws=RgbLibError]
   string send_btc_end(Online online, string signed_psbt, boolean skip_sync);

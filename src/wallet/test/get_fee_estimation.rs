@@ -1,27 +1,26 @@
 use super::*;
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-fn _success_common(wallet: &Wallet, online: &Online, esplora: bool) {
-    fn random_send_btc(wallet: &Wallet, online: &Online) {
-        let fee_rate = rand::thread_rng().gen_range(1.0..10.0);
+fn _success_common(wallet: &mut Wallet, online: &Online, esplora: bool) {
+    fn random_send_btc(wallet: &mut Wallet, online: &Online) {
+        let fee_rate = rand::thread_rng().gen_range(1..10);
         let amount = rand::thread_rng().gen_range(1000..5000);
         let mut attempts = 3;
-        while wallet
-            .send_btc(
-                online.clone(),
-                test_get_address(wallet).to_string(),
-                amount,
-                fee_rate,
-                true,
-            )
-            .is_err()
-        {
-            attempts -= 1;
-            if attempts == 0 {
-                println!("skipping send");
+        loop {
+            let addr = test_get_address(wallet).to_string();
+            if wallet
+                .send_btc(online.clone(), addr, amount, fee_rate, true)
+                .is_err()
+            {
+                attempts -= 1;
+                if attempts == 0 {
+                    println!("skipping send");
+                    break;
+                }
+                std::thread::sleep(Duration::from_secs(1));
+            } else {
                 break;
             }
-            std::thread::sleep(Duration::from_secs(1));
         }
         wallet.sync(online.clone()).unwrap();
     }
@@ -53,9 +52,9 @@ fn _success_common(wallet: &Wallet, online: &Online, esplora: bool) {
 fn success_electrum() {
     initialize();
 
-    let (wallet, online) = get_funded_noutxo_wallet!();
+    let (mut wallet, online) = get_funded_noutxo_wallet!();
 
-    _success_common(&wallet, &online, false);
+    _success_common(&mut wallet, &online, false);
 }
 
 #[cfg(feature = "esplora")]
@@ -64,9 +63,9 @@ fn success_electrum() {
 fn success_esplora() {
     initialize();
 
-    let (wallet, online) = get_funded_noutxo_wallet!(ESPLORA_URL.to_string());
+    let (mut wallet, online) = get_funded_noutxo_wallet!(ESPLORA_URL.to_string());
 
-    _success_common(&wallet, &online, true);
+    _success_common(&mut wallet, &online, true);
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]

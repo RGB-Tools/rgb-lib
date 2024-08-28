@@ -243,7 +243,7 @@ pub(crate) fn wait_indexers_sync() {
         indexer_urls.push(ESPLORA_URL);
 
         for indexer_url in indexer_urls {
-            let (indexer, _) = build_indexer(indexer_url).expect("cannot get indexer {indexer}");
+            let indexer = build_indexer(indexer_url).expect("cannot get indexer {indexer}");
             if indexer.block_hash(max_blockcount as usize).is_err() {
                 all_synced = false;
             }

@@ -63,8 +63,8 @@ pub mod keys;
 pub mod utils;
 pub mod wallet;
 
-pub use bdk;
-pub use bitcoin;
+pub use bdk_wallet;
+pub use bdk_wallet::bitcoin;
 pub use rgb::{
     containers::{ConsignmentExt, PubWitness},
     persistence::UpdateRes,
@@ -84,8 +84,13 @@ pub use crate::{
     wallet::{backup::restore_backup, TransactionType, TransferKind, Wallet},
 };
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 use std::{
-    borrow::Borrow,
+    cmp::{min, Ordering},
+    collections::hash_map::DefaultHasher,
+    hash::Hasher,
+};
+use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fmt, fs,
     hash::Hash,
@@ -95,12 +100,6 @@ use std::{
     str::FromStr,
     sync::Arc,
     time::Duration,
-};
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-use std::{
-    cmp::{min, Ordering},
-    collections::hash_map::DefaultHasher,
-    hash::Hasher,
 };
 
 use amplify::{
@@ -113,33 +112,33 @@ use amplify::{hex::ToHex, none, ByteArray, Wrapper};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use base64::{engine::general_purpose, Engine as _};
 #[cfg(feature = "electrum")]
-use bdk::blockchain::electrum::ElectrumBlockchainConfig;
+use bdk_electrum::{
+    electrum_client::{
+        Client as ElectrumClient, ConfigBuilder, ElectrumApi, Error as ElectrumError, Param,
+    },
+    BdkElectrumClient,
+};
 #[cfg(feature = "esplora")]
-use bdk::blockchain::esplora::{
-    EsploraBlockchain as EsploraClient, EsploraBlockchainConfig, EsploraError,
-};
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-use bdk::{
-    bitcoin::Transaction as BdkTransaction,
-    blockchain::{
-        any::{AnyBlockchain, AnyBlockchainConfig},
-        Blockchain, ConfigurableBlockchain,
+use bdk_esplora::{
+    esplora_client::{
+        BlockingClient as EsploraClient, Builder as EsploraBuilder, Error as EsploraError,
     },
-    database::BatchDatabase,
-    FeeRate, SyncOptions,
+    EsploraExt,
 };
-use bdk::{
+use bdk_wallet::{
     bitcoin::{
-        bip32::{DerivationPath, ExtendedPrivKey, ExtendedPubKey, KeySource},
-        psbt::Psbt as BdkPsbt,
+        bip32::ChildNumber,
+        bip32::{DerivationPath, KeySource, Xpriv, Xpub},
+        hashes::Hash as Sha256Hash,
+        psbt::Psbt,
+        psbt::{raw::ProprietaryKey, ExtractTxError, Input, Output},
         secp256k1::Secp256k1,
-        Address as BdkAddress, Network as BdkNetwork, OutPoint as BdkOutPoint,
+        Address as BdkAddress, Amount as BdkAmount, BlockHash, Network as BdkNetwork, NetworkKind,
+        OutPoint, OutPoint as BdkOutPoint, ScriptBuf, TxOut,
     },
-    database::{
-        any::SledDbConfiguration, AnyDatabase, ConfigurableDatabase as BdkConfigurableDatabase,
-        Database as BdkDatabase,
-    },
+    chain::ChainPosition,
     descriptor::Segwitv0,
+    file_store::Store,
     keys::{
         bip39::{Language, Mnemonic, WordCount},
         DerivableKey, DescriptorKey,
@@ -147,17 +146,15 @@ use bdk::{
         DescriptorSecretKey, ExtendedKey, GeneratableKey,
     },
     miniscript::DescriptorPublicKey,
-    wallet::AddressIndex,
-    Balance as BdkBalance, BlockTime, KeychainKind, LocalUtxo, SignOptions, Wallet as BdkWallet,
-};
-use bitcoin::{
-    bip32::ChildNumber,
-    hashes::Hash as Sha256Hash,
-    psbt::{raw::ProprietaryKey, Input, Output, PartiallySignedTransaction},
-    Address as BtcAddress, OutPoint, ScriptBuf, TxOut,
+    ChangeSet, KeychainKind, LocalOutput, PersistedWallet, SignOptions, Wallet as BdkWallet,
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-use bitcoin::{hashes::sha256, Txid};
+use bdk_wallet::{
+    bitcoin::{blockdata::fee_rate::FeeRate, hashes::sha256, Transaction as BdkTransaction, Txid},
+    chain::spk_client::{FullScanRequest, FullScanResponse, SyncRequest, SyncResponse},
+    coin_selection::InsufficientFunds,
+    Update,
+};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use bp::seals::txout::{ChainBlindSeal, TxPtr};
 use bp::{
@@ -170,8 +167,6 @@ use chacha20poly1305::{
     Key, KeyInit, XChaCha20Poly1305,
 };
 use commit_verify::Conceal;
-#[cfg(feature = "electrum")]
-use electrum_client::{Client as ElectrumClient, ConfigBuilder, ElectrumApi, Param};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use file_format::FileFormat;
 use futures::executor::block_on;
@@ -242,6 +237,10 @@ use typenum::consts::U32;
 use walkdir::WalkDir;
 use zip::write::SimpleFileOptions;
 
+#[cfg(feature = "electrum")]
+use crate::utils::INDEXER_BATCH_SIZE;
+#[cfg(feature = "esplora")]
+use crate::utils::INDEXER_PARALLEL_REQUESTS;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 #[cfg(test)]
 use crate::wallet::test::{
@@ -253,9 +252,10 @@ use crate::wallet::test::{mock_chain_net, skip_check_fee_rate};
 use crate::{
     api::proxy::{GetConsignmentResponse, Proxy},
     database::{DbData, LocalRecipient, LocalRecipientData, LocalWitnessData},
+    error::IndexerError,
     utils::{
         check_proxy, get_indexer, get_proxy_client, script_buf_from_recipient_id, OffchainResolver,
-        INDEXER_TIMEOUT,
+        INDEXER_STOP_GAP, INDEXER_TIMEOUT,
     },
     wallet::Indexer,
 };
@@ -296,8 +296,9 @@ use crate::{
     utils::{
         adjust_canonicalization, beneficiary_from_script_buf, calculate_descriptor_from_xprv,
         calculate_descriptor_from_xpub, derive_account_xprv_from_mnemonic,
-        from_str_or_number_mandatory, from_str_or_number_optional, get_xpub_from_xprv,
-        load_rgb_runtime, now, setup_logger, RgbInExt, RgbOutExt, RgbPsbtExt, RgbRuntime, LOG_FILE,
+        from_str_or_number_mandatory, from_str_or_number_optional, get_genesis_hash,
+        get_xpub_from_xprv, load_rgb_runtime, now, parse_address_str, setup_logger, RgbInExt,
+        RgbOutExt, RgbPsbtExt, RgbRuntime, LOG_FILE,
     },
     wallet::{Balance, Outpoint, NUM_KNOWN_SCHEMAS, SCHEMA_ID_CFA, SCHEMA_ID_NIA, SCHEMA_ID_UDA},
 };

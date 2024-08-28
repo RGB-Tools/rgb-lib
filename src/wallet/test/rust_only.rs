@@ -10,24 +10,38 @@ fn success() {
     let blinding = 777;
 
     // wallets
-    let (wallet_send, online_send) = get_funded_noutxo_wallet!();
+    let (mut wallet_send, online_send) = get_funded_noutxo_wallet!();
     let (mut wallet_recv, _online_recv) = get_empty_wallet!();
 
     // create 1 UTXO and drain the rest
-    let num_created = test_create_utxos(&wallet_send, &online_send, false, Some(1), None, FEE_RATE);
+    let num_created = test_create_utxos(
+        &mut wallet_send,
+        &online_send,
+        false,
+        Some(1),
+        None,
+        FEE_RATE,
+    );
     assert_eq!(num_created, 1);
-    test_drain_to_keep(&wallet_send, &online_send, &test_get_address(&wallet_recv));
+    test_drain_to_keep(
+        &mut wallet_send,
+        &online_send,
+        &test_get_address(&mut wallet_recv),
+    );
 
     // issue
-    let asset = test_issue_asset_nia(&wallet_send, &online_send, Some(&[AMOUNT]));
+    let asset = test_issue_asset_nia(&mut wallet_send, &online_send, Some(&[AMOUNT]));
 
     // prepare PSBT
-    let address = BdkAddress::from_str(&test_get_address(&wallet_recv)).unwrap();
+    let address = BdkAddress::from_str(&test_get_address(&mut wallet_recv)).unwrap();
     let mut tx_builder = wallet_send.bdk_wallet.build_tx();
     tx_builder
-        .add_recipient(address.payload.script_pubkey(), amt_sat)
-        .fee_rate(FeeRate::from_sat_per_vb(FEE_RATE));
-    let mut psbt = tx_builder.finish().unwrap().0;
+        .add_recipient(
+            address.assume_checked().script_pubkey(),
+            BdkAmount::from_sat(amt_sat),
+        )
+        .fee_rate(FeeRate::from_sat_per_vb_unchecked(FEE_RATE));
+    let mut psbt = tx_builder.finish().unwrap();
     let mut psbt_copy = psbt.clone();
     assert!(!psbt
         .unsigned_tx
@@ -45,7 +59,7 @@ fn success() {
         .output
         .iter()
         .enumerate()
-        .find(|(_, o)| o.value == amt_sat)
+        .find(|(_, o)| o.value.to_sat() == amt_sat)
         .unwrap();
     let vout = output.0 as u32;
     output_map.insert(vout, AMOUNT); // sending AMOUNT since color_psbt doesn't support change
@@ -130,7 +144,7 @@ fn success() {
     assert_eq!(psbt, psbt_copy);
 
     // push consignment to proxy
-    let txid = psbt_copy.unsigned_tx.txid().to_string();
+    let txid = psbt_copy.unsigned_tx.compute_txid().to_string();
     let transfers_dir = wallet_send.get_transfers_dir().join(&txid);
     let consignment_path = transfers_dir.join(CONSIGNMENT_FILE);
     std::fs::create_dir_all(&transfers_dir).unwrap();
@@ -169,39 +183,39 @@ fn list_unspents_vanilla_success() {
     initialize();
 
     // wallets
-    let (wallet, online) = get_empty_wallet!();
+    let (mut wallet, online) = get_empty_wallet!();
 
     // no unspents
     let bak_info_before = wallet.database.get_backup_info().unwrap();
     assert!(bak_info_before.is_none());
-    let unspent_list = test_list_unspents_vanilla(&wallet, &online, None);
+    let unspent_list = test_list_unspents_vanilla(&mut wallet, &online, None);
     let bak_info_after = wallet.database.get_backup_info().unwrap();
     assert!(bak_info_after.is_none());
     assert_eq!(unspent_list.len(), 0);
 
     stop_mining();
 
-    send_to_address(test_get_address(&wallet));
+    send_to_address(test_get_address(&mut wallet));
 
     // one unspent, no confirmations
-    let unspent_list = test_list_unspents_vanilla(&wallet, &online, None);
+    let unspent_list = test_list_unspents_vanilla(&mut wallet, &online, None);
     assert_eq!(unspent_list.len(), 0);
-    let unspent_list = test_list_unspents_vanilla(&wallet, &online, Some(0));
+    let unspent_list = test_list_unspents_vanilla(&mut wallet, &online, Some(0));
     assert_eq!(unspent_list.len(), 1);
 
     mine(false, true);
 
     // one unspent, 1 confirmation
-    let unspent_list = test_list_unspents_vanilla(&wallet, &online, None);
+    let unspent_list = test_list_unspents_vanilla(&mut wallet, &online, None);
     assert_eq!(unspent_list.len(), 1);
-    let unspent_list = test_list_unspents_vanilla(&wallet, &online, Some(0));
+    let unspent_list = test_list_unspents_vanilla(&mut wallet, &online, Some(0));
     assert_eq!(unspent_list.len(), 1);
 
-    test_create_utxos_default(&wallet, &online);
+    test_create_utxos_default(&mut wallet, &online);
 
     // one unspent (change), colored unspents not listed
     mine(false, false);
-    let unspent_list = test_list_unspents_vanilla(&wallet, &online, None);
+    let unspent_list = test_list_unspents_vanilla(&mut wallet, &online, None);
     assert_eq!(unspent_list.len(), 1);
 }
 
@@ -211,9 +225,9 @@ fn list_unspents_vanilla_success() {
 fn list_unspents_vanilla_skip_sync() {
     initialize();
 
-    let (wallet, online) = get_empty_wallet!();
+    let (mut wallet, online) = get_empty_wallet!();
 
-    fund_wallet(test_get_address(&wallet));
+    fund_wallet(test_get_address(&mut wallet));
 
     // no unspents if skipping sync
     let unspents = wallet
@@ -237,15 +251,15 @@ fn save_new_asset_success() {
     let asset_amount: u64 = 66;
 
     // wallets
-    let (wallet, online) = get_funded_wallet!();
-    let (rcv_wallet, _rcv_online) = get_empty_wallet!();
+    let (mut wallet, online) = get_funded_wallet!();
+    let (mut rcv_wallet, _rcv_online) = get_empty_wallet!();
 
     // NIA
-    let nia_asset = test_issue_asset_nia(&wallet, &online, None);
+    let nia_asset = test_issue_asset_nia(&mut wallet, &online, None);
     test_save_new_asset(
-        &wallet,
+        &mut wallet,
         &online,
-        &rcv_wallet,
+        &mut rcv_wallet,
         &nia_asset.asset_id,
         asset_amount,
     );
@@ -266,11 +280,11 @@ fn save_new_asset_success() {
     assert_eq!(asset_model.schema, AssetSchema::Nia);
 
     // CFA
-    let cfa_asset = test_issue_asset_cfa(&wallet, &online, None, None);
+    let cfa_asset = test_issue_asset_cfa(&mut wallet, &online, None, None);
     test_save_new_asset(
-        &wallet,
+        &mut wallet,
         &online,
-        &rcv_wallet,
+        &mut rcv_wallet,
         &cfa_asset.asset_id,
         asset_amount,
     );
@@ -295,17 +309,17 @@ fn save_new_asset_success() {
     let file_str = "README.md";
     let image_str = ["tests", "qrcode.png"].join(MAIN_SEPARATOR_STR);
     let uda_asset = test_issue_asset_uda(
-        &wallet,
+        &mut wallet,
         &online,
         Some(DETAILS),
         Some(file_str),
         vec![&image_str, file_str],
     );
-    test_create_utxos(&wallet, &online, false, None, None, FEE_RATE);
+    test_create_utxos(&mut wallet, &online, false, None, None, FEE_RATE);
     test_save_new_asset(
-        &wallet,
+        &mut wallet,
         &online,
-        &rcv_wallet,
+        &mut rcv_wallet,
         &uda_asset.asset_id,
         uda_amount,
     );
@@ -336,24 +350,38 @@ fn color_psbt_fail() {
     let blinding = 777;
 
     // wallets
-    let (wallet_send, online_send) = get_funded_noutxo_wallet!();
-    let (wallet_recv, _online_recv) = get_empty_wallet!();
+    let (mut wallet_send, online_send) = get_funded_noutxo_wallet!();
+    let (mut wallet_recv, _online_recv) = get_empty_wallet!();
 
     // create 1 UTXO and drain the rest
-    let num_created = test_create_utxos(&wallet_send, &online_send, false, Some(1), None, FEE_RATE);
+    let num_created = test_create_utxos(
+        &mut wallet_send,
+        &online_send,
+        false,
+        Some(1),
+        None,
+        FEE_RATE,
+    );
     assert_eq!(num_created, 1);
-    test_drain_to_keep(&wallet_send, &online_send, &test_get_address(&wallet_recv));
+    test_drain_to_keep(
+        &mut wallet_send,
+        &online_send,
+        &test_get_address(&mut wallet_recv),
+    );
 
     // issue
-    let asset = test_issue_asset_nia(&wallet_send, &online_send, Some(&[AMOUNT]));
+    let asset = test_issue_asset_nia(&mut wallet_send, &online_send, Some(&[AMOUNT]));
 
     // prepare PSBT
-    let address = BdkAddress::from_str(&test_get_address(&wallet_recv)).unwrap();
+    let address = BdkAddress::from_str(&test_get_address(&mut wallet_recv)).unwrap();
     let mut tx_builder = wallet_send.bdk_wallet.build_tx();
     tx_builder
-        .add_recipient(address.payload.script_pubkey(), amt_sat)
-        .fee_rate(FeeRate::from_sat_per_vb(FEE_RATE));
-    let mut psbt = tx_builder.finish().unwrap().0;
+        .add_recipient(
+            address.assume_checked().script_pubkey(),
+            BdkAmount::from_sat(amt_sat),
+        )
+        .fee_rate(FeeRate::from_sat_per_vb_unchecked(FEE_RATE));
+    let mut psbt = tx_builder.finish().unwrap();
 
     // prepare coloring data
     assert_eq!(psbt.unsigned_tx.input.len(), 1);
@@ -364,7 +392,7 @@ fn color_psbt_fail() {
         .output
         .iter()
         .enumerate()
-        .find(|(_, o)| o.value == amt_sat)
+        .find(|(_, o)| o.value.to_sat() == amt_sat)
         .unwrap();
     output_map.insert(output.0 as u32, AMOUNT);
 
@@ -522,9 +550,9 @@ fn post_consignment_fail() {
 fn save_new_asset_fail() {
     initialize();
 
-    let (wallet, online) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_wallet!();
 
-    let asset_nia = test_issue_asset_nia(&wallet, &online, None);
+    let asset_nia = test_issue_asset_nia(&mut wallet, &online, None);
     let asset_nia_cid = ContractId::from_str(&asset_nia.asset_id).unwrap();
     let result = wallet.save_new_asset(&AssetSchema::Cfa, asset_nia_cid, None);
     assert!(matches!(result, Err(Error::AssetIfaceMismatch)));

@@ -9,12 +9,12 @@ fn success() {
     let amount = 66;
     let expiration = 1;
 
-    let (wallet, online) = get_funded_wallet!();
-    let (rcv_wallet, rcv_online) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_wallet!();
+    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
 
     // return false if no transfer has changed
     let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
-    assert!(!test_fail_transfers_all(&wallet, &online));
+    assert!(!test_fail_transfers_all(&mut wallet, &online));
     let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
     assert_eq!(
         bak_info_after.last_operation_timestamp,
@@ -22,7 +22,7 @@ fn success() {
     );
 
     // issue
-    let asset = test_issue_asset_nia(&wallet, &online, None);
+    let asset = test_issue_asset_nia(&mut wallet, &online, None);
 
     // fail single transfer
     let receive_data = test_blind_receive(&rcv_wallet);
@@ -33,7 +33,7 @@ fn success() {
     ));
     let bak_info_before = rcv_wallet.database.get_backup_info().unwrap().unwrap();
     assert!(test_fail_transfers_single(
-        &rcv_wallet,
+        &mut rcv_wallet,
         &rcv_online,
         receive_data.batch_transfer_idx
     ));
@@ -65,12 +65,12 @@ fn success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&wallet, &online, &recipient_map);
+    let txid = test_send(&mut wallet, &online, &recipient_map);
     assert!(!txid.is_empty());
     stop_mining();
-    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
-    show_unspent_colorings(&rcv_wallet, "receiver run 1 after refresh 1");
-    show_unspent_colorings(&wallet, "sender run 1 no refresh");
+    wait_for_refresh(&mut rcv_wallet, &rcv_online, None, None);
+    show_unspent_colorings(&mut rcv_wallet, "receiver run 1 after refresh 1");
+    show_unspent_colorings(&mut wallet, "sender run 1 no refresh");
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
         &receive_data_1.recipient_id,
@@ -86,9 +86,9 @@ fn success() {
         &receive_data_3.recipient_id,
         TransferStatus::WaitingConfirmations
     ));
-    assert!(test_fail_transfers_all(&rcv_wallet, &rcv_online));
-    show_unspent_colorings(&rcv_wallet, "receiver run 1 after fail");
-    show_unspent_colorings(&wallet, "sender run 1 after fail");
+    assert!(test_fail_transfers_all(&mut rcv_wallet, &rcv_online));
+    show_unspent_colorings(&mut rcv_wallet, "receiver run 1 after fail");
+    show_unspent_colorings(&mut wallet, "sender run 1 after fail");
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
         &receive_data_1.recipient_id,
@@ -106,10 +106,10 @@ fn success() {
     ));
 
     // progress transfer to Settled
-    wait_for_refresh(&wallet, &online, None, None);
+    wait_for_refresh(&mut wallet, &online, None, None);
     mine(false, true);
-    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
-    wait_for_refresh(&wallet, &online, None, None);
+    wait_for_refresh(&mut rcv_wallet, &rcv_online, None, None);
+    wait_for_refresh(&mut wallet, &online, None, None);
 
     // fail all expired WaitingCounterparty transfers with no asset_id
     let receive_data_1 = test_blind_receive(&rcv_wallet);
@@ -146,12 +146,12 @@ fn success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&wallet, &online, &recipient_map);
+    let txid = test_send(&mut wallet, &online, &recipient_map);
     assert!(!txid.is_empty());
-    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
+    wait_for_refresh(&mut rcv_wallet, &rcv_online, None, None);
 
-    show_unspent_colorings(&rcv_wallet, "receiver run 2 after refresh 1");
-    show_unspent_colorings(&wallet, "sender run 2 no refresh");
+    show_unspent_colorings(&mut rcv_wallet, "receiver run 2 after refresh 1");
+    show_unspent_colorings(&mut wallet, "sender run 2 no refresh");
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
         &receive_data_1.recipient_id,
@@ -175,8 +175,8 @@ fn success() {
     rcv_wallet
         .fail_transfers(rcv_online, None, true, false)
         .unwrap();
-    show_unspent_colorings(&rcv_wallet, "receiver run 2 after fail");
-    show_unspent_colorings(&wallet, "sender run 2 after fail");
+    show_unspent_colorings(&mut rcv_wallet, "receiver run 2 after fail");
+    show_unspent_colorings(&mut wallet, "sender run 2 after fail");
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
         &receive_data_1.recipient_id,
@@ -207,12 +207,12 @@ fn batch_success() {
 
     let amount = 66;
 
-    let (wallet, online) = get_funded_wallet!();
-    let (rcv_wallet_1, rcv_online_1) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_wallet!();
+    let (mut rcv_wallet_1, rcv_online_1) = get_funded_wallet!();
     let (rcv_wallet_2, _rcv_online_2) = get_funded_wallet!();
 
     // issue
-    let asset = test_issue_asset_nia(&wallet, &online, None);
+    let asset = test_issue_asset_nia(&mut wallet, &online, None);
     let asset_id = asset.asset_id;
 
     // transfer is in WaitingCounterparty status and can be failed
@@ -235,7 +235,7 @@ fn batch_success() {
             },
         ],
     )]);
-    let send_result = test_send_result(&wallet, &online, &recipient_map).unwrap();
+    let send_result = test_send_result(&mut wallet, &online, &recipient_map).unwrap();
     let txid = send_result.txid;
     assert!(!txid.is_empty());
     assert!(check_test_transfer_status_recipient(
@@ -282,10 +282,10 @@ fn batch_success() {
             },
         ],
     )]);
-    let send_result = test_send_result(&wallet, &online, &recipient_map).unwrap();
+    let send_result = test_send_result(&mut wallet, &online, &recipient_map).unwrap();
     let txid = send_result.txid;
     assert!(!txid.is_empty());
-    wait_for_refresh(&rcv_wallet_1, &rcv_online_1, None, None);
+    wait_for_refresh(&mut rcv_wallet_1, &rcv_online_1, None, None);
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet_1,
         &receive_data_1.recipient_id,
@@ -313,11 +313,11 @@ fn fail() {
     initialize();
 
     // wallets
-    let (wallet, online) = get_funded_wallet!();
-    let (rcv_wallet, rcv_online) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_wallet!();
+    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
 
     // issue
-    let asset = test_issue_asset_nia(&wallet, &online, None);
+    let asset = test_issue_asset_nia(&mut wallet, &online, None);
     let asset_id = asset.asset_id.clone();
 
     // don't fail transfer with asset_id if no_asset_only is true
@@ -364,7 +364,7 @@ fn fail() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let send_result = test_send_result(&wallet, &online, &recipient_map).unwrap();
+    let send_result = test_send_result(&mut wallet, &online, &recipient_map).unwrap();
 
     // check starting transfer status
     assert!(check_test_transfer_status_recipient(
@@ -435,8 +435,8 @@ fn fail() {
 
     // mine and refresh so transfers can settle
     mine(false, true);
-    wait_for_refresh(&wallet, &online, Some(&asset_id), None);
-    wait_for_refresh(&rcv_wallet, &rcv_online, Some(&asset_id), None);
+    wait_for_refresh(&mut wallet, &online, Some(&asset_id), None);
+    wait_for_refresh(&mut rcv_wallet, &rcv_online, Some(&asset_id), None);
 
     // don't fail incoming transfer: settled
     let result = rcv_wallet.fail_transfers(rcv_online, Some(batch_transfer_idx), false, false);
@@ -464,12 +464,16 @@ fn batch_fail() {
 
     let amount = 66;
 
-    let (wallet, online) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_wallet!();
     let (rcv_wallet_1, _rcv_online_1) = get_funded_wallet!();
     let (rcv_wallet_2, _rcv_online_2) = get_funded_wallet!();
 
     // issue
-    let asset = test_issue_asset_nia(&wallet, &online, Some(&[AMOUNT, AMOUNT * 2, AMOUNT * 3]));
+    let asset = test_issue_asset_nia(
+        &mut wallet,
+        &online,
+        Some(&[AMOUNT, AMOUNT * 2, AMOUNT * 3]),
+    );
     let asset_id = asset.asset_id;
 
     // batch send as donation (doesn't wait for recipient confirmations)
@@ -527,11 +531,11 @@ fn skip_sync() {
     let amount = 66;
     let expiration = 1;
 
-    let (wallet, online) = get_funded_wallet!();
-    let (rcv_wallet, rcv_online) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_wallet!();
+    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
 
     // issue
-    let asset = test_issue_asset_nia(&wallet, &online, None);
+    let asset = test_issue_asset_nia(&mut wallet, &online, None);
 
     // fail single transfer skipping sync
     let receive_data = test_blind_receive(&rcv_wallet);
@@ -574,12 +578,12 @@ fn skip_sync() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&wallet, &online, &recipient_map);
+    let txid = test_send(&mut wallet, &online, &recipient_map);
     assert!(!txid.is_empty());
     stop_mining();
-    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
-    show_unspent_colorings(&rcv_wallet, "receiver run 1 after refresh 1");
-    show_unspent_colorings(&wallet, "sender run 1 no refresh");
+    wait_for_refresh(&mut rcv_wallet, &rcv_online, None, None);
+    show_unspent_colorings(&mut rcv_wallet, "receiver run 1 after refresh 1");
+    show_unspent_colorings(&mut wallet, "sender run 1 no refresh");
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
         &receive_data_1.recipient_id,
@@ -598,8 +602,8 @@ fn skip_sync() {
     assert!(rcv_wallet
         .fail_transfers(rcv_online.clone(), None, false, true)
         .unwrap());
-    show_unspent_colorings(&rcv_wallet, "receiver run 1 after fail");
-    show_unspent_colorings(&wallet, "sender run 1 after fail");
+    show_unspent_colorings(&mut rcv_wallet, "receiver run 1 after fail");
+    show_unspent_colorings(&mut wallet, "sender run 1 after fail");
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
         &receive_data_1.recipient_id,
@@ -617,10 +621,10 @@ fn skip_sync() {
     ));
 
     // progress transfer to Settled
-    wait_for_refresh(&wallet, &online, None, None);
+    wait_for_refresh(&mut wallet, &online, None, None);
     mine(false, true);
-    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
-    wait_for_refresh(&wallet, &online, None, None);
+    wait_for_refresh(&mut rcv_wallet, &rcv_online, None, None);
+    wait_for_refresh(&mut wallet, &online, None, None);
 
     // fail all expired WaitingCounterparty transfers with no asset_id
     let receive_data_1 = test_blind_receive(&rcv_wallet);
@@ -657,12 +661,12 @@ fn skip_sync() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&wallet, &online, &recipient_map);
+    let txid = test_send(&mut wallet, &online, &recipient_map);
     assert!(!txid.is_empty());
-    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
+    wait_for_refresh(&mut rcv_wallet, &rcv_online, None, None);
 
-    show_unspent_colorings(&rcv_wallet, "receiver run 2 after refresh 1");
-    show_unspent_colorings(&wallet, "sender run 2 no refresh");
+    show_unspent_colorings(&mut rcv_wallet, "receiver run 2 after refresh 1");
+    show_unspent_colorings(&mut wallet, "sender run 2 no refresh");
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
         &receive_data_1.recipient_id,
@@ -686,8 +690,8 @@ fn skip_sync() {
     rcv_wallet
         .fail_transfers(rcv_online, None, true, true)
         .unwrap();
-    show_unspent_colorings(&rcv_wallet, "receiver run 2 after fail");
-    show_unspent_colorings(&wallet, "sender run 2 after fail");
+    show_unspent_colorings(&mut rcv_wallet, "receiver run 2 after fail");
+    show_unspent_colorings(&mut wallet, "sender run 2 after fail");
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
         &receive_data_1.recipient_id,

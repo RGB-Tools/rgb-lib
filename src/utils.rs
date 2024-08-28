@@ -20,6 +20,12 @@ pub(crate) const ACCOUNT: u8 = 0;
 pub(crate) const INDEXER_STOP_GAP: usize = 20;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) const INDEXER_TIMEOUT: u8 = 10;
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) const INDEXER_RETRIES: u8 = 3;
+#[cfg(feature = "electrum")]
+pub(crate) const INDEXER_BATCH_SIZE: usize = 5;
+#[cfg(feature = "esplora")]
+pub(crate) const INDEXER_PARALLEL_REQUESTS: usize = 5;
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) const PROXY_TIMEOUT: u8 = 90;
@@ -98,6 +104,15 @@ impl From<BitcoinNetwork> for bitcoin::Network {
             BitcoinNetwork::Testnet => bitcoin::Network::Testnet,
             BitcoinNetwork::Signet => bitcoin::Network::Signet,
             BitcoinNetwork::Regtest => bitcoin::Network::Regtest,
+        }
+    }
+}
+
+impl From<BitcoinNetwork> for NetworkKind {
+    fn from(x: BitcoinNetwork) -> Self {
+        match x {
+            BitcoinNetwork::Mainnet => Self::Main,
+            _ => Self::Test,
         }
     }
 }
@@ -225,8 +240,7 @@ where
     deserialize_str_or_number(deserializer)
 }
 
-#[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
-fn get_genesis_hash(bitcoin_network: &BitcoinNetwork) -> &str {
+pub(crate) fn get_genesis_hash(bitcoin_network: &BitcoinNetwork) -> &str {
     match bitcoin_network {
         BitcoinNetwork::Mainnet => {
             "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"
@@ -269,7 +283,7 @@ fn get_coin_type(bitcoin_network: BitcoinNetwork) -> u32 {
 pub(crate) fn derive_account_xprv_from_mnemonic(
     bitcoin_network: BitcoinNetwork,
     mnemonic: &str,
-) -> Result<ExtendedPrivKey, Error> {
+) -> Result<Xpriv, Error> {
     let coin_type = get_coin_type(bitcoin_network);
     let account_derivation_path = vec![
         ChildNumber::from_hardened_idx(PURPOSE as u32).unwrap(),
@@ -277,22 +291,32 @@ pub(crate) fn derive_account_xprv_from_mnemonic(
         ChildNumber::from_hardened_idx(ACCOUNT as u32).unwrap(),
     ];
     let mnemonic = Mnemonic::parse_in(Language::English, mnemonic.to_string())?;
-    let master_xprv =
-        ExtendedPrivKey::new_master(bitcoin_network.into(), &mnemonic.to_seed("")).unwrap();
+    let master_xprv = Xpriv::new_master(bitcoin_network, &mnemonic.to_seed("")).unwrap();
     Ok(master_xprv.derive_priv(&Secp256k1::new(), &account_derivation_path)?)
 }
 
-pub(crate) fn get_xpub_from_xprv(xprv: &ExtendedPrivKey) -> ExtendedPubKey {
-    ExtendedPubKey::from_priv(&Secp256k1::new(), xprv)
+pub(crate) fn get_xpub_from_xprv(xprv: &Xpriv) -> Xpub {
+    Xpub::from_priv(&Secp256k1::new(), xprv)
 }
 
 /// Get account-level xPub for the given mnemonic and Bitcoin network
-pub fn get_account_xpub(
-    bitcoin_network: BitcoinNetwork,
-    mnemonic: &str,
-) -> Result<ExtendedPubKey, Error> {
+pub fn get_account_xpub(bitcoin_network: BitcoinNetwork, mnemonic: &str) -> Result<Xpub, Error> {
     let account_xprv = derive_account_xprv_from_mnemonic(bitcoin_network, mnemonic)?;
     Ok(get_xpub_from_xprv(&account_xprv))
+}
+
+pub(crate) fn parse_address_str(
+    address: &str,
+    bitcoin_network: BitcoinNetwork,
+) -> Result<BdkAddress, Error> {
+    BdkAddress::from_str(address)
+        .map_err(|e| Error::InvalidAddress {
+            details: e.to_string(),
+        })?
+        .require_network(bitcoin_network.into())
+        .map_err(|_| Error::InvalidAddress {
+            details: s!("belongs to another network"),
+        })
 }
 
 /// Extract the witness script if recipient is a Witness one
@@ -335,10 +359,7 @@ fn get_derivation_path(keychain: u8) -> DerivationPath {
     DerivationPath::from_iter(derivation_path.clone())
 }
 
-fn get_descriptor_priv_key(
-    xprv: ExtendedPrivKey,
-    keychain: u8,
-) -> Result<DescriptorSecretKey, Error> {
+fn get_descriptor_priv_key(xprv: Xpriv, keychain: u8) -> Result<DescriptorSecretKey, Error> {
     let path = get_derivation_path(keychain);
     let der_xprv = &xprv
         .derive_priv(&Secp256k1::new(), &path)
@@ -354,10 +375,7 @@ fn get_descriptor_priv_key(
     }
 }
 
-fn get_descriptor_pub_key(
-    xpub: ExtendedPubKey,
-    keychain: u8,
-) -> Result<DescriptorPublicKey, Error> {
+fn get_descriptor_pub_key(xpub: Xpub, keychain: u8) -> Result<DescriptorPublicKey, Error> {
     let path = get_derivation_path(keychain);
     let der_xpub = &xpub
         .derive_pub(&Secp256k1::new(), &path)
@@ -373,18 +391,12 @@ fn get_descriptor_pub_key(
     }
 }
 
-pub(crate) fn calculate_descriptor_from_xprv(
-    xprv: ExtendedPrivKey,
-    keychain: u8,
-) -> Result<String, Error> {
+pub(crate) fn calculate_descriptor_from_xprv(xprv: Xpriv, keychain: u8) -> Result<String, Error> {
     let key = get_descriptor_priv_key(xprv, keychain)?;
     Ok(format!("tr({key})"))
 }
 
-pub(crate) fn calculate_descriptor_from_xpub(
-    xpub: ExtendedPubKey,
-    keychain: u8,
-) -> Result<String, Error> {
+pub(crate) fn calculate_descriptor_from_xpub(xpub: Xpub, keychain: u8) -> Result<String, Error> {
     let key = get_descriptor_pub_key(xpub, keychain)?;
     Ok(format!("tr({key})"))
 }
@@ -440,11 +452,11 @@ pub(crate) fn check_proxy(proxy_url: &str, rest_client: Option<&RestClient>) -> 
 pub(crate) fn get_indexer(
     indexer_url: &str,
     bitcoin_network: BitcoinNetwork,
-) -> Result<(Indexer, AnyBlockchainConfig), Error> {
+) -> Result<Indexer, Error> {
     // detect indexer type
-    let indexer_info = build_indexer(indexer_url);
+    let indexer = build_indexer(indexer_url);
     let mut invalid_indexer = true;
-    if let Some((ref indexer, _)) = indexer_info {
+    if let Some(ref indexer) = indexer {
         invalid_indexer = indexer.block_hash(0).is_err();
     }
     if invalid_indexer {
@@ -452,7 +464,7 @@ pub(crate) fn get_indexer(
             details: s!("not a valid electrum nor esplora server"),
         });
     }
-    let (indexer, indexer_config) = indexer_info.unwrap();
+    let indexer = indexer.unwrap();
 
     // check the indexer server is for the correct network
     check_genesis_hash(&bitcoin_network, &indexer)?;
@@ -467,42 +479,33 @@ pub(crate) fn get_indexer(
             })?;
     }
 
-    Ok((indexer, indexer_config))
+    Ok(indexer)
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) fn build_indexer(indexer_url: &str) -> Option<(Indexer, AnyBlockchainConfig)> {
+pub(crate) fn build_indexer(indexer_url: &str) -> Option<Indexer> {
     #[cfg(feature = "electrum")]
     {
-        let electrum_config = ConfigBuilder::new().timeout(Some(INDEXER_TIMEOUT)).build();
-        if let Ok(client) = ElectrumClient::from_config(indexer_url, electrum_config) {
-            let electrum_config = ElectrumBlockchainConfig {
-                url: indexer_url.to_string(),
-                socks5: None,
-                retry: 3,
-                timeout: Some(INDEXER_TIMEOUT),
-                stop_gap: INDEXER_STOP_GAP,
-                validate_domain: true,
-            };
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        let opts = ConfigBuilder::new()
+            .retry(INDEXER_RETRIES)
+            .timeout(Some(INDEXER_TIMEOUT))
+            .build();
+        if let Ok(client) = ElectrumClient::from_config(indexer_url, opts) {
+            let client = BdkElectrumClient::new(client);
             let indexer = Indexer::Electrum(Box::new(client));
-            let config = AnyBlockchainConfig::Electrum(electrum_config);
-            return Some((indexer, config));
+            return Some(indexer);
         }
     }
     if cfg!(feature = "esplora") {
         #[cfg(feature = "esplora")]
         {
-            let esplora_config = EsploraBlockchainConfig {
-                base_url: indexer_url.to_string(),
-                proxy: None,
-                concurrency: None,
-                timeout: Some(INDEXER_TIMEOUT as u64),
-                stop_gap: INDEXER_STOP_GAP,
-            };
-            let esplora_client = EsploraClient::from_config(&esplora_config).unwrap();
-            let indexer = Indexer::Esplora(Box::new(esplora_client));
-            let config = AnyBlockchainConfig::Esplora(esplora_config);
-            return Some((indexer, config));
+            let opts = EsploraBuilder::new(indexer_url)
+                .max_retries(INDEXER_RETRIES.into())
+                .timeout(INDEXER_TIMEOUT.into());
+            let client = EsploraClient::from_builder(opts);
+            let indexer = Indexer::Esplora(Box::new(client));
+            return Some(indexer);
         }
     }
     None
@@ -912,7 +915,7 @@ pub(crate) trait RgbPsbtExt {
     ) -> Result<bool, InternalError>;
 }
 
-impl RgbPsbtExt for PartiallySignedTransaction {
+impl RgbPsbtExt for Psbt {
     fn rgb_transition(&self, opid: OpId) -> Result<Option<Transition>, InternalError> {
         let Some(data) = self.proprietary.get(&ProprietaryKey::rgb_transition(opid)) else {
             return Ok(None);

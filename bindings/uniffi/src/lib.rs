@@ -6,12 +6,11 @@ use std::{
 };
 
 use rgb_lib::{
-    bdk::BlockTime,
     keys::Keys,
     wallet::{
         Address as RgbLibAddress, AssetCFA, AssetIface, AssetNIA, AssetUDA, Assets, Balance,
-        BtcBalance, DatabaseType, EmbeddedMedia, Invoice as RgbLibInvoice, InvoiceData, Media,
-        Metadata, Online, Outpoint, ProofOfReserves, ReceiveData, Recipient,
+        BlockTime, BtcBalance, DatabaseType, EmbeddedMedia, Invoice as RgbLibInvoice, InvoiceData,
+        Media, Metadata, Online, Outpoint, ProofOfReserves, ReceiveData, Recipient,
         RecipientInfo as RgbLibRecipientInfo, RefreshFilter, RefreshTransferStatus,
         RefreshedTransfer, RgbAllocation, SendResult, Token, TokenLight, Transaction,
         TransactionType, Transfer, TransferKind, TransferTransportEndpoint,
@@ -211,7 +210,7 @@ impl Wallet {
         up_to: bool,
         num: Option<u8>,
         size: Option<u32>,
-        fee_rate: f32,
+        fee_rate: u64,
         skip_sync: bool,
     ) -> Result<u8, RgbLibError> {
         self._get_wallet()
@@ -224,7 +223,7 @@ impl Wallet {
         up_to: bool,
         num: Option<u8>,
         size: Option<u32>,
-        fee_rate: f32,
+        fee_rate: u64,
         skip_sync: bool,
     ) -> Result<String, RgbLibError> {
         self._get_wallet()
@@ -255,7 +254,7 @@ impl Wallet {
         online: Online,
         address: String,
         destroy_assets: bool,
-        fee_rate: f32,
+        fee_rate: u64,
     ) -> Result<String, RgbLibError> {
         self._get_wallet()
             .drain_to(online, address, destroy_assets, fee_rate)
@@ -266,7 +265,7 @@ impl Wallet {
         online: Online,
         address: String,
         destroy_assets: bool,
-        fee_rate: f32,
+        fee_rate: u64,
     ) -> Result<String, RgbLibError> {
         self._get_wallet()
             .drain_to_begin(online, address, destroy_assets, fee_rate)
@@ -408,7 +407,7 @@ impl Wallet {
         online: Online,
         recipient_map: HashMap<String, Vec<Recipient>>,
         donation: bool,
-        fee_rate: f32,
+        fee_rate: u64,
         min_confirmations: u8,
         skip_sync: bool,
     ) -> Result<SendResult, RgbLibError> {
@@ -427,7 +426,7 @@ impl Wallet {
         online: Online,
         recipient_map: HashMap<String, Vec<Recipient>>,
         donation: bool,
-        fee_rate: f32,
+        fee_rate: u64,
         min_confirmations: u8,
     ) -> Result<String, RgbLibError> {
         self._get_wallet()
@@ -448,7 +447,7 @@ impl Wallet {
         online: Online,
         address: String,
         amount: u64,
-        fee_rate: f32,
+        fee_rate: u64,
         skip_sync: bool,
     ) -> Result<String, RgbLibError> {
         self._get_wallet()
@@ -460,7 +459,7 @@ impl Wallet {
         online: Online,
         address: String,
         amount: u64,
-        fee_rate: f32,
+        fee_rate: u64,
         skip_sync: bool,
     ) -> Result<String, RgbLibError> {
         self._get_wallet()

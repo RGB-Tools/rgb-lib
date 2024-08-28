@@ -9,18 +9,18 @@ fn success() {
     let amount: u64 = 1000;
 
     // wallets
-    let (wallet, online) = get_empty_wallet!();
-    let (rcv_wallet, rcv_online) = get_empty_wallet!();
+    let (mut wallet, online) = get_empty_wallet!();
+    let (mut rcv_wallet, rcv_online) = get_empty_wallet!();
 
     // initial balance
-    fund_wallet(test_get_address(&wallet));
-    test_create_utxos_default(&wallet, &online);
+    fund_wallet(test_get_address(&mut wallet));
+    test_create_utxos_default(&mut wallet, &online);
     mine(false, false);
     let expected_balance = BtcBalance {
         vanilla: Balance {
-            settled: 99994508,
-            future: 99994508,
-            spendable: 99994508,
+            settled: 99994347,
+            future: 99994347,
+            spendable: 99994347,
         },
         colored: Balance {
             settled: 5000,
@@ -28,11 +28,16 @@ fn success() {
             spendable: 5000,
         },
     };
-    assert_eq!(test_get_btc_balance(&wallet, &online), expected_balance);
+    assert_eq!(test_get_btc_balance(&mut wallet, &online), expected_balance);
 
     // balance after send
     let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
-    let txid = test_send_btc(&wallet, &online, &test_get_address(&rcv_wallet), amount);
+    let txid = test_send_btc(
+        &mut wallet,
+        &online,
+        &test_get_address(&mut rcv_wallet),
+        amount,
+    );
     let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
     assert_eq!(
         bak_info_after.last_operation_timestamp,
@@ -42,9 +47,9 @@ fn success() {
     mine(false, false);
     let expected_balance = BtcBalance {
         vanilla: Balance {
-            settled: 99993274,
-            future: 99993274,
-            spendable: 99993274,
+            settled: 99993038,
+            future: 99993038,
+            spendable: 99993038,
         },
         colored: Balance {
             settled: 5000,
@@ -52,7 +57,7 @@ fn success() {
             spendable: 5000,
         },
     };
-    assert_eq!(test_get_btc_balance(&wallet, &online), expected_balance);
+    assert_eq!(test_get_btc_balance(&mut wallet, &online), expected_balance);
     let expected_balance = BtcBalance {
         vanilla: Balance {
             settled: 1000,
@@ -66,7 +71,7 @@ fn success() {
         },
     };
     assert_eq!(
-        test_get_btc_balance(&rcv_wallet, &rcv_online),
+        test_get_btc_balance(&mut rcv_wallet, &rcv_online),
         expected_balance
     );
 }
@@ -80,9 +85,9 @@ fn fail() {
     let amount: u64 = 1000;
 
     // wallets
-    let (wallet, online) = get_funded_wallet!();
-    let (rcv_wallet, _rcv_online) = get_empty_wallet!();
-    let testnet_rcv_wallet = get_test_wallet_with_net(
+    let (mut wallet, online) = get_funded_wallet!();
+    let (mut rcv_wallet, _rcv_online) = get_empty_wallet!();
+    let mut testnet_rcv_wallet = get_test_wallet_with_net(
         true,
         Some(MAX_ALLOCATIONS_PER_UTXO),
         BitcoinNetwork::Testnet,
@@ -94,34 +99,34 @@ fn fail() {
         indexer_url: wallet.online_data.as_ref().unwrap().indexer_url.clone(),
     };
     let result = test_send_btc_result(
-        &wallet,
+        &mut wallet,
         &wrong_online,
-        &test_get_address(&rcv_wallet),
+        &test_get_address(&mut rcv_wallet),
         amount,
     );
     assert!(matches!(result, Err(Error::CannotChangeOnline)));
 
     // invalid address
-    let result = test_send_btc_result(&wallet, &online, "invalid", amount);
+    let result = test_send_btc_result(&mut wallet, &online, "invalid", amount);
     assert!(matches!(result, Err(Error::InvalidAddress { details: _ })));
     let result = test_send_btc_result(
-        &wallet,
+        &mut wallet,
         &online,
-        &test_get_address(&testnet_rcv_wallet),
+        &test_get_address(&mut testnet_rcv_wallet),
         amount,
     );
     assert!(matches!(result, Err(Error::InvalidAddress { details: _ })));
 
     // invalid amount
-    let result = test_send_btc_result(&wallet, &online, &test_get_address(&rcv_wallet), 0);
+    let result = test_send_btc_result(&mut wallet, &online, &test_get_address(&mut rcv_wallet), 0);
     assert!(matches!(result, Err(Error::OutputBelowDustLimit)));
 
     // invalid fee rate
     let result = wallet.send_btc_begin(
         online.clone(),
-        test_get_address(&rcv_wallet),
+        test_get_address(&mut rcv_wallet),
         amount,
-        0.9,
+        0,
         false,
     );
     assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_LOW));
@@ -136,19 +141,19 @@ fn skip_sync() {
     let amount: u64 = 1000;
 
     // wallets
-    let (wallet, online) = get_empty_wallet!();
-    let (rcv_wallet, _rcv_online) = get_empty_wallet!();
+    let (mut wallet, online) = get_empty_wallet!();
+    let (mut rcv_wallet, _rcv_online) = get_empty_wallet!();
 
     // prepare 1 UTXO
-    fund_wallet(test_get_address(&wallet));
-    let unspents = test_list_unspents(&wallet, Some(&online), false);
+    fund_wallet(test_get_address(&mut wallet));
+    let unspents = test_list_unspents(&mut wallet, Some(&online), false);
     assert_eq!(unspents.len(), 1);
 
     // send a 1st time skipping sync (spending the only UTXO)
     let txid = wallet
         .send_btc(
             online.clone(),
-            test_get_address(&rcv_wallet),
+            test_get_address(&mut rcv_wallet),
             amount,
             FEE_RATE,
             true,
@@ -158,7 +163,7 @@ fn skip_sync() {
     // send a 2nd time skipping sync > FailedBroadcast
     let result = wallet.send_btc(
         online.clone(),
-        test_get_address(&rcv_wallet),
+        test_get_address(&mut rcv_wallet),
         amount,
         FEE_RATE,
         true,
@@ -170,7 +175,7 @@ fn skip_sync() {
     let txid = wallet
         .send_btc(
             online.clone(),
-            test_get_address(&rcv_wallet),
+            test_get_address(&mut rcv_wallet),
             amount,
             FEE_RATE,
             true,

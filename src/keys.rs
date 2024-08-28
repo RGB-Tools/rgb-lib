@@ -74,9 +74,9 @@ mod test {
         } = generate_keys(BitcoinNetwork::Regtest);
 
         assert!(Mnemonic::from_str(&mnemonic).is_ok());
-        let pubkey = ExtendedPubKey::from_str(&xpub);
+        let pubkey = Xpub::from_str(&xpub);
         assert!(pubkey.is_ok());
-        let account_pubkey = ExtendedPubKey::from_str(&account_xpub);
+        let account_pubkey = Xpub::from_str(&account_xpub);
         assert!(account_pubkey.is_ok());
         assert_eq!(
             account_pubkey.unwrap().fingerprint().to_string(),

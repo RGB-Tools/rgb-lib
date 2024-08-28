@@ -8,14 +8,14 @@ const CONSIGNMENT_RCV_FILE: &str = "rcv_compose.rgbc";
 const TRANSFER_DATA_FILE: &str = "transfer_data.txt";
 const SIGNED_PSBT_FILE: &str = "signed.psbt";
 
-const OPRET_VBYTES: f32 = 43.0;
+const OPRET_VBYTES: u64 = 43;
 
 pub(crate) const UTXO_SIZE: u32 = 1000;
 pub(crate) const UTXO_NUM: u8 = 5;
 
 pub(crate) const MAX_ATTACHMENTS: usize = 20;
 
-pub(crate) const MIN_FEE_RATE: f32 = 1.0;
+pub(crate) const MIN_FEE_RATE: u64 = 1;
 
 pub(crate) const DURATION_SEND_TRANSFER: i64 = 3600;
 
@@ -66,26 +66,46 @@ struct InfoAssetTransfer {
 #[non_exhaustive]
 pub(crate) enum Indexer {
     #[cfg(feature = "electrum")]
-    Electrum(Box<ElectrumClient>),
+    Electrum(Box<BdkElectrumClient<ElectrumClient>>),
     #[cfg(feature = "esplora")]
     Esplora(Box<EsploraClient>),
 }
 
 impl Indexer {
-    pub(crate) fn block_hash(&self, height: usize) -> Result<String, Error> {
+    pub(crate) fn block_hash(&self, height: usize) -> Result<String, IndexerError> {
         Ok(match self {
             #[cfg(feature = "electrum")]
-            Indexer::Electrum(client) => client.block_header(height)?.block_hash().to_string(),
+            Indexer::Electrum(client) => {
+                client.inner.block_header(height)?.block_hash().to_string()
+            }
             #[cfg(feature = "esplora")]
             Indexer::Esplora(client) => client.get_block_hash(height as u32)?.to_string(),
         })
+    }
+
+    pub(crate) fn broadcast(&self, tx: &BdkTransaction) -> Result<(), IndexerError> {
+        match self {
+            #[cfg(feature = "electrum")]
+            Indexer::Electrum(client) => {
+                client.transaction_broadcast(tx)?;
+                Ok(())
+            }
+            #[cfg(feature = "esplora")]
+            Indexer::Esplora(client) => {
+                client.broadcast(tx)?;
+                Ok(())
+            }
+        }
     }
 
     pub(crate) fn fee_estimation(&self, blocks: u16) -> Result<f64, Error> {
         Ok(match self {
             #[cfg(feature = "electrum")]
             Indexer::Electrum(client) => {
-                let estimate = client.estimate_fee(blocks as usize)?; // in BTC/kB
+                let estimate = client
+                    .inner
+                    .estimate_fee(blocks as usize)
+                    .map_err(IndexerError::from)?; // in BTC/kB
                 if estimate == -1.0 {
                     return Err(Error::CannotEstimateFees);
                 }
@@ -93,17 +113,12 @@ impl Indexer {
             }
             #[cfg(feature = "esplora")]
             Indexer::Esplora(client) => {
-                let estimate_map_string_keys = client.get_fee_estimates()?; // in sat/vB
-                if estimate_map_string_keys.is_empty() {
+                let estimate_map = client.get_fee_estimates().map_err(IndexerError::from)?; // in sat/vB
+                if estimate_map.is_empty() {
                     return Err(Error::CannotEstimateFees);
                 }
-                let mut estimate_map = BTreeMap::new();
-                for (block_str, estimate) in estimate_map_string_keys {
-                    let block = block_str
-                        .parse::<u16>()
-                        .map_err(|_| InternalError::Unexpected)?;
-                    estimate_map.insert(block, estimate);
-                }
+                // map needs to be sorted for interpolation to work
+                let estimate_map = BTreeMap::from_iter(estimate_map);
                 match estimate_map.get(&blocks) {
                     Some(estimate) => *estimate,
                     None => {
@@ -142,11 +157,27 @@ impl Indexer {
         })
     }
 
+    pub(crate) fn full_scan<K: Ord + Clone, R: Into<FullScanRequest<K>>>(
+        &self,
+        request: R,
+    ) -> Result<FullScanResponse<K>, IndexerError> {
+        match self {
+            #[cfg(feature = "electrum")]
+            Indexer::Electrum(client) => {
+                Ok(client.full_scan(request, INDEXER_STOP_GAP, INDEXER_BATCH_SIZE, true)?)
+            }
+            #[cfg(feature = "esplora")]
+            Indexer::Esplora(client) => client
+                .full_scan(request, INDEXER_STOP_GAP, INDEXER_PARALLEL_REQUESTS)
+                .map_err(|e| IndexerError::from(*e)),
+        }
+    }
+
     pub(crate) fn get_tx_confirmations(&self, txid: &str) -> Result<Option<u64>, Error> {
         Ok(match self {
             #[cfg(feature = "electrum")]
             Indexer::Electrum(client) => {
-                let tx_details = match client.raw_call(
+                let tx_details = match client.inner.raw_call(
                     "blockchain.transaction.get",
                     vec![Param::String(txid.to_string()), Param::Bool(true)],
                 ) {
@@ -161,7 +192,7 @@ impl Indexer {
                         ) {
                             return Ok(Some(u64::MAX));
                         } else {
-                            Err(e)
+                            Err(IndexerError::from(e))
                         }
                     }
                 }?;
@@ -178,11 +209,11 @@ impl Indexer {
             #[cfg(feature = "esplora")]
             Indexer::Esplora(client) => {
                 let txid = Txid::from_str(txid).unwrap();
-                let tx_status = client.get_tx_status(&txid)?;
+                let tx_status = client.get_tx_status(&txid).map_err(IndexerError::from)?;
                 if let Some(tx_height) = tx_status.block_height {
-                    let height = client.get_height()?;
+                    let height = client.get_height().map_err(IndexerError::from)?;
                     Some((height - tx_height + 1) as u64)
-                } else if client.get_tx(&txid)?.is_none() {
+                } else if client.get_tx(&txid).map_err(IndexerError::from)?.is_none() {
                     None
                 } else {
                     Some(0)
@@ -190,11 +221,40 @@ impl Indexer {
             }
         })
     }
+
+    pub(crate) fn populate_tx_cache(
+        &self,
+        #[cfg_attr(feature = "esplora", allow(unused))] bdk_wallet: &PersistedWallet<
+            Store<ChangeSet>,
+        >,
+    ) {
+        match self {
+            #[cfg(feature = "electrum")]
+            Indexer::Electrum(client) => {
+                client.populate_tx_cache(bdk_wallet.tx_graph().full_txs().map(|tx_node| tx_node.tx))
+            }
+            #[cfg(feature = "esplora")]
+            Indexer::Esplora(_) => {}
+        }
+    }
+
+    pub(crate) fn sync<I: 'static>(
+        &self,
+        request: impl Into<SyncRequest<I>>,
+    ) -> Result<SyncResponse, IndexerError> {
+        match self {
+            #[cfg(feature = "electrum")]
+            Indexer::Electrum(client) => Ok(client.sync(request, INDEXER_BATCH_SIZE, true)?),
+            #[cfg(feature = "esplora")]
+            Indexer::Esplora(client) => client
+                .sync(request, INDEXER_PARALLEL_REQUESTS)
+                .map_err(|e| IndexerError::from(*e)),
+        }
+    }
 }
 
 pub(crate) struct OnlineData {
     id: u64,
-    bdk_blockchain: AnyBlockchain,
     pub(crate) indexer_url: String,
     indexer: Indexer,
     resolver: AnyResolver,
@@ -255,13 +315,6 @@ impl TryFrom<TransferStatus> for RefreshTransferStatus {
 }
 
 impl Wallet {
-    pub(crate) fn bdk_blockchain(&self) -> Result<&AnyBlockchain, InternalError> {
-        match self.online_data {
-            Some(ref x) => Ok(&x.bdk_blockchain),
-            None => Err(InternalError::Unexpected),
-        }
-    }
-
     pub(crate) fn testnet(&self) -> bool {
         !matches!(self.bitcoin_network(), BitcoinNetwork::Mainnet)
     }
@@ -274,39 +327,41 @@ impl Wallet {
         &self.online_data.as_ref().unwrap().resolver
     }
 
-    fn _check_fee_rate(&self, fee_rate: f32) -> Result<(), Error> {
+    fn _check_fee_rate(&self, fee_rate: u64) -> Result<FeeRate, Error> {
         #[cfg(test)]
         if skip_check_fee_rate() {
             println!("skipping fee rate check");
-            return Ok(());
+            return Ok(FeeRate::from_sat_per_vb_unchecked(fee_rate));
         };
         if fee_rate < MIN_FEE_RATE {
             return Err(Error::InvalidFeeRate {
                 details: format!("value under minimum {MIN_FEE_RATE}"),
             });
         }
-        Ok(())
+        let Some(fee_rate) = FeeRate::from_sat_per_vb(fee_rate) else {
+            return Err(Error::InvalidFeeRate {
+                details: s!("value overflows"),
+            });
+        };
+        Ok(fee_rate)
     }
 
-    fn _sync_wallet_with_blockchain<D>(
-        &self,
-        wallet: &BdkWallet<D>,
-        bdk_blockchain: &AnyBlockchain,
-    ) -> Result<(), Error>
-    where
-        D: BatchDatabase,
-    {
-        wallet
-            .sync(bdk_blockchain, SyncOptions { progress: None })
+    pub(crate) fn sync_db_txos(&mut self, full_scan: bool) -> Result<(), Error> {
+        debug!(self.logger, "Syncing TXOs...");
+
+        let update: Update = if full_scan {
+            let request = self.bdk_wallet.start_full_scan();
+            self.indexer().full_scan(request)?.into()
+        } else {
+            let request = self.bdk_wallet.start_sync_with_revealed_spks();
+            self.indexer().sync(request)?.into()
+        };
+        self.bdk_wallet
+            .apply_update(update)
             .map_err(|e| Error::FailedBdkSync {
                 details: e.to_string(),
             })?;
-        Ok(())
-    }
-
-    fn _sync_db_txos_with_blockchain(&self, bdk_blockchain: &AnyBlockchain) -> Result<(), Error> {
-        debug!(self.logger, "Syncing TXOs...");
-        self._sync_wallet_with_blockchain(&self.bdk_wallet, bdk_blockchain)?;
+        self.bdk_wallet.persist(&mut self.bdk_database)?;
 
         let db_txos = self.database.iter_txos()?;
 
@@ -316,16 +371,12 @@ impl Wallet {
             .filter(|t| !t.spent)
             .map(|u| u.outpoint().to_string())
             .collect();
-        let bdk_utxos: Vec<LocalUtxo> = self
-            .bdk_wallet
-            .list_unspent()
-            .map_err(InternalError::from)?;
-        let external_bdk_utxos: Vec<LocalUtxo> = bdk_utxos
-            .into_iter()
+        let bdk_utxos = self.bdk_wallet.list_unspent();
+        let external_bdk_utxos: Vec<LocalOutput> = bdk_utxos
             .filter(|u| u.keychain == KeychainKind::External)
             .collect();
 
-        let new_utxos: Vec<LocalUtxo> = external_bdk_utxos
+        let new_utxos: Vec<LocalOutput> = external_bdk_utxos
             .clone()
             .into_iter()
             .filter(|u| !db_outpoints.contains(&u.outpoint.to_string()))
@@ -380,29 +431,24 @@ impl Wallet {
         Ok(())
     }
 
-    pub(crate) fn sync_db_txos(&self) -> Result<(), Error> {
-        self._sync_db_txos_with_blockchain(self.bdk_blockchain()?)?;
-        Ok(())
-    }
-
     /// Sync the wallet and save new RGB UTXOs to the DB
-    pub fn sync(&self, online: Online) -> Result<(), Error> {
+    pub fn sync(&mut self, online: Online) -> Result<(), Error> {
         info!(self.logger, "Syncing...");
         self.check_online(online)?;
-        self.sync_db_txos()?;
+        self.sync_db_txos(false)?;
         info!(self.logger, "Sync completed");
         Ok(())
     }
 
     fn _broadcast_tx(&self, tx: BdkTransaction) -> Result<BdkTransaction, Error> {
-        let txid = tx.txid().to_string();
-        self.bdk_blockchain()?.broadcast(&tx).map_err(|e| {
+        let txid = tx.compute_txid().to_string();
+        self.indexer().broadcast(&tx).map_err(|e| {
             let mut min_fee_not_met = false;
             #[cfg_attr(feature = "esplora", allow(unused_mut))]
             let mut max_fee_exceeded = false;
-            match self.indexer() {
+            match e {
                 #[cfg(feature = "electrum")]
-                Indexer::Electrum(_) => {
+                IndexerError::Electrum(ref e) => {
                     let err_str = e.to_string();
                     if err_str.contains("min relay fee not met")
                         || err_str.contains("mempool min fee not met")
@@ -413,10 +459,9 @@ impl Wallet {
                     }
                 }
                 #[cfg(feature = "esplora")]
-                Indexer::Esplora(_) => {
-                    if let bdk::Error::Esplora(ref box_err) = e {
-                        // wait for new esplora_client release to check message
-                        if matches!(**box_err, EsploraError::HttpResponse(400)) {
+                IndexerError::Esplora(ref e) => {
+                    if let EsploraError::HttpResponse { message, .. } = e {
+                        if message.contains("min relay fee not met") {
                             min_fee_not_met = true;
                         }
                     }
@@ -438,14 +483,14 @@ impl Wallet {
     }
 
     fn _broadcast_psbt(
-        &self,
-        signed_psbt: BdkPsbt,
+        &mut self,
+        signed_psbt: Psbt,
         skip_sync: bool,
     ) -> Result<BdkTransaction, Error> {
-        let tx = self._broadcast_tx(signed_psbt.extract_tx())?;
+        let tx = self._broadcast_tx(signed_psbt.extract_tx().map_err(InternalError::from)?)?;
 
         let internal_unspents_outpoints: Vec<(String, u32)> = self
-            .internal_unspents()?
+            .internal_unspents()
             .map(|u| (u.outpoint.txid.to_string(), u.outpoint.vout))
             .collect();
 
@@ -465,7 +510,7 @@ impl Wallet {
         }
 
         if !skip_sync {
-            self.sync_db_txos()?;
+            self.sync_db_txos(false)?;
         }
 
         Ok(tx)
@@ -493,21 +538,22 @@ impl Wallet {
     }
 
     fn _create_split_tx(
-        &self,
+        &mut self,
         inputs: &[BdkOutPoint],
-        num_utxos_to_create: u8,
+        addresses: &Vec<ScriptBuf>,
         size: u32,
-        fee_rate: f32,
-    ) -> Result<BdkPsbt, bdk::Error> {
+        fee_rate: FeeRate,
+    ) -> Result<Psbt, bdk_wallet::error::CreateTxError> {
         let mut tx_builder = self.bdk_wallet.build_tx();
         tx_builder
-            .add_utxos(inputs)?
+            .add_utxos(inputs)
+            .map_err(|_| bdk_wallet::error::CreateTxError::UnknownUtxo)?
             .manually_selected_only()
-            .fee_rate(FeeRate::from_sat_per_vb(fee_rate));
-        for _i in 0..num_utxos_to_create {
-            tx_builder.add_recipient(self.get_new_address().script_pubkey(), size as u64);
+            .fee_rate(fee_rate);
+        for address in addresses {
+            tx_builder.add_recipient(address.clone(), BdkAmount::from_sat(size as u64));
         }
-        Ok(tx_builder.finish()?.0)
+        tx_builder.finish()
     }
 
     /// Create new UTXOs.
@@ -517,12 +563,12 @@ impl Wallet {
     ///
     /// A wallet with private keys is required.
     pub fn create_utxos(
-        &self,
+        &mut self,
         online: Online,
         up_to: bool,
         num: Option<u8>,
         size: Option<u32>,
-        fee_rate: f32,
+        fee_rate: u64,
         skip_sync: bool,
     ) -> Result<u8, Error> {
         info!(self.logger, "Creating UTXOs...");
@@ -559,20 +605,20 @@ impl Wallet {
     ///
     /// Returns a PSBT ready to be signed.
     pub fn create_utxos_begin(
-        &self,
+        &mut self,
         online: Online,
         up_to: bool,
         num: Option<u8>,
         size: Option<u32>,
-        fee_rate: f32,
+        fee_rate: u64,
         skip_sync: bool,
     ) -> Result<String, Error> {
         info!(self.logger, "Creating UTXOs (begin)...");
         self.check_online(online)?;
-        self._check_fee_rate(fee_rate)?;
+        let fee_rate_checked = self._check_fee_rate(fee_rate)?;
 
         if !skip_sync {
-            self.sync_db_txos()?;
+            self.sync_db_txos(false)?;
         }
 
         let unspent_txos = self.database.get_unspent_txos(vec![])?;
@@ -592,7 +638,7 @@ impl Wallet {
         }
         debug!(self.logger, "Will try to create {} UTXOs", utxos_to_create);
 
-        let inputs: Vec<BdkOutPoint> = self.internal_unspents()?.map(|u| u.outpoint).collect();
+        let inputs: Vec<BdkOutPoint> = self.internal_unspents().map(|u| u.outpoint).collect();
         let inputs: &[BdkOutPoint] = &inputs;
         let usable_btc_amount = self.get_uncolorable_btc_sum()?;
         let utxo_size = size.unwrap_or(UTXO_SIZE);
@@ -607,14 +653,24 @@ impl Wallet {
         };
         let mut btc_needed: u64 = (utxo_size as u64 * utxos_to_create as u64) + 1000;
         let mut btc_available: u64 = 0;
-        let mut num_try_creating = min(utxos_to_create, max_possible_utxos);
-        while num_try_creating > 0 {
-            match self._create_split_tx(inputs, num_try_creating, utxo_size, fee_rate) {
-                Ok(_v) => break,
+        let num_try_creating = min(utxos_to_create, max_possible_utxos);
+        let mut addresses = vec![];
+        for _i in 0..num_try_creating {
+            addresses.push(self.get_new_address()?.script_pubkey());
+        }
+        while !addresses.is_empty() {
+            match self._create_split_tx(inputs, &addresses, utxo_size, fee_rate_checked) {
+                Ok(psbt) => {
+                    info!(self.logger, "Create UTXOs (begin) completed");
+                    return Ok(psbt.to_string());
+                }
                 Err(e) => {
                     (btc_needed, btc_available) = match e {
-                        bdk::Error::InsufficientFunds { needed, available } => (needed, available),
-                        bdk::Error::OutputBelowDustLimit(_) => {
+                        bdk_wallet::error::CreateTxError::CoinSelection(InsufficientFunds {
+                            needed,
+                            available,
+                        }) => (needed.to_sat(), available.to_sat()),
+                        bdk_wallet::error::CreateTxError::OutputBelowDustLimit(_) => {
                             return Err(Error::OutputBelowDustLimit)
                         }
                         _ => {
@@ -623,24 +679,14 @@ impl Wallet {
                             })
                         }
                     };
-                    num_try_creating -= 1
+                    addresses.pop()
                 }
             };
         }
-
-        if num_try_creating == 0 {
-            Err(Error::InsufficientBitcoins {
-                needed: btc_needed,
-                available: btc_available,
-            })
-        } else {
-            let psbt = self
-                ._create_split_tx(inputs, num_try_creating, utxo_size, fee_rate)
-                .map_err(InternalError::from)?
-                .to_string();
-            info!(self.logger, "Create UTXOs (begin) completed");
-            Ok(psbt)
-        }
+        Err(Error::InsufficientBitcoins {
+            needed: btc_needed,
+            available: btc_available,
+        })
     }
 
     /// Broadcast the provided PSBT to create new UTXOs.
@@ -652,7 +698,7 @@ impl Wallet {
     ///
     /// Returns the number of created UTXOs, if `skip_sync` is set to true this will be 0.
     pub fn create_utxos_end(
-        &self,
+        &mut self,
         online: Online,
         signed_psbt: String,
         skip_sync: bool,
@@ -660,23 +706,20 @@ impl Wallet {
         info!(self.logger, "Creating UTXOs (end)...");
         self.check_online(online)?;
 
-        let signed_psbt = BdkPsbt::from_str(&signed_psbt)?;
+        let signed_psbt = Psbt::from_str(&signed_psbt)?;
         let tx = self._broadcast_psbt(signed_psbt, skip_sync)?;
 
         self.database
             .set_wallet_transaction(DbWalletTransactionActMod {
-                txid: ActiveValue::Set(tx.txid().to_string()),
+                txid: ActiveValue::Set(tx.compute_txid().to_string()),
                 r#type: ActiveValue::Set(WalletTransactionType::CreateUtxos),
                 ..Default::default()
             })?;
 
         let mut num_utxos_created = 0;
         if !skip_sync {
-            let bdk_utxos: Vec<LocalUtxo> = self
-                .bdk_wallet
-                .list_unspent()
-                .map_err(InternalError::from)?;
-            let txid = tx.txid();
+            let bdk_utxos: Vec<LocalOutput> = self.bdk_wallet.list_unspent().collect();
+            let txid = tx.compute_txid();
             for utxo in bdk_utxos.into_iter() {
                 if utxo.outpoint.txid == txid && utxo.keychain == KeychainKind::External {
                     num_utxos_created += 1
@@ -697,11 +740,11 @@ impl Wallet {
     ///
     /// A wallet with private keys is required.
     pub fn drain_to(
-        &self,
+        &mut self,
         online: Online,
         address: String,
         destroy_assets: bool,
-        fee_rate: f32,
+        fee_rate: u64,
     ) -> Result<String, Error> {
         info!(
             self.logger,
@@ -726,6 +769,10 @@ impl Wallet {
             .collect())
     }
 
+    pub(crate) fn get_script_pubkey(&self, address: &str) -> Result<ScriptBuf, Error> {
+        Ok(parse_address_str(address, self.bitcoin_network())?.script_pubkey())
+    }
+
     /// Prepare the PSBT to send bitcoin funds not in use for RGB allocations, or all funds if
     /// `destroy_assets` is set to true, to the provided Bitcoin `address` with the provided
     /// `fee_rate` (in sat/vB).
@@ -741,46 +788,55 @@ impl Wallet {
     ///
     /// Returns a PSBT ready to be signed.
     pub fn drain_to_begin(
-        &self,
+        &mut self,
         online: Online,
         address: String,
         destroy_assets: bool,
-        fee_rate: f32,
+        fee_rate: u64,
     ) -> Result<String, Error> {
         info!(
             self.logger,
             "Draining (begin) to '{}' destroying asset '{}'...", address, destroy_assets
         );
         self.check_online(online)?;
-        self._check_fee_rate(fee_rate)?;
+        let fee_rate_checked = self._check_fee_rate(fee_rate)?;
 
-        self.sync_db_txos()?;
+        self.sync_db_txos(false)?;
 
-        let address = BdkAddress::from_str(&address).map(|x| x.payload.script_pubkey())?;
+        let script_pubkey = self.get_script_pubkey(&address)?;
+
+        let mut unspendable = None;
+        if !destroy_assets {
+            unspendable = Some(self._get_unspendable_bdk_outpoints()?);
+        }
 
         let mut tx_builder = self.bdk_wallet.build_tx();
         tx_builder
             .drain_wallet()
-            .drain_to(address)
-            .fee_rate(FeeRate::from_sat_per_vb(fee_rate));
+            .drain_to(script_pubkey)
+            .fee_rate(fee_rate_checked);
 
-        if !destroy_assets {
-            let unspendable = self._get_unspendable_bdk_outpoints()?;
+        if let Some(unspendable) = unspendable {
             tx_builder.unspendable(unspendable);
         }
 
         let psbt = tx_builder
             .finish()
             .map_err(|e| match e {
-                bdk::Error::InsufficientFunds { needed, available } => {
-                    Error::InsufficientBitcoins { needed, available }
+                bdk_wallet::error::CreateTxError::CoinSelection(InsufficientFunds {
+                    needed,
+                    available,
+                }) => Error::InsufficientBitcoins {
+                    needed: needed.to_sat(),
+                    available: available.to_sat(),
+                },
+                bdk_wallet::error::CreateTxError::OutputBelowDustLimit(_) => {
+                    Error::OutputBelowDustLimit
                 }
-                bdk::Error::OutputBelowDustLimit(_) => Error::OutputBelowDustLimit,
                 _ => Error::Internal {
                     details: e.to_string(),
                 },
             })?
-            .0
             .to_string();
 
         info!(self.logger, "Drain (begin) completed");
@@ -795,16 +851,16 @@ impl Wallet {
     /// This doesn't require the wallet to have private keys.
     ///
     /// Returns the TXID of the transaction that's been broadcast.
-    pub fn drain_to_end(&self, online: Online, signed_psbt: String) -> Result<String, Error> {
+    pub fn drain_to_end(&mut self, online: Online, signed_psbt: String) -> Result<String, Error> {
         info!(self.logger, "Draining (end)...");
         self.check_online(online)?;
 
-        let signed_psbt = BdkPsbt::from_str(&signed_psbt)?;
+        let signed_psbt = Psbt::from_str(&signed_psbt)?;
         let tx = self._broadcast_psbt(signed_psbt, false)?;
 
         self.database
             .set_wallet_transaction(DbWalletTransactionActMod {
-                txid: ActiveValue::Set(tx.txid().to_string()),
+                txid: ActiveValue::Set(tx.compute_txid().to_string()),
                 r#type: ActiveValue::Set(WalletTransactionType::Drain),
                 ..Default::default()
             })?;
@@ -812,7 +868,7 @@ impl Wallet {
         self.update_backup_info(false)?;
 
         info!(self.logger, "Drain (end) completed");
-        Ok(tx.txid().to_string())
+        Ok(tx.compute_txid().to_string())
     }
 
     fn _fail_batch_transfer(
@@ -828,7 +884,7 @@ impl Wallet {
     }
 
     fn _try_fail_batch_transfer(
-        &self,
+        &mut self,
         batch_transfer: &DbBatchTransfer,
         throw_err: bool,
         db_data: &mut DbData,
@@ -863,7 +919,7 @@ impl Wallet {
     /// Transfers are eligible if they remain in status [`TransferStatus::WaitingCounterparty`]
     /// after a `refresh` has been performed.
     pub fn fail_transfers(
-        &self,
+        &mut self,
         online: Online,
         batch_transfer_idx: Option<i32>,
         no_asset_only: bool,
@@ -876,7 +932,7 @@ impl Wallet {
         self.check_online(online)?;
 
         if !skip_sync {
-            self.sync_db_txos()?;
+            self.sync_db_txos(false)?;
         }
 
         let mut db_data = self.database.get_db_data(false)?;
@@ -934,19 +990,13 @@ impl Wallet {
         Ok(transfers_changed)
     }
 
-    fn _check_consistency(
-        &self,
-        bdk_blockchain: &AnyBlockchain,
-        runtime: &RgbRuntime,
-    ) -> Result<(), Error> {
+    fn _check_consistency(&mut self, runtime: &RgbRuntime) -> Result<(), Error> {
         info!(self.logger, "Doing a consistency check...");
 
-        self._sync_db_txos_with_blockchain(bdk_blockchain)?;
+        self.sync_db_txos(true)?;
         let bdk_utxos: Vec<String> = self
             .bdk_wallet
             .list_unspent()
-            .map_err(InternalError::from)?
-            .into_iter()
             .map(|u| u.outpoint.to_string())
             .collect();
         let bdk_utxos: HashSet<String> = HashSet::from_iter(bdk_utxos);
@@ -1014,7 +1064,8 @@ impl Wallet {
             indexer_url: indexer_url.clone(),
         };
 
-        let (indexer, indexer_config) = get_indexer(&indexer_url, self.bitcoin_network())?;
+        let indexer = get_indexer(&indexer_url, self.bitcoin_network())?;
+        indexer.populate_tx_cache(&self.bdk_wallet);
 
         let resolver = match indexer {
             #[cfg(feature = "electrum")]
@@ -1042,15 +1093,8 @@ impl Wallet {
             }
         };
 
-        // BDK setup
-        let bdk_blockchain =
-            AnyBlockchain::from_config(&indexer_config).map_err(|e| Error::InvalidIndexer {
-                details: e.to_string(),
-            })?;
-
         let online_data = OnlineData {
             id: online.id,
-            bdk_blockchain,
             indexer_url,
             indexer,
             resolver,
@@ -1097,7 +1141,7 @@ impl Wallet {
 
         if !skip_consistency_check {
             let runtime = self.rgb_runtime()?;
-            self._check_consistency(self.bdk_blockchain()?, &runtime)?;
+            self._check_consistency(&runtime)?;
         }
 
         info!(self.logger, "Go online completed");
@@ -1788,10 +1832,10 @@ impl Wallet {
         Ok(asset_medias)
     }
 
-    fn _get_signed_psbt(&self, transfer_dir: PathBuf) -> Result<BdkPsbt, Error> {
+    fn _get_signed_psbt(&self, transfer_dir: PathBuf) -> Result<Psbt, Error> {
         let psbt_file = transfer_dir.join(SIGNED_PSBT_FILE);
         let psbt_str = fs::read_to_string(psbt_file)?;
-        Ok(BdkPsbt::from_str(&psbt_str)?)
+        Ok(Psbt::from_str(&psbt_str)?)
     }
 
     fn _fail_batch_transfer_if_no_endpoints(
@@ -2293,7 +2337,7 @@ impl Wallet {
     }
 
     fn _wait_ack(
-        &self,
+        &mut self,
         batch_transfer: &DbBatchTransfer,
         db_data: &mut DbData,
         skip_sync: bool,
@@ -2370,7 +2414,7 @@ impl Wallet {
     }
 
     fn _wait_confirmations(
-        &self,
+        &mut self,
         batch_transfer: &DbBatchTransfer,
         db_data: &DbData,
         incoming: bool,
@@ -2415,7 +2459,7 @@ impl Wallet {
 
             if transfer.recipient_type == Some(RecipientType::Witness) {
                 if !skip_sync {
-                    self.sync_db_txos()?;
+                    self.sync_db_txos(false)?;
                 }
                 let outpoint = Outpoint {
                     txid,
@@ -2460,7 +2504,7 @@ impl Wallet {
     }
 
     fn _wait_counterparty(
-        &self,
+        &mut self,
         transfer: &DbBatchTransfer,
         db_data: &mut DbData,
         incoming: bool,
@@ -2474,7 +2518,7 @@ impl Wallet {
     }
 
     fn _refresh_transfer(
-        &self,
+        &mut self,
         transfer: &DbBatchTransfer,
         db_data: &mut DbData,
         filter: &[RefreshFilter],
@@ -2511,7 +2555,7 @@ impl Wallet {
     /// matching any provided filter are skipped. If the vector is empty, all transfers are
     /// refreshed.
     pub fn refresh(
-        &self,
+        &mut self,
         online: Online,
         asset_id: Option<String>,
         filter: Vec<RefreshFilter>,
@@ -2637,29 +2681,35 @@ impl Wallet {
     }
 
     fn _prepare_psbt(
-        &self,
+        &mut self,
         input_outpoints: Vec<BdkOutPoint>,
         witness_recipients: &Vec<(ScriptBuf, u64)>,
-        fee_rate: f32,
-    ) -> Result<(BdkPsbt, Option<BtcChange>), Error> {
+        fee_rate: FeeRate,
+    ) -> Result<(Psbt, Option<BtcChange>), Error> {
+        let change_addr = self.get_new_address()?.script_pubkey();
         let mut builder = self.bdk_wallet.build_tx();
         builder
             .add_utxos(&input_outpoints)
             .map_err(InternalError::from)?
             .manually_selected_only()
-            .fee_rate(FeeRate::from_sat_per_vb(fee_rate))
-            .ordering(bdk::wallet::tx_builder::TxOrdering::Untouched);
+            .fee_rate(fee_rate)
+            .ordering(bdk_wallet::tx_builder::TxOrdering::Untouched);
         for (script_buf, amount_sat) in witness_recipients {
-            builder.add_recipient(script_buf.clone(), *amount_sat);
+            builder.add_recipient(script_buf.clone(), BdkAmount::from_sat(*amount_sat));
         }
-        let change_addr = self.get_new_address().script_pubkey();
         builder.drain_to(change_addr.clone()).add_data(&[]);
 
-        let (psbt, _) = builder.finish().map_err(|e| match e {
-            bdk::Error::InsufficientFunds { needed, available } => {
-                Error::InsufficientBitcoins { needed, available }
+        let psbt = builder.finish().map_err(|e| match e {
+            bdk_wallet::error::CreateTxError::CoinSelection(InsufficientFunds {
+                needed,
+                available,
+            }) => Error::InsufficientBitcoins {
+                needed: needed.to_sat(),
+                available: available.to_sat(),
+            },
+            bdk_wallet::error::CreateTxError::OutputBelowDustLimit(_) => {
+                Error::OutputBelowDustLimit
             }
-            bdk::Error::OutputBelowDustLimit(_) => Error::OutputBelowDustLimit,
             _ => Error::Internal {
                 details: e.to_string(),
             },
@@ -2673,19 +2723,19 @@ impl Wallet {
             .find(|(_, o)| o.script_pubkey == change_addr)
             .map(|(i, o)| BtcChange {
                 vout: i as u32,
-                amount: o.value,
+                amount: o.value.to_sat(),
             });
 
         Ok((psbt, btc_change))
     }
 
     fn _try_prepare_psbt(
-        &self,
+        &mut self,
         input_unspents: &[LocalUnspent],
         all_inputs: &mut Vec<BdkOutPoint>,
         witness_recipients: &Vec<(ScriptBuf, u64)>,
-        fee_rate: f32,
-    ) -> Result<(BdkPsbt, Option<BtcChange>), Error> {
+        fee_rate: FeeRate,
+    ) -> Result<(Psbt, Option<BtcChange>), Error> {
         Ok(loop {
             break match self._prepare_psbt(all_inputs.clone(), witness_recipients, fee_rate) {
                 Ok(res) => res,
@@ -2758,7 +2808,7 @@ impl Wallet {
 
     fn _prepare_rgb_psbt(
         &self,
-        psbt: &mut PartiallySignedTransaction,
+        psbt: &mut Psbt,
         input_outpoints: Vec<OutPoint>,
         transfer_info_map: BTreeMap<String, InfoAssetTransfer>,
         transfer_dir: PathBuf,
@@ -2998,7 +3048,7 @@ impl Wallet {
             }
         }
 
-        *psbt = PartiallySignedTransaction::from_str(&rgb_psbt.to_string()).unwrap();
+        *psbt = Psbt::from_str(&rgb_psbt.to_string()).unwrap();
 
         // save batch transfer data to file (for send_end)
         let info_contents = InfoBatchTransfer {
@@ -3238,11 +3288,11 @@ impl Wallet {
     ///
     /// A wallet with private keys is required.
     pub fn send(
-        &self,
+        &mut self,
         online: Online,
         recipient_map: HashMap<String, Vec<Recipient>>,
         donation: bool,
-        fee_rate: f32,
+        fee_rate: u64,
         min_confirmations: u8,
         skip_sync: bool,
     ) -> Result<SendResult, Error> {
@@ -3288,16 +3338,16 @@ impl Wallet {
     ///
     /// Returns a PSBT ready to be signed.
     pub fn send_begin(
-        &self,
+        &mut self,
         online: Online,
         recipient_map: HashMap<String, Vec<Recipient>>,
         donation: bool,
-        fee_rate: f32,
+        fee_rate: u64,
         min_confirmations: u8,
     ) -> Result<String, Error> {
         info!(self.logger, "Sending (begin) to: {:?}...", recipient_map);
         self.check_online(online)?;
-        self._check_fee_rate(fee_rate)?;
+        let fee_rate_checked = self._check_fee_rate(fee_rate)?;
 
         let db_data = self.database.get_db_data(false)?;
 
@@ -3451,17 +3501,18 @@ impl Wallet {
             &input_unspents,
             &mut all_inputs,
             &witness_recipients,
-            fee_rate,
+            fee_rate_checked,
         )?;
-        let vbytes = psbt.extract_tx().vsize() as f32;
+        let vbytes = psbt.extract_tx().map_err(InternalError::from)?.vsize() as u64;
         let updated_fee_rate = ((vbytes + OPRET_VBYTES) / vbytes) * fee_rate;
+        let updated_fee_rate_checked = self._check_fee_rate(updated_fee_rate)?;
         let (psbt, btc_change) = self._try_prepare_psbt(
             &input_unspents,
             &mut all_inputs,
             &witness_recipients,
-            updated_fee_rate,
+            updated_fee_rate_checked,
         )?;
-        let mut psbt = PartiallySignedTransaction::from_str(&psbt.to_string()).unwrap();
+        let mut psbt = Psbt::from_str(&psbt.to_string()).unwrap();
         let all_inputs: Vec<OutPoint> = all_inputs
             .iter()
             .map(|i| OutPoint {
@@ -3484,7 +3535,12 @@ impl Wallet {
         )?;
 
         // rename transfer directory
-        let txid = psbt.clone().extract_tx().txid().to_string();
+        let txid = psbt
+            .clone()
+            .extract_tx()
+            .map_err(InternalError::from)?
+            .compute_txid()
+            .to_string();
         let new_transfer_dir = self.get_transfer_dir(&txid);
         fs::rename(transfer_dir, new_transfer_dir)?;
 
@@ -3502,7 +3558,7 @@ impl Wallet {
     ///
     /// Returns a [`SendResult`].
     pub fn send_end(
-        &self,
+        &mut self,
         online: Online,
         signed_psbt: String,
         skip_sync: bool,
@@ -3511,8 +3567,13 @@ impl Wallet {
         self.check_online(online)?;
 
         // save signed PSBT
-        let psbt = BdkPsbt::from_str(&signed_psbt)?;
-        let txid = psbt.clone().extract_tx().txid().to_string();
+        let psbt = Psbt::from_str(&signed_psbt)?;
+        let txid = psbt
+            .clone()
+            .extract_tx()
+            .map_err(InternalError::from)?
+            .compute_txid()
+            .to_string();
         let transfer_dir = self.get_transfer_dir(&txid);
         let psbt_out = transfer_dir.join(SIGNED_PSBT_FILE);
         fs::write(psbt_out, psbt.to_string())?;
@@ -3604,11 +3665,11 @@ impl Wallet {
     ///
     /// A wallet with private keys and [`Online`] data are required.
     pub fn send_btc(
-        &self,
+        &mut self,
         online: Online,
         address: String,
         amount: u64,
-        fee_rate: f32,
+        fee_rate: u64,
         skip_sync: bool,
     ) -> Result<String, Error> {
         info!(self.logger, "Sending BTC...");
@@ -3632,48 +3693,46 @@ impl Wallet {
     ///
     /// Returns a PSBT ready to be signed.
     pub fn send_btc_begin(
-        &self,
+        &mut self,
         online: Online,
         address: String,
         amount: u64,
-        fee_rate: f32,
+        fee_rate: u64,
         skip_sync: bool,
     ) -> Result<String, Error> {
         info!(self.logger, "Sending BTC (begin)...");
         self.check_online(online)?;
-        self._check_fee_rate(fee_rate)?;
+        let fee_rate_checked = self._check_fee_rate(fee_rate)?;
 
         if !skip_sync {
-            self.sync_db_txos()?;
+            self.sync_db_txos(false)?;
         }
 
-        let address = BdkAddress::from_str(&address)?;
-        if !address.is_valid_for_network(self.bitcoin_network().into()) {
-            return Err(Error::InvalidAddress {
-                details: s!("belongs to another network"),
-            });
-        }
+        let script_pubkey = self.get_script_pubkey(&address)?;
 
         let unspendable = self._get_unspendable_bdk_outpoints()?;
 
         let mut tx_builder = self.bdk_wallet.build_tx();
         tx_builder
             .unspendable(unspendable)
-            .add_recipient(address.payload.script_pubkey(), amount)
-            .fee_rate(FeeRate::from_sat_per_vb(fee_rate));
+            .add_recipient(script_pubkey, BdkAmount::from_sat(amount))
+            .fee_rate(fee_rate_checked);
 
-        let psbt = tx_builder
-            .finish()
-            .map_err(|e| match e {
-                bdk::Error::InsufficientFunds { needed, available } => {
-                    Error::InsufficientBitcoins { needed, available }
-                }
-                bdk::Error::OutputBelowDustLimit(_) => Error::OutputBelowDustLimit,
-                _ => Error::Internal {
-                    details: e.to_string(),
-                },
-            })?
-            .0;
+        let psbt = tx_builder.finish().map_err(|e| match e {
+            bdk_wallet::error::CreateTxError::CoinSelection(InsufficientFunds {
+                needed,
+                available,
+            }) => Error::InsufficientBitcoins {
+                needed: needed.to_sat(),
+                available: available.to_sat(),
+            },
+            bdk_wallet::error::CreateTxError::OutputBelowDustLimit(_) => {
+                Error::OutputBelowDustLimit
+            }
+            _ => Error::Internal {
+                details: e.to_string(),
+            },
+        })?;
 
         info!(self.logger, "Send BTC (begin) completed");
         Ok(psbt.to_string())
@@ -3688,7 +3747,7 @@ impl Wallet {
     ///
     /// Returns the TXID of the broadcasted transaction.
     pub fn send_btc_end(
-        &self,
+        &mut self,
         online: Online,
         signed_psbt: String,
         skip_sync: bool,
@@ -3696,10 +3755,10 @@ impl Wallet {
         info!(self.logger, "Sending BTC (end)...");
         self.check_online(online)?;
 
-        let signed_psbt = BdkPsbt::from_str(&signed_psbt)?;
+        let signed_psbt = Psbt::from_str(&signed_psbt)?;
         let tx = self._broadcast_psbt(signed_psbt, skip_sync)?;
 
         info!(self.logger, "Send BTC (end) completed");
-        Ok(tx.txid().to_string())
+        Ok(tx.compute_txid().to_string())
     }
 }

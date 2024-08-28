@@ -30,6 +30,10 @@ pub enum Error {
         idx: i32,
     },
 
+    /// The wallet has already been loaded on a different bitcoin network
+    #[error("Bitcoin network mismatch")]
+    BitcoinNetworkMismatch,
+
     /// A wallet cannot go online twice with different data
     #[error("Cannot change online object")]
     CannotChangeOnline,
@@ -442,7 +446,18 @@ pub enum Error {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum InternalError {
+pub(crate) enum IndexerError {
+    #[cfg(feature = "electrum")]
+    #[error("Electrum error: {0}")]
+    Electrum(#[from] ElectrumError),
+
+    #[cfg(feature = "esplora")]
+    #[error("Esplora error: {0}")]
+    Esplora(#[from] EsploraError),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum InternalError {
     #[error("Aead error: {0}")]
     AeadError(String),
 
@@ -456,11 +471,14 @@ pub enum InternalError {
     #[error("Base64 decode error: {0}")]
     Base64Decode(#[from] base64::DecodeError),
 
-    #[error("Error from bdk: {0}")]
-    Bdk(#[from] bdk::Error),
+    #[error("Error from bdk adding UTXOs: {0}")]
+    BdkAddUtxoError(#[from] bdk_wallet::tx_builder::AddUtxoError),
 
-    #[error("Cannot query rgb-node")]
-    CannotQueryRgbNode,
+    #[error("Error from bdk extracting TX: {0}")]
+    BdkExtractTxError(#[from] bdk_wallet::bitcoin::psbt::ExtractTxError),
+
+    #[error("Error from bdk signing: {0}")]
+    BdkSignerError(#[from] bdk_wallet::signer::SignerError),
 
     #[error("Confinement error: {0}")]
     Confinement(#[from] amplify::confinement::Error),
@@ -484,13 +502,7 @@ pub enum InternalError {
     NoPasswordHashError,
 
     #[error("PSBT parse error: {0}")]
-    PsbtParse(#[from] bdk::bitcoin::psbt::PsbtParseError),
-
-    #[error("Restore directory is not empty")]
-    RestoreDirNotEmpty,
-
-    #[error("RGB consign error: {0}")]
-    RgbConsign(String),
+    PsbtParse(#[from] bdk_wallet::bitcoin::psbt::PsbtParseError),
 
     #[error("RGB load error: {0}")]
     RgbLoad(#[from] rgbstd::containers::LoadError),
@@ -523,59 +535,32 @@ pub enum InternalError {
     ZipError(#[from] zip::result::ZipError),
 }
 
-impl From<bdk::keys::bip39::Error> for Error {
-    fn from(e: bdk::keys::bip39::Error) -> Self {
+impl From<bdk_wallet::keys::bip39::Error> for Error {
+    fn from(e: bdk_wallet::keys::bip39::Error) -> Self {
         Error::InvalidMnemonic {
             details: e.to_string(),
         }
     }
 }
 
-impl From<bdk::bitcoin::address::Error> for Error {
-    fn from(e: bdk::bitcoin::address::Error) -> Self {
-        Error::InvalidAddress {
-            details: e.to_string(),
-        }
-    }
-}
-
-impl From<bdk::bitcoin::bip32::Error> for Error {
-    fn from(e: bdk::bitcoin::bip32::Error) -> Self {
+impl From<bdk_wallet::bitcoin::bip32::Error> for Error {
+    fn from(e: bdk_wallet::bitcoin::bip32::Error) -> Self {
         Error::InvalidPubkey {
             details: e.to_string(),
         }
     }
 }
 
-impl From<bdk::bitcoin::psbt::PsbtParseError> for Error {
-    fn from(e: bdk::bitcoin::psbt::PsbtParseError) -> Self {
+impl From<bdk_wallet::bitcoin::psbt::PsbtParseError> for Error {
+    fn from(e: bdk_wallet::bitcoin::psbt::PsbtParseError) -> Self {
         Error::InvalidPsbt {
             details: e.to_string(),
         }
     }
 }
 
-#[cfg(feature = "electrum")]
-impl From<electrum::Error> for Error {
-    fn from(e: electrum::Error) -> Self {
-        Error::Indexer {
-            details: e.to_string(),
-        }
-    }
-}
-
-#[cfg(feature = "electrum")]
-impl From<electrum_client::Error> for Error {
-    fn from(e: electrum_client::Error) -> Self {
-        Error::Indexer {
-            details: e.to_string(),
-        }
-    }
-}
-
-#[cfg(feature = "esplora")]
-impl From<bdk::blockchain::esplora::EsploraError> for Error {
-    fn from(e: bdk::blockchain::esplora::EsploraError) -> Self {
+impl From<IndexerError> for Error {
+    fn from(e: IndexerError) -> Self {
         Error::Indexer {
             details: e.to_string(),
         }
@@ -679,6 +664,43 @@ impl From<reqwest::Error> for Error {
     fn from(e: reqwest::Error) -> Self {
         Error::Proxy {
             details: e.to_string(),
+        }
+    }
+}
+
+impl From<bdk_wallet::file_store::FileError> for Error {
+    fn from(e: bdk_wallet::file_store::FileError) -> Self {
+        Error::IO {
+            details: e.to_string(),
+        }
+    }
+}
+
+impl From<bdk_wallet::FileStoreError> for Error {
+    fn from(e: bdk_wallet::FileStoreError) -> Self {
+        Error::IO {
+            details: e.to_string(),
+        }
+    }
+}
+
+impl From<bdk_wallet::CreateWithPersistError<bdk_wallet::FileStoreError>> for Error {
+    fn from(e: bdk_wallet::CreateWithPersistError<bdk_wallet::FileStoreError>) -> Self {
+        Error::IO {
+            details: e.to_string(),
+        }
+    }
+}
+
+impl From<bdk_wallet::LoadWithPersistError<bdk_wallet::FileStoreError>> for Error {
+    fn from(e: bdk_wallet::LoadWithPersistError<bdk_wallet::FileStoreError>) -> Self {
+        match e {
+            bdk_wallet::LoadWithPersistError::InvalidChangeSet(
+                bdk_wallet::LoadError::Mismatch(bdk_wallet::LoadMismatch::Genesis { .. }),
+            ) => Error::BitcoinNetworkMismatch,
+            _ => Error::IO {
+                details: e.to_string(),
+            },
         }
     }
 }

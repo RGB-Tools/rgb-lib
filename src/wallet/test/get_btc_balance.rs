@@ -6,12 +6,12 @@ use super::*;
 fn success() {
     initialize();
 
-    let (wallet, online) = get_empty_wallet!();
+    let (mut wallet, online) = get_empty_wallet!();
 
     // empty balance
     let bak_info_before = wallet.database.get_backup_info().unwrap();
     assert!(bak_info_before.is_none());
-    let balance = test_get_btc_balance(&wallet, &online);
+    let balance = test_get_btc_balance(&mut wallet, &online);
     let bak_info_after = wallet.database.get_backup_info().unwrap();
     assert!(bak_info_after.is_none());
     let expected_balance = BtcBalance {
@@ -30,7 +30,7 @@ fn success() {
 
     // future balance after funding
     stop_mining();
-    send_to_address(test_get_address(&wallet));
+    send_to_address(test_get_address(&mut wallet));
     let expected_balance = BtcBalance {
         vanilla: Balance {
             settled: 0,
@@ -43,7 +43,7 @@ fn success() {
             spendable: 0,
         },
     };
-    wait_for_btc_balance(&wallet, &online, &expected_balance);
+    wait_for_btc_balance(&mut wallet, &online, &expected_balance);
 
     // settled balance after mining
     mine(false, true);
@@ -59,16 +59,16 @@ fn success() {
             spendable: 0,
         },
     };
-    assert_eq!(test_get_btc_balance(&wallet, &online), expected_balance);
+    assert_eq!(test_get_btc_balance(&mut wallet, &online), expected_balance);
 
     // future vanilla change + colored UTXOs balance
     stop_mining();
-    test_create_utxos_default(&wallet, &online);
+    test_create_utxos_default(&mut wallet, &online);
     let expected_balance = BtcBalance {
         vanilla: Balance {
             settled: 0,
-            future: 99994508,
-            spendable: 99994508,
+            future: 99994347,
+            spendable: 99994347,
         },
         colored: Balance {
             settled: 0,
@@ -76,15 +76,15 @@ fn success() {
             spendable: 5000,
         },
     };
-    assert_eq!(test_get_btc_balance(&wallet, &online), expected_balance);
+    assert_eq!(test_get_btc_balance(&mut wallet, &online), expected_balance);
 
     // settled balance after mining
     mine(false, true);
     let expected_balance = BtcBalance {
         vanilla: Balance {
-            settled: 99994508,
-            future: 99994508,
-            spendable: 99994508,
+            settled: 99994347,
+            future: 99994347,
+            spendable: 99994347,
         },
         colored: Balance {
             settled: 5000,
@@ -92,7 +92,7 @@ fn success() {
             spendable: 5000,
         },
     };
-    assert_eq!(test_get_btc_balance(&wallet, &online), expected_balance);
+    assert_eq!(test_get_btc_balance(&mut wallet, &online), expected_balance);
 }
 
 #[cfg(feature = "electrum")]
@@ -105,7 +105,7 @@ fn skip_sync() {
     let check_interval = 1000;
 
     fn get_check<'a>(
-        wallet: &'a Wallet,
+        wallet: &'a mut Wallet,
         online: &'a Online,
         expected_balance: &'a BtcBalance,
         sync: bool,
@@ -119,7 +119,7 @@ fn skip_sync() {
         }
     }
 
-    let (wallet, online) = get_empty_wallet!();
+    let (mut wallet, online) = get_empty_wallet!();
 
     // empty balance
     let balance = wallet.get_btc_balance(None, true).unwrap();
@@ -139,7 +139,7 @@ fn skip_sync() {
 
     // future balance after funding
     stop_mining();
-    send_to_address(test_get_address(&wallet));
+    send_to_address(test_get_address(&mut wallet));
     let expected_balance = BtcBalance {
         vanilla: Balance {
             settled: 0,
@@ -154,13 +154,13 @@ fn skip_sync() {
     };
     // no change to balance if sync is skipped
     assert!(!wait_for_function(
-        get_check(&wallet, &online, &expected_balance, false),
+        get_check(&mut wallet, &online, &expected_balance, false),
         check_timeout,
         check_interval,
     ));
     // balance updated after manual sync
     assert!(wait_for_function(
-        get_check(&wallet, &online, &expected_balance, true),
+        get_check(&mut wallet, &online, &expected_balance, true),
         check_timeout,
         check_interval,
     ));
@@ -181,13 +181,13 @@ fn skip_sync() {
     };
     // no change to balance if sync is skipped
     assert!(!wait_for_function(
-        get_check(&wallet, &online, &expected_balance, false),
+        get_check(&mut wallet, &online, &expected_balance, false),
         check_timeout,
         check_interval,
     ));
     // balance updated after manual sync
     assert!(wait_for_function(
-        get_check(&wallet, &online, &expected_balance, true),
+        get_check(&mut wallet, &online, &expected_balance, true),
         check_timeout,
         check_interval,
     ));
@@ -200,8 +200,8 @@ fn skip_sync() {
     let expected_balance = BtcBalance {
         vanilla: Balance {
             settled: 0,
-            future: 99994508,
-            spendable: 99994508,
+            future: 99994347,
+            spendable: 99994347,
         },
         colored: Balance {
             settled: 0,
@@ -211,13 +211,13 @@ fn skip_sync() {
     };
     // no change to balance if sync is skipped
     assert!(!wait_for_function(
-        get_check(&wallet, &online, &expected_balance, false),
+        get_check(&mut wallet, &online, &expected_balance, false),
         check_timeout,
         check_interval,
     ));
     // balance updated after manual sync
     assert!(wait_for_function(
-        get_check(&wallet, &online, &expected_balance, true),
+        get_check(&mut wallet, &online, &expected_balance, true),
         check_timeout,
         check_interval,
     ));
@@ -226,9 +226,9 @@ fn skip_sync() {
     mine(false, true);
     let expected_balance = BtcBalance {
         vanilla: Balance {
-            settled: 99994508,
-            future: 99994508,
-            spendable: 99994508,
+            settled: 99994347,
+            future: 99994347,
+            spendable: 99994347,
         },
         colored: Balance {
             settled: 5000,
@@ -238,13 +238,13 @@ fn skip_sync() {
     };
     // no change to balance if sync is skipped
     assert!(!wait_for_function(
-        get_check(&wallet, &online, &expected_balance, false),
+        get_check(&mut wallet, &online, &expected_balance, false),
         check_timeout,
         check_interval,
     ));
     // balance updated after manual sync
     assert!(wait_for_function(
-        get_check(&wallet, &online, &expected_balance, true),
+        get_check(&mut wallet, &online, &expected_balance, true),
         check_timeout,
         check_interval,
     ));

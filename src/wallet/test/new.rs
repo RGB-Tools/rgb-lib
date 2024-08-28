@@ -3,38 +3,36 @@ use super::*;
 use std::os::unix::fs::PermissionsExt;
 
 fn check_wallet(wallet: &Wallet, network: BitcoinNetwork, keychain_vanilla: Option<u8>) {
-    let external_descriptor = &wallet
-        .bdk_wallet
-        .get_descriptor_for_keychain(KeychainKind::External);
-    match external_descriptor {
-        Descriptor::Tr(ref tr) => {
-            let full_derivation_path = tr
-                .internal_key()
-                .full_derivation_path()
-                .unwrap()
-                .to_string();
-            let split: Vec<&str> = full_derivation_path.split('/').collect();
-            assert_eq!(split[1], KEYCHAIN_RGB_OPRET.to_string());
+    let keychains: Vec<_> = wallet.bdk_wallet.keychains().collect();
+    assert_eq!(keychains.len(), 2);
+    for (keychain_kind, extended_descriptor) in keychains {
+        match keychain_kind {
+            KeychainKind::External => match extended_descriptor {
+                ExtendedDescriptor::Tr(tr) => {
+                    let full_derivation_path = tr
+                        .internal_key()
+                        .full_derivation_path()
+                        .unwrap()
+                        .to_string();
+                    assert_eq!(full_derivation_path, KEYCHAIN_RGB_OPRET.to_string());
+                }
+                _ => panic!("wrong descriptor type"),
+            },
+            KeychainKind::Internal => match extended_descriptor {
+                ExtendedDescriptor::Tr(tr) => {
+                    let full_derivation_path = tr
+                        .internal_key()
+                        .full_derivation_path()
+                        .unwrap()
+                        .to_string();
+                    assert_eq!(
+                        full_derivation_path,
+                        keychain_vanilla.unwrap_or(KEYCHAIN_BTC).to_string()
+                    );
+                }
+                _ => panic!("wrong descriptor type"),
+            },
         }
-        _ => panic!("wrong descriptor type"),
-    }
-    let internal_descriptor = &wallet
-        .bdk_wallet
-        .get_descriptor_for_keychain(KeychainKind::Internal);
-    match internal_descriptor {
-        Descriptor::Tr(ref tr) => {
-            let full_derivation_path = tr
-                .internal_key()
-                .full_derivation_path()
-                .unwrap()
-                .to_string();
-            let split: Vec<&str> = full_derivation_path.split('/').collect();
-            assert_eq!(
-                split[1],
-                keychain_vanilla.unwrap_or(KEYCHAIN_BTC).to_string()
-            );
-        }
-        _ => panic!("wrong descriptor type"),
     }
     assert_eq!(wallet.wallet_data.bitcoin_network, network);
 }
@@ -100,7 +98,7 @@ fn testnet_success() {
     assert_eq!(wallet.wallet_data.bitcoin_network, bitcoin_network);
 }
 
-#[cfg(feature = "electrum")]
+#[cfg(all(feature = "electrum", feature = "esplora"))]
 #[test]
 #[parallel]
 fn mainnet_success() {
@@ -110,6 +108,11 @@ fn mainnet_success() {
     let mut wallet = get_test_wallet_with_net(true, None, bitcoin_network);
     check_wallet(&wallet, bitcoin_network, None);
     let indexer_url = "ssl://electrum.iriswallet.com:50003";
+    test_go_online(&mut wallet, false, Some(indexer_url));
+    assert!(!wallet.watch_only);
+    assert_eq!(wallet.wallet_data.bitcoin_network, bitcoin_network);
+
+    let indexer_url = "https://blockstream.info/api";
     test_go_online(&mut wallet, false, Some(indexer_url));
     assert!(!wallet.watch_only);
     assert_eq!(wallet.wallet_data.bitcoin_network, bitcoin_network);
@@ -157,11 +160,17 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidVanillaKeychain)));
 
     // invalid bitcoin keys
-    let mut wallet_data_bad = wallet_data;
+    let mut wallet_data_bad = wallet_data.clone();
     let alt_keys = generate_keys(BitcoinNetwork::Regtest);
     wallet_data_bad.pubkey = alt_keys.xpub;
     let result = Wallet::new(wallet_data_bad.clone());
     assert!(matches!(result, Err(Error::InvalidBitcoinKeys)));
+
+    // bitcoin network mismatch
+    let mut wallet_data_bad = wallet_data;
+    wallet_data_bad.bitcoin_network = BitcoinNetwork::Testnet;
+    let result = Wallet::new(wallet_data_bad.clone());
+    assert!(matches!(result, Err(Error::BitcoinNetworkMismatch)));
 
     // non-writable wallet dir
     let non_writable_path = "non_writable";
@@ -194,12 +203,12 @@ fn re_instantiate_wallet() {
     let amount: u64 = 66;
 
     // create wallets
-    let (wallet, online) = get_funded_wallet!();
-    let (rcv_wallet, rcv_online) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_wallet!();
+    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
     let mut wallet_data = wallet.wallet_data.clone();
 
     // issue
-    let asset = test_issue_asset_nia(&wallet, &online, None);
+    let asset = test_issue_asset_nia(&mut wallet, &online, None);
 
     // send
     let receive_data = test_blind_receive(&rcv_wallet);
@@ -212,14 +221,14 @@ fn re_instantiate_wallet() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&wallet, &online, &recipient_map);
+    let txid = test_send(&mut wallet, &online, &recipient_map);
     assert!(!txid.is_empty());
     // take transfers from WaitingCounterparty to Settled
-    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
-    wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
+    wait_for_refresh(&mut rcv_wallet, &rcv_online, None, None);
+    wait_for_refresh(&mut wallet, &online, Some(&asset.asset_id), None);
     mine(false, false);
-    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
-    wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
+    wait_for_refresh(&mut rcv_wallet, &rcv_online, None, None);
+    wait_for_refresh(&mut wallet, &online, Some(&asset.asset_id), None);
 
     // drop wallet
     drop(online);
@@ -230,7 +239,7 @@ fn re_instantiate_wallet() {
     let online = wallet.go_online(true, ELECTRUM_URL.to_string()).unwrap();
 
     // check wallet asset
-    check_test_wallet_data(&wallet, &asset, None, 1, amount);
+    check_test_wallet_data(&mut wallet, &asset, None, 1, amount);
 
     // drop wallet
     drop(online);
@@ -268,7 +277,7 @@ fn watch_only() {
         .unwrap();
 
     // signer wallet
-    let wallet_sign = Wallet::new(WalletData {
+    let mut wallet_sign = Wallet::new(WalletData {
         data_dir: get_test_data_dir_string(),
         bitcoin_network,
         database_type: DatabaseType::Sqlite,
@@ -287,18 +296,24 @@ fn watch_only() {
     // fund wallet
     fund_wallet(address_watch);
     mine(false, false);
-    let unspents = test_list_unspents(&wallet_watch, Some(&online_watch), false);
+    let unspents = test_list_unspents(&mut wallet_watch, Some(&online_watch), false);
     assert_eq!(unspents.len(), 1);
 
     // create UTXOs
-    let unsigned_psbt =
-        test_create_utxos_begin_result(&wallet_watch, &online_watch, false, None, None, FEE_RATE)
-            .unwrap();
+    let unsigned_psbt = test_create_utxos_begin_result(
+        &mut wallet_watch,
+        &online_watch,
+        false,
+        None,
+        None,
+        FEE_RATE,
+    )
+    .unwrap();
     let signed_psbt = wallet_sign.sign_psbt(unsigned_psbt, None).unwrap();
     wallet_watch
         .create_utxos_end(online_watch.clone(), signed_psbt, false)
         .unwrap();
-    let unspents = test_list_unspents(&wallet_watch, Some(&online_watch), false);
+    let unspents = test_list_unspents(&mut wallet_watch, Some(&online_watch), false);
     assert_eq!(unspents.len(), UTXO_NUM as usize + 1);
 }
 
@@ -316,9 +331,6 @@ fn get_account_xpub_success() {
     .unwrap();
 
     // checks
-    assert_eq!(
-        BitcoinNetwork::from(account_xpub.network),
-        BitcoinNetwork::Regtest
-    );
+    assert_eq!(account_xpub.network, NetworkKind::Test,);
     assert_eq!(account_xpub.depth, 3);
 }

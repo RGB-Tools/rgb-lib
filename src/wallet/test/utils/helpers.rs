@@ -117,7 +117,7 @@ pub(crate) fn get_funded_noutxo_wallet(
     private_keys: bool,
     indexer_url: Option<String>,
 ) -> (Wallet, Online) {
-    let (wallet, online) = get_empty_wallet(private_keys, indexer_url);
+    let (mut wallet, online) = get_empty_wallet(private_keys, indexer_url);
     fund_wallet(wallet.get_address().unwrap());
     (wallet, online)
 }
@@ -127,14 +127,14 @@ pub(crate) fn get_funded_wallet(
     private_keys: bool,
     indexer_url: Option<String>,
 ) -> (Wallet, Online) {
-    let (wallet, online) = get_funded_noutxo_wallet(private_keys, indexer_url);
-    test_create_utxos_default(&wallet, &online);
+    let (mut wallet, online) = get_funded_noutxo_wallet(private_keys, indexer_url);
+    test_create_utxos_default(&mut wallet, &online);
     (wallet, online)
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) fn drain_wallet(wallet: &Wallet, online: &Online) {
-    let rcv_wallet = get_test_wallet(false, None);
+pub(crate) fn drain_wallet(wallet: &mut Wallet, online: &Online) {
+    let mut rcv_wallet = get_test_wallet(false, None);
     test_drain_to_destroy(wallet, online, &rcv_wallet.get_address().unwrap());
 }
 
@@ -210,7 +210,7 @@ pub(crate) fn check_test_transfer_status_sender(
 }
 
 pub(crate) fn check_test_wallet_data(
-    wallet: &Wallet,
+    wallet: &mut Wallet,
     asset: &AssetNIA,
     custom_issued_supply: Option<u64>,
     transfer_num: usize,
@@ -401,7 +401,7 @@ pub(crate) fn get_test_txo(wallet: &Wallet, idx: i32) -> DbTxo {
         .unwrap()
 }
 
-pub(crate) fn list_test_unspents(wallet: &Wallet, msg: &str) -> Vec<Unspent> {
+pub(crate) fn list_test_unspents(wallet: &mut Wallet, msg: &str) -> Vec<Unspent> {
     let unspents = test_list_unspents(wallet, None, false);
     println!(
         "unspents for wallet {:?} {}: {}",
@@ -441,7 +441,7 @@ pub(crate) fn wait_for_asset_balance(wallet: &Wallet, asset_id: &str, expected_b
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn wait_for_btc_balance(
-    wallet: &Wallet,
+    wallet: &mut Wallet,
     online: &Online,
     expected_balance: &BtcBalance,
 ) {
@@ -478,7 +478,7 @@ where
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn wait_for_refresh(
-    wallet: &Wallet,
+    wallet: &mut Wallet,
     online: &Online,
     asset_id: Option<&str>,
     transfer_ids: Option<&[i32]>,
@@ -518,7 +518,7 @@ pub(crate) fn wait_for_refresh(
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn wait_for_unspents(
-    wallet: &Wallet,
+    wallet: &mut Wallet,
     online: Option<&Online>,
     settled_only: bool,
     expected_len: u8,
@@ -539,7 +539,7 @@ pub(crate) fn wait_for_unspents(
 
 /// print the provided message, then get colorings for each wallet unspent and print their status,
 /// type, amount and asset
-pub(crate) fn show_unspent_colorings(wallet: &Wallet, msg: &str) {
+pub(crate) fn show_unspent_colorings(wallet: &mut Wallet, msg: &str) {
     println!("\n{msg}");
     let unspents: Vec<Unspent> = test_list_unspents(wallet, None, false)
         .into_iter()

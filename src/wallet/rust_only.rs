@@ -55,7 +55,7 @@ pub fn check_indexer_url(
     indexer_url: &str,
     bitcoin_network: BitcoinNetwork,
 ) -> Result<IndexerProtocol, Error> {
-    let (indexer, _) = get_indexer(indexer_url, bitcoin_network)?;
+    let indexer = get_indexer(indexer_url, bitcoin_network)?;
     let indexer_protocol = match indexer {
         #[cfg(feature = "electrum")]
         Indexer::Electrum(_) => IndexerProtocol::Electrum,
@@ -84,21 +84,25 @@ impl Wallet {
     /// it only if you know what you're doing</div>
     pub fn color_psbt(
         &self,
-        psbt_to_color: &mut PartiallySignedTransaction,
+        psbt_to_color: &mut Psbt,
         coloring_info: ColoringInfo,
     ) -> Result<(Fascia, AssetBeneficiariesMap), Error> {
         info!(self.logger, "Coloring PSBT...");
-        let mut transaction = psbt_to_color.clone().extract_tx();
+        let mut transaction = match psbt_to_color.clone().extract_tx() {
+            Ok(tx) => tx,
+            Err(ExtractTxError::MissingInputValue { tx }) => tx, // required for non-standard TXs
+            Err(e) => return Err(InternalError::from(e).into()),
+        };
         let mut psbt = if !transaction
             .output
             .iter()
             .any(|o| o.script_pubkey.is_op_return())
         {
             transaction.output.push(TxOut {
-                value: 0,
-                script_pubkey: ScriptBuf::new_op_return(&[]),
+                value: BdkAmount::ZERO,
+                script_pubkey: ScriptBuf::new_op_return([]),
             });
-            PartiallySignedTransaction::from_unsigned_tx(transaction.clone()).unwrap()
+            Psbt::from_unsigned_tx(transaction).unwrap()
         } else {
             psbt_to_color.clone()
         };
@@ -239,7 +243,7 @@ impl Wallet {
             details: e.to_string(),
         })?;
 
-        *psbt_to_color = PartiallySignedTransaction::from_str(&rgb_psbt.to_string()).unwrap();
+        *psbt_to_color = Psbt::from_str(&rgb_psbt.to_string()).unwrap();
 
         info!(self.logger, "Color PSBT completed");
         Ok((fascia, asset_beneficiaries))
@@ -251,7 +255,7 @@ impl Wallet {
     /// it only if you know what you're doing</div>
     pub fn color_psbt_and_consume(
         &self,
-        psbt_to_color: &mut PartiallySignedTransaction,
+        psbt_to_color: &mut Psbt,
         coloring_info: ColoringInfo,
     ) -> Result<Vec<RgbTransfer>, Error> {
         info!(self.logger, "Coloring PSBT and consuming...");
@@ -284,7 +288,7 @@ impl Wallet {
             }
         }
 
-        *psbt_to_color = PartiallySignedTransaction::from_str(&rgb_psbt.to_string()).unwrap();
+        *psbt_to_color = Psbt::from_str(&rgb_psbt.to_string()).unwrap();
 
         info!(self.logger, "Color PSBT and consume completed");
         Ok(transfers)
@@ -597,15 +601,15 @@ impl Wallet {
     /// <code>list_unspents</code> is sufficient</div>
     #[cfg(any(feature = "electrum", feature = "esplora"))]
     pub fn list_unspents_vanilla(
-        &self,
+        &mut self,
         online: Online,
         min_confirmations: u8,
         skip_sync: bool,
-    ) -> Result<Vec<LocalUtxo>, Error> {
+    ) -> Result<Vec<LocalOutput>, Error> {
         info!(self.logger, "Listing unspents vanilla...");
         self.sync_if_requested(Some(online), skip_sync)?;
 
-        let unspents = self.internal_unspents()?;
+        let unspents = self.internal_unspents();
 
         let res = if min_confirmations > 0 {
             unspents
@@ -625,7 +629,7 @@ impl Wallet {
                         Err(e) => Some(Err(e)),
                     }
                 })
-                .collect::<Result<Vec<LocalUtxo>, Error>>()
+                .collect::<Result<Vec<LocalOutput>, Error>>()
         } else {
             Ok(unspents.collect())
         };

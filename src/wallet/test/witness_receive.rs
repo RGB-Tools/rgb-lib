@@ -8,12 +8,12 @@ fn success() {
 
     let amount = 69;
     let expiration = 60;
-    let (wallet, online) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_wallet!();
 
     // default expiration + min confirmations
     let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
     let now_timestamp = now().unix_timestamp();
-    let receive_data = test_witness_receive(&wallet);
+    let receive_data = test_witness_receive(&mut wallet);
     let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     assert!(receive_data.expiration_timestamp.is_some());
@@ -71,7 +71,7 @@ fn success() {
     assert_eq!(batch_transfer.min_confirmations, min_confirmations);
 
     // asset id is set
-    let asset = test_issue_asset_cfa(&wallet, &online, None, None);
+    let asset = test_issue_asset_cfa(&mut wallet, &online, None, None);
     let asset_id = asset.asset_id;
     let result = wallet.witness_receive(
         Some(asset_id.clone()),

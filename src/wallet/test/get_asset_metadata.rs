@@ -6,10 +6,10 @@ use super::*;
 fn success() {
     initialize();
 
-    let (wallet, online) = get_funded_wallet!();
-    let (rcv_wallet, rcv_online) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_wallet!();
+    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
 
-    let asset_nia = test_issue_asset_nia(&wallet, &online, Some(&[AMOUNT, AMOUNT]));
+    let asset_nia = test_issue_asset_nia(&mut wallet, &online, Some(&[AMOUNT, AMOUNT]));
     let transfers = test_list_transfers(&wallet, Some(&asset_nia.asset_id));
     assert_eq!(transfers.len(), 1);
     let issuance = transfers.first().unwrap();
@@ -24,8 +24,8 @@ fn success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    test_send(&wallet, &online, &recipient_map);
-    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
+    test_send(&mut wallet, &online, &recipient_map);
+    wait_for_refresh(&mut rcv_wallet, &rcv_online, None, None);
     let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
     let nia_metadata = test_get_asset_metadata(&rcv_wallet, &asset_nia.asset_id);
     let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
@@ -46,7 +46,7 @@ fn success() {
     let file_str = "README.md";
     let image_str = ["tests", "qrcode.png"].join(MAIN_SEPARATOR_STR);
     let asset_uda = test_issue_asset_uda(
-        &wallet,
+        &mut wallet,
         &online,
         Some(DETAILS),
         Some(file_str),

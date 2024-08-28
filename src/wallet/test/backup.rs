@@ -13,13 +13,13 @@ fn success() {
     let password = "password";
 
     // wallets
-    let (wallet, online) = get_funded_wallet!();
-    let (rcv_wallet, rcv_online) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_wallet!();
+    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
     let mut wallet_data = wallet.wallet_data.clone();
     let wallet_dir = wallet.wallet_dir.clone();
 
     // issue
-    let asset = test_issue_asset_nia(&wallet, &online, None);
+    let asset = test_issue_asset_nia(&mut wallet, &online, None);
 
     // send
     let receive_data = test_blind_receive(&rcv_wallet);
@@ -32,17 +32,17 @@ fn success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&wallet, &online, &recipient_map);
+    let txid = test_send(&mut wallet, &online, &recipient_map);
     assert!(!txid.is_empty());
     // take transfers from WaitingCounterparty to Settled
-    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
-    wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
+    wait_for_refresh(&mut rcv_wallet, &rcv_online, None, None);
+    wait_for_refresh(&mut wallet, &online, Some(&asset.asset_id), None);
     mine(false, false);
-    wait_for_refresh(&rcv_wallet, &rcv_online, Some(&asset.asset_id), None);
-    wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
+    wait_for_refresh(&mut rcv_wallet, &rcv_online, Some(&asset.asset_id), None);
+    wait_for_refresh(&mut wallet, &online, Some(&asset.asset_id), None);
 
     // pre-backup wallet data
-    check_test_wallet_data(&wallet, &asset, None, 1, amount);
+    check_test_wallet_data(&mut wallet, &asset, None, 1, amount);
 
     // backup
     println!("\nbacking up...");
@@ -71,7 +71,7 @@ fn success() {
     wallet_data.data_dir = target_dir.to_string();
     let mut wallet = Wallet::new(wallet_data).unwrap();
     let online = test_go_online(&mut wallet, true, None);
-    check_test_wallet_data(&wallet, &asset, None, 1, amount);
+    check_test_wallet_data(&mut wallet, &asset, None, 1, amount);
 
     // backup not required after restoring one
     let backup_required = wallet.backup_info().unwrap();
@@ -88,18 +88,18 @@ fn success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&wallet, &online, &recipient_map);
+    let txid = test_send(&mut wallet, &online, &recipient_map);
     assert!(!txid.is_empty());
     // take transfers from WaitingCounterparty to Settled
-    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
-    wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
+    wait_for_refresh(&mut rcv_wallet, &rcv_online, None, None);
+    wait_for_refresh(&mut wallet, &online, Some(&asset.asset_id), None);
     mine(false, false);
-    wait_for_refresh(&rcv_wallet, &rcv_online, Some(&asset.asset_id), None);
-    wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
-    check_test_wallet_data(&wallet, &asset, None, 2, amount * 2);
+    wait_for_refresh(&mut rcv_wallet, &rcv_online, Some(&asset.asset_id), None);
+    wait_for_refresh(&mut wallet, &online, Some(&asset.asset_id), None);
+    check_test_wallet_data(&mut wallet, &asset, None, 2, amount * 2);
 
     // issue a second asset with the restored wallet
-    let _asset = test_issue_asset_nia(&wallet, &online, None);
+    let _asset = test_issue_asset_nia(&mut wallet, &online, None);
 }
 
 #[cfg(feature = "electrum")]
@@ -195,9 +195,9 @@ fn double_restore() {
     let password_2 = "password2";
 
     // wallets
-    let (wallet_1, online_1) = get_funded_wallet!();
-    let (wallet_2, online_2) = get_funded_wallet!();
-    let (rcv_wallet, rcv_online) = get_funded_wallet!();
+    let (mut wallet_1, online_1) = get_funded_wallet!();
+    let (mut wallet_2, online_2) = get_funded_wallet!();
+    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
     let mut wallet_1_data = wallet_1.wallet_data.clone();
     let mut wallet_2_data = wallet_2.wallet_data.clone();
     let wallet_1_dir = wallet_1.wallet_dir.clone();
@@ -205,8 +205,8 @@ fn double_restore() {
     let asset_2_supply = AMOUNT * 2;
 
     // issue
-    let asset_1 = test_issue_asset_nia(&wallet_1, &online_1, None);
-    let asset_2 = test_issue_asset_nia(&wallet_2, &online_2, Some(&[asset_2_supply]));
+    let asset_1 = test_issue_asset_nia(&mut wallet_1, &online_1, None);
+    let asset_2 = test_issue_asset_nia(&mut wallet_2, &online_2, Some(&[asset_2_supply]));
 
     // send
     let receive_data_1 = test_blind_receive(&rcv_wallet);
@@ -229,22 +229,22 @@ fn double_restore() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid_1 = test_send(&wallet_1, &online_1, &recipient_map_1);
-    let txid_2 = test_send(&wallet_2, &online_2, &recipient_map_2);
+    let txid_1 = test_send(&mut wallet_1, &online_1, &recipient_map_1);
+    let txid_2 = test_send(&mut wallet_2, &online_2, &recipient_map_2);
     assert!(!txid_1.is_empty());
     assert!(!txid_2.is_empty());
     // take transfers from WaitingCounterparty to Settled
-    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
-    wait_for_refresh(&wallet_1, &online_1, Some(&asset_1.asset_id), None);
-    wait_for_refresh(&wallet_2, &online_2, Some(&asset_2.asset_id), None);
+    wait_for_refresh(&mut rcv_wallet, &rcv_online, None, None);
+    wait_for_refresh(&mut wallet_1, &online_1, Some(&asset_1.asset_id), None);
+    wait_for_refresh(&mut wallet_2, &online_2, Some(&asset_2.asset_id), None);
     mine(false, false);
-    wait_for_refresh(&rcv_wallet, &rcv_online, Some(&asset_1.asset_id), None);
-    wait_for_refresh(&wallet_1, &online_1, Some(&asset_1.asset_id), None);
-    wait_for_refresh(&wallet_2, &online_2, Some(&asset_2.asset_id), None);
+    wait_for_refresh(&mut rcv_wallet, &rcv_online, Some(&asset_1.asset_id), None);
+    wait_for_refresh(&mut wallet_1, &online_1, Some(&asset_1.asset_id), None);
+    wait_for_refresh(&mut wallet_2, &online_2, Some(&asset_2.asset_id), None);
 
     // pre-backup wallet data
-    check_test_wallet_data(&wallet_1, &asset_1, None, 1, amount);
-    check_test_wallet_data(&wallet_2, &asset_2, Some(asset_2_supply), 1, amount * 2);
+    check_test_wallet_data(&mut wallet_1, &asset_1, None, 1, amount);
+    check_test_wallet_data(&mut wallet_2, &asset_2, Some(asset_2_supply), 1, amount * 2);
 
     // backup
     println!("\nbacking up...");
@@ -287,12 +287,12 @@ fn double_restore() {
     let mut wallet_2 = Wallet::new(wallet_2_data).unwrap();
     let online_1 = test_go_online(&mut wallet_1, true, None);
     let online_2 = test_go_online(&mut wallet_2, true, None);
-    check_test_wallet_data(&wallet_1, &asset_1, None, 1, amount);
-    check_test_wallet_data(&wallet_2, &asset_2, Some(asset_2_supply), 1, amount * 2);
+    check_test_wallet_data(&mut wallet_1, &asset_1, None, 1, amount);
+    check_test_wallet_data(&mut wallet_2, &asset_2, Some(asset_2_supply), 1, amount * 2);
 
     // issue a second asset with the restored wallets
-    test_issue_asset_nia(&wallet_1, &online_1, None);
-    test_issue_asset_nia(&wallet_2, &online_2, None);
+    test_issue_asset_nia(&mut wallet_1, &online_1, None);
+    test_issue_asset_nia(&mut wallet_2, &online_2, None);
 }
 
 #[cfg(feature = "electrum")]

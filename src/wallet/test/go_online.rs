@@ -92,13 +92,13 @@ fn consistency_check_fail_bitcoins() {
     initialize();
 
     // prepare test wallet with UTXOs + an asset
-    let (wallet_orig, online_orig) = get_funded_wallet!();
+    let (mut wallet_orig, online_orig) = get_funded_wallet!();
     let wallet_data_orig = test_get_wallet_data(&wallet_orig);
-    test_issue_asset_nia(&wallet_orig, &online_orig, None);
+    test_issue_asset_nia(&mut wallet_orig, &online_orig, None);
 
     // get wallet fingerprint
     let wallet_dir_orig = test_get_wallet_dir(&wallet_orig);
-    let pubkey = ExtendedPubKey::from_str(&wallet_data_orig.pubkey).unwrap();
+    let pubkey = Xpub::from_str(&wallet_data_orig.pubkey).unwrap();
     let extended_key: ExtendedKey = ExtendedKey::from(pubkey);
     let bdk_network = BdkNetwork::from(BitcoinNetwork::Regtest);
     let xpub = extended_key.into_xpub(bdk_network, &Secp256k1::new());
@@ -160,8 +160,19 @@ fn consistency_check_fail_bitcoins() {
     // loss)
     let mut wallet_empty = Wallet::new(wallet_data_empty).unwrap();
     let online_empty = test_go_online(&mut wallet_empty, false, None);
-    let (rcv_wallet, _rcv_online) = get_funded_wallet!();
-    test_drain_to_destroy(&wallet_empty, &online_empty, &test_get_address(&rcv_wallet));
+    let request = wallet_empty.bdk_wallet.start_full_scan();
+    let update = wallet_empty.indexer().full_scan(request).unwrap();
+    wallet_empty.bdk_wallet.apply_update(update).unwrap();
+    wallet_empty
+        .bdk_wallet
+        .persist(&mut wallet_empty.bdk_database)
+        .unwrap();
+    let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
+    test_drain_to_destroy(
+        &mut wallet_empty,
+        &online_empty,
+        &test_get_address(&mut rcv_wallet),
+    );
 
     // detect asset inconsistency
     let err = "spent bitcoins with another wallet";
@@ -187,13 +198,13 @@ fn consistency_check_fail_utxos() {
     initialize();
 
     // prepare test wallet with UTXOs + an asset
-    let (wallet_orig, online_orig) = get_funded_wallet!();
+    let (mut wallet_orig, online_orig) = get_funded_wallet!();
     let wallet_data_orig = test_get_wallet_data(&wallet_orig);
-    test_issue_asset_nia(&wallet_orig, &online_orig, None);
+    test_issue_asset_nia(&mut wallet_orig, &online_orig, None);
 
     // get wallet fingerprint
     let wallet_dir_orig = test_get_wallet_dir(&wallet_orig);
-    let pubkey = ExtendedPubKey::from_str(&wallet_data_orig.pubkey).unwrap();
+    let pubkey = Xpub::from_str(&wallet_data_orig.pubkey).unwrap();
     let extended_key: ExtendedKey = ExtendedKey::from(pubkey);
     let bdk_network = BdkNetwork::from(BitcoinNetwork::Regtest);
     let xpub = extended_key.into_xpub(bdk_network, &Secp256k1::new());
@@ -255,8 +266,19 @@ fn consistency_check_fail_utxos() {
     // loss)
     let mut wallet_empty = Wallet::new(wallet_data_empty).unwrap();
     let online_empty = test_go_online(&mut wallet_empty, false, None);
-    let (rcv_wallet, _rcv_online) = get_funded_wallet!();
-    test_drain_to_keep(&wallet_empty, &online_empty, &test_get_address(&rcv_wallet));
+    let request = wallet_empty.bdk_wallet.start_full_scan();
+    let update = wallet_empty.indexer().full_scan(request).unwrap();
+    wallet_empty.bdk_wallet.apply_update(update).unwrap();
+    wallet_empty
+        .bdk_wallet
+        .persist(&mut wallet_empty.bdk_database)
+        .unwrap();
+    let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
+    test_drain_to_keep(
+        &mut wallet_empty,
+        &online_empty,
+        &test_get_address(&mut rcv_wallet),
+    );
 
     // detect asset inconsistency
     let err = "DB assets do not match with ones stored in RGB";
@@ -282,13 +304,13 @@ fn consistency_check_fail_asset_ids() {
     initialize();
 
     // prepare test wallet with UTXOs + an asset
-    let (wallet_orig, online_orig) = get_funded_wallet!();
+    let (mut wallet_orig, online_orig) = get_funded_wallet!();
     let wallet_data_orig = test_get_wallet_data(&wallet_orig);
-    test_issue_asset_nia(&wallet_orig, &online_orig, None);
+    test_issue_asset_nia(&mut wallet_orig, &online_orig, None);
 
     // get wallet fingerprint
     let wallet_dir_orig = test_get_wallet_dir(&wallet_orig);
-    let pubkey = ExtendedPubKey::from_str(&wallet_data_orig.pubkey).unwrap();
+    let pubkey = Xpub::from_str(&wallet_data_orig.pubkey).unwrap();
     let extended_key: ExtendedKey = ExtendedKey::from(pubkey);
     let bdk_network = BdkNetwork::from(BitcoinNetwork::Regtest);
     let xpub = extended_key.into_xpub(bdk_network, &Secp256k1::new());
@@ -363,13 +385,18 @@ fn consistency_check_fail_media() {
     let file_str = "README.md";
 
     // prepare test wallet with UTXOs + an asset
-    let (wallet_orig, online_orig) = get_funded_wallet!();
+    let (mut wallet_orig, online_orig) = get_funded_wallet!();
     let wallet_data_orig = test_get_wallet_data(&wallet_orig);
-    test_issue_asset_cfa(&wallet_orig, &online_orig, None, Some(file_str.to_string()));
+    test_issue_asset_cfa(
+        &mut wallet_orig,
+        &online_orig,
+        None,
+        Some(file_str.to_string()),
+    );
 
     // get wallet fingerprint
     let wallet_dir_orig = test_get_wallet_dir(&wallet_orig);
-    let pubkey = ExtendedPubKey::from_str(&wallet_data_orig.pubkey).unwrap();
+    let pubkey = Xpub::from_str(&wallet_data_orig.pubkey).unwrap();
     let extended_key: ExtendedKey = ExtendedKey::from(pubkey);
     let bdk_network = BdkNetwork::from(BitcoinNetwork::Regtest);
     let xpub = extended_key.into_xpub(bdk_network, &Secp256k1::new());
@@ -462,13 +489,13 @@ fn offline() {
     initialize();
 
     // don't go online and manually craft the Online object
-    let wallet = get_test_wallet(true, Some(MAX_ALLOCATIONS_PER_UTXO));
+    let mut wallet = get_test_wallet(true, Some(MAX_ALLOCATIONS_PER_UTXO));
     let online = Online {
         id: 0,
         indexer_url: s!(""),
     };
 
     // the online check should report that the wallet is offline
-    let result = test_create_utxos_begin_result(&wallet, &online, true, None, None, FEE_RATE);
+    let result = test_create_utxos_begin_result(&mut wallet, &online, true, None, None, FEE_RATE);
     assert!(matches!(result, Err(Error::Offline)));
 }

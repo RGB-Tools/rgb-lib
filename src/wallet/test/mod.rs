@@ -5,7 +5,7 @@ use std::{
     sync::{Mutex, Once, RwLock},
 };
 
-use bdk::descriptor::Descriptor;
+use bdk_wallet::descriptor::ExtendedDescriptor;
 use ifaces::rgb21::EmbeddedMedia as RgbEmbeddedMedia;
 use lazy_static::lazy_static;
 use once_cell::sync::Lazy;
@@ -56,7 +56,7 @@ const DETAILS: &str = "details with ℧nicode characters";
 const PRECISION: u8 = 7;
 const AMOUNT: u64 = 666;
 const AMOUNT_SMALL: u64 = 66;
-const FEE_RATE: f32 = 1.5;
+const FEE_RATE: u64 = 2;
 const FEE_MSG_LOW: &str = "value under minimum 1";
 const EMPTY_MSG: &str = "must contain at least one character.";
 const IDENT_EMPTY_MSG: &str = "ident must contain at least one character";
@@ -211,17 +211,16 @@ pub fn mock_chain_net(wallet: &Wallet) -> ChainNet {
 }
 
 lazy_static! {
-    static ref MOCK_CHECK_FEE_RATE: Mutex<bool> = Mutex::new(false);
+    static ref MOCK_CHECK_FEE_RATE: Mutex<Vec<bool>> = Mutex::new(vec![]);
 }
 
 pub fn skip_check_fee_rate() -> bool {
     let mut mock = MOCK_CHECK_FEE_RATE.lock().unwrap();
-    if *mock {
-        println!("skipping check fee rate (mock)");
-        *mock = false;
-        true
-    } else {
+    if mock.is_empty() {
         false
+    } else {
+        println!("skipping check fee rate (mock)");
+        mock.pop().unwrap()
     }
 }
 

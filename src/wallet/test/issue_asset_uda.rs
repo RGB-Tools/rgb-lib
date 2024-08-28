@@ -10,7 +10,7 @@ fn success() {
     let file_str = "README.md";
     let image_str = ["tests", "qrcode.png"].join(MAIN_SEPARATOR_STR);
 
-    let (wallet, online) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_wallet!();
 
     // add a pending operation to an UTXO so spendable balance will be != settled / future
     let _receive_data = test_blind_receive(&wallet);
@@ -19,10 +19,10 @@ fn success() {
     println!("\nasset 1");
     let before_timestamp = now().unix_timestamp();
     let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
-    let asset_1 = test_issue_asset_uda(&wallet, &online, None, None, vec![]);
+    let asset_1 = test_issue_asset_uda(&mut wallet, &online, None, None, vec![]);
     let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
-    show_unspent_colorings(&wallet, "after issuance 1");
+    show_unspent_colorings(&mut wallet, "after issuance 1");
     assert_eq!(asset_1.ticker, TICKER.to_string());
     assert_eq!(asset_1.name, NAME.to_string());
     assert_eq!(asset_1.details, None);
@@ -50,13 +50,13 @@ fn success() {
     // include a token with a media and 2 attachments
     println!("\nasset 2");
     let asset_2 = test_issue_asset_uda(
-        &wallet,
+        &mut wallet,
         &online,
         Some(DETAILS),
         Some(file_str),
         vec![&image_str, file_str],
     );
-    show_unspent_colorings(&wallet, "after issuance 2");
+    show_unspent_colorings(&mut wallet, "after issuance 2");
     assert_eq!(asset_2.ticker, TICKER.to_string());
     assert_eq!(asset_2.name, NAME.to_string());
     assert_eq!(asset_2.details, Some(DETAILS.to_string()));
@@ -109,7 +109,7 @@ fn success() {
     // maximum number of attachments
     println!("\nmatching max attachment number");
     let asset_3 = test_issue_asset_uda(
-        &wallet,
+        &mut wallet,
         &online,
         None,
         None,
@@ -120,7 +120,7 @@ fn success() {
             .map(|a| a.as_str())
             .collect(),
     );
-    show_unspent_colorings(&wallet, "after issuance 3");
+    show_unspent_colorings(&mut wallet, "after issuance 3");
     assert_eq!(
         asset_3.balance,
         Balance {
@@ -161,17 +161,17 @@ fn no_issue_on_pending_send() {
 
     let amount: u64 = 1;
 
-    let (wallet, online) = get_funded_noutxo_wallet!();
-    let (rcv_wallet, rcv_online) = get_empty_wallet!();
+    let (mut wallet, online) = get_funded_noutxo_wallet!();
+    let (mut rcv_wallet, rcv_online) = get_empty_wallet!();
 
     // prepare UTXO
-    let num_created = test_create_utxos(&wallet, &online, true, Some(1), Some(5000), FEE_RATE);
+    let num_created = test_create_utxos(&mut wallet, &online, true, Some(1), Some(5000), FEE_RATE);
     assert_eq!(num_created, 1);
 
     // issue 1st asset
-    let asset_1 = test_issue_asset_uda(&wallet, &online, None, None, vec![]);
+    let asset_1 = test_issue_asset_uda(&mut wallet, &online, None, None, vec![]);
     // get 1st issuance UTXO
-    let unspents = test_list_unspents(&wallet, None, false);
+    let unspents = test_list_unspents(&mut wallet, None, false);
     let unspent_1 = unspents
         .iter()
         .find(|u| {
@@ -181,7 +181,7 @@ fn no_issue_on_pending_send() {
         })
         .unwrap();
     // send 1st asset
-    let receive_data = test_witness_receive(&rcv_wallet);
+    let receive_data = test_witness_receive(&mut rcv_wallet);
     let recipient_map = HashMap::from([(
         asset_1.asset_id.clone(),
         vec![Recipient {
@@ -194,20 +194,20 @@ fn no_issue_on_pending_send() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&wallet, &online, &recipient_map);
+    let txid = test_send(&mut wallet, &online, &recipient_map);
     assert!(!txid.is_empty());
 
     // issuing a 2nd asset fails due to missing free allocation slot
-    let result = test_issue_asset_uda_result(&wallet, &online, None, None, vec![]);
+    let result = test_issue_asset_uda_result(&mut wallet, &online, None, None, vec![]);
     assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 
     // create 1 more UTXO issue 2nd asset
-    let num_created = test_create_utxos(&wallet, &online, false, Some(1), None, FEE_RATE);
+    let num_created = test_create_utxos(&mut wallet, &online, false, Some(1), None, FEE_RATE);
     assert_eq!(num_created, 1);
-    let asset_2 = test_issue_asset_uda(&wallet, &online, None, None, vec![]);
-    show_unspent_colorings(&wallet, "after 2nd issuance");
+    let asset_2 = test_issue_asset_uda(&mut wallet, &online, None, None, vec![]);
+    show_unspent_colorings(&mut wallet, "after 2nd issuance");
     // get 2nd issuance UTXO
-    let unspents = test_list_unspents(&wallet, None, false);
+    let unspents = test_list_unspents(&mut wallet, None, false);
     let unspent_2 = unspents
         .iter()
         .find(|u| {
@@ -220,14 +220,14 @@ fn no_issue_on_pending_send() {
     assert_ne!(unspent_1.utxo.outpoint, unspent_2.utxo.outpoint);
 
     // progress transfer to WaitingConfirmations
-    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
-    wait_for_refresh(&wallet, &online, Some(&asset_1.asset_id), None);
+    wait_for_refresh(&mut rcv_wallet, &rcv_online, None, None);
+    wait_for_refresh(&mut wallet, &online, Some(&asset_1.asset_id), None);
 
     // issue 3rd asset
-    let asset_3 = test_issue_asset_uda(&wallet, &online, None, None, vec![]);
-    show_unspent_colorings(&wallet, "after 3rd issuance");
+    let asset_3 = test_issue_asset_uda(&mut wallet, &online, None, None, vec![]);
+    show_unspent_colorings(&mut wallet, "after 3rd issuance");
     // get 3rd issuance UTXO
-    let unspents = test_list_unspents(&wallet, None, false);
+    let unspents = test_list_unspents(&mut wallet, None, false);
     let unspent_3 = unspents
         .iter()
         .find(|u| {
@@ -251,7 +251,7 @@ fn fail() {
     let missing_str = "missing";
 
     // wallet
-    let (wallet, online) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_wallet!();
 
     // bad online object
     let other_online = Online {
@@ -364,7 +364,7 @@ fn fail() {
     );
 
     // invalid details
-    let result = test_issue_asset_uda_result(&wallet, &online, Some(""), None, vec![]);
+    let result = test_issue_asset_uda_result(&mut wallet, &online, Some(""), None, vec![]);
     assert!(matches!(result, Err(Error::InvalidDetails { details: m }) if m == IDENT_EMPTY_MSG));
 
     // invalid precision
@@ -382,26 +382,26 @@ fn fail() {
     );
 
     // invalid media: missing
-    let result = test_issue_asset_uda_result(&wallet, &online, None, Some(missing_str), vec![]);
+    let result = test_issue_asset_uda_result(&mut wallet, &online, None, Some(missing_str), vec![]);
     assert!(matches!(result, Err(Error::InvalidFilePath { file_path: m }) if m == missing_str));
 
     // invalid media: empty
-    let result = test_issue_asset_uda_result(&wallet, &online, None, Some(&empty_str), vec![]);
+    let result = test_issue_asset_uda_result(&mut wallet, &online, None, Some(&empty_str), vec![]);
     assert!(matches!(result, Err(Error::EmptyFile { file_path: m }) if m == empty_str));
 
     // invalid attachment: missing
-    let result = test_issue_asset_uda_result(&wallet, &online, None, None, vec![missing_str]);
+    let result = test_issue_asset_uda_result(&mut wallet, &online, None, None, vec![missing_str]);
     assert!(matches!(result, Err(Error::InvalidFilePath { file_path: m }) if m == missing_str));
 
     // invalid attachment: empty
-    let result = test_issue_asset_uda_result(&wallet, &online, None, None, vec![&empty_str]);
+    let result = test_issue_asset_uda_result(&mut wallet, &online, None, None, vec![&empty_str]);
     assert!(matches!(result, Err(Error::EmptyFile { file_path: m }) if m == empty_str));
 
     // new wallet
-    let (wallet, online) = get_empty_wallet!();
+    let (mut wallet, online) = get_empty_wallet!();
 
     // insufficient funds
-    let result = test_issue_asset_uda_result(&wallet, &online, None, None, vec![]);
+    let result = test_issue_asset_uda_result(&mut wallet, &online, None, None, vec![]);
     assert!(matches!(
         result,
         Err(Error::InsufficientBitcoins {
@@ -410,16 +410,16 @@ fn fail() {
         })
     ));
 
-    fund_wallet(test_get_address(&wallet));
+    fund_wallet(test_get_address(&mut wallet));
     mine(false, false);
 
     // insufficient allocations
-    let result = test_issue_asset_uda_result(&wallet, &online, None, None, vec![]);
+    let result = test_issue_asset_uda_result(&mut wallet, &online, None, None, vec![]);
     assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 
     // too many attachments
     let result = test_issue_asset_uda_result(
-        &wallet,
+        &mut wallet,
         &online,
         None,
         None,

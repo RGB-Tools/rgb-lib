@@ -154,13 +154,13 @@ impl From<DbTxo> for BdkOutPoint {
     }
 }
 
-impl From<LocalUtxo> for DbTxoActMod {
-    fn from(x: LocalUtxo) -> DbTxoActMod {
+impl From<LocalOutput> for DbTxoActMod {
+    fn from(x: LocalOutput) -> DbTxoActMod {
         DbTxoActMod {
             idx: ActiveValue::NotSet,
             txid: ActiveValue::Set(x.outpoint.txid.to_string()),
             vout: ActiveValue::Set(x.outpoint.vout),
-            btc_amount: ActiveValue::Set(x.txout.value.to_string()),
+            btc_amount: ActiveValue::Set(x.txout.value.to_sat().to_string()),
             spent: ActiveValue::Set(false),
             exists: ActiveValue::Set(true),
         }

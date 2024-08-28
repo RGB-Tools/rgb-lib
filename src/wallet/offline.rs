@@ -669,16 +669,7 @@ impl Address {
     /// Throws an error if the provided string is not a valid bitcoin address for the given
     /// network.
     pub fn new(address_string: String, bitcoin_network: BitcoinNetwork) -> Result<Self, Error> {
-        let decoded = BtcAddress::from_str(&address_string).map_err(|e| Error::InvalidAddress {
-            details: e.to_string(),
-        })?;
-
-        if !decoded.is_valid_for_network(bitcoin_network.into()) {
-            return Err(Error::InvalidAddress {
-                details: s!("address for wrong network"),
-            });
-        }
-
+        parse_address_str(&address_string, bitcoin_network)?;
         Ok(Address {
             address_string,
             bitcoin_network,
@@ -951,11 +942,20 @@ pub struct Transaction {
     /// Sent value (in sats), computed as the sum of owned input amounts included in this
     /// transaction
     pub sent: u64,
-    /// Fee value (in sats) if transaction is confirmed
-    pub fee: Option<u64>,
+    /// Fee value (in sats)
+    pub fee: u64,
     /// Height and Unix timestamp of the block containing the transaction if confirmed, `None` if
     /// unconfirmed
     pub confirmation_time: Option<BlockTime>,
+}
+
+/// Block height and timestamp of a block.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+pub struct BlockTime {
+    /// Confirmation block height
+    pub height: u32,
+    /// Confirmation block timestamp
+    pub timestamp: u64,
 }
 
 /// The type of a transaction.
@@ -1091,8 +1091,8 @@ impl From<LocalUnspent> for Unspent {
     }
 }
 
-impl From<LocalUtxo> for Unspent {
-    fn from(x: LocalUtxo) -> Unspent {
+impl From<LocalOutput> for Unspent {
+    fn from(x: LocalOutput) -> Unspent {
         Unspent {
             utxo: Utxo::from(x),
             rgb_allocations: vec![],
@@ -1128,11 +1128,11 @@ impl From<DbTxo> for Utxo {
     }
 }
 
-impl From<LocalUtxo> for Utxo {
-    fn from(x: LocalUtxo) -> Utxo {
+impl From<LocalOutput> for Utxo {
+    fn from(x: LocalOutput) -> Utxo {
         Utxo {
             outpoint: Outpoint::from(x.outpoint),
-            btc_amount: x.txout.value,
+            btc_amount: x.txout.value.to_sat(),
             colorable: false,
             exists: true,
         }
@@ -1173,7 +1173,8 @@ pub struct Wallet {
     pub(crate) watch_only: bool,
     pub(crate) database: Arc<RgbLibDatabase>,
     pub(crate) wallet_dir: PathBuf,
-    pub(crate) bdk_wallet: BdkWallet<AnyDatabase>,
+    pub(crate) bdk_wallet: PersistedWallet<Store<ChangeSet>>,
+    pub(crate) bdk_database: Store<ChangeSet>,
     #[cfg(any(feature = "electrum", feature = "esplora"))]
     pub(crate) rest_client: RestClient,
     max_allocations_per_utxo: u32,
@@ -1187,7 +1188,7 @@ impl Wallet {
         let wdata = wallet_data.clone();
 
         // wallet directory and file logging setup
-        let pubkey = ExtendedPubKey::from_str(&wdata.pubkey)?;
+        let pubkey = Xpub::from_str(&wdata.pubkey)?;
         let extended_key: ExtendedKey = ExtendedKey::from(pubkey);
         let bdk_network = BdkNetwork::from(wdata.bitcoin_network);
         let xpub = extended_key.into_xpub(bdk_network, &Secp256k1::new());
@@ -1223,16 +1224,9 @@ impl Wallet {
             BDK_DB_NAME.to_string()
         };
         let bdk_db_path = wallet_dir.join(bdk_db_name);
-        let bdk_config = SledDbConfiguration {
-            path: bdk_db_path
-                .into_os_string()
-                .into_string()
-                .expect("should be possible to convert path to a string"),
-            tree_name: BDK_DB_NAME.to_string(),
-        };
-        let bdk_database =
-            AnyDatabase::from_config(&bdk_config.into()).map_err(InternalError::from)?;
-        let bdk_wallet = if let Some(mnemonic) = wdata.mnemonic {
+        let mut bdk_database =
+            Store::<ChangeSet>::open_or_create_new(BDK_DB_NAME.as_bytes(), bdk_db_path)?;
+        let (descriptor, change_descriptor, extract_keys) = if let Some(mnemonic) = wdata.mnemonic {
             let account_xprv = derive_account_xprv_from_mnemonic(wdata.bitcoin_network, &mnemonic)?;
             let account_xpub = get_xpub_from_xprv(&account_xprv);
             if account_xpub != xpub {
@@ -1240,23 +1234,26 @@ impl Wallet {
             }
             let descriptor = calculate_descriptor_from_xprv(account_xprv, KEYCHAIN_RGB_OPRET)?;
             let change_descriptor = calculate_descriptor_from_xprv(account_xprv, vanilla_keychain)?;
-            BdkWallet::new(
-                &descriptor,
-                Some(&change_descriptor),
-                bdk_network,
-                bdk_database,
-            )
-            .map_err(InternalError::from)?
+            (descriptor, change_descriptor, true)
         } else {
             let descriptor_pub = calculate_descriptor_from_xpub(xpub, KEYCHAIN_RGB_OPRET)?;
             let change_descriptor_pub = calculate_descriptor_from_xpub(xpub, vanilla_keychain)?;
-            BdkWallet::new(
-                &descriptor_pub,
-                Some(&change_descriptor_pub),
-                bdk_network,
-                bdk_database,
-            )
-            .map_err(InternalError::from)?
+            (descriptor_pub, change_descriptor_pub, false)
+        };
+        let mut wallet_params = BdkWallet::load()
+            .descriptor(KeychainKind::External, Some(descriptor.clone()))
+            .descriptor(KeychainKind::Internal, Some(change_descriptor.clone()))
+            .check_genesis_hash(
+                BlockHash::from_str(get_genesis_hash(&wdata.bitcoin_network)).unwrap(),
+            );
+        if extract_keys {
+            wallet_params = wallet_params.extract_keys();
+        }
+        let bdk_wallet = match wallet_params.load_wallet(&mut bdk_database)? {
+            Some(wallet) => wallet,
+            None => BdkWallet::create(descriptor, change_descriptor)
+                .network(bdk_network)
+                .create_wallet(&mut bdk_database)?,
         };
 
         // RGB setup
@@ -1328,6 +1325,7 @@ impl Wallet {
             database: Arc::new(database),
             wallet_dir,
             bdk_wallet,
+            bdk_database,
             #[cfg(any(feature = "electrum", feature = "esplora"))]
             rest_client,
             max_allocations_per_utxo: wdata.max_allocations_per_utxo,
@@ -1386,21 +1384,21 @@ impl Wallet {
     pub(crate) fn filter_unspents(
         &self,
         keychain: KeychainKind,
-    ) -> Result<impl Iterator<Item = LocalUtxo>, Error> {
-        Ok(self
-            .bdk_wallet
+    ) -> impl Iterator<Item = LocalOutput> + '_ {
+        self.bdk_wallet
             .list_unspent()
-            .map_err(InternalError::from)?
-            .into_iter()
-            .filter(move |u| u.keychain == keychain))
+            .filter(move |u| u.keychain == keychain)
     }
 
-    pub(crate) fn internal_unspents(&self) -> Result<impl Iterator<Item = LocalUtxo>, Error> {
+    pub(crate) fn internal_unspents(&self) -> impl Iterator<Item = LocalOutput> + '_ {
         self.filter_unspents(KeychainKind::Internal)
     }
 
     pub(crate) fn get_uncolorable_btc_sum(&self) -> Result<u64, Error> {
-        Ok(self.internal_unspents()?.map(|u| u.txout.value).sum())
+        Ok(self
+            .internal_unspents()
+            .map(|u| u.txout.value.to_sat())
+            .sum())
     }
 
     pub(crate) fn get_available_allocations(
@@ -1758,7 +1756,7 @@ impl Wallet {
     /// the transaction anchoring the transfer for it to be considered final and move (while
     /// refreshing) to the [`TransferStatus::Settled`] status.
     pub fn witness_receive(
-        &self,
+        &mut self,
         asset_id: Option<String>,
         amount: Option<u64>,
         duration_seconds: Option<u32>,
@@ -1772,10 +1770,8 @@ impl Wallet {
             duration_seconds
         );
 
-        let address_str = self.get_new_address().to_string();
-        let address = BtcAddress::from_str(&address_str).unwrap().assume_checked();
-        let script_buf = address.script_pubkey();
-        let beneficiary = beneficiary_from_script_buf(script_buf.clone());
+        let script_pubkey = self.get_new_address()?.script_pubkey();
+        let beneficiary = beneficiary_from_script_buf(script_pubkey.clone());
 
         let (recipient_id, invoice, expiration_timestamp, batch_transfer_idx, _) = self._receive(
             asset_id,
@@ -1789,7 +1785,7 @@ impl Wallet {
 
         self.database
             .set_pending_witness_script(DbPendingWitnessScriptActMod {
-                script: ActiveValue::Set(script_buf.to_hex_string()),
+                script: ActiveValue::Set(script_pubkey.to_hex_string()),
                 ..Default::default()
             })?;
 
@@ -1804,11 +1800,7 @@ impl Wallet {
         })
     }
 
-    fn _sign_psbt(
-        &self,
-        psbt: &mut BdkPsbt,
-        sign_options: Option<SignOptions>,
-    ) -> Result<(), Error> {
+    fn _sign_psbt(&self, psbt: &mut Psbt, sign_options: Option<SignOptions>) -> Result<(), Error> {
         let sign_options = sign_options.unwrap_or_default();
         self.bdk_wallet
             .sign(psbt, sign_options)
@@ -1823,7 +1815,7 @@ impl Wallet {
         sign_options: Option<SignOptions>,
     ) -> Result<String, Error> {
         info!(self.logger, "Signing PSBT...");
-        let mut psbt = BdkPsbt::from_str(&unsigned_psbt)?;
+        let mut psbt = Psbt::from_str(&unsigned_psbt)?;
         self._sign_psbt(&mut psbt, sign_options)?;
         info!(self.logger, "Sign PSBT completed");
         Ok(psbt.to_string())
@@ -1939,27 +1931,25 @@ impl Wallet {
         Ok(transfers_changed)
     }
 
-    pub(crate) fn get_new_address(&self) -> BdkAddress {
-        self.bdk_wallet
-            .get_address(AddressIndex::New)
-            .expect("to be able to get a new address")
-            .address
+    pub(crate) fn _get_new_address(&mut self, keychain: KeychainKind) -> Result<BdkAddress, Error> {
+        let address = self.bdk_wallet.reveal_next_address(keychain).address;
+        self.bdk_wallet.persist(&mut self.bdk_database)?;
+        Ok(address)
+    }
+
+    pub(crate) fn get_new_address(&mut self) -> Result<BdkAddress, Error> {
+        self._get_new_address(KeychainKind::External)
     }
 
     /// Return a new Bitcoin address from the vanilla wallet.
-    pub fn get_address(&self) -> Result<String, Error> {
+    pub fn get_address(&mut self) -> Result<String, Error> {
         info!(self.logger, "Getting address...");
-        let address = self
-            .bdk_wallet
-            .get_internal_address(AddressIndex::New)
-            .expect("to be able to get a new address")
-            .address
-            .to_string();
+        let address = self._get_new_address(KeychainKind::Internal)?;
 
         self.update_backup_info(false)?;
 
         info!(self.logger, "Get address completed");
-        Ok(address)
+        Ok(address.to_string())
     }
 
     /// Return the [`Balance`] for the RGB asset with the provided ID.
@@ -2128,59 +2118,26 @@ impl Wallet {
         }
     }
 
-    // mostly copied from bdk's get_balance, needed for calculating internal and external balances
-    // independently
-    fn _get_btc_balance(&self, keychain: KeychainKind) -> Result<BdkBalance, Error> {
-        let utxos = self.filter_unspents(keychain)?;
+    fn _get_btc_balance(&self, keychain: KeychainKind) -> Result<Balance, Error> {
+        let chain = self.bdk_wallet.local_chain();
+        let chain_tip = self.bdk_wallet.latest_checkpoint().block_id();
+        let outpoints = self.filter_unspents(keychain).map(|lo| ((), lo.outpoint));
+        let balance = self
+            .bdk_wallet
+            .as_ref()
+            .balance(chain, chain_tip, outpoints, |_, _| false);
 
-        let mut immature = 0;
-        let mut untrusted_pending = 0;
-        let mut confirmed = 0;
-
-        let database = self.bdk_wallet.database();
-        let database = database.borrow();
-        let last_sync_height = match database
-            .get_sync_time()
-            .map_err(InternalError::from)?
-            .map(|sync_time| sync_time.block_time.height)
-        {
-            Some(height) => height,
-            // None means database was never synced
-            None => return Ok(BdkBalance::default()),
-        };
-
-        const COINBASE_MATURITY: u32 = 100;
-
-        for u in utxos {
-            // Unwrap used since utxo set is created from database
-            let tx = database
-                .get_tx(&u.outpoint.txid, true)
-                .map_err(InternalError::from)?
-                .expect("Transaction not found in database");
-            if let Some(tx_conf_time) = &tx.confirmation_time {
-                if tx.transaction.expect("No transaction").is_coin_base()
-                    && (last_sync_height - tx_conf_time.height) < COINBASE_MATURITY
-                {
-                    immature += u.txout.value;
-                } else {
-                    confirmed += u.txout.value;
-                }
-            } else {
-                untrusted_pending += u.txout.value;
-            }
-        }
-
-        Ok(BdkBalance {
-            immature,
-            trusted_pending: 0,
-            untrusted_pending,
-            confirmed,
+        let future = balance.total();
+        Ok(Balance {
+            settled: balance.confirmed.to_sat(),
+            future: future.to_sat(),
+            spendable: future.to_sat() - balance.immature.to_sat(),
         })
     }
 
     /// Return the [`BtcBalance`] of the internal Bitcoin wallets.
     pub fn get_btc_balance(
-        &self,
+        &mut self,
         online: Option<Online>,
         skip_sync: bool,
     ) -> Result<BtcBalance, Error> {
@@ -2188,22 +2145,10 @@ impl Wallet {
 
         self.sync_if_requested(online, skip_sync)?;
 
-        let vanilla_balance = self._get_btc_balance(KeychainKind::Internal)?;
-        let colored_balance = self._get_btc_balance(KeychainKind::External)?;
-        let vanilla_future = vanilla_balance.get_total();
-        let colored_future = colored_balance.get_total();
-        let balance = BtcBalance {
-            vanilla: Balance {
-                settled: vanilla_balance.confirmed,
-                future: vanilla_future,
-                spendable: vanilla_future - vanilla_balance.immature,
-            },
-            colored: Balance {
-                settled: colored_balance.confirmed,
-                future: colored_future,
-                spendable: colored_future - colored_balance.immature,
-            },
-        };
+        let vanilla = self._get_btc_balance(KeychainKind::Internal)?;
+        let colored = self._get_btc_balance(KeychainKind::External)?;
+
+        let balance = BtcBalance { vanilla, colored };
 
         info!(self.logger, "Get BTC balance completed");
         Ok(balance)
@@ -2310,7 +2255,7 @@ impl Wallet {
     }
 
     pub(crate) fn sync_if_requested(
-        &self,
+        &mut self,
         #[cfg_attr(
             not(any(feature = "electrum", feature = "esplora")),
             allow(unused_variables)
@@ -2328,7 +2273,7 @@ impl Wallet {
                 } else {
                     return Err(Error::OnlineNeeded);
                 }
-                self.sync_db_txos()?;
+                self.sync_db_txos(false)?;
             }
         }
         Ok(())
@@ -2336,7 +2281,7 @@ impl Wallet {
 
     /// List the Bitcoin [`Transaction`]s known to the wallet.
     pub fn list_transactions(
-        &self,
+        &mut self,
         online: Option<Online>,
         skip_sync: bool,
     ) -> Result<Vec<Transaction>, Error> {
@@ -2361,11 +2306,9 @@ impl Wallet {
             .collect();
         let transactions = self
             .bdk_wallet
-            .list_transactions(false)
-            .map_err(InternalError::from)?
-            .into_iter()
+            .transactions()
             .map(|t| {
-                let txid = t.txid.to_string();
+                let txid = t.tx_node.txid.to_string();
                 let transaction_type = if drain_txids.contains(&txid) {
                     TransactionType::Drain
                 } else if create_utxos_txids.contains(&txid) {
@@ -2375,13 +2318,22 @@ impl Wallet {
                 } else {
                     TransactionType::User
                 };
+                let confirmation_time = match t.chain_position {
+                    ChainPosition::Confirmed { anchor, .. } => Some(BlockTime {
+                        height: anchor.block_id.height,
+                        timestamp: anchor.confirmation_time,
+                    }),
+                    _ => None,
+                };
+                let (sent, received) = self.bdk_wallet.sent_and_received(&t.tx_node);
+                let fee = self.bdk_wallet.calculate_fee(&t.tx_node).unwrap();
                 Transaction {
                     transaction_type,
                     txid,
-                    received: t.received,
-                    sent: t.sent,
-                    fee: t.fee,
-                    confirmation_time: t.confirmation_time,
+                    received: received.to_sat(),
+                    sent: sent.to_sat(),
+                    fee: fee.to_sat(),
+                    confirmation_time,
                 }
             })
             .collect();
@@ -2444,7 +2396,7 @@ impl Wallet {
     /// If `settled` is true only show settled RGB allocations, if false also show pending RGB
     /// allocations.
     pub fn list_unspents(
-        &self,
+        &mut self,
         online: Option<Online>,
         settled_only: bool,
         skip_sync: bool,
@@ -2514,7 +2466,7 @@ impl Wallet {
         }
 
         let mut internal_unspents: Vec<Unspent> =
-            self.internal_unspents()?.map(Unspent::from).collect();
+            self.internal_unspents().map(Unspent::from).collect();
 
         unspents.append(&mut internal_unspents);
 
