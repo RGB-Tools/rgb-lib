@@ -250,6 +250,10 @@ impl Wallet {
         transfer_dir.as_ref().join(&asset_id_no_prefix)
     }
 
+    fn _normalize_recipient_id(&self, recipient_id: &str) -> String {
+        recipient_id.replace(":", "_")
+    }
+
     fn _check_genesis_hash(
         &self,
         bitcoin_network: &BitcoinNetwork,
@@ -2098,7 +2102,9 @@ impl Wallet {
         let mut updated_batch_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
 
         // write consignment
-        let transfer_dir = self.transfers_dir().join(&recipient_id);
+        let transfer_dir = self
+            .transfers_dir()
+            .join(self._normalize_recipient_id(&recipient_id));
         let consignment_path = transfer_dir.join(CONSIGNMENT_RCV_FILE);
         fs::create_dir_all(transfer_dir)?;
         let consignment_bytes = general_purpose::STANDARD
@@ -2434,7 +2440,9 @@ impl Wallet {
                 .recipient_id
                 .expect("transfer should have a recipient ID");
             debug!(self.logger, "Recipient ID: {recipient_id}");
-            let transfer_dir = self.transfers_dir().join(recipient_id);
+            let transfer_dir = self
+                .transfers_dir()
+                .join(self._normalize_recipient_id(&recipient_id));
             let consignment_path = transfer_dir.join(CONSIGNMENT_RCV_FILE);
             let consignment =
                 RgbTransfer::load_file(consignment_path).map_err(InternalError::from)?;
