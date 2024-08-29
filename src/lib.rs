@@ -167,6 +167,8 @@ use chacha20poly1305::{
 use commit_verify::Conceal;
 #[cfg(feature = "electrum")]
 use electrum_client::{Client as ElectrumClient, ConfigBuilder, ElectrumApi, Param};
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+use file_format::FileFormat;
 use futures::executor::block_on;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use invoice::{Amount, Precision};

@@ -321,7 +321,10 @@ fn nia_with_media() {
     let file_bytes = std::fs::read(fp.clone()).unwrap();
     let file_hash: sha256::Hash = Sha256Hash::hash(&file_bytes[..]);
     let digest = file_hash.to_byte_array();
-    let mime = tree_magic_mini::from_filepath(fpath).unwrap().to_string();
+    let mime = FileFormat::from_file(fpath)
+        .unwrap()
+        .media_type()
+        .to_string();
     let media_ty: &'static str = Box::leak(mime.clone().into_boxed_str());
     let media_type = MediaType::with(media_ty);
     let attachment = Attachment {
