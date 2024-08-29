@@ -1,5 +1,6 @@
+**/data
+**/example
+**/rgblib.h*
 **/target
-/.vim
 **/tests/tmp
-
-tarpaulin-report.html
+/.vim

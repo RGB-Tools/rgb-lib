@@ -30,10 +30,7 @@
 //! Errors are handled with the crate `thiserror`.
 //!
 //! ## FFI
-//! Library functionality is exposed for other languages via the sub-crate `rgb-lib-ffi`.
-//!
-//! It uses `uniffi` and the exposed functionality is defined in the `rgb-lib-ffi/src/rgb-lib.udl`
-//! file.
+//! Library functionality is exposed for other languages via FFI bindings.
 //!
 //! ## Examples
 //! ### Create an RGB wallet

@@ -1,0 +1,9 @@
+[bindings.kotlin]
+package_name = "org.rgbtools"
+cdylib_name = "rgblibuniffi"
+
+[bindings.python]
+cdylib_name = "rgblibuniffi"
+
+[bindings.swift]
+cdylib_name = "rgblibuniffi"

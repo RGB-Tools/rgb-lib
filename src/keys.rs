@@ -6,6 +6,7 @@ use super::*;
 
 /// A set of Bitcoin keys used by the wallet.
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct Keys {
     /// Mnemonic phrase
     pub mnemonic: String,

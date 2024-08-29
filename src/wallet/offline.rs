@@ -152,6 +152,7 @@ impl TryFrom<TypeName> for AssetIface {
 
 /// An asset media file.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct Media {
     /// Path of the media file
     pub file_path: String,
@@ -201,6 +202,7 @@ impl Media {
 
 /// Metadata of an RGB asset.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct Metadata {
     /// Asset interface type
     pub asset_iface: AssetIface,
@@ -224,6 +226,7 @@ pub struct Metadata {
 
 /// A Non-Inflatable Asset.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct AssetNIA {
     /// ID of the asset
     pub asset_id: String,
@@ -279,6 +282,7 @@ impl AssetNIA {
 
 /// Light version of an RGB21 [`Token`], with embedded_media and reserves as booleans.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct TokenLight {
     /// Index of the token
     pub index: u32,
@@ -300,6 +304,7 @@ pub struct TokenLight {
 
 /// A media embedded in the contract.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct EmbeddedMedia {
     /// Mime of the embedded media
     pub mime: String,
@@ -309,6 +314,7 @@ pub struct EmbeddedMedia {
 
 /// A proof of reserves.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct ProofOfReserves {
     /// Proof of reserves UTXO
     pub utxo: Outpoint,
@@ -318,6 +324,7 @@ pub struct ProofOfReserves {
 
 /// An RGB21 token.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct Token {
     /// Index of the token
     pub index: u32,
@@ -339,6 +346,7 @@ pub struct Token {
 
 /// A Unique Digital Asset.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct AssetUDA {
     /// ID of the asset
     pub asset_id: String,
@@ -394,6 +402,7 @@ impl AssetUDA {
 
 /// A Collectible Fungible Asset.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct AssetCFA {
     /// ID of the asset
     pub asset_id: String,
@@ -453,6 +462,7 @@ enum AssetType {
 
 /// List of RGB assets, grouped by asset schema.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct Assets {
     /// List of NIA assets
     pub nia: Option<Vec<AssetNIA>>,
@@ -467,6 +477,7 @@ pub struct Assets {
 /// This structure is used both for RGB assets and BTC balances (in sats). When used for a BTC
 /// balance it can be used both for the vanilla wallet and the colored wallet.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct Balance {
     /// Settled balance, based on operations that have reached the final status
     pub settled: u64,
@@ -480,6 +491,7 @@ pub struct Balance {
 
 /// Data to receive an RGB transfer.
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct ReceiveData {
     /// Invoice string
     pub invoice: String,
@@ -493,6 +505,7 @@ pub struct ReceiveData {
 
 /// RGB recipient information used to be paid
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct RecipientInfo {
     /// Recipient ID
     pub recipient_id: String,
@@ -521,6 +534,7 @@ impl RecipientInfo {
 
 /// An RGB transport endpoint.
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct TransportEndpoint {
     /// Endpoint address
     pub endpoint: String,
@@ -565,6 +579,7 @@ pub enum DatabaseType {
 
 /// An RGB invoice.
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct Invoice {
     /// The RGB invoice string
     invoice_string: String,
@@ -673,6 +688,7 @@ impl Invoice {
 
 /// The data of an RGB invoice.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct InvoiceData {
     /// ID of the receive operation (blinded UTXO or Bitcoin script)
     pub recipient_id: String,
@@ -699,6 +715,7 @@ pub struct InvoiceData {
 /// <div class="warning">This should not be manually constructed but should be obtained from the
 /// [`Wallet::go_online`] method.</div>
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct Online {
     /// Unique ID for this object
     pub id: u64,
@@ -708,6 +725,7 @@ pub struct Online {
 
 /// Bitcoin transaction outpoint.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct Outpoint {
     /// ID of the transaction
     pub txid: String,
@@ -762,6 +780,7 @@ impl From<Outpoint> for RgbOutpoint {
 
 /// A recipient of an RGB transfer.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct Recipient {
     /// Recipient ID
     pub recipient_id: String,
@@ -775,6 +794,7 @@ pub struct Recipient {
 
 /// The information needed to receive RGB assets in witness mode.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct WitnessData {
     /// The Bitcoin amount (in sats) to send to the recipient
     pub amount_sat: u64,
@@ -784,6 +804,7 @@ pub struct WitnessData {
 
 /// An RGB allocation.
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct RgbAllocation {
     /// Asset ID
     pub asset_id: Option<String>,
@@ -806,6 +827,7 @@ impl From<LocalRgbAllocation> for RgbAllocation {
 
 /// A Bitcoin transaction.
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct Transaction {
     /// Type of transaction
     pub transaction_type: TransactionType,
@@ -839,6 +861,7 @@ pub enum TransactionType {
 
 /// An RGB transfer.
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct Transfer {
     /// ID of the transfer
     pub idx: i32,
@@ -897,6 +920,7 @@ impl Transfer {
 
 /// An RGB transport endpoint for a transfer.
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct TransferTransportEndpoint {
     /// Endpoint address
     pub endpoint: String,
@@ -934,6 +958,7 @@ pub enum TransferKind {
 
 /// A wallet unspent.
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct Unspent {
     /// Bitcoin UTXO
     pub utxo: Utxo,
@@ -965,6 +990,7 @@ impl From<LocalUtxo> for Unspent {
 
 /// A Bitcoin unspent transaction output.
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct Utxo {
     /// UTXO outpoint
     pub outpoint: Outpoint,
@@ -1003,6 +1029,7 @@ impl From<LocalUtxo> for Utxo {
 
 /// Data that defines a [`Wallet`].
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct WalletData {
     /// Directory where the wallet directory is stored
     pub data_dir: String,

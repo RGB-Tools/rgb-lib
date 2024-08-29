@@ -123,3 +123,4 @@ esplora = [
     "reqwest",
     "rgb-runtime/esplora_blocking",
 ]
+camel_case = ["default"]

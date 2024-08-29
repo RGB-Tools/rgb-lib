@@ -72,9 +72,10 @@ pub fn initialize() {
             println!("skipping services initialization");
             return;
         }
-        let start_services_file = ["tests", "start_services.sh"].join(&MAIN_SEPARATOR.to_string());
+        let regtest_script = ["tests", "regtest.sh"].join(&MAIN_SEPARATOR.to_string());
         println!("starting test services...");
-        let output = Command::new(start_services_file)
+        let output = Command::new(regtest_script)
+            .arg("prepare_tests_environment")
             .output()
             .expect("failed to start test services");
         if !output.status.success() {

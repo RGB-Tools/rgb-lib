@@ -1,5 +1,5 @@
 [package]
-name = "rgb-lib-ffi"
+name = "rgb-lib-uniffi"
 version = "0.1.0"
 authors = [
     "Zoe Faltibà <zoefaltiba@gmail.com>",
@@ -10,17 +10,17 @@ rust-version = "1.67"
 
 [lib]
 crate-type = ["lib", "staticlib", "cdylib"]
-name = "rgblibffi"
+name = "rgblibuniffi"
 
 [[bin]]
-name = "rgb-lib-ffi-bindgen"
+name = "rgb-lib-uniffi-bindgen"
 path = "uniffi-bindgen.rs"
 
 [features]
 default = ["uniffi/cli"]
 
 [dependencies]
-rgb-lib = { version = "0.3.0-alpha.5", path = "../", features = [
+rgb-lib = { version = "0.3.0-alpha.5", path = "../../", features = [
     "electrum",
     "esplora",
 ] }

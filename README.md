@@ -30,13 +30,12 @@ Each time the wallet is brought online, a consistency check is carried out to
 make sure the UTXO set has not changed since the last synchronization and an
 error is returned in case discrepancies are detected.
 
-## Native language bindings
-Native language bindings for this library are also available via the
-[rgb-lib-ffi] project.
+## Language bindings
+Bindings for other languages are available. Check the [bindings] directory.
 
 ## Tests
 In order to run the available tests, execute:
-```bash
+```sh
 cargo test --workspace --all-features
 ```
 
@@ -64,10 +63,10 @@ and the state transitions of an asset transfer.
 - improve the library's performance
 
 
+[RGB proxy]: https://github.com/RGB-Tools/rgb-proxy-server
 [bdk]: https://github.com/bitcoindevkit/bdk
+[bindings]: bindings/
 [bitcoind]: https://github.com/bitcoin/bitcoin
 [electrs]: https://github.com/romanz/electrs
 [esplora]: https://github.com/Blockstream/esplora
-[RGB proxy]: https://github.com/RGB-Tools/rgb-proxy-server
-[rgb-lib-ffi]: /rgb-lib-ffi/
 [rgb-core]: https://github.com/RGB-WG/rgb-core

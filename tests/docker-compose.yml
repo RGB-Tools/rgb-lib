@@ -10,12 +10,14 @@ services:
       - bitcoind
   electrs-2:
     image: registry.gitlab.com/hashbeam/docker/electrs:0.10.0
+    profiles: ['tests']
     ports:
       - 50002:50001
     depends_on:
       - bitcoind
   electrs-blockstream:
     image: olivbau/blockstream-electrs
+    profiles: ['tests']
     command:
       --network regtest
       --daemon-rpc-addr bitcoind:18443
@@ -29,6 +31,7 @@ services:
       - bitcoind
   esplora:
     image: blockstream/esplora:956c74f42eb6ad803d8aedc272ba83d3aa6dcf5c
+    profiles: ['tests']
     command: /srv/explorer/run.sh bitcoin-regtest explorer
     environment:
       DEBUG: verbose
@@ -44,6 +47,7 @@ services:
       - 3000:3000
   proxy-mod-proto:
     image: ghcr.io/rgb-tools/rgb-proxy-server:0.1.0
+    profiles: ['tests']
     ports:
       - 3001:3000
   proxy-mod-api:
@@ -51,5 +55,6 @@ services:
       context: ./rgb-proxy-server
       dockerfile: ./Dockerfile.modified-api
     image: rgb-proxy-server:modified-api
+    profiles: ['tests']
     ports:
       - 3002:3000

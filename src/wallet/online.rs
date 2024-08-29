@@ -45,6 +45,7 @@ struct AssetSpend {
 /// The spendable balances include the settled balance and also the untrusted and trusted pending
 /// balances.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct BtcBalance {
     /// Funds that will never hold RGB assets
     pub vanilla: Balance,
@@ -54,6 +55,7 @@ pub struct BtcBalance {
 
 /// The result of a send operation
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct SendResult {
     /// ID of the transaction
     pub txid: String,
@@ -161,6 +163,7 @@ pub(crate) struct OnlineData {
 
 /// A transfer refresh filter.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct RefreshFilter {
     /// Transfer status
     pub status: RefreshTransferStatus,
@@ -170,6 +173,7 @@ pub struct RefreshFilter {
 
 /// A refreshed transfer
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct RefreshedTransfer {
     /// The updated transfer status, if it has changed
     pub updated_status: Option<TransferStatus>,
