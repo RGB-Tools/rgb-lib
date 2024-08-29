@@ -3,13 +3,13 @@ use super::*;
 const JSON: &str = "application/json";
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct JsonRpcError {
+pub(crate) struct JsonRpcError {
     pub(crate) code: i64,
     pub(crate) message: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct JsonRpcRequest<P> {
+pub(crate) struct JsonRpcRequest<P> {
     method: String,
     jsonrpc: String,
     id: Option<String>,
@@ -17,66 +17,66 @@ pub struct JsonRpcRequest<P> {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct JsonRpcResponse<R> {
+pub(crate) struct JsonRpcResponse<R> {
     id: Option<String>,
     pub(crate) result: Option<R>,
     pub(crate) error: Option<JsonRpcError>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct NullRequest;
+pub(crate) struct NullRequest;
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct ServerInfoResponse {
+pub(crate) struct ServerInfoResponse {
     pub(crate) protocol_version: String,
     pub(crate) version: String,
     pub(crate) uptime: u64,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct AckResponse {
+pub(crate) struct AckResponse {
     pub(crate) success: bool,
     pub(crate) ack: Option<bool>,
     pub(crate) nack: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct GetConsignmentResponse {
+pub(crate) struct GetConsignmentResponse {
     pub(crate) consignment: String,
     pub(crate) txid: String,
     pub(crate) vout: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct PostAckParams {
+pub(crate) struct PostAckParams {
     recipient_id: String,
     ack: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct PostConsignmentParams {
+pub(crate) struct PostConsignmentParams {
     recipient_id: String,
     txid: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct PostConsignmentWithVoutParams {
+pub(crate) struct PostConsignmentWithVoutParams {
     recipient_id: String,
     txid: String,
     vout: u32,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct RecipientIDParam {
+pub(crate) struct RecipientIDParam {
     recipient_id: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct AttachmentIdParam {
+pub(crate) struct AttachmentIdParam {
     attachment_id: String,
 }
 
-pub trait Proxy {
+pub(crate) trait Proxy {
     fn get_info(self, url: &str) -> Result<JsonRpcResponse<ServerInfoResponse>, Error>;
 
     fn get_ack(self, url: &str, recipient_id: String) -> Result<JsonRpcResponse<bool>, Error>;

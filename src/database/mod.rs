@@ -222,7 +222,7 @@ pub(crate) struct LocalRecipient {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub struct LocalRgbAllocation {
+pub(crate) struct LocalRgbAllocation {
     /// Asset ID
     pub asset_id: Option<String>,
     /// RGB amount
