@@ -832,14 +832,16 @@ impl Wallet {
         Ok(tx.txid().to_string())
     }
 
-    fn _fail_batch_transfer(&self, batch_transfer: &DbBatchTransfer) -> Result<(), Error> {
+    fn _fail_batch_transfer(
+        &self,
+        batch_transfer: &DbBatchTransfer,
+    ) -> Result<DbBatchTransfer, Error> {
         let mut updated_batch_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
         updated_batch_transfer.status = ActiveValue::Set(TransferStatus::Failed);
         updated_batch_transfer.expiration = ActiveValue::Set(Some(now().unix_timestamp()));
-        self.database
-            .update_batch_transfer(&mut updated_batch_transfer)?;
-
-        Ok(())
+        Ok(self
+            .database
+            .update_batch_transfer(&mut updated_batch_transfer)?)
     }
 
     fn _try_fail_batch_transfer(
@@ -1919,13 +1921,12 @@ impl Wallet {
         &self,
         batch_transfer: &DbBatchTransfer,
         transfer_transport_endpoints_data: &[(DbTransferTransportEndpoint, DbTransportEndpoint)],
-    ) -> Result<bool, Error> {
+    ) -> Result<Option<DbBatchTransfer>, Error> {
         if transfer_transport_endpoints_data.is_empty() {
-            self._fail_batch_transfer(batch_transfer)?;
-            return Ok(true);
+            Ok(Some(self._fail_batch_transfer(batch_transfer)?))
+        } else {
+            Ok(None)
         }
-
-        Ok(false)
     }
 
     fn _refuse_consignment(
@@ -2068,8 +2069,10 @@ impl Wallet {
         let tte_data = self
             .database
             .get_transfer_transport_endpoints_data(transfer.idx)?;
-        if self._fail_batch_transfer_if_no_endpoints(batch_transfer, &tte_data)? {
-            return Ok(None);
+        if let Some(updated_transfer) =
+            self._fail_batch_transfer_if_no_endpoints(batch_transfer, &tte_data)?
+        {
+            return Ok(Some(updated_transfer));
         }
         let mut proxy_res = None;
         for (transfer_transport_endpoint, transport_endpoint) in tte_data {
@@ -2351,8 +2354,10 @@ impl Wallet {
                 let tte_data = self
                     .database
                     .get_transfer_transport_endpoints_data(transfer.idx)?;
-                if self._fail_batch_transfer_if_no_endpoints(batch_transfer, &tte_data)? {
-                    return Ok(None);
+                if let Some(updated_transfer) =
+                    self._fail_batch_transfer_if_no_endpoints(batch_transfer, &tte_data)?
+                {
+                    return Ok(Some(updated_transfer));
                 }
                 let (_, transport_endpoint) = tte_data
                     .clone()
