@@ -24,6 +24,8 @@ pub struct ColoringInfo {
     pub asset_info_map: HashMap<ContractId, AssetColoringInfo>,
     /// Static blinding to keep the transaction construction deterministic
     pub static_blinding: Option<u64>,
+    /// Nonce for offchain TXs ordering
+    pub nonce: Option<u64>,
 }
 
 /// Map of contract ID and list of its beneficiaries
@@ -38,7 +40,6 @@ impl Wallet {
         &self,
         psbt_to_color: &mut PartiallySignedTransaction,
         coloring_info: ColoringInfo,
-        skip_amt_check: bool, // temporary due to issue in LN
     ) -> Result<(Fascia, AssetBeneficiariesMap), Error> {
         info!(self.logger, "Coloring PSBT...");
         let mut transaction = psbt_to_color.clone().extract_tx();
@@ -126,10 +127,14 @@ impl Wallet {
                     blinding_factor,
                 )?;
             }
-            if !skip_amt_check && sending_amt > asset_available_amt {
+            if sending_amt > asset_available_amt {
                 return Err(Error::InvalidColoringInfo {
-                    details: s!("total amount in output_map greater than available"),
+                    details: format!("total amount in output_map ({sending_amt}) greater than available ({asset_available_amt})"),
                 });
+            }
+
+            if let Some(nonce) = coloring_info.nonce {
+                asset_transition_builder = asset_transition_builder.set_nonce(nonce);
             }
 
             let transition = asset_transition_builder.complete_transition()?;
@@ -196,7 +201,7 @@ impl Wallet {
     ) -> Result<Vec<RgbTransfer>, Error> {
         info!(self.logger, "Coloring PSBT and consuming...");
         let (fascia, asset_beneficiaries) =
-            self.color_psbt(psbt_to_color, coloring_info.clone(), false)?;
+            self.color_psbt(psbt_to_color, coloring_info.clone())?;
 
         let rgb_psbt = RgbPsbt::from_str(&psbt_to_color.to_string()).unwrap();
         let witness_txid = rgb_psbt.txid();
@@ -286,10 +291,36 @@ impl Wallet {
             .expect("failure importing validated contract");
 
         let (remote_rgb_amount, _not_opret) =
-            self.extract_received_amount(&consignment, txid, Some(vout), None);
+            self.extract_received_amount(&consignment, txid.clone(), Some(vout), None);
 
-        let _status =
-            runtime.accept_transfer(validated_transfer.unwrap(), self.blockchain_resolver())?;
+        struct OffchainResolver<'a> {
+            witness_id: XWitnessId,
+            fallback: &'a AnyResolver,
+        }
+        impl ResolveWitness for OffchainResolver<'_> {
+            fn resolve_pub_witness(
+                &self,
+                _: XWitnessId,
+            ) -> Result<XWitnessTx, WitnessResolverError> {
+                unreachable!()
+            }
+            fn resolve_pub_witness_ord(
+                &self,
+                witness_id: XWitnessId,
+            ) -> Result<WitnessOrd, WitnessResolverError> {
+                if witness_id != self.witness_id {
+                    return self.fallback.resolve_pub_witness_ord(witness_id);
+                }
+                Ok(WitnessOrd::Tentative)
+            }
+        }
+
+        let resolver = OffchainResolver {
+            witness_id: XChain::Bitcoin(RgbTxid::from_str(&txid).unwrap()),
+            fallback: self.blockchain_resolver(),
+        };
+
+        let _status = runtime.accept_transfer(validated_transfer.unwrap(), &resolver)?;
 
         info!(self.logger, "Accept transfer completed");
         Ok((consignment, remote_rgb_amount))
@@ -305,6 +336,41 @@ impl Wallet {
             .consume_fascia(fascia.clone(), witness_txid)?;
         info!(self.logger, "Consume fascia completed");
         Ok(())
+    }
+
+    /// Get the height for a Bitcoin TX.
+    ///
+    /// <div class="warning">This method is meant for special usage and is normally not needed, use
+    /// it only if you know what you're doing</div>
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub fn get_tx_height(&self, txid: String) -> Result<Option<u32>, Error> {
+        info!(self.logger, "Getting TX height...");
+        let txid = XWitnessId::Bitcoin(RgbTxid::from_str(&txid).map_err(|_| Error::InvalidTxid)?);
+        let height = match self
+            .blockchain_resolver()
+            .resolve_pub_witness_ord(txid)
+            .map_err(|e| Error::Network {
+                details: e.to_string(),
+            })? {
+            WitnessOrd::Mined(witness_pos) => Some(witness_pos.height().get()),
+            _ => None,
+        };
+        info!(self.logger, "Get TX height completed");
+        Ok(height)
+    }
+
+    /// Update RGB witnesses.
+    ///
+    /// <div class="warning">This method is meant for special usage and is normally not needed, use
+    /// it only if you know what you're doing</div>
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub fn update_witnesses(&self, after_height: u32) -> Result<UpdateRes, Error> {
+        info!(self.logger, "Updating witnesses...");
+        let update_res = self
+            .rgb_runtime()?
+            .update_witnesses(self.blockchain_resolver(), after_height)?;
+        info!(self.logger, "Update witnesses completed");
+        Ok(update_res)
     }
 
     /// Post a consignment to the proxy server.

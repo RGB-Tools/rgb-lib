@@ -309,6 +309,10 @@ pub enum Error {
         details: String,
     },
 
+    /// The provided TXID is invalid
+    #[error("Invalid TXID")]
+    InvalidTxid,
+
     /// The provided vanilla keychain is invalid
     #[error("Invalid vanilla keychain")]
     InvalidVanillaKeychain,
@@ -318,6 +322,13 @@ pub enum Error {
     MinFeeNotMet {
         /// TXID of the transfer having fee issues
         txid: String,
+    },
+
+    /// A network error occurred
+    #[error("Network error: {details}")]
+    Network {
+        /// Error details
+        details: String,
     },
 
     /// No consignment found

@@ -62,9 +62,10 @@ fn success() {
     let coloring_info = ColoringInfo {
         asset_info_map,
         static_blinding: Some(blinding),
+        nonce: None,
     };
     let (fascia, beneficiaries) = wallet_send
-        .color_psbt(&mut psbt, coloring_info.clone(), false)
+        .color_psbt(&mut psbt, coloring_info.clone())
         .unwrap();
 
     // check PSBT
@@ -357,8 +358,9 @@ fn color_psbt_fail() {
     let coloring_info = ColoringInfo {
         asset_info_map,
         static_blinding: Some(blinding),
+        nonce: None,
     };
-    let result = wallet_send.color_psbt(&mut psbt, coloring_info, false);
+    let result = wallet_send.color_psbt(&mut psbt, coloring_info);
     assert!(
         matches!(result, Err(Error::Internal { details: m }) if m.contains(&format!("contract {fake_cid} is unknown")))
     );
@@ -377,8 +379,9 @@ fn color_psbt_fail() {
     let coloring_info = ColoringInfo {
         asset_info_map,
         static_blinding: Some(blinding),
+        nonce: None,
     };
-    let result = wallet_send.color_psbt(&mut psbt, coloring_info, false);
+    let result = wallet_send.color_psbt(&mut psbt, coloring_info);
     assert!(
         matches!(result, Err(Error::Internal { details: m }) if m.contains("doesn't implement interface"))
     );
@@ -400,8 +403,9 @@ fn color_psbt_fail() {
     let coloring_info = ColoringInfo {
         asset_info_map,
         static_blinding: Some(blinding),
+        nonce: None,
     };
-    let result = wallet_send.color_psbt(&mut psbt, coloring_info, false);
+    let result = wallet_send.color_psbt(&mut psbt, coloring_info);
     let msg = "PSBT contains no contract information";
     assert!(matches!(result, Err(Error::Internal { details: m }) if m == msg));
 
@@ -421,8 +425,9 @@ fn color_psbt_fail() {
     let coloring_info = ColoringInfo {
         asset_info_map,
         static_blinding: Some(blinding),
+        nonce: None,
     };
-    let result = wallet_send.color_psbt(&mut psbt, coloring_info, false);
+    let result = wallet_send.color_psbt(&mut psbt, coloring_info);
     let msg = "PSBT contains no contract information";
     assert!(matches!(result, Err(Error::Internal { details: m }) if m == msg));
 
@@ -441,8 +446,9 @@ fn color_psbt_fail() {
     let coloring_info = ColoringInfo {
         asset_info_map,
         static_blinding: Some(blinding),
+        nonce: None,
     };
-    let result = wallet_send.color_psbt(&mut psbt, coloring_info, false);
+    let result = wallet_send.color_psbt(&mut psbt, coloring_info);
     let msg = "invalid vout in output_map, does not exist in the given PSBT";
     assert!(matches!(result, Err(Error::InvalidColoringInfo { details: m }) if m == msg));
 
@@ -461,13 +467,11 @@ fn color_psbt_fail() {
     let coloring_info = ColoringInfo {
         asset_info_map,
         static_blinding: Some(blinding),
+        nonce: None,
     };
-    let result = wallet_send.color_psbt(&mut psbt, coloring_info.clone(), false);
-    let msg = "total amount in output_map greater than available";
+    let result = wallet_send.color_psbt(&mut psbt, coloring_info.clone());
+    let msg = "total amount in output_map (999) greater than available (666)";
     assert!(matches!(result, Err(Error::InvalidColoringInfo { details: m }) if m == msg));
-    // output map amount still wrong but skipping check
-    let result = wallet_send.color_psbt(&mut psbt, coloring_info, true);
-    assert!(result.is_ok());
 }
 
 #[cfg(feature = "electrum")]

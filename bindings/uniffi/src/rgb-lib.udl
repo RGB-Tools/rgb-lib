@@ -57,8 +57,10 @@ interface RgbLibError {
   InvalidTicker(string details);
   InvalidTransportEndpoint(string details);
   InvalidTransportEndpoints(string details);
+  InvalidTxid();
   InvalidVanillaKeychain();
   MinFeeNotMet(string txid);
+  Network(string details);
   NoConsignment();
   NoIssuanceAmounts();
   NoValidTransportEndpoint();

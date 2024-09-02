@@ -520,6 +520,17 @@ impl RgbRuntime {
             .transition_builder(contract_id, iface, transition_name)
             .map_err(InternalError::from)
     }
+
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
+    pub(crate) fn update_witnesses<R: ResolveWitness>(
+        &mut self,
+        resolver: &R,
+        after_height: u32,
+    ) -> Result<UpdateRes, InternalError> {
+        self.stock
+            .update_witnesses(resolver, after_height)
+            .map_err(InternalError::from)
+    }
 }
 
 impl Drop for RgbRuntime {

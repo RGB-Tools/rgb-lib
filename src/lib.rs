@@ -65,9 +65,12 @@ pub mod wallet;
 
 pub use bdk;
 pub use bitcoin;
-pub use rgb::ContractId;
+pub use rgb::{containers::ConsignmentExt, persistence::UpdateRes, ContractId};
 pub use rgbinvoice::RgbTransport;
-pub use rgbstd::containers::{Contract, Fascia, FileContent, Transfer as RgbTransfer};
+pub use rgbstd::{
+    containers::{Contract, Fascia, FileContent, Transfer as RgbTransfer},
+    Txid as RgbTxid,
+};
 
 pub use crate::{
     database::enums::{AssetSchema, RecipientType, TransferStatus, TransportType},
@@ -196,20 +199,19 @@ use rgb_lib_migration::{Migrator, MigratorTrait};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use rgbinvoice::{Amount, Precision};
 use rgbinvoice::{Beneficiary, RgbInvoice, RgbInvoiceBuilder, XChainNet};
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-use rgbstd::{
-    containers::ConsignmentExt,
-    interface::ContractBuilder,
-    stl::{AssetSpec, Details, MediaType, Name, RicardianContract, Ticker},
-    Allocation, OwnedFraction, TokenIndex,
-};
 use rgbstd::{
     containers::{BuilderSeal, Kit, ValidContract, ValidKit, ValidTransfer},
     interface::{IfaceClass, IfaceRef, TransitionBuilder},
     invoice::{ChainNet, InvoiceState},
     persistence::{fs::FsBinStore, PersistedState, StashDataError, StashReadProvider, StockError},
     stl::{Attachment, ProofOfReserves as RgbProofOfReserves},
-    MergeReveal, Operation, Txid as RgbTxid,
+    MergeReveal, Operation,
+};
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+use rgbstd::{
+    interface::ContractBuilder,
+    stl::{AssetSpec, Details, MediaType, Name, RicardianContract, Ticker},
+    Allocation, OwnedFraction, TokenIndex,
 };
 use schemata::{CollectibleFungibleAsset, NonInflatableAsset, UniqueDigitalAsset};
 use scrypt::{
