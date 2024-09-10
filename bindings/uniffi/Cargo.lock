@@ -3155,7 +3155,7 @@ dependencies = [
 
 [[package]]
 name = "rgb-lib"
-version = "0.3.0-alpha.6"
+version = "0.3.0-alpha.7"
 dependencies = [
  "amplify",
  "base64 0.22.1",
