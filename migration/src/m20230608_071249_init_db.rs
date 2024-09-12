@@ -1,4 +1,4 @@
-use sea_orm_migration::prelude::*;
+use sea_orm_migration::{prelude::*, schema::*};
 
 #[derive(DeriveMigrationName)]
 pub struct Migration;
@@ -11,18 +11,12 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(Txo::Table)
                     .if_not_exists()
-                    .col(
-                        ColumnDef::new(Txo::Idx)
-                            .integer()
-                            .not_null()
-                            .auto_increment()
-                            .primary_key(),
-                    )
-                    .col(ColumnDef::new(Txo::Txid).string().not_null())
-                    .col(ColumnDef::new(Txo::Vout).big_unsigned().not_null())
-                    .col(ColumnDef::new(Txo::BtcAmount).string().not_null())
-                    .col(ColumnDef::new(Txo::Spent).boolean().not_null())
-                    .col(ColumnDef::new(Txo::Exists).boolean().not_null())
+                    .col(pk_auto(Txo::Idx))
+                    .col(string(Txo::Txid))
+                    .col(big_unsigned(Txo::Vout))
+                    .col(string(Txo::BtcAmount))
+                    .col(boolean(Txo::Spent))
+                    .col(boolean(Txo::Exists))
                     .to_owned(),
             )
             .await?;
@@ -43,20 +37,9 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(Media::Table)
                     .if_not_exists()
-                    .col(
-                        ColumnDef::new(Media::Idx)
-                            .integer()
-                            .not_null()
-                            .auto_increment()
-                            .primary_key(),
-                    )
-                    .col(
-                        ColumnDef::new(Media::Digest)
-                            .string()
-                            .not_null()
-                            .unique_key(),
-                    )
-                    .col(ColumnDef::new(Media::Mime).string().not_null())
+                    .col(pk_auto(Media::Idx))
+                    .col(string_uniq(Media::Digest))
+                    .col(string(Media::Mime))
                     .to_owned(),
             )
             .await?;
@@ -66,23 +49,17 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(Asset::Table)
                     .if_not_exists()
-                    .col(
-                        ColumnDef::new(Asset::Idx)
-                            .integer()
-                            .not_null()
-                            .auto_increment()
-                            .primary_key(),
-                    )
-                    .col(ColumnDef::new(Asset::MediaIdx).integer())
-                    .col(ColumnDef::new(Asset::Id).string().not_null().unique_key())
-                    .col(ColumnDef::new(Asset::Schema).tiny_unsigned().not_null())
-                    .col(ColumnDef::new(Asset::AddedAt).big_unsigned().not_null())
-                    .col(ColumnDef::new(Asset::Details).string())
-                    .col(ColumnDef::new(Asset::IssuedSupply).string().not_null())
-                    .col(ColumnDef::new(Asset::Name).string().not_null())
-                    .col(ColumnDef::new(Asset::Precision).tiny_unsigned().not_null())
-                    .col(ColumnDef::new(Asset::Ticker).string())
-                    .col(ColumnDef::new(Asset::Timestamp).big_unsigned().not_null())
+                    .col(pk_auto(Asset::Idx))
+                    .col(integer_null(Asset::MediaIdx))
+                    .col(string_uniq(Asset::Id))
+                    .col(tiny_unsigned(Asset::Schema))
+                    .col(big_unsigned(Asset::AddedAt))
+                    .col(string_null(Asset::Details))
+                    .col(string(Asset::IssuedSupply))
+                    .col(string(Asset::Name))
+                    .col(tiny_unsigned(Asset::Precision))
+                    .col(string_null(Asset::Ticker))
+                    .col(big_unsigned(Asset::Timestamp))
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk-asset-media")
@@ -100,35 +77,13 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(BatchTransfer::Table)
                     .if_not_exists()
-                    .col(
-                        ColumnDef::new(BatchTransfer::Idx)
-                            .integer()
-                            .not_null()
-                            .auto_increment()
-                            .primary_key(),
-                    )
-                    .col(ColumnDef::new(BatchTransfer::Txid).string())
-                    .col(
-                        ColumnDef::new(BatchTransfer::Status)
-                            .tiny_unsigned()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(BatchTransfer::CreatedAt)
-                            .big_unsigned()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(BatchTransfer::UpdatedAt)
-                            .big_unsigned()
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(BatchTransfer::Expiration).big_unsigned())
-                    .col(
-                        ColumnDef::new(BatchTransfer::MinConfirmations)
-                            .tiny_unsigned()
-                            .not_null(),
-                    )
+                    .col(pk_auto(BatchTransfer::Idx))
+                    .col(string_null(BatchTransfer::Txid))
+                    .col(tiny_unsigned(BatchTransfer::Status))
+                    .col(big_unsigned(BatchTransfer::CreatedAt))
+                    .col(big_unsigned(BatchTransfer::UpdatedAt))
+                    .col(big_unsigned_null(BatchTransfer::Expiration))
+                    .col(tiny_unsigned(BatchTransfer::MinConfirmations))
                     .to_owned(),
             )
             .await?;
@@ -138,24 +93,10 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(AssetTransfer::Table)
                     .if_not_exists()
-                    .col(
-                        ColumnDef::new(AssetTransfer::Idx)
-                            .integer()
-                            .not_null()
-                            .auto_increment()
-                            .primary_key(),
-                    )
-                    .col(
-                        ColumnDef::new(AssetTransfer::UserDriven)
-                            .boolean()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(AssetTransfer::BatchTransferIdx)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(AssetTransfer::AssetId).string())
+                    .col(pk_auto(AssetTransfer::Idx))
+                    .col(boolean(AssetTransfer::UserDriven))
+                    .col(integer(AssetTransfer::BatchTransferIdx))
+                    .col(string_null(AssetTransfer::AssetId))
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk-assettransfer-batchtransfer")
@@ -181,21 +122,11 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(Coloring::Table)
                     .if_not_exists()
-                    .col(
-                        ColumnDef::new(Coloring::Idx)
-                            .integer()
-                            .not_null()
-                            .auto_increment()
-                            .primary_key(),
-                    )
-                    .col(ColumnDef::new(Coloring::TxoIdx).integer().not_null())
-                    .col(
-                        ColumnDef::new(Coloring::AssetTransferIdx)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(Coloring::Type).tiny_unsigned().not_null())
-                    .col(ColumnDef::new(Coloring::Amount).string().not_null())
+                    .col(pk_auto(Coloring::Idx))
+                    .col(integer(Coloring::TxoIdx))
+                    .col(integer(Coloring::AssetTransferIdx))
+                    .col(tiny_unsigned(Coloring::Type))
+                    .col(string(Coloring::Amount))
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk-coloring-assettransfer")
@@ -221,24 +152,14 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(Transfer::Table)
                     .if_not_exists()
-                    .col(
-                        ColumnDef::new(Transfer::Idx)
-                            .integer()
-                            .not_null()
-                            .auto_increment()
-                            .primary_key(),
-                    )
-                    .col(
-                        ColumnDef::new(Transfer::AssetTransferIdx)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(Transfer::Amount).string().not_null())
-                    .col(ColumnDef::new(Transfer::Incoming).boolean().not_null())
-                    .col(ColumnDef::new(Transfer::RecipientType).tiny_unsigned())
-                    .col(ColumnDef::new(Transfer::RecipientID).string())
-                    .col(ColumnDef::new(Transfer::Ack).boolean())
-                    .col(ColumnDef::new(Transfer::Vout).big_unsigned())
+                    .col(pk_auto(Transfer::Idx))
+                    .col(integer(Transfer::AssetTransferIdx))
+                    .col(string(Transfer::Amount))
+                    .col(boolean(Transfer::Incoming))
+                    .col(tiny_unsigned_null(Transfer::RecipientType))
+                    .col(string_null(Transfer::RecipientID))
+                    .col(boolean_null(Transfer::Ack))
+                    .col(big_unsigned_null(Transfer::Vout))
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk-transfer-assettransfer")
@@ -256,23 +177,9 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(TransportEndpoint::Table)
                     .if_not_exists()
-                    .col(
-                        ColumnDef::new(TransportEndpoint::Idx)
-                            .integer()
-                            .not_null()
-                            .auto_increment()
-                            .primary_key(),
-                    )
-                    .col(
-                        ColumnDef::new(TransportEndpoint::TransportType)
-                            .tiny_unsigned()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(TransportEndpoint::Endpoint)
-                            .string()
-                            .not_null(),
-                    )
+                    .col(pk_auto(TransportEndpoint::Idx))
+                    .col(tiny_unsigned(TransportEndpoint::TransportType))
+                    .col(string(TransportEndpoint::Endpoint))
                     .to_owned(),
             )
             .await?;
@@ -293,29 +200,10 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(TransferTransportEndpoint::Table)
                     .if_not_exists()
-                    .col(
-                        ColumnDef::new(TransferTransportEndpoint::Idx)
-                            .integer()
-                            .not_null()
-                            .auto_increment()
-                            .primary_key(),
-                    )
-                    .col(
-                        ColumnDef::new(TransferTransportEndpoint::TransferIdx)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(TransferTransportEndpoint::TransportEndpointIdx)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(TransferTransportEndpoint::Used)
-                            .boolean()
-                            .not_null()
-                            .default(false),
-                    )
+                    .col(pk_auto(TransferTransportEndpoint::Idx))
+                    .col(integer(TransferTransportEndpoint::TransferIdx))
+                    .col(integer(TransferTransportEndpoint::TransportEndpointIdx))
+                    .col(boolean(TransferTransportEndpoint::Used).default(false))
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk-transfertransportendpoint-transfer")
@@ -358,20 +246,14 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(Token::Table)
                     .if_not_exists()
-                    .col(
-                        ColumnDef::new(Token::Idx)
-                            .integer()
-                            .not_null()
-                            .auto_increment()
-                            .primary_key(),
-                    )
-                    .col(ColumnDef::new(Token::AssetIdx).integer().not_null())
-                    .col(ColumnDef::new(Token::Index).big_unsigned().not_null())
-                    .col(ColumnDef::new(Token::Ticker).string())
-                    .col(ColumnDef::new(Token::Name).string())
-                    .col(ColumnDef::new(Token::Details).string())
-                    .col(ColumnDef::new(Token::EmbeddedMedia).boolean().not_null())
-                    .col(ColumnDef::new(Token::Reserves).boolean().not_null())
+                    .col(pk_auto(Token::Idx))
+                    .col(integer(Token::AssetIdx))
+                    .col(big_unsigned(Token::Index))
+                    .col(string_null(Token::Ticker))
+                    .col(string_null(Token::Name))
+                    .col(string_null(Token::Details))
+                    .col(boolean(Token::EmbeddedMedia))
+                    .col(boolean(Token::Reserves))
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk-token-asset")
@@ -389,16 +271,10 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(TokenMedia::Table)
                     .if_not_exists()
-                    .col(
-                        ColumnDef::new(TokenMedia::Idx)
-                            .integer()
-                            .not_null()
-                            .auto_increment()
-                            .primary_key(),
-                    )
-                    .col(ColumnDef::new(TokenMedia::TokenIdx).integer().not_null())
-                    .col(ColumnDef::new(TokenMedia::MediaIdx).integer().not_null())
-                    .col(ColumnDef::new(TokenMedia::AttachmentId).tiny_unsigned())
+                    .col(pk_auto(TokenMedia::Idx))
+                    .col(integer(TokenMedia::TokenIdx))
+                    .col(integer(TokenMedia::MediaIdx))
+                    .col(tiny_unsigned_null(TokenMedia::AttachmentId))
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk-tokenmedia-token")
@@ -424,19 +300,9 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(WalletTransaction::Table)
                     .if_not_exists()
-                    .col(
-                        ColumnDef::new(WalletTransaction::Idx)
-                            .integer()
-                            .not_null()
-                            .auto_increment()
-                            .primary_key(),
-                    )
-                    .col(ColumnDef::new(WalletTransaction::Txid).string().not_null())
-                    .col(
-                        ColumnDef::new(WalletTransaction::Type)
-                            .tiny_unsigned()
-                            .not_null(),
-                    )
+                    .col(pk_auto(WalletTransaction::Idx))
+                    .col(string(WalletTransaction::Txid))
+                    .col(tiny_unsigned(WalletTransaction::Type))
                     .to_owned(),
             )
             .await?;
@@ -446,19 +312,8 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(PendingWitnessScript::Table)
                     .if_not_exists()
-                    .col(
-                        ColumnDef::new(PendingWitnessScript::Idx)
-                            .integer()
-                            .not_null()
-                            .auto_increment()
-                            .primary_key(),
-                    )
-                    .col(
-                        ColumnDef::new(PendingWitnessScript::Script)
-                            .string()
-                            .not_null()
-                            .unique_key(),
-                    )
+                    .col(pk_auto(PendingWitnessScript::Idx))
+                    .col(string(PendingWitnessScript::Script).unique_key())
                     .to_owned(),
             )
             .await?;
@@ -468,23 +323,9 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(PendingWitnessOutpoint::Table)
                     .if_not_exists()
-                    .col(
-                        ColumnDef::new(PendingWitnessOutpoint::Idx)
-                            .integer()
-                            .not_null()
-                            .auto_increment()
-                            .primary_key(),
-                    )
-                    .col(
-                        ColumnDef::new(PendingWitnessOutpoint::Txid)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PendingWitnessOutpoint::Vout)
-                            .big_unsigned()
-                            .not_null(),
-                    )
+                    .col(pk_auto(PendingWitnessOutpoint::Idx))
+                    .col(string(PendingWitnessOutpoint::Txid))
+                    .col(big_unsigned(PendingWitnessOutpoint::Vout))
                     .to_owned(),
             )
             .await?;
@@ -517,23 +358,9 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(BackupInfo::Table)
                     .if_not_exists()
-                    .col(
-                        ColumnDef::new(BackupInfo::Idx)
-                            .integer()
-                            .not_null()
-                            .auto_increment()
-                            .primary_key(),
-                    )
-                    .col(
-                        ColumnDef::new(BackupInfo::LastBackupTimestamp)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(BackupInfo::LastOperationTimestamp)
-                            .string()
-                            .not_null(),
-                    )
+                    .col(pk_auto(BackupInfo::Idx))
+                    .col(string(BackupInfo::LastBackupTimestamp))
+                    .col(string(BackupInfo::LastOperationTimestamp))
                     .to_owned(),
             )
             .await
