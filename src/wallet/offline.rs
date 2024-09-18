@@ -12,6 +12,7 @@ pub(crate) const KEYCHAIN_RGB_TAPRET: u8 = 10;
 pub(crate) const KEYCHAIN_BTC: u8 = 1;
 
 pub(crate) const MEDIA_DIR: &str = "media_files";
+const TRANSFERS_DIR: &str = "transfers";
 
 const MIN_BTC_REQUIRED: u64 = 2000;
 
@@ -1294,6 +1295,10 @@ impl Wallet {
     /// Return the media directory.
     pub fn get_media_dir(&self) -> PathBuf {
         self.wallet_dir.join(MEDIA_DIR)
+    }
+
+    pub(crate) fn get_transfers_dir(&self) -> PathBuf {
+        self.wallet_dir.join(TRANSFERS_DIR)
     }
 
     pub(crate) fn check_transport_endpoints(

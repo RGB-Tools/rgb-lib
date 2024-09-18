@@ -3318,7 +3318,7 @@ impl Wallet {
         }
         let mut hasher = DefaultHasher::new();
         receive_ids.hash(&mut hasher);
-        let transfer_dir = self.get_transfers_dir().join(hasher.finish().to_string());
+        let transfer_dir = self.get_transfer_dir(&hasher.finish().to_string());
         if transfer_dir.exists() {
             fs::remove_dir_all(&transfer_dir)?;
         }
@@ -3497,7 +3497,7 @@ impl Wallet {
 
         // rename transfer directory
         let txid = psbt.clone().extract_tx().txid().to_string();
-        let new_transfer_dir = self.get_transfers_dir().join(txid);
+        let new_transfer_dir = self.get_transfer_dir(&txid);
         fs::rename(transfer_dir, new_transfer_dir)?;
 
         info!(self.logger, "Send (begin) completed");
@@ -3520,7 +3520,7 @@ impl Wallet {
         // save signed PSBT
         let psbt = BdkPsbt::from_str(&signed_psbt)?;
         let txid = psbt.clone().extract_tx().txid().to_string();
-        let transfer_dir = self.get_transfers_dir().join(&txid);
+        let transfer_dir = self.get_transfer_dir(&txid);
         let psbt_out = transfer_dir.join(SIGNED_PSBT_FILE);
         fs::write(psbt_out, psbt.to_string())?;
 
