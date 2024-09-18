@@ -4,6 +4,8 @@
 
 use super::*;
 
+const TRANSFERS_DIR: &str = "transfers";
+
 /// RGB asset-specific information to color a transaction
 #[derive(Clone, Debug)]
 pub struct AssetColoringInfo {
@@ -597,5 +599,41 @@ impl Wallet {
 
         info!(self.logger, "List unspents vanilla completed");
         res
+    }
+
+    /// Return the transfers dir path.
+    ///
+    /// <div class="warning">This method is meant for special usage and is normally not needed, use
+    /// it only if you know what you're doing</div>
+    pub fn get_transfers_dir(&self) -> PathBuf {
+        self.wallet_dir.join(TRANSFERS_DIR)
+    }
+
+    /// Return the asset transfer dir path for the provided asset ID in the provided transfers dir.
+    ///
+    /// <div class="warning">This method is meant for special usage and is normally not needed, use
+    /// it only if you know what you're doing</div>
+    pub fn get_asset_transfer_dir<P: AsRef<Path>>(
+        &self,
+        transfers_dir: P,
+        asset_id: &str,
+    ) -> PathBuf {
+        let asset_id_no_prefix = asset_id.replace(ASSET_ID_PREFIX, "");
+        transfers_dir.as_ref().join(&asset_id_no_prefix)
+    }
+
+    /// Return the consignment file path for the send transfer with the given recipient ID.
+    ///
+    /// <div class="warning">This method is meant for special usage and is normally not needed, use
+    /// it only if you know what you're doing</div>
+    pub fn get_send_consignment_path<P: AsRef<Path>>(
+        &self,
+        asset_transfer_dir: P,
+        recipient_id: &str,
+    ) -> PathBuf {
+        asset_transfer_dir.as_ref().join(format!(
+            "{}.{CONSIGNMENT_FILE}",
+            self.normalize_recipient_id(recipient_id)
+        ))
     }
 }

@@ -132,7 +132,7 @@ fn success() {
 
     // push consignment to proxy
     let txid = psbt_copy.unsigned_tx.txid().to_string();
-    let transfers_dir = wallet_send.transfers_dir().join(&txid);
+    let transfers_dir = wallet_send.get_transfers_dir().join(&txid);
     let consignment_path = transfers_dir.join(CONSIGNMENT_FILE);
     std::fs::create_dir_all(&transfers_dir).unwrap();
     assert_eq!(transfers.len(), 1);
@@ -485,7 +485,7 @@ fn post_consignment_fail() {
 
     // fake data
     let fake_txid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-    let transfers_dir = wallet.transfers_dir().join(fake_txid);
+    let transfers_dir = wallet.get_transfers_dir().join(fake_txid);
     let consignment_path = transfers_dir.join(CONSIGNMENT_FILE);
     std::fs::create_dir_all(&transfers_dir).unwrap();
     std::fs::File::create(&consignment_path).unwrap();

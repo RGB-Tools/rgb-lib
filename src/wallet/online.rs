@@ -4,12 +4,9 @@
 
 use super::*;
 
-const TRANSFER_DIR: &str = "transfers";
-
+const CONSIGNMENT_RCV_FILE: &str = "rcv_compose.rgbc";
 const TRANSFER_DATA_FILE: &str = "transfer_data.txt";
 const SIGNED_PSBT_FILE: &str = "signed.psbt";
-pub(crate) const CONSIGNMENT_FILE: &str = "consignment_out";
-const CONSIGNMENT_RCV_FILE: &str = "rcv_compose.rgbc";
 
 const OPRET_VBYTES: f32 = 43.0;
 
@@ -27,8 +24,6 @@ pub(crate) const INDEXER_STOP_GAP: usize = 20;
 const INDEXER_TIMEOUT: u8 = 4;
 
 const PROXY_PROTOCOL_VERSION: &str = "0.2";
-
-const ASSET_ID_PREFIX: &str = "rgb:";
 
 pub(crate) const UDA_FIXED_INDEX: u32 = 0;
 
@@ -235,34 +230,6 @@ impl Wallet {
 
     pub(crate) fn blockchain_resolver(&self) -> &AnyResolver {
         &self.online_data.as_ref().unwrap().resolver
-    }
-
-    pub(crate) fn transfers_dir(&self) -> PathBuf {
-        self.wallet_dir.join(TRANSFER_DIR)
-    }
-
-    pub(crate) fn asset_transfer_dir<P: AsRef<Path>>(
-        &self,
-        transfer_dir: P,
-        asset_id: &str,
-    ) -> PathBuf {
-        let asset_id_no_prefix = asset_id.replace(ASSET_ID_PREFIX, "");
-        transfer_dir.as_ref().join(&asset_id_no_prefix)
-    }
-
-    fn _normalize_recipient_id(&self, recipient_id: &str) -> String {
-        recipient_id.replace(":", "_")
-    }
-
-    pub(crate) fn consignment_out_path<P: AsRef<Path>>(
-        &self,
-        asset_transfer_dir: P,
-        recipient_id: &str,
-    ) -> PathBuf {
-        asset_transfer_dir.as_ref().join(format!(
-            "{}.{CONSIGNMENT_FILE}",
-            self._normalize_recipient_id(recipient_id)
-        ))
     }
 
     fn _check_genesis_hash(
@@ -2113,8 +2080,8 @@ impl Wallet {
 
         // write consignment
         let transfer_dir = self
-            .transfers_dir()
-            .join(self._normalize_recipient_id(&recipient_id));
+            .get_transfers_dir()
+            .join(self.normalize_recipient_id(&recipient_id));
         let consignment_path = transfer_dir.join(CONSIGNMENT_RCV_FILE);
         fs::create_dir_all(transfer_dir)?;
         let consignment_bytes = general_purpose::STANDARD
@@ -2394,7 +2361,7 @@ impl Wallet {
         {
             updated_batch_transfer.status = ActiveValue::Set(TransferStatus::Failed);
         } else if batch_transfer_transfers.iter().all(|t| t.ack == Some(true)) {
-            let transfer_dir = self.transfers_dir().join(
+            let transfer_dir = self.get_transfers_dir().join(
                 batch_transfer
                     .txid
                     .as_ref()
@@ -2450,8 +2417,8 @@ impl Wallet {
                 .expect("transfer should have a recipient ID");
             debug!(self.logger, "Recipient ID: {recipient_id}");
             let transfer_dir = self
-                .transfers_dir()
-                .join(self._normalize_recipient_id(&recipient_id));
+                .get_transfers_dir()
+                .join(self.normalize_recipient_id(&recipient_id));
             let consignment_path = transfer_dir.join(CONSIGNMENT_RCV_FILE);
             let consignment =
                 RgbTransfer::load_file(consignment_path).map_err(InternalError::from)?;
@@ -2910,7 +2877,7 @@ impl Wallet {
             all_transitions.insert(contract_id, transition);
             asset_beneficiaries.insert(asset_id.clone(), beneficiaries);
 
-            let asset_transfer_dir = self.asset_transfer_dir(&transfer_dir, &asset_id);
+            let asset_transfer_dir = self.get_asset_transfer_dir(&transfer_dir, &asset_id);
             if asset_transfer_dir.is_dir() {
                 fs::remove_dir_all(&asset_transfer_dir)?;
             }
@@ -3011,7 +2978,7 @@ impl Wallet {
         runtime.consume_fascia(fascia, witness_txid)?;
 
         for (asset_id, _transfer_info) in transfer_info_map {
-            let asset_transfer_dir = self.asset_transfer_dir(&transfer_dir, &asset_id);
+            let asset_transfer_dir = self.get_asset_transfer_dir(&transfer_dir, &asset_id);
             let contract_id = ContractId::from_str(&asset_id).expect("invalid contract ID");
             let beneficiaries = asset_beneficiaries[&asset_id].clone();
             for (recipient_id, builder_seal) in beneficiaries {
@@ -3031,8 +2998,9 @@ impl Wallet {
                         runtime.transfer(contract_id, [], Some(seal))?
                     }
                 };
-                transfer
-                    .save_file(self.consignment_out_path(&asset_transfer_dir, &recipient_id))?;
+                transfer.save_file(
+                    self.get_send_consignment_path(&asset_transfer_dir, &recipient_id),
+                )?;
             }
         }
 
@@ -3074,7 +3042,8 @@ impl Wallet {
                     continue;
                 }
                 let proxy_url = transport_endpoint.endpoint.clone();
-                let consignment_path = self.consignment_out_path(&asset_transfer_dir, recipient_id);
+                let consignment_path =
+                    self.get_send_consignment_path(&asset_transfer_dir, recipient_id);
                 debug!(
                     self.logger,
                     "Posting consignment for recipient ID: {recipient_id}"
@@ -3349,7 +3318,7 @@ impl Wallet {
         }
         let mut hasher = DefaultHasher::new();
         receive_ids.hash(&mut hasher);
-        let transfer_dir = self.transfers_dir().join(hasher.finish().to_string());
+        let transfer_dir = self.get_transfers_dir().join(hasher.finish().to_string());
         if transfer_dir.exists() {
             fs::remove_dir_all(&transfer_dir)?;
         }
@@ -3528,7 +3497,7 @@ impl Wallet {
 
         // rename transfer directory
         let txid = psbt.clone().extract_tx().txid().to_string();
-        let new_transfer_dir = self.transfers_dir().join(txid);
+        let new_transfer_dir = self.get_transfers_dir().join(txid);
         fs::rename(transfer_dir, new_transfer_dir)?;
 
         info!(self.logger, "Send (begin) completed");
@@ -3551,7 +3520,7 @@ impl Wallet {
         // save signed PSBT
         let psbt = BdkPsbt::from_str(&signed_psbt)?;
         let txid = psbt.clone().extract_tx().txid().to_string();
-        let transfer_dir = self.transfers_dir().join(&txid);
+        let transfer_dir = self.get_transfers_dir().join(&txid);
         let psbt_out = transfer_dir.join(SIGNED_PSBT_FILE);
         fs::write(psbt_out, psbt.to_string())?;
 

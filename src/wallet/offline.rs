@@ -21,6 +21,9 @@ pub(crate) const MAX_TRANSPORT_ENDPOINTS: usize = 3;
 
 pub(crate) const DURATION_RCV_TRANSFER: u32 = 86400;
 
+pub(crate) const ASSET_ID_PREFIX: &str = "rgb:";
+pub(crate) const CONSIGNMENT_FILE: &str = "consignment_out";
+
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 const PROXY_TIMEOUT: u8 = 90;
 
@@ -1434,6 +1437,10 @@ impl Wallet {
             })?;
 
         Ok(())
+    }
+
+    pub(crate) fn normalize_recipient_id(&self, recipient_id: &str) -> String {
+        recipient_id.replace(":", "_")
     }
 
     fn _receive(
