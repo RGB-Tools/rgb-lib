@@ -1,6 +1,6 @@
 [package]
 name = "rgb-lib"
-version = "0.3.0-alpha.7"
+version = "0.3.0-alpha.8"
 authors = [
     "Zoe Faltibà <zoefaltiba@gmail.com>",
     "Nicola Busanello <nicola.busanello@gmail.com>",
@@ -45,7 +45,7 @@ reqwest = { version = "0.12", optional = true, default-features = false, feature
     "multipart",
     "rustls-tls",
 ] }
-rgb-lib-migration = { path = "migration", version = "0.3.0-alpha.1" }
+rgb-lib-migration = { path = "migration", version = "0.3.0-alpha.8" }
 scrypt = { version = "0.11.0", default-features = false, features = [
     "simple",
     "std",
