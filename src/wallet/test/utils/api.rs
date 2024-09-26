@@ -162,7 +162,7 @@ pub(crate) fn test_get_asset_metadata_result(
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_get_btc_balance(wallet: &Wallet, online: &Online) -> BtcBalance {
-    wallet.get_btc_balance(online.clone()).unwrap()
+    wallet.get_btc_balance(Some(online.clone())).unwrap()
 }
 
 pub(crate) fn test_get_wallet_data(wallet: &Wallet) -> WalletData {

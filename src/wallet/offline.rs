@@ -159,6 +159,22 @@ impl TryFrom<TypeName> for AssetIface {
     }
 }
 
+/// The bitcoin balances (in sats) for the vanilla and colored wallets.
+///
+/// The settled balances include the confirmed balance.
+/// The future balances also include the immature balance and the untrusted and trusted pending
+/// balances.
+/// The spendable balances include the settled balance and also the untrusted and trusted pending
+/// balances.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct BtcBalance {
+    /// Funds that will never hold RGB assets
+    pub vanilla: Balance,
+    /// Funds that may hold RGB assets
+    pub colored: Balance,
+}
+
 /// An asset media file.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
@@ -1321,13 +1337,20 @@ impl Wallet {
         Ok(())
     }
 
-    pub(crate) fn internal_unspents(&self) -> Result<impl Iterator<Item = LocalUtxo>, Error> {
+    pub(crate) fn filter_unspents(
+        &self,
+        keychain: KeychainKind,
+    ) -> Result<impl Iterator<Item = LocalUtxo>, Error> {
         Ok(self
             .bdk_wallet
             .list_unspent()
             .map_err(InternalError::from)?
             .into_iter()
-            .filter(|u| u.keychain == KeychainKind::Internal))
+            .filter(move |u| u.keychain == keychain))
+    }
+
+    pub(crate) fn internal_unspents(&self) -> Result<impl Iterator<Item = LocalUtxo>, Error> {
+        self.filter_unspents(KeychainKind::Internal)
     }
 
     pub(crate) fn get_uncolorable_btc_sum(&self) -> Result<u64, Error> {
@@ -2059,6 +2082,83 @@ impl Wallet {
                 None
             },
         )
+    }
+
+    // mostly copied from bdk's get_balance, needed for calculating internal and external balances
+    // independently
+    fn _get_btc_balance(&self, keychain: KeychainKind) -> Result<BdkBalance, Error> {
+        let utxos = self.filter_unspents(keychain)?;
+
+        let mut immature = 0;
+        let mut untrusted_pending = 0;
+        let mut confirmed = 0;
+
+        let database = self.bdk_wallet.database();
+        let database = database.borrow();
+        let last_sync_height = match database
+            .get_sync_time()
+            .map_err(InternalError::from)?
+            .map(|sync_time| sync_time.block_time.height)
+        {
+            Some(height) => height,
+            // None means database was never synced
+            None => return Ok(BdkBalance::default()),
+        };
+
+        const COINBASE_MATURITY: u32 = 100;
+
+        for u in utxos {
+            // Unwrap used since utxo set is created from database
+            let tx = database
+                .get_tx(&u.outpoint.txid, true)
+                .map_err(InternalError::from)?
+                .expect("Transaction not found in database");
+            if let Some(tx_conf_time) = &tx.confirmation_time {
+                if tx.transaction.expect("No transaction").is_coin_base()
+                    && (last_sync_height - tx_conf_time.height) < COINBASE_MATURITY
+                {
+                    immature += u.txout.value;
+                } else {
+                    confirmed += u.txout.value;
+                }
+            } else {
+                untrusted_pending += u.txout.value;
+            }
+        }
+
+        Ok(BdkBalance {
+            immature,
+            trusted_pending: 0,
+            untrusted_pending,
+            confirmed,
+        })
+    }
+
+    /// Return the [`BtcBalance`] of the internal Bitcoin wallets.
+    pub fn get_btc_balance(&self, online: Option<Online>) -> Result<BtcBalance, Error> {
+        info!(self.logger, "Getting BTC balance...");
+
+        self._sync_if_online(online)?;
+
+        let vanilla_balance = self._get_btc_balance(KeychainKind::Internal)?;
+        let colored_balance = self._get_btc_balance(KeychainKind::External)?;
+        let vanilla_future = vanilla_balance.get_total();
+        let colored_future = colored_balance.get_total();
+        let balance = BtcBalance {
+            vanilla: Balance {
+                settled: vanilla_balance.confirmed,
+                future: vanilla_future,
+                spendable: vanilla_future - vanilla_balance.immature,
+            },
+            colored: Balance {
+                settled: colored_balance.confirmed,
+                future: colored_future,
+                spendable: colored_future - colored_balance.immature,
+            },
+        };
+
+        info!(self.logger, "Get BTC balance completed");
+        Ok(balance)
     }
 
     /// List the known RGB assets.

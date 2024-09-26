@@ -34,22 +34,6 @@ struct AssetSpend {
     change_amount: u64,
 }
 
-/// The bitcoin balances (in sats) for the vanilla and colored wallets.
-///
-/// The settled balances include the confirmed balance.
-/// The future balances also include the immature balance and the untrusted and trusted pending
-/// balances.
-/// The spendable balances include the settled balance and also the untrusted and trusted pending
-/// balances.
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
-#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
-pub struct BtcBalance {
-    /// Funds that will never hold RGB assets
-    pub vanilla: Balance,
-    /// Funds that may hold RGB assets
-    pub colored: Balance,
-}
-
 /// The result of a send operation
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
@@ -910,67 +894,6 @@ impl Wallet {
 
         info!(self.logger, "Fail transfers completed");
         Ok(transfers_changed)
-    }
-
-    /// Return the [`BtcBalance`] of the internal Bitcoin wallets.
-    pub fn get_btc_balance(&self, online: Online) -> Result<BtcBalance, Error> {
-        info!(self.logger, "Getting BTC balance...");
-        self.check_online(online)?;
-
-        let bdk_network = self.bdk_wallet.network();
-        let secp = Secp256k1::new();
-        let (descriptor_keychain_1, _) = self
-            .bdk_wallet
-            .get_descriptor_for_keychain(KeychainKind::Internal)
-            .clone()
-            .into_wallet_descriptor(&secp, bdk_network)
-            .unwrap();
-        let bdk_wallet_keychain_1 = BdkWallet::new(
-            descriptor_keychain_1,
-            None,
-            bdk_network,
-            MemoryDatabase::default(),
-        )
-        .map_err(InternalError::from)?;
-        let (descriptor_keychain_9, _) = self
-            .bdk_wallet
-            .get_descriptor_for_keychain(KeychainKind::External)
-            .clone()
-            .into_wallet_descriptor(&secp, bdk_network)
-            .unwrap();
-        let bdk_wallet_keychain_9 = BdkWallet::new(
-            descriptor_keychain_9,
-            None,
-            bdk_network,
-            MemoryDatabase::default(),
-        )
-        .map_err(InternalError::from)?;
-
-        self.sync_wallet(&bdk_wallet_keychain_1)?;
-        self.sync_wallet(&bdk_wallet_keychain_9)?;
-
-        let vanilla_balance = bdk_wallet_keychain_1
-            .get_balance()
-            .map_err(InternalError::from)?;
-        let colored_balance = bdk_wallet_keychain_9
-            .get_balance()
-            .map_err(InternalError::from)?;
-        let vanilla_future = vanilla_balance.get_total();
-        let colored_future = colored_balance.get_total();
-        let balance = BtcBalance {
-            vanilla: Balance {
-                settled: vanilla_balance.confirmed,
-                future: vanilla_future,
-                spendable: vanilla_future - vanilla_balance.immature,
-            },
-            colored: Balance {
-                settled: colored_balance.confirmed,
-                future: colored_future,
-                spendable: colored_future - colored_balance.immature,
-            },
-        };
-        info!(self.logger, "Get BTC balance completed");
-        Ok(balance)
     }
 
     fn _check_consistency(

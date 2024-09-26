@@ -106,7 +106,7 @@ pub extern "C" fn rgblib_get_asset_balance(
 #[no_mangle]
 pub extern "C" fn rgblib_get_btc_balance(
     wallet: &COpaqueStruct,
-    online: &COpaqueStruct,
+    online: *const COpaqueStruct,
 ) -> CResultString {
     get_btc_balance(wallet, online).into()
 }

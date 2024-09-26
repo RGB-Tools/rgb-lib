@@ -95,6 +95,17 @@ fn convert_optional_number<T: serde::de::DeserializeOwned>(
     })
 }
 
+fn convert_optional_online<'a>(
+    online: *const COpaqueStruct,
+) -> Result<Option<&'a mut Online>, Error> {
+    Ok(if online.is_null() {
+        None
+    } else {
+        let ref_struct: &COpaqueStruct = unsafe { &*online };
+        Some(Online::from_opaque(ref_struct)?)
+    })
+}
+
 fn convert_optional_string(ptr: *const c_char) -> Option<String> {
     if ptr.is_null() {
         None
@@ -182,11 +193,11 @@ pub(crate) fn get_asset_balance(
 
 pub(crate) fn get_btc_balance(
     wallet: &COpaqueStruct,
-    online: &COpaqueStruct,
+    online: *const COpaqueStruct,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
-    let online = Online::from_opaque(online)?;
-    let res = wallet.get_btc_balance((*online).clone())?;
+    let online = convert_optional_online(online)?;
+    let res = wallet.get_btc_balance(online.cloned())?;
     Ok(serde_json::to_string(&res)?)
 }
 

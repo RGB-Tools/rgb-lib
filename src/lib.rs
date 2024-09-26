@@ -80,13 +80,8 @@ pub use crate::{
     wallet::{backup::restore_backup, TransactionType, TransferKind, Wallet},
 };
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
 use std::{
-    cmp::{min, Ordering},
-    collections::hash_map::DefaultHasher,
-    hash::Hasher,
-};
-use std::{
+    borrow::Borrow,
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fmt, fs,
     hash::Hash,
@@ -96,6 +91,12 @@ use std::{
     str::FromStr,
     sync::Arc,
     time::Duration,
+};
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+use std::{
+    cmp::{min, Ordering},
+    collections::hash_map::DefaultHasher,
+    hash::Hasher,
 };
 
 use amplify::{
@@ -121,8 +122,6 @@ use bdk::{
         Blockchain, ConfigurableBlockchain,
     },
     database::BatchDatabase,
-    database::MemoryDatabase,
-    descriptor::IntoWalletDescriptor,
     FeeRate, SyncOptions,
 };
 use bdk::{
@@ -134,6 +133,7 @@ use bdk::{
     },
     database::{
         any::SledDbConfiguration, AnyDatabase, ConfigurableDatabase as BdkConfigurableDatabase,
+        Database as BdkDatabase,
     },
     descriptor::Segwitv0,
     keys::{
@@ -144,7 +144,7 @@ use bdk::{
     },
     miniscript::DescriptorPublicKey,
     wallet::AddressIndex,
-    BlockTime, KeychainKind, LocalUtxo, SignOptions, Wallet as BdkWallet,
+    Balance as BdkBalance, BlockTime, KeychainKind, LocalUtxo, SignOptions, Wallet as BdkWallet,
 };
 use bitcoin::{
     bip32::ChildNumber,

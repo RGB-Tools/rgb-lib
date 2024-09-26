@@ -273,7 +273,7 @@ impl Wallet {
         self._get_wallet().get_asset_balance(asset_id)
     }
 
-    fn get_btc_balance(&self, online: Online) -> Result<BtcBalance, RgbLibError> {
+    fn get_btc_balance(&self, online: Option<Online>) -> Result<BtcBalance, RgbLibError> {
         self._get_wallet().get_btc_balance(online)
     }
 

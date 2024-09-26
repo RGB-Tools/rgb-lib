@@ -458,7 +458,7 @@ interface Wallet {
   Balance get_asset_balance(string asset_id);
 
   [Throws=RgbLibError]
-  BtcBalance get_btc_balance(Online online);
+  BtcBalance get_btc_balance(Online? online);
 
   [Throws=RgbLibError]
   Metadata get_asset_metadata(string asset_id);
