@@ -294,6 +294,10 @@ impl Wallet {
         self._get_wallet().get_asset_metadata(asset_id)
     }
 
+    fn get_fee_estimation(&self, online: Online, blocks: u16) -> Result<f64, RgbLibError> {
+        self._get_wallet().get_fee_estimation(online, blocks)
+    }
+
     fn go_online(
         &self,
         skip_consistency_check: bool,

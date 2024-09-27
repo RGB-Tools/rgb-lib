@@ -152,6 +152,44 @@ pub(crate) fn resume_mining() {
     MINER.write().unwrap().resume_mining()
 }
 
+pub(crate) fn estimate_smart_fee(esplora: bool) -> bool {
+    let bitcoin_cli = if esplora {
+        _esplora_bitcoin_cli()
+    } else {
+        bitcoin_cli()
+    };
+    let mut json_output: Option<Value> = None;
+    let cmd = || {
+        let output = Command::new("docker")
+            .stdin(Stdio::null())
+            .arg("compose")
+            .args(&bitcoin_cli)
+            .arg("estimatesmartfee")
+            .arg("1")
+            .output()
+            .expect("failed to estimate fee");
+        if output.status.success() {
+            let output_str = String::from_utf8(output.stdout).unwrap();
+            json_output = serde_json::from_str(&output_str).unwrap();
+            true
+        } else if !output.status.success()
+            && String::from_utf8(output.stderr.clone())
+                .unwrap()
+                .contains(QUEUE_DEPTH_EXCEEDED)
+        {
+            false
+        } else {
+            println!("stdout: {:?}", output.stdout);
+            println!("stderr: {:?}", output.stderr);
+            panic!("unexpected error");
+        }
+    };
+    if !wait_for_function(cmd, 120, 500) {
+        panic!("could not request fee estimation ({QUEUE_DEPTH_EXCEEDED})");
+    }
+    json_output.unwrap().get("errors").is_none()
+}
+
 pub(crate) fn wait_indexers_sync() {
     let t_0 = OffsetDateTime::now_utc();
     let mut max_blockcount = 0;

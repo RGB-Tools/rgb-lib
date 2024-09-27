@@ -11,17 +11,20 @@ use lazy_static::lazy_static;
 use once_cell::sync::Lazy;
 use regex::RegexSet;
 use rgbstd::stl::ProofOfReserves as RgbProofOfReserves;
+use serde_json::Value;
 use serial_test::{parallel, serial};
 use std::time::Instant;
 use time::OffsetDateTime;
 
 use super::*;
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+use crate::utils::INDEXER_STOP_GAP;
 use crate::{
     database::entities::transfer_transport_endpoint,
     utils::{
         get_account_xpub, recipient_id_from_script_buf, script_buf_from_recipient_id,
-        INDEXER_STOP_GAP, RGB_RUNTIME_DIR,
+        RGB_RUNTIME_DIR,
     },
     wallet::{
         backup::{get_backup_paths, unzip, zip_dir, BackupPubData, ScryptParams},
@@ -233,6 +236,7 @@ mod get_address;
 mod get_asset_balance;
 mod get_asset_metadata;
 mod get_btc_balance;
+mod get_fee_estimation;
 mod get_wallet_data;
 mod get_wallet_dir;
 mod go_online;

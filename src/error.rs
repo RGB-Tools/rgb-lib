@@ -38,6 +38,10 @@ pub enum Error {
     #[error("Batch transfer cannot be deleted")]
     CannotDeleteBatchTransfer,
 
+    /// Cannot estimate fees
+    #[error("Cannot estimate fees")]
+    CannotEstimateFees,
+
     /// Requested batch transfer cannot be failed
     #[error("Batch transfer cannot be set to failed status")]
     CannotFailBatchTransfer,
@@ -202,6 +206,10 @@ pub enum Error {
         /// Error details
         details: String,
     },
+
+    /// Trying to request fee estimation for an invalid block number, it must be between 1 and 1008
+    #[error("Trying to request fee estimation for an invalid block number")]
+    InvalidEstimationBlocks,
 
     /// The provided fee rate is invalid
     #[error("Invalid fee rate: {details}")]

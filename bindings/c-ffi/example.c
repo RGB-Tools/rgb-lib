@@ -155,5 +155,8 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    CResultString fee_res = rgblib_get_fee_estimation(wlt, online, 7);
+    printf("Fee estimation: %s\n", fee_res.inner);
+
     return EXIT_SUCCESS;
 }

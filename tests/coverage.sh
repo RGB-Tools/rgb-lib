@@ -5,6 +5,7 @@
 
 LLVM_COV_OPTS=()
 CARGO_TEST_OPTS=("--")
+COV="cargo llvm-cov --workspace --all-features"
 
 _die() {
     echo "err $*"
@@ -19,11 +20,12 @@ _tit() {
 }
 
 help() {
-    echo "$NAME [-h|--help] [-t|--test] [--no-clean]"
+    echo "$NAME [-h|--help] [-t|--test] [--ci] [--ignore-run-fail] [--no-clean]"
     echo ""
     echo "options:"
     echo "    -h --help             show this help message"
     echo "    -t --test             only run these test(s)"
+    echo "       --ci               run for the CI"
     echo "       --ignore-run-fail  keep running regardless of failure"
     echo "       --no-clean         don't cleanup before the run"
 }
@@ -38,6 +40,12 @@ while [ -n "$1" ]; do
         -t|--test)
             CARGO_TEST_OPTS+=("$2")
             shift
+            ;;
+        --ci)
+            COV_CI="$COV --lcov --output-path coverage.lcov"
+            $COV_CI -- --ignored get_fee_estimation::fail_
+            SKIP_INIT=1 $COV_CI --no-clean
+            exit 0
             ;;
         --ignore-run-fail)
             LLVM_COV_OPTS+=("$1")
@@ -59,7 +67,7 @@ cargo install cargo-llvm-cov
 
 _tit "generating coverage report"
 # shellcheck disable=2086
-cargo llvm-cov --html "${LLVM_COV_OPTS[@]}" --workspace --all-features "${CARGO_TEST_OPTS[@]}"
+$COV --html "${LLVM_COV_OPTS[@]}" "${CARGO_TEST_OPTS[@]}" --include-ignored
 
 ## show html report location
 echo "generated html report: target/llvm-cov/html/index.html"

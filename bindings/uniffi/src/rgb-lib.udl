@@ -16,6 +16,7 @@ interface RgbLibError {
   BatchTransferNotFound(i32 idx);
   CannotChangeOnline();
   CannotDeleteBatchTransfer();
+  CannotEstimateFees();
   CannotFailBatchTransfer();
   EmptyFile(string file_path);
   FailedBdkSync(string details);
@@ -41,6 +42,7 @@ interface RgbLibError {
   InvalidConsignment();
   InvalidDetails(string details);
   InvalidElectrum(string details);
+  InvalidEstimationBlocks();
   InvalidFeeRate(string details);
   InvalidFilePath(string file_path);
   InvalidIndexer(string details);
@@ -474,6 +476,9 @@ interface Wallet {
 
   [Throws=RgbLibError]
   Metadata get_asset_metadata(string asset_id);
+
+  [Throws=RgbLibError]
+  f64 get_fee_estimation(Online online, u16 blocks);
 
   [Throws=RgbLibError]
   Online go_online(boolean skip_consistency_check, string indexer_url);

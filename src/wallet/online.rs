@@ -24,6 +24,9 @@ const PROXY_PROTOCOL_VERSION: &str = "0.2";
 
 pub(crate) const UDA_FIXED_INDEX: u32 = 0;
 
+pub(crate) const MIN_BLOCK_ESTIMATION: u16 = 1;
+pub(crate) const MAX_BLOCK_ESTIMATION: u16 = 1008;
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct AssetSpend {
     txo_map: HashMap<i32, u64>,
@@ -78,6 +81,67 @@ impl Indexer {
             Indexer::Electrum(client) => client.block_header(height)?.block_hash().to_string(),
             #[cfg(feature = "esplora")]
             Indexer::Esplora(client) => client.get_block_hash(height as u32)?.to_string(),
+        })
+    }
+
+    pub(crate) fn fee_estimation(&self, blocks: u16) -> Result<f64, Error> {
+        Ok(match self {
+            #[cfg(feature = "electrum")]
+            Indexer::Electrum(client) => {
+                let estimate = client.estimate_fee(blocks as usize)?; // in BTC/kB
+                if estimate == -1.0 {
+                    return Err(Error::CannotEstimateFees);
+                }
+                (estimate * 100_000_000.0) / 1_000.0
+            }
+            #[cfg(feature = "esplora")]
+            Indexer::Esplora(client) => {
+                let estimate_map_string_keys = client.get_fee_estimates()?; // in sat/vB
+                if estimate_map_string_keys.is_empty() {
+                    return Err(Error::CannotEstimateFees);
+                }
+                let mut estimate_map = BTreeMap::new();
+                for (block_str, estimate) in estimate_map_string_keys {
+                    let block = block_str
+                        .parse::<u16>()
+                        .map_err(|_| InternalError::Unexpected)?;
+                    estimate_map.insert(block, estimate);
+                }
+                match estimate_map.get(&blocks) {
+                    Some(estimate) => *estimate,
+                    None => {
+                        // find the two closest keys
+                        let mut lower_key = None;
+                        let mut upper_key = None;
+                        for k in estimate_map.keys() {
+                            match k.cmp(&blocks) {
+                                Ordering::Less => {
+                                    lower_key = Some(k);
+                                }
+                                Ordering::Greater => {
+                                    upper_key = Some(k);
+                                    break;
+                                }
+                                _ => unreachable!("already handled"),
+                            }
+                        }
+                        // use linear interpolation formula
+                        match (lower_key, upper_key) {
+                            (Some(x1), Some(x2)) => {
+                                let y1 = estimate_map[x1];
+                                let y2 = estimate_map[x2];
+                                y1 + (blocks as f64 - *x1 as f64) / (*x2 as f64 - *x1 as f64)
+                                    * (y2 - y1)
+                            }
+                            _ => {
+                                return Err(Error::Internal {
+                                    details: s!("esplora map doesn't contain the expected keys"),
+                                })
+                            }
+                        }
+                    }
+                }
+            }
         })
     }
 
@@ -939,6 +1003,23 @@ impl Wallet {
 
         info!(self.logger, "Consistency check completed");
         Ok(())
+    }
+
+    /// Return the fee estimation in sat/vB for the requested number of `blocks`.
+    ///
+    /// The `blocks` parameter must be between 1 and 1008.
+    pub fn get_fee_estimation(&self, online: Online, blocks: u16) -> Result<f64, Error> {
+        info!(self.logger, "Getting fee estimation...");
+        self.check_online(online)?;
+
+        if !(MIN_BLOCK_ESTIMATION..=MAX_BLOCK_ESTIMATION).contains(&blocks) {
+            return Err(Error::InvalidEstimationBlocks);
+        }
+
+        let estimation = self.indexer().fee_estimation(blocks)?;
+
+        info!(self.logger, "Get fee estimation completed");
+        Ok(estimation)
     }
 
     fn _go_online(&self, indexer_url: String) -> Result<(Online, OnlineData), Error> {

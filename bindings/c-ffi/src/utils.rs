@@ -221,6 +221,17 @@ pub(crate) fn get_btc_balance(
     Ok(serde_json::to_string(&res)?)
 }
 
+pub(crate) fn get_fee_estimation(
+    wallet: &COpaqueStruct,
+    online: &COpaqueStruct,
+    blocks: c_ushort,
+) -> Result<String, Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let online = Online::from_opaque(online)?;
+    let res = wallet.get_fee_estimation((*online).clone(), blocks)?;
+    Ok(serde_json::to_string(&res)?)
+}
+
 pub(crate) fn go_online(
     wallet: &COpaqueStruct,
     skip_consistency_check: bool,

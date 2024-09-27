@@ -5,7 +5,7 @@ use crate::utils::*;
 use std::{
     any::TypeId,
     collections::{hash_map::DefaultHasher, HashMap},
-    ffi::{c_char, c_float, c_uchar, c_void, CStr, CString},
+    ffi::{c_char, c_float, c_uchar, c_ushort, c_void, CStr, CString},
     hash::{Hash, Hasher},
     ptr::null_mut,
     str::FromStr,
@@ -115,6 +115,15 @@ pub extern "C" fn rgblib_get_btc_balance(
     skip_sync: bool,
 ) -> CResultString {
     get_btc_balance(wallet, online, skip_sync).into()
+}
+
+#[no_mangle]
+pub extern "C" fn rgblib_get_fee_estimation(
+    wallet: &COpaqueStruct,
+    online: &COpaqueStruct,
+    blocks: c_ushort,
+) -> CResultString {
+    get_fee_estimation(wallet, online, blocks).into()
 }
 
 #[no_mangle]
