@@ -95,6 +95,12 @@ stop_services() {
             $COMPOSE exec esplora bash -c "sv -w 60 force-stop /etc/service/$SRV"
         done
     fi
+    # cleanly stop the version 0.1.0 RGB proxy server
+    local proxy_mod_proto
+    proxy_mod_proto="$($COMPOSE ps -q proxy-mod-proto)"
+    if [ -n "$proxy_mod_proto" ] && docker ps -q --no-trunc | grep -q "$proxy_mod_proto"; then
+        $COMPOSE exec proxy-mod-proto pkill -f '^node'
+    fi
     # bring all services down
     $COMPOSE --profile '*' down -v --remove-orphans
 }
