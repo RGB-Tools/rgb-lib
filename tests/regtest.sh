@@ -75,7 +75,7 @@ _wait_for_electrs() {
 
 _wait_for_esplora() {
     # wait for esplora to have completed startup
-    until $COMPOSE logs esplora |grep -q 'Bootstrapped 100%'; do
+    until $COMPOSE logs esplora |grep -q 'run: nginx:'; do
         sleep 1
     done
 }
@@ -131,6 +131,7 @@ prepare_tests_environment() {
     # build tests extra services (modified docker images)
     $COMPOSE build $PROXY_MOD_PROTO
     $COMPOSE build $PROXY_MOD_API
+    $COMPOSE build esplora
 
     _start_services
 
