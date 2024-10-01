@@ -1,10 +1,10 @@
-FROM ghcr.io/rgb-tools/rgb-proxy-server:0.2.1
+FROM ghcr.io/rgb-tools/rgb-proxy-server:0.3.0
 
 # change consignment.post json-rpc method to return null
 RUN sed -i '/consignment.post/{n;s/Promise<boolean>/Promise<void>/;}' \
         src/controllers/api.ts \
     && LINE=$(grep -Fn 'Promise<void>' src/controllers/api.ts |cut -d: -f1) \
-    && sed -i "$((LINE+1)),+38d" src/controllers/api.ts
+    && sed -i "$((LINE+1)),+34d" src/controllers/api.ts
 
 
 # rebuild app

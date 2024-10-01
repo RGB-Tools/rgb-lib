@@ -42,7 +42,7 @@ services:
       - 50004:50001
       - 8094:80
   proxy:
-    image: ghcr.io/rgb-tools/rgb-proxy-server:0.2.1
+    image: ghcr.io/rgb-tools/rgb-proxy-server:0.3.0
     ports:
       - 3000:3000
   proxy-mod-proto:
