@@ -262,7 +262,7 @@ impl Wallet {
 
         let db_txos = self.database.iter_txos()?;
 
-        let db_outpoints: Vec<String> = db_txos
+        let db_outpoints: HashSet<String> = db_txos
             .clone()
             .into_iter()
             .filter(|t| !t.spent)
@@ -305,7 +305,12 @@ impl Wallet {
                         .del_pending_witness_script(pending_witness_script)?;
                 }
             }
-            self.database.set_txo(new_db_utxo)?;
+            if let Err(e) = self.database.set_txo(new_db_utxo) {
+                debug!(self.logger, "error setting TXO: {e}");
+                if !e.to_string().contains("UNIQUE constraint failed") {
+                    return Err(e.into());
+                }
+            };
         }
 
         if external_bdk_utxos.len() - new_utxos.len() > 0 {
@@ -322,6 +327,7 @@ impl Wallet {
                 }
             }
         }
+        debug!(self.logger, "Synced TXOs");
 
         Ok(())
     }
