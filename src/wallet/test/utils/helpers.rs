@@ -478,6 +478,11 @@ pub(crate) fn wait_for_refresh(
     }
     let check = || {
         let refresh_res = test_refresh_result(wallet, online, asset_id, &[]).unwrap();
+        refresh_res.iter().for_each(|(i, rt)| {
+            if let Some(ref e) = rt.failure {
+                panic!("refresh of {i} failed: {e}");
+            }
+        });
         if transfer_ids.is_some() {
             for (id, _rt) in refresh_res {
                 if target_set.contains(&id) {
