@@ -2938,7 +2938,6 @@ impl Wallet {
         blank_allocations: HashMap<String, u64>,
         change_utxo_idx: Option<i32>,
         btc_change: Option<BtcChange>,
-        broadcasted: bool,
         status: TransferStatus,
         min_confirmations: u8,
     ) -> Result<i32, Error> {
@@ -2956,26 +2955,25 @@ impl Wallet {
         let batch_transfer_idx = self.database.set_batch_transfer(batch_transfer)?;
 
         let change_utxo_idx = if let Some(btc_change) = btc_change {
-            Some(if broadcasted {
-                let db_txo = self
-                    .database
-                    .get_txo(&Outpoint {
-                        txid: txid.clone(),
-                        vout: btc_change.vout,
-                    })?
-                    .expect("outpoint should be in the DB");
-                db_txo.idx
-            } else {
-                let db_utxo = DbTxoActMod {
-                    txid: ActiveValue::Set(txid.clone()),
-                    vout: ActiveValue::Set(btc_change.vout),
-                    btc_amount: ActiveValue::Set(btc_change.amount.to_string()),
-                    spent: ActiveValue::Set(false),
-                    exists: ActiveValue::Set(false),
-                    ..Default::default()
-                };
-                self.database.set_txo(db_utxo)?
-            })
+            Some(
+                match self.database.get_txo(&Outpoint {
+                    txid: txid.clone(),
+                    vout: btc_change.vout,
+                })? {
+                    Some(txo) => txo.idx,
+                    None => {
+                        let db_utxo = DbTxoActMod {
+                            txid: ActiveValue::Set(txid.clone()),
+                            vout: ActiveValue::Set(btc_change.vout),
+                            btc_amount: ActiveValue::Set(btc_change.amount.to_string()),
+                            spent: ActiveValue::Set(false),
+                            exists: ActiveValue::Set(false),
+                            ..Default::default()
+                        };
+                        self.database.set_txo(db_utxo)?
+                    }
+                },
+            )
         } else {
             change_utxo_idx
         };
@@ -3436,7 +3434,6 @@ impl Wallet {
             info_contents.blank_allocations,
             info_contents.change_utxo_idx,
             info_contents.btc_change,
-            info_contents.donation,
             status,
             info_contents.min_confirmations,
         )?;
