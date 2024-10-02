@@ -31,6 +31,36 @@ pub struct ColoringInfo {
 /// Map of contract ID and list of its beneficiaries
 pub type AssetBeneficiariesMap = BTreeMap<ContractId, Vec<BuilderSeal<GraphSeal>>>;
 
+/// Indexer protocol
+pub enum IndexerProtocol {
+    /// An indexer implementing the electrum protocol
+    Electrum,
+    /// An indexer implementing the esplora protocol
+    Esplora,
+}
+
+/// Return the indexer protocol for the provided URL.
+/// An error is raised if the provided indexer URL is invalid or if the service is for the wrong
+/// network or doesn't have the required functionality.
+///
+/// <div class="warning">This method is meant for special usage and is normally not needed, use
+/// it only if you know what you're doing</div>
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub fn check_indexer_url(
+    indexer_url: &str,
+    bitcoin_network: BitcoinNetwork,
+) -> Result<IndexerProtocol, Error> {
+    let (indexer, _) = get_indexer(indexer_url, bitcoin_network)?;
+    let indexer_protocol = match indexer {
+        #[cfg(feature = "electrum")]
+        Indexer::Electrum(_) => IndexerProtocol::Electrum,
+        #[cfg(feature = "esplora")]
+        Indexer::Esplora(_) => IndexerProtocol::Esplora,
+    };
+
+    Ok(indexer_protocol)
+}
+
 impl Wallet {
     /// Color a PSBT.
     ///

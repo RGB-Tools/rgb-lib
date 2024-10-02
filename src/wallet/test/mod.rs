@@ -21,7 +21,7 @@ use crate::{
     database::entities::transfer_transport_endpoint,
     utils::{
         get_account_xpub, recipient_id_from_script_buf, script_buf_from_recipient_id,
-        RGB_RUNTIME_DIR,
+        INDEXER_STOP_GAP, RGB_RUNTIME_DIR,
     },
     wallet::{
         backup::{get_backup_paths, unzip, zip_dir, BackupPubData, ScryptParams},

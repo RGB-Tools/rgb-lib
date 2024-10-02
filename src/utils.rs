@@ -16,6 +16,11 @@ pub(crate) const LOG_FILE: &str = "log";
 pub(crate) const PURPOSE: u8 = 86;
 pub(crate) const ACCOUNT: u8 = 0;
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) const INDEXER_STOP_GAP: usize = 20;
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) const INDEXER_TIMEOUT: u8 = 4;
+
 /// Supported Bitcoin networks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub enum BitcoinNetwork {
@@ -131,7 +136,7 @@ pub(crate) fn adjust_canonicalization<P: AsRef<Path>>(p: P) -> String {
 }
 
 #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
-pub(crate) fn get_genesis_hash(bitcoin_network: &BitcoinNetwork) -> &str {
+fn get_genesis_hash(bitcoin_network: &BitcoinNetwork) -> &str {
     match bitcoin_network {
         BitcoinNetwork::Mainnet => {
             "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"
@@ -148,8 +153,8 @@ pub(crate) fn get_genesis_hash(bitcoin_network: &BitcoinNetwork) -> &str {
     }
 }
 
-#[cfg_attr(not(feature = "electrum"), allow(dead_code))]
-pub(crate) fn get_valid_txid_for_network(bitcoin_network: &BitcoinNetwork) -> String {
+#[cfg(feature = "electrum")]
+fn get_valid_txid_for_network(bitcoin_network: &BitcoinNetwork) -> String {
     match bitcoin_network {
         BitcoinNetwork::Mainnet => {
             "33e794d097969002ee05d336686fc03c9e15a597c1b9827669460fac98799036"
@@ -292,6 +297,91 @@ pub(crate) fn calculate_descriptor_from_xpub(
 ) -> Result<String, Error> {
     let key = get_descriptor_pub_key(xpub, keychain)?;
     Ok(format!("tr({key})"))
+}
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+fn check_genesis_hash(bitcoin_network: &BitcoinNetwork, indexer: &Indexer) -> Result<(), Error> {
+    let expected = get_genesis_hash(bitcoin_network);
+    let block_hash = indexer.block_hash(0)?;
+    if expected != block_hash {
+        return Err(Error::InvalidIndexer {
+            details: s!("indexer is for a network different from the wallet's one"),
+        });
+    }
+
+    Ok(())
+}
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) fn get_indexer(
+    indexer_url: &str,
+    bitcoin_network: BitcoinNetwork,
+) -> Result<(Indexer, AnyBlockchainConfig), Error> {
+    // detect indexer type
+    let indexer_info = connect_to_indexer(indexer_url)?;
+    let mut invalid_indexer = true;
+    if let Some((ref indexer, _)) = indexer_info {
+        invalid_indexer = indexer.block_hash(0).is_err();
+    }
+    if invalid_indexer {
+        return Err(Error::InvalidIndexer {
+            details: s!("not a valid electrum nor esplora server"),
+        });
+    }
+    let (indexer, indexer_config) = indexer_info.unwrap();
+
+    // check the indexer server is for the correct network
+    check_genesis_hash(&bitcoin_network, &indexer)?;
+
+    #[cfg(feature = "electrum")]
+    if matches!(indexer, Indexer::Electrum(_)) {
+        // check the electrum server has the required functionality (verbose transactions)
+        indexer
+            .get_tx_confirmations(&get_valid_txid_for_network(&bitcoin_network))
+            .map_err(|_| Error::InvalidElectrum {
+                details: s!("verbose transactions are currently unsupported"),
+            })?;
+    }
+
+    Ok((indexer, indexer_config))
+}
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+fn connect_to_indexer(indexer_url: &str) -> Result<Option<(Indexer, AnyBlockchainConfig)>, Error> {
+    #[cfg(feature = "electrum")]
+    {
+        let electrum_config = ConfigBuilder::new().timeout(Some(INDEXER_TIMEOUT)).build();
+        if let Ok(client) = ElectrumClient::from_config(indexer_url, electrum_config) {
+            let electrum_config = ElectrumBlockchainConfig {
+                url: indexer_url.to_string(),
+                socks5: None,
+                retry: 3,
+                timeout: Some(INDEXER_TIMEOUT),
+                stop_gap: INDEXER_STOP_GAP,
+                validate_domain: true,
+            };
+            let indexer = Indexer::Electrum(Box::new(client));
+            let config = AnyBlockchainConfig::Electrum(electrum_config);
+            return Ok(Some((indexer, config)));
+        }
+    }
+    if cfg!(feature = "esplora") {
+        #[cfg(feature = "esplora")]
+        {
+            let esplora_config = EsploraBlockchainConfig {
+                base_url: indexer_url.to_string(),
+                proxy: None,
+                concurrency: None,
+                timeout: Some(INDEXER_TIMEOUT as u64),
+                stop_gap: INDEXER_STOP_GAP,
+            };
+            let esplora_client = EsploraClient::from_config(&esplora_config).unwrap();
+            let indexer = Indexer::Esplora(Box::new(esplora_client));
+            let config = AnyBlockchainConfig::Esplora(esplora_config);
+            return Ok(Some((indexer, config)));
+        }
+    }
+    Ok(None)
 }
 
 fn convert_time_fmt_error(cause: time::error::Format) -> io::Error {

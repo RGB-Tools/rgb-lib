@@ -20,9 +20,6 @@ const MAX_FEE_RATE: f32 = 1000.0;
 
 pub(crate) const DURATION_SEND_TRANSFER: i64 = 3600;
 
-pub(crate) const INDEXER_STOP_GAP: usize = 20;
-const INDEXER_TIMEOUT: u8 = 4;
-
 const PROXY_PROTOCOL_VERSION: &str = "0.2";
 
 pub(crate) const UDA_FIXED_INDEX: u32 = 0;
@@ -75,7 +72,7 @@ pub(crate) enum Indexer {
 }
 
 impl Indexer {
-    fn block_hash(&self, height: usize) -> Result<String, Error> {
+    pub(crate) fn block_hash(&self, height: usize) -> Result<String, Error> {
         Ok(match self {
             #[cfg(feature = "electrum")]
             Indexer::Electrum(client) => client.block_header(height)?.block_hash().to_string(),
@@ -214,22 +211,6 @@ impl Wallet {
 
     pub(crate) fn blockchain_resolver(&self) -> &AnyResolver {
         &self.online_data.as_ref().unwrap().resolver
-    }
-
-    fn _check_genesis_hash(
-        &self,
-        bitcoin_network: &BitcoinNetwork,
-        indexer: &Indexer,
-    ) -> Result<(), Error> {
-        let expected = get_genesis_hash(bitcoin_network);
-        let block_hash = indexer.block_hash(0)?;
-        if expected != block_hash {
-            return Err(Error::InvalidIndexer {
-                details: s!("indexer is for a network different from the wallet's one"),
-            });
-        }
-
-        Ok(())
     }
 
     fn _check_fee_rate(&self, fee_rate: f32) -> Result<(), Error> {
@@ -952,46 +933,6 @@ impl Wallet {
         Ok(())
     }
 
-    fn _connect_to_indexer(
-        &self,
-        indexer_url: String,
-    ) -> Result<Option<(Indexer, AnyBlockchainConfig)>, Error> {
-        #[cfg(feature = "electrum")]
-        {
-            let electrum_config = ConfigBuilder::new().timeout(Some(INDEXER_TIMEOUT)).build();
-            if let Ok(client) = ElectrumClient::from_config(&indexer_url, electrum_config) {
-                let electrum_config = ElectrumBlockchainConfig {
-                    url: indexer_url,
-                    socks5: None,
-                    retry: 3,
-                    timeout: Some(INDEXER_TIMEOUT),
-                    stop_gap: INDEXER_STOP_GAP,
-                    validate_domain: true,
-                };
-                let indexer = Indexer::Electrum(Box::new(client));
-                let config = AnyBlockchainConfig::Electrum(electrum_config);
-                return Ok(Some((indexer, config)));
-            }
-        }
-        if cfg!(feature = "esplora") {
-            #[cfg(feature = "esplora")]
-            {
-                let esplora_config = EsploraBlockchainConfig {
-                    base_url: indexer_url,
-                    proxy: None,
-                    concurrency: None,
-                    timeout: Some(INDEXER_TIMEOUT as u64),
-                    stop_gap: INDEXER_STOP_GAP,
-                };
-                let esplora_client = EsploraClient::from_config(&esplora_config).unwrap();
-                let indexer = Indexer::Esplora(Box::new(esplora_client));
-                let config = AnyBlockchainConfig::Esplora(esplora_config);
-                return Ok(Some((indexer, config)));
-            }
-        }
-        Ok(None)
-    }
-
     fn _go_online(&self, indexer_url: String) -> Result<(Online, OnlineData), Error> {
         let online_id = now().unix_timestamp_nanos() as u64;
         let online = Online {
@@ -999,32 +940,7 @@ impl Wallet {
             indexer_url: indexer_url.clone(),
         };
 
-        // detect indexer type
-        let indexer_info = self._connect_to_indexer(indexer_url.clone())?;
-        let mut invalid_indexer = true;
-        if let Some((ref indexer, _)) = indexer_info {
-            invalid_indexer = indexer.block_hash(0).is_err();
-        }
-        if invalid_indexer {
-            return Err(Error::InvalidIndexer {
-                details: s!("not a valid electrum nor esplora server"),
-            });
-        }
-        let (indexer, indexer_config) = indexer_info.unwrap();
-
-        // check the indexer server is for the correct network
-        let bitcoin_network = self.bitcoin_network();
-        self._check_genesis_hash(&bitcoin_network, &indexer)?;
-
-        #[cfg(feature = "electrum")]
-        if matches!(indexer, Indexer::Electrum(_)) {
-            // check the electrum server has the required functionality (verbose transactions)
-            indexer
-                .get_tx_confirmations(&get_valid_txid_for_network(&bitcoin_network))
-                .map_err(|_| Error::InvalidElectrum {
-                    details: s!("verbose transactions are currently unsupported"),
-                })?;
-        }
+        let (indexer, indexer_config) = get_indexer(&indexer_url, self.bitcoin_network())?;
 
         let resolver = match indexer {
             #[cfg(feature = "electrum")]

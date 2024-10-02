@@ -236,8 +236,6 @@ use typenum::consts::U32;
 use walkdir::WalkDir;
 use zip::write::SimpleFileOptions;
 
-#[cfg(feature = "electrum")]
-use crate::utils::get_valid_txid_for_network;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 #[cfg(test)]
 use crate::wallet::test::{
@@ -249,7 +247,8 @@ use crate::wallet::test::{mock_chain_net, skip_check_fee_rate};
 use crate::{
     api::proxy::{GetConsignmentResponse, Proxy},
     database::{DbData, LocalRecipient, LocalRecipientData, LocalWitnessData},
-    utils::get_genesis_hash,
+    utils::{get_indexer, INDEXER_TIMEOUT},
+    wallet::Indexer,
 };
 use crate::{
     database::{
