@@ -60,7 +60,7 @@ _prepare_bitcoin_funds() {
 
 _wait_for_bitcoind() {
     # wait for bitcoind to be up
-    until $COMPOSE logs bitcoind |grep 'Bound to'; do
+    until $COMPOSE logs bitcoind |grep -q 'Bound to'; do
         sleep 1
     done
 }
@@ -68,7 +68,7 @@ _wait_for_bitcoind() {
 _wait_for_electrs() {
     # wait for electrs to have completed startup
     electrs_service_name="$1"
-    until $COMPOSE logs $electrs_service_name |grep 'finished full compaction'; do
+    until $COMPOSE logs $electrs_service_name |grep -q 'finished full compaction'; do
         sleep 1
     done
 }
@@ -83,7 +83,7 @@ _wait_for_esplora() {
 _wait_for_proxy() {
     # wait for proxy to have completed startup
     proxy_service_name="$1"
-    until $COMPOSE logs $proxy_service_name |grep 'App is running at http://localhost:3000'; do
+    until $COMPOSE logs $proxy_service_name |grep -q 'App is running at http://localhost:3000'; do
         sleep 1
     done
 }
@@ -182,10 +182,9 @@ case $1 in
         _help
         ;;
     prepare_tests_environment | prepare_bindings_examples_environment | stop_services | mine | sendtoaddress)
+        "$@"
         ;;
     *)
         _die "unknown method \"$1\""
         ;;
 esac
-
-${called_function} ${params}
