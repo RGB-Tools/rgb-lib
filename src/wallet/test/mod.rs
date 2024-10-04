@@ -132,6 +132,7 @@ pub fn mock_asset_terms(
     if mock_reqs.is_empty() {
         wallet.new_asset_terms(text, media)
     } else {
+        println!("mocking asset terms");
         let mocked_media = mock_reqs.pop();
         wallet.new_asset_terms(text, mocked_media)
     }
@@ -153,6 +154,7 @@ pub fn mock_token_data(
     if mock_reqs.is_empty() {
         wallet.new_token_data(index, media_data, attachments)
     } else {
+        println!("mocking token data");
         mock_reqs.pop().unwrap()
     }
 }
@@ -167,6 +169,7 @@ pub fn mock_input_unspents(wallet: &Wallet, unspents: &[LocalUnspent]) -> Vec<Lo
     if mock_input_unspents.is_empty() {
         wallet.get_input_unspents(unspents).unwrap()
     } else {
+        println!("mocking input unspents");
         mock_input_unspents.drain(..).collect()
     }
 }
@@ -177,11 +180,13 @@ lazy_static! {
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub fn mock_contract_details(wallet: &Wallet) -> Option<Details> {
-    MOCK_CONTRACT_DETAILS
-        .lock()
-        .unwrap()
-        .take()
-        .map(|d| wallet.check_details(d.to_string()).unwrap())
+    let mock = MOCK_CONTRACT_DETAILS.lock().unwrap().take();
+    if let Some(details) = mock {
+        println!("mocking contract details");
+        Some(wallet.check_details(details.to_string()).unwrap())
+    } else {
+        None
+    }
 }
 
 lazy_static! {
@@ -190,7 +195,10 @@ lazy_static! {
 
 pub fn mock_chain_net(wallet: &Wallet) -> ChainNet {
     match MOCK_CHAIN_NET.lock().unwrap().take() {
-        Some(chain_net) => chain_net,
+        Some(chain_net) => {
+            println!("mocking chain net");
+            chain_net
+        }
         None => wallet.bitcoin_network().into(),
     }
 }
@@ -202,6 +210,7 @@ lazy_static! {
 pub fn skip_check_fee_rate() -> bool {
     let mut mock = MOCK_CHECK_FEE_RATE.lock().unwrap();
     if *mock {
+        println!("skipping check fee rate (mock)");
         *mock = false;
         true
     } else {

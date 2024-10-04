@@ -326,6 +326,7 @@ fn nia_with_media() {
         ty: media_type,
         digest: digest.into(),
     };
+    println!("setting MOCK_CONTRACT_DATA");
     MOCK_CONTRACT_DATA.lock().unwrap().push(attachment.clone());
     let asset = test_issue_asset_nia(&wallet_1, &online_1, None);
     let media_idx = wallet_1
@@ -412,6 +413,7 @@ fn nia_with_details() {
 
     // manually set the asset's details
     let details = Some(details_str);
+    println!("setting MOCK_CONTRACT_DETAILS");
     *MOCK_CONTRACT_DETAILS.lock().unwrap() = details;
 
     // issue
@@ -509,6 +511,7 @@ fn uda_with_preview_and_reserves() {
         attachments: Confined::try_from(BTreeMap::new()).unwrap(),
         reserves: Some(reserves),
     };
+    println!("setting MOCK_TOKEN_DATA");
     MOCK_TOKEN_DATA.lock().unwrap().push(token_data.clone());
     let asset = test_issue_asset_uda(&wallet_1, &online_1, Some(DETAILS), None, vec![]);
 

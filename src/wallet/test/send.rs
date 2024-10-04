@@ -2596,6 +2596,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::OutputBelowDustLimit)));
 
     // unsupported layer 1
+    println!("setting MOCK_CHAIN_NET");
     *MOCK_CHAIN_NET.lock().unwrap() = Some(ChainNet::LiquidTestnet);
     let receive_data_liquid = test_witness_receive(&rcv_wallet);
     let recipient_map = HashMap::from([(
@@ -4334,6 +4335,7 @@ fn spend_double_receive() {
         !u.rgb_allocations.is_empty() && u.rgb_allocations.iter().all(|a| a.amount == amount_1)
     });
     assert_eq!(input_unspents.len(), 1);
+    println!("setting MOCK_INPUT_UNSPENTS");
     MOCK_INPUT_UNSPENTS
         .lock()
         .unwrap()
@@ -4783,6 +4785,7 @@ fn _min_relay_fee_common(
     )]);
 
     // check fee amount is the expected one
+    println!("setting MOCK_CHECK_FEE_RATE");
     *MOCK_CHECK_FEE_RATE.lock().unwrap() = true;
     let psbt_str = wallet
         .send_begin(
@@ -4798,6 +4801,7 @@ fn _min_relay_fee_common(
     assert_eq!(fee, 60);
 
     // actual send
+    println!("setting MOCK_CHECK_FEE_RATE");
     *MOCK_CHECK_FEE_RATE.lock().unwrap() = true;
     let send_result = wallet
         .send(
