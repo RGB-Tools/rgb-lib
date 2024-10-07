@@ -595,10 +595,10 @@ impl Wallet {
         &self,
         online: Online,
         min_confirmations: u8,
+        skip_sync: bool,
     ) -> Result<Vec<LocalUtxo>, Error> {
         info!(self.logger, "Listing unspents vanilla...");
-        self.check_online(online)?;
-        self.sync_wallet(&self.bdk_wallet)?;
+        self.sync_if_requested(Some(online), skip_sync)?;
 
         let unspents = self.internal_unspents()?;
 

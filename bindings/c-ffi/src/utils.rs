@@ -85,6 +85,24 @@ where
     }
 }
 
+impl From<Result<(), Error>> for CResultString
+where
+    Error: std::fmt::Debug,
+{
+    fn from(other: Result<(), Error>) -> Self {
+        match other {
+            Ok(()) => CResultString {
+                result: CResultValue::Ok,
+                inner: null_mut(),
+            },
+            Err(e) => CResultString {
+                result: CResultValue::Err,
+                inner: string_to_ptr(format!("{:?}", e)),
+            },
+        }
+    }
+}
+
 fn convert_optional_number<T: serde::de::DeserializeOwned>(
     ptr: *const c_char,
 ) -> Result<Option<T>, Error> {
@@ -161,12 +179,13 @@ pub(crate) fn create_utxos(
     num_opt: *const c_char,
     size_opt: *const c_char,
     fee_rate: c_float,
+    skip_sync: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = Online::from_opaque(online)?;
     let num: Option<u8> = convert_optional_number(num_opt)?;
     let size: Option<u32> = convert_optional_number(size_opt)?;
-    let res = wallet.create_utxos((*online).clone(), up_to, num, size, fee_rate)?;
+    let res = wallet.create_utxos((*online).clone(), up_to, num, size, fee_rate, skip_sync)?;
     Ok(serde_json::to_string(&res)?)
 }
 
@@ -194,10 +213,11 @@ pub(crate) fn get_asset_balance(
 pub(crate) fn get_btc_balance(
     wallet: &COpaqueStruct,
     online: *const COpaqueStruct,
+    skip_sync: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = convert_optional_online(online)?;
-    let res = wallet.get_btc_balance(online.cloned())?;
+    let res = wallet.get_btc_balance(online.cloned(), skip_sync)?;
     Ok(serde_json::to_string(&res)?)
 }
 
@@ -299,10 +319,11 @@ pub(crate) fn list_assets(
 pub(crate) fn list_transactions(
     wallet: &COpaqueStruct,
     online: &COpaqueStruct,
+    skip_sync: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = Online::from_opaque(online)?;
-    let res = wallet.list_transactions(Some((*online).clone()))?;
+    let res = wallet.list_transactions(Some((*online).clone()), skip_sync)?;
     Ok(serde_json::to_string(&res)?)
 }
 
@@ -320,10 +341,11 @@ pub(crate) fn list_unspents(
     wallet: &COpaqueStruct,
     online: &COpaqueStruct,
     settled_only: bool,
+    skip_sync: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = Online::from_opaque(online)?;
-    let res = wallet.list_unspents(Some((*online).clone()), settled_only)?;
+    let res = wallet.list_unspents(Some((*online).clone()), settled_only, skip_sync)?;
     Ok(serde_json::to_string(&res)?)
 }
 
@@ -337,12 +359,13 @@ pub(crate) fn refresh(
     online: &COpaqueStruct,
     asset_id_opt: *const c_char,
     filter: *const c_char,
+    skip_sync: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = Online::from_opaque(online)?;
     let filter: Vec<RefreshFilter> = serde_json::from_str(&ptr_to_string(filter))?;
     let asset_id = convert_optional_string(asset_id_opt);
-    let res = wallet.refresh((*online).clone(), asset_id, filter)?;
+    let res = wallet.refresh((*online).clone(), asset_id, filter, skip_sync)?;
     Ok(serde_json::to_string(&res)?)
 }
 
@@ -363,6 +386,7 @@ pub(crate) fn send(
     donation: bool,
     fee_rate: c_float,
     min_confirmations: c_uchar,
+    skip_sync: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = Online::from_opaque(online)?;
@@ -374,6 +398,7 @@ pub(crate) fn send(
         donation,
         fee_rate,
         min_confirmations,
+        skip_sync,
     )?;
     Ok(serde_json::to_string(&res)?)
 }
@@ -384,12 +409,20 @@ pub(crate) fn send_btc(
     address: *const c_char,
     amount: u64,
     fee_rate: c_float,
+    skip_sync: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = Online::from_opaque(online)?;
     let address = ptr_to_string(address);
-    let res = wallet.send_btc((*online).clone(), address, amount, fee_rate)?;
+    let res = wallet.send_btc((*online).clone(), address, amount, fee_rate, skip_sync)?;
     Ok(res)
+}
+
+pub(crate) fn sync(wallet: &COpaqueStruct, online: &COpaqueStruct) -> Result<(), Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let online = Online::from_opaque(online)?;
+    wallet.sync((*online).clone())?;
+    Ok(())
 }
 
 pub(crate) fn witness_receive(

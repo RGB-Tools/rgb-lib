@@ -117,8 +117,15 @@ fn fail() {
     assert!(matches!(result, Err(Error::OutputBelowDustLimit)));
 
     // invalid fee rate
-    let result = wallet.send_btc_begin(online.clone(), test_get_address(&rcv_wallet), amount, 0.9);
+    let result = wallet.send_btc_begin(
+        online.clone(),
+        test_get_address(&rcv_wallet),
+        amount,
+        0.9,
+        false,
+    );
     assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_LOW));
-    let result = wallet.send_btc_begin(online, test_get_address(&rcv_wallet), amount, 1000.1);
+    let result =
+        wallet.send_btc_begin(online, test_get_address(&rcv_wallet), amount, 1000.1, false);
     assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_HIGH));
 }

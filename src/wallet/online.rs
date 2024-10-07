@@ -232,14 +232,6 @@ impl Wallet {
         Ok(())
     }
 
-    pub(crate) fn sync_wallet<D>(&self, wallet: &BdkWallet<D>) -> Result<(), Error>
-    where
-        D: BatchDatabase,
-    {
-        self._sync_wallet_with_blockchain(wallet, self.bdk_blockchain()?)?;
-        Ok(())
-    }
-
     fn _sync_wallet_with_blockchain<D>(
         &self,
         wallet: &BdkWallet<D>,
@@ -332,8 +324,17 @@ impl Wallet {
         Ok(())
     }
 
-    fn _sync_db_txos(&self) -> Result<(), Error> {
+    pub(crate) fn sync_db_txos(&self) -> Result<(), Error> {
         self._sync_db_txos_with_blockchain(self.bdk_blockchain()?)?;
+        Ok(())
+    }
+
+    /// Sync the wallet and save new RGB UTXOs to the DB
+    pub fn sync(&self, online: Online) -> Result<(), Error> {
+        info!(self.logger, "Syncing...");
+        self.check_online(online)?;
+        self.sync_db_txos()?;
+        info!(self.logger, "Sync completed");
         Ok(())
     }
 
@@ -374,7 +375,11 @@ impl Wallet {
         Ok(tx)
     }
 
-    fn _broadcast_psbt(&self, signed_psbt: BdkPsbt) -> Result<BdkTransaction, Error> {
+    fn _broadcast_psbt(
+        &self,
+        signed_psbt: BdkPsbt,
+        skip_sync: bool,
+    ) -> Result<BdkTransaction, Error> {
         let tx = self._broadcast_tx(signed_psbt.extract_tx())?;
 
         let internal_unspents_outpoints: Vec<(String, u32)> = self
@@ -397,7 +402,9 @@ impl Wallet {
             self.database.update_txo(db_txo)?;
         }
 
-        self._sync_db_txos()?;
+        if !skip_sync {
+            self.sync_db_txos()?;
+        }
 
         Ok(tx)
     }
@@ -419,27 +426,6 @@ impl Wallet {
         if self.watch_only {
             error!(self.logger, "Invalid operation for a watch only wallet");
             return Err(Error::WatchOnly);
-        }
-        Ok(())
-    }
-
-    pub(crate) fn handle_expired_transfers(&self, db_data: &mut DbData) -> Result<(), Error> {
-        self._sync_db_txos()?;
-        let now = now().unix_timestamp();
-        let expired_transfers: Vec<DbBatchTransfer> = db_data
-            .batch_transfers
-            .clone()
-            .into_iter()
-            .filter(|t| t.waiting_counterparty() && t.expiration.unwrap_or(now) < now)
-            .collect();
-        for transfer in expired_transfers.iter() {
-            let updated_batch_transfer = self._refresh_transfer(transfer, db_data, &[])?;
-            if updated_batch_transfer.is_none() {
-                let mut updated_batch_transfer: DbBatchTransferActMod = transfer.clone().into();
-                updated_batch_transfer.status = ActiveValue::Set(TransferStatus::Failed);
-                self.database
-                    .update_batch_transfer(&mut updated_batch_transfer)?;
-            }
         }
         Ok(())
     }
@@ -490,15 +476,17 @@ impl Wallet {
         num: Option<u8>,
         size: Option<u32>,
         fee_rate: f32,
+        skip_sync: bool,
     ) -> Result<u8, Error> {
         info!(self.logger, "Creating UTXOs...");
         self._check_xprv()?;
 
-        let unsigned_psbt = self.create_utxos_begin(online.clone(), up_to, num, size, fee_rate)?;
+        let unsigned_psbt =
+            self.create_utxos_begin(online.clone(), up_to, num, size, fee_rate, skip_sync)?;
 
         let psbt = self.sign_psbt(unsigned_psbt, None)?;
 
-        self.create_utxos_end(online, psbt)
+        self.create_utxos_end(online, psbt, skip_sync)
     }
 
     /// Prepare the PSBT to create new UTXOs to hold RGB allocations with the provided `fee_rate`
@@ -530,12 +518,15 @@ impl Wallet {
         num: Option<u8>,
         size: Option<u32>,
         fee_rate: f32,
+        skip_sync: bool,
     ) -> Result<String, Error> {
         info!(self.logger, "Creating UTXOs (begin)...");
         self.check_online(online)?;
         self._check_fee_rate(fee_rate)?;
 
-        self._sync_db_txos()?;
+        if !skip_sync {
+            self.sync_db_txos()?;
+        }
 
         let unspent_txos = self.database.get_unspent_txos(vec![])?;
         let unspents = self
@@ -613,12 +604,17 @@ impl Wallet {
     /// This doesn't require the wallet to have private keys.
     ///
     /// Returns the number of created UTXOs.
-    pub fn create_utxos_end(&self, online: Online, signed_psbt: String) -> Result<u8, Error> {
+    pub fn create_utxos_end(
+        &self,
+        online: Online,
+        signed_psbt: String,
+        skip_sync: bool,
+    ) -> Result<u8, Error> {
         info!(self.logger, "Creating UTXOs (end)...");
         self.check_online(online)?;
 
         let signed_psbt = BdkPsbt::from_str(&signed_psbt)?;
-        let tx = self._broadcast_psbt(signed_psbt)?;
+        let tx = self._broadcast_psbt(signed_psbt, skip_sync)?;
 
         self.database
             .set_wallet_transaction(DbWalletTransactionActMod {
@@ -709,7 +705,7 @@ impl Wallet {
         self.check_online(online)?;
         self._check_fee_rate(fee_rate)?;
 
-        self._sync_db_txos()?;
+        self.sync_db_txos()?;
 
         let address = BdkAddress::from_str(&address).map(|x| x.payload.script_pubkey())?;
 
@@ -755,7 +751,7 @@ impl Wallet {
         self.check_online(online)?;
 
         let signed_psbt = BdkPsbt::from_str(&signed_psbt)?;
-        let tx = self._broadcast_psbt(signed_psbt)?;
+        let tx = self._broadcast_psbt(signed_psbt, false)?;
 
         self.database
             .set_wallet_transaction(DbWalletTransactionActMod {
@@ -788,11 +784,12 @@ impl Wallet {
         throw_err: bool,
         db_data: &mut DbData,
     ) -> Result<(), Error> {
-        let updated_batch_transfer = match self._refresh_transfer(batch_transfer, db_data, &[]) {
-            Err(Error::MinFeeNotMet { txid: _ }) => Ok(None),
-            Err(e) => Err(e),
-            Ok(v) => Ok(v),
-        }?;
+        let updated_batch_transfer =
+            match self._refresh_transfer(batch_transfer, db_data, &[], true) {
+                Err(Error::MinFeeNotMet { txid: _ }) => Ok(None),
+                Err(e) => Err(e),
+                Ok(v) => Ok(v),
+            }?;
         // fail transfer if the status didn't change after a refresh
         if updated_batch_transfer.is_none() {
             self._fail_batch_transfer(batch_transfer)?;
@@ -821,12 +818,17 @@ impl Wallet {
         online: Online,
         batch_transfer_idx: Option<i32>,
         no_asset_only: bool,
+        skip_sync: bool,
     ) -> Result<bool, Error> {
         info!(
             self.logger,
             "Failing batch transfer with idx {:?}...", batch_transfer_idx
         );
         self.check_online(online)?;
+
+        if !skip_sync {
+            self.sync_db_txos()?;
+        }
 
         let mut db_data = self.database.get_db_data(false)?;
         let mut transfers_changed = false;
@@ -1172,8 +1174,7 @@ impl Wallet {
 
         let settled = self._get_total_issue_amount(&amounts)?;
 
-        let mut db_data = self.database.get_db_data(false)?;
-        self.handle_expired_transfers(&mut db_data)?;
+        let db_data = self.database.get_db_data(false)?;
 
         let mut unspents: Vec<LocalUnspent> = self.database.get_rgb_allocations(
             self.database.get_unspent_txos(db_data.txos)?,
@@ -1351,8 +1352,7 @@ impl Wallet {
 
         let settled = 1;
 
-        let mut db_data = self.database.get_db_data(false)?;
-        self.handle_expired_transfers(&mut db_data)?;
+        let db_data = self.database.get_db_data(false)?;
 
         let mut unspents: Vec<LocalUnspent> = self.database.get_rgb_allocations(
             self.database.get_unspent_txos(db_data.txos)?,
@@ -1561,8 +1561,7 @@ impl Wallet {
 
         let settled = self._get_total_issue_amount(&amounts)?;
 
-        let mut db_data = self.database.get_db_data(false)?;
-        self.handle_expired_transfers(&mut db_data)?;
+        let db_data = self.database.get_db_data(false)?;
 
         let mut unspents: Vec<LocalUnspent> = self.database.get_rgb_allocations(
             self.database.get_unspent_txos(db_data.txos)?,
@@ -2153,6 +2152,7 @@ impl Wallet {
         &self,
         batch_transfer: &DbBatchTransfer,
         db_data: &mut DbData,
+        skip_sync: bool,
     ) -> Result<Option<DbBatchTransfer>, Error> {
         debug!(self.logger, "Waiting ACK...");
 
@@ -2213,7 +2213,7 @@ impl Wallet {
                     .expect("batch transfer should have a TXID"),
             );
             let signed_psbt = self._get_signed_psbt(transfer_dir)?;
-            self._broadcast_psbt(signed_psbt)?;
+            self._broadcast_psbt(signed_psbt, skip_sync)?;
             updated_batch_transfer.status = ActiveValue::Set(TransferStatus::WaitingConfirmations);
         } else {
             return Ok(None);
@@ -2230,6 +2230,7 @@ impl Wallet {
         batch_transfer: &DbBatchTransfer,
         db_data: &DbData,
         incoming: bool,
+        skip_sync: bool,
     ) -> Result<Option<DbBatchTransfer>, Error> {
         debug!(self.logger, "Waiting confirmations...");
         let txid = batch_transfer
@@ -2269,26 +2270,27 @@ impl Wallet {
                 RgbTransfer::load_file(consignment_path).map_err(InternalError::from)?;
 
             if transfer.recipient_type == Some(RecipientType::Witness) {
-                self._sync_db_txos()?;
+                if !skip_sync {
+                    self.sync_db_txos()?;
+                }
                 let outpoint = Outpoint {
                     txid,
                     vout: transfer.vout.unwrap(),
                 };
-                let utxo = self
-                    .database
-                    .get_txo(&outpoint)?
-                    .expect("outpoint should be in the DB");
+                if let Some(utxo) = self.database.get_txo(&outpoint)? {
+                    let db_coloring = DbColoringActMod {
+                        txo_idx: ActiveValue::Set(utxo.idx),
+                        asset_transfer_idx: ActiveValue::Set(asset_transfer.idx),
+                        r#type: ActiveValue::Set(ColoringType::Receive),
+                        amount: ActiveValue::Set(transfer.amount),
+                        ..Default::default()
+                    };
+                    self.database.set_coloring(db_coloring)?;
 
-                let db_coloring = DbColoringActMod {
-                    txo_idx: ActiveValue::Set(utxo.idx),
-                    asset_transfer_idx: ActiveValue::Set(asset_transfer.idx),
-                    r#type: ActiveValue::Set(ColoringType::Receive),
-                    amount: ActiveValue::Set(transfer.amount),
-                    ..Default::default()
-                };
-                self.database.set_coloring(db_coloring)?;
-
-                self.database.del_pending_witness_outpoint(outpoint)?;
+                    self.database.del_pending_witness_outpoint(outpoint)?;
+                } else {
+                    return Err(Error::SyncNeeded);
+                }
             }
 
             // accept consignment
@@ -2318,11 +2320,12 @@ impl Wallet {
         transfer: &DbBatchTransfer,
         db_data: &mut DbData,
         incoming: bool,
+        skip_sync: bool,
     ) -> Result<Option<DbBatchTransfer>, Error> {
         if incoming {
             self._wait_consignment(transfer, db_data)
         } else {
-            self._wait_ack(transfer, db_data)
+            self._wait_ack(transfer, db_data, skip_sync)
         }
     }
 
@@ -2331,6 +2334,7 @@ impl Wallet {
         transfer: &DbBatchTransfer,
         db_data: &mut DbData,
         filter: &[RefreshFilter],
+        skip_sync: bool,
     ) -> Result<Option<DbBatchTransfer>, Error> {
         debug!(self.logger, "Refreshing transfer: {:?}", transfer);
         let incoming = transfer.incoming(&db_data.asset_transfers, &db_data.transfers)?;
@@ -2345,10 +2349,10 @@ impl Wallet {
         }
         match transfer.status {
             TransferStatus::WaitingCounterparty => {
-                self._wait_counterparty(transfer, db_data, incoming)
+                self._wait_counterparty(transfer, db_data, incoming, skip_sync)
             }
             TransferStatus::WaitingConfirmations => {
-                self._wait_confirmations(transfer, db_data, incoming)
+                self._wait_confirmations(transfer, db_data, incoming, skip_sync)
             }
             _ => Ok(None),
         }
@@ -2367,6 +2371,7 @@ impl Wallet {
         online: Online,
         asset_id: Option<String>,
         filter: Vec<RefreshFilter>,
+        skip_sync: bool,
     ) -> Result<RefreshResult, Error> {
         if let Some(aid) = asset_id.clone() {
             info!(self.logger, "Refreshing asset {}...", aid);
@@ -2395,7 +2400,7 @@ impl Wallet {
         for transfer in db_data.batch_transfers.clone().into_iter() {
             let mut failure = None;
             let mut updated_status = None;
-            match self._refresh_transfer(&transfer, &mut db_data, &filter) {
+            match self._refresh_transfer(&transfer, &mut db_data, &filter, skip_sync) {
                 Ok(Some(updated_transfer)) => updated_status = Some(updated_transfer.status),
                 Err(e) => failure = Some(e),
                 _ => {}
@@ -3091,6 +3096,7 @@ impl Wallet {
         donation: bool,
         fee_rate: f32,
         min_confirmations: u8,
+        skip_sync: bool,
     ) -> Result<SendResult, Error> {
         info!(self.logger, "Sending to: {:?}...", recipient_map);
         self._check_xprv()?;
@@ -3105,7 +3111,7 @@ impl Wallet {
 
         let psbt = self.sign_psbt(unsigned_psbt, None)?;
 
-        self.send_end(online, psbt)
+        self.send_end(online, psbt, skip_sync)
     }
 
     /// Prepare the PSBT to send RGB assets according to the given recipient map, with the provided
@@ -3145,8 +3151,7 @@ impl Wallet {
         self.check_online(online)?;
         self._check_fee_rate(fee_rate)?;
 
-        let mut db_data = self.database.get_db_data(false)?;
-        self.handle_expired_transfers(&mut db_data)?;
+        let db_data = self.database.get_db_data(false)?;
 
         let receive_ids: Vec<String> = recipient_map
             .values()
@@ -3356,7 +3361,12 @@ impl Wallet {
     /// This doesn't require the wallet to have private keys.
     ///
     /// Returns a [`SendResult`].
-    pub fn send_end(&self, online: Online, signed_psbt: String) -> Result<SendResult, Error> {
+    pub fn send_end(
+        &self,
+        online: Online,
+        signed_psbt: String,
+        skip_sync: bool,
+    ) -> Result<SendResult, Error> {
         info!(self.logger, "Sending (end)...");
         self.check_online(online)?;
 
@@ -3423,7 +3433,7 @@ impl Wallet {
 
         // broadcast PSBT if donation and finally save transfer to DB
         let status = if info_contents.donation {
-            self._broadcast_psbt(psbt)?;
+            self._broadcast_psbt(psbt, skip_sync)?;
             TransferStatus::WaitingConfirmations
         } else {
             TransferStatus::WaitingCounterparty
@@ -3459,15 +3469,17 @@ impl Wallet {
         address: String,
         amount: u64,
         fee_rate: f32,
+        skip_sync: bool,
     ) -> Result<String, Error> {
         info!(self.logger, "Sending BTC...");
         self._check_xprv()?;
 
-        let unsigned_psbt = self.send_btc_begin(online.clone(), address, amount, fee_rate)?;
+        let unsigned_psbt =
+            self.send_btc_begin(online.clone(), address, amount, fee_rate, skip_sync)?;
 
         let psbt = self.sign_psbt(unsigned_psbt, None)?;
 
-        self.send_btc_end(online, psbt)
+        self.send_btc_end(online, psbt, skip_sync)
     }
 
     /// Prepare the PSBT to send the specified `amount` of bitcoins (in sats) using the vanilla
@@ -3485,12 +3497,15 @@ impl Wallet {
         address: String,
         amount: u64,
         fee_rate: f32,
+        skip_sync: bool,
     ) -> Result<String, Error> {
         info!(self.logger, "Sending BTC (begin)...");
         self.check_online(online)?;
         self._check_fee_rate(fee_rate)?;
 
-        self._sync_db_txos()?;
+        if !skip_sync {
+            self.sync_db_txos()?;
+        }
 
         let address = BdkAddress::from_str(&address)?;
         if !address.is_valid_for_network(self.bitcoin_network().into()) {
@@ -3532,12 +3547,17 @@ impl Wallet {
     /// This doesn't require the wallet to have private keys.
     ///
     /// Returns the TXID of the broadcasted transaction.
-    pub fn send_btc_end(&self, online: Online, signed_psbt: String) -> Result<String, Error> {
+    pub fn send_btc_end(
+        &self,
+        online: Online,
+        signed_psbt: String,
+        skip_sync: bool,
+    ) -> Result<String, Error> {
         info!(self.logger, "Sending BTC (end)...");
         self.check_online(online)?;
 
         let signed_psbt = BdkPsbt::from_str(&signed_psbt)?;
-        let tx = self._broadcast_psbt(signed_psbt)?;
+        let tx = self._broadcast_psbt(signed_psbt, skip_sync)?;
 
         info!(self.logger, "Send BTC (end) completed");
         Ok(tx.txid().to_string())

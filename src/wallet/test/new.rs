@@ -296,7 +296,7 @@ fn watch_only() {
             .unwrap();
     let signed_psbt = wallet_sign.sign_psbt(unsigned_psbt, None).unwrap();
     wallet_watch
-        .create_utxos_end(online_watch.clone(), signed_psbt)
+        .create_utxos_end(online_watch.clone(), signed_psbt, false)
         .unwrap();
     let unspents = test_list_unspents(&wallet_watch, Some(&online_watch), false);
     assert_eq!(unspents.len(), UTXO_NUM as usize + 1);

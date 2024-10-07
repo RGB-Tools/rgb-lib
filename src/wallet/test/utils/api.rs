@@ -41,7 +41,7 @@ pub(crate) fn test_create_utxos(
     fee_rate: f32,
 ) -> u8 {
     wallet
-        .create_utxos(online.clone(), up_to, num, size, fee_rate)
+        .create_utxos(online.clone(), up_to, num, size, fee_rate, false)
         .unwrap()
 }
 
@@ -54,7 +54,7 @@ pub(crate) fn test_create_utxos_begin_result(
     size: Option<u32>,
     fee_rate: f32,
 ) -> Result<String, Error> {
-    wallet.create_utxos_begin(online.clone(), up_to, num, size, fee_rate)
+    wallet.create_utxos_begin(online.clone(), up_to, num, size, fee_rate, false)
 }
 
 pub(crate) fn test_delete_transfers(
@@ -120,7 +120,9 @@ pub(crate) fn test_drain_to_keep(wallet: &Wallet, online: &Online, address: &str
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_fail_transfers_all(wallet: &Wallet, online: &Online) -> bool {
-    wallet.fail_transfers(online.clone(), None, false).unwrap()
+    wallet
+        .fail_transfers(online.clone(), None, false, false)
+        .unwrap()
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -130,7 +132,7 @@ pub(crate) fn test_fail_transfers_single(
     batch_transfer_idx: i32,
 ) -> bool {
     wallet
-        .fail_transfers(online.clone(), Some(batch_transfer_idx), false)
+        .fail_transfers(online.clone(), Some(batch_transfer_idx), false, false)
         .unwrap()
 }
 
@@ -162,7 +164,7 @@ pub(crate) fn test_get_asset_metadata_result(
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_get_btc_balance(wallet: &Wallet, online: &Online) -> BtcBalance {
-    wallet.get_btc_balance(Some(online.clone())).unwrap()
+    wallet.get_btc_balance(Some(online.clone()), false).unwrap()
 }
 
 pub(crate) fn test_get_wallet_data(wallet: &Wallet) -> WalletData {
@@ -218,6 +220,7 @@ pub(crate) fn test_issue_asset_uda_result(
     media_file_path: Option<&str>,
     attachments_file_paths: Vec<&str>,
 ) -> Result<AssetUDA, Error> {
+    test_fail_transfers_all(wallet, online);
     wallet.issue_asset_uda(
         online.clone(),
         TICKER.to_string(),
@@ -249,6 +252,7 @@ pub(crate) fn test_issue_asset_cfa_result(
     amounts: Option<&[u64]>,
     file_path: Option<String>,
 ) -> Result<AssetCFA, Error> {
+    test_fail_transfers_all(wallet, online);
     let amounts = if let Some(a) = amounts {
         a.to_vec()
     } else {
@@ -279,6 +283,7 @@ pub(crate) fn test_issue_asset_nia_result(
     online: &Online,
     amounts: Option<&[u64]>,
 ) -> Result<AssetNIA, Error> {
+    test_fail_transfers_all(wallet, online);
     let amounts = if let Some(a) = amounts {
         a.to_vec()
     } else {
@@ -298,8 +303,9 @@ pub(crate) fn test_list_assets(wallet: &Wallet, filter_asset_schemas: &[AssetSch
 }
 
 pub(crate) fn test_list_transactions(wallet: &Wallet, online: Option<&Online>) -> Vec<Transaction> {
+    let skip_sync = online.is_none();
     let online = online.cloned();
-    wallet.list_transactions(online).unwrap()
+    wallet.list_transactions(online, skip_sync).unwrap()
 }
 
 pub(crate) fn test_list_transfers(wallet: &Wallet, asset_id: Option<&str>) -> Vec<Transfer> {
@@ -319,8 +325,11 @@ pub(crate) fn test_list_unspents(
     online: Option<&Online>,
     settled_only: bool,
 ) -> Vec<Unspent> {
+    let skip_sync = online.is_none();
     let online = online.cloned();
-    wallet.list_unspents(online, settled_only).unwrap()
+    wallet
+        .list_unspents(online, settled_only, skip_sync)
+        .unwrap()
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -331,7 +340,7 @@ pub(crate) fn test_list_unspents_vanilla(
 ) -> Vec<LocalUtxo> {
     let min_confirmations = min_confirmations.unwrap_or(MIN_CONFIRMATIONS);
     wallet
-        .list_unspents_vanilla(online.clone(), min_confirmations)
+        .list_unspents_vanilla(online.clone(), min_confirmations, false)
         .unwrap()
 }
 
@@ -360,6 +369,7 @@ pub(crate) fn test_refresh_result(
         online.clone(),
         asset_id.map(|a| a.to_string()),
         filter.to_vec(),
+        false,
     )
 }
 
@@ -444,6 +454,7 @@ pub(crate) fn test_send_result(
         false,
         FEE_RATE,
         MIN_CONFIRMATIONS,
+        false,
     )
 }
 
@@ -479,5 +490,5 @@ pub(crate) fn test_send_btc_result(
     address: &str,
     amount: u64,
 ) -> Result<String, Error> {
-    wallet.send_btc(online.clone(), address.to_string(), amount, FEE_RATE)
+    wallet.send_btc(online.clone(), address.to_string(), amount, FEE_RATE, false)
 }

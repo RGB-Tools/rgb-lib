@@ -293,7 +293,14 @@ fn success() {
     let unspents = test_list_unspents(&wallet, None, false);
     let unspents_color_count_before = unspents.iter().filter(|u| u.utxo.colorable).count();
     let txid = wallet
-        .send(online.clone(), recipient_map, false, 5.0, MIN_CONFIRMATIONS)
+        .send(
+            online.clone(),
+            recipient_map,
+            false,
+            5.0,
+            MIN_CONFIRMATIONS,
+            false,
+        )
         .unwrap()
         .txid;
     assert!(!txid.is_empty());
@@ -1922,7 +1929,14 @@ fn batch_donation_success() {
         ),
     ]);
     let txid = wallet
-        .send(online, recipient_map, true, FEE_RATE, MIN_CONFIRMATIONS)
+        .send(
+            online,
+            recipient_map,
+            true,
+            FEE_RATE,
+            MIN_CONFIRMATIONS,
+            false,
+        )
         .unwrap()
         .txid;
     assert!(!txid.is_empty());
@@ -2159,60 +2173,6 @@ fn nack() {
         &txid,
         TransferStatus::Failed
     ));
-}
-
-#[cfg(feature = "electrum")]
-#[test]
-#[parallel]
-fn expire() {
-    initialize();
-
-    let amount: u64 = 66;
-
-    // wallets
-    let (wallet, online) = get_funded_wallet!();
-    let (rcv_wallet, _rcv_online) = get_funded_wallet!();
-
-    // issue
-    let asset = test_issue_asset_nia(&wallet, &online, None);
-
-    // send
-    let receive_data = test_blind_receive(&rcv_wallet);
-    let recipient_map = HashMap::from([(
-        asset.asset_id,
-        vec![Recipient {
-            amount,
-            recipient_id: receive_data.recipient_id.clone(),
-            witness_data: None,
-            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
-        }],
-    )]);
-    let txid = test_send(&wallet, &online, &recipient_map);
-    assert!(!txid.is_empty());
-
-    // check expiration is set correctly
-    let (transfer, _, batch_transfer) = get_test_transfer_sender(&wallet, &txid);
-    let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
-    assert_eq!(
-        transfer_data.expiration,
-        Some(transfer_data.created_at + DURATION_SEND_TRANSFER)
-    );
-
-    // manually set expiration time in the near future to speed up the test
-    let mut updated_transfer: DbBatchTransferActMod = batch_transfer.into();
-    updated_transfer.expiration = ActiveValue::Set(Some(transfer_data.created_at + 1));
-    wallet
-        .database
-        .update_batch_transfer(&mut updated_transfer)
-        .unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(2000));
-    //
-    // expire transfer + check status goes to Failed
-    let mut db_data = wallet.database.get_db_data(false).unwrap();
-    wallet.handle_expired_transfers(&mut db_data).unwrap();
-    let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
-    let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
-    assert_eq!(transfer_data.status, TransferStatus::Failed);
 }
 
 #[cfg(feature = "electrum")]
@@ -3977,6 +3937,7 @@ fn _min_confirmations_common(
             false,
             FEE_RATE,
             min_confirmations,
+            false,
         )
         .unwrap()
         .txid;
@@ -4061,6 +4022,7 @@ fn _min_confirmations_common(
             false,
             FEE_RATE,
             min_confirmations,
+            false,
         )
         .unwrap()
         .txid;
@@ -4195,6 +4157,7 @@ fn spend_double_receive() {
             true,
             FEE_RATE,
             MIN_CONFIRMATIONS,
+            false,
         )
         .unwrap()
         .txid;
@@ -4234,6 +4197,7 @@ fn spend_double_receive() {
             true,
             FEE_RATE,
             MIN_CONFIRMATIONS,
+            false,
         )
         .unwrap()
         .txid;
@@ -4711,6 +4675,7 @@ fn min_fee_rate() {
             false,
             fee_rate,
             MIN_CONFIRMATIONS,
+            false,
         )
         .unwrap()
         .txid;
@@ -4780,6 +4745,7 @@ fn _min_relay_fee_common(
             false,
             fee_rate,
             MIN_CONFIRMATIONS,
+            false,
         )
         .unwrap();
     assert!(!send_result.txid.is_empty());

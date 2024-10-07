@@ -172,7 +172,9 @@ fn success() {
         &receive_data_4.recipient_id,
         TransferStatus::WaitingCounterparty
     ));
-    rcv_wallet.fail_transfers(rcv_online, None, true).unwrap();
+    rcv_wallet
+        .fail_transfers(rcv_online, None, true, false)
+        .unwrap();
     show_unspent_colorings(&rcv_wallet, "receiver run 2 after fail");
     show_unspent_colorings(&wallet, "sender run 2 after fail");
     assert!(check_test_transfer_status_recipient(
@@ -252,7 +254,12 @@ fn batch_success() {
         TransferStatus::WaitingCounterparty
     ));
     wallet
-        .fail_transfers(online.clone(), Some(send_result.batch_transfer_idx), false)
+        .fail_transfers(
+            online.clone(),
+            Some(send_result.batch_transfer_idx),
+            false,
+            false,
+        )
         .unwrap();
 
     // transfer is still in WaitingCounterparty status after some recipients (but not all) replied with an ACK
@@ -295,7 +302,7 @@ fn batch_success() {
         TransferStatus::WaitingCounterparty
     ));
     wallet
-        .fail_transfers(online, Some(send_result.batch_transfer_idx), false)
+        .fail_transfers(online, Some(send_result.batch_transfer_idx), false, false)
         .unwrap();
 }
 
@@ -323,7 +330,12 @@ fn fail() {
             MIN_CONFIRMATIONS,
         )
         .unwrap();
-    let result = wallet.fail_transfers(online.clone(), Some(receive_data.batch_transfer_idx), true);
+    let result = wallet.fail_transfers(
+        online.clone(),
+        Some(receive_data.batch_transfer_idx),
+        true,
+        false,
+    );
     assert!(matches!(result, Err(Error::CannotFailBatchTransfer)));
     assert!(check_test_transfer_status_recipient(
         &wallet,
@@ -332,8 +344,12 @@ fn fail() {
     ));
 
     // fail pending transfer
-    let result =
-        wallet.fail_transfers(online.clone(), Some(receive_data.batch_transfer_idx), false);
+    let result = wallet.fail_transfers(
+        online.clone(),
+        Some(receive_data.batch_transfer_idx),
+        false,
+        false,
+    );
     assert!(result.is_ok());
 
     let receive_data = test_blind_receive(&rcv_wallet);
@@ -365,14 +381,15 @@ fn fail() {
     stop_mining();
 
     // don't fail unknown idx
-    let result = rcv_wallet.fail_transfers(rcv_online.clone(), Some(UNKNOWN_IDX), false);
+    let result = rcv_wallet.fail_transfers(rcv_online.clone(), Some(UNKNOWN_IDX), false, false);
     assert!(matches!(
         result,
         Err(Error::BatchTransferNotFound { idx }) if idx == UNKNOWN_IDX
     ));
 
     // don't fail incoming transfer: waiting counterparty -> confirmations
-    let result = rcv_wallet.fail_transfers(rcv_online.clone(), Some(batch_transfer_idx), false);
+    let result =
+        rcv_wallet.fail_transfers(rcv_online.clone(), Some(batch_transfer_idx), false, false);
     assert!(matches!(result, Err(Error::CannotFailBatchTransfer)));
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
@@ -380,7 +397,12 @@ fn fail() {
         TransferStatus::WaitingConfirmations
     ));
     // don't fail outgoing transfer: waiting counterparty -> confirmations
-    let result = wallet.fail_transfers(online.clone(), Some(send_result.batch_transfer_idx), false);
+    let result = wallet.fail_transfers(
+        online.clone(),
+        Some(send_result.batch_transfer_idx),
+        false,
+        false,
+    );
     assert!(matches!(result, Err(Error::CannotFailBatchTransfer)));
     assert!(check_test_transfer_status_recipient(
         &wallet,
@@ -389,7 +411,8 @@ fn fail() {
     ));
 
     // don't fail incoming transfer: waiting confirmations
-    let result = rcv_wallet.fail_transfers(rcv_online.clone(), Some(batch_transfer_idx), false);
+    let result =
+        rcv_wallet.fail_transfers(rcv_online.clone(), Some(batch_transfer_idx), false, false);
     assert!(matches!(result, Err(Error::CannotFailBatchTransfer)));
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
@@ -397,7 +420,12 @@ fn fail() {
         TransferStatus::WaitingConfirmations
     ));
     // don't fail outgoing transfer: waiting confirmations
-    let result = wallet.fail_transfers(online.clone(), Some(send_result.batch_transfer_idx), false);
+    let result = wallet.fail_transfers(
+        online.clone(),
+        Some(send_result.batch_transfer_idx),
+        false,
+        false,
+    );
     assert!(matches!(result, Err(Error::CannotFailBatchTransfer)));
     assert!(check_test_transfer_status_recipient(
         &wallet,
@@ -411,7 +439,7 @@ fn fail() {
     wait_for_refresh(&rcv_wallet, &rcv_online, Some(&asset_id), None);
 
     // don't fail incoming transfer: settled
-    let result = rcv_wallet.fail_transfers(rcv_online, Some(batch_transfer_idx), false);
+    let result = rcv_wallet.fail_transfers(rcv_online, Some(batch_transfer_idx), false, false);
     assert!(matches!(result, Err(Error::CannotFailBatchTransfer)));
     assert!(check_test_transfer_status_recipient(
         &rcv_wallet,
@@ -419,7 +447,7 @@ fn fail() {
         TransferStatus::Settled
     ));
     // don't fail outgoing transfer: settled
-    let result = wallet.fail_transfers(online, Some(send_result.batch_transfer_idx), false);
+    let result = wallet.fail_transfers(online, Some(send_result.batch_transfer_idx), false, false);
     assert!(matches!(result, Err(Error::CannotFailBatchTransfer)));
     assert!(check_test_transfer_status_recipient(
         &wallet,
@@ -471,6 +499,7 @@ fn batch_fail() {
             true,
             FEE_RATE,
             MIN_CONFIRMATIONS,
+            false,
         )
         .unwrap();
 
@@ -480,6 +509,11 @@ fn batch_fail() {
         &receive_data_2.recipient_id,
         TransferStatus::WaitingConfirmations
     ));
-    let result = wallet.fail_transfers(online, Some(receive_data_2.batch_transfer_idx), false);
+    let result = wallet.fail_transfers(
+        online,
+        Some(receive_data_2.batch_transfer_idx),
+        false,
+        false,
+    );
     assert!(matches!(result, Err(Error::CannotFailBatchTransfer)));
 }

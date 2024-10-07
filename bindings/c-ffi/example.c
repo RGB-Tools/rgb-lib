@@ -55,7 +55,7 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    CResultString btc_balance_res_1 = rgblib_get_btc_balance(wlt, NULL);
+    CResultString btc_balance_res_1 = rgblib_get_btc_balance(wlt, NULL, true);
     if (btc_balance_res_1.result == Err) {
         printf("ERR: %s\n", btc_balance_res_1.inner);
         return EXIT_FAILURE;
@@ -72,7 +72,8 @@ int main() {
     const struct COpaqueStruct *online = &online_res.inner;
     printf("Wallet went online\n");
 
-    CResultString btc_balance_res_2 = rgblib_get_btc_balance(wlt, online);
+    CResultString btc_balance_res_2 =
+        rgblib_get_btc_balance(wlt, online, false);
     if (btc_balance_res_2.result == Err) {
         printf("ERR: %s\n", btc_balance_res_2.inner);
         return EXIT_FAILURE;
@@ -81,7 +82,7 @@ int main() {
     printf("BTC balance after sync: %s\n", btc_balance_2);
 
     CResultString created_res =
-        rgblib_create_utxos(wlt, online, false, "25", NULL, 1.5);
+        rgblib_create_utxos(wlt, online, false, "25", NULL, 1.5, false);
     if (created_res.result == Err) {
         printf("ERR: %s\n", created_res.inner);
         return EXIT_FAILURE;
@@ -143,6 +144,14 @@ int main() {
         printf("Receive data: %s\n", receive_data_res.inner);
     } else {
         printf("ERR: %s\n", receive_data_res.inner);
+        return EXIT_FAILURE;
+    }
+
+    CResultString sync_res = rgblib_sync(wlt, online);
+    if (sync_res.result == Ok) {
+        printf("Synced\n");
+    } else {
+        printf("ERR: %s\n", sync_res.inner);
         return EXIT_FAILURE;
     }
 

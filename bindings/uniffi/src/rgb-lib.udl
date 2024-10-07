@@ -65,10 +65,12 @@ interface RgbLibError {
   NoIssuanceAmounts();
   NoValidTransportEndpoint();
   Offline();
+  OnlineNeeded();
   OutputBelowDustLimit();
   Proxy(string details);
   RecipientIDAlreadyUsed();
   RecipientIDDuplicated();
+  SyncNeeded();
   TooHighIssuanceAmounts();
   UnknownRgbInterface(string interface);
   UnknownRgbSchema(string schema_id);
@@ -417,39 +419,49 @@ interface Wallet {
   boolean backup_info();
 
   [Throws=RgbLibError]
-  ReceiveData blind_receive(string? asset_id, u64? amount, u32? duration_seconds,
-  sequence<string> transport_endpoints, u8 min_confirmations);
+  ReceiveData blind_receive(
+    string? asset_id, u64? amount, u32? duration_seconds,
+    sequence<string> transport_endpoints, u8 min_confirmations);
 
   [Throws=RgbLibError]
-  ReceiveData witness_receive(string? asset_id, u64? amount, u32? duration_seconds,
-  sequence<string> transport_endpoints, u8 min_confirmations);
+  ReceiveData witness_receive(
+    string? asset_id, u64? amount, u32? duration_seconds,
+    sequence<string> transport_endpoints, u8 min_confirmations);
 
   [Throws=RgbLibError]
   string sign_psbt(string unsigned_psbt);
 
   [Throws=RgbLibError]
-  u8 create_utxos(Online online, boolean up_to, u8? num, u32? size, f32 fee_rate);
+  u8 create_utxos(
+    Online online, boolean up_to, u8? num, u32? size, f32 fee_rate,
+    boolean skip_sync);
 
   [Throws=RgbLibError]
-  string create_utxos_begin(Online online, boolean up_to, u8? num, u32? size, f32 fee_rate);
+  string create_utxos_begin(
+    Online online, boolean up_to, u8? num, u32? size, f32 fee_rate,
+    boolean skip_sync);
 
   [Throws=RgbLibError]
-  u8 create_utxos_end(Online online, string signed_psbt);
+  u8 create_utxos_end(Online online, string signed_psbt, boolean skip_sync);
 
   [Throws=RgbLibError]
   boolean delete_transfers(i32? batch_transfer_idx, boolean no_asset_only);
 
   [Throws=RgbLibError]
-  string drain_to(Online online, string address, boolean destroy_assets, f32 fee_rate);
+  string drain_to(
+    Online online, string address, boolean destroy_assets, f32 fee_rate);
 
   [Throws=RgbLibError]
-  string drain_to_begin(Online online, string address, boolean destroy_assets, f32 fee_rate);
+  string drain_to_begin(
+    Online online, string address, boolean destroy_assets, f32 fee_rate);
 
   [Throws=RgbLibError]
   string drain_to_end(Online online, string signed_psbt);
 
   [Throws=RgbLibError]
-  boolean fail_transfers(Online online, i32? batch_transfer_idx, boolean no_asset_only);
+  boolean fail_transfers(
+    Online online, i32? batch_transfer_idx, boolean no_asset_only,
+    boolean skip_sync);
 
   [Throws=RgbLibError]
   string get_address();
@@ -458,7 +470,7 @@ interface Wallet {
   Balance get_asset_balance(string asset_id);
 
   [Throws=RgbLibError]
-  BtcBalance get_btc_balance(Online? online);
+  BtcBalance get_btc_balance(Online? online, boolean skip_sync);
 
   [Throws=RgbLibError]
   Metadata get_asset_metadata(string asset_id);
@@ -485,21 +497,24 @@ interface Wallet {
   Assets list_assets(sequence<AssetSchema> filter_asset_schemas);
 
   [Throws=RgbLibError]
-  sequence<Transaction> list_transactions(Online? online);
+  sequence<Transaction> list_transactions(Online? online, boolean skip_sync);
 
   [Throws=RgbLibError]
   sequence<Transfer> list_transfers(string? asset_id);
 
   [Throws=RgbLibError]
-  sequence<Unspent> list_unspents(Online? online, boolean settled_only);
+  sequence<Unspent> list_unspents(
+    Online? online, boolean settled_only, boolean skip_sync);
 
   [Throws=RgbLibError]
-  record<i32, RefreshedTransfer> refresh(Online online, string? asset_id, sequence<RefreshFilter> filter);
+  record<i32, RefreshedTransfer> refresh(
+    Online online, string? asset_id, sequence<RefreshFilter> filter,
+    boolean skip_sync);
 
   [Throws=RgbLibError]
   SendResult send(
     Online online, record<DOMString, sequence<Recipient>> recipient_map,
-    boolean donation, f32 fee_rate, u8 min_confirmations);
+    boolean donation, f32 fee_rate, u8 min_confirmations, boolean skip_sync);
 
   [Throws=RgbLibError]
   string send_begin(
@@ -507,14 +522,19 @@ interface Wallet {
     boolean donation, f32 fee_rate, u8 min_confirmations);
 
   [Throws=RgbLibError]
-  SendResult send_end(Online online, string signed_psbt);
+  SendResult send_end(Online online, string signed_psbt, boolean skip_sync);
 
   [Throws=RgbLibError]
-  string send_btc(Online online, string address, u64 amount, f32 fee_rate);
+  string send_btc(
+    Online online, string address, u64 amount, f32 fee_rate, boolean skip_sync);
 
   [Throws=RgbLibError]
-  string send_btc_begin(Online online, string address, u64 amount, f32 fee_rate);
+  string send_btc_begin(
+    Online online, string address, u64 amount, f32 fee_rate, boolean skip_sync);
 
   [Throws=RgbLibError]
-  string send_btc_end(Online online, string signed_psbt);
+  string send_btc_end(Online online, string signed_psbt, boolean skip_sync);
+
+  [Throws=RgbLibError]
+  void sync(Online online);
 };

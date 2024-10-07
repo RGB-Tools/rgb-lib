@@ -177,7 +177,13 @@ fn fail() {
         id: 1,
         indexer_url: wallet.online_data.as_ref().unwrap().indexer_url.clone(),
     };
-    let result = test_issue_asset_nia_result(&wallet, &other_online, None);
+    let result = wallet.issue_asset_nia(
+        other_online.clone(),
+        TICKER.to_string(),
+        NAME.to_string(),
+        PRECISION,
+        vec![AMOUNT],
+    );
     assert!(matches!(result, Err(Error::CannotChangeOnline)));
 
     // invalid ticker: empty

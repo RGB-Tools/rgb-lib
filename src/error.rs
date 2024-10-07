@@ -347,6 +347,10 @@ pub enum Error {
     #[error("Wallet is offline. Hint: call go_online")]
     Offline,
 
+    /// The Online object is needed to perform this operation
+    #[error("The Online object is needed to perform this operation")]
+    OnlineNeeded,
+
     /// Output created is under the dust limit
     #[error("Output below the dust limit")]
     OutputBelowDustLimit,
@@ -365,6 +369,10 @@ pub enum Error {
     /// Provided recipient map has duplicated recipient IDs
     #[error("Recipient ID duplicated")]
     RecipientIDDuplicated,
+
+    /// Wallet requires a sync
+    #[error("Sync needed")]
+    SyncNeeded,
 
     /// Trying to issue too many assets
     #[error("Trying to issue too many assets")]

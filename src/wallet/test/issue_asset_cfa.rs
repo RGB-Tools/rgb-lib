@@ -265,7 +265,14 @@ fn fail() {
         id: 1,
         indexer_url: wallet.online_data.as_ref().unwrap().indexer_url.clone(),
     };
-    let result = test_issue_asset_cfa_result(&wallet, &other_online, None, None);
+    let result = wallet.issue_asset_cfa(
+        other_online.clone(),
+        NAME.to_string(),
+        None,
+        PRECISION,
+        vec![AMOUNT],
+        None,
+    );
     assert!(matches!(result, Err(Error::CannotChangeOnline)));
 
     // invalid name: empty

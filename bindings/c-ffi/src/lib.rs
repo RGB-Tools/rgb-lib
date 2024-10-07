@@ -7,6 +7,7 @@ use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     ffi::{c_char, c_float, c_uchar, c_void, CStr, CString},
     hash::{Hash, Hasher},
+    ptr::null_mut,
     str::FromStr,
 };
 
@@ -81,8 +82,12 @@ pub extern "C" fn rgblib_create_utxos(
     num_opt: *const c_char,
     size_opt: *const c_char,
     fee_rate: c_float,
+    skip_sync: bool,
 ) -> CResultString {
-    create_utxos(wallet, online, up_to, num_opt, size_opt, fee_rate).into()
+    create_utxos(
+        wallet, online, up_to, num_opt, size_opt, fee_rate, skip_sync,
+    )
+    .into()
 }
 
 #[no_mangle]
@@ -107,8 +112,9 @@ pub extern "C" fn rgblib_get_asset_balance(
 pub extern "C" fn rgblib_get_btc_balance(
     wallet: &COpaqueStruct,
     online: *const COpaqueStruct,
+    skip_sync: bool,
 ) -> CResultString {
-    get_btc_balance(wallet, online).into()
+    get_btc_balance(wallet, online, skip_sync).into()
 }
 
 #[no_mangle]
@@ -190,8 +196,9 @@ pub extern "C" fn rgblib_list_assets(
 pub extern "C" fn rgblib_list_transactions(
     wallet: &COpaqueStruct,
     online: &COpaqueStruct,
+    skip_sync: bool,
 ) -> CResultString {
-    list_transactions(wallet, online).into()
+    list_transactions(wallet, online, skip_sync).into()
 }
 
 #[no_mangle]
@@ -207,8 +214,9 @@ pub extern "C" fn rgblib_list_unspents(
     wallet: &COpaqueStruct,
     online: &COpaqueStruct,
     settled_only: bool,
+    skip_sync: bool,
 ) -> CResultString {
-    list_unspents(wallet, online, settled_only).into()
+    list_unspents(wallet, online, settled_only, skip_sync).into()
 }
 
 #[no_mangle]
@@ -222,8 +230,9 @@ pub extern "C" fn rgblib_refresh(
     online: &COpaqueStruct,
     asset_id_opt: *const c_char,
     filter: *const c_char,
+    skip_sync: bool,
 ) -> CResultString {
-    refresh(wallet, online, asset_id_opt, filter).into()
+    refresh(wallet, online, asset_id_opt, filter, skip_sync).into()
 }
 
 #[no_mangle]
@@ -242,6 +251,7 @@ pub extern "C" fn rgblib_send(
     donation: bool,
     fee_rate: c_float,
     min_confirmations: c_uchar,
+    skip_sync: bool,
 ) -> CResultString {
     send(
         wallet,
@@ -250,6 +260,7 @@ pub extern "C" fn rgblib_send(
         donation,
         fee_rate,
         min_confirmations,
+        skip_sync,
     )
     .into()
 }
@@ -261,8 +272,14 @@ pub extern "C" fn rgblib_send_btc(
     address: *const c_char,
     amount: u64,
     fee_rate: c_float,
+    skip_sync: bool,
 ) -> CResultString {
-    send_btc(wallet, online, address, amount, fee_rate).into()
+    send_btc(wallet, online, address, amount, fee_rate, skip_sync).into()
+}
+
+#[no_mangle]
+pub extern "C" fn rgblib_sync(wallet: &COpaqueStruct, online: &COpaqueStruct) -> CResultString {
+    sync(wallet, online).into()
 }
 
 #[no_mangle]

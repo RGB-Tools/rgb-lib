@@ -2135,10 +2135,14 @@ impl Wallet {
     }
 
     /// Return the [`BtcBalance`] of the internal Bitcoin wallets.
-    pub fn get_btc_balance(&self, online: Option<Online>) -> Result<BtcBalance, Error> {
+    pub fn get_btc_balance(
+        &self,
+        online: Option<Online>,
+        skip_sync: bool,
+    ) -> Result<BtcBalance, Error> {
         info!(self.logger, "Getting BTC balance...");
 
-        self._sync_if_online(online)?;
+        self.sync_if_requested(online, skip_sync)?;
 
         let vanilla_balance = self._get_btc_balance(KeychainKind::Internal)?;
         let colored_balance = self._get_btc_balance(KeychainKind::External)?;
@@ -2261,31 +2265,40 @@ impl Wallet {
         Ok(Assets { nia, uda, cfa })
     }
 
-    fn _sync_if_online(&self, online: Option<Online>) -> Result<(), Error> {
+    pub(crate) fn sync_if_requested(
+        &self,
         #[cfg_attr(
             not(any(feature = "electrum", feature = "esplora")),
             allow(unused_variables)
         )]
-        if let Some(online) = online {
+        online: Option<Online>,
+        skip_sync: bool,
+    ) -> Result<(), Error> {
+        if !skip_sync {
+            #[cfg(not(any(feature = "electrum", feature = "esplora")))]
+            return Err(Error::Offline);
             #[cfg(any(feature = "electrum", feature = "esplora"))]
             {
-                self.check_online(online)?;
-                self.sync_wallet(&self.bdk_wallet)?;
+                if let Some(online) = online {
+                    self.check_online(online)?;
+                } else {
+                    return Err(Error::OnlineNeeded);
+                }
+                self.sync_db_txos()?;
             }
-            #[cfg(not(any(feature = "electrum", feature = "esplora")))]
-            warn!(
-                self.logger,
-                "Online provided but no indexer feature is active"
-            )
         }
         Ok(())
     }
 
     /// List the Bitcoin [`Transaction`]s known to the wallet.
-    pub fn list_transactions(&self, online: Option<Online>) -> Result<Vec<Transaction>, Error> {
+    pub fn list_transactions(
+        &self,
+        online: Option<Online>,
+        skip_sync: bool,
+    ) -> Result<Vec<Transaction>, Error> {
         info!(self.logger, "Listing transactions...");
 
-        self._sync_if_online(online)?;
+        self.sync_if_requested(online, skip_sync)?;
 
         let mut create_utxos_txids = vec![];
         let mut drain_txids = vec![];
@@ -2390,10 +2403,11 @@ impl Wallet {
         &self,
         online: Option<Online>,
         settled_only: bool,
+        skip_sync: bool,
     ) -> Result<Vec<Unspent>, Error> {
         info!(self.logger, "Listing unspents...");
 
-        self._sync_if_online(online)?;
+        self.sync_if_requested(online, skip_sync)?;
 
         let db_data = self.database.get_db_data(true)?;
 

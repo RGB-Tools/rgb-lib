@@ -199,9 +199,10 @@ impl Wallet {
         num: Option<u8>,
         size: Option<u32>,
         fee_rate: f32,
+        skip_sync: bool,
     ) -> Result<u8, RgbLibError> {
         self._get_wallet()
-            .create_utxos(online, up_to, num, size, fee_rate)
+            .create_utxos(online, up_to, num, size, fee_rate, skip_sync)
     }
 
     fn create_utxos_begin(
@@ -211,13 +212,20 @@ impl Wallet {
         num: Option<u8>,
         size: Option<u32>,
         fee_rate: f32,
+        skip_sync: bool,
     ) -> Result<String, RgbLibError> {
         self._get_wallet()
-            .create_utxos_begin(online, up_to, num, size, fee_rate)
+            .create_utxos_begin(online, up_to, num, size, fee_rate, skip_sync)
     }
 
-    fn create_utxos_end(&self, online: Online, signed_psbt: String) -> Result<u8, RgbLibError> {
-        self._get_wallet().create_utxos_end(online, signed_psbt)
+    fn create_utxos_end(
+        &self,
+        online: Online,
+        signed_psbt: String,
+        skip_sync: bool,
+    ) -> Result<u8, RgbLibError> {
+        self._get_wallet()
+            .create_utxos_end(online, signed_psbt, skip_sync)
     }
 
     fn delete_transfers(
@@ -260,9 +268,10 @@ impl Wallet {
         online: Online,
         batch_transfer_idx: Option<i32>,
         no_asset_only: bool,
+        skip_sync: bool,
     ) -> Result<bool, RgbLibError> {
         self._get_wallet()
-            .fail_transfers(online, batch_transfer_idx, no_asset_only)
+            .fail_transfers(online, batch_transfer_idx, no_asset_only, skip_sync)
     }
 
     fn get_address(&self) -> Result<String, RgbLibError> {
@@ -273,8 +282,12 @@ impl Wallet {
         self._get_wallet().get_asset_balance(asset_id)
     }
 
-    fn get_btc_balance(&self, online: Option<Online>) -> Result<BtcBalance, RgbLibError> {
-        self._get_wallet().get_btc_balance(online)
+    fn get_btc_balance(
+        &self,
+        online: Option<Online>,
+        skip_sync: bool,
+    ) -> Result<BtcBalance, RgbLibError> {
+        self._get_wallet().get_btc_balance(online, skip_sync)
     }
 
     fn get_asset_metadata(&self, asset_id: String) -> Result<Metadata, RgbLibError> {
@@ -340,8 +353,12 @@ impl Wallet {
         self._get_wallet().list_assets(filter_asset_schemas)
     }
 
-    fn list_transactions(&self, online: Option<Online>) -> Result<Vec<Transaction>, RgbLibError> {
-        self._get_wallet().list_transactions(online)
+    fn list_transactions(
+        &self,
+        online: Option<Online>,
+        skip_sync: bool,
+    ) -> Result<Vec<Transaction>, RgbLibError> {
+        self._get_wallet().list_transactions(online, skip_sync)
     }
 
     fn list_transfers(&self, asset_id: Option<String>) -> Result<Vec<Transfer>, RgbLibError> {
@@ -352,8 +369,10 @@ impl Wallet {
         &self,
         online: Option<Online>,
         settled_only: bool,
+        skip_sync: bool,
     ) -> Result<Vec<Unspent>, RgbLibError> {
-        self._get_wallet().list_unspents(online, settled_only)
+        self._get_wallet()
+            .list_unspents(online, settled_only, skip_sync)
     }
 
     fn refresh(
@@ -361,8 +380,10 @@ impl Wallet {
         online: Online,
         asset_id: Option<String>,
         filter: Vec<RefreshFilter>,
+        skip_sync: bool,
     ) -> Result<HashMap<i32, RefreshedTransfer>, RgbLibError> {
-        self._get_wallet().refresh(online, asset_id, filter)
+        self._get_wallet()
+            .refresh(online, asset_id, filter, skip_sync)
     }
 
     fn send(
@@ -372,9 +393,16 @@ impl Wallet {
         donation: bool,
         fee_rate: f32,
         min_confirmations: u8,
+        skip_sync: bool,
     ) -> Result<SendResult, RgbLibError> {
-        self._get_wallet()
-            .send(online, recipient_map, donation, fee_rate, min_confirmations)
+        self._get_wallet().send(
+            online,
+            recipient_map,
+            donation,
+            fee_rate,
+            min_confirmations,
+            skip_sync,
+        )
     }
 
     fn send_begin(
@@ -389,8 +417,13 @@ impl Wallet {
             .send_begin(online, recipient_map, donation, fee_rate, min_confirmations)
     }
 
-    fn send_end(&self, online: Online, signed_psbt: String) -> Result<SendResult, RgbLibError> {
-        self._get_wallet().send_end(online, signed_psbt)
+    fn send_end(
+        &self,
+        online: Online,
+        signed_psbt: String,
+        skip_sync: bool,
+    ) -> Result<SendResult, RgbLibError> {
+        self._get_wallet().send_end(online, signed_psbt, skip_sync)
     }
 
     fn send_btc(
@@ -399,9 +432,10 @@ impl Wallet {
         address: String,
         amount: u64,
         fee_rate: f32,
+        skip_sync: bool,
     ) -> Result<String, RgbLibError> {
         self._get_wallet()
-            .send_btc(online, address, amount, fee_rate)
+            .send_btc(online, address, amount, fee_rate, skip_sync)
     }
 
     fn send_btc_begin(
@@ -410,13 +444,24 @@ impl Wallet {
         address: String,
         amount: u64,
         fee_rate: f32,
+        skip_sync: bool,
     ) -> Result<String, RgbLibError> {
         self._get_wallet()
-            .send_btc_begin(online, address, amount, fee_rate)
+            .send_btc_begin(online, address, amount, fee_rate, skip_sync)
     }
 
-    fn send_btc_end(&self, online: Online, signed_psbt: String) -> Result<String, RgbLibError> {
-        self._get_wallet().send_btc_end(online, signed_psbt)
+    fn send_btc_end(
+        &self,
+        online: Online,
+        signed_psbt: String,
+        skip_sync: bool,
+    ) -> Result<String, RgbLibError> {
+        self._get_wallet()
+            .send_btc_end(online, signed_psbt, skip_sync)
+    }
+
+    fn sync(&self, online: Online) -> Result<(), RgbLibError> {
+        self._get_wallet().sync(online)
     }
 }
 

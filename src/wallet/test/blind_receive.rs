@@ -210,43 +210,6 @@ fn respect_max_allocations() {
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
-fn expire() {
-    initialize();
-
-    let expiration = 1;
-    let (wallet, online) = get_funded_wallet!();
-
-    // check expiration
-    let now_timestamp = now().unix_timestamp();
-    let receive_data_1 = wallet
-        .blind_receive(
-            None,
-            None,
-            Some(expiration),
-            TRANSPORT_ENDPOINTS.clone(),
-            MIN_CONFIRMATIONS,
-        )
-        .unwrap();
-    let timestamp = now_timestamp + expiration as i64;
-    assert!(receive_data_1.expiration_timestamp.unwrap() - timestamp <= 1);
-
-    // wait for expiration to be in the past
-    std::thread::sleep(std::time::Duration::from_millis(
-        expiration as u64 * 1000 + 2000,
-    ));
-
-    // trigger the expiration of pending transfers
-    let _asset = test_issue_asset_nia(&wallet, &online, None);
-
-    // check transfer is now in status Failed
-    let transfer = get_test_transfer_recipient(&wallet, &receive_data_1.recipient_id);
-    let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
-    assert_eq!(transfer_data.status, TransferStatus::Failed);
-}
-
-#[cfg(feature = "electrum")]
-#[test]
-#[parallel]
 fn pending_outgoing_transfer_fail() {
     initialize();
 

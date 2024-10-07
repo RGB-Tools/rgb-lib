@@ -69,7 +69,7 @@ fn up_to_allocation_checks() {
         ));
     }
     // request 1 new UTXO, expecting the existing one is still allocatable
-    let result = wallet.create_utxos(online.clone(), true, Some(1), None, FEE_RATE);
+    let result = wallet.create_utxos(online.clone(), true, Some(1), None, FEE_RATE, false);
     assert!(matches!(result, Err(Error::AllocationsAlreadyAvailable)));
     let unspents = test_list_unspents(&wallet, None, false);
     assert_eq!(unspents.len(), 2);
@@ -129,7 +129,8 @@ fn up_to_allocation_checks() {
         assert_eq!(num_utxos_created, 1);
         // UTXO 1 (blind) has at least 1 free allocation
         show_unspent_colorings(&rcv_wallet, "receiver after send - WaitingCounterparty");
-        let result = rcv_wallet.create_utxos(rcv_online.clone(), true, Some(1), None, FEE_RATE);
+        let result =
+            rcv_wallet.create_utxos(rcv_online.clone(), true, Some(1), None, FEE_RATE, false);
         assert!(matches!(result, Err(Error::AllocationsAlreadyAvailable)));
 
         // - wait confirmations
@@ -137,11 +138,12 @@ fn up_to_allocation_checks() {
         wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
         // UTXO 1 now spent, UTXO 2 (RGB+BTC change) has at least 1 free allocation, UTXO 3 is empty
         show_unspent_colorings(&wallet, "sender after send - WaitingConfirmations");
-        let result = wallet.create_utxos(online.clone(), true, Some(2), None, FEE_RATE);
+        let result = wallet.create_utxos(online.clone(), true, Some(2), None, FEE_RATE, false);
         assert!(matches!(result, Err(Error::AllocationsAlreadyAvailable)));
         // UTXO 1 (blind) has at least 1 free allocation
         show_unspent_colorings(&rcv_wallet, "receiver after send - WaitingConfirmations");
-        let result = rcv_wallet.create_utxos(rcv_online.clone(), true, Some(1), None, FEE_RATE);
+        let result =
+            rcv_wallet.create_utxos(rcv_online.clone(), true, Some(1), None, FEE_RATE, false);
         assert!(matches!(result, Err(Error::AllocationsAlreadyAvailable)));
 
         // - settled
@@ -154,7 +156,7 @@ fn up_to_allocation_checks() {
         assert_eq!(num_utxos_created, 1);
         // UTXO 1 (blind) has at least 1 free allocation
         show_unspent_colorings(&rcv_wallet, "receiver after send - Settled");
-        let result = rcv_wallet.create_utxos(rcv_online, true, Some(1), None, FEE_RATE);
+        let result = rcv_wallet.create_utxos(rcv_online, true, Some(1), None, FEE_RATE, false);
         assert!(matches!(result, Err(Error::AllocationsAlreadyAvailable)));
     }
 }
@@ -167,7 +169,7 @@ fn fail() {
 
     // cannot create UTXOs for an empty wallet
     let (wallet, online) = get_empty_wallet!();
-    let result = wallet.create_utxos(online.clone(), true, None, None, FEE_RATE);
+    let result = wallet.create_utxos(online.clone(), true, None, None, FEE_RATE, false);
     assert!(matches!(
         result,
         Err(Error::InsufficientBitcoins {
@@ -180,7 +182,7 @@ fn fail() {
     test_create_utxos_default(&wallet, &online);
 
     // don't create UTXOs if enough allocations are already available
-    let result = wallet.create_utxos(online.clone(), true, None, None, FEE_RATE);
+    let result = wallet.create_utxos(online.clone(), true, None, None, FEE_RATE, false);
     assert!(matches!(result, Err(Error::AllocationsAlreadyAvailable)));
 
     // fee min/max
