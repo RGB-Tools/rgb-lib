@@ -96,6 +96,22 @@ pub extern "C" fn rgblib_get_address(wallet: &COpaqueStruct) -> CResultString {
 }
 
 #[no_mangle]
+pub extern "C" fn rgblib_get_asset_balance(
+    wallet: &COpaqueStruct,
+    asset_id: *const c_char,
+) -> CResultString {
+    get_asset_balance(wallet, asset_id).into()
+}
+
+#[no_mangle]
+pub extern "C" fn rgblib_get_btc_balance(
+    wallet: &COpaqueStruct,
+    online: &COpaqueStruct,
+) -> CResultString {
+    get_btc_balance(wallet, online).into()
+}
+
+#[no_mangle]
 pub extern "C" fn rgblib_go_online(
     wallet: &COpaqueStruct,
     skip_consistency_check: bool,
@@ -171,6 +187,31 @@ pub extern "C" fn rgblib_list_assets(
 }
 
 #[no_mangle]
+pub extern "C" fn rgblib_list_transactions(
+    wallet: &COpaqueStruct,
+    online: &COpaqueStruct,
+) -> CResultString {
+    list_transactions(wallet, online).into()
+}
+
+#[no_mangle]
+pub extern "C" fn rgblib_list_transfers(
+    wallet: &COpaqueStruct,
+    asset_id: *const c_char,
+) -> CResultString {
+    list_transfers(wallet, asset_id).into()
+}
+
+#[no_mangle]
+pub extern "C" fn rgblib_list_unspents(
+    wallet: &COpaqueStruct,
+    online: &COpaqueStruct,
+    settled_only: bool,
+) -> CResultString {
+    list_unspents(wallet, online, settled_only).into()
+}
+
+#[no_mangle]
 pub extern "C" fn rgblib_new_wallet(wallet_data: *const c_char) -> CResult {
     new_wallet(wallet_data).into()
 }
@@ -183,6 +224,14 @@ pub extern "C" fn rgblib_refresh(
     filter: *const c_char,
 ) -> CResultString {
     refresh(wallet, online, asset_id_opt, filter).into()
+}
+
+#[no_mangle]
+pub extern "C" fn rgblib_restore_keys(
+    bitcoin_network: *const c_char,
+    mnemonic: *const c_char,
+) -> CResultString {
+    restore_keys(bitcoin_network, mnemonic).into()
 }
 
 #[no_mangle]
@@ -203,6 +252,17 @@ pub extern "C" fn rgblib_send(
         min_confirmations,
     )
     .into()
+}
+
+#[no_mangle]
+pub extern "C" fn rgblib_send_btc(
+    wallet: &COpaqueStruct,
+    online: &COpaqueStruct,
+    address: *const c_char,
+    amount: u64,
+    fee_rate: c_float,
+) -> CResultString {
+    send_btc(wallet, online, address, amount, fee_rate).into()
 }
 
 #[no_mangle]

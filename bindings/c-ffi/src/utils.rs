@@ -170,6 +170,26 @@ pub(crate) fn get_address(wallet: &COpaqueStruct) -> Result<String, Error> {
     Ok(wallet.get_address()?)
 }
 
+pub(crate) fn get_asset_balance(
+    wallet: &COpaqueStruct,
+    asset_id: *const c_char,
+) -> Result<String, Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let asset_id = ptr_to_string(asset_id);
+    let res = wallet.get_asset_balance(asset_id)?;
+    Ok(serde_json::to_string(&res)?)
+}
+
+pub(crate) fn get_btc_balance(
+    wallet: &COpaqueStruct,
+    online: &COpaqueStruct,
+) -> Result<String, Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let online = Online::from_opaque(online)?;
+    let res = wallet.get_btc_balance((*online).clone())?;
+    Ok(serde_json::to_string(&res)?)
+}
+
 pub(crate) fn go_online(
     wallet: &COpaqueStruct,
     skip_consistency_check: bool,
@@ -264,6 +284,37 @@ pub(crate) fn list_assets(
     Ok(serde_json::to_string(&res)?)
 }
 
+pub(crate) fn list_transactions(
+    wallet: &COpaqueStruct,
+    online: &COpaqueStruct,
+) -> Result<String, Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let online = Online::from_opaque(online)?;
+    let res = wallet.list_transactions(Some((*online).clone()))?;
+    Ok(serde_json::to_string(&res)?)
+}
+
+pub(crate) fn list_transfers(
+    wallet: &COpaqueStruct,
+    asset_id: *const c_char,
+) -> Result<String, Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let asset_id = convert_optional_string(asset_id);
+    let res = wallet.list_transfers(asset_id)?;
+    Ok(serde_json::to_string(&res)?)
+}
+
+pub(crate) fn list_unspents(
+    wallet: &COpaqueStruct,
+    online: &COpaqueStruct,
+    settled_only: bool,
+) -> Result<String, Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let online = Online::from_opaque(online)?;
+    let res = wallet.list_unspents(Some((*online).clone()), settled_only)?;
+    Ok(serde_json::to_string(&res)?)
+}
+
 pub(crate) fn new_wallet(wallet_data: *const c_char) -> Result<Wallet, Error> {
     let wallet_data: WalletData = serde_json::from_str(&ptr_to_string(wallet_data))?;
     Ok(Wallet::new(wallet_data)?)
@@ -280,6 +331,16 @@ pub(crate) fn refresh(
     let filter: Vec<RefreshFilter> = serde_json::from_str(&ptr_to_string(filter))?;
     let asset_id = convert_optional_string(asset_id_opt);
     let res = wallet.refresh((*online).clone(), asset_id, filter)?;
+    Ok(serde_json::to_string(&res)?)
+}
+
+pub(crate) fn restore_keys(
+    bitcoin_network: *const c_char,
+    mnemonic: *const c_char,
+) -> Result<String, Error> {
+    let bitcoin_network = BitcoinNetwork::from_str(&ptr_to_string(bitcoin_network))?;
+    let mnemonic = ptr_to_string(mnemonic);
+    let res = rgb_lib::restore_keys(bitcoin_network.into(), mnemonic)?;
     Ok(serde_json::to_string(&res)?)
 }
 
@@ -303,6 +364,20 @@ pub(crate) fn send(
         min_confirmations,
     )?;
     Ok(serde_json::to_string(&res)?)
+}
+
+pub(crate) fn send_btc(
+    wallet: &COpaqueStruct,
+    online: &COpaqueStruct,
+    address: *const c_char,
+    amount: u64,
+    fee_rate: c_float,
+) -> Result<String, Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let online = Online::from_opaque(online)?;
+    let address = ptr_to_string(address);
+    let res = wallet.send_btc((*online).clone(), address, amount, fee_rate)?;
+    Ok(res)
 }
 
 pub(crate) fn witness_receive(
