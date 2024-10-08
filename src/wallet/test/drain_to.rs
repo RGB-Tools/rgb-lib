@@ -30,7 +30,7 @@ fn success() {
     let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     mine(false);
-    wait_for_unspents(&wallet, None, false, 0);
+    wait_for_unspents(&wallet, Some(&online), false, 0);
 
     // issue asset (to produce an RGB allocation)
     fund_wallet(test_get_address(&wallet));
@@ -54,10 +54,10 @@ fn success() {
     wait_for_btc_balance(&wallet, &online, &expected_balance);
     test_drain_to_keep(&wallet, &online, &test_get_address(&rcv_wallet));
     mine(false);
-    wait_for_unspents(&wallet, None, false, UTXO_NUM);
+    wait_for_unspents(&wallet, Some(&online), false, UTXO_NUM);
     test_drain_to_destroy(&wallet, &online, &test_get_address(&rcv_wallet));
     mine(false);
-    wait_for_unspents(&wallet, None, false, 0);
+    wait_for_unspents(&wallet, Some(&online), false, 0);
 }
 
 #[cfg(feature = "electrum")]
