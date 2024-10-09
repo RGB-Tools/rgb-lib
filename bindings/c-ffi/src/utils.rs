@@ -42,7 +42,7 @@ trait CReturnType: Sized + 'static {
             return Err(Error::TypeMismatch);
         }
 
-        let boxed = unsafe { Box::from_raw(other.ptr.clone() as *mut Self) };
+        let boxed = unsafe { Box::from_raw(other.ptr as *mut Self) };
         Ok(Box::leak(boxed))
     }
 }
@@ -172,7 +172,7 @@ pub(crate) fn create_utxos(
 
 pub(crate) fn generate_keys(bitcoin_network: *const c_char) -> Result<String, Error> {
     let bitcoin_network = BitcoinNetwork::from_str(&ptr_to_string(bitcoin_network))?;
-    let res = rgb_lib::generate_keys(bitcoin_network.into());
+    let res = rgb_lib::generate_keys(bitcoin_network);
     Ok(serde_json::to_string(&res)?)
 }
 
@@ -225,7 +225,7 @@ pub(crate) fn issue_asset_cfa(
     let details = convert_optional_string(details_opt);
     let file_path = convert_optional_string(file_path_opt);
     let res = wallet.issue_asset_cfa(
-        (*online).clone().into(),
+        (*online).clone(),
         ptr_to_string(name),
         details,
         precision,
@@ -256,6 +256,7 @@ pub(crate) fn issue_asset_nia(
     Ok(serde_json::to_string(&res)?)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn issue_asset_uda(
     wallet: &COpaqueStruct,
     online: &COpaqueStruct,
@@ -273,7 +274,7 @@ pub(crate) fn issue_asset_uda(
     let attachments_file_paths: Vec<String> =
         serde_json::from_str(&ptr_to_string(attachments_file_paths))?;
     let res = wallet.issue_asset_uda(
-        (*online).clone().into(),
+        (*online).clone(),
         ptr_to_string(ticker),
         ptr_to_string(name),
         details,
@@ -351,7 +352,7 @@ pub(crate) fn restore_keys(
 ) -> Result<String, Error> {
     let bitcoin_network = BitcoinNetwork::from_str(&ptr_to_string(bitcoin_network))?;
     let mnemonic = ptr_to_string(mnemonic);
-    let res = rgb_lib::restore_keys(bitcoin_network.into(), mnemonic)?;
+    let res = rgb_lib::restore_keys(bitcoin_network, mnemonic)?;
     Ok(serde_json::to_string(&res)?)
 }
 
