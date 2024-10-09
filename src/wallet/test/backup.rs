@@ -34,10 +34,9 @@ fn success() {
     let txid = test_send(&wallet, &online, &recipient_map);
     assert!(!txid.is_empty());
     // take transfers from WaitingCounterparty to Settled
-    stop_mining();
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
-    mine(false, true);
+    mine(false, false);
     wait_for_refresh(&rcv_wallet, &rcv_online, Some(&asset.asset_id), None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
 
@@ -91,10 +90,9 @@ fn success() {
     let txid = test_send(&wallet, &online, &recipient_map);
     assert!(!txid.is_empty());
     // take transfers from WaitingCounterparty to Settled
-    stop_mining();
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
-    mine(false, true);
+    mine(false, false);
     wait_for_refresh(&rcv_wallet, &rcv_online, Some(&asset.asset_id), None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
     check_test_wallet_data(&wallet, &asset, None, 2, amount * 2);
@@ -234,11 +232,10 @@ fn double_restore() {
     assert!(!txid_1.is_empty());
     assert!(!txid_2.is_empty());
     // take transfers from WaitingCounterparty to Settled
-    stop_mining();
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet_1, &online_1, Some(&asset_1.asset_id), None);
     wait_for_refresh(&wallet_2, &online_2, Some(&asset_2.asset_id), None);
-    mine(false, true);
+    mine(false, false);
     wait_for_refresh(&rcv_wallet, &rcv_online, Some(&asset_1.asset_id), None);
     wait_for_refresh(&wallet_1, &online_1, Some(&asset_1.asset_id), None);
     wait_for_refresh(&wallet_2, &online_2, Some(&asset_2.asset_id), None);

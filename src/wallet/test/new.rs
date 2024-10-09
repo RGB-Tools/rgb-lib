@@ -215,10 +215,9 @@ fn re_instantiate_wallet() {
     let txid = test_send(&wallet, &online, &recipient_map);
     assert!(!txid.is_empty());
     // take transfers from WaitingCounterparty to Settled
-    stop_mining();
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
-    mine(false, true);
+    mine(false, false);
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
 

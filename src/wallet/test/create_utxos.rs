@@ -133,7 +133,6 @@ fn up_to_allocation_checks() {
         assert!(matches!(result, Err(Error::AllocationsAlreadyAvailable)));
 
         // - wait confirmations
-        stop_mining();
         wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
         wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
         // UTXO 1 now spent, UTXO 2 (RGB+BTC change) has at least 1 free allocation, UTXO 3 is empty
@@ -146,7 +145,7 @@ fn up_to_allocation_checks() {
         assert!(matches!(result, Err(Error::AllocationsAlreadyAvailable)));
 
         // - settled
-        mine(false, true);
+        mine(false, false);
         wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
         wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
         // UTXO 1 now spent, UTXO 2 (RGB+BTC change) has at least 1 free allocation, UTXO 3 is empty

@@ -204,8 +204,6 @@ fn success() {
         .iter()
         .all(|a| a.asset_id == Some(asset.asset_id.clone()) && a.amount == AMOUNT));
 
-    stop_mining();
-
     // transfer progresses to status WaitingConfirmations
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
@@ -256,7 +254,7 @@ fn success() {
     );
 
     // transfer progresses to status Settled
-    mine(false, true);
+    mine(false, false);
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
     show_unspent_colorings(&rcv_wallet, "receiver after send - Settled");

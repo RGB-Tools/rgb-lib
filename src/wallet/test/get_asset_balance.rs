@@ -128,8 +128,6 @@ fn transfer_balances() {
     };
     wait_for_asset_balance(&wallet_send, &asset.asset_id, &expected_balance);
 
-    stop_mining();
-
     // take transfers from WaitingCounterparty to WaitingConfirmations
     wait_for_refresh(&wallet_recv, &online_recv, None, None);
     wait_for_refresh(&wallet_send, &online_send, Some(&asset.asset_id), None);
@@ -159,7 +157,7 @@ fn transfer_balances() {
     wait_for_asset_balance(&wallet_recv, &asset.asset_id, &expected_balance);
 
     // take transfers from WaitingConfirmations to Settled
-    mine(false, true);
+    mine(false, false);
     wait_for_refresh(&wallet_recv, &online_recv, Some(&asset.asset_id), None);
     wait_for_refresh(&wallet_send, &online_send, Some(&asset.asset_id), None);
 
@@ -221,8 +219,6 @@ fn transfer_balances() {
     };
     wait_for_asset_balance(&wallet_send, &asset.asset_id, &expected_balance);
 
-    stop_mining();
-
     // take transfers from WaitingCounterparty to WaitingConfirmations
     wait_for_refresh(&wallet_recv, &online_recv, None, None);
     wait_for_refresh(&wallet_send, &online_send, Some(&asset.asset_id), None);
@@ -247,7 +243,7 @@ fn transfer_balances() {
     wait_for_asset_balance(&wallet_recv, &asset.asset_id, &expected_balance);
 
     // take transfers from WaitingConfirmations to Settled
-    mine(false, true);
+    mine(false, false);
     wait_for_refresh(&wallet_recv, &online_recv, Some(&asset.asset_id), None);
     wait_for_refresh(&wallet_send, &online_send, Some(&asset.asset_id), None);
 

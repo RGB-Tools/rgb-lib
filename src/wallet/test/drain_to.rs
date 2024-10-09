@@ -77,7 +77,6 @@ fn pending_witness_receive() {
     let asset = test_issue_asset_nia(&wallet, &online, None);
 
     // send
-    stop_mining();
     let receive_data = test_witness_receive(&rcv_wallet);
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -97,7 +96,7 @@ fn pending_witness_receive() {
     // refresh receiver (no UTXOs created) + sender (to broadcast) + mine
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
-    mine(false, true);
+    mine(false, false);
 
     // receiver still doesn't see the new UTXO (not refreshed a 2nd time yet)
     let unspents = list_test_unspents(&rcv_wallet, "before draining");
