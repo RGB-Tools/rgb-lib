@@ -35,14 +35,14 @@ fn _esplora_bitcoin_cli() -> Vec<String> {
 }
 
 impl Miner {
-    fn mine(&self) -> bool {
+    fn mine(&self, esplora: bool, blocks: u32) -> bool {
         if self.no_mine_count > 0 {
             return false;
         }
-        self.force_mine(false)
+        self.force_mine(esplora, blocks)
     }
 
-    fn force_mine(&self, esplora: bool) -> bool {
+    fn force_mine(&self, esplora: bool, blocks: u32) -> bool {
         println!("mining (esplora: {esplora}), time: {}", get_current_time());
         let bitcoin_cli = if esplora {
             _esplora_bitcoin_cli()
@@ -56,7 +56,7 @@ impl Miner {
                 .args(&bitcoin_cli)
                 .arg("-rpcwallet=miner")
                 .arg("-generate")
-                .arg("1")
+                .arg(blocks.to_string())
                 .output()
                 .expect("failed to mine");
             if output.status.success() {
@@ -91,7 +91,7 @@ impl Miner {
     }
 }
 
-pub(crate) fn mine(resume: bool) {
+pub(crate) fn mine_blocks(esplora: bool, blocks: u32, resume: bool) {
     let t_0 = OffsetDateTime::now_utc();
     if resume {
         resume_mining();
@@ -100,12 +100,16 @@ pub(crate) fn mine(resume: bool) {
         if (OffsetDateTime::now_utc() - t_0).as_seconds_f32() > 120.0 {
             panic!("unable to mine");
         }
-        let mined = MINER.read().as_ref().unwrap().mine();
+        let mined = MINER.read().as_ref().unwrap().mine(esplora, blocks);
         if mined {
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
+}
+
+pub(crate) fn mine(esplora: bool, resume: bool) {
+    mine_blocks(esplora, 1, resume)
 }
 
 pub(crate) fn force_mine_no_resume_when_alone(esplora: bool) {
@@ -116,7 +120,7 @@ pub(crate) fn force_mine_no_resume_when_alone(esplora: bool) {
         }
         let miner = MINER.write().unwrap();
         if miner.no_mine_count <= 1 {
-            miner.force_mine(esplora);
+            miner.force_mine(esplora, 1);
             break;
         }
         drop(miner);

@@ -46,7 +46,7 @@ fn success() {
     wait_for_btc_balance(&wallet, &online, &expected_balance);
 
     // settled balance after mining
-    mine(true);
+    mine(false, true);
     let expected_balance = BtcBalance {
         vanilla: Balance {
             settled: 100000000,
@@ -79,7 +79,7 @@ fn success() {
     assert_eq!(test_get_btc_balance(&wallet, &online), expected_balance);
 
     // settled balance after mining
-    mine(true);
+    mine(false, true);
     let expected_balance = BtcBalance {
         vanilla: Balance {
             settled: 99994508,

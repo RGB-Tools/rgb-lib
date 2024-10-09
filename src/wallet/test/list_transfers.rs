@@ -120,7 +120,7 @@ fn success() {
     assert_eq!(transfer_recv_witness.txid, Some(txid.clone()));
 
     // refresh a second time to settle the transfers
-    mine(false);
+    mine(false, false);
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, None, None);
 

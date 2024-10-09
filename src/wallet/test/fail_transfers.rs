@@ -107,7 +107,7 @@ fn success() {
 
     // progress transfer to Settled
     wait_for_refresh(&wallet, &online, None, None);
-    mine(true);
+    mine(false, true);
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, None, None);
 
@@ -406,7 +406,7 @@ fn fail() {
     ));
 
     // mine and refresh so transfers can settle
-    mine(true);
+    mine(false, true);
     wait_for_refresh(&wallet, &online, Some(&asset_id), None);
     wait_for_refresh(&rcv_wallet, &rcv_online, Some(&asset_id), None);
 

@@ -37,7 +37,7 @@ fn success() {
     stop_mining();
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
-    mine(true);
+    mine(false, true);
     wait_for_refresh(&rcv_wallet, &rcv_online, Some(&asset.asset_id), None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
 
@@ -94,7 +94,7 @@ fn success() {
     stop_mining();
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
-    mine(true);
+    mine(false, true);
     wait_for_refresh(&rcv_wallet, &rcv_online, Some(&asset.asset_id), None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
     check_test_wallet_data(&wallet, &asset, None, 2, amount * 2);
@@ -238,7 +238,7 @@ fn double_restore() {
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet_1, &online_1, Some(&asset_1.asset_id), None);
     wait_for_refresh(&wallet_2, &online_2, Some(&asset_2.asset_id), None);
-    mine(true);
+    mine(false, true);
     wait_for_refresh(&rcv_wallet, &rcv_online, Some(&asset_1.asset_id), None);
     wait_for_refresh(&wallet_1, &online_1, Some(&asset_1.asset_id), None);
     wait_for_refresh(&wallet_2, &online_2, Some(&asset_2.asset_id), None);

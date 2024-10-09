@@ -159,7 +159,7 @@ fn transfer_balances() {
     wait_for_asset_balance(&wallet_recv, &asset.asset_id, &expected_balance);
 
     // take transfers from WaitingConfirmations to Settled
-    mine(true);
+    mine(false, true);
     wait_for_refresh(&wallet_recv, &online_recv, Some(&asset.asset_id), None);
     wait_for_refresh(&wallet_send, &online_send, Some(&asset.asset_id), None);
 
@@ -247,7 +247,7 @@ fn transfer_balances() {
     wait_for_asset_balance(&wallet_recv, &asset.asset_id, &expected_balance);
 
     // take transfers from WaitingConfirmations to Settled
-    mine(true);
+    mine(false, true);
     wait_for_refresh(&wallet_recv, &online_recv, Some(&asset.asset_id), None);
     wait_for_refresh(&wallet_send, &online_send, Some(&asset.asset_id), None);
 

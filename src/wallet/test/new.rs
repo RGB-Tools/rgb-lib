@@ -218,7 +218,7 @@ fn re_instantiate_wallet() {
     stop_mining();
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
-    mine(true);
+    mine(false, true);
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
 
@@ -287,7 +287,7 @@ fn watch_only() {
 
     // fund wallet
     fund_wallet(address_watch);
-    mine(false);
+    mine(false, false);
     let unspents = test_list_unspents(&wallet_watch, Some(&online_watch), false);
     assert_eq!(unspents.len(), 1);
 

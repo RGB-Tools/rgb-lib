@@ -73,7 +73,7 @@ fn success() {
     // settle the transfer so the tx gets broadcasted and receiver sees the new UTXO
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, None, None);
-    mine(false);
+    mine(false, false);
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, None, None);
     let transactions = test_list_transactions(&wallet, Some(&online));
@@ -92,7 +92,7 @@ fn success() {
         .all(|t| t.confirmation_time.is_some()));
 
     drain_wallet(&wallet, &online);
-    mine(false);
+    mine(false, false);
     let transactions = test_list_transactions(&wallet, Some(&online));
     assert_eq!(transactions.len(), 4);
     assert!(transactions

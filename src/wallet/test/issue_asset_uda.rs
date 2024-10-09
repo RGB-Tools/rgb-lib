@@ -403,7 +403,7 @@ fn fail() {
     ));
 
     fund_wallet(test_get_address(&wallet));
-    mine(false);
+    mine(false, false);
 
     // insufficient allocations
     let result = test_issue_asset_uda_result(&wallet, &online, None, None, vec![]);

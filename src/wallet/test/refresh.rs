@@ -221,7 +221,7 @@ fn success() {
         TransferStatus::WaitingCounterparty
     ));
 
-    mine(true);
+    mine(false, true);
 
     // refresh incoming WaitingConfirmations only (wallet 2)
     assert!(
@@ -365,7 +365,7 @@ fn nia_with_media() {
     let assets_list = test_list_assets(&wallet_2, &[]);
     assert!(assets_list.nia.unwrap()[0].media.is_some());
     wait_for_refresh(&wallet_1, &online_1, None, None);
-    mine(false);
+    mine(false, false);
     wait_for_refresh(&wallet_2, &online_2, None, None);
     wait_for_refresh(&wallet_1, &online_1, None, None);
 
@@ -386,7 +386,7 @@ fn nia_with_media() {
     let assets_list = test_list_assets(&wallet_3, &[]);
     assert!(assets_list.nia.unwrap()[0].media.is_some());
     wait_for_refresh(&wallet_2, &online_2, None, None);
-    mine(false);
+    mine(false, false);
     wait_for_refresh(&wallet_3, &online_3, None, None);
     wait_for_refresh(&wallet_2, &online_2, None, None);
     let rcv_transfer = get_test_transfer_recipient(&wallet_3, &receive_data.recipient_id);
@@ -439,7 +439,7 @@ fn nia_with_details() {
     // settle transfer
     wait_for_refresh(&wallet_2, &online_2, None, None);
     wait_for_refresh(&wallet_1, &online_1, None, None);
-    mine(false);
+    mine(false, false);
     wait_for_refresh(&wallet_2, &online_2, None, None);
     wait_for_refresh(&wallet_1, &online_1, None, None);
 
@@ -460,7 +460,7 @@ fn nia_with_details() {
     // settle transfer
     wait_for_refresh(&wallet_3, &online_3, None, None);
     wait_for_refresh(&wallet_2, &online_2, None, None);
-    mine(false);
+    mine(false, false);
     wait_for_refresh(&wallet_3, &online_3, None, None);
     wait_for_refresh(&wallet_2, &online_2, None, None);
     let rcv_transfer = get_test_transfer_recipient(&wallet_3, &receive_data.recipient_id);
@@ -537,7 +537,7 @@ fn uda_with_preview_and_reserves() {
         .media
         .is_none());
     wait_for_refresh(&wallet_1, &online_1, None, None);
-    mine(false);
+    mine(false, false);
     wait_for_refresh(&wallet_2, &online_2, None, None);
     wait_for_refresh(&wallet_1, &online_1, None, None);
 
@@ -567,7 +567,7 @@ fn uda_with_preview_and_reserves() {
     assert_eq!(token.attachments, HashMap::new());
     assert!(token.reserves);
     wait_for_refresh(&wallet_2, &online_2, None, None);
-    mine(false);
+    mine(false, false);
     wait_for_refresh(&wallet_3, &online_3, None, None);
     wait_for_refresh(&wallet_2, &online_2, None, None);
     let rcv_transfer = get_test_transfer_recipient(&wallet_3, &receive_data.recipient_id);

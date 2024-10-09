@@ -190,7 +190,7 @@ fn list_unspents_vanilla_success() {
     let unspent_list = test_list_unspents_vanilla(&wallet, &online, Some(0));
     assert_eq!(unspent_list.len(), 1);
 
-    mine(true);
+    mine(false, true);
 
     // one unspent, 1 confirmation
     let unspent_list = test_list_unspents_vanilla(&wallet, &online, None);
@@ -201,7 +201,7 @@ fn list_unspents_vanilla_success() {
     test_create_utxos_default(&wallet, &online);
 
     // one unspent (change), colored unspents not listed
-    mine(false);
+    mine(false, false);
     let unspent_list = test_list_unspents_vanilla(&wallet, &online, None);
     assert_eq!(unspent_list.len(), 1);
 }

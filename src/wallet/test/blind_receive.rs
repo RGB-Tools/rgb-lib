@@ -344,7 +344,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidInvoice { details: _ })));
 
     fund_wallet(test_get_address(&wallet));
-    mine(false);
+    mine(false, false);
     test_create_utxos(&wallet, &online, true, Some(1), None, FEE_RATE);
 
     // bad asset id

@@ -15,7 +15,7 @@ fn success() {
     // initial balance
     fund_wallet(test_get_address(&wallet));
     test_create_utxos_default(&wallet, &online);
-    mine(false);
+    mine(false, false);
     let expected_balance = BtcBalance {
         vanilla: Balance {
             settled: 99994508,
@@ -39,7 +39,7 @@ fn success() {
         bak_info_before.last_operation_timestamp
     );
     assert!(!txid.is_empty());
-    mine(false);
+    mine(false, false);
     let expected_balance = BtcBalance {
         vanilla: Balance {
             settled: 99993274,

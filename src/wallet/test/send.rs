@@ -157,7 +157,7 @@ fn success() {
     );
 
     // transfers progress to status Settled after tx mining + refresh
-    mine(true);
+    mine(false, true);
     std::thread::sleep(Duration::from_millis(1000)); // make sure updated_at will be at least +1s
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
@@ -253,7 +253,7 @@ fn success() {
     // settle transfer
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
-    mine(false);
+    mine(false, false);
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
     let rcv_transfer =
@@ -335,7 +335,7 @@ fn success() {
     // settle transfer
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
-    mine(false);
+    mine(false, false);
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
     let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
@@ -455,7 +455,7 @@ fn spend_all() {
     assert_eq!(transfer_data.status, TransferStatus::WaitingConfirmations);
 
     // transfers progress to status Settled after tx mining + refresh
-    mine(true);
+    mine(false, true);
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
 
@@ -524,7 +524,7 @@ fn send_twice_success() {
     // take transfers from WaitingCounterparty to Settled
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
-    mine(false);
+    mine(false, false);
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
 
@@ -571,7 +571,7 @@ fn send_twice_success() {
     // take transfers from WaitingCounterparty to Settled
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
-    mine(false);
+    mine(false, false);
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
 
@@ -658,7 +658,7 @@ fn send_blank_success() {
     // take transfers from WaitingCounterparty to Settled
     wait_for_refresh(&wallet_2, &online_2, None, None);
     wait_for_refresh(&wallet_1, &online_1, Some(&asset_nia.asset_id), None);
-    mine(false);
+    mine(false, false);
     wait_for_refresh(&wallet_2, &online_2, None, None);
     wait_for_refresh(&wallet_1, &online_1, Some(&asset_nia.asset_id), None);
 
@@ -724,7 +724,7 @@ fn send_blank_success() {
     // take transfers from WaitingCounterparty to Settled
     wait_for_refresh(&wallet_2, &online_2, None, None);
     wait_for_refresh(&wallet_1, &online_1, Some(&asset_cfa.asset_id), None);
-    mine(false);
+    mine(false, false);
     wait_for_refresh(&wallet_2, &online_2, None, None);
     wait_for_refresh(&wallet_1, &online_1, Some(&asset_cfa.asset_id), None);
 
@@ -827,7 +827,7 @@ fn send_received_success() {
     // take transfers from WaitingCounterparty to Settled
     wait_for_refresh(&wallet_2, &online_2, None, None);
     wait_for_refresh(&wallet_1, &online_1, None, None);
-    mine(false);
+    mine(false, false);
     wait_for_refresh(&wallet_2, &online_2, None, None);
     wait_for_refresh(&wallet_1, &online_1, None, None);
 
@@ -905,7 +905,7 @@ fn send_received_success() {
     // take transfers from WaitingCounterparty to Settled
     wait_for_refresh(&wallet_3, &online_3, None, None);
     wait_for_refresh(&wallet_2, &online_2, None, None);
-    mine(false);
+    mine(false, false);
     wait_for_refresh(&wallet_3, &online_3, None, None);
     wait_for_refresh(&wallet_2, &online_2, None, None);
 
@@ -1020,7 +1020,7 @@ fn send_received_uda_success() {
     // take transfers from WaitingCounterparty to Settled
     wait_for_refresh(&wallet_2, &online_2, None, None);
     wait_for_refresh(&wallet_1, &online_1, Some(&asset.asset_id), None);
-    mine(false);
+    mine(false, false);
     wait_for_refresh(&wallet_2, &online_2, None, None);
     wait_for_refresh(&wallet_1, &online_1, Some(&asset.asset_id), None);
 
@@ -1065,7 +1065,7 @@ fn send_received_uda_success() {
         .media_idx
         .is_none());
     wait_for_refresh(&wallet_2, &online_2, Some(&asset.asset_id), None);
-    mine(false);
+    mine(false, false);
     wait_for_refresh(&wallet_3, &online_3, None, None);
     wait_for_refresh(&wallet_2, &online_2, Some(&asset.asset_id), None);
 
@@ -1175,7 +1175,7 @@ fn send_received_cfa_success() {
     // take transfers from WaitingCounterparty to Settled
     wait_for_refresh(&wallet_2, &online_2, None, None);
     wait_for_refresh(&wallet_1, &online_1, Some(&asset.asset_id), None);
-    mine(false);
+    mine(false, false);
     wait_for_refresh(&wallet_2, &online_2, None, None);
     wait_for_refresh(&wallet_1, &online_1, Some(&asset.asset_id), None);
 
@@ -1222,7 +1222,7 @@ fn send_received_cfa_success() {
     // take transfers from WaitingCounterparty to Settled
     wait_for_refresh(&wallet_3, &online_3, None, None);
     wait_for_refresh(&wallet_2, &online_2, Some(&asset.asset_id), None);
-    mine(false);
+    mine(false, false);
     wait_for_refresh(&wallet_3, &online_3, None, None);
     wait_for_refresh(&wallet_2, &online_2, Some(&asset.asset_id), None);
 
@@ -1502,7 +1502,7 @@ fn receive_multiple_same_asset_success() {
     assert!(updated_at_2 > transfer_data_2.created_at);
 
     // transfers progress to status Settled after tx mining + refresh
-    mine(true);
+    mine(false, true);
     std::thread::sleep(Duration::from_millis(1000)); // make sure updated_at will be at least +1s
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
@@ -1819,7 +1819,7 @@ fn receive_multiple_different_assets_success() {
 
     // transfers progress to status Settled after tx mining + refresh
     std::thread::sleep(Duration::from_millis(1000)); // make sure updated_at will be at least +1s
-    mine(true);
+    mine(false, true);
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset_1.asset_id), None);
 
@@ -1965,7 +1965,7 @@ fn batch_donation_success() {
     test_list_transfers(&rcv_wallet_1, Some(&asset_b.asset_id));
     test_list_transfers(&rcv_wallet_2, Some(&asset_a.asset_id));
     test_list_transfers(&rcv_wallet_2, Some(&asset_b.asset_id));
-    mine(false);
+    mine(false, false);
     wait_for_refresh(&rcv_wallet_1, &rcv_online_1, None, None);
     wait_for_refresh(&rcv_wallet_2, &rcv_online_2, None, None);
     test_list_transfers(&rcv_wallet_1, Some(&asset_a.asset_id));
@@ -2653,7 +2653,7 @@ fn pending_incoming_transfer_fail() {
     // take transfers from WaitingCounterparty to Settled
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
-    mine(false);
+    mine(false, false);
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
 
@@ -3193,7 +3193,7 @@ fn send_to_oneself() {
 
     // transfers progress to status Settled after refreshes
     wait_for_refresh(&wallet, &online, None, Some(&[2, 3]));
-    mine(true);
+    mine(false, true);
     wait_for_refresh(&wallet, &online, None, None);
 
     let batch_transfers = get_test_batch_transfers(&wallet, &txid);
@@ -3240,7 +3240,7 @@ fn send_received_back_success() {
     // take transfers from WaitingCounterparty to Settled
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
-    mine(false);
+    mine(false, false);
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
 
@@ -3287,7 +3287,7 @@ fn send_received_back_success() {
     // take transfers from WaitingCounterparty to Settled
     wait_for_refresh(&wallet, &online, None, None);
     wait_for_refresh(&rcv_wallet, &rcv_online, Some(&asset.asset_id), None);
-    mine(false);
+    mine(false, false);
     wait_for_refresh(&wallet, &online, None, None);
     wait_for_refresh(&rcv_wallet, &rcv_online, Some(&asset.asset_id), None);
 
@@ -3340,7 +3340,7 @@ fn send_received_back_success() {
     // take transfers from WaitingCounterparty to Settled
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
-    mine(false);
+    mine(false, false);
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
 
@@ -3468,7 +3468,7 @@ fn witness_success() {
     );
 
     // transfers progress to status Settled after tx mining + refresh
-    mine(true);
+    mine(false, true);
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
 
@@ -3696,7 +3696,7 @@ fn witness_multiple_assets_success() {
     });
 
     // transfers progress to status Settled after tx mining + refresh
-    mine(true);
+    mine(false, true);
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, None, None);
 
@@ -3821,7 +3821,7 @@ fn witness_multiple_assets_success() {
     );
 
     // transfers progress to status Settled after tx mining + refresh
-    mine(true);
+    mine(false, true);
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, None, None);
 
@@ -3891,7 +3891,7 @@ fn witness_multiple_inputs_success() {
     // settle transfers
     wait_for_refresh(&wallet_2, &online_2, None, None);
     wait_for_refresh(&wallet_1, &online_1, None, None);
-    mine(true);
+    mine(false, true);
     wait_for_refresh(&wallet_2, &online_2, None, None);
     wait_for_refresh(&wallet_1, &online_1, Some(&asset.asset_id), None);
 
@@ -3917,7 +3917,7 @@ fn witness_multiple_inputs_success() {
     // settle transfers
     wait_for_refresh(&wallet_1, &online_1, None, None);
     wait_for_refresh(&wallet_2, &online_2, None, None);
-    mine(true);
+    mine(false, true);
     wait_for_refresh(&wallet_1, &online_1, None, None);
     wait_for_refresh(&wallet_2, &online_2, Some(&asset.asset_id), None);
 
@@ -3943,7 +3943,7 @@ fn witness_multiple_inputs_success() {
     // settle transfers
     wait_for_refresh(&wallet_2, &online_2, None, None);
     wait_for_refresh(&wallet_1, &online_1, None, None);
-    mine(true);
+    mine(false, true);
     wait_for_refresh(&wallet_2, &online_2, None, None);
     wait_for_refresh(&wallet_1, &online_1, Some(&asset.asset_id), None);
 
@@ -4143,7 +4143,7 @@ fn _min_confirmations_common(
 
     wait_for_refresh(wallet, online, None, None);
     wait_for_refresh(rcv_wallet, rcv_online, Some(&asset.asset_id), None);
-    mine(true);
+    mine(esplora, true);
     wait_for_refresh(wallet, online, None, None);
     wait_for_refresh(rcv_wallet, rcv_online, Some(&asset.asset_id), None);
 
@@ -4226,7 +4226,7 @@ fn spend_double_receive() {
         .txid;
     assert!(!txid_1.is_empty());
     // settle transfer
-    mine(false);
+    mine(false, false);
     wait_for_refresh(&wallet_2, &online_2, None, None);
     wait_for_refresh(&wallet_2, &online_2, None, None);
     wait_for_refresh(&wallet_1, &online_1, Some(&asset.asset_id), None);
@@ -4265,7 +4265,7 @@ fn spend_double_receive() {
         .txid;
     assert!(!txid_2.is_empty());
     // settle transfer
-    mine(false);
+    mine(false, false);
     wait_for_refresh(&wallet_2, &online_2, None, None);
     wait_for_refresh(&wallet_2, &online_2, None, None);
     wait_for_refresh(&wallet_1, &online_1, Some(&asset.asset_id), None);
@@ -4346,7 +4346,7 @@ fn spend_double_receive() {
     // settle transfer
     wait_for_refresh(&wallet_3, &online_3, None, None);
     wait_for_refresh(&wallet_2, &online_2, Some(&asset.asset_id), None);
-    mine(false);
+    mine(false, false);
     wait_for_refresh(&wallet_3, &online_3, None, None);
     wait_for_refresh(&wallet_2, &online_2, Some(&asset.asset_id), None);
     // check transfer status
@@ -4420,7 +4420,7 @@ fn input_sorting() {
     // settle transfers
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
-    mine(false);
+    mine(false, false);
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
 
@@ -4488,7 +4488,7 @@ fn spend_witness_receive_utxo() {
     );
 
     // mine and refresh the sender wallet only (receiver transfer still WaitingConfirmations)
-    mine(true);
+    mine(false, true);
     wait_for_refresh(&wallet_1, &online_1, Some(&asset_a.asset_id), None);
 
     // sync DB TXOs for the receiver wallet
@@ -4592,7 +4592,7 @@ fn rgb_change_on_btc_change() {
     assert_eq!(transfer_data.status, TransferStatus::WaitingConfirmations);
 
     // transfers progress to status Settled after tx mining + refresh
-    mine(true);
+    mine(false, true);
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, None, None);
 

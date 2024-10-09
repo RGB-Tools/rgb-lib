@@ -171,7 +171,7 @@ pub(crate) fn send_to_address(address: String) {
 
 pub(crate) fn fund_wallet(address: String) {
     send_to_address(address);
-    mine(false);
+    mine(false, false);
 }
 
 pub(crate) fn check_test_transfer_status_recipient(

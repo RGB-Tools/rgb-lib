@@ -23,7 +23,7 @@ fn success() {
     assert_eq!(unspent_list_all.len(), 0);
 
     fund_wallet(test_get_address(&wallet));
-    mine(false);
+    mine(false, false);
 
     // one unspent, no RGB allocations
     let unspent_list_settled = test_list_unspents(&wallet, Some(&online), true);
@@ -256,7 +256,7 @@ fn success() {
     );
 
     // transfer progresses to status Settled
-    mine(true);
+    mine(false, true);
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
     show_unspent_colorings(&rcv_wallet, "receiver after send - Settled");

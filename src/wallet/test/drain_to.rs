@@ -29,13 +29,13 @@ fn success() {
     test_drain_to_keep(&wallet, &online, &address);
     let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
-    mine(false);
+    mine(false, false);
     wait_for_unspents(&wallet, Some(&online), false, 0);
 
     // issue asset (to produce an RGB allocation)
     fund_wallet(test_get_address(&wallet));
     test_create_utxos_default(&wallet, &online);
-    mine(false);
+    mine(false, false);
     test_issue_asset_nia(&wallet, &online, None);
 
     // drain funded wallet with RGB allocations
@@ -53,10 +53,10 @@ fn success() {
     };
     wait_for_btc_balance(&wallet, &online, &expected_balance);
     test_drain_to_keep(&wallet, &online, &test_get_address(&rcv_wallet));
-    mine(false);
+    mine(false, false);
     wait_for_unspents(&wallet, Some(&online), false, UTXO_NUM);
     test_drain_to_destroy(&wallet, &online, &test_get_address(&rcv_wallet));
-    mine(false);
+    mine(false, false);
     wait_for_unspents(&wallet, Some(&online), false, 0);
 }
 
@@ -97,7 +97,7 @@ fn pending_witness_receive() {
     // refresh receiver (no UTXOs created) + sender (to broadcast) + mine
     wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
-    mine(true);
+    mine(false, true);
 
     // receiver still doesn't see the new UTXO (not refreshed a 2nd time yet)
     let unspents = list_test_unspents(&rcv_wallet, "before draining");
