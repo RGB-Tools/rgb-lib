@@ -20,3 +20,11 @@ jobs:
           components: rustfmt
       - name: Format
         run: cargo fmt --all -- --check
+      - name: Format c-ffi bindings
+        working-directory: ./bindings/c-ffi
+        run: |
+          make format
+          git diff --exit-code
+      - name: Format uniffi bindings
+        working-directory: ./bindings/uniffi
+        run: cargo fmt -- --check

@@ -26,3 +26,9 @@ jobs:
         run: cargo clippy --lib --workspace --no-default-features --features electrum -- -D warnings
       - name: Lint with esplora feature
         run: cargo clippy --lib --workspace --no-default-features --features esplora -- -D warnings
+      - name: Lint c-ffi bindings
+        working-directory: ./bindings/c-ffi
+        run: cargo clippy
+      - name: Lint uniffi bindings
+        working-directory: ./bindings/uniffi
+        run: cargo clippy
