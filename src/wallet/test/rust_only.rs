@@ -499,9 +499,7 @@ fn post_consignment_fail() {
         fake_txid.to_string(),
         Some(0),
     );
-    assert!(
-        matches!(result, Err(Error::Proxy { details: m }) if m.contains("error sending request for url"))
-    );
+    assert_matches!(result, Err(Error::Proxy { details: m }) if m.contains("error sending request for url"));
 
     // invalid transport endpoint
     let invalid_proxy_url = &format!("http://{PROXY_HOST_MOD_API}");

@@ -1,5 +1,17 @@
 use super::*;
 
+#[macro_export]
+macro_rules! assert_matches {
+    ($expression:expr, $pattern:pat $(if $guard:expr)? $(,)?) => {
+        match $expression {
+            $pattern $(if $guard)? => {},
+            _ => {
+                panic!("received unexpected result: {}", stringify!($expression));
+            }
+        }
+    };
+}
+
 pub(crate) fn join_with_sep(parts: &[&str]) -> String {
     parts.join(MAIN_SEPARATOR_STR)
 }
