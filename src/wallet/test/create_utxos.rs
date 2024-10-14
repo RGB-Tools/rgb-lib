@@ -234,3 +234,45 @@ fn casting() {
     let unspents = test_list_unspents(&wallet, None, false);
     assert_eq!(unspents.len(), (UTXO_NUM + 1) as usize);
 }
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn skip_sync() {
+    initialize();
+
+    // prepare wallet with 1 bitcoin UTXO
+    let (wallet, online) = get_funded_noutxo_wallet!();
+
+    // bitcoin UTXO not yet visible > creating UTXOs skipping sync fails
+    let unspents = test_list_unspents(&wallet, None, false);
+    assert_eq!(unspents.len(), 0);
+    let result = wallet.create_utxos(online.clone(), true, None, None, FEE_RATE, true);
+    assert_matches!(
+        result,
+        Err(Error::InsufficientBitcoins {
+            needed: _,
+            available: _
+        })
+    );
+
+    // sync so the bitcoin UTXO becomes visible
+    wallet.sync(online.clone()).unwrap();
+    let unspents = test_list_unspents(&wallet, None, false);
+    assert_eq!(unspents.len(), 1);
+
+    // create UTXOs skipping sync (returns 0 created UTXOs)
+    let num_utxos_created = wallet
+        .create_utxos(online.clone(), true, None, None, FEE_RATE, true)
+        .unwrap();
+    assert_eq!(num_utxos_created, 0);
+
+    // created UTXOs not yet visible
+    let unspents = test_list_unspents(&wallet, None, false);
+    assert_eq!(unspents.len(), 1);
+
+    // created UTXOs become visible after syncing
+    wallet.sync(online.clone()).unwrap();
+    let unspents = test_list_unspents(&wallet, None, false);
+    assert_eq!(unspents.len(), (UTXO_NUM + 1) as usize);
+}
