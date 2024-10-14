@@ -117,7 +117,7 @@ fn success() {
         .blind_receive(
             Some(asset.asset_id.clone()),
             None,
-            None,
+            Some(expiration),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
         )
@@ -516,4 +516,196 @@ fn batch_fail() {
         false,
     );
     assert!(matches!(result, Err(Error::CannotFailBatchTransfer)));
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn skip_sync() {
+    initialize();
+
+    let amount = 66;
+    let expiration = 1;
+
+    let (wallet, online) = get_funded_wallet!();
+    let (rcv_wallet, rcv_online) = get_funded_wallet!();
+
+    // issue
+    let asset = test_issue_asset_nia(&wallet, &online, None);
+
+    // fail single transfer skipping sync
+    let receive_data = test_blind_receive(&rcv_wallet);
+    assert!(check_test_transfer_status_recipient(
+        &rcv_wallet,
+        &receive_data.recipient_id,
+        TransferStatus::WaitingCounterparty
+    ));
+    assert!(rcv_wallet
+        .fail_transfers(
+            rcv_online.clone(),
+            Some(receive_data.batch_transfer_idx),
+            false,
+            true
+        )
+        .unwrap());
+
+    // fail all expired WaitingCounterparty transfers
+    let receive_data_1 = rcv_wallet
+        .blind_receive(
+            None,
+            None,
+            Some(expiration),
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+    let receive_data_2 = test_blind_receive(&rcv_wallet);
+    let receive_data_3 = test_blind_receive(&rcv_wallet);
+    // wait for expiration to be in the past
+    std::thread::sleep(std::time::Duration::from_millis(
+        expiration as u64 * 1000 + 2000,
+    ));
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            recipient_id: receive_data_3.recipient_id.clone(),
+            witness_data: None,
+            amount,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid = test_send(&wallet, &online, &recipient_map);
+    assert!(!txid.is_empty());
+    stop_mining();
+    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
+    show_unspent_colorings(&rcv_wallet, "receiver run 1 after refresh 1");
+    show_unspent_colorings(&wallet, "sender run 1 no refresh");
+    assert!(check_test_transfer_status_recipient(
+        &rcv_wallet,
+        &receive_data_1.recipient_id,
+        TransferStatus::WaitingCounterparty
+    ));
+    assert!(check_test_transfer_status_recipient(
+        &rcv_wallet,
+        &receive_data_2.recipient_id,
+        TransferStatus::WaitingCounterparty
+    ));
+    assert!(check_test_transfer_status_recipient(
+        &rcv_wallet,
+        &receive_data_3.recipient_id,
+        TransferStatus::WaitingConfirmations
+    ));
+    assert!(rcv_wallet
+        .fail_transfers(rcv_online.clone(), None, false, true)
+        .unwrap());
+    show_unspent_colorings(&rcv_wallet, "receiver run 1 after fail");
+    show_unspent_colorings(&wallet, "sender run 1 after fail");
+    assert!(check_test_transfer_status_recipient(
+        &rcv_wallet,
+        &receive_data_1.recipient_id,
+        TransferStatus::Failed
+    ));
+    assert!(check_test_transfer_status_recipient(
+        &rcv_wallet,
+        &receive_data_2.recipient_id,
+        TransferStatus::WaitingCounterparty
+    ));
+    assert!(check_test_transfer_status_recipient(
+        &rcv_wallet,
+        &receive_data_3.recipient_id,
+        TransferStatus::WaitingConfirmations
+    ));
+
+    // progress transfer to Settled
+    wait_for_refresh(&wallet, &online, None, None);
+    mine(false, true);
+    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
+    wait_for_refresh(&wallet, &online, None, None);
+
+    // fail all expired WaitingCounterparty transfers with no asset_id
+    let receive_data_1 = test_blind_receive(&rcv_wallet);
+    let receive_data_2 = rcv_wallet
+        .blind_receive(
+            Some(asset.asset_id.clone()),
+            None,
+            Some(expiration),
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+    let receive_data_3 = test_blind_receive(&rcv_wallet);
+    let receive_data_4 = rcv_wallet
+        .blind_receive(
+            None,
+            None,
+            Some(expiration),
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+    // wait for expiration to be in the past
+    std::thread::sleep(std::time::Duration::from_millis(
+        expiration as u64 * 1000 + 2000,
+    ));
+    // progress transfer 3 to WaitingConfirmations
+    let recipient_map = HashMap::from([(
+        asset.asset_id,
+        vec![Recipient {
+            recipient_id: receive_data_3.recipient_id.clone(),
+            witness_data: None,
+            amount,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid = test_send(&wallet, &online, &recipient_map);
+    assert!(!txid.is_empty());
+    wait_for_refresh(&rcv_wallet, &rcv_online, None, None);
+
+    show_unspent_colorings(&rcv_wallet, "receiver run 2 after refresh 1");
+    show_unspent_colorings(&wallet, "sender run 2 no refresh");
+    assert!(check_test_transfer_status_recipient(
+        &rcv_wallet,
+        &receive_data_1.recipient_id,
+        TransferStatus::WaitingCounterparty
+    ));
+    assert!(check_test_transfer_status_recipient(
+        &rcv_wallet,
+        &receive_data_2.recipient_id,
+        TransferStatus::WaitingCounterparty
+    ));
+    assert!(check_test_transfer_status_recipient(
+        &rcv_wallet,
+        &receive_data_3.recipient_id,
+        TransferStatus::WaitingConfirmations
+    ));
+    assert!(check_test_transfer_status_recipient(
+        &rcv_wallet,
+        &receive_data_4.recipient_id,
+        TransferStatus::WaitingCounterparty
+    ));
+    rcv_wallet
+        .fail_transfers(rcv_online, None, true, true)
+        .unwrap();
+    show_unspent_colorings(&rcv_wallet, "receiver run 2 after fail");
+    show_unspent_colorings(&wallet, "sender run 2 after fail");
+    assert!(check_test_transfer_status_recipient(
+        &rcv_wallet,
+        &receive_data_1.recipient_id,
+        TransferStatus::WaitingCounterparty
+    ));
+    assert!(check_test_transfer_status_recipient(
+        &rcv_wallet,
+        &receive_data_2.recipient_id,
+        TransferStatus::WaitingCounterparty
+    ));
+    assert!(check_test_transfer_status_recipient(
+        &rcv_wallet,
+        &receive_data_3.recipient_id,
+        TransferStatus::WaitingConfirmations
+    ));
+    assert!(check_test_transfer_status_recipient(
+        &rcv_wallet,
+        &receive_data_4.recipient_id,
+        TransferStatus::Failed
+    ));
 }
