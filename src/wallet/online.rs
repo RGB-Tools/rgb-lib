@@ -1859,19 +1859,19 @@ impl Wallet {
     pub(crate) fn extract_received_amount(
         &self,
         consignment: &RgbTransfer,
-        txid: String,
+        witness_id: XWitnessId,
         vout: Option<u32>,
         known_concealed: Option<XChain<SecretSeal>>,
     ) -> (u64, bool) {
         let mut amount = 0;
         let mut not_opret = false;
-        if let Some(anchored_bundle) = consignment
+        if let Some(bundle) = consignment
             .bundles
             .iter()
-            .find(|ab| ab.witness_id().to_string() == format!("bc:{txid}"))
+            .find(|ab| ab.witness_id() == witness_id)
         {
-            'outer: for transition_bundle in anchored_bundle.bundles() {
-                for transition in transition_bundle.known_transitions.values() {
+            'outer: for (_anchor, bundle) in bundle.anchored_bundles() {
+                for transition in bundle.known_transitions.values() {
                     for assignment in transition.assignments.values() {
                         for fungible_assignment in assignment.as_fungible() {
                             if let Assign::ConfidentialSeal { seal, state, .. } =
@@ -2020,11 +2020,26 @@ impl Wallet {
             }
         }
 
+        let witness_id = match RgbTxid::from_str(&txid) {
+            Ok(txid) => XWitnessId::Bitcoin(txid),
+            Err(_) => {
+                error!(self.logger, "Received an invalid TXID from the proxy");
+                return self._refuse_consignment(
+                    proxy_url,
+                    recipient_id,
+                    &mut updated_batch_transfer,
+                );
+            }
+        };
+
+        let resolver = OffchainResolver {
+            witness_id,
+            consignment: &IndexedConsignment::new(&consignment),
+            fallback: self.blockchain_resolver(),
+        };
+
         debug!(self.logger, "Validating consignment...");
-        let validation_status = match consignment
-            .clone()
-            .validate(self.blockchain_resolver(), self.testnet())
-        {
+        let validation_status = match consignment.clone().validate(&resolver, self.testnet()) {
             Ok(consignment) => consignment.into_validation_status(),
             Err((status, _)) => status,
         };
@@ -2040,7 +2055,7 @@ impl Wallet {
         if let Some(anchored_bundle) = consignment
             .bundles
             .iter()
-            .find(|ab| ab.witness_id().to_string() == format!("bc:{txid}"))
+            .find(|ab| ab.witness_id() == witness_id)
         {
             if transfer.recipient_type == Some(RecipientType::Witness) {
                 if let Some(vout) = vout {
@@ -2219,7 +2234,7 @@ impl Wallet {
         };
 
         let (amount, not_opret) =
-            self.extract_received_amount(&consignment, txid.clone(), vout, known_concealed);
+            self.extract_received_amount(&consignment, witness_id, vout, known_concealed);
 
         if not_opret {
             error!(self.logger, "Found a non opret seal");

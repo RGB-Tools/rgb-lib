@@ -78,31 +78,30 @@ zip = { version = "2.2.0", default-features = false, features = [
 
 # RGB-related deps
 amplify = { version = "=4.7.0", default-features = false }
-bp-core = { version = "=0.11.0-beta.8", default-features = false }
-bp-electrum = { version = "=0.11.0-beta.8.1", optional = true, default-features = false, features = [
+bp-core = { version = "=0.11.0-beta.9", default-features = false }
+bp-electrum = { version = "=0.11.0-beta.9.3", optional = true, default-features = false, features = [
     "proxy",
     "use-rustls",
 ] }
-bp-esplora = { version = "=0.11.0-beta.8", optional = true, default-features = false, features = [
+bp-esplora = { version = "=0.11.0-beta.9", optional = true, default-features = false, features = [
     "blocking",
 ] }
-bp-seals = { version = "=0.11.0-beta.8", default-features = false }
-bp-std = { version = "=0.11.0-beta.8", default-features = false }
-commit_verify = { version = "=0.11.0-beta.8", default-features = false }
-rgb-core = { version = "=0.11.0-beta.8", default-features = false, features = [
+bp-seals = { version = "=0.11.0-beta.9", default-features = false }
+bp-std = { version = "=0.11.0-beta.9.1", default-features = false }
+commit_verify = { version = "=0.11.0-beta.9", default-features = false }
+rgb-core = { version = "=0.11.0-beta.9", default-features = false, features = [
     "stl",
 ] }
-rgb-interfaces = { version = "=0.11.0-beta.8", default-features = false }
-rgb-invoice = { version = "=0.11.0-beta.8", default-features = false }
-rgb-psbt = { version = "=0.11.0-beta.8", default-features = false }
-rgb-runtime = { version = "=0.11.0-beta.8", default-features = false, features = [
+rgb-interfaces = { version = "=0.11.0-beta.9", default-features = false }
+rgb-invoice = { version = "=0.11.0-beta.9.1", default-features = false }
+rgb-psbt = { version = "=0.11.0-beta.9", default-features = false }
+rgb-runtime = { version = "=0.11.0-beta.9", default-features = false, features = [
     "fs",
     "serde",
 ] }
-rgb-schemata = { version = "=0.11.0-beta.8", default-features = false }
-rgb-std = { version = "=0.11.0-beta.8", default-features = false }
+rgb-schemata = { version = "=0.11.0-beta.9", default-features = false }
+rgb-std = { version = "=0.11.0-beta.9.1", default-features = false }
 strict_encoding = { version = "=2.7.0", default-features = false }
-strict_types = { version = "=2.7.0", default-features = false } # temporary dependency pin
 
 [dev-dependencies]
 copy_dir = { version = "0.1.3", default-features = false }

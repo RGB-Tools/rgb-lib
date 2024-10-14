@@ -593,3 +593,30 @@ fn check_proxy_url_fail() {
     let result = check_proxy_url(PROXY_URL_MOD_PROTO);
     assert_matches!(result, Err(Error::InvalidProxyProtocol { version: _ }));
 }
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn accept_transfer_fail() {
+    initialize();
+
+    let (mut wallet, _online) = get_empty_wallet!();
+
+    // invalid txid
+    let consignment_endpoint = RgbTransport::from_str(&PROXY_ENDPOINT).unwrap();
+    let result = wallet.accept_transfer(s!("invalidTxid"), 0, consignment_endpoint, 0);
+    assert_matches!(result, Err(Error::InvalidTxid));
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn get_tx_height_fail() {
+    initialize();
+
+    let (wallet, _online) = get_empty_wallet!();
+
+    // invalid txid
+    let result = wallet.get_tx_height(s!("invalidTxid"));
+    assert_matches!(result, Err(Error::InvalidTxid));
+}

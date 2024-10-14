@@ -303,6 +303,8 @@ impl Wallet {
         blinding: u64,
     ) -> Result<(RgbTransfer, u64), Error> {
         info!(self.logger, "Accepting transfer...");
+        let witness_id =
+            XWitnessId::Bitcoin(RgbTxid::from_str(&txid).map_err(|_| Error::InvalidTxid)?);
         let proxy_url = TransportEndpoint::try_from(consignment_endpoint)?.endpoint;
 
         let consignment_res = self.get_consignment(&proxy_url, txid.clone())?;
@@ -326,13 +328,17 @@ impl Wallet {
         let seal = XChain::with(Layer1::Bitcoin, graph_seal);
         runtime.store_secret_seal(seal)?;
 
-        let (_validation_status, validated_transfer) = match consignment
-            .clone()
-            .validate(self.blockchain_resolver(), self.testnet())
-        {
-            Ok(cons) => (cons.clone().into_validation_status(), Some(cons)),
-            Err(_) => return Err(Error::InvalidConsignment),
+        let resolver = OffchainResolver {
+            witness_id,
+            consignment: &IndexedConsignment::new(&consignment),
+            fallback: self.blockchain_resolver(),
         };
+
+        let (_validation_status, validated_transfer) =
+            match consignment.clone().validate(&resolver, self.testnet()) {
+                Ok(cons) => (cons.clone().into_validation_status(), Some(cons)),
+                Err(_) => return Err(Error::InvalidConsignment),
+            };
 
         let mut minimal_contract = consignment.clone().into_contract();
         minimal_contract.bundles = none!();
@@ -347,34 +353,7 @@ impl Wallet {
             .expect("failure importing validated contract");
 
         let (remote_rgb_amount, _not_opret) =
-            self.extract_received_amount(&consignment, txid.clone(), Some(vout), None);
-
-        struct OffchainResolver<'a> {
-            witness_id: XWitnessId,
-            fallback: &'a AnyResolver,
-        }
-        impl ResolveWitness for OffchainResolver<'_> {
-            fn resolve_pub_witness(
-                &self,
-                _: XWitnessId,
-            ) -> Result<XWitnessTx, WitnessResolverError> {
-                unreachable!()
-            }
-            fn resolve_pub_witness_ord(
-                &self,
-                witness_id: XWitnessId,
-            ) -> Result<WitnessOrd, WitnessResolverError> {
-                if witness_id != self.witness_id {
-                    return self.fallback.resolve_pub_witness_ord(witness_id);
-                }
-                Ok(WitnessOrd::Tentative)
-            }
-        }
-
-        let resolver = OffchainResolver {
-            witness_id: XChain::Bitcoin(RgbTxid::from_str(&txid).unwrap()),
-            fallback: self.blockchain_resolver(),
-        };
+            self.extract_received_amount(&consignment, witness_id, Some(vout), None);
 
         let _status = runtime.accept_transfer(validated_transfer.unwrap(), &resolver)?;
 

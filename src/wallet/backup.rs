@@ -94,6 +94,7 @@ impl Wallet {
         match self._backup(backup_path, password, scrypt_params) {
             Ok(()) => Ok(()),
             Err(e) => {
+                error!(self.logger, "Error during backup: {e:?}");
                 if let Some(prev_backup_info) = prev_backup_info {
                     let mut prev_backup_info: DbBackupInfoActMod = prev_backup_info.into();
                     self.database.update_backup_info(&mut prev_backup_info)?;

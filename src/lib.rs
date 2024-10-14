@@ -186,6 +186,11 @@ use reqwest::{
     blocking::{multipart, Client as RestClient},
     header::CONTENT_TYPE,
 };
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+use rgb::{
+    containers::IndexedConsignment, resolvers::AnyResolver, stl::ContractTerms,
+    validation::Validity, Assign, GenesisSeal, Identity,
+};
 use rgb::{
     info::{ContractInfo, SchemaInfo},
     invoice::Pay2Vout,
@@ -194,10 +199,6 @@ use rgb::{
     vm::{WitnessOrd, XWitnessTx},
     BlindingFactor, Genesis, GraphSeal, Layer1, OpId, Opout, Transition, XChain, XOutpoint,
     XOutputSeal, XWitnessId,
-};
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-use rgb::{
-    resolvers::AnyResolver, stl::ContractTerms, validation::Validity, Assign, GenesisSeal, Identity,
 };
 use rgb_lib_migration::{Migrator, MigratorTrait};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -253,7 +254,8 @@ use crate::{
     api::proxy::{GetConsignmentResponse, Proxy},
     database::{DbData, LocalRecipient, LocalRecipientData, LocalWitnessData},
     utils::{
-        check_proxy, get_indexer, get_proxy_client, script_buf_from_recipient_id, INDEXER_TIMEOUT,
+        check_proxy, get_indexer, get_proxy_client, script_buf_from_recipient_id, OffchainResolver,
+        INDEXER_TIMEOUT,
     },
     wallet::Indexer,
 };

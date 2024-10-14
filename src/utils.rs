@@ -978,3 +978,36 @@ impl RgbPsbtExt for PartiallySignedTransaction {
         Ok(prev_transition.is_none())
     }
 }
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) struct OffchainResolver<'a, 'cons, const TRANSFER: bool> {
+    pub(crate) witness_id: XWitnessId,
+    pub(crate) consignment: &'cons IndexedConsignment<'cons, TRANSFER>,
+    pub(crate) fallback: &'a AnyResolver,
+}
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+impl<const TRANSFER: bool> ResolveWitness for OffchainResolver<'_, '_, TRANSFER> {
+    fn resolve_pub_witness(
+        &self,
+        witness_id: XWitnessId,
+    ) -> Result<XWitnessTx, WitnessResolverError> {
+        if witness_id != self.witness_id {
+            return self.fallback.resolve_pub_witness(witness_id);
+        }
+        self.consignment
+            .pub_witness(witness_id)
+            .and_then(|p| p.map_ref(|pw| pw.tx().cloned()).transpose())
+            .ok_or(WitnessResolverError::Unknown(witness_id))
+            .or_else(|_| self.fallback.resolve_pub_witness(witness_id))
+    }
+    fn resolve_pub_witness_ord(
+        &self,
+        witness_id: XWitnessId,
+    ) -> Result<WitnessOrd, WitnessResolverError> {
+        if witness_id != self.witness_id {
+            return self.fallback.resolve_pub_witness_ord(witness_id);
+        }
+        Ok(WitnessOrd::Tentative)
+    }
+}
