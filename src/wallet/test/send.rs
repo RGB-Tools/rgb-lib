@@ -4838,3 +4838,207 @@ fn script_buf_to_from_recipient_id() {
     let result = script_buf_from_recipient_id(s!(""));
     assert!(matches!(result, Err(Error::InvalidRecipientID)));
 }
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn skip_sync() {
+    initialize();
+
+    let amount: u64 = 66;
+
+    // wallets
+    let (wallet, online) = get_funded_wallet!();
+    let (rcv_wallet, rcv_online) = get_funded_wallet!();
+
+    // issue (2 allocations, 1 per send)
+    let asset = test_issue_asset_nia(&wallet, &online, Some(&[100, 200]));
+    let transfers = test_list_transfers(&wallet, Some(&asset.asset_id));
+    assert_eq!(transfers.len(), 1);
+    assert_eq!(transfers.first().unwrap().kind, TransferKind::Issuance);
+
+    // send (blinded) skipping sync
+    let receive_data_1 = test_blind_receive(&rcv_wallet);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            amount,
+            recipient_id: receive_data_1.recipient_id.clone(),
+            witness_data: None,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid_1 = wallet
+        .send(
+            online.clone(),
+            recipient_map.clone(),
+            false,
+            FEE_RATE,
+            MIN_CONFIRMATIONS,
+            true,
+        )
+        .unwrap()
+        .txid;
+    assert!(!txid_1.is_empty());
+
+    let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &receive_data_1.recipient_id);
+    let (rcv_transfer_data, _) = get_test_transfer_data(&rcv_wallet, &rcv_transfer);
+    let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid_1);
+    let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
+
+    // amount
+    assert_eq!(rcv_transfer.amount, 0.to_string());
+    assert_eq!(transfer.amount, amount.to_string());
+    // status
+    assert_eq!(
+        rcv_transfer_data.status,
+        TransferStatus::WaitingCounterparty
+    );
+    assert_eq!(transfer_data.status, TransferStatus::WaitingCounterparty);
+
+    // send (witness) skipping sync
+    let receive_data_2 = test_witness_receive(&rcv_wallet);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            amount,
+            recipient_id: receive_data_2.recipient_id.clone(),
+            witness_data: Some(WitnessData {
+                amount_sat: 1000,
+                blinding: None,
+            }),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid_2 = wallet
+        .send(
+            online.clone(),
+            recipient_map.clone(),
+            false,
+            FEE_RATE,
+            MIN_CONFIRMATIONS,
+            true,
+        )
+        .unwrap()
+        .txid;
+    assert!(!txid_2.is_empty());
+
+    let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &receive_data_2.recipient_id);
+    let (rcv_transfer_data, _) = get_test_transfer_data(&rcv_wallet, &rcv_transfer);
+    let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid_2);
+    let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
+
+    // amount
+    assert_eq!(rcv_transfer.amount, 0.to_string());
+    assert_eq!(transfer.amount, amount.to_string());
+    // status
+    assert_eq!(
+        rcv_transfer_data.status,
+        TransferStatus::WaitingCounterparty
+    );
+    assert_eq!(transfer_data.status, TransferStatus::WaitingCounterparty);
+
+    // settle transfers
+    wait_for_refresh(&rcv_wallet, &rcv_online, None, Some(&[1, 2]));
+    wait_for_refresh(&wallet, &online, None, Some(&[2, 3]));
+    mine(false, false);
+    wait_for_refresh(&rcv_wallet, &rcv_online, None, Some(&[1, 2]));
+    wait_for_refresh(&wallet, &online, None, Some(&[2, 3]));
+    assert!(check_test_transfer_status_sender(
+        &wallet,
+        &txid_1,
+        TransferStatus::Settled
+    ));
+    assert!(check_test_transfer_status_sender(
+        &wallet,
+        &txid_2,
+        TransferStatus::Settled
+    ));
+
+    // send to oneself (witness) skipping sync
+    let receive_data_3 = test_witness_receive(&wallet);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            amount,
+            recipient_id: receive_data_3.recipient_id.clone(),
+            witness_data: Some(WitnessData {
+                amount_sat: 1000,
+                blinding: None,
+            }),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid_3 = wallet
+        .send(
+            online.clone(),
+            recipient_map.clone(),
+            false,
+            FEE_RATE,
+            MIN_CONFIRMATIONS,
+            true,
+        )
+        .unwrap()
+        .txid;
+    assert!(!txid_3.is_empty());
+
+    // transfers are in WaitingCounterparty
+    let rcv_transfer = get_test_transfer_recipient(&wallet, &receive_data_3.recipient_id);
+    let (rcv_transfer_data, _) = get_test_transfer_data(&wallet, &rcv_transfer);
+    let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid_3);
+    let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
+    assert_eq!(rcv_transfer.amount, 0.to_string());
+    assert_eq!(transfer.amount, amount.to_string());
+    assert_eq!(
+        rcv_transfer_data.status,
+        TransferStatus::WaitingCounterparty
+    );
+    assert_eq!(transfer_data.status, TransferStatus::WaitingCounterparty);
+
+    // refresh skipping sync
+    wallet.refresh(online.clone(), None, vec![], true).unwrap();
+
+    // transfers are now in WaitingConfirmations
+    let rcv_transfer = get_test_transfer_recipient(&wallet, &receive_data_3.recipient_id);
+    let (rcv_transfer_data, _) = get_test_transfer_data(&wallet, &rcv_transfer);
+    let batch_transfers = get_test_batch_transfers(&wallet, &txid_3);
+    let batch_transfer = batch_transfers.iter().find(|t| t.idx == 5).unwrap();
+    let asset_transfer = get_test_asset_transfer(&wallet, batch_transfer.idx);
+    let transfers = get_test_transfers(&wallet, asset_transfer.idx);
+    let transfer = transfers.first().unwrap();
+    let (transfer_data, _) = get_test_transfer_data(&wallet, transfer);
+    assert_eq!(rcv_transfer.amount, amount.to_string());
+    assert_eq!(transfer.amount, amount.to_string());
+    assert_eq!(
+        rcv_transfer_data.status,
+        TransferStatus::WaitingConfirmations,
+    );
+    assert_eq!(transfer_data.status, TransferStatus::WaitingConfirmations);
+
+    // mine and refresh skipping sync > cannot refresh ReceiveWitness transfer as a sync is needed
+    mine(false, false);
+    let result = wallet.refresh(online.clone(), None, vec![], true).unwrap();
+    assert!(result
+        .iter()
+        .any(|(i, rt)| *i == 4 && rt.failure == Some(Error::SyncNeeded)));
+    show_unspent_colorings(&wallet, "after refresh 2");
+
+    // Send transfer is now settled
+    let batch_transfers = get_test_batch_transfers(&wallet, &txid_3);
+    let batch_transfer = batch_transfers.iter().find(|t| t.idx == 5).unwrap();
+    let asset_transfer = get_test_asset_transfer(&wallet, batch_transfer.idx);
+    let transfers = get_test_transfers(&wallet, asset_transfer.idx);
+    let transfer = transfers.first().unwrap();
+    let (transfer_data, _) = get_test_transfer_data(&wallet, transfer);
+    assert_eq!(transfer_data.status, TransferStatus::Settled);
+
+    // sync and refresh again (still skipping sync) > ReceiveWitness transfer now refreshes + new UTXO appears
+    wallet.sync(online.clone()).unwrap();
+    wallet.refresh(online.clone(), None, vec![], true).unwrap();
+    show_unspent_colorings(&wallet, "after refresh 3");
+
+    // ReceiveWitness transfer is now settled as well
+    let rcv_transfer = get_test_transfer_recipient(&wallet, &receive_data_3.recipient_id);
+    let (rcv_transfer_data, _) = get_test_transfer_data(&wallet, &rcv_transfer);
+    assert_eq!(rcv_transfer_data.status, TransferStatus::Settled,);
+}
