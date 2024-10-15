@@ -100,3 +100,23 @@ fn success() {
         .any(|t| matches!(t.transaction_type, TransactionType::Drain)));
     assert!(transactions.iter().all(|t| t.confirmation_time.is_some()));
 }
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn skip_sync() {
+    initialize();
+
+    let (wallet, online) = get_empty_wallet!();
+
+    send_to_address(test_get_address(&wallet));
+
+    // transaction list doesn't report the TX if sync is skipped
+    let transactions = test_list_transactions(&wallet, None);
+    assert_eq!(transactions.len(), 0);
+
+    // transaction list reports the TX after manually syncing
+    wallet.sync(online.clone()).unwrap();
+    let transactions = test_list_transactions(&wallet, None);
+    assert_eq!(transactions.len(), 1);
+}
