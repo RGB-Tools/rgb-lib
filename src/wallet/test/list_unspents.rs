@@ -297,3 +297,23 @@ fn success() {
         .for_each(|u| allocations.extend(u.rgb_allocations.clone()));
     assert_eq!(allocations, settled_allocations);
 }
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn skip_sync() {
+    initialize();
+
+    let (wallet, online) = get_empty_wallet!();
+
+    fund_wallet(test_get_address(&wallet));
+
+    // no unspents if skipping sync
+    let unspents = test_list_unspents(&wallet, None, false);
+    assert_eq!(unspents.len(), 0);
+
+    // 1 unspent after manually syncing
+    wallet.sync(online.clone()).unwrap();
+    let unspents = test_list_unspents(&wallet, None, false);
+    assert_eq!(unspents.len(), 1);
+}
