@@ -208,6 +208,30 @@ fn list_unspents_vanilla_success() {
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
+fn list_unspents_vanilla_skip_sync() {
+    initialize();
+
+    let (wallet, online) = get_empty_wallet!();
+
+    fund_wallet(test_get_address(&wallet));
+
+    // no unspents if skipping sync
+    let unspents = wallet
+        .list_unspents_vanilla(online.clone(), MIN_CONFIRMATIONS, true)
+        .unwrap();
+    assert_eq!(unspents.len(), 0);
+
+    // 1 unspent after manually syncing
+    wallet.sync(online.clone()).unwrap();
+    let unspents = wallet
+        .list_unspents_vanilla(online.clone(), MIN_CONFIRMATIONS, true)
+        .unwrap();
+    assert_eq!(unspents.len(), 1);
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
 fn save_new_asset_success() {
     initialize();
     let asset_amount: u64 = 66;
