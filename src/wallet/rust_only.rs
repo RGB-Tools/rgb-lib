@@ -32,11 +32,18 @@ pub struct ColoringInfo {
 pub type AssetBeneficiariesMap = BTreeMap<ContractId, Vec<BuilderSeal<GraphSeal>>>;
 
 /// Indexer protocol
+#[derive(Clone, Debug)]
 pub enum IndexerProtocol {
     /// An indexer implementing the electrum protocol
     Electrum,
     /// An indexer implementing the esplora protocol
     Esplora,
+}
+
+impl fmt::Display for IndexerProtocol {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 /// Return the indexer protocol for the provided URL.
