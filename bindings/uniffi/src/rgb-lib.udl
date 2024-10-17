@@ -50,6 +50,7 @@ interface RgbLibError {
   InvalidMnemonic(string details);
   InvalidName(string details);
   InvalidPrecision(string details);
+  InvalidProxyProtocol(string version);
   InvalidPsbt(string details);
   InvalidPubkey(string details);
   InvalidRecipientData(string details);

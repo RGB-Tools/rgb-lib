@@ -25,9 +25,6 @@ pub(crate) const DURATION_RCV_TRANSFER: u32 = 86400;
 pub(crate) const ASSET_ID_PREFIX: &str = "rgb:";
 pub(crate) const CONSIGNMENT_FILE: &str = "consignment_out";
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-const PROXY_TIMEOUT: u8 = 90;
-
 pub(crate) const SCHEMA_ID_NIA: &str =
     "rgb:sch:RDYhMTR!9gv8Y2GLv9UNBEK1hcrCmdLDFk9Qd5fnO8k#brave-dinner-banana";
 pub(crate) const SCHEMA_ID_UDA: &str =
@@ -1269,9 +1266,7 @@ impl Wallet {
         block_on(Migrator::up(&connection, None)).map_err(InternalError::from)?;
         let database = RgbLibDatabase::new(connection);
         #[cfg(any(feature = "electrum", feature = "esplora"))]
-        let rest_client = RestClient::builder()
-            .timeout(Duration::from_secs(PROXY_TIMEOUT as u64))
-            .build()?;
+        let rest_client = get_proxy_client()?;
 
         info!(logger, "New wallet completed");
         Ok(Wallet {

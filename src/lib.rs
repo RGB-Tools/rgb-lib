@@ -247,7 +247,7 @@ use crate::wallet::test::{mock_chain_net, skip_check_fee_rate};
 use crate::{
     api::proxy::{GetConsignmentResponse, Proxy},
     database::{DbData, LocalRecipient, LocalRecipientData, LocalWitnessData},
-    utils::{get_indexer, INDEXER_TIMEOUT},
+    utils::{check_proxy, get_indexer, get_proxy_client, INDEXER_TIMEOUT},
     wallet::Indexer,
 };
 use crate::{

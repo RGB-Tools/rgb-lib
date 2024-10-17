@@ -61,6 +61,17 @@ pub fn check_indexer_url(
     Ok(indexer_protocol)
 }
 
+/// Check whether the provided URL points to a valid proxy.
+/// An error is raised if the provided proxy URL is invalid or if the service is running an
+/// unsupported protocol version.
+///
+/// <div class="warning">This method is meant for special usage and is normally not needed, use
+/// it only if you know what you're doing</div>
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub fn check_proxy_url(proxy_url: &str) -> Result<(), Error> {
+    check_proxy(proxy_url, None)
+}
+
 impl Wallet {
     /// Color a PSBT.
     ///

@@ -21,6 +21,11 @@ pub(crate) const INDEXER_STOP_GAP: usize = 20;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) const INDEXER_TIMEOUT: u8 = 4;
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) const PROXY_TIMEOUT: u8 = 90;
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+const PROXY_PROTOCOL_VERSION: &str = "0.2";
+
 /// Supported Bitcoin networks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub enum BitcoinNetwork {
@@ -313,12 +318,46 @@ fn check_genesis_hash(bitcoin_network: &BitcoinNetwork, indexer: &Indexer) -> Re
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) fn get_proxy_client() -> Result<RestClient, Error> {
+    Ok(RestClient::builder()
+        .timeout(Duration::from_secs(PROXY_TIMEOUT as u64))
+        .build()?)
+}
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) fn check_proxy(proxy_url: &str, rest_client: Option<&RestClient>) -> Result<(), Error> {
+    let rest_client = if let Some(rest_client) = rest_client {
+        rest_client
+    } else {
+        &get_proxy_client()?
+    };
+    let mut err_details = s!("unable to connect to proxy");
+    if let Ok(server_info) = rest_client.clone().get_info(proxy_url) {
+        if let Some(info) = server_info.result {
+            if info.protocol_version == *PROXY_PROTOCOL_VERSION {
+                return Ok(());
+            } else {
+                return Err(Error::InvalidProxyProtocol {
+                    version: info.protocol_version,
+                });
+            }
+        }
+        if let Some(err) = server_info.error {
+            err_details = err.message;
+        }
+    };
+    Err(Error::Proxy {
+        details: err_details,
+    })
+}
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn get_indexer(
     indexer_url: &str,
     bitcoin_network: BitcoinNetwork,
 ) -> Result<(Indexer, AnyBlockchainConfig), Error> {
     // detect indexer type
-    let indexer_info = connect_to_indexer(indexer_url)?;
+    let indexer_info = build_indexer(indexer_url);
     let mut invalid_indexer = true;
     if let Some((ref indexer, _)) = indexer_info {
         invalid_indexer = indexer.block_hash(0).is_err();
@@ -347,7 +386,7 @@ pub(crate) fn get_indexer(
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-fn connect_to_indexer(indexer_url: &str) -> Result<Option<(Indexer, AnyBlockchainConfig)>, Error> {
+fn build_indexer(indexer_url: &str) -> Option<(Indexer, AnyBlockchainConfig)> {
     #[cfg(feature = "electrum")]
     {
         let electrum_config = ConfigBuilder::new().timeout(Some(INDEXER_TIMEOUT)).build();
@@ -362,7 +401,7 @@ fn connect_to_indexer(indexer_url: &str) -> Result<Option<(Indexer, AnyBlockchai
             };
             let indexer = Indexer::Electrum(Box::new(client));
             let config = AnyBlockchainConfig::Electrum(electrum_config);
-            return Ok(Some((indexer, config)));
+            return Some((indexer, config));
         }
     }
     if cfg!(feature = "esplora") {
@@ -378,10 +417,10 @@ fn connect_to_indexer(indexer_url: &str) -> Result<Option<(Indexer, AnyBlockchai
             let esplora_client = EsploraClient::from_config(&esplora_config).unwrap();
             let indexer = Indexer::Esplora(Box::new(esplora_client));
             let config = AnyBlockchainConfig::Esplora(esplora_config);
-            return Ok(Some((indexer, config)));
+            return Some((indexer, config));
         }
     }
-    Ok(None)
+    None
 }
 
 fn convert_time_fmt_error(cause: time::error::Format) -> io::Error {

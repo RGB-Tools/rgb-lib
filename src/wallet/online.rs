@@ -20,8 +20,6 @@ const MAX_FEE_RATE: f32 = 1000.0;
 
 pub(crate) const DURATION_SEND_TRANSFER: i64 = 3600;
 
-const PROXY_PROTOCOL_VERSION: &str = "0.2";
-
 pub(crate) const UDA_FIXED_INDEX: u32 = 0;
 
 pub(crate) const MIN_BLOCK_ESTIMATION: u16 = 1;
@@ -3292,18 +3290,10 @@ impl Wallet {
                         used: false,
                         usable: false,
                     };
-                    if let Ok(server_info) = self
-                        .rest_client
-                        .clone()
-                        .get_info(&transport_endpoint.endpoint)
-                    {
-                        if let Some(info) = server_info.result {
-                            if info.protocol_version == *PROXY_PROTOCOL_VERSION {
-                                local_transport_endpoint.usable = true;
-                                found_valid = true;
-                            }
-                        }
-                    };
+                    if check_proxy(&transport_endpoint.endpoint, Some(&self.rest_client)).is_ok() {
+                        local_transport_endpoint.usable = true;
+                        found_valid = true;
+                    }
                     transport_endpoints.push(local_transport_endpoint);
                 }
 

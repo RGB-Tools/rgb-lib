@@ -260,6 +260,13 @@ pub enum Error {
         details: String,
     },
 
+    /// The provided proxy URL points to a proxy running an unsupported protocol version
+    #[error("Invalid proxy protocol version: {version}")]
+    InvalidProxyProtocol {
+        /// Detected version
+        version: String,
+    },
+
     /// The provided PSBT could not be parsed
     #[error("Invalid PSBT: {details}")]
     InvalidPsbt {
