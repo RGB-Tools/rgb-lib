@@ -5,6 +5,9 @@ pub(crate) enum Error {
     #[error("Error converting JSON: {0}")]
     JSONConversion(#[from] serde_json::Error),
 
+    #[error("Error converting string into number")]
+    StringToNumberConversion,
+
     #[error("Error from rgb-lib: {0}")]
     RgbLib(#[from] RgbLibError),
 
@@ -103,6 +106,15 @@ where
     }
 }
 
+fn convert_strings_array<T: FromStr>(ptr: *const c_char) -> Result<Vec<T>, Error> {
+    let str_array: Vec<String> = serde_json::from_str(&ptr_to_string(ptr))?;
+    str_array
+        .iter()
+        .map(|a| a.parse())
+        .collect::<Result<Vec<T>, _>>()
+        .map_err(|_| Error::StringToNumberConversion)
+}
+
 fn convert_optional_number<T: serde::de::DeserializeOwned>(
     ptr: *const c_char,
 ) -> Result<Option<T>, Error> {
@@ -132,6 +144,12 @@ fn convert_optional_string(ptr: *const c_char) -> Option<String> {
     }
 }
 
+fn ptr_to_num<T: FromStr>(ptr: *const c_char) -> Result<T, Error> {
+    ptr_to_string(ptr)
+        .parse()
+        .map_err(|_| Error::StringToNumberConversion)
+}
+
 fn ptr_to_string(ptr: *const c_char) -> String {
     unsafe { CStr::from_ptr(ptr).to_string_lossy().into_owned() }
 }
@@ -154,14 +172,15 @@ pub(crate) fn blind_receive(
     amount_opt: *const c_char,
     duration_seconds_opt: *const c_char,
     transport_endpoints: *const c_char,
-    min_confirmations: c_uchar,
+    min_confirmations: *const c_char,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let transport_endpoints: Vec<String> =
         serde_json::from_str(&ptr_to_string(transport_endpoints))?;
     let asset_id = convert_optional_string(asset_id_opt);
-    let amount: Option<u64> = convert_optional_number(amount_opt)?;
-    let duration_seconds: Option<u32> = convert_optional_number(duration_seconds_opt)?;
+    let amount = convert_optional_number(amount_opt)?;
+    let duration_seconds = convert_optional_number(duration_seconds_opt)?;
+    let min_confirmations = ptr_to_num(min_confirmations)?;
     let res = wallet.blind_receive(
         asset_id,
         amount,
@@ -178,13 +197,14 @@ pub(crate) fn create_utxos(
     up_to: bool,
     num_opt: *const c_char,
     size_opt: *const c_char,
-    fee_rate: c_float,
+    fee_rate: *const c_char,
     skip_sync: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = Online::from_opaque(online)?;
-    let num: Option<u8> = convert_optional_number(num_opt)?;
-    let size: Option<u32> = convert_optional_number(size_opt)?;
+    let num = convert_optional_number(num_opt)?;
+    let size = convert_optional_number(size_opt)?;
+    let fee_rate = ptr_to_num(fee_rate)?;
     let res = wallet.create_utxos((*online).clone(), up_to, num, size, fee_rate, skip_sync)?;
     Ok(serde_json::to_string(&res)?)
 }
@@ -224,10 +244,11 @@ pub(crate) fn get_btc_balance(
 pub(crate) fn get_fee_estimation(
     wallet: &COpaqueStruct,
     online: &COpaqueStruct,
-    blocks: c_ushort,
+    blocks: *const c_char,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = Online::from_opaque(online)?;
+    let blocks = ptr_to_num(blocks)?;
     let res = wallet.get_fee_estimation((*online).clone(), blocks)?;
     Ok(serde_json::to_string(&res)?)
 }
@@ -246,13 +267,14 @@ pub(crate) fn issue_asset_cfa(
     online: &COpaqueStruct,
     name: *const c_char,
     details_opt: *const c_char,
-    precision: c_uchar,
+    precision: *const c_char,
     amounts: *const c_char,
     file_path_opt: *const c_char,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = Online::from_opaque(online)?;
-    let amounts: Vec<u64> = serde_json::from_str(&ptr_to_string(amounts))?;
+    let precision = ptr_to_num(precision)?;
+    let amounts = convert_strings_array(amounts)?;
     let details = convert_optional_string(details_opt);
     let file_path = convert_optional_string(file_path_opt);
     let res = wallet.issue_asset_cfa(
@@ -271,12 +293,13 @@ pub(crate) fn issue_asset_nia(
     online: &COpaqueStruct,
     ticker: *const c_char,
     name: *const c_char,
-    precision: c_uchar,
+    precision: *const c_char,
     amounts: *const c_char,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = Online::from_opaque(online)?;
-    let amounts: Vec<u64> = serde_json::from_str(&ptr_to_string(amounts))?;
+    let precision = ptr_to_num(precision)?;
+    let amounts = convert_strings_array(amounts)?;
     let res = wallet.issue_asset_nia(
         (*online).clone(),
         ptr_to_string(ticker),
@@ -294,13 +317,14 @@ pub(crate) fn issue_asset_uda(
     ticker: *const c_char,
     name: *const c_char,
     details_opt: *const c_char,
-    precision: c_uchar,
+    precision: *const c_char,
     media_file_path_opt: *const c_char,
     attachments_file_paths: *const c_char,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = Online::from_opaque(online)?;
     let details = convert_optional_string(details_opt);
+    let precision = ptr_to_num(precision)?;
     let media_file_path = convert_optional_string(media_file_path_opt);
     let attachments_file_paths: Vec<String> =
         serde_json::from_str(&ptr_to_string(attachments_file_paths))?;
@@ -395,14 +419,16 @@ pub(crate) fn send(
     online: &COpaqueStruct,
     recipient_map: *const c_char,
     donation: bool,
-    fee_rate: c_float,
-    min_confirmations: c_uchar,
+    fee_rate: *const c_char,
+    min_confirmations: *const c_char,
     skip_sync: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = Online::from_opaque(online)?;
     let recipient_map: HashMap<String, Vec<Recipient>> =
         serde_json::from_str(&ptr_to_string(recipient_map))?;
+    let fee_rate = ptr_to_num(fee_rate)?;
+    let min_confirmations = ptr_to_num(min_confirmations)?;
     let res = wallet.send(
         (*online).clone(),
         recipient_map,
@@ -418,13 +444,15 @@ pub(crate) fn send_btc(
     wallet: &COpaqueStruct,
     online: &COpaqueStruct,
     address: *const c_char,
-    amount: u64,
-    fee_rate: c_float,
+    amount: *const c_char,
+    fee_rate: *const c_char,
     skip_sync: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = Online::from_opaque(online)?;
     let address = ptr_to_string(address);
+    let amount = ptr_to_num(amount)?;
+    let fee_rate = ptr_to_num(fee_rate)?;
     let res = wallet.send_btc((*online).clone(), address, amount, fee_rate, skip_sync)?;
     Ok(res)
 }
@@ -442,14 +470,15 @@ pub(crate) fn witness_receive(
     amount_opt: *const c_char,
     duration_seconds_opt: *const c_char,
     transport_endpoints: *const c_char,
-    min_confirmations: c_uchar,
+    min_confirmations: *const c_char,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let transport_endpoints: Vec<String> =
         serde_json::from_str(&ptr_to_string(transport_endpoints))?;
     let asset_id = convert_optional_string(asset_id_opt);
-    let amount: Option<u64> = convert_optional_number(amount_opt)?;
-    let duration_seconds: Option<u32> = convert_optional_number(duration_seconds_opt)?;
+    let amount = convert_optional_number(amount_opt)?;
+    let duration_seconds = convert_optional_number(duration_seconds_opt)?;
+    let min_confirmations = ptr_to_num(min_confirmations)?;
     let res = wallet.witness_receive(
         asset_id,
         amount,

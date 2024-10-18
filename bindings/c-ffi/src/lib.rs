@@ -5,7 +5,7 @@ use crate::utils::*;
 use std::{
     any::TypeId,
     collections::{hash_map::DefaultHasher, HashMap},
-    ffi::{c_char, c_float, c_uchar, c_ushort, c_void, CStr, CString},
+    ffi::{c_char, c_void, CStr, CString},
     hash::{Hash, Hasher},
     ptr::null_mut,
     str::FromStr,
@@ -61,7 +61,7 @@ pub extern "C" fn rgblib_blind_receive(
     amount_opt: *const c_char,
     duration_seconds_opt: *const c_char,
     transport_endpoints: *const c_char,
-    min_confirmations: c_uchar,
+    min_confirmations: *const c_char,
 ) -> CResultString {
     blind_receive(
         wallet,
@@ -81,7 +81,7 @@ pub extern "C" fn rgblib_create_utxos(
     up_to: bool,
     num_opt: *const c_char,
     size_opt: *const c_char,
-    fee_rate: c_float,
+    fee_rate: *const c_char,
     skip_sync: bool,
 ) -> CResultString {
     create_utxos(
@@ -121,7 +121,7 @@ pub extern "C" fn rgblib_get_btc_balance(
 pub extern "C" fn rgblib_get_fee_estimation(
     wallet: &COpaqueStruct,
     online: &COpaqueStruct,
-    blocks: c_ushort,
+    blocks: *const c_char,
 ) -> CResultString {
     get_fee_estimation(wallet, online, blocks).into()
 }
@@ -141,7 +141,7 @@ pub extern "C" fn rgblib_issue_asset_cfa(
     online: &COpaqueStruct,
     name: *const c_char,
     details_opt: *const c_char,
-    precision: c_uchar,
+    precision: *const c_char,
     amounts: *const c_char,
     file_path_opt: *const c_char,
 ) -> CResultString {
@@ -163,7 +163,7 @@ pub extern "C" fn rgblib_issue_asset_nia(
     online: &COpaqueStruct,
     ticker: *const c_char,
     name: *const c_char,
-    precision: c_uchar,
+    precision: *const c_char,
     amounts: *const c_char,
 ) -> CResultString {
     issue_asset_nia(wallet, online, ticker, name, precision, amounts).into()
@@ -176,7 +176,7 @@ pub extern "C" fn rgblib_issue_asset_uda(
     ticker: *const c_char,
     name: *const c_char,
     details_opt: *const c_char,
-    precision: c_uchar,
+    precision: *const c_char,
     media_file_path_opt: *const c_char,
     attachments_file_paths: *const c_char,
 ) -> CResultString {
@@ -258,8 +258,8 @@ pub extern "C" fn rgblib_send(
     online: &COpaqueStruct,
     recipient_map: *const c_char,
     donation: bool,
-    fee_rate: c_float,
-    min_confirmations: c_uchar,
+    fee_rate: *const c_char,
+    min_confirmations: *const c_char,
     skip_sync: bool,
 ) -> CResultString {
     send(
@@ -279,8 +279,8 @@ pub extern "C" fn rgblib_send_btc(
     wallet: &COpaqueStruct,
     online: &COpaqueStruct,
     address: *const c_char,
-    amount: u64,
-    fee_rate: c_float,
+    amount: *const c_char,
+    fee_rate: *const c_char,
     skip_sync: bool,
 ) -> CResultString {
     send_btc(wallet, online, address, amount, fee_rate, skip_sync).into()
@@ -298,7 +298,7 @@ pub extern "C" fn rgblib_witness_receive(
     amount_opt: *const c_char,
     duration_seconds_opt: *const c_char,
     transport_endpoints: *const c_char,
-    min_confirmations: c_uchar,
+    min_confirmations: *const c_char,
 ) -> CResultString {
     witness_receive(
         wallet,

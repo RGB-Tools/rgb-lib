@@ -140,6 +140,91 @@ pub(crate) fn adjust_canonicalization<P: AsRef<Path>>(p: P) -> String {
     }
 }
 
+fn deserialize_str_or_number<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: FromStr + Copy,
+    T::Err: fmt::Display,
+{
+    struct StringOrNumberVisitor<T>(std::marker::PhantomData<T>);
+
+    impl<'de, T> Visitor<'de> for StringOrNumberVisitor<T>
+    where
+        T: FromStr + Copy,
+        T::Err: fmt::Display,
+    {
+        type Value = Option<T>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a string, a number, or null")
+        }
+
+        fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            T::from_str(&value.to_string())
+                .map(Some)
+                .map_err(de::Error::custom)
+        }
+
+        fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            T::from_str(&value.to_string())
+                .map(Some)
+                .map_err(de::Error::custom)
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            value.parse::<T>().map(Some).map_err(|e| {
+                de::Error::invalid_value(Unexpected::Str(value), &e.to_string().as_str())
+            })
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_unit<E>(self) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(None)
+        }
+    }
+
+    deserializer.deserialize_any(StringOrNumberVisitor(std::marker::PhantomData))
+}
+
+pub(crate) fn from_str_or_number_mandatory<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: FromStr + Copy,
+    T::Err: fmt::Display,
+{
+    match deserialize_str_or_number(deserializer)? {
+        Some(val) => Ok(val),
+        None => Err(de::Error::custom("expected a number but got null")),
+    }
+}
+
+pub(crate) fn from_str_or_number_optional<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: FromStr + Copy,
+    T::Err: fmt::Display,
+{
+    deserialize_str_or_number(deserializer)
+}
+
 #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
 fn get_genesis_hash(bitcoin_network: &BitcoinNetwork) -> &str {
     match bitcoin_network {

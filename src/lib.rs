@@ -223,7 +223,8 @@ use sea_orm::{
     EntityTrait, EnumIter, IntoActiveValue, QueryFilter, QueryOrder, TryIntoModel,
 };
 use seals::SecretSeal;
-use serde::{Deserialize, Serialize};
+use serde::de::{self, Unexpected, Visitor};
+use serde::{Deserialize, Deserializer, Serialize};
 use slog::{debug, error, info, o, warn, Drain, Logger};
 use slog_async::AsyncGuard;
 use slog_term::{FullFormat, PlainDecorator};
@@ -286,7 +287,8 @@ use crate::{
     error::InternalError,
     utils::{
         adjust_canonicalization, beneficiary_from_script_buf, calculate_descriptor_from_xprv,
-        calculate_descriptor_from_xpub, derive_account_xprv_from_mnemonic, get_xpub_from_xprv,
+        calculate_descriptor_from_xpub, derive_account_xprv_from_mnemonic,
+        from_str_or_number_mandatory, from_str_or_number_optional, get_xpub_from_xprv,
         load_rgb_runtime, now, setup_logger, RgbInExt, RgbOutExt, RgbPsbtExt, RgbRuntime, LOG_FILE,
     },
     wallet::{Balance, Outpoint, NUM_KNOWN_SCHEMAS, SCHEMA_ID_CFA, SCHEMA_ID_NIA, SCHEMA_ID_UDA},

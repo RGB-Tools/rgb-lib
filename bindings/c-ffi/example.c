@@ -20,9 +20,9 @@ int main() {
     char wallet_data[300];
     sprintf(wallet_data,
             "{ \"data_dir\": \"./data\", \"bitcoin_network\": \"Regtest\", "
-            "\"database_type\": \"Sqlite\", \"max_allocations_per_utxo\": 1, "
-            "\"pubkey\": \"%s\", \"mnemonic\": \"%s\", \"vanilla_keychain\": "
-            "null }",
+            "\"database_type\": \"Sqlite\", \"max_allocations_per_utxo\": "
+            "\"1\", \"pubkey\": \"%s\", \"mnemonic\": \"%s\", "
+            "\"vanilla_keychain\": null }",
             account_xpub, mnemonic);
 
     printf("Creating wallet...\n");
@@ -82,7 +82,7 @@ int main() {
     printf("BTC balance after sync: %s\n", btc_balance_2);
 
     CResultString created_res =
-        rgblib_create_utxos(wlt, online, false, "25", NULL, 1.5, false);
+        rgblib_create_utxos(wlt, online, false, "25", NULL, "1.5", false);
     if (created_res.result == Err) {
         printf("ERR: %s\n", created_res.inner);
         return EXIT_FAILURE;
@@ -90,8 +90,8 @@ int main() {
     const char *created = created_res.inner;
     printf("Created %s UTXOs\n", created);
 
-    CResultString asset_nia_res =
-        rgblib_issue_asset_nia(wlt, online, "USDT", "Tether", 2, "[777, 66]");
+    CResultString asset_nia_res = rgblib_issue_asset_nia(
+        wlt, online, "USDT", "Tether", "2", "[\"777\", \"66\"]");
     if (asset_nia_res.result == Ok) {
         printf("Issued a NIA asset: %s\n", asset_nia_res.inner);
     } else {
@@ -99,8 +99,8 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    CResultString asset_cfa_res =
-        rgblib_issue_asset_cfa(wlt, online, "Cfa", "desc", 2, "[777]", NULL);
+    CResultString asset_cfa_res = rgblib_issue_asset_cfa(
+        wlt, online, "Cfa", "desc", "2", "[\"777\"]", NULL);
     if (asset_cfa_res.result == Ok) {
         printf("Issued a CFA asset: %s\n", asset_cfa_res.inner);
     } else {
@@ -109,7 +109,7 @@ int main() {
     }
 
     CResultString asset_uda_res = rgblib_issue_asset_uda(
-        wlt, online, "TKN", "Token", NULL, 2, "README.md", "[]");
+        wlt, online, "TKN", "Token", NULL, "2", "README.md", "[]");
     if (asset_uda_res.result == Ok) {
         printf("Issued a UDA asset: %s\n", asset_uda_res.inner);
     } else {
@@ -139,7 +139,7 @@ int main() {
 
     const char *transport_endpoints = "[\"rpc://127.0.0.1:3000/json-rpc\"]";
     CResultString receive_data_res =
-        rgblib_blind_receive(wlt, NULL, NULL, NULL, transport_endpoints, 1);
+        rgblib_blind_receive(wlt, NULL, NULL, NULL, transport_endpoints, "1");
     if (receive_data_res.result == Ok) {
         printf("Receive data: %s\n", receive_data_res.inner);
     } else {
@@ -155,7 +155,7 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    CResultString fee_res = rgblib_get_fee_estimation(wlt, online, 7);
+    CResultString fee_res = rgblib_get_fee_estimation(wlt, online, "7");
     printf("Fee estimation: %s\n", fee_res.inner);
 
     return EXIT_SUCCESS;

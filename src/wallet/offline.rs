@@ -850,6 +850,7 @@ pub struct Recipient {
     /// Witness data (to be provided only with a witness recipient)
     pub witness_data: Option<WitnessData>,
     /// RGB amount
+    #[serde(deserialize_with = "from_str_or_number_mandatory")]
     pub amount: u64,
     /// Transport endpoints
     pub transport_endpoints: Vec<String>,
@@ -860,8 +861,10 @@ pub struct Recipient {
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct WitnessData {
     /// The Bitcoin amount (in sats) to send to the recipient
+    #[serde(deserialize_with = "from_str_or_number_mandatory")]
     pub amount_sat: u64,
     /// An optional blinding
+    #[serde(deserialize_with = "from_str_or_number_optional")]
     pub blinding: Option<u64>,
 }
 
@@ -1101,12 +1104,14 @@ pub struct WalletData {
     /// Database type for the wallet
     pub database_type: DatabaseType,
     /// The max number of RGB allocations allowed per UTXO
+    #[serde(deserialize_with = "from_str_or_number_mandatory")]
     pub max_allocations_per_utxo: u32,
     /// Wallet account-level xPub
     pub pubkey: String,
     /// Wallet mnemonic phrase
     pub mnemonic: Option<String>,
     /// Keychain index for the vanilla wallet (default: 1)
+    #[serde(deserialize_with = "from_str_or_number_optional")]
     pub vanilla_keychain: Option<u8>,
 }
 
