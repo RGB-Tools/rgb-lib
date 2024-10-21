@@ -496,8 +496,8 @@ pub(crate) fn wait_for_refresh(
             }
         });
         if transfer_ids.is_some() {
-            for (id, _rt) in refresh_res {
-                if target_set.contains(&id) {
+            for (id, rt) in refresh_res {
+                if rt.updated_status.is_some() && target_set.contains(&id) {
                     seen.insert(id);
                 }
             }
