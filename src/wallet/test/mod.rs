@@ -28,7 +28,9 @@ use crate::{
     },
     wallet::{
         backup::{get_backup_paths, unzip, zip_dir, BackupPubData, ScryptParams},
-        rust_only::{AssetColoringInfo, ColoringInfo},
+        rust_only::{
+            check_indexer_url, check_proxy_url, AssetColoringInfo, ColoringInfo, IndexerProtocol,
+        },
         test::utils::{api::*, chain::*, helpers::*},
     },
 };

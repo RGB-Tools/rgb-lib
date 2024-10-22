@@ -525,3 +525,65 @@ fn save_new_asset_fail() {
     let result = wallet.save_new_asset(&AssetSchema::Cfa, asset_nia_cid, None);
     assert!(matches!(result, Err(Error::AssetIfaceMismatch)));
 }
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn check_indexer_url_electrum_success() {
+    initialize();
+
+    let result = check_indexer_url(ELECTRUM_URL, BitcoinNetwork::Regtest);
+    assert_matches!(result, Ok(IndexerProtocol::Electrum));
+
+    let result = check_indexer_url(ELECTRUM_2_URL, BitcoinNetwork::Regtest);
+    assert_matches!(result, Ok(IndexerProtocol::Electrum));
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn check_indexer_url_electrum_fail() {
+    initialize();
+
+    let result = check_indexer_url(ELECTRUM_BLOCKSTREAM_URL, BitcoinNetwork::Regtest);
+    let verbose_unsupported = s!("verbose transactions are currently unsupported");
+    assert_matches!(result, Err(Error::InvalidElectrum { details: m }) if m == verbose_unsupported);
+}
+
+#[cfg(feature = "esplora")]
+#[test]
+#[parallel]
+fn check_indexer_url_esplora_success() {
+    initialize();
+
+    let result = check_indexer_url(ESPLORA_URL, BitcoinNetwork::Regtest);
+    assert_matches!(result, Ok(IndexerProtocol::Esplora));
+}
+
+#[cfg(feature = "esplora")]
+#[test]
+#[parallel]
+fn check_indexer_url_esplora_fail() {
+    initialize();
+
+    let result = check_indexer_url(PROXY_URL, BitcoinNetwork::Regtest);
+    let invalid_indexer = s!("not a valid electrum nor esplora server");
+    assert_matches!(result, Err(Error::InvalidIndexer { details: m }) if m == invalid_indexer);
+}
+
+#[test]
+#[parallel]
+fn check_proxy_url_success() {
+    initialize();
+
+    assert!(check_proxy_url(PROXY_URL).is_ok());
+}
+
+#[test]
+#[parallel]
+fn check_proxy_url_fail() {
+    initialize();
+
+    let result = check_proxy_url(PROXY_URL_MOD_PROTO);
+    assert_matches!(result, Err(Error::InvalidProxyProtocol { version: _ }));
+}
