@@ -103,6 +103,7 @@ rgb-runtime = { version = "=0.11.0-beta.8", default-features = false, features =
 rgb-schemata = { version = "=0.11.0-beta.8", default-features = false }
 rgb-std = { version = "=0.11.0-beta.8", default-features = false }
 strict_encoding = { version = "=2.7.0", default-features = false }
+strict_types = { version = "=2.7.0", default-features = false } # temporary dependency pin
 
 [dev-dependencies]
 copy_dir = { version = "0.1.3", default-features = false }
