@@ -14,7 +14,7 @@ crate-type = ["staticlib", "cdylib"]
 name = "rgblibcffi"
 
 [dependencies]
-rgb-lib = { version = "0.3.0-alpha.9", path = "../../", features = [
+rgb-lib = { version = "0.3.0-alpha.10", path = "../../", features = [
     "electrum",
     "esplora",
 ] }

@@ -2923,7 +2923,7 @@ dependencies = [
 
 [[package]]
 name = "rgb-lib"
-version = "0.3.0-alpha.9"
+version = "0.3.0-alpha.10"
 dependencies = [
  "amplify",
  "base64 0.22.1",
@@ -2959,6 +2959,7 @@ dependencies = [
  "slog-async",
  "slog-term",
  "strict_encoding",
+ "strict_types",
  "tempfile",
  "thiserror",
  "time",
