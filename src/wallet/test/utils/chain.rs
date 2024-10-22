@@ -230,20 +230,15 @@ pub(crate) fn wait_indexers_sync() {
         std::thread::sleep(std::time::Duration::from_millis(100));
         let mut all_synced = true;
 
+        let mut indexer_urls = vec![];
         #[cfg(feature = "electrum")]
-        for indexer_url in [ELECTRUM_URL, ELECTRUM_2_URL, ELECTRUM_BLOCKSTREAM_URL] {
-            let electrum =
-                electrum_client::Client::new(indexer_url).expect("cannot get electrum client");
-            if electrum.block_header(max_blockcount as usize).is_err() {
-                all_synced = false;
-            }
-        }
-
+        indexer_urls.extend([ELECTRUM_URL, ELECTRUM_2_URL, ELECTRUM_BLOCKSTREAM_URL]);
         #[cfg(feature = "esplora")]
-        {
-            let esplora =
-                bdk::blockchain::esplora::EsploraBlockchain::new(ESPLORA_URL, INDEXER_STOP_GAP);
-            if esplora.get_block_hash(max_blockcount).is_err() {
+        indexer_urls.push(ESPLORA_URL);
+
+        for indexer_url in indexer_urls {
+            let (indexer, _) = build_indexer(indexer_url).expect("cannot get indexer {indexer}");
+            if indexer.block_hash(max_blockcount as usize).is_err() {
                 all_synced = false;
             }
         }

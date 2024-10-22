@@ -19,7 +19,7 @@ use time::OffsetDateTime;
 use super::*;
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-use crate::utils::INDEXER_STOP_GAP;
+use crate::utils::build_indexer;
 use crate::{
     database::entities::transfer_transport_endpoint,
     utils::{

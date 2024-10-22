@@ -471,7 +471,7 @@ pub(crate) fn get_indexer(
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-fn build_indexer(indexer_url: &str) -> Option<(Indexer, AnyBlockchainConfig)> {
+pub(crate) fn build_indexer(indexer_url: &str) -> Option<(Indexer, AnyBlockchainConfig)> {
     #[cfg(feature = "electrum")]
     {
         let electrum_config = ConfigBuilder::new().timeout(Some(INDEXER_TIMEOUT)).build();
