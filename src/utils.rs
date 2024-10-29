@@ -639,6 +639,7 @@ impl RgbRuntime {
                 Error::from(InternalError::from(err))
             })
     }
+
     #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn contracts_assigning(
         &self,

@@ -53,6 +53,20 @@ impl AssetIface {
         tn!(format!("{self:?}{variant}"))
     }
 
+    pub(crate) fn get_from_contract_id(
+        contract_id: ContractId,
+        runtime: &RgbRuntime,
+    ) -> Result<Self, Error> {
+        let genesis = runtime.genesis(contract_id)?;
+        let schema_id = genesis.schema_id.to_string();
+        Ok(match &schema_id[..] {
+            SCHEMA_ID_NIA => AssetIface::RGB20,
+            SCHEMA_ID_UDA => AssetIface::RGB21,
+            SCHEMA_ID_CFA => AssetIface::RGB25,
+            _ => return Err(Error::UnknownRgbSchema { schema_id }),
+        })
+    }
+
     fn get_asset_details(
         &self,
         wallet: &Wallet,

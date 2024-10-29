@@ -50,7 +50,6 @@ fn success() {
     let vout = output.0 as u32;
     output_map.insert(vout, AMOUNT); // sending AMOUNT since color_psbt doesn't support change
     let asset_coloring_info = AssetColoringInfo {
-        iface: AssetIface::RGB20,
         input_outpoints: vec![input_outpoint.into()],
         output_map,
         static_blinding: Some(blinding),
@@ -348,7 +347,6 @@ fn color_psbt_fail() {
     // wrong contract ID
     let fake_cid = "rgb:Ar4ouaLv-b7f7Dc!-z5EMvtu-FA5KNh1-nlae$jk-8xMBo7E";
     let asset_coloring_info = AssetColoringInfo {
-        iface: AssetIface::RGB20,
         input_outpoints: vec![input_outpoint.into()],
         output_map: output_map.clone(),
         static_blinding: Some(blinding),
@@ -365,33 +363,11 @@ fn color_psbt_fail() {
         matches!(result, Err(Error::Internal { details: m }) if m.contains(&format!("contract {fake_cid} is unknown")))
     );
 
-    // wrong asset iface
-    let asset_coloring_info = AssetColoringInfo {
-        iface: AssetIface::RGB25,
-        input_outpoints: vec![input_outpoint.into()],
-        output_map: output_map.clone(),
-        static_blinding: Some(blinding),
-    };
-    let asset_info_map: HashMap<ContractId, AssetColoringInfo> = HashMap::from_iter([(
-        ContractId::from_str(&asset.asset_id).unwrap(),
-        asset_coloring_info,
-    )]);
-    let coloring_info = ColoringInfo {
-        asset_info_map,
-        static_blinding: Some(blinding),
-        nonce: None,
-    };
-    let result = wallet_send.color_psbt(&mut psbt, coloring_info);
-    assert!(
-        matches!(result, Err(Error::Internal { details: m }) if m.contains("doesn't implement interface"))
-    );
-
     // wrong input txid
     let mut fake_input_op = input_outpoint;
     fake_input_op.txid =
         Txid::from_str("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
     let asset_coloring_info = AssetColoringInfo {
-        iface: AssetIface::RGB20,
         input_outpoints: vec![fake_input_op.into()],
         output_map: output_map.clone(),
         static_blinding: Some(blinding),
@@ -413,7 +389,6 @@ fn color_psbt_fail() {
     let mut fake_input_op = input_outpoint;
     fake_input_op.vout = 666;
     let asset_coloring_info = AssetColoringInfo {
-        iface: AssetIface::RGB20,
         input_outpoints: vec![fake_input_op.into()],
         output_map: output_map.clone(),
         static_blinding: Some(blinding),
@@ -434,7 +409,6 @@ fn color_psbt_fail() {
     // wrong output map vout
     let fake_o_map: HashMap<u32, u64> = HashMap::from_iter([(666, AMOUNT)]);
     let asset_coloring_info = AssetColoringInfo {
-        iface: AssetIface::RGB20,
         input_outpoints: vec![input_outpoint.into()],
         output_map: fake_o_map,
         static_blinding: Some(blinding),
@@ -455,7 +429,6 @@ fn color_psbt_fail() {
     // wrong output map amount
     let fake_o_map = output_map.keys().map(|k| (*k, 999u64)).collect();
     let asset_coloring_info = AssetColoringInfo {
-        iface: AssetIface::RGB20,
         input_outpoints: vec![input_outpoint.into()],
         output_map: fake_o_map,
         static_blinding: Some(blinding),

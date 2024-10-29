@@ -492,21 +492,6 @@ impl Wallet {
         Ok(())
     }
 
-    fn _get_asset_iface(
-        &self,
-        contract_id: ContractId,
-        runtime: &RgbRuntime,
-    ) -> Result<AssetIface, Error> {
-        let genesis = runtime.genesis(contract_id)?;
-        let schema_id = genesis.schema_id.to_string();
-        Ok(match &schema_id[..] {
-            SCHEMA_ID_NIA => AssetIface::RGB20,
-            SCHEMA_ID_UDA => AssetIface::RGB21,
-            SCHEMA_ID_CFA => AssetIface::RGB25,
-            _ => return Err(Error::UnknownRgbSchema { schema_id }),
-        })
-    }
-
     fn _create_split_tx(
         &self,
         inputs: &[BdkOutPoint],
@@ -2838,7 +2823,7 @@ impl Wallet {
 
         let mut blank_allocations: HashMap<String, u64> = HashMap::new();
         for (cid, opouts) in blank_state {
-            let asset_iface = self._get_asset_iface(cid, runtime)?;
+            let asset_iface = AssetIface::get_from_contract_id(cid, runtime)?;
             let iface = asset_iface.to_typename();
             let mut blank_builder = runtime.blank_builder(cid, iface.clone())?;
             let mut moved_amount = 0;
@@ -3350,7 +3335,7 @@ impl Wallet {
             }
 
             let contract_id = ContractId::from_str(&asset_id).expect("invalid contract ID");
-            let asset_iface = self._get_asset_iface(contract_id, &runtime)?;
+            let asset_iface = AssetIface::get_from_contract_id(contract_id, &runtime)?;
             let amount: u64 = recipients.iter().map(|a| a.amount).sum();
             let asset_spend = self._select_rgb_inputs(
                 asset_id.clone(),

@@ -17,6 +17,12 @@ pub enum AssetSchema {
     Cfa = 3,
 }
 
+impl fmt::Display for AssetSchema {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 impl AssetSchema {
     pub(crate) const VALUES: [Self; NUM_KNOWN_SCHEMAS] = [Self::Nia, Self::Uda, Self::Cfa];
 

@@ -7,8 +7,6 @@ use super::*;
 /// RGB asset-specific information to color a transaction
 #[derive(Clone, Debug)]
 pub struct AssetColoringInfo {
-    /// Contract iface
-    pub iface: AssetIface,
     /// Input outpoints of the assets being spent
     pub input_outpoints: Vec<Outpoint>,
     /// Map of vouts and asset amounts to color the transaction outputs
@@ -120,22 +118,26 @@ impl Wallet {
         let assignment_name = FieldName::from("assetOwner");
 
         for (contract_id, asset_coloring_info) in coloring_info.asset_info_map.clone() {
-            let mut asset_transition_builder = runtime.transition_builder(
-                contract_id,
-                asset_coloring_info.iface.to_typename(),
-                None::<&str>,
-            )?;
+            let iface = AssetIface::get_from_contract_id(contract_id, &runtime)?;
+
+            let mut asset_transition_builder =
+                runtime.transition_builder(contract_id, iface.to_typename(), None::<&str>)?;
             let assignment_id = asset_transition_builder
                 .assignments_type(&assignment_name)
                 .ok_or(InternalError::Unexpected)?;
 
             let mut asset_available_amt = 0;
+            let mut uda_state = None;
             for (_, opout_state_map) in
                 runtime.contract_assignments_for(contract_id, prev_outputs.iter().copied())?
             {
                 for (opout, state) in opout_state_map {
                     if let PersistedState::Amount(amt, _, _) = &state {
                         asset_available_amt += amt.value();
+                    } else if let PersistedState::Data(_, _) = &state {
+                        asset_available_amt = 1;
+                        // there can be only a single state when contract is UDA
+                        uda_state = Some(state.clone());
                     }
                     asset_transition_builder = asset_transition_builder.add_input(opout, state)?;
                 }
@@ -168,12 +170,17 @@ impl Wallet {
                 } else {
                     BlindingFactor::random()
                 };
-                asset_transition_builder = asset_transition_builder.add_fungible_state_raw(
-                    assignment_id,
-                    seal,
-                    amount,
-                    blinding_factor,
-                )?;
+                match iface {
+                    AssetIface::RGB20 | AssetIface::RGB25 => {
+                        asset_transition_builder = asset_transition_builder
+                            .add_fungible_state_raw(assignment_id, seal, amount, blinding_factor)?;
+                    }
+                    AssetIface::RGB21 => {
+                        asset_transition_builder = asset_transition_builder
+                            .add_owned_state_raw(assignment_id, seal, uda_state.clone().unwrap())
+                            .map_err(Error::from)?;
+                    }
+                }
             }
             if sending_amt > asset_available_amt {
                 return Err(Error::InvalidColoringInfo {
@@ -305,10 +312,11 @@ impl Wallet {
         let consignment = RgbTransfer::load(&consignment_bytes[..]).map_err(InternalError::from)?;
 
         let schema_id = consignment.schema_id().to_string();
-        match AssetSchema::from_schema_id(schema_id.clone()) {
-            Ok(AssetSchema::Nia) => {}
-            _ => return Err(Error::UnknownRgbSchema { schema_id }),
-        }
+        let asset_schema = AssetSchema::from_schema_id(schema_id.clone())?;
+        debug!(
+            self.logger,
+            "Got consignment for asset with {} schema", asset_schema
+        );
 
         let mut runtime = self.rgb_runtime()?;
 
