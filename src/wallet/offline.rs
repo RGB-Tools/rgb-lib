@@ -1952,7 +1952,7 @@ impl Wallet {
             let tokens = self.database.iter_tokens()?;
             let token_medias = self.database.iter_token_medias()?;
             if let Some(token_light) =
-                self.get_asset_token(asset.idx, &medias, &tokens, &token_medias)?
+                self.get_asset_token(asset.idx, &medias, &tokens, &token_medias)
             {
                 let mut token = Token {
                     index: token_light.index,
@@ -2063,39 +2063,37 @@ impl Wallet {
         medias: &[DbMedia],
         tokens: &[DbToken],
         token_medias: &[DbTokenMedia],
-    ) -> Result<Option<TokenLight>, InternalError> {
-        Ok(
-            if let Some(db_token) = tokens.iter().find(|t| t.asset_idx == asset_idx) {
-                let mut media = None;
-                let mut attachments = HashMap::new();
-                let media_dir = self.get_media_dir();
-                token_medias
-                    .iter()
-                    .filter(|tm| tm.token_idx == db_token.idx)
-                    .for_each(|tm| {
-                        let db_media = medias.iter().find(|m| m.idx == tm.media_idx).unwrap();
-                        let media_tkn = Media::from_db_media(db_media, &media_dir);
-                        if let Some(attachment_id) = tm.attachment_id {
-                            attachments.insert(attachment_id, media_tkn);
-                        } else {
-                            media = Some(media_tkn);
-                        }
-                    });
+    ) -> Option<TokenLight> {
+        if let Some(db_token) = tokens.iter().find(|t| t.asset_idx == asset_idx) {
+            let mut media = None;
+            let mut attachments = HashMap::new();
+            let media_dir = self.get_media_dir();
+            token_medias
+                .iter()
+                .filter(|tm| tm.token_idx == db_token.idx)
+                .for_each(|tm| {
+                    let db_media = medias.iter().find(|m| m.idx == tm.media_idx).unwrap();
+                    let media_tkn = Media::from_db_media(db_media, &media_dir);
+                    if let Some(attachment_id) = tm.attachment_id {
+                        attachments.insert(attachment_id, media_tkn);
+                    } else {
+                        media = Some(media_tkn);
+                    }
+                });
 
-                Some(TokenLight {
-                    index: db_token.index,
-                    ticker: db_token.ticker.clone(),
-                    name: db_token.name.clone(),
-                    details: db_token.details.clone(),
-                    embedded_media: db_token.embedded_media,
-                    media,
-                    attachments,
-                    reserves: db_token.reserves,
-                })
-            } else {
-                None
-            },
-        )
+            Some(TokenLight {
+                index: db_token.index,
+                ticker: db_token.ticker.clone(),
+                name: db_token.name.clone(),
+                details: db_token.details.clone(),
+                embedded_media: db_token.embedded_media,
+                media,
+                attachments,
+                reserves: db_token.reserves,
+            })
+        } else {
+            None
+        }
     }
 
     // mostly copied from bdk's get_balance, needed for calculating internal and external balances
@@ -2241,7 +2239,7 @@ impl Wallet {
                                         &medias.clone().unwrap(),
                                         &tokens,
                                         &token_medias,
-                                    )?,
+                                    ),
                                     transfers.clone(),
                                     asset_transfers.clone(),
                                     batch_transfers.clone(),

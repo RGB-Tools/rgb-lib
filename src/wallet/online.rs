@@ -3471,7 +3471,7 @@ impl Wallet {
                         medias.as_ref().unwrap(),
                         tokens.as_ref().unwrap(),
                         token_medias.as_ref().unwrap(),
-                    )?
+                    )
                 }
                 AssetSchema::Nia | AssetSchema::Cfa => None,
             };
