@@ -412,9 +412,9 @@ pub(crate) fn get_proxy_client() -> Result<RestClient, Error> {
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn check_proxy(proxy_url: &str, rest_client: Option<&RestClient>) -> Result<(), Error> {
     let rest_client = if let Some(rest_client) = rest_client {
-        rest_client
+        rest_client.clone()
     } else {
-        &get_proxy_client()?
+        get_proxy_client()?
     };
     let mut err_details = s!("unable to connect to proxy");
     if let Ok(server_info) = rest_client.clone().get_info(proxy_url) {
