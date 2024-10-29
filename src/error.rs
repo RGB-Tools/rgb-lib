@@ -332,6 +332,13 @@ pub enum Error {
     #[error("Invalid vanilla keychain")]
     InvalidVanillaKeychain,
 
+    /// The maximum fee has been exceeded
+    #[error("Max fee exceeded for transfer with TXID: {txid}")]
+    MaxFeeExceeded {
+        /// TXID of the transfer having fee issues
+        txid: String,
+    },
+
     /// The minimum fee is not met
     #[error("Min fee not met for transfer with TXID: {txid}")]
     MinFeeNotMet {

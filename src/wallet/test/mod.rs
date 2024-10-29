@@ -54,7 +54,6 @@ const AMOUNT: u64 = 666;
 const AMOUNT_SMALL: u64 = 66;
 const FEE_RATE: f32 = 1.5;
 const FEE_MSG_LOW: &str = "value under minimum 1";
-const FEE_MSG_HIGH: &str = "value above maximum 1000";
 const EMPTY_MSG: &str = "must contain at least one character.";
 const IDENT_EMPTY_MSG: &str = "ident must contain at least one character";
 const IDENT_TOO_LONG_MSG: &str = "string has invalid length.";

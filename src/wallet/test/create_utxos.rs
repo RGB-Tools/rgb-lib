@@ -185,11 +185,9 @@ fn fail() {
     let result = wallet.create_utxos(online.clone(), true, None, None, FEE_RATE, false);
     assert!(matches!(result, Err(Error::AllocationsAlreadyAvailable)));
 
-    // fee min/max
+    // fee min
     let result = test_create_utxos_begin_result(&wallet, &online, false, Some(1), None, 0.9);
     assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_LOW));
-    let result = test_create_utxos_begin_result(&wallet, &online, false, Some(1), None, 1000.1);
-    assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_HIGH));
 
     // invalid amount
     let result =

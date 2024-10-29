@@ -2433,7 +2433,7 @@ fn fail() {
     let result = test_send_result(&wallet, &online, &recipient_map);
     assert!(matches!(result, Err(Error::NoValidTransportEndpoint)));
 
-    // fee min/max
+    // fee min
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -2451,14 +2451,6 @@ fn fail() {
         MIN_CONFIRMATIONS,
     );
     assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_LOW));
-    let result = wallet.send_begin(
-        online.clone(),
-        recipient_map,
-        false,
-        1000.1,
-        MIN_CONFIRMATIONS,
-    );
-    assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_HIGH));
 
     // duplicated recipient ID
     let recipient_map = HashMap::from([(

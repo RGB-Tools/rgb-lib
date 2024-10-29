@@ -62,6 +62,7 @@ interface RgbLibError {
   InvalidTransportEndpoints(string details);
   InvalidTxid();
   InvalidVanillaKeychain();
+  MaxFeeExceeded(string txid);
   MinFeeNotMet(string txid);
   Network(string details);
   NoConsignment();

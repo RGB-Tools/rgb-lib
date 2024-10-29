@@ -143,19 +143,11 @@ fn fail() {
     let result = test_drain_to_result(&wallet, &online, "invalid address", false);
     assert!(matches!(result, Err(Error::InvalidAddress { details: _ })));
 
-    // fee min/max
+    // fee min
     fund_wallet(test_get_address(&wallet));
     let result =
         test_drain_to_begin_result(&wallet, &online, &test_get_address(&rcv_wallet), true, 0.9);
     assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_LOW));
-    let result = test_drain_to_begin_result(
-        &wallet,
-        &online,
-        &test_get_address(&rcv_wallet),
-        true,
-        1000.1,
-    );
-    assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_HIGH));
 
     // no private keys
     let (wallet, online) = get_funded_noutxo_wallet(false, None);

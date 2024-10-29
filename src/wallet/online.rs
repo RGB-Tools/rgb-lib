@@ -16,7 +16,6 @@ pub(crate) const UTXO_NUM: u8 = 5;
 pub(crate) const MAX_ATTACHMENTS: usize = 20;
 
 pub(crate) const MIN_FEE_RATE: f32 = 1.0;
-const MAX_FEE_RATE: f32 = 1000.0;
 
 pub(crate) const DURATION_SEND_TRANSFER: i64 = 3600;
 
@@ -286,11 +285,6 @@ impl Wallet {
                 details: format!("value under minimum {MIN_FEE_RATE}"),
             });
         }
-        if fee_rate > MAX_FEE_RATE {
-            return Err(Error::InvalidFeeRate {
-                details: format!("value above maximum {MAX_FEE_RATE}"),
-            });
-        }
         Ok(())
     }
 
@@ -404,6 +398,8 @@ impl Wallet {
         let txid = tx.txid().to_string();
         self.bdk_blockchain()?.broadcast(&tx).map_err(|e| {
             let mut min_fee_not_met = false;
+            #[cfg_attr(feature = "esplora", allow(unused_mut))]
+            let mut max_fee_exceeded = false;
             match self.indexer() {
                 #[cfg(feature = "electrum")]
                 Indexer::Electrum(_) => {
@@ -412,6 +408,8 @@ impl Wallet {
                         || err_str.contains("mempool min fee not met")
                     {
                         min_fee_not_met = true;
+                    } else if err_str.contains("Fee exceeds maximum configured") {
+                        max_fee_exceeded = true;
                     }
                 }
                 #[cfg(feature = "esplora")]
@@ -426,6 +424,8 @@ impl Wallet {
             }
             if min_fee_not_met {
                 Error::MinFeeNotMet { txid: txid.clone() }
+            } else if max_fee_exceeded {
+                Error::MaxFeeExceeded { txid: txid.clone() }
             } else {
                 Error::FailedBroadcast {
                     details: e.to_string(),
