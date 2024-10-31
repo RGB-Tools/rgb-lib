@@ -150,7 +150,7 @@ use bitcoin::{
     bip32::ChildNumber,
     hashes::Hash as Sha256Hash,
     psbt::{raw::ProprietaryKey, Input, Output, PartiallySignedTransaction},
-    Address, OutPoint, ScriptBuf, TxOut,
+    Address as BtcAddress, OutPoint, ScriptBuf, TxOut,
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use bitcoin::{hashes::sha256, Txid};

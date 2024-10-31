@@ -217,6 +217,11 @@ enum DatabaseType {
   "Sqlite",
 };
 
+interface Address {
+  [Throws=RgbLibError]
+  constructor(string address_string, BitcoinNetwork bitcoin_network);
+};
+
 interface Invoice {
   [Throws=RgbLibError]
   constructor(string invoice_string);

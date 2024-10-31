@@ -9,13 +9,14 @@ use rgb_lib::{
     bdk::BlockTime,
     keys::Keys,
     wallet::{
-        AssetCFA, AssetIface, AssetNIA, AssetUDA, Assets, Balance, BtcBalance, DatabaseType,
-        EmbeddedMedia, Invoice as RgbLibInvoice, InvoiceData, Media, Metadata, Online, Outpoint,
-        ProofOfReserves, ReceiveData, Recipient, RecipientInfo as RgbLibRecipientInfo,
-        RefreshFilter, RefreshTransferStatus, RefreshedTransfer, RgbAllocation, SendResult, Token,
-        TokenLight, Transaction, TransactionType, Transfer, TransferKind,
-        TransferTransportEndpoint, TransportEndpoint as RgbLibTransportEndpoint, Unspent, Utxo,
-        Wallet as RgbLibWallet, WalletData, WitnessData,
+        Address as RgbLibAddress, AssetCFA, AssetIface, AssetNIA, AssetUDA, Assets, Balance,
+        BtcBalance, DatabaseType, EmbeddedMedia, Invoice as RgbLibInvoice, InvoiceData, Media,
+        Metadata, Online, Outpoint, ProofOfReserves, ReceiveData, Recipient,
+        RecipientInfo as RgbLibRecipientInfo, RefreshFilter, RefreshTransferStatus,
+        RefreshedTransfer, RgbAllocation, SendResult, Token, TokenLight, Transaction,
+        TransactionType, Transfer, TransferKind, TransferTransportEndpoint,
+        TransportEndpoint as RgbLibTransportEndpoint, Unspent, Utxo, Wallet as RgbLibWallet,
+        WalletData, WitnessData,
     },
     AssetSchema, BitcoinNetwork, Error as RgbLibError, RecipientType, TransferStatus,
     TransportType,
@@ -80,6 +81,18 @@ impl TransportEndpoint {
 
     fn transport_type(&self) -> TransportType {
         self._get_transport_endpoint().transport_type()
+    }
+}
+
+struct Address {
+    _address: RwLock<RgbLibAddress>,
+}
+
+impl Address {
+    fn new(address_string: String, bitcoin_network: BitcoinNetwork) -> Result<Self, RgbLibError> {
+        Ok(Address {
+            _address: RwLock::new(RgbLibAddress::new(address_string, bitcoin_network)?),
+        })
     }
 }
 

@@ -654,6 +654,38 @@ pub enum DatabaseType {
     Sqlite,
 }
 
+/// A bitcoin address.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct Address {
+    /// The bitcoin address string
+    address_string: String,
+    /// The bitcoin network of the address
+    bitcoin_network: BitcoinNetwork,
+}
+
+impl Address {
+    /// Parse the provided `address_string`.
+    /// Throws an error if the provided string is not a valid bitcoin address for the given
+    /// network.
+    pub fn new(address_string: String, bitcoin_network: BitcoinNetwork) -> Result<Self, Error> {
+        let decoded = BtcAddress::from_str(&address_string).map_err(|e| Error::InvalidAddress {
+            details: e.to_string(),
+        })?;
+
+        if !decoded.is_valid_for_network(bitcoin_network.into()) {
+            return Err(Error::InvalidAddress {
+                details: s!("address for wrong network"),
+            });
+        }
+
+        Ok(Address {
+            address_string,
+            bitcoin_network,
+        })
+    }
+}
+
 /// An RGB invoice.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
@@ -665,7 +697,7 @@ pub struct Invoice {
 }
 
 impl Invoice {
-    /// Parse the provided [`Invoice::invoice_string`].
+    /// Parse the provided `invoice_string`.
     /// Throws an error if the provided string is not a valid RGB invoice.
     pub fn new(invoice_string: String) -> Result<Self, Error> {
         let decoded = RgbInvoice::from_str(&invoice_string).map_err(|e| Error::InvalidInvoice {
@@ -711,7 +743,7 @@ impl Invoice {
         })
     }
 
-    /// Parse the provided [`Invoice::invoice_data`].
+    /// Parse the provided `invoice_data`.
     /// Throws an error if the provided data is invalid.
     pub fn from_invoice_data(invoice_data: InvoiceData) -> Result<Self, Error> {
         let beneficiary = XChainNet::<Beneficiary>::from_str(&invoice_data.recipient_id)
@@ -1741,7 +1773,7 @@ impl Wallet {
         );
 
         let address_str = self.get_new_address().to_string();
-        let address = Address::from_str(&address_str).unwrap().assume_checked();
+        let address = BtcAddress::from_str(&address_str).unwrap().assume_checked();
         let script_buf = address.script_pubkey();
         let beneficiary = beneficiary_from_script_buf(script_buf.clone());
 

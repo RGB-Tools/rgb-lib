@@ -4816,7 +4816,7 @@ fn script_buf_to_from_recipient_id() {
 
     // get a script bug from an address (witness receive)
     let address_str = test_get_address(&wallet);
-    let address = Address::from_str(&address_str).unwrap().assume_checked();
+    let address = BtcAddress::from_str(&address_str).unwrap().assume_checked();
     let script_buf = address.script_pubkey();
 
     // recipient ID from script buf
