@@ -6,7 +6,7 @@ macro_rules! assert_matches {
         match $expression {
             $pattern $(if $guard)? => {},
             _ => {
-                panic!("received unexpected result: {}", stringify!($expression));
+                panic!("received unexpected result: {}", format!("{:?}", $expression));
             }
         }
     };
