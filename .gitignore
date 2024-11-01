@@ -4,3 +4,4 @@
 **/target
 **/tests/tmp
 /.vim
+/.vscode

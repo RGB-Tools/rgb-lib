@@ -1,8 +1,0 @@
-{
-  "recommendations": [
-    "rust-lang.rust-analyzer",
-    "tamasfe.even-better-toml",
-    "serayuzgur.crates",
-    "wayou.vscode-todo-highlight"
-  ]
-}
