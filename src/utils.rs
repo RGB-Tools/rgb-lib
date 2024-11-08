@@ -19,7 +19,7 @@ pub(crate) const ACCOUNT: u8 = 0;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) const INDEXER_STOP_GAP: usize = 20;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) const INDEXER_TIMEOUT: u8 = 4;
+pub(crate) const INDEXER_TIMEOUT: u8 = 10;
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) const PROXY_TIMEOUT: u8 = 90;
