@@ -53,8 +53,8 @@ _prepare_bitcoin_funds() {
     if [ -n "$TESTS" ]; then
         $BCLI_ESPLORA createwallet miner
         # connect the 2 bitcoind services
-        $BCLI addnode "esplora:18444" "onetry"
-        $BCLI_ESPLORA addnode "bitcoind:18444" "onetry"
+        $BCLI addnode "esplora:18444" "add"
+        $BCLI_ESPLORA addnode "bitcoind:18444" "add"
     fi
 }
 
