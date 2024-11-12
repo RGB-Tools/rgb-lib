@@ -650,7 +650,7 @@ impl Wallet {
     ///
     /// This doesn't require the wallet to have private keys.
     ///
-    /// Returns the number of created UTXOs.
+    /// Returns the number of created UTXOs, if `skip_sync` is set to true this will be 0.
     pub fn create_utxos_end(
         &self,
         online: Online,
@@ -671,14 +671,16 @@ impl Wallet {
             })?;
 
         let mut num_utxos_created = 0;
-        let bdk_utxos: Vec<LocalUtxo> = self
-            .bdk_wallet
-            .list_unspent()
-            .map_err(InternalError::from)?;
-        let txid = tx.txid();
-        for utxo in bdk_utxos.into_iter() {
-            if utxo.outpoint.txid == txid && utxo.keychain == KeychainKind::External {
-                num_utxos_created += 1
+        if !skip_sync {
+            let bdk_utxos: Vec<LocalUtxo> = self
+                .bdk_wallet
+                .list_unspent()
+                .map_err(InternalError::from)?;
+            let txid = tx.txid();
+            for utxo in bdk_utxos.into_iter() {
+                if utxo.outpoint.txid == txid && utxo.keychain == KeychainKind::External {
+                    num_utxos_created += 1
+                }
             }
         }
 
