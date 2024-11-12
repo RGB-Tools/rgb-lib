@@ -296,13 +296,6 @@ pub enum Error {
     #[error("The provided recipient ID is for a different network than the wallet's one")]
     InvalidRecipientNetwork,
 
-    /// The provided script is invalid
-    #[error("Invalid script: {details}")]
-    InvalidScript {
-        /// Error details
-        details: String,
-    },
-
     /// The provided asset ticker is invalid
     #[error("Invalid ticker: {details}")]
     InvalidTicker {
@@ -420,10 +413,6 @@ pub enum Error {
         /// Backup version
         version: String,
     },
-
-    /// The given invoice type is not supported
-    #[error("Invoice type is not supported")]
-    UnsupportedInvoice,
 
     /// The given layer 1 is not supported
     #[error("Layer 1 {layer_1} is not supported")]

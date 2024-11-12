@@ -56,7 +56,6 @@ interface RgbLibError {
   InvalidRecipientData(string details);
   InvalidRecipientID();
   InvalidRecipientNetwork();
-  InvalidScript(string details);
   InvalidTicker(string details);
   InvalidTransportEndpoint(string details);
   InvalidTransportEndpoints(string details);
@@ -79,7 +78,6 @@ interface RgbLibError {
   UnknownRgbInterface(string interface);
   UnknownRgbSchema(string schema_id);
   UnsupportedBackupVersion(string version);
-  UnsupportedInvoice();
   UnsupportedLayer1(string layer_1);
   UnsupportedTransportType();
   WalletDirAlreadyExists(string path);
