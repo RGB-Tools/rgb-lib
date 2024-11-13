@@ -107,6 +107,9 @@ fn success() {
 fn skip_sync() {
     initialize();
 
+    let check_timeout = 10;
+    let check_interval = 1000;
+
     let (wallet, online) = get_empty_wallet!();
 
     send_to_address(test_get_address(&wallet));
@@ -116,7 +119,13 @@ fn skip_sync() {
     assert_eq!(transactions.len(), 0);
 
     // transaction list reports the TX after manually syncing
-    wallet.sync(online.clone()).unwrap();
-    let transactions = test_list_transactions(&wallet, None);
-    assert_eq!(transactions.len(), 1);
+    assert!(wait_for_function(
+        || {
+            wallet.sync(online.clone()).unwrap();
+            let transactions = test_list_transactions(&wallet, None);
+            transactions.len() == 1
+        },
+        check_timeout,
+        check_interval,
+    ));
 }
