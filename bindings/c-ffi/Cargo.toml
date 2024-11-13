@@ -6,7 +6,7 @@ authors = [
     "Nicola Busanello <nicola.busanello@gmail.com>",
 ]
 edition = "2021"
-rust-version = "1.76.0"
+rust-version = "1.77.0"
 build = "build.rs"
 
 [lib]
