@@ -44,7 +44,6 @@ pub(crate) fn get_test_data_dir_path() -> PathBuf {
 }
 
 pub(crate) fn create_test_data_dir() -> PathBuf {
-    initialize();
     let test_data_dir = get_test_data_dir_path();
     if !test_data_dir.exists() {
         fs::create_dir_all(&test_data_dir).unwrap();
@@ -138,6 +137,7 @@ pub(crate) fn drain_wallet(wallet: &Wallet, online: &Online) {
     test_drain_to_destroy(wallet, online, &rcv_wallet.get_address().unwrap());
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn send_to_address(address: String) {
     let t_0 = OffsetDateTime::now_utc();
     let bitcoin_cli = bitcoin_cli();
@@ -169,6 +169,7 @@ pub(crate) fn send_to_address(address: String) {
     }
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn fund_wallet(address: String) {
     send_to_address(address);
     mine(false, false);

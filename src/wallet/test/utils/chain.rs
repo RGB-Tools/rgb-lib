@@ -35,6 +35,7 @@ fn _esplora_bitcoin_cli() -> Vec<String> {
 }
 
 impl Miner {
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
     fn mine(&self, esplora: bool, blocks: u32) -> bool {
         if self.no_mine_count > 0 {
             return false;
@@ -42,6 +43,7 @@ impl Miner {
         self.force_mine(esplora, blocks)
     }
 
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
     fn force_mine(&self, esplora: bool, blocks: u32) -> bool {
         println!("mining (esplora: {esplora}), time: {}", get_current_time());
         let bitcoin_cli = if esplora {
@@ -91,6 +93,7 @@ impl Miner {
     }
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn mine_blocks(esplora: bool, blocks: u32, resume: bool) {
     let t_0 = OffsetDateTime::now_utc();
     if resume {
@@ -108,10 +111,12 @@ pub(crate) fn mine_blocks(esplora: bool, blocks: u32, resume: bool) {
     }
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn mine(esplora: bool, resume: bool) {
     mine_blocks(esplora, 1, resume)
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn force_mine_no_resume_when_alone(esplora: bool) {
     let t_0 = OffsetDateTime::now_utc();
     loop {
@@ -190,6 +195,7 @@ pub(crate) fn estimate_smart_fee(esplora: bool) -> bool {
     json_output.unwrap().get("errors").is_none()
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn wait_indexers_sync() {
     let t_0 = OffsetDateTime::now_utc();
     let mut max_blockcount = 0;

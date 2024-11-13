@@ -104,6 +104,7 @@ fn success() {
     assert!((timestamp - cfa_metadata.timestamp) < 30);
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn fail() {

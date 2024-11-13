@@ -19,7 +19,11 @@ use time::OffsetDateTime;
 use super::*;
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-use crate::utils::build_indexer;
+use crate::wallet::{
+    rust_only::{check_indexer_url, check_proxy_url},
+    test::utils::chain::*,
+    utils::build_indexer,
+};
 use crate::{
     database::entities::transfer_transport_endpoint,
     utils::{
@@ -28,10 +32,8 @@ use crate::{
     },
     wallet::{
         backup::{get_backup_paths, unzip, zip_dir, BackupPubData, ScryptParams},
-        rust_only::{
-            check_indexer_url, check_proxy_url, AssetColoringInfo, ColoringInfo, IndexerProtocol,
-        },
-        test::utils::{api::*, chain::*, helpers::*},
+        rust_only::{AssetColoringInfo, ColoringInfo, IndexerProtocol},
+        test::utils::{api::*, helpers::*},
     },
 };
 
@@ -71,6 +73,7 @@ const QUEUE_DEPTH_EXCEEDED: &str = "Work queue depth exceeded";
 
 static INIT: Once = Once::new();
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub fn initialize() {
     INIT.call_once(|| {
         if std::env::var("SKIP_INIT").is_ok() {

@@ -571,6 +571,7 @@ fn check_indexer_url_esplora_fail() {
     assert_matches!(result, Err(Error::InvalidIndexer { details: m }) if m == invalid_indexer);
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn check_proxy_url_success() {
@@ -579,6 +580,7 @@ fn check_proxy_url_success() {
     assert!(check_proxy_url(PROXY_URL).is_ok());
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn check_proxy_url_fail() {
