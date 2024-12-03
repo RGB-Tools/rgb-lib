@@ -65,7 +65,11 @@ pub mod wallet;
 
 pub use bdk;
 pub use bitcoin;
-pub use rgb::{containers::ConsignmentExt, persistence::UpdateRes, ContractId};
+pub use rgb::{
+    containers::{ConsignmentExt, PubWitness},
+    persistence::UpdateRes,
+    ContractId,
+};
 pub use rgbinvoice::RgbTransport;
 pub use rgbstd::{
     containers::{Contract, Fascia, FileContent, Transfer as RgbTransfer},
@@ -240,7 +244,7 @@ use zip::write::SimpleFileOptions;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 #[cfg(test)]
 use crate::wallet::test::{
-    mock_asset_terms, mock_contract_details, mock_input_unspents, mock_token_data,
+    mock_asset_terms, mock_contract_details, mock_input_unspents, mock_token_data, mock_vout,
 };
 #[cfg(test)]
 use crate::wallet::test::{mock_chain_net, skip_check_fee_rate};
@@ -248,7 +252,9 @@ use crate::wallet::test::{mock_chain_net, skip_check_fee_rate};
 use crate::{
     api::proxy::{GetConsignmentResponse, Proxy},
     database::{DbData, LocalRecipient, LocalRecipientData, LocalWitnessData},
-    utils::{check_proxy, get_indexer, get_proxy_client, INDEXER_TIMEOUT},
+    utils::{
+        check_proxy, get_indexer, get_proxy_client, script_buf_from_recipient_id, INDEXER_TIMEOUT,
+    },
     wallet::Indexer,
 };
 use crate::{

@@ -225,6 +225,21 @@ pub fn skip_check_fee_rate() -> bool {
     }
 }
 
+lazy_static! {
+    static ref MOCK_VOUT: Mutex<Option<u32>> = Mutex::new(None);
+}
+
+pub fn mock_vout(vout: Option<u32>) -> Option<u32> {
+    let mock = MOCK_VOUT.lock().unwrap().take();
+    if mock.is_some() {
+        println!("mocking vout");
+        assert_ne!(mock, vout);
+        mock
+    } else {
+        vout
+    }
+}
+
 // test utilities
 mod utils;
 

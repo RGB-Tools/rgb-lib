@@ -3882,6 +3882,72 @@ fn witness_multiple_inputs_success() {
     assert_eq!(transfer_data.status, TransferStatus::Settled);
 }
 
+#[cfg(feature = "electrum")]
+#[test]
+#[serial]
+fn witness_fail_wrong_vout() {
+    initialize();
+
+    let amount: u64 = 66;
+
+    // wallets
+    let (wallet, online) = get_funded_wallet!();
+    let (rcv_wallet_1, rcv_online_1) = get_funded_wallet!();
+    let (rcv_wallet_2, rcv_online_2) = get_funded_wallet!();
+
+    // issue
+    let asset = test_issue_asset_nia(&wallet, &online, None);
+
+    // send
+    let receive_data_1 = test_witness_receive(&rcv_wallet_1);
+    let receive_data_2 = test_witness_receive(&rcv_wallet_2);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![
+            Recipient {
+                amount,
+                recipient_id: receive_data_1.recipient_id.clone(),
+                witness_data: Some(WitnessData {
+                    amount_sat: 1000,
+                    blinding: None,
+                }),
+                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+            },
+            Recipient {
+                amount: amount * 2,
+                recipient_id: receive_data_2.recipient_id.clone(),
+                witness_data: Some(WitnessData {
+                    amount_sat: 2000,
+                    blinding: None,
+                }),
+                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+            },
+        ],
+    )]);
+    println!("setting MOCK_VOUT");
+    *MOCK_VOUT.lock().unwrap() = Some(1);
+    let txid = test_send(&wallet, &online, &recipient_map);
+    assert!(!txid.is_empty());
+
+    // transfers progress to status Failed after a refresh
+    wait_for_refresh(&rcv_wallet_2, &rcv_online_2, None, None);
+    wait_for_refresh(&rcv_wallet_1, &rcv_online_1, None, None);
+    let rcv_transfer = get_test_transfer_recipient(&rcv_wallet_1, &receive_data_1.recipient_id);
+    let (rcv_transfer_data, _rcv_asset_transfer) =
+        get_test_transfer_data(&rcv_wallet_1, &rcv_transfer);
+    wait_for_refresh(&wallet, &online, Some(&asset.asset_id), None);
+    let batch_transfers = get_test_batch_transfers(&wallet, &txid);
+    let batch_transfer = batch_transfers.first().unwrap();
+    let asset_transfer = get_test_asset_transfer(&wallet, batch_transfer.idx);
+    let transfers = get_test_transfers(&wallet, asset_transfer.idx);
+    for transfer in transfers {
+        let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
+        assert_eq!(transfer_data.status, TransferStatus::Failed);
+    }
+    assert_eq!(rcv_transfer_data.kind, TransferKind::ReceiveWitness);
+    assert_eq!(rcv_transfer_data.status, TransferStatus::Failed);
+}
+
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 fn _min_confirmations_common(
     wallet: &Wallet,

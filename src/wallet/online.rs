@@ -2036,6 +2036,69 @@ impl Wallet {
             return self._refuse_consignment(proxy_url, recipient_id, &mut updated_batch_transfer);
         }
 
+        // check the info provided via the proxy is correct
+        if let Some(anchored_bundle) = consignment
+            .bundles
+            .iter()
+            .find(|ab| ab.witness_id().to_string() == format!("bc:{txid}"))
+        {
+            if transfer.recipient_type == Some(RecipientType::Witness) {
+                if let Some(vout) = vout {
+                    if let PubWitness::Tx(tx) = anchored_bundle.pub_witness.as_reduced_unsafe() {
+                        if let Some(output) = tx.outputs().nth(vout as usize) {
+                            let script_pubkey = ScriptPubkey::try_from(
+                                script_buf_from_recipient_id(recipient_id.clone())?
+                                    .unwrap()
+                                    .into_bytes(),
+                            )
+                            .unwrap();
+                            if output.script_pubkey != script_pubkey {
+                                error!(
+                                    self.logger,
+                                    "The provided vout pays an incorrect script pubkey"
+                                );
+                                return self._refuse_consignment(
+                                    proxy_url,
+                                    recipient_id,
+                                    &mut updated_batch_transfer,
+                                );
+                            }
+                        } else {
+                            error!(self.logger, "Cannot find the expected outpoint");
+                            return self._refuse_consignment(
+                                proxy_url,
+                                recipient_id,
+                                &mut updated_batch_transfer,
+                            );
+                        }
+                    } else {
+                        error!(self.logger, "Consignment is missing the witness TX");
+                        return self._refuse_consignment(
+                            proxy_url,
+                            recipient_id,
+                            &mut updated_batch_transfer,
+                        );
+                    }
+                } else {
+                    error!(
+                        self.logger,
+                        "The vout should be provided when receiving via witness"
+                    );
+                    return self._refuse_consignment(
+                        proxy_url,
+                        recipient_id,
+                        &mut updated_batch_transfer,
+                    );
+                }
+            }
+        } else {
+            error!(
+                self.logger,
+                "Cannot find the provided TXID in the consignment"
+            );
+            return self._refuse_consignment(proxy_url, recipient_id, &mut updated_batch_transfer);
+        }
+
         let schema_id = consignment.schema_id().to_string();
         let asset_schema = AssetSchema::from_schema_id(schema_id)?;
 
@@ -2964,12 +3027,16 @@ impl Wallet {
                     self.logger,
                     "Posting consignment for recipient ID: {recipient_id}"
                 );
+                #[cfg(test)]
+                let vout = mock_vout(recipient.local_recipient_data.vout());
+                #[cfg(not(test))]
+                let vout = recipient.local_recipient_data.vout();
                 match self.post_consignment(
                     &proxy_url,
                     recipient_id.clone(),
                     &consignment_path,
                     txid.clone(),
-                    recipient.local_recipient_data.vout(),
+                    vout,
                 ) {
                     Err(Error::RecipientIDAlreadyUsed) => {
                         return Err(Error::RecipientIDAlreadyUsed)
