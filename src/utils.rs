@@ -148,7 +148,7 @@ where
 {
     struct StringOrNumberVisitor<T>(std::marker::PhantomData<T>);
 
-    impl<'de, T> Visitor<'de> for StringOrNumberVisitor<T>
+    impl<T> Visitor<'_> for StringOrNumberVisitor<T>
     where
         T: FromStr + Copy,
         T::Err: fmt::Display,

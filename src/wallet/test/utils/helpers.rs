@@ -1,5 +1,6 @@
 use super::*;
 
+/// Panic if the given expression doesn't match the provided pattern, logging the unexpected result
 #[macro_export]
 macro_rules! assert_matches {
     ($expression:expr, $pattern:pat $(if $guard:expr)? $(,)?) => {
