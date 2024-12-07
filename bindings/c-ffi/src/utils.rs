@@ -166,6 +166,24 @@ fn string_to_ptr(other: String) -> *mut c_char {
     cstr.into_raw()
 }
 
+pub(crate) fn backup(
+    wallet: &COpaqueStruct,
+    backup_path: *const c_char,
+    password: *const c_char,
+) -> Result<(), Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let backup_path = ptr_to_string(backup_path);
+    let password = ptr_to_string(password);
+    wallet.backup(&backup_path, &password)?;
+    Ok(())
+}
+
+pub(crate) fn backup_info(wallet: &COpaqueStruct) -> Result<String, Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let res = wallet.backup_info()?;
+    Ok(serde_json::to_string(&res)?)
+}
+
 pub(crate) fn blind_receive(
     wallet: &COpaqueStruct,
     asset_id_opt: *const c_char,
@@ -402,6 +420,18 @@ pub(crate) fn refresh(
     let asset_id = convert_optional_string(asset_id_opt);
     let res = wallet.refresh((*online).clone(), asset_id, filter, skip_sync)?;
     Ok(serde_json::to_string(&res)?)
+}
+
+pub(crate) fn restore_backup(
+    backup_path: *const c_char,
+    password: *const c_char,
+    target_dir: *const c_char,
+) -> Result<(), Error> {
+    let backup_path = ptr_to_string(backup_path);
+    let password = ptr_to_string(password);
+    let target_dir = ptr_to_string(target_dir);
+    rgb_lib::restore_backup(&backup_path, &password, &target_dir)?;
+    Ok(())
 }
 
 pub(crate) fn restore_keys(
