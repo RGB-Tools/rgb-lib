@@ -55,6 +55,20 @@ pub extern "C" fn free_wallet(obj: COpaqueStruct) {
 }
 
 #[no_mangle]
+pub extern "C" fn rgblib_backup(
+    wallet: &COpaqueStruct,
+    backup_path: *const c_char,
+    password: *const c_char,
+) -> CResult {
+    backup(wallet, backup_path, password).into()
+}
+
+#[no_mangle]
+pub extern "C" fn rgblib_backup_info(wallet: &COpaqueStruct) -> CResultString {
+    backup_info(wallet).into()
+}
+
+#[no_mangle]
 pub extern "C" fn rgblib_blind_receive(
     wallet: &COpaqueStruct,
     asset_id_opt: *const c_char,
@@ -242,6 +256,15 @@ pub extern "C" fn rgblib_refresh(
     skip_sync: bool,
 ) -> CResultString {
     refresh(wallet, online, asset_id_opt, filter, skip_sync).into()
+}
+
+#[no_mangle]
+pub extern "C" fn rgblib_restore_backup(
+    backup_path: *const c_char,
+    password: *const c_char,
+    target_dir: *const c_char,
+) -> CResult {
+    restore_backup(backup_path, password, target_dir).into()
 }
 
 #[no_mangle]

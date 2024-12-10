@@ -106,6 +106,24 @@ where
     }
 }
 
+impl From<Result<bool, Error>> for CResultString
+where
+    Error: std::fmt::Debug,
+{
+    fn from(other: Result<bool, Error>) -> Self {
+        match other {
+            Ok(d) => CResultString {
+                result: CResultValue::Ok,
+                inner: string_to_ptr(d.to_string()),
+            },
+            Err(e) => CResultString {
+                result: CResultValue::Err,
+                inner: string_to_ptr(format!("{:?}", e)),
+            },
+        }
+    }
+}
+
 fn convert_strings_array<T: FromStr>(ptr: *const c_char) -> Result<Vec<T>, Error> {
     let str_array: Vec<String> = serde_json::from_str(&ptr_to_string(ptr))?;
     str_array
@@ -164,6 +182,24 @@ fn string_to_ptr(other: String) -> *mut c_char {
     };
 
     cstr.into_raw()
+}
+
+pub(crate) fn backup(
+    wallet: &COpaqueStruct,
+    backup_path: *const c_char,
+    password: *const c_char,
+) -> Result<(), Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let backup_path = ptr_to_string(backup_path);
+    let password = ptr_to_string(password);
+    let res = wallet.backup(&backup_path, &password)?;
+    Ok(res)
+}
+
+pub(crate) fn backup_info(wallet: &COpaqueStruct) -> Result<bool, Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let res = wallet.backup_info()?;
+    Ok(res)
 }
 
 pub(crate) fn blind_receive(
@@ -402,6 +438,18 @@ pub(crate) fn refresh(
     let asset_id = convert_optional_string(asset_id_opt);
     let res = wallet.refresh((*online).clone(), asset_id, filter, skip_sync)?;
     Ok(serde_json::to_string(&res)?)
+}
+
+pub(crate) fn restore_backup(
+    backup_path: *const c_char,
+    password: *const c_char,
+    target_dir: *const c_char,
+) -> Result<(), Error> {
+    let backup_path = ptr_to_string(backup_path);
+    let password = ptr_to_string(password);
+    let target_dir = ptr_to_string(target_dir);
+    let res = rgb_lib::restore_backup(&backup_path, &password, &target_dir)?;
+    Ok(res)
 }
 
 pub(crate) fn restore_keys(
