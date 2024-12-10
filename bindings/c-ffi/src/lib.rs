@@ -64,6 +64,11 @@ pub extern "C" fn rgblib_backup(
 }
 
 #[no_mangle]
+pub extern "C" fn rgblib_backup_info(wallet: &COpaqueStruct) -> CResultString {
+    backup_info(wallet).into()
+}
+
+#[no_mangle]
 pub extern "C" fn rgblib_blind_receive(
     wallet: &COpaqueStruct,
     asset_id_opt: *const c_char,
