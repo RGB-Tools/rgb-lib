@@ -15,7 +15,7 @@ impl EntityName for Entity {
 pub struct Model {
     pub idx: i32,
     pub asset_idx: i32,
-    pub index: u32,
+    pub index: i64,
     pub ticker: Option<String>,
     pub name: Option<String>,
     pub details: Option<String>,

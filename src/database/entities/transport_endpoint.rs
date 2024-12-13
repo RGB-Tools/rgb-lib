@@ -2,8 +2,6 @@
 
 use sea_orm::entity::prelude::*;
 
-use crate::database::TransportType;
-
 #[derive(Copy, Clone, Default, Debug, DeriveEntity)]
 pub struct Entity;
 
@@ -16,7 +14,7 @@ impl EntityName for Entity {
 #[derive(Clone, Debug, PartialEq, DeriveModel, DeriveActiveModel, Eq)]
 pub struct Model {
     pub idx: i32,
-    pub transport_type: TransportType,
+    pub transport_type: i16,
     pub endpoint: String,
 }
 

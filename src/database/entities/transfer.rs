@@ -2,8 +2,6 @@
 
 use sea_orm::entity::prelude::*;
 
-use crate::database::enums::RecipientType;
-
 #[derive(Copy, Clone, Default, Debug, DeriveEntity)]
 pub struct Entity;
 
@@ -19,10 +17,10 @@ pub struct Model {
     pub asset_transfer_idx: i32,
     pub amount: String,
     pub incoming: bool,
-    pub recipient_type: Option<RecipientType>,
+    pub recipient_type: Option<i16>,
     pub recipient_id: Option<String>,
     pub ack: Option<bool>,
-    pub vout: Option<u32>,
+    pub vout: Option<i64>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]

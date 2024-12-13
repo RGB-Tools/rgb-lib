@@ -11,11 +11,11 @@ impl EntityName for Entity {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, DeriveModel, DeriveActiveModel, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, DeriveModel, DeriveActiveModel, Eq)]
 pub struct Model {
     pub idx: i32,
     pub txid: String,
-    pub vout: u32,
+    pub vout: i64,
     pub btc_amount: String,
     pub spent: bool,
     pub exists: bool,

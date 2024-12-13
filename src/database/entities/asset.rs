@@ -2,8 +2,6 @@
 
 use sea_orm::entity::prelude::*;
 
-use crate::database::enums::AssetSchema;
-
 #[derive(Copy, Clone, Default, Debug, DeriveEntity)]
 pub struct Entity;
 
@@ -18,12 +16,12 @@ pub struct Model {
     pub idx: i32,
     pub media_idx: Option<i32>,
     pub id: String,
-    pub schema: AssetSchema,
+    pub schema: i16,
     pub added_at: i64,
     pub details: Option<String>,
     pub issued_supply: String,
     pub name: String,
-    pub precision: u8,
+    pub precision: i16,
     pub ticker: Option<String>,
     pub timestamp: i64,
 }

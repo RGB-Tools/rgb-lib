@@ -2,8 +2,6 @@
 
 use sea_orm::entity::prelude::*;
 
-use crate::database::enums::TransferStatus;
-
 #[derive(Copy, Clone, Default, Debug, DeriveEntity)]
 pub struct Entity;
 
@@ -17,11 +15,12 @@ impl EntityName for Entity {
 pub struct Model {
     pub idx: i32,
     pub txid: Option<String>,
-    pub status: TransferStatus,
+    pub status: i16,
     pub created_at: i64,
     pub updated_at: i64,
     pub expiration: Option<i64>,
-    pub min_confirmations: u8,
+    pub exact_expiry: bool,
+    pub min_confirmations: i16,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
@@ -32,6 +31,7 @@ pub enum Column {
     CreatedAt,
     UpdatedAt,
     Expiration,
+    ExactExpiry,
     MinConfirmations,
 }
 
@@ -62,6 +62,7 @@ impl ColumnTrait for Column {
             Self::CreatedAt => ColumnType::BigInteger.def(),
             Self::UpdatedAt => ColumnType::BigInteger.def(),
             Self::Expiration => ColumnType::BigInteger.def().null(),
+            Self::ExactExpiry => ColumnType::Boolean.def(),
             Self::MinConfirmations => ColumnType::SmallInteger.def(),
         }
     }

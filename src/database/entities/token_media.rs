@@ -16,7 +16,7 @@ pub struct Model {
     pub idx: i32,
     pub token_idx: i32,
     pub media_idx: i32,
-    pub attachment_id: Option<u8>,
+    pub attachment_id: Option<i16>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]

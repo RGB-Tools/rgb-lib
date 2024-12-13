@@ -2,8 +2,6 @@
 
 use sea_orm::entity::prelude::*;
 
-use crate::database::enums::ColoringType;
-
 #[derive(Copy, Clone, Default, Debug, DeriveEntity)]
 pub struct Entity;
 
@@ -18,7 +16,7 @@ pub struct Model {
     pub idx: i32,
     pub txo_idx: i32,
     pub asset_transfer_idx: i32,
-    pub r#type: ColoringType,
+    pub r#type: i16,
     pub amount: String,
 }
 

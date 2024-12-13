@@ -2,8 +2,6 @@
 
 use sea_orm::entity::prelude::*;
 
-use crate::database::enums::WalletTransactionType;
-
 #[derive(Copy, Clone, Default, Debug, DeriveEntity)]
 pub struct Entity;
 
@@ -17,7 +15,7 @@ impl EntityName for Entity {
 pub struct Model {
     pub idx: i32,
     pub txid: String,
-    pub r#type: WalletTransactionType,
+    pub r#type: i16,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]

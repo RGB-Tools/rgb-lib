@@ -15,7 +15,7 @@ impl EntityName for Entity {
 pub struct Model {
     pub idx: i32,
     pub txid: String,
-    pub vout: u32,
+    pub vout: i64,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]

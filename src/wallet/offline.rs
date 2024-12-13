@@ -1028,7 +1028,10 @@ impl Transfer {
             recipient_id: x.recipient_id.clone(),
             receive_utxo: td.receive_utxo,
             change_utxo: td.change_utxo,
-            expiration: td.expiration,
+             // before to branch issue37
+                //expiration: td.expiration,
+             // after to branch issue37
+             expiration: td.expiration.map(|e| Some((e, td.exact_expiry.unwrap()))),
             transport_endpoints,
         }
     }
