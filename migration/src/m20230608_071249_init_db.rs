@@ -83,7 +83,7 @@ impl MigrationTrait for Migration {
                     .col(big_unsigned(BatchTransfer::CreatedAt))
                     .col(big_unsigned(BatchTransfer::UpdatedAt))
                     .col(big_unsigned_null(BatchTransfer::Expiration))
-                    .col(boolean(BatchTransfer::ExactExpiry))
+                    .col(boolean_null(BatchTransfer::ExactExpiry))
                     .col(tiny_unsigned(BatchTransfer::MinConfirmations))
                     .to_owned(),
             )
