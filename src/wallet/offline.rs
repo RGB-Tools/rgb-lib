@@ -997,8 +997,12 @@ pub struct Transfer {
     pub receive_utxo: Option<Outpoint>,
     /// Change UTXO of an outgoing transfer
     pub change_utxo: Option<Outpoint>,
-    /// Expiration of the transfer
-    pub expiration: Option<i64>,
+    // before to branch issue37
+        /// Expiration of the transfer
+        //pub expiration: Option<i64>,
+    // after to branch issue37
+    /// Expiration of the transfer and whether it should be exact
+    pub expiration: Option<(i64, bool)>,
     /// Transport endpoints for the transfer
     pub transport_endpoints: Vec<TransferTransportEndpoint>,
 }
