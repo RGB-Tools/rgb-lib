@@ -6,7 +6,7 @@ authors = [
     "Nicola Busanello <nicola.busanello@gmail.com>",
 ]
 edition = "2021"
-rust-version = "1.77.0"
+rust-version = "1.81.0"
 repository = "https://github.com/RGB-Tools/rgb-lib"
 homepage = "https://github.com/RGB-Tools/rgb-lib"
 license = "MIT"
@@ -21,7 +21,7 @@ async-std = { version = "1.13", default-features = false, features = [
     "attributes",
     "tokio1",
 ] }
-sea-orm-migration = { version = "=1.1.0", default-features = false, features = [
+sea-orm-migration = { version = "1.1.2", default-features = false, features = [
     "cli",
     "runtime-async-std-rustls",
     "sqlx-mysql",
