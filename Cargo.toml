@@ -20,7 +20,7 @@ members = [".", "migration"]
 base64 = { version = "0.22.1", default-features = false, features = [
     "std",
 ] }
-bdk = { version = "0.29", default-features = false, features = [
+bdk = { version = "0.30.1", default-features = false, features = [
     "key-value-db",
     "keys-bip39",
     "std",
@@ -66,13 +66,13 @@ slog-async = { version = "2.8.0", default-features = false }
 slog-term = { version = "2.9.1", default-features = false }
 tempfile = { version = "3.14.0", default-features = false }
 thiserror = { version = "2.0", default-features = false }
-time = { version = "0.3.36", default-features = false }
-file-format = { version = "0.25.0", default-features = false, features = [
+time = { version = "0.3.37", default-features = false }
+file-format = { version = "0.26.0", default-features = false, features = [
     "reader",
 ] }
 typenum = { version = "1.17.0", default-features = false }
 walkdir = { version = "2.5.0", default-features = false }
-zip = { version = "2.2.0", default-features = false, features = [
+zip = { version = "2.2.2", default-features = false, features = [
     "zstd",
 ] }
 
@@ -109,7 +109,7 @@ dircmp = { version = "0.2.0", default-features = false }
 lazy_static = { version = "1.5.0", default-features = false }
 once_cell = { version = "1.20.2", default-features = false }
 regex = { version = "1.11.1", default-features = false }
-serial_test = { version = "3.1.1", default-features = false }
+serial_test = { version = "3.2.0", default-features = false }
 
 [features]
 default = ["electrum"]

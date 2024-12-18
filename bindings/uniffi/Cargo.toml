@@ -24,15 +24,15 @@ rgb-lib = { version = "0.3.0-alpha.11", path = "../../", features = [
     "electrum",
     "esplora",
 ] }
-uniffi = { version = "0.28.2", default-features = false }
+uniffi = { version = "0.28.3", default-features = false }
 
 [build-dependencies]
-uniffi = { version = "0.28.2", default-features = false, features = [
+uniffi = { version = "0.28.3", default-features = false, features = [
     "build",
 ] }
 
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
-aws-lc-rs = { version = "1.10.0", default-features = false, features = [
+aws-lc-rs = { version = "1.12.0", default-features = false, features = [
     "bindgen",
 ] }
 
