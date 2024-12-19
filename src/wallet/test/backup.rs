@@ -9,6 +9,7 @@ fn success() {
     let amount: u64 = 66;
     let backup_file_path = get_test_data_dir_path().join("test_backup_success.rgb-lib_backup");
     let backup_file = backup_file_path.to_str().unwrap();
+    let _ = std::fs::remove_file(backup_file);
     let password = "password";
 
     // wallets
@@ -99,16 +100,18 @@ fn success() {
 
     // issue a second asset with the restored wallet
     let _asset = test_issue_asset_nia(&wallet, &online, None);
-
-    // cleanup
-    std::fs::remove_file(backup_file).unwrap();
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn fail() {
+    // services are unnecessary here but this prevents removal of the test dir during exectution
+    initialize();
+
     let backup_file_path = get_test_data_dir_path().join("test_backup_fail.rgb-lib_backup");
     let backup_file = backup_file_path.to_str().unwrap();
+    let _ = std::fs::remove_file(backup_file);
 
     let wallet = get_test_wallet(true, None);
 
@@ -161,6 +164,7 @@ fn fail() {
     let backup_file_wrong_ver_path =
         get_test_data_dir_path().join("test_backup_fail.rgb-lib_backup.wrong_ver");
     let backup_file_wrong_ver = backup_file_wrong_ver_path.to_str().unwrap();
+    let _ = std::fs::remove_file(backup_file_wrong_ver);
     zip_dir(
         &PathBuf::from(files.tempdir.path()),
         &PathBuf::from(backup_file_wrong_ver),
@@ -172,10 +176,6 @@ fn fail() {
     assert!(
         matches!(result, Err(Error::UnsupportedBackupVersion { version: v }) if v == wrong_ver.to_string())
     );
-    std::fs::remove_file(backup_file_wrong_ver).unwrap();
-
-    // cleanup
-    std::fs::remove_file(backup_file).unwrap();
 }
 
 #[cfg(feature = "electrum")]
@@ -187,8 +187,10 @@ fn double_restore() {
     let amount: u64 = 66;
     let backup_file_1_path = get_test_data_dir_path().join("test_double_restore_1.rgb-lib_backup");
     let backup_file_1 = backup_file_1_path.to_str().unwrap();
+    let _ = std::fs::remove_file(backup_file_1);
     let backup_file_2_path = get_test_data_dir_path().join("test_double_restore_2.rgb-lib_backup");
     let backup_file_2 = backup_file_2_path.to_str().unwrap();
+    let _ = std::fs::remove_file(backup_file_2);
     let password_1 = "password1";
     let password_2 = "password2";
 
@@ -291,15 +293,15 @@ fn double_restore() {
     // issue a second asset with the restored wallets
     test_issue_asset_nia(&wallet_1, &online_1, None);
     test_issue_asset_nia(&wallet_2, &online_2, None);
-
-    // cleanup
-    std::fs::remove_file(backup_file_1).unwrap_or_default();
-    std::fs::remove_file(backup_file_2).unwrap_or_default();
 }
 
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn backup_info() {
+    // services are unnecessary here but this prevents removal of the test dir during exectution
+    initialize();
+
     // wallets
     let wallet = get_test_wallet(true, None);
 
