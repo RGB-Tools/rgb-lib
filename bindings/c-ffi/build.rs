@@ -16,4 +16,13 @@ fn main() {
     cbindgen::generate_with_config(&crate_dir, config)
         .expect("Unable to generate C++ bindings")
         .write_to_file("rgblib.hpp");
+
+    let target = std::env::var("TARGET").ok();
+    if let Some(t) = target {
+        if t.contains("apple-darwin") {
+            println!("cargo:rustc-link-arg=-Wl,-install_name,@rpath/librgblibcffi.dylib");
+        }
+    } else {
+        println!("cargo:warning=TARGET environment variable not set");
+    }
 }
