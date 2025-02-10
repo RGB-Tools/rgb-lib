@@ -89,12 +89,6 @@ _wait_for_proxy() {
 }
 
 stop_services() {
-    # cleanly stop esplora
-    if $COMPOSE ps |grep -q esplora; then
-        for SRV in socat electrs; do
-            $COMPOSE exec esplora bash -c "sv -w 60 force-stop /etc/service/$SRV"
-        done
-    fi
     # cleanly stop the version 0.1.0 RGB proxy server
     local proxy_mod_proto
     proxy_mod_proto="$($COMPOSE ps -q proxy-mod-proto)"

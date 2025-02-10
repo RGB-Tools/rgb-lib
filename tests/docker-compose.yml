@@ -1,15 +1,15 @@
 services:
   bitcoind:
-    image: registry.gitlab.com/hashbeam/docker/bitcoind:27.1
+    image: registry.gitlab.com/hashbeam/docker/bitcoind:28.1
     command: "-fallbackfee=0.0002"
   electrs:
-    image: registry.gitlab.com/hashbeam/docker/electrs:0.10.0
+    image: registry.gitlab.com/hashbeam/docker/electrs:0.10.9
     ports:
       - 50001:50001
     depends_on:
       - bitcoind
   electrs-2:
-    image: registry.gitlab.com/hashbeam/docker/electrs:0.10.0
+    image: registry.gitlab.com/hashbeam/docker/electrs:0.10.9
     profiles: ['tests']
     ports:
       - 50002:50001
@@ -33,7 +33,7 @@ services:
     build:
       context: ./esplora
       dockerfile: ./Dockerfile.notor
-    image: esplora:956c74f42eb6ad803d8aedc272ba83d3aa6dcf5c-notor
+    image: esplora:4de8457de518526425d4f872d98d5cdb9efdaf0e-notor
     profiles: ['tests']
     command: /srv/explorer/run.sh bitcoin-regtest explorer
     environment:
