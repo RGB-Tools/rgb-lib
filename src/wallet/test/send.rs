@@ -3933,7 +3933,7 @@ fn witness_fail_wrong_vout() {
         ],
     )]);
     println!("setting MOCK_VOUT");
-    *MOCK_VOUT.lock().unwrap() = Some(1);
+    *MOCK_VOUT.lock().unwrap() = Some(2);
     let txid = test_send(&mut wallet, &online, &recipient_map);
     assert!(!txid.is_empty());
 

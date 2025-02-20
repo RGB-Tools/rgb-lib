@@ -93,15 +93,25 @@ impl Wallet {
             Err(ExtractTxError::MissingInputValue { tx }) => tx, // required for non-standard TXs
             Err(e) => return Err(InternalError::from(e).into()),
         };
+        let mut opreturn_first = false;
+        if transaction.output.iter().any(|o| o.script_pubkey.is_p2tr()) {
+            opreturn_first = true;
+        }
+
         let mut psbt = if !transaction
             .output
             .iter()
             .any(|o| o.script_pubkey.is_op_return())
         {
-            transaction.output.push(TxOut {
+            let opreturn_output = TxOut {
                 value: BdkAmount::ZERO,
                 script_pubkey: ScriptBuf::new_op_return([]),
-            });
+            };
+            if opreturn_first {
+                transaction.output.insert(0, opreturn_output);
+            } else {
+                transaction.output.push(opreturn_output);
+            }
             Psbt::from_unsigned_tx(transaction).unwrap()
         } else {
             psbt_to_color.clone()
@@ -114,8 +124,7 @@ impl Wallet {
             .input
             .iter()
             .map(|txin| Outpoint::from(txin.previous_output).into())
-            .map(|outpoint: RgbOutpoint| XOutpoint::from(XChain::Bitcoin(outpoint)))
-            .collect::<HashSet<XOutpoint>>();
+            .collect::<HashSet<RgbOutpoint>>();
 
         let mut all_transitions: HashMap<ContractId, Transition> = HashMap::new();
         let mut asset_beneficiaries: AssetBeneficiariesMap = bmap![];
@@ -136,7 +145,7 @@ impl Wallet {
                 runtime.contract_assignments_for(contract_id, prev_outputs.iter().copied())?
             {
                 for (opout, state) in opout_state_map {
-                    if let PersistedState::Amount(amt, _, _) = &state {
+                    if let PersistedState::Amount(amt) = &state {
                         asset_available_amt += amt.value();
                     } else if let PersistedState::Data(_, _) = &state {
                         asset_available_amt = 1;
@@ -149,9 +158,12 @@ impl Wallet {
 
             let mut beneficiaries = vec![];
             let mut sending_amt = 0;
-            for (vout, amount) in asset_coloring_info.output_map {
+            for (mut vout, amount) in asset_coloring_info.output_map {
                 if amount == 0 {
                     continue;
+                }
+                if opreturn_first {
+                    vout += 1;
                 }
                 sending_amt += amount;
                 if vout as usize > psbt.outputs.len() {
@@ -160,24 +172,17 @@ impl Wallet {
                     });
                 }
                 let graph_seal = if let Some(blinding) = asset_coloring_info.static_blinding {
-                    GraphSeal::with_blinded_vout(CloseMethod::OpretFirst, vout, blinding)
+                    GraphSeal::with_blinded_vout(vout, blinding)
                 } else {
-                    GraphSeal::new_random_vout(CloseMethod::OpretFirst, vout)
+                    GraphSeal::new_random_vout(vout)
                 };
-                let seal = BuilderSeal::Revealed(XChain::with(Layer1::Bitcoin, graph_seal));
+                let seal = BuilderSeal::Revealed(graph_seal);
                 beneficiaries.push(seal);
 
-                let blinding_factor = if let Some(blinding) = asset_coloring_info.static_blinding {
-                    let mut blinding_32_bytes: [u8; 32] = [0; 32];
-                    blinding_32_bytes[0..8].copy_from_slice(&blinding.to_le_bytes());
-                    BlindingFactor::try_from(blinding_32_bytes).unwrap()
-                } else {
-                    BlindingFactor::random()
-                };
                 match iface {
                     AssetIface::RGB20 | AssetIface::RGB25 => {
                         asset_transition_builder = asset_transition_builder
-                            .add_fungible_state_raw(assignment_id, seal, amount, blinding_factor)?;
+                            .add_fungible_state_raw(assignment_id, seal, amount)?;
                     }
                     AssetIface::RGB21 => {
                         asset_transition_builder = asset_transition_builder
@@ -234,10 +239,11 @@ impl Wallet {
                     input.set_rgb_consumer(contract_id, transition.id())?;
                 }
             }
-            psbt.push_rgb_transition(transition, CloseMethod::OpretFirst)?;
+            psbt.push_rgb_transition(transition)?;
         }
 
         let mut rgb_psbt = RgbPsbt::from_str(&psbt.to_string()).unwrap();
+        rgb_psbt.set_rgb_close_method(CloseMethod::OpretFirst);
         rgb_psbt.complete_construction();
         let fascia = rgb_psbt.rgb_commit().map_err(|e| Error::Internal {
             details: e.to_string(),
@@ -266,7 +272,7 @@ impl Wallet {
         let witness_txid = rgb_psbt.txid();
 
         let mut runtime = self.rgb_runtime()?;
-        runtime.consume_fascia(fascia, witness_txid)?;
+        runtime.consume_fascia(fascia, witness_txid, None)?;
 
         let mut transfers = vec![];
         for (contract_id, beneficiaries) in asset_beneficiaries {
@@ -274,14 +280,12 @@ impl Wallet {
                 let transfer = match builder_seal {
                     BuilderSeal::Revealed(seal) => runtime.transfer(
                         contract_id,
-                        [XChain::Bitcoin(ExplicitSeal::new(
-                            CloseMethod::OpretFirst,
-                            RgbOutpoint::new(witness_txid, seal.as_reduced_unsafe().vout),
-                        ))],
+                        [ExplicitSeal::new(RgbOutpoint::new(witness_txid, seal.vout))],
                         None,
+                        Some(witness_txid),
                     )?,
                     BuilderSeal::Concealed(seal) => {
-                        runtime.transfer(contract_id, [], Some(seal))?
+                        runtime.transfer(contract_id, [], Some(seal), Some(witness_txid))?
                     }
                 };
                 transfers.push(transfer);
@@ -307,8 +311,7 @@ impl Wallet {
         blinding: u64,
     ) -> Result<(RgbTransfer, u64), Error> {
         info!(self.logger, "Accepting transfer...");
-        let witness_id =
-            XWitnessId::Bitcoin(RgbTxid::from_str(&txid).map_err(|_| Error::InvalidTxid)?);
+        let witness_id = RgbTxid::from_str(&txid).map_err(|_| Error::InvalidTxid)?;
         let proxy_url = TransportEndpoint::try_from(consignment_endpoint)?.endpoint;
 
         let consignment_res = self.get_consignment(&proxy_url, txid.clone())?;
@@ -326,11 +329,9 @@ impl Wallet {
 
         let mut runtime = self.rgb_runtime()?;
 
-        let blind_seal =
-            BlindSeal::with_blinding(CloseMethod::OpretFirst, TxPtr::WitnessTx, vout, blinding);
+        let blind_seal = BlindSeal::with_blinding(TxPtr::WitnessTx, vout, blinding);
         let graph_seal = GraphSeal::from(blind_seal);
-        let seal = XChain::with(Layer1::Bitcoin, graph_seal);
-        runtime.store_secret_seal(seal)?;
+        runtime.store_secret_seal(graph_seal)?;
 
         let resolver = OffchainResolver {
             witness_id,
@@ -338,17 +339,30 @@ impl Wallet {
             fallback: self.blockchain_resolver(),
         };
 
-        let (_validation_status, validated_transfer) =
-            match consignment.clone().validate(&resolver, self.testnet()) {
-                Ok(cons) => (cons.clone().into_validation_status(), Some(cons)),
-                Err(_) => return Err(Error::InvalidConsignment),
+        debug!(self.logger, "Validating consignment...");
+        let (validation_status, validated_transfer) =
+            match consignment.clone().validate(&resolver, self.chain_net()) {
+                Ok(consignment) => (
+                    consignment.clone().into_validation_status(),
+                    Some(consignment),
+                ),
+                Err((status, _)) => (status, None),
             };
+        let validity = validation_status.validity();
+        debug!(self.logger, "Consignment validity: {:?}", validity);
+        if validity != Validity::Valid {
+            error!(
+                self.logger,
+                "Consignment has an invalid status: {validation_status:?}"
+            );
+            return Err(Error::InvalidConsignment);
+        }
 
         let mut minimal_contract = consignment.clone().into_contract();
         minimal_contract.bundles = none!();
         minimal_contract.terminals = none!();
         let minimal_contract_validated =
-            match minimal_contract.validate(self.blockchain_resolver(), self.testnet()) {
+            match minimal_contract.validate(self.blockchain_resolver(), self.chain_net()) {
                 Ok(cons) => cons,
                 Err(_) => unreachable!("already passed validation"),
             };
@@ -356,7 +370,7 @@ impl Wallet {
             .import_contract(minimal_contract_validated, self.blockchain_resolver())
             .expect("failure importing validated contract");
 
-        let (remote_rgb_amount, _not_opret) =
+        let remote_rgb_amount =
             self.extract_received_amount(&consignment, witness_id, Some(vout), None);
 
         let _status = runtime.accept_transfer(validated_transfer.unwrap(), &resolver)?;
@@ -369,10 +383,15 @@ impl Wallet {
     ///
     /// <div class="warning">This method is meant for special usage and is normally not needed, use
     /// it only if you know what you're doing</div>
-    pub fn consume_fascia(&self, fascia: Fascia, witness_txid: RgbTxid) -> Result<(), Error> {
+    pub fn consume_fascia(
+        &self,
+        fascia: Fascia,
+        witness_txid: RgbTxid,
+        witness_ord: Option<WitnessOrd>,
+    ) -> Result<(), Error> {
         info!(self.logger, "Consuming fascia...");
         self.rgb_runtime()?
-            .consume_fascia(fascia.clone(), witness_txid)?;
+            .consume_fascia(fascia.clone(), witness_txid, witness_ord)?;
         info!(self.logger, "Consume fascia completed");
         Ok(())
     }
@@ -384,7 +403,7 @@ impl Wallet {
     #[cfg(any(feature = "electrum", feature = "esplora"))]
     pub fn get_tx_height(&self, txid: String) -> Result<Option<u32>, Error> {
         info!(self.logger, "Getting TX height...");
-        let txid = XWitnessId::Bitcoin(RgbTxid::from_str(&txid).map_err(|_| Error::InvalidTxid)?);
+        let txid = RgbTxid::from_str(&txid).map_err(|_| Error::InvalidTxid)?;
         let height = match self
             .blockchain_resolver()
             .resolve_pub_witness_ord(txid)
@@ -403,11 +422,17 @@ impl Wallet {
     /// <div class="warning">This method is meant for special usage and is normally not needed, use
     /// it only if you know what you're doing</div>
     #[cfg(any(feature = "electrum", feature = "esplora"))]
-    pub fn update_witnesses(&self, after_height: u32) -> Result<UpdateRes, Error> {
+    pub fn update_witnesses(
+        &self,
+        after_height: u32,
+        force_witnesses: Vec<RgbTxid>,
+    ) -> Result<UpdateRes, Error> {
         info!(self.logger, "Updating witnesses...");
-        let update_res = self
-            .rgb_runtime()?
-            .update_witnesses(self.blockchain_resolver(), after_height)?;
+        let update_res = self.rgb_runtime()?.update_witnesses(
+            self.blockchain_resolver(),
+            after_height,
+            force_witnesses,
+        )?;
         info!(self.logger, "Update witnesses completed");
         Ok(update_res)
     }

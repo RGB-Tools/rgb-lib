@@ -1693,10 +1693,8 @@ impl Wallet {
             "Blinding outpoint '{}'",
             utxo.outpoint().to_string()
         );
-        let blind_seal =
-            BlindSeal::opret_first_rand(BpTxid::from_str(&utxo.txid).unwrap(), utxo.vout);
+        let blind_seal = BlindSeal::new_random(RgbTxid::from_str(&utxo.txid).unwrap(), utxo.vout);
         let graph_seal = GraphSeal::from(blind_seal);
-        let seal = XChain::with(Layer1::Bitcoin, graph_seal);
         let beneficiary = Beneficiary::BlindedSeal(graph_seal.conceal());
 
         let (recipient_id, invoice, expiration_timestamp, batch_transfer_idx, asset_transfer_idx) =
@@ -1711,7 +1709,7 @@ impl Wallet {
             )?;
 
         let mut runtime = self.rgb_runtime()?;
-        runtime.store_secret_seal(seal)?;
+        runtime.store_secret_seal(graph_seal)?;
 
         let db_coloring = DbColoringActMod {
             txo_idx: ActiveValue::Set(utxo.idx),

@@ -412,7 +412,7 @@ pub(crate) fn test_save_new_asset(
     contract.terminals = none!();
     let minimal_contract_validated = contract
         .clone()
-        .validate(rcv_wallet.blockchain_resolver(), rcv_wallet.testnet())
+        .validate(rcv_wallet.blockchain_resolver(), rcv_wallet.chain_net())
         .unwrap();
 
     let mut runtime = rcv_wallet.rgb_runtime().unwrap();

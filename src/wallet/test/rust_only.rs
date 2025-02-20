@@ -88,12 +88,12 @@ fn success() {
         .iter()
         .any(|o| o.script_pubkey.is_op_return()));
     assert!(!psbt.proprietary.is_empty());
+    let vout = vout + 1;
 
     // check fascia
     let Fascia { bundles, .. } = fascia.clone();
     assert_eq!(bundles.len(), 1);
-    let (_cid, bundle_dichotomy) = bundles.iter().next().unwrap();
-    let bundle = bundle_dichotomy.first.clone();
+    let (_cid, bundle) = bundles.iter().next().unwrap();
     let im_keys = bundle.input_map.keys();
     assert_eq!(im_keys.len(), 1);
     let mut transitions = bundle.known_transitions.values();
@@ -106,34 +106,22 @@ fn success() {
     assert_eq!(fungible.len(), 1);
     let fungible = fungible.first().unwrap();
     let seal = fungible.revealed_seal().unwrap();
-    let state = fungible.as_revealed_state().unwrap();
-    assert!(seal.is_bitcoin());
-    let blindseal = match seal {
-        XChain::Bitcoin(a) => a,
-        _ => panic!("bitcoin expected"),
-    };
-    assert_eq!(blindseal.method, CloseMethod::OpretFirst);
-    assert_eq!(blindseal.txid, TxPtr::WitnessTx);
-    assert_eq!(blindseal.vout.into_u32(), vout);
-    assert_eq!(blindseal.blinding, blinding);
+    let state = fungible.as_revealed_state();
+    assert_eq!(seal.txid, TxPtr::WitnessTx);
+    assert_eq!(seal.vout.into_u32(), vout);
+    assert_eq!(seal.blinding, blinding);
     assert_eq!(state.value.as_u64(), AMOUNT);
 
     // check beneficiaries
     assert_eq!(beneficiaries.len(), 1);
     let (_cid, seals) = beneficiaries.first_key_value().unwrap();
-    let revealed = match seals.first().unwrap() {
+    let seal = match seals.first().unwrap() {
         BuilderSeal::Revealed(r) => r,
         BuilderSeal::Concealed(_) => panic!("revealed expected"),
     };
-    assert!(revealed.is_bitcoin());
-    let blindseal = match revealed {
-        XChain::Bitcoin(a) => a,
-        _ => panic!("bitcoin expected"),
-    };
-    assert_eq!(blindseal.method, CloseMethod::OpretFirst);
-    assert_eq!(blindseal.txid, TxPtr::WitnessTx);
-    assert_eq!(blindseal.vout.into_u32(), vout);
-    assert_eq!(blindseal.blinding, blinding);
+    assert_eq!(seal.txid, TxPtr::WitnessTx);
+    assert_eq!(seal.vout.into_u32(), vout);
+    assert_eq!(seal.blinding, blinding);
 
     // color PSBT and consume
     let transfers = wallet_send
@@ -172,7 +160,7 @@ fn success() {
 
     // consume fascia
     wallet_send
-        .consume_fascia(fascia, RgbTxid::from_str(&txid).unwrap())
+        .consume_fascia(fascia, RgbTxid::from_str(&txid).unwrap(), None)
         .unwrap();
 }
 

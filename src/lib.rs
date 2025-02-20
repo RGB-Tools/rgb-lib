@@ -73,6 +73,7 @@ pub use rgb::{
 pub use rgbinvoice::RgbTransport;
 pub use rgbstd::{
     containers::{Contract, Fascia, FileContent, Transfer as RgbTransfer},
+    vm::WitnessOrd,
     Txid as RgbTxid,
 };
 
@@ -156,10 +157,10 @@ use bdk_wallet::{
     Update,
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-use bp::seals::txout::{ChainBlindSeal, TxPtr};
+use bp::seals::txout::TxPtr;
 use bp::{
     seals::txout::{BlindSeal, CloseMethod, ExplicitSeal},
-    Outpoint as RgbOutpoint, ScriptPubkey, Txid as BpTxid,
+    Outpoint as RgbOutpoint, ScriptPubkey, Tx,
 };
 use bpstd::{AddressPayload, Network as RgbNetwork};
 use chacha20poly1305::{
@@ -174,7 +175,9 @@ use ifaces::{
     rgb21::{EmbeddedMedia as RgbEmbeddedMedia, TokenData},
     IssuerWrapper, Rgb20, Rgb21, Rgb25,
 };
-use psrgbt::{PropKey, ProprietaryKeyRgb, Psbt as RgbPsbt, RgbPsbt as RgbPsbtTrait, RgbPsbtError};
+use psrgbt::{
+    PropKey, ProprietaryKeyRgb, Psbt as RgbPsbt, RgbExt, RgbPsbt as RgbPsbtTrait, RgbPsbtError,
+};
 use rand::{distributions::Alphanumeric, Rng};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use reqwest::{
@@ -191,9 +194,7 @@ use rgb::{
     invoice::Pay2Vout,
     persistence::{ContractIfaceError, MemContract, MemContractState, Stock},
     validation::{ResolveWitness, Status, WitnessResolverError},
-    vm::{WitnessOrd, XWitnessTx},
-    BlindingFactor, Genesis, GraphSeal, Layer1, OpId, Opout, Transition, XChain, XOutpoint,
-    XOutputSeal, XWitnessId,
+    ChainNet, Genesis, GraphSeal, Layer1, OpId, Opout, OutputSeal, Transition,
 };
 use rgb_lib_migration::{Migrator, MigratorTrait};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -202,7 +203,7 @@ use rgbinvoice::{Beneficiary, RgbInvoice, RgbInvoiceBuilder, XChainNet};
 use rgbstd::{
     containers::{BuilderSeal, Kit, ValidContract, ValidKit, ValidTransfer},
     interface::{IfaceClass, IfaceRef, TransitionBuilder},
-    invoice::{ChainNet, InvoiceState},
+    invoice::InvoiceState,
     persistence::{fs::FsBinStore, PersistedState, StashDataError, StashReadProvider, StockError},
     stl::{Attachment, ProofOfReserves as RgbProofOfReserves},
     MergeReveal, Operation,
@@ -255,7 +256,7 @@ use crate::{
     error::IndexerError,
     utils::{
         check_proxy, get_indexer, get_proxy_client, script_buf_from_recipient_id, OffchainResolver,
-        INDEXER_STOP_GAP, INDEXER_TIMEOUT,
+        INDEXER_RETRIES, INDEXER_STOP_GAP, INDEXER_TIMEOUT,
     },
     wallet::Indexer,
 };

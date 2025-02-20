@@ -87,7 +87,7 @@ impl TryFrom<ChainNet> for BitcoinNetwork {
     fn try_from(x: ChainNet) -> Result<Self, Self::Error> {
         match x {
             ChainNet::BitcoinMainnet => Ok(BitcoinNetwork::Mainnet),
-            ChainNet::BitcoinTestnet => Ok(BitcoinNetwork::Testnet),
+            ChainNet::BitcoinTestnet3 => Ok(BitcoinNetwork::Testnet),
             ChainNet::BitcoinSignet => Ok(BitcoinNetwork::Signet),
             ChainNet::BitcoinRegtest => Ok(BitcoinNetwork::Regtest),
             _ => Err(Error::UnsupportedLayer1 {
@@ -121,7 +121,7 @@ impl From<BitcoinNetwork> for ChainNet {
     fn from(x: BitcoinNetwork) -> ChainNet {
         match x {
             BitcoinNetwork::Mainnet => ChainNet::BitcoinMainnet,
-            BitcoinNetwork::Testnet => ChainNet::BitcoinTestnet,
+            BitcoinNetwork::Testnet => ChainNet::BitcoinTestnet3,
             BitcoinNetwork::Signet => ChainNet::BitcoinSignet,
             BitcoinNetwork::Regtest => ChainNet::BitcoinRegtest,
         }
@@ -325,7 +325,7 @@ pub fn script_buf_from_recipient_id(recipient_id: String) -> Result<Option<Scrip
         XChainNet::<Beneficiary>::from_str(&recipient_id).map_err(|_| Error::InvalidRecipientID)?;
     match xchainnet_beneficiary.into_inner() {
         Beneficiary::WitnessVout(pay_2_vout) => {
-            let script_pubkey = pay_2_vout.address.script_pubkey();
+            let script_pubkey = pay_2_vout.script_pubkey();
             let script_bytes = script_pubkey.as_script_bytes();
             let script_bytes_vec = script_bytes.clone().into_vec();
             let script_buf = ScriptBuf::from_bytes(script_bytes_vec);
@@ -339,10 +339,7 @@ pub(crate) fn beneficiary_from_script_buf(script_buf: ScriptBuf) -> Beneficiary 
     let address_payload =
         AddressPayload::from_script(&ScriptPubkey::try_from(script_buf.into_bytes()).unwrap())
             .unwrap();
-    Beneficiary::WitnessVout(Pay2Vout {
-        address: address_payload,
-        method: CloseMethod::OpretFirst,
-    })
+    Beneficiary::WitnessVout(Pay2Vout::new(address_payload))
 }
 
 /// Return the recipient ID for a specific script buf
@@ -585,29 +582,32 @@ impl RgbRuntime {
     pub(crate) fn consume_fascia(
         &mut self,
         fascia: Fascia,
-        witness_txid: RgbTxid,
+        witness_id: RgbTxid,
+        witness_ord: Option<WitnessOrd>,
     ) -> Result<(), InternalError> {
         struct FasciaResolver {
-            witness_id: XWitnessId,
+            witness_id: RgbTxid,
+            witness_ord: WitnessOrd,
         }
         impl ResolveWitness for FasciaResolver {
-            fn resolve_pub_witness(
-                &self,
-                _: XWitnessId,
-            ) -> Result<XWitnessTx, WitnessResolverError> {
+            fn resolve_pub_witness(&self, _: RgbTxid) -> Result<Tx, WitnessResolverError> {
                 unreachable!()
             }
             fn resolve_pub_witness_ord(
                 &self,
-                witness_id: XWitnessId,
+                witness_id: RgbTxid,
             ) -> Result<WitnessOrd, WitnessResolverError> {
-                assert_eq!(witness_id, self.witness_id);
-                Ok(WitnessOrd::Tentative)
+                debug_assert_eq!(witness_id, self.witness_id);
+                Ok(self.witness_ord)
+            }
+            fn check_chain_net(&self, _: ChainNet) -> Result<(), WitnessResolverError> {
+                unreachable!()
             }
         }
 
         let resolver = FasciaResolver {
-            witness_id: XChain::Bitcoin(witness_txid),
+            witness_id,
+            witness_ord: witness_ord.unwrap_or(WitnessOrd::Tentative),
         };
 
         self.stock
@@ -646,7 +646,7 @@ impl RgbRuntime {
     #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn contracts_assigning(
         &self,
-        outputs: impl IntoIterator<Item = impl Into<XOutputSeal>>,
+        outputs: impl IntoIterator<Item = impl Into<RgbOutpoint>>,
     ) -> Result<BTreeSet<ContractId>, InternalError> {
         Ok(FromIterator::from_iter(
             self.stock
@@ -691,8 +691,8 @@ impl RgbRuntime {
     pub(crate) fn contract_assignments_for(
         &self,
         contract_id: ContractId,
-        outpoints: impl IntoIterator<Item = impl Into<XOutpoint>>,
-    ) -> Result<HashMap<XOutputSeal, HashMap<Opout, PersistedState>>, InternalError> {
+        outpoints: impl IntoIterator<Item = impl Into<RgbOutpoint>>,
+    ) -> Result<HashMap<OutputSeal, HashMap<Opout, PersistedState>>, InternalError> {
         self.stock
             .contract_assignments_for(contract_id, outpoints)
             .map_err(InternalError::from)
@@ -706,10 +706,7 @@ impl RgbRuntime {
             .collect())
     }
 
-    pub(crate) fn store_secret_seal(
-        &mut self,
-        seal: XChain<GraphSeal>,
-    ) -> Result<bool, InternalError> {
+    pub(crate) fn store_secret_seal(&mut self, seal: GraphSeal) -> Result<bool, InternalError> {
         self.stock
             .store_secret_seal(seal)
             .map_err(InternalError::from)
@@ -719,11 +716,12 @@ impl RgbRuntime {
     pub(crate) fn transfer(
         &self,
         contract_id: ContractId,
-        outputs: impl AsRef<[XOutputSeal]>,
-        secret_seal: Option<XChain<SecretSeal>>,
+        outputs: impl AsRef<[OutputSeal]>,
+        secret_seal: Option<SecretSeal>,
+        witness_id: Option<RgbTxid>,
     ) -> Result<RgbTransfer, InternalError> {
         self.stock
-            .transfer(contract_id, outputs, secret_seal)
+            .transfer(contract_id, outputs, secret_seal, witness_id)
             .map_err(InternalError::from)
     }
 
@@ -744,9 +742,10 @@ impl RgbRuntime {
         &mut self,
         resolver: &R,
         after_height: u32,
+        force_witnesses: Vec<RgbTxid>,
     ) -> Result<UpdateRes, InternalError> {
         self.stock
-            .update_witnesses(resolver, after_height)
+            .update_witnesses(resolver, after_height, force_witnesses)
             .map_err(InternalError::from)
     }
 }
@@ -829,10 +828,6 @@ trait RgbPropKey {
         convert_prop_key(PropKey::rgb_transition(opid))
     }
 
-    fn rgb_closing_methods(opid: OpId) -> ProprietaryKey {
-        convert_prop_key(PropKey::rgb_closing_methods(opid))
-    }
-
     fn rgb_in_consumed_by(contract_id: ContractId) -> ProprietaryKey {
         convert_prop_key(PropKey::rgb_in_consumed_by(contract_id))
     }
@@ -905,14 +900,7 @@ pub(crate) trait RgbPsbtExt {
     fn rgb_transition(&self, opid: OpId) -> Result<Option<Transition>, InternalError>;
 
     /// See upstream method for details
-    fn rgb_close_method(&self, opid: OpId) -> Result<Option<CloseMethod>, InternalError>;
-
-    /// See upstream method for details
-    fn push_rgb_transition(
-        &mut self,
-        transition: Transition,
-        methods: CloseMethod,
-    ) -> Result<bool, InternalError>;
+    fn push_rgb_transition(&mut self, transition: Transition) -> Result<bool, InternalError>;
 }
 
 impl RgbPsbtExt for Psbt {
@@ -925,32 +913,8 @@ impl RgbPsbtExt for Psbt {
         Ok(Some(transition))
     }
 
-    fn rgb_close_method(&self, opid: OpId) -> Result<Option<CloseMethod>, InternalError> {
-        let Some(m) = self
-            .proprietary
-            .get(&ProprietaryKey::rgb_closing_methods(opid))
-        else {
-            return Ok(None);
-        };
-        if m.len() == 1 {
-            if let Ok(method) = CloseMethod::try_from(m[0]) {
-                return Ok(Some(method));
-            }
-        }
-        Err(RgbPsbtError::InvalidCloseMethod(opid).into())
-    }
-
-    fn push_rgb_transition(
-        &mut self,
-        mut transition: Transition,
-        method: CloseMethod,
-    ) -> Result<bool, InternalError> {
+    fn push_rgb_transition(&mut self, mut transition: Transition) -> Result<bool, InternalError> {
         let opid = transition.id();
-
-        let prev_method = self.rgb_close_method(opid)?;
-        if matches!(prev_method, Some(prev_method) if prev_method != method) {
-            return Err(RgbPsbtError::InvalidCloseMethod(opid).into());
-        }
 
         let prev_transition = self.rgb_transition(opid)?;
         if let Some(ref prev_transition) = prev_transition {
@@ -974,43 +938,41 @@ impl RgbPsbtExt for Psbt {
             ProprietaryKey::rgb_transition(opid),
             serialized_transition.to_unconfined(),
         );
-        let _ = self.proprietary.insert(
-            ProprietaryKey::rgb_closing_methods(opid),
-            vec![method as u8],
-        );
         Ok(prev_transition.is_none())
     }
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) struct OffchainResolver<'a, 'cons, const TRANSFER: bool> {
-    pub(crate) witness_id: XWitnessId,
+    pub(crate) witness_id: RgbTxid,
     pub(crate) consignment: &'cons IndexedConsignment<'cons, TRANSFER>,
     pub(crate) fallback: &'a AnyResolver,
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 impl<const TRANSFER: bool> ResolveWitness for OffchainResolver<'_, '_, TRANSFER> {
-    fn resolve_pub_witness(
-        &self,
-        witness_id: XWitnessId,
-    ) -> Result<XWitnessTx, WitnessResolverError> {
+    fn resolve_pub_witness(&self, witness_id: RgbTxid) -> Result<Tx, WitnessResolverError> {
         if witness_id != self.witness_id {
             return self.fallback.resolve_pub_witness(witness_id);
         }
         self.consignment
             .pub_witness(witness_id)
-            .and_then(|p| p.map_ref(|pw| pw.tx().cloned()).transpose())
+            .and_then(|pw| pw.tx().cloned())
             .ok_or(WitnessResolverError::Unknown(witness_id))
             .or_else(|_| self.fallback.resolve_pub_witness(witness_id))
     }
     fn resolve_pub_witness_ord(
         &self,
-        witness_id: XWitnessId,
+        witness_id: RgbTxid,
     ) -> Result<WitnessOrd, WitnessResolverError> {
         if witness_id != self.witness_id {
             return self.fallback.resolve_pub_witness_ord(witness_id);
         }
         Ok(WitnessOrd::Tentative)
+    }
+    fn check_chain_net(&self, chain_net: ChainNet) -> Result<(), WitnessResolverError> {
+        self.fallback
+            .check_chain_net(chain_net)
+            .map_err(|_| WitnessResolverError::WrongChainNet)
     }
 }
