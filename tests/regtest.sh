@@ -40,9 +40,9 @@ if [ -z "${params}" ]; then
 fi
 
 TMP_DIR="${CWD}/tmp"
-COMPOSE_FPATH="${CWD}/docker-compose.yml"
+COMPOSE_FPATH="${CWD}/compose.yaml"
 COMPOSE="$COMPOSE -f ${COMPOSE_FPATH}"
-EXPOSED_PORTS=(3000 50001)  # see docker-compose.yml for the exposed ports
+EXPOSED_PORTS=(3000 50001)  # see compose.yaml for the exposed ports
 
 BCLI="$COMPOSE exec -T -u blits bitcoind bitcoin-cli -regtest"
 BCLI_ESPLORA="$COMPOSE exec -T esplora cli"

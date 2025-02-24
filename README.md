@@ -46,7 +46,7 @@ a regtest environment.
 Services will not be stopped automatically after the test run. To stop them and
 remove all containers, from the project root execute:
 ```sh
-docker compose -f tests/docker-compose.yml down
+docker compose -f tests/compose.yaml down
 ```
 
 ## Diagrams
