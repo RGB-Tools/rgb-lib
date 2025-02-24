@@ -82,7 +82,7 @@ int main() {
     printf("BTC balance after sync: %s\n", btc_balance_2);
 
     CResultString created_res =
-        rgblib_create_utxos(wlt, online, false, "25", NULL, "1.5", false);
+        rgblib_create_utxos(wlt, online, false, "25", NULL, "1", false);
     if (created_res.result == Err) {
         printf("ERR: %s\n", created_res.inner);
         return EXIT_FAILURE;
