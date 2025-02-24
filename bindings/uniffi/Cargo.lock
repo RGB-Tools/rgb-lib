@@ -3200,7 +3200,7 @@ dependencies = [
 
 [[package]]
 name = "rgb-lib"
-version = "0.3.0-alpha.11"
+version = "0.3.0-alpha.12"
 dependencies = [
  "amplify",
  "base64 0.22.1",
@@ -3246,7 +3246,7 @@ dependencies = [
 
 [[package]]
 name = "rgb-lib-migration"
-version = "0.3.0-alpha.11"
+version = "0.3.0-alpha.12"
 dependencies = [
  "async-std",
  "sea-orm-migration",
