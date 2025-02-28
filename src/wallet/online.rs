@@ -1070,7 +1070,7 @@ impl Wallet {
         let resolver = match indexer {
             #[cfg(feature = "electrum")]
             Indexer::Electrum(_) => {
-                let electrum_config = electrum::Config::builder()
+                let electrum_config = BpElectrumConfig::builder()
                     .timeout(Some(INDEXER_TIMEOUT))
                     .retry(INDEXER_RETRIES)
                     .build();
@@ -1082,7 +1082,7 @@ impl Wallet {
             }
             #[cfg(feature = "esplora")]
             Indexer::Esplora(_) => {
-                let esplora_config = esplora::Config {
+                let esplora_config = BpEsploraConfig {
                     proxy: None,
                     timeout: Some(INDEXER_TIMEOUT.into()),
                     max_retries: INDEXER_RETRIES as usize,
