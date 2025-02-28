@@ -65,16 +65,14 @@ pub mod wallet;
 
 pub use bdk_wallet;
 pub use bdk_wallet::bitcoin;
-pub use rgb::{
-    containers::{ConsignmentExt, PubWitness},
-    persistence::UpdateRes,
-    ContractId,
-};
 pub use rgbinvoice::RgbTransport;
 pub use rgbstd::{
-    containers::{Contract, Fascia, FileContent, Transfer as RgbTransfer},
+    containers::{
+        ConsignmentExt, Contract, Fascia, FileContent, PubWitness, Transfer as RgbTransfer,
+    },
+    persistence::UpdateRes,
     vm::WitnessOrd,
-    Txid as RgbTxid,
+    ContractId, Txid as RgbTxid,
 };
 
 pub use crate::{
@@ -168,6 +166,10 @@ use chacha20poly1305::{
     Key, KeyInit, XChaCha20Poly1305,
 };
 use commit_verify::Conceal;
+#[cfg(feature = "electrum")]
+use electrum::Config as BpElectrumConfig;
+#[cfg(feature = "esplora")]
+use esplora::Config as BpEsploraConfig;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use file_format::FileFormat;
 use futures::executor::block_on;
@@ -185,28 +187,29 @@ use reqwest::{
     header::CONTENT_TYPE,
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-use rgb::{
-    containers::IndexedConsignment, resolvers::AnyResolver, stl::ContractTerms,
-    validation::Validity, Assign, GenesisSeal, Identity,
-};
-use rgb::{
-    info::{ContractInfo, SchemaInfo},
-    invoice::Pay2Vout,
-    persistence::{ContractIfaceError, MemContract, MemContractState, Stock},
-    validation::{ResolveWitness, Status, WitnessResolverError},
-    ChainNet, Genesis, GraphSeal, Layer1, OpId, Opout, OutputSeal, Transition,
-};
+use rgb::resolvers::AnyResolver;
 use rgb_lib_migration::{Migrator, MigratorTrait};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use rgbinvoice::{Amount, Precision};
 use rgbinvoice::{Beneficiary, RgbInvoice, RgbInvoiceBuilder, XChainNet};
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+use rgbstd::{
+    containers::IndexedConsignment, stl::ContractTerms, validation::Validity, Assign, GenesisSeal,
+    Identity,
+};
 use rgbstd::{
     containers::{BuilderSeal, Kit, ValidContract, ValidKit, ValidTransfer},
+    info::{ContractInfo, SchemaInfo},
     interface::{IfaceClass, IfaceRef, TransitionBuilder},
-    invoice::InvoiceState,
-    persistence::{fs::FsBinStore, PersistedState, StashDataError, StashReadProvider, StockError},
+    invoice::{InvoiceState, Pay2Vout},
+    persistence::{
+        fs::FsBinStore, ContractIfaceError, MemContract, MemContractState, PersistedState,
+        StashDataError, StashReadProvider, Stock, StockError,
+    },
     stl::{Attachment, ProofOfReserves as RgbProofOfReserves},
-    MergeReveal, Operation,
+    validation::{ResolveWitness, Status, WitnessResolverError},
+    ChainNet, Genesis, GraphSeal, Layer1, MergeReveal, OpId, Operation, Opout, OutputSeal,
+    SecretSeal, Transition,
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use rgbstd::{
@@ -223,7 +226,6 @@ use sea_orm::{
     ActiveValue, ColumnTrait, ConnectOptions, Database, DatabaseConnection, DeriveActiveEnum,
     EntityTrait, EnumIter, IntoActiveValue, QueryFilter, QueryOrder, TryIntoModel,
 };
-use seals::SecretSeal;
 use serde::de::{self, Unexpected, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use slog::{debug, error, info, o, warn, Drain, Logger};

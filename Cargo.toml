@@ -88,17 +88,12 @@ bp-electrum = { version = "=0.11.1-alpha.1", optional = true, default-features =
 bp-esplora = { version = "=0.11.1-alpha.1", optional = true, default-features = false, features = [
     "blocking",
 ] }
-bp-seals = { version = "=0.11.1-alpha.1", default-features = false }
 bp-std = { version = "=0.11.1-alpha.1", default-features = false }
 commit_verify = { version = "=0.11.0", default-features = false }
-rgb-core = { version = "=0.11.1-alpha.1", default-features = false, features = [
-    "stl",
-] }
 rgb-interfaces = { version = "=0.11.1-alpha.1", default-features = false }
 rgb-invoice = { version = "=0.11.1-alpha.1", default-features = false }
 rgb-psbt = { version = "=0.11.1-alpha.1", default-features = false }
 rgb-runtime = { version = "=0.11.1-alpha.1", default-features = false, features = [
-    "fs",
     "serde",
 ] }
 rgb-schemata = { version = "=0.11.1-alpha.1", default-features = false }

@@ -959,11 +959,8 @@ dependencies = [
  "log",
  "nonasync",
  "psbt",
- "serde",
- "serde_yaml",
  "sha2",
  "strict_encoding",
- "toml",
 ]
 
 [[package]]
@@ -3122,7 +3119,6 @@ dependencies = [
  "bp-core",
  "bp-electrum",
  "bp-esplora",
- "bp-seals",
  "bp-std",
  "chacha20poly1305",
  "commit_verify",
@@ -3136,7 +3132,6 @@ dependencies = [
  "rand",
  "regex",
  "reqwest",
- "rgb-core",
  "rgb-interfaces",
  "rgb-invoice",
  "rgb-lib-migration",
