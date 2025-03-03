@@ -958,9 +958,10 @@ impl Wallet {
             .map(|u| u.outpoint().to_string())
             .collect();
         let db_utxos: HashSet<String> = HashSet::from_iter(db_utxos);
-        if db_utxos.difference(&bdk_utxos).count() > 0 {
+        let diff = db_utxos.difference(&bdk_utxos);
+        if diff.clone().count() > 0 {
             return Err(Error::Inconsistency {
-                details: s!("spent bitcoins with another wallet"),
+                details: format!("spent bitcoins with another wallet: {diff:?}"),
             });
         }
 
