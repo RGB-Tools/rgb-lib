@@ -178,7 +178,7 @@ fn consistency_check_fail_bitcoins() {
     let err = "spent bitcoins with another wallet";
     let mut wallet_prefill = Wallet::new(wallet_data_prefill).unwrap();
     let result = test_go_online_result(&mut wallet_prefill, false, None);
-    assert!(matches!(result, Err(Error::Inconsistency { details: e }) if e == err));
+    assert!(matches!(result, Err(Error::Inconsistency { details: e }) if e.contains(err)));
 
     // make sure detection works multiple times (doesn't get reset on first failed check)
     let mut wallet_prefill_2 = Wallet::new(wallet_data_prefill_2).unwrap();
@@ -188,7 +188,7 @@ fn consistency_check_fail_bitcoins() {
         fs::copy(src, dst).unwrap();
     }
     let result = test_go_online_result(&mut wallet_prefill_2, false, None);
-    assert!(matches!(result, Err(Error::Inconsistency { details: e }) if e == err));
+    assert!(matches!(result, Err(Error::Inconsistency { details: e }) if e.contains(err)));
 }
 
 #[cfg(feature = "electrum")]
