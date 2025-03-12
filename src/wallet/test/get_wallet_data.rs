@@ -13,7 +13,8 @@ fn success() {
         bitcoin_network: BitcoinNetwork::Signet,
         database_type: DatabaseType::Sqlite,
         max_allocations_per_utxo: 1,
-        pubkey: keys.account_xpub.clone(),
+        account_xpub_colored: keys.account_xpub_colored.clone(),
+        account_xpub_vanilla: keys.account_xpub_vanilla.clone(),
         mnemonic: Some(keys.mnemonic.clone()),
         vanilla_keychain: Some(2),
     })
@@ -27,7 +28,10 @@ fn success() {
     );
     assert_eq!(wallet_1_data.bitcoin_network, BitcoinNetwork::Signet);
     assert!(matches!(wallet_1_data.database_type, DatabaseType::Sqlite));
-    assert_eq!(wallet_1_data.pubkey, keys.account_xpub);
+    assert_eq!(
+        wallet_1_data.account_xpub_colored,
+        keys.account_xpub_colored
+    );
     assert_eq!(wallet_1_data.max_allocations_per_utxo, 1);
     assert_eq!(wallet_1_data.mnemonic.unwrap(), keys.mnemonic);
     assert_eq!(wallet_1_data.vanilla_keychain.unwrap(), 2);
@@ -38,7 +42,8 @@ fn success() {
         bitcoin_network: BitcoinNetwork::Regtest,
         database_type: DatabaseType::Sqlite,
         max_allocations_per_utxo: 5,
-        pubkey: keys.account_xpub.clone(),
+        account_xpub_colored: keys.account_xpub_colored,
+        account_xpub_vanilla: keys.account_xpub_vanilla,
         mnemonic: None,
         vanilla_keychain: None,
     })

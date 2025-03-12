@@ -11,10 +11,14 @@ const TIMESTAMP_FORMAT: &[time::format_description::BorrowedFormatItem] = time::
 const RGB_RUNTIME_LOCK_FILE: &str = "rgb_runtime.lock";
 
 pub(crate) const RGB_RUNTIME_DIR: &str = "rgb";
-
 pub(crate) const LOG_FILE: &str = "log";
+
 pub(crate) const PURPOSE: u8 = 86;
+pub(crate) const COIN_RGB_MAINNET: u32 = 827166;
+pub(crate) const COIN_RGB_TESTNET: u32 = 827167;
 pub(crate) const ACCOUNT: u8 = 0;
+pub(crate) const KEYCHAIN_RGB: u8 = 0;
+pub(crate) const KEYCHAIN_BTC: u8 = 0;
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) const INDEXER_STOP_GAP: usize = 20;
@@ -276,15 +280,22 @@ fn get_valid_txid_for_network(bitcoin_network: &BitcoinNetwork) -> String {
     .to_string()
 }
 
-fn get_coin_type(bitcoin_network: BitcoinNetwork) -> u32 {
-    u32::from(bitcoin_network != BitcoinNetwork::Mainnet)
+pub(crate) fn str_to_xpub(xpub: &str, bdk_network: BdkNetwork) -> Result<Xpub, Error> {
+    let pubkey_btc = Xpub::from_str(xpub)?;
+    let extended_key_btc: ExtendedKey = ExtendedKey::from(pubkey_btc);
+    Ok(extended_key_btc.into_xpub(bdk_network, &Secp256k1::new()))
 }
 
-pub(crate) fn derive_account_xprv_from_mnemonic(
+fn derive_account_xprv_from_mnemonic(
     bitcoin_network: BitcoinNetwork,
     mnemonic: &str,
+    rgb: bool,
 ) -> Result<Xpriv, Error> {
-    let coin_type = get_coin_type(bitcoin_network);
+    let coin_type = match (bitcoin_network, rgb) {
+        (BitcoinNetwork::Mainnet, true) => COIN_RGB_MAINNET,
+        (_, true) => COIN_RGB_TESTNET,
+        (_, false) => u32::from(bitcoin_network != BitcoinNetwork::Mainnet),
+    };
     let account_derivation_path = vec![
         ChildNumber::from_hardened_idx(PURPOSE as u32).unwrap(),
         ChildNumber::from_hardened_idx(coin_type).unwrap(),
@@ -295,14 +306,78 @@ pub(crate) fn derive_account_xprv_from_mnemonic(
     Ok(master_xprv.derive_priv(&Secp256k1::new(), &account_derivation_path)?)
 }
 
-pub(crate) fn get_xpub_from_xprv(xprv: &Xpriv) -> Xpub {
+fn get_xpub_from_xprv(xprv: &Xpriv) -> Xpub {
     Xpub::from_priv(&Secp256k1::new(), xprv)
 }
 
-/// Get account-level xPub for the given mnemonic and Bitcoin network
-pub fn get_account_xpub(bitcoin_network: BitcoinNetwork, mnemonic: &str) -> Result<Xpub, Error> {
-    let account_xprv = derive_account_xprv_from_mnemonic(bitcoin_network, mnemonic)?;
-    Ok(get_xpub_from_xprv(&account_xprv))
+/// Get the account-level xPriv and xPub for the given mnemonic and Bitcoin network based on the
+/// requested wallet side (colored or vanilla)
+pub fn get_account_data(
+    bitcoin_network: BitcoinNetwork,
+    mnemonic: &str,
+    rgb: bool,
+) -> Result<(Xpriv, Xpub), Error> {
+    let account_xprv = derive_account_xprv_from_mnemonic(bitcoin_network, mnemonic, rgb)?;
+    let account_xpub = get_xpub_from_xprv(&account_xprv);
+    Ok((account_xprv, account_xpub))
+}
+
+pub(crate) fn get_account_xpubs(
+    bitcoin_network: BitcoinNetwork,
+    mnemonic: &str,
+) -> Result<(Xpub, Xpub), Error> {
+    let (_, account_xpub_vanilla) = get_account_data(bitcoin_network, mnemonic, false)?;
+    let (_, account_xpub_colored) = get_account_data(bitcoin_network, mnemonic, true)?;
+    Ok((account_xpub_vanilla, account_xpub_colored))
+}
+
+fn derive_descriptor(
+    bitcoin_network: BitcoinNetwork,
+    mnemonic: &str,
+    rgb: bool,
+    keychain: u8,
+    expected_xpub: Xpub,
+) -> Result<String, Error> {
+    let (account_xprv, account_xpub) = get_account_data(bitcoin_network, mnemonic, rgb)?;
+    if account_xpub != expected_xpub {
+        return Err(Error::InvalidBitcoinKeys);
+    }
+    calculate_descriptor_from_xprv(account_xprv, keychain)
+}
+
+pub(crate) fn get_descriptors(
+    bitcoin_network: BitcoinNetwork,
+    mnemonic: &str,
+    vanilla_keychain: Option<u8>,
+    expected_xpub_btc: Xpub,
+    expected_xpub_rgb: Xpub,
+) -> Result<(String, String), Error> {
+    let descriptor_colored = derive_descriptor(
+        bitcoin_network,
+        mnemonic,
+        true,
+        KEYCHAIN_RGB,
+        expected_xpub_rgb,
+    )?;
+    let descriptor_vanilla = derive_descriptor(
+        bitcoin_network,
+        mnemonic,
+        false,
+        vanilla_keychain.unwrap_or(KEYCHAIN_BTC),
+        expected_xpub_btc,
+    )?;
+    Ok((descriptor_colored, descriptor_vanilla))
+}
+
+pub(crate) fn get_descriptors_from_xpubs(
+    xpub_rgb: Xpub,
+    xpub_btc: Xpub,
+    vanilla_keychain: Option<u8>,
+) -> Result<(String, String), Error> {
+    let descriptor_colored = calculate_descriptor_from_xpub(xpub_rgb, KEYCHAIN_RGB)?;
+    let descriptor_vanilla =
+        calculate_descriptor_from_xpub(xpub_btc, vanilla_keychain.unwrap_or(KEYCHAIN_BTC))?;
+    Ok((descriptor_colored, descriptor_vanilla))
 }
 
 pub(crate) fn parse_address_str(
@@ -324,7 +399,7 @@ pub fn script_buf_from_recipient_id(recipient_id: String) -> Result<Option<Scrip
     let xchainnet_beneficiary =
         XChainNet::<Beneficiary>::from_str(&recipient_id).map_err(|_| Error::InvalidRecipientID)?;
     match xchainnet_beneficiary.into_inner() {
-        Beneficiary::WitnessVout(pay_2_vout) => {
+        Beneficiary::WitnessVout(pay_2_vout, _) => {
             let script_pubkey = pay_2_vout.script_pubkey();
             let script_bytes = script_pubkey.as_script_bytes();
             let script_bytes_vec = script_bytes.clone().into_vec();
@@ -339,7 +414,7 @@ pub(crate) fn beneficiary_from_script_buf(script_buf: ScriptBuf) -> Beneficiary 
     let address_payload =
         AddressPayload::from_script(&ScriptPubkey::try_from(script_buf.into_bytes()).unwrap())
             .unwrap();
-    Beneficiary::WitnessVout(Pay2Vout::new(address_payload))
+    Beneficiary::WitnessVout(Pay2Vout::new(address_payload), None)
 }
 
 /// Return the recipient ID for a specific script buf
@@ -568,17 +643,6 @@ impl RgbRuntime {
     }
 
     #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
-    pub(crate) fn blank_builder(
-        &self,
-        contract_id: ContractId,
-        iface: impl Into<IfaceRef>,
-    ) -> Result<TransitionBuilder, InternalError> {
-        self.stock
-            .blank_builder(contract_id, iface)
-            .map_err(InternalError::from)
-    }
-
-    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn consume_fascia(
         &mut self,
         fascia: Fascia,
@@ -624,23 +688,13 @@ impl RgbRuntime {
             .collect())
     }
 
-    pub(crate) fn contract_iface_class<C: IfaceClass>(
+    pub(crate) fn contract_wrapper<C: IssuerWrapper>(
         &self,
         contract_id: ContractId,
-    ) -> Result<C::Wrapper<MemContract<&MemContractState>>, Error> {
+    ) -> Result<C::Wrapper<MemContract<&MemContractState>>, InternalError> {
         self.stock
-            .contract_iface_class::<C>(contract_id)
-            .map_err(|err| {
-                if matches!(
-                    err,
-                    StockError::StashData(StashDataError::NoAbstractIface(
-                        ContractIfaceError::NoAbstractImpl(_, _)
-                    ))
-                ) {
-                    return Error::AssetIfaceMismatch;
-                }
-                Error::from(InternalError::from(err))
-            })
+            .contract_wrapper::<C>(contract_id)
+            .map_err(InternalError::from)
     }
 
     #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
@@ -692,9 +746,20 @@ impl RgbRuntime {
         &self,
         contract_id: ContractId,
         outpoints: impl IntoIterator<Item = impl Into<RgbOutpoint>>,
-    ) -> Result<HashMap<OutputSeal, HashMap<Opout, PersistedState>>, InternalError> {
+    ) -> Result<HashMap<OutputSeal, HashMap<Opout, AllocatedState>>, InternalError> {
         self.stock
             .contract_assignments_for(contract_id, outpoints)
+            .map_err(InternalError::from)
+    }
+
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
+    pub(crate) fn contract_schema(
+        &self,
+        contract_id: ContractId,
+    ) -> Result<&Schema, InternalError> {
+        self.stock
+            .as_stash_provider()
+            .contract_schema(contract_id)
             .map_err(InternalError::from)
     }
 
@@ -717,11 +782,11 @@ impl RgbRuntime {
         &self,
         contract_id: ContractId,
         outputs: impl AsRef<[OutputSeal]>,
-        secret_seal: Option<SecretSeal>,
+        secret_seals: impl AsRef<[SecretSeal]>,
         witness_id: Option<RgbTxid>,
     ) -> Result<RgbTransfer, InternalError> {
         self.stock
-            .transfer(contract_id, outputs, secret_seal, witness_id)
+            .transfer(contract_id, outputs, secret_seals, witness_id)
             .map_err(InternalError::from)
     }
 
@@ -729,11 +794,21 @@ impl RgbRuntime {
     pub(crate) fn transition_builder(
         &self,
         contract_id: ContractId,
-        iface: impl Into<IfaceRef>,
-        transition_name: Option<impl Into<FieldName>>,
+        transition_name: impl Into<FieldName>,
     ) -> Result<TransitionBuilder, InternalError> {
         self.stock
-            .transition_builder(contract_id, iface, transition_name)
+            .transition_builder(contract_id, transition_name)
+            .map_err(InternalError::from)
+    }
+
+    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
+    pub(crate) fn transition_builder_raw(
+        &self,
+        contract_id: ContractId,
+        transition_type: TransitionType,
+    ) -> Result<TransitionBuilder, InternalError> {
+        self.stock
+            .transition_builder_raw(contract_id, transition_type)
             .map_err(InternalError::from)
     }
 
@@ -842,34 +917,44 @@ impl RgbPropKey for ProprietaryKey {}
 /// Methods adding RGB functionality to rust-bitcoin Input
 pub(crate) trait RgbInExt {
     /// See upstream method for details
-    fn rgb_consumer(&self, contract_id: ContractId) -> Result<Option<OpId>, FromSliceError>;
+    fn rgb_consumer(&self, contract_id: ContractId) -> Result<Option<Vec<OpId>>, Error>;
+
     /// See upstream method for details
     fn set_rgb_consumer(&mut self, contract_id: ContractId, opid: OpId) -> Result<bool, Error>;
 }
 
 impl RgbInExt for Input {
-    fn rgb_consumer(&self, contract_id: ContractId) -> Result<Option<OpId>, FromSliceError> {
+    fn rgb_consumer(&self, contract_id: ContractId) -> Result<Option<Vec<OpId>>, Error> {
         let Some(data) = self
             .proprietary
             .get(&ProprietaryKey::rgb_in_consumed_by(contract_id))
         else {
             return Ok(None);
         };
-        Ok(Some(OpId::copy_from_slice(data)?))
+        let opids = Opids::deserialize(data)
+            .map_err(|_| Error::Internal {
+                details: s!("error deserializing op IDs"),
+            })?
+            .to_inner();
+        Ok(Some(opids))
     }
 
     fn set_rgb_consumer(&mut self, contract_id: ContractId, opid: OpId) -> Result<bool, Error> {
         let key = ProprietaryKey::rgb_in_consumed_by(contract_id);
-        match self.rgb_consumer(contract_id) {
-            Ok(None) | Err(_) => {
-                let _ = self.proprietary.insert(key, opid.to_vec());
-                Ok(true)
+        Ok(match self.rgb_consumer(contract_id)? {
+            None => {
+                let opids = Opids::new(vec![opid]);
+                let _ = self.proprietary.insert(key, opids.serialize());
+                true
             }
-            Ok(Some(id)) if id == opid => Ok(false),
-            Ok(Some(_)) => Err(Error::Internal {
-                details: s!("proprietary key is already present"),
-            }),
-        }
+            Some(ids) if ids.contains(&opid) => false,
+            Some(mut opids) => {
+                opids.push(opid);
+                let opids = Opids::new(opids);
+                self.proprietary.insert(key, opids.serialize());
+                true
+            }
+        })
     }
 }
 
@@ -918,15 +1003,13 @@ impl RgbPsbtExt for Psbt {
 
         let prev_transition = self.rgb_transition(opid)?;
         if let Some(ref prev_transition) = prev_transition {
-            transition = transition
-                .merge_reveal(prev_transition.clone())
-                .map_err(|err| {
-                    Into::<InternalError>::into(RgbPsbtError::UnrelatedTransitions(
-                        prev_transition.id(),
-                        opid,
-                        err,
-                    ))
-                })?;
+            transition.merge_reveal(prev_transition).map_err(|err| {
+                Into::<InternalError>::into(RgbPsbtError::UnrelatedTransitions(
+                    prev_transition.id(),
+                    opid,
+                    err,
+                ))
+            })?;
         }
         let serialized_transition = transition
             .to_strict_serialized::<U24>()
@@ -971,8 +1054,6 @@ impl<const TRANSFER: bool> ResolveWitness for OffchainResolver<'_, '_, TRANSFER>
         Ok(WitnessOrd::Tentative)
     }
     fn check_chain_net(&self, chain_net: ChainNet) -> Result<(), WitnessResolverError> {
-        self.fallback
-            .check_chain_net(chain_net)
-            .map_err(|_| WitnessResolverError::WrongChainNet)
+        self.fallback.check_chain_net(chain_net)
     }
 }

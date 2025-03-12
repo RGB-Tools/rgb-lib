@@ -348,7 +348,6 @@ impl MigrationTrait for Migration {
                     .table(Coloring::Table)
                     .col(Coloring::AssetTransferIdx)
                     .col(Coloring::TxoIdx)
-                    .unique()
                     .clone(),
             )
             .await?;

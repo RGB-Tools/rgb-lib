@@ -39,7 +39,7 @@ futures = { version = "0.3", default-features = false, features = [
     "executor",
 ] }
 hex = { version = "0.4.3", default-features = false }
-rand = { version = "0.8.5", default-features = false }
+rand = { version = "0.9.1", default-features = false }
 reqwest = { version = "0.12", optional = true, default-features = false, features = [
     "blocking",
     "json",
@@ -52,7 +52,7 @@ scrypt = { version = "0.11.0", default-features = false, features = [
     "simple",
     "std",
 ] }
-sea-orm = { version = "1.1.2", default-features = false, features = [
+sea-orm = { version = "1.1.11", default-features = false, features = [
     "macros",
     "runtime-async-std-rustls",
     "sqlx-sqlite",
@@ -79,26 +79,23 @@ zip = { version = "2.2.2", default-features = false, features = [
 ] }
 
 # RGB-related deps
-amplify = { version = "=4.7.1", default-features = false }
-bp-core = { version = "=0.11.1-alpha.1", default-features = false }
-bp-electrum = { version = "=0.11.1-alpha.1", optional = true, default-features = false, features = [
+amplify = { version = "=4.8.1", default-features = false }
+bp-consensus = { version = "=0.11.1-alpha.2", default-features = false, features = ["serde"] }
+bp-seals = { version = "=0.11.1-alpha.2", default-features = false, features = ["serde"] }
+bp-electrum = { version = "=0.11.1-alpha.2", optional = true, default-features = false, features = [
     "proxy",
     "use-rustls",
 ] }
-bp-esplora = { version = "=0.11.1-alpha.1", optional = true, default-features = false, features = [
+bp-esplora = { version = "=0.11.1-alpha.2", optional = true, default-features = false, features = [
     "blocking",
 ] }
-bp-std = { version = "=0.11.1-alpha.1", default-features = false }
-commit_verify = { version = "=0.11.0", default-features = false }
-rgb-interfaces = { version = "=0.11.1-alpha.1", default-features = false }
-rgb-invoice = { version = "=0.11.1-alpha.1", default-features = false }
-rgb-psbt = { version = "=0.11.1-alpha.1", default-features = false }
-rgb-runtime = { version = "=0.11.1-alpha.1", default-features = false, features = [
-    "serde",
-] }
-rgb-schemata = { version = "=0.11.1-alpha.1", default-features = false }
-rgb-std = { version = "=0.11.1-alpha.1", default-features = false }
-strict_encoding = { version = "=2.7.0", default-features = false }
+bp-invoice = { version = "=0.11.1-alpha.2", default-features = false }
+commit_verify = { version = "=0.11.1-alpha.2", default-features = false }
+rgb-invoice = { version = "=0.11.1-alpha.3", default-features = false }
+rgb-psbt = { version = "=0.11.1-alpha.3", default-features = false }
+rgb-schemata = { version = "=0.11.1-alpha.2", default-features = false }
+rgb-std = { version = "=0.11.1-alpha.3", default-features = false }
+strict_encoding = { version = "=2.8.2", default-features = false }
 
 [dev-dependencies]
 copy_dir = { version = "0.1.3", default-features = false }
@@ -115,12 +112,12 @@ electrum = [
     "bdk_electrum",
     "bp-electrum",
     "reqwest",
-    "rgb-runtime/electrum_blocking",
+    "rgb-std/electrum_blocking",
 ]
 esplora = [
     "bdk_esplora",
     "bp-esplora",
     "reqwest",
-    "rgb-runtime/esplora_blocking",
+    "rgb-std/esplora_blocking",
 ]
 camel_case = ["default"]

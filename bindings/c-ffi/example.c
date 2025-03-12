@@ -15,15 +15,18 @@ int main() {
     struct json_object *keys_obj = json_tokener_parse(keys);
     const char *mnemonic =
         json_object_get_string(json_object_object_get(keys_obj, "mnemonic"));
-    const char *account_xpub = json_object_get_string(
-        json_object_object_get(keys_obj, "account_xpub"));
-    char wallet_data[300];
+    const char *account_xpub_vanilla = json_object_get_string(
+        json_object_object_get(keys_obj, "account_xpub_vanilla"));
+    const char *account_xpub_colored = json_object_get_string(
+        json_object_object_get(keys_obj, "account_xpub_colored"));
+    char wallet_data[400];
     sprintf(wallet_data,
             "{ \"data_dir\": \"./data\", \"bitcoin_network\": \"Regtest\", "
             "\"database_type\": \"Sqlite\", \"max_allocations_per_utxo\": "
-            "\"1\", \"pubkey\": \"%s\", \"mnemonic\": \"%s\", "
+            "\"1\", \"account_xpub_vanilla\": \"%s\", "
+            "\"account_xpub_colored\": \"%s\", \"mnemonic\": \"%s\", "
             "\"vanilla_keychain\": null }",
-            account_xpub, mnemonic);
+            account_xpub_vanilla, account_xpub_colored, mnemonic);
 
     printf("Creating wallet...\n");
     CResult wallet = rgblib_new_wallet(wallet_data);

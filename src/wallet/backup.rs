@@ -123,11 +123,10 @@ impl Wallet {
         let tmp_base_path = _get_parent_path(&backup_file)?;
         let files = get_backup_paths(&tmp_base_path)?;
         let scrypt_params = scrypt_params.unwrap_or_default();
-        let mut rng = rand::thread_rng();
-        let salt = SaltString::generate(&mut rng);
+        let salt = SaltString::generate(&mut OsRng);
         let str_params = serde_json::to_string(&scrypt_params).map_err(InternalError::from)?;
         debug!(self.logger, "using generated scrypt params: {}", str_params);
-        let nonce: String = rand::thread_rng()
+        let nonce: String = rand::rng()
             .sample_iter(&Alphanumeric)
             .take(BACKUP_NONCE_LENGTH)
             .map(char::from)

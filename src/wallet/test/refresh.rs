@@ -578,7 +578,6 @@ fn uda_with_preview_and_reserves() {
     assert_eq!(transfer_data.status, TransferStatus::Settled);
 
     let uda_metadata = test_get_asset_metadata(&wallet_3, &asset.asset_id);
-    assert_eq!(uda_metadata.asset_iface, AssetIface::RGB21);
     assert_eq!(uda_metadata.asset_schema, AssetSchema::Uda);
     assert_eq!(uda_metadata.issued_supply, 1);
     assert_eq!(uda_metadata.name, NAME.to_string());

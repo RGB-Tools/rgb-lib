@@ -110,7 +110,7 @@ fn success() {
     assert_eq!(seal.txid, TxPtr::WitnessTx);
     assert_eq!(seal.vout.into_u32(), vout);
     assert_eq!(seal.blinding, blinding);
-    assert_eq!(state.value.as_u64(), AMOUNT);
+    assert_eq!(state.as_u64(), AMOUNT);
 
     // check beneficiaries
     assert_eq!(beneficiaries.len(), 1);
@@ -385,7 +385,7 @@ fn color_psbt_fail() {
     output_map.insert(output.0 as u32, AMOUNT);
 
     // wrong contract ID
-    let fake_cid = "rgb:Ar4ouaLv-b7f7Dc!-z5EMvtu-FA5KNh1-nlae$jk-8xMBo7E";
+    let fake_cid = "rgb:Ar4ouaLv-b7f7Dc_-z5EMvtu-FA5KNh1-nlae~jk-8xMBo7E";
     let asset_coloring_info = AssetColoringInfo {
         input_outpoints: vec![input_outpoint.into()],
         output_map: output_map.clone(),
@@ -530,20 +530,6 @@ fn post_consignment_fail() {
     assert!(
         matches!(result, Err(Error::InvalidTransportEndpoint { details: m }) if m == "invalid result")
     );
-}
-
-#[cfg(feature = "electrum")]
-#[test]
-#[parallel]
-fn save_new_asset_fail() {
-    initialize();
-
-    let (mut wallet, online) = get_funded_wallet!();
-
-    let asset_nia = test_issue_asset_nia(&mut wallet, &online, None);
-    let asset_nia_cid = ContractId::from_str(&asset_nia.asset_id).unwrap();
-    let result = wallet.save_new_asset(&AssetSchema::Cfa, asset_nia_cid, None);
-    assert!(matches!(result, Err(Error::AssetIfaceMismatch)));
 }
 
 #[cfg(feature = "electrum")]

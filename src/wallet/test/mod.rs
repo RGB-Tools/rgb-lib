@@ -6,11 +6,10 @@ use std::{
 };
 
 use bdk_wallet::descriptor::ExtendedDescriptor;
-use ifaces::rgb21::EmbeddedMedia as RgbEmbeddedMedia;
 use lazy_static::lazy_static;
 use once_cell::sync::Lazy;
 use regex::RegexSet;
-use rgbstd::stl::ProofOfReserves as RgbProofOfReserves;
+use rgbstd::stl::{EmbeddedMedia as RgbEmbeddedMedia, ProofOfReserves as RgbProofOfReserves};
 use serde_json::Value;
 use serial_test::{parallel, serial};
 use std::time::Instant;
@@ -27,8 +26,8 @@ use crate::wallet::{
 use crate::{
     database::entities::transfer_transport_endpoint,
     utils::{
-        get_account_xpub, recipient_id_from_script_buf, script_buf_from_recipient_id,
-        RGB_RUNTIME_DIR,
+        get_account_data, recipient_id_from_script_buf, script_buf_from_recipient_id, KEYCHAIN_BTC,
+        KEYCHAIN_RGB, RGB_RUNTIME_DIR,
     },
     wallet::{
         backup::{get_backup_paths, unzip, zip_dir, BackupPubData, ScryptParams},

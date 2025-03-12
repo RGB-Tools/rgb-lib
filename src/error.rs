@@ -12,10 +12,6 @@ pub enum Error {
     #[error("Allocations already available")]
     AllocationsAlreadyAvailable,
 
-    /// The provided asset iface doesn't match
-    #[error("Asset iface mismatch")]
-    AssetIfaceMismatch,
-
     /// Requested asset was not found
     #[error("Asset with id {asset_id} not found")]
     AssetNotFound {
@@ -397,13 +393,6 @@ pub enum Error {
     #[error("Trying to issue too many assets")]
     TooHighIssuanceAmounts,
 
-    /// The detected RGB interface is unknown
-    #[error("Unknown RGB interface: {interface}")]
-    UnknownRgbInterface {
-        /// RGB interface
-        interface: String,
-    },
-
     /// The detected RGB schema is unknown
     #[error("Unknown RGB schema: {schema_id}")]
     UnknownRgbSchema {
@@ -511,7 +500,7 @@ pub(crate) enum InternalError {
     RgbPsbtError(String),
 
     #[error("Seal parse error: {0}")]
-    SealParse(#[from] bp::seals::txout::explicit::ParseError),
+    SealParse(#[from] seals::txout::explicit::ParseError),
 
     #[error("Serde JSON error: {0}")]
     SerdeJSON(#[from] serde_json::Error),
@@ -619,28 +608,6 @@ impl
             rgbstd::persistence::MemStash,
             rgbstd::persistence::MemState,
             rgbstd::persistence::MemIndex,
-            rgbstd::persistence::ContractIfaceError,
-        >,
-    > for InternalError
-{
-    fn from(
-        e: rgbstd::persistence::StockError<
-            rgbstd::persistence::MemStash,
-            rgbstd::persistence::MemState,
-            rgbstd::persistence::MemIndex,
-            rgbstd::persistence::ContractIfaceError,
-        >,
-    ) -> Self {
-        InternalError::StockError(e.to_string())
-    }
-}
-
-impl
-    From<
-        rgbstd::persistence::StockError<
-            rgbstd::persistence::MemStash,
-            rgbstd::persistence::MemState,
-            rgbstd::persistence::MemIndex,
             rgbstd::persistence::FasciaError,
         >,
     > for InternalError
@@ -727,8 +694,8 @@ impl From<InternalError> for Error {
     }
 }
 
-impl From<rgbstd::interface::BuilderError> for Error {
-    fn from(e: rgbstd::interface::BuilderError) -> Self {
+impl From<rgbstd::contract::BuilderError> for Error {
+    fn from(e: rgbstd::contract::BuilderError) -> Self {
         Error::Internal {
             details: e.to_string(),
         }

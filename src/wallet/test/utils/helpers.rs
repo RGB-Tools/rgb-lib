@@ -52,13 +52,19 @@ pub(crate) fn create_test_data_dir() -> PathBuf {
     test_data_dir
 }
 
-pub(crate) fn get_test_wallet_data(data_dir: &str, pubkey: &str, mnemonic: &str) -> WalletData {
+pub(crate) fn get_test_wallet_data(
+    data_dir: &str,
+    account_xpub_rgb: &str,
+    account_xpub_btc: &str,
+    mnemonic: &str,
+) -> WalletData {
     WalletData {
         data_dir: data_dir.to_string(),
         bitcoin_network: BitcoinNetwork::Regtest,
         database_type: DatabaseType::Sqlite,
         max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
-        pubkey: pubkey.to_string(),
+        account_xpub_colored: account_xpub_rgb.to_string(),
+        account_xpub_vanilla: account_xpub_btc.to_string(),
         mnemonic: Some(mnemonic.to_string()),
         vanilla_keychain: None,
     }
@@ -82,7 +88,8 @@ pub(crate) fn get_test_wallet_with_net(
         bitcoin_network,
         database_type: DatabaseType::Sqlite,
         max_allocations_per_utxo: max_allocations_per_utxo.unwrap_or(MAX_ALLOCATIONS_PER_UTXO),
-        pubkey: keys.account_xpub,
+        account_xpub_colored: keys.account_xpub_colored,
+        account_xpub_vanilla: keys.account_xpub_vanilla,
         mnemonic,
         vanilla_keychain: None,
     })
@@ -241,7 +248,7 @@ pub(crate) fn check_test_wallet_data(
     );
     // asset metadata
     let metadata = test_get_asset_metadata(wallet, &asset.asset_id);
-    assert_eq!(metadata.asset_iface, AssetIface::RGB20);
+    assert_eq!(metadata.asset_schema, AssetSchema::Nia);
     assert_eq!(metadata.issued_supply, issued_supply);
     assert_eq!(metadata.name, asset.name);
     assert_eq!(metadata.precision, asset.precision);

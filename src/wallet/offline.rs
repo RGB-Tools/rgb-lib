@@ -7,10 +7,6 @@ use super::*;
 pub(crate) const RGB_LIB_DB_NAME: &str = "rgb_lib_db";
 const BDK_DB_NAME: &str = "bdk_db";
 
-pub(crate) const KEYCHAIN_RGB_OPRET: u8 = 9;
-pub(crate) const KEYCHAIN_RGB_TAPRET: u8 = 10;
-pub(crate) const KEYCHAIN_BTC: u8 = 1;
-
 pub(crate) const MEDIA_DIR: &str = "media_files";
 const TRANSFERS_DIR: &str = "transfers";
 
@@ -26,149 +22,11 @@ pub(crate) const ASSET_ID_PREFIX: &str = "rgb:";
 pub(crate) const CONSIGNMENT_FILE: &str = "consignment_out";
 
 pub(crate) const SCHEMA_ID_NIA: &str =
-    "rgb:sch:RDYhMTR!9gv8Y2GLv9UNBEK1hcrCmdLDFk9Qd5fnO8k#brave-dinner-banana";
+    "rgb:sch:RWhwUfTMpuP2Zfx1~j4nswCANGeJrYOqDcKelaMV4zU#remote-digital-pegasus";
 pub(crate) const SCHEMA_ID_UDA: &str =
-    "rgb:sch:$$bAmeZTo5kK3RJHgeUr06qG86vQ0ozgtug7Yi9zdZo#korea-trumpet-dexter";
+    "rgb:sch:~6rjymf3GTE840lb5JoXm2aFwE8eWCk3mCjOf_mUztE#spider-montana-fantasy";
 pub(crate) const SCHEMA_ID_CFA: &str =
-    "rgb:sch:cJjPZfUpkOqIWhpCTqYJtFYzLfz$AB3JNxIEOJZYn28#circus-version-silence";
-
-/// The interface of an RGB asset.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
-pub enum AssetIface {
-    /// RGB20 interface
-    RGB20,
-    /// RGB21 interface
-    RGB21,
-    /// RGB25 interface
-    RGB25,
-}
-
-impl AssetIface {
-    pub(crate) fn to_typename(&self) -> TypeName {
-        let variant = match self {
-            Self::RGB20 => "Fixed",
-            Self::RGB21 => "Unique",
-            Self::RGB25 => "Base",
-        };
-        tn!(format!("{self:?}{variant}"))
-    }
-
-    pub(crate) fn get_from_contract_id(
-        contract_id: ContractId,
-        runtime: &RgbRuntime,
-    ) -> Result<Self, Error> {
-        let genesis = runtime.genesis(contract_id)?;
-        let schema_id = genesis.schema_id.to_string();
-        Ok(match &schema_id[..] {
-            SCHEMA_ID_NIA => AssetIface::RGB20,
-            SCHEMA_ID_UDA => AssetIface::RGB21,
-            SCHEMA_ID_CFA => AssetIface::RGB25,
-            _ => return Err(Error::UnknownRgbSchema { schema_id }),
-        })
-    }
-
-    fn get_asset_details(
-        &self,
-        wallet: &Wallet,
-        asset: &DbAsset,
-        token: Option<TokenLight>,
-        transfers: Option<Vec<DbTransfer>>,
-        asset_transfers: Option<Vec<DbAssetTransfer>>,
-        batch_transfers: Option<Vec<DbBatchTransfer>>,
-        colorings: Option<Vec<DbColoring>>,
-        txos: Option<Vec<DbTxo>>,
-        medias: Option<Vec<DbMedia>>,
-    ) -> Result<AssetType, Error> {
-        let media = match &self {
-            AssetIface::RGB20 | AssetIface::RGB25 => {
-                let medias = if let Some(m) = medias {
-                    m
-                } else {
-                    wallet.database.iter_media()?
-                };
-                medias
-                    .iter()
-                    .find(|m| Some(m.idx) == asset.media_idx)
-                    .map(|m| Media::from_db_media(m, wallet.get_media_dir()))
-            }
-            AssetIface::RGB21 => None,
-        };
-        let balance = wallet.database.get_asset_balance(
-            asset.id.clone(),
-            transfers,
-            asset_transfers,
-            batch_transfers,
-            colorings,
-            txos,
-        )?;
-        let issued_supply = asset.issued_supply.parse::<u64>().unwrap();
-        Ok(match &self {
-            AssetIface::RGB20 => AssetType::AssetNIA(AssetNIA {
-                asset_id: asset.id.clone(),
-                asset_iface: self.clone(),
-                ticker: asset.ticker.clone().unwrap(),
-                name: asset.name.clone(),
-                details: asset.details.clone(),
-                precision: asset.precision,
-                issued_supply,
-                timestamp: asset.timestamp,
-                added_at: asset.added_at,
-                balance,
-                media,
-            }),
-            AssetIface::RGB21 => AssetType::AssetUDA(AssetUDA {
-                asset_id: asset.id.clone(),
-                asset_iface: self.clone(),
-                details: asset.details.clone(),
-                ticker: asset.ticker.clone().unwrap(),
-                name: asset.name.clone(),
-                precision: asset.precision,
-                issued_supply,
-                timestamp: asset.timestamp,
-                added_at: asset.added_at,
-                balance,
-                token,
-            }),
-            AssetIface::RGB25 => AssetType::AssetCFA(AssetCFA {
-                asset_id: asset.id.clone(),
-                asset_iface: self.clone(),
-                name: asset.name.clone(),
-                details: asset.details.clone(),
-                precision: asset.precision,
-                issued_supply,
-                timestamp: asset.timestamp,
-                added_at: asset.added_at,
-                balance,
-                media,
-            }),
-        })
-    }
-}
-
-impl From<AssetSchema> for AssetIface {
-    fn from(x: AssetSchema) -> AssetIface {
-        match x {
-            AssetSchema::Nia => AssetIface::RGB20,
-            AssetSchema::Uda => AssetIface::RGB21,
-            AssetSchema::Cfa => AssetIface::RGB25,
-        }
-    }
-}
-
-impl TryFrom<TypeName> for AssetIface {
-    type Error = Error;
-
-    fn try_from(value: TypeName) -> Result<Self, Self::Error> {
-        match value.to_string().as_str() {
-            "RGB20Fixed" => Ok(AssetIface::RGB20),
-            "RGB21Unique" => Ok(AssetIface::RGB21),
-            "RGB25Base" => Ok(AssetIface::RGB25),
-            _ => Err(Error::UnknownRgbInterface {
-                interface: value.to_string(),
-            }),
-        }
-    }
-}
+    "rgb:sch:JgqK5hJX9YBT4osCV7VcW_iLTcA5csUCnLzvaKTTrNY#mars-house-friend";
 
 /// The bitcoin balances (in sats) for the vanilla and colored wallets.
 ///
@@ -240,8 +98,6 @@ impl Media {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct Metadata {
-    /// Asset interface type
-    pub asset_iface: AssetIface,
     /// Asset schema type
     pub asset_schema: AssetSchema,
     /// Total issued amount
@@ -266,8 +122,6 @@ pub struct Metadata {
 pub struct AssetNIA {
     /// ID of the asset
     pub asset_id: String,
-    /// Asset interface type
-    pub asset_iface: AssetIface,
     /// Ticker of the asset
     pub ticker: String,
     /// Name of the asset
@@ -299,20 +153,38 @@ impl AssetNIA {
         txos: Option<Vec<DbTxo>>,
         medias: Option<Vec<DbMedia>>,
     ) -> Result<AssetNIA, Error> {
-        match AssetIface::RGB20.get_asset_details(
-            wallet,
-            asset,
-            None,
+        let media = {
+            let medias = if let Some(m) = medias {
+                m
+            } else {
+                wallet.database.iter_media()?
+            };
+            medias
+                .iter()
+                .find(|m| Some(m.idx) == asset.media_idx)
+                .map(|m| Media::from_db_media(m, wallet.get_media_dir()))
+        };
+        let balance = wallet.database.get_asset_balance(
+            asset.id.clone(),
             transfers,
             asset_transfers,
             batch_transfers,
             colorings,
             txos,
-            medias,
-        )? {
-            AssetType::AssetNIA(asset) => Ok(asset),
-            _ => unreachable!("impossible"),
-        }
+        )?;
+        let issued_supply = asset.issued_supply.parse::<u64>().unwrap();
+        Ok(AssetNIA {
+            asset_id: asset.id.clone(),
+            ticker: asset.ticker.clone().unwrap(),
+            name: asset.name.clone(),
+            details: asset.details.clone(),
+            precision: asset.precision,
+            issued_supply,
+            timestamp: asset.timestamp,
+            added_at: asset.added_at,
+            balance,
+            media,
+        })
     }
 }
 
@@ -427,8 +299,6 @@ impl Token {
 pub struct AssetUDA {
     /// ID of the asset
     pub asset_id: String,
-    /// Asset interface type
-    pub asset_iface: AssetIface,
     /// Ticker of the asset
     pub ticker: String,
     /// Name of the asset
@@ -460,20 +330,27 @@ impl AssetUDA {
         colorings: Option<Vec<DbColoring>>,
         txos: Option<Vec<DbTxo>>,
     ) -> Result<AssetUDA, Error> {
-        match AssetIface::RGB21.get_asset_details(
-            wallet,
-            asset,
-            token,
+        let balance = wallet.database.get_asset_balance(
+            asset.id.clone(),
             transfers,
             asset_transfers,
             batch_transfers,
             colorings,
             txos,
-            None,
-        )? {
-            AssetType::AssetUDA(asset) => Ok(asset),
-            _ => unreachable!("impossible"),
-        }
+        )?;
+        let issued_supply = asset.issued_supply.parse::<u64>().unwrap();
+        Ok(AssetUDA {
+            asset_id: asset.id.clone(),
+            details: asset.details.clone(),
+            ticker: asset.ticker.clone().unwrap(),
+            name: asset.name.clone(),
+            precision: asset.precision,
+            issued_supply,
+            timestamp: asset.timestamp,
+            added_at: asset.added_at,
+            balance,
+            token,
+        })
     }
 }
 
@@ -483,8 +360,6 @@ impl AssetUDA {
 pub struct AssetCFA {
     /// ID of the asset
     pub asset_id: String,
-    /// Asset interface type
-    pub asset_iface: AssetIface,
     /// Name of the asset
     pub name: String,
     /// Details of the asset
@@ -514,27 +389,38 @@ impl AssetCFA {
         txos: Option<Vec<DbTxo>>,
         medias: Option<Vec<DbMedia>>,
     ) -> Result<AssetCFA, Error> {
-        match AssetIface::RGB25.get_asset_details(
-            wallet,
-            asset,
-            None,
+        let media = {
+            let medias = if let Some(m) = medias {
+                m
+            } else {
+                wallet.database.iter_media()?
+            };
+            medias
+                .iter()
+                .find(|m| Some(m.idx) == asset.media_idx)
+                .map(|m| Media::from_db_media(m, wallet.get_media_dir()))
+        };
+        let balance = wallet.database.get_asset_balance(
+            asset.id.clone(),
             transfers,
             asset_transfers,
             batch_transfers,
             colorings,
             txos,
-            medias,
-        )? {
-            AssetType::AssetCFA(asset) => Ok(asset),
-            _ => unreachable!("impossible"),
-        }
+        )?;
+        let issued_supply = asset.issued_supply.parse::<u64>().unwrap();
+        Ok(AssetCFA {
+            asset_id: asset.id.clone(),
+            name: asset.name.clone(),
+            details: asset.details.clone(),
+            precision: asset.precision,
+            issued_supply,
+            timestamp: asset.timestamp,
+            added_at: asset.added_at,
+            balance,
+            media,
+        })
     }
-}
-
-enum AssetType {
-    AssetNIA(AssetNIA),
-    AssetUDA(AssetUDA),
-    AssetCFA(AssetCFA),
 }
 
 /// List of RGB assets, grouped by asset schema.
@@ -598,7 +484,7 @@ impl RecipientInfo {
         let xchainnet_beneficiary = XChainNet::<Beneficiary>::from_str(&recipient_id)
             .map_err(|_| Error::InvalidRecipientID)?;
         let recipient_type = match xchainnet_beneficiary.into_inner() {
-            Beneficiary::WitnessVout(_) => RecipientType::Witness,
+            Beneficiary::WitnessVout(_, _) => RecipientType::Witness,
             Beneficiary::BlindedSeal(_) => RecipientType::Blind,
         };
         Ok(Self {
@@ -695,13 +581,13 @@ impl Invoice {
             details: e.to_string(),
         })?;
         let asset_id = decoded.contract.map(|cid| cid.to_string());
-        let amount = match decoded.owned_state {
-            InvoiceState::Amount(v) => Some(v.value()),
+        let amount = match decoded.assignment_state {
+            Some(InvoiceState::Amount(v)) => Some(v.value()),
             _ => None,
         };
         let recipient_id = decoded.beneficiary.to_string();
-        let asset_iface = if let Some(iface) = decoded.iface {
-            Some(AssetIface::try_from(iface)?)
+        let asset_schema = if let Some(schema_id) = decoded.schema {
+            Some(AssetSchema::try_from(schema_id)?)
         } else {
             None
         };
@@ -720,7 +606,7 @@ impl Invoice {
 
         let invoice_data = InvoiceData {
             recipient_id,
-            asset_iface,
+            asset_schema,
             asset_id,
             amount,
             expiration_timestamp: decoded.expiry,
@@ -744,8 +630,8 @@ impl Invoice {
         let beneficiary = XChainNet::with(network, beneficiary);
 
         let mut invoice_builder = RgbInvoiceBuilder::new(beneficiary);
-        if let Some(asset_iface) = &invoice_data.asset_iface {
-            invoice_builder = invoice_builder.set_interface(asset_iface.to_typename());
+        if let Some(schema) = invoice_data.asset_schema {
+            invoice_builder = invoice_builder.set_schema(schema.into());
         }
         if let Some(cid) = &invoice_data.asset_id.clone() {
             let contract_id = ContractId::from_str(cid).map_err(|_| Error::InvalidAssetID {
@@ -792,8 +678,8 @@ impl Invoice {
 pub struct InvoiceData {
     /// ID of the receive operation (blinded UTXO or Bitcoin script)
     pub recipient_id: String,
-    /// RGB interface
-    pub asset_iface: Option<AssetIface>,
+    /// RGB schema
+    pub asset_schema: Option<AssetSchema>,
     /// RGB asset ID
     pub asset_id: Option<String>,
     /// RGB amount
@@ -1152,11 +1038,13 @@ pub struct WalletData {
     /// The max number of RGB allocations allowed per UTXO
     #[serde(deserialize_with = "from_str_or_number_mandatory")]
     pub max_allocations_per_utxo: u32,
-    /// Wallet account-level xPub
-    pub pubkey: String,
+    /// Wallet account-level xPub for the vanilla-side of the wallet
+    pub account_xpub_vanilla: String,
+    /// Wallet account-level xPub for the colored-side of the wallet
+    pub account_xpub_colored: String,
     /// Wallet mnemonic phrase
     pub mnemonic: Option<String>,
-    /// Keychain index for the vanilla wallet (default: 1)
+    /// Keychain index for the vanilla-side of the wallet (default: 0)
     #[serde(deserialize_with = "from_str_or_number_optional")]
     pub vanilla_keychain: Option<u8>,
 }
@@ -1187,17 +1075,18 @@ impl Wallet {
     pub fn new(wallet_data: WalletData) -> Result<Self, Error> {
         let wdata = wallet_data.clone();
 
-        // wallet directory and file logging setup
-        let pubkey = Xpub::from_str(&wdata.pubkey)?;
-        let extended_key: ExtendedKey = ExtendedKey::from(pubkey);
+        // wallet account xPubs
         let bdk_network = BdkNetwork::from(wdata.bitcoin_network);
-        let xpub = extended_key.into_xpub(bdk_network, &Secp256k1::new());
-        let fingerprint = xpub.fingerprint().to_string();
+        let xpub_rgb = str_to_xpub(&wdata.account_xpub_colored, bdk_network)?;
+        let xpub_btc = str_to_xpub(&wdata.account_xpub_vanilla, bdk_network)?;
+
+        // wallet directory and file logging setup
         let data_dir_path = Path::new(&wdata.data_dir);
         if !data_dir_path.exists() {
             return Err(Error::InexistentDataDir);
         }
         let data_dir_path = fs::canonicalize(data_dir_path)?;
+        let fingerprint = xpub_rgb.fingerprint().to_string();
         let wallet_dir = data_dir_path.join(fingerprint);
         if !wallet_dir.exists() {
             fs::create_dir(&wallet_dir)?;
@@ -1213,45 +1102,38 @@ impl Wallet {
         }));
 
         // BDK setup
-        let vanilla_keychain = wdata.vanilla_keychain.unwrap_or(KEYCHAIN_BTC);
-        if [KEYCHAIN_RGB_OPRET, KEYCHAIN_RGB_TAPRET].contains(&vanilla_keychain) {
-            return Err(Error::InvalidVanillaKeychain);
-        }
-        let watch_only = wdata.mnemonic.is_none();
+        let (desc_colored, desc_vanilla, watch_only) = if let Some(mnemonic) = wdata.mnemonic {
+            let (desc_colored, desc_vanilla) = get_descriptors(
+                wdata.bitcoin_network,
+                &mnemonic,
+                wdata.vanilla_keychain,
+                xpub_btc,
+                xpub_rgb,
+            )?;
+            (desc_colored, desc_vanilla, false)
+        } else {
+            let (desc_colored, desc_vanilla) =
+                get_descriptors_from_xpubs(xpub_rgb, xpub_btc, wdata.vanilla_keychain)?;
+            (desc_colored, desc_vanilla, true)
+        };
+        let mut wallet_params = BdkWallet::load()
+            .descriptor(KeychainKind::External, Some(desc_colored.clone()))
+            .descriptor(KeychainKind::Internal, Some(desc_vanilla.clone()))
+            .check_genesis_hash(
+                BlockHash::from_str(get_genesis_hash(&wdata.bitcoin_network)).unwrap(),
+            );
         let bdk_db_name = if watch_only {
             format!("{BDK_DB_NAME}_watch_only")
         } else {
+            wallet_params = wallet_params.extract_keys();
             BDK_DB_NAME.to_string()
         };
         let bdk_db_path = wallet_dir.join(bdk_db_name);
         let mut bdk_database =
             Store::<ChangeSet>::open_or_create_new(BDK_DB_NAME.as_bytes(), bdk_db_path)?;
-        let (descriptor, change_descriptor, extract_keys) = if let Some(mnemonic) = wdata.mnemonic {
-            let account_xprv = derive_account_xprv_from_mnemonic(wdata.bitcoin_network, &mnemonic)?;
-            let account_xpub = get_xpub_from_xprv(&account_xprv);
-            if account_xpub != xpub {
-                return Err(Error::InvalidBitcoinKeys);
-            }
-            let descriptor = calculate_descriptor_from_xprv(account_xprv, KEYCHAIN_RGB_OPRET)?;
-            let change_descriptor = calculate_descriptor_from_xprv(account_xprv, vanilla_keychain)?;
-            (descriptor, change_descriptor, true)
-        } else {
-            let descriptor_pub = calculate_descriptor_from_xpub(xpub, KEYCHAIN_RGB_OPRET)?;
-            let change_descriptor_pub = calculate_descriptor_from_xpub(xpub, vanilla_keychain)?;
-            (descriptor_pub, change_descriptor_pub, false)
-        };
-        let mut wallet_params = BdkWallet::load()
-            .descriptor(KeychainKind::External, Some(descriptor.clone()))
-            .descriptor(KeychainKind::Internal, Some(change_descriptor.clone()))
-            .check_genesis_hash(
-                BlockHash::from_str(get_genesis_hash(&wdata.bitcoin_network)).unwrap(),
-            );
-        if extract_keys {
-            wallet_params = wallet_params.extract_keys();
-        }
         let bdk_wallet = match wallet_params.load_wallet(&mut bdk_database)? {
             Some(wallet) => wallet,
-            None => BdkWallet::create(descriptor, change_descriptor)
+            None => BdkWallet::create(desc_colored, desc_vanilla)
                 .network(bdk_network)
                 .create_wallet(&mut bdk_database)?,
         };
@@ -1260,39 +1142,30 @@ impl Wallet {
         let mut runtime = load_rgb_runtime(wallet_dir.clone())?;
         if runtime.schemata()?.len() < NUM_KNOWN_SCHEMAS {
             let schema = NonInflatableAsset::schema();
-            let iimpl = NonInflatableAsset::issue_impl();
             let lib = NonInflatableAsset::scripts();
             let types = NonInflatableAsset::types();
             let mut kit = Kit::default();
             kit.schemata.push(schema).unwrap();
-            kit.ifaces.push(Rgb20::iface(&Rgb20::FIXED)).unwrap();
-            kit.iimpls.push(iimpl).unwrap();
             kit.scripts.extend(lib.into_values()).unwrap();
             kit.types = types;
             let valid_kit = kit.validate().map_err(|_| InternalError::Unexpected)?;
             runtime.import_kit(valid_kit)?;
 
             let schema = UniqueDigitalAsset::schema();
-            let iimpl = UniqueDigitalAsset::issue_impl();
             let lib = UniqueDigitalAsset::scripts();
             let types = UniqueDigitalAsset::types();
             let mut kit = Kit::default();
             kit.schemata.push(schema).unwrap();
-            kit.ifaces.push(Rgb21::iface(&Rgb21::NONE)).unwrap();
-            kit.iimpls.push(iimpl).unwrap();
             kit.scripts.extend(lib.into_values()).unwrap();
             kit.types = types;
             let valid_kit = kit.validate().map_err(|_| InternalError::Unexpected)?;
             runtime.import_kit(valid_kit)?;
 
             let schema = CollectibleFungibleAsset::schema();
-            let iimpl = CollectibleFungibleAsset::issue_impl();
             let lib = CollectibleFungibleAsset::scripts();
             let types = CollectibleFungibleAsset::types();
             let mut kit = Kit::default();
             kit.schemata.push(schema).unwrap();
-            kit.ifaces.push(Rgb25::iface(&Rgb25::NONE)).unwrap();
-            kit.iimpls.push(iimpl).unwrap();
             kit.scripts.extend(lib.into_values()).unwrap();
             kit.types = types;
             let valid_kit = kit.validate().map_err(|_| InternalError::Unexpected)?;
@@ -1511,10 +1384,6 @@ impl Wallet {
         Ok(())
     }
 
-    pub(crate) fn normalize_recipient_id(&self, recipient_id: &str) -> String {
-        recipient_id.replace(":", "_")
-    }
-
     fn _receive(
         &self,
         asset_id: Option<String>,
@@ -1533,12 +1402,10 @@ impl Wallet {
         let beneficiary = XChainNet::with(network, beneficiary);
         let recipient_id = beneficiary.to_string();
         debug!(self.logger, "Recipient ID: {recipient_id}");
-        let (iface, contract_id) = if let Some(aid) = asset_id.clone() {
+        let (schema, contract_id) = if let Some(aid) = asset_id.clone() {
             let asset = self.database.check_asset_exists(aid.clone())?;
             let contract_id = ContractId::from_str(&aid).expect("invalid contract ID");
-            let asset_iface = AssetIface::from(asset.schema);
-            let iface = asset_iface.to_typename();
-            (Some(iface), Some(contract_id))
+            (Some(asset.schema.into()), Some(contract_id))
         } else {
             (None, None)
         };
@@ -1571,8 +1438,8 @@ impl Wallet {
         }
 
         let mut invoice_builder = RgbInvoiceBuilder::new(beneficiary);
-        if let Some(iface) = iface {
-            invoice_builder = invoice_builder.set_interface(iface);
+        if let Some(schema) = schema {
+            invoice_builder = invoice_builder.set_schema(schema);
         }
         if let Some(contract_id) = contract_id {
             invoice_builder = invoice_builder.set_contract(contract_id);
@@ -1987,7 +1854,7 @@ impl Wallet {
                 if token_light.embedded_media || token_light.reserves {
                     let runtime = self.rgb_runtime()?;
                     let contract_id = ContractId::from_str(&asset_id).expect("invalid contract ID");
-                    let contract = runtime.contract_iface_class::<Rgb21>(contract_id)?;
+                    let contract = runtime.contract_wrapper::<UniqueDigitalAsset>(contract_id)?;
                     let uda_token =
                         Token::from_token_data(&contract.token_data(), self.get_media_dir());
                     token.embedded_media = uda_token.embedded_media;
@@ -2003,7 +1870,6 @@ impl Wallet {
 
         info!(self.logger, "Get asset metadata completed");
         Ok(Metadata {
-            asset_iface: AssetIface::from(asset.schema),
             asset_schema: asset.schema,
             issued_supply,
             timestamp: asset.timestamp,

@@ -34,7 +34,6 @@ fn success() {
         bak_info_before.last_operation_timestamp
     );
 
-    assert_eq!(nia_metadata.asset_iface, AssetIface::RGB20);
     assert_eq!(nia_metadata.asset_schema, AssetSchema::Nia);
     assert_eq!(nia_metadata.issued_supply, AMOUNT * 2);
     assert_eq!(nia_metadata.name, NAME.to_string());
@@ -58,7 +57,6 @@ fn success() {
     let timestamp = issuance.created_at;
     let uda_metadata = test_get_asset_metadata(&wallet, &asset_uda.asset_id);
 
-    assert_eq!(uda_metadata.asset_iface, AssetIface::RGB21);
     assert_eq!(uda_metadata.asset_schema, AssetSchema::Uda);
     assert_eq!(uda_metadata.issued_supply, 1);
     assert_eq!(uda_metadata.name, NAME.to_string());
@@ -94,7 +92,6 @@ fn success() {
     let timestamp = issuance.created_at;
     let cfa_metadata = test_get_asset_metadata(&wallet, &asset_cfa.asset_id);
 
-    assert_eq!(cfa_metadata.asset_iface, AssetIface::RGB25);
     assert_eq!(cfa_metadata.asset_schema, AssetSchema::Cfa);
     assert_eq!(cfa_metadata.issued_supply, AMOUNT * 2);
     assert_eq!(cfa_metadata.name, NAME.to_string());

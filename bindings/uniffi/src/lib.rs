@@ -8,9 +8,9 @@ use std::{
 use rgb_lib::{
     keys::Keys,
     wallet::{
-        Address as RgbLibAddress, AssetCFA, AssetIface, AssetNIA, AssetUDA, Assets, Balance,
-        BlockTime, BtcBalance, DatabaseType, EmbeddedMedia, Invoice as RgbLibInvoice, InvoiceData,
-        Media, Metadata, Online, Outpoint, ProofOfReserves, ReceiveData, Recipient,
+        Address as RgbLibAddress, AssetCFA, AssetNIA, AssetUDA, Assets, Balance, BlockTime,
+        BtcBalance, DatabaseType, EmbeddedMedia, Invoice as RgbLibInvoice, InvoiceData, Media,
+        Metadata, Online, Outpoint, ProofOfReserves, ReceiveData, Recipient,
         RecipientInfo as RgbLibRecipientInfo, RefreshFilter, RefreshTransferStatus,
         RefreshedTransfer, RgbAllocation, SendResult, Token, TokenLight, Transaction,
         TransactionType, Transfer, TransferKind, TransferTransportEndpoint,

@@ -14,7 +14,7 @@ fn check_wallet(wallet: &Wallet, network: BitcoinNetwork, keychain_vanilla: Opti
                         .full_derivation_path()
                         .unwrap()
                         .to_string();
-                    assert_eq!(full_derivation_path, KEYCHAIN_RGB_OPRET.to_string());
+                    assert_eq!(full_derivation_path, KEYCHAIN_RGB.to_string());
                 }
                 _ => panic!("wrong descriptor type"),
             },
@@ -60,7 +60,8 @@ fn success() {
         bitcoin_network,
         database_type: DatabaseType::Sqlite,
         max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
-        pubkey: keys.account_xpub,
+        account_xpub_colored: keys.account_xpub_colored,
+        account_xpub_vanilla: keys.account_xpub_vanilla,
         mnemonic: Some(keys.mnemonic),
         vanilla_keychain,
     })
@@ -132,13 +133,13 @@ fn fail() {
 
     // pubkey too short
     let mut wallet_data_bad = wallet_data.clone();
-    wallet_data_bad.pubkey = s!("");
+    wallet_data_bad.account_xpub_colored = s!("");
     let result = Wallet::new(wallet_data_bad);
     assert!(matches!(result, Err(Error::InvalidPubkey { details: _ })));
 
     // bad byte in pubkey
     let mut wallet_data_bad = wallet_data.clone();
-    wallet_data_bad.pubkey = s!("l1iI0");
+    wallet_data_bad.account_xpub_colored = s!("l1iI0");
     let result = Wallet::new(wallet_data_bad);
     assert!(matches!(result, Err(Error::InvalidPubkey { details: _ })));
 
@@ -150,19 +151,10 @@ fn fail() {
     let result = Wallet::new(wallet_data_bad);
     assert!(matches!(result, Err(Error::InvalidMnemonic { details: _ })));
 
-    // invalid vanilla keychain
-    let mut wallet_data_bad = wallet_data.clone();
-    wallet_data_bad.vanilla_keychain = Some(KEYCHAIN_RGB_OPRET);
-    let result = Wallet::new(wallet_data_bad.clone());
-    assert!(matches!(result, Err(Error::InvalidVanillaKeychain)));
-    wallet_data_bad.vanilla_keychain = Some(KEYCHAIN_RGB_TAPRET);
-    let result = Wallet::new(wallet_data_bad);
-    assert!(matches!(result, Err(Error::InvalidVanillaKeychain)));
-
     // invalid bitcoin keys
     let mut wallet_data_bad = wallet_data.clone();
     let alt_keys = generate_keys(BitcoinNetwork::Regtest);
-    wallet_data_bad.pubkey = alt_keys.xpub;
+    wallet_data_bad.account_xpub_colored = alt_keys.xpub;
     let result = Wallet::new(wallet_data_bad.clone());
     assert!(matches!(result, Err(Error::InvalidBitcoinKeys)));
 
@@ -267,7 +259,8 @@ fn watch_only() {
         bitcoin_network,
         database_type: DatabaseType::Sqlite,
         max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
-        pubkey: keys.account_xpub.clone(),
+        account_xpub_colored: keys.account_xpub_colored.clone(),
+        account_xpub_vanilla: keys.account_xpub_vanilla.clone(),
         mnemonic: None,
         vanilla_keychain: None,
     })
@@ -282,7 +275,8 @@ fn watch_only() {
         bitcoin_network,
         database_type: DatabaseType::Sqlite,
         max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
-        pubkey: keys.account_xpub,
+        account_xpub_colored: keys.account_xpub_colored,
+        account_xpub_vanilla: keys.account_xpub_vanilla,
         mnemonic: Some(keys.mnemonic),
         vanilla_keychain: None,
     })
@@ -320,17 +314,17 @@ fn watch_only() {
 #[test]
 #[parallel]
 fn get_account_xpub_success() {
-    // wallets
+    // wallet
     let wallet = get_test_wallet(true, None);
+    let mnemonic = wallet.wallet_data.mnemonic.unwrap();
 
-    // get account xpub
-    let account_xpub = get_account_xpub(
-        BitcoinNetwork::Regtest,
-        &wallet.wallet_data.mnemonic.unwrap(),
-    )
-    .unwrap();
+    // get colored account xpub
+    let (account_xpub, _) = get_account_data(BitcoinNetwork::Regtest, &mnemonic, true).unwrap();
+    assert_eq!(account_xpub.network, NetworkKind::Test,);
+    assert_eq!(account_xpub.depth, 3);
 
-    // checks
+    // get vanilla account xpub
+    let (_, account_xpub) = get_account_data(BitcoinNetwork::Regtest, &mnemonic, false).unwrap();
     assert_eq!(account_xpub.network, NetworkKind::Test,);
     assert_eq!(account_xpub.depth, 3);
 }

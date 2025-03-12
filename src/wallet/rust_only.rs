@@ -131,13 +131,10 @@ impl Wallet {
         let assignment_name = FieldName::from("assetOwner");
 
         for (contract_id, asset_coloring_info) in coloring_info.asset_info_map.clone() {
-            let iface = AssetIface::get_from_contract_id(contract_id, &runtime)?;
+            let schema = AssetSchema::get_from_contract_id(contract_id, &runtime)?;
 
             let mut asset_transition_builder =
-                runtime.transition_builder(contract_id, iface.to_typename(), None::<&str>)?;
-            let assignment_id = asset_transition_builder
-                .assignments_type(&assignment_name)
-                .ok_or(InternalError::Unexpected)?;
+                runtime.transition_builder(contract_id, "transfer")?;
 
             let mut asset_available_amt = 0;
             let mut uda_state = None;
@@ -145,9 +142,9 @@ impl Wallet {
                 runtime.contract_assignments_for(contract_id, prev_outputs.iter().copied())?
             {
                 for (opout, state) in opout_state_map {
-                    if let PersistedState::Amount(amt) = &state {
-                        asset_available_amt += amt.value();
-                    } else if let PersistedState::Data(_, _) = &state {
+                    if let AllocatedState::Amount(amt) = &state {
+                        asset_available_amt += amt.as_u64();
+                    } else if let AllocatedState::Data(_) = &state {
                         asset_available_amt = 1;
                         // there can be only a single state when contract is UDA
                         uda_state = Some(state.clone());
@@ -179,15 +176,20 @@ impl Wallet {
                 let seal = BuilderSeal::Revealed(graph_seal);
                 beneficiaries.push(seal);
 
-                match iface {
-                    AssetIface::RGB20 | AssetIface::RGB25 => {
-                        asset_transition_builder = asset_transition_builder
-                            .add_fungible_state_raw(assignment_id, seal, amount)?;
+                match schema {
+                    AssetSchema::Nia | AssetSchema::Cfa => {
+                        asset_transition_builder = asset_transition_builder.add_fungible_state(
+                            assignment_name.clone(),
+                            seal,
+                            amount,
+                        )?;
                     }
-                    AssetIface::RGB21 => {
-                        asset_transition_builder = asset_transition_builder
-                            .add_owned_state_raw(assignment_id, seal, uda_state.clone().unwrap())
-                            .map_err(Error::from)?;
+                    AssetSchema::Uda => {
+                        if let AllocatedState::Data(state) = uda_state.clone().unwrap() {
+                            asset_transition_builder = asset_transition_builder
+                                .add_data(assignment_name.clone(), seal, Allocation::from(state))
+                                .map_err(Error::from)?;
+                        }
                     }
                 }
             }
@@ -276,20 +278,25 @@ impl Wallet {
 
         let mut transfers = vec![];
         for (contract_id, beneficiaries) in asset_beneficiaries {
+            let mut beneficiaries_witness = vec![];
+            let mut beneficiaries_blinded = vec![];
             for builder_seal in beneficiaries {
-                let transfer = match builder_seal {
-                    BuilderSeal::Revealed(seal) => runtime.transfer(
-                        contract_id,
-                        [ExplicitSeal::new(RgbOutpoint::new(witness_txid, seal.vout))],
-                        None,
-                        Some(witness_txid),
-                    )?,
-                    BuilderSeal::Concealed(seal) => {
-                        runtime.transfer(contract_id, [], Some(seal), Some(witness_txid))?
+                match builder_seal {
+                    BuilderSeal::Revealed(seal) => {
+                        let explicit_seal = ExplicitSeal::with(witness_txid, seal.vout);
+                        beneficiaries_witness.push(explicit_seal);
+                    }
+                    BuilderSeal::Concealed(secret_seal) => {
+                        beneficiaries_blinded.push(secret_seal);
                     }
                 };
-                transfers.push(transfer);
             }
+            transfers.push(runtime.transfer(
+                contract_id,
+                beneficiaries_witness,
+                beneficiaries_blinded,
+                Some(witness_txid),
+            )?);
         }
 
         *psbt_to_color = Psbt::from_str(&rgb_psbt.to_string()).unwrap();
@@ -321,7 +328,7 @@ impl Wallet {
         let consignment = RgbTransfer::load(&consignment_bytes[..]).map_err(InternalError::from)?;
 
         let schema_id = consignment.schema_id().to_string();
-        let asset_schema = AssetSchema::from_schema_id(schema_id.clone())?;
+        let asset_schema: AssetSchema = schema_id.try_into()?;
         debug!(
             self.logger,
             "Got consignment for asset with {} schema", asset_schema
@@ -341,12 +348,15 @@ impl Wallet {
 
         debug!(self.logger, "Validating consignment...");
         let (validation_status, validated_transfer) =
-            match consignment.clone().validate(&resolver, self.chain_net()) {
+            match consignment
+                .clone()
+                .validate(&resolver, self.chain_net(), None)
+            {
                 Ok(consignment) => (
                     consignment.clone().into_validation_status(),
                     Some(consignment),
                 ),
-                Err((status, _)) => (status, None),
+                Err(status) => (status, None),
             };
         let validity = validation_status.validity();
         debug!(self.logger, "Consignment validity: {:?}", validity);
@@ -362,7 +372,7 @@ impl Wallet {
         minimal_contract.bundles = none!();
         minimal_contract.terminals = none!();
         let minimal_contract_validated =
-            match minimal_contract.validate(self.blockchain_resolver(), self.chain_net()) {
+            match minimal_contract.validate(self.blockchain_resolver(), self.chain_net(), None) {
                 Ok(cons) => cons,
                 Err(_) => unreachable!("already passed validation"),
             };
@@ -487,7 +497,6 @@ impl Wallet {
     /// it only if you know what you're doing</div>
     pub fn save_new_asset(
         &self,
-        asset_schema: &AssetSchema,
         contract_id: ContractId,
         contract: Option<Contract>,
     ) -> Result<(), Error> {
@@ -499,11 +508,13 @@ impl Wallet {
             runtime.export_contract(contract_id)?
         };
 
+        let asset_schema = AssetSchema::get_from_contract_id(contract_id, &runtime)?;
+
         let timestamp = contract.genesis.timestamp;
         let (name, precision, issued_supply, ticker, details, media_idx, token) =
             match &asset_schema {
                 AssetSchema::Nia => {
-                    let contract = runtime.contract_iface_class::<Rgb20>(contract_id)?;
+                    let contract = runtime.contract_wrapper::<NonInflatableAsset>(contract_id)?;
                     let spec = contract.spec();
                     let ticker = spec.ticker().to_string();
                     let name = spec.name().to_string();
@@ -529,7 +540,7 @@ impl Wallet {
                     )
                 }
                 AssetSchema::Uda => {
-                    let contract = runtime.contract_iface_class::<Rgb21>(contract_id)?;
+                    let contract = runtime.contract_wrapper::<UniqueDigitalAsset>(contract_id)?;
                     let spec = contract.spec();
                     let ticker = spec.ticker().to_string();
                     let name = spec.name().to_string();
@@ -549,7 +560,8 @@ impl Wallet {
                     )
                 }
                 AssetSchema::Cfa => {
-                    let contract = runtime.contract_iface_class::<Rgb25>(contract_id)?;
+                    let contract =
+                        runtime.contract_wrapper::<CollectibleFungibleAsset>(contract_id)?;
                     let name = contract.name().to_string();
                     let details = contract.details().map(|d| d.to_string());
                     let precision = contract.precision().into();
@@ -576,7 +588,7 @@ impl Wallet {
 
         let db_asset = self.add_asset_to_db(
             contract_id.to_string(),
-            asset_schema,
+            &asset_schema,
             None,
             details,
             issued_supply,
@@ -684,18 +696,11 @@ impl Wallet {
         transfer_dir.as_ref().join(&asset_id_no_prefix)
     }
 
-    /// Return the consignment file path for the send transfer with the given recipient ID.
+    /// Return the consignment file path for a send transfer of an asset.
     ///
     /// <div class="warning">This method is meant for special usage and is normally not needed, use
     /// it only if you know what you're doing</div>
-    pub fn get_send_consignment_path<P: AsRef<Path>>(
-        &self,
-        asset_transfer_dir: P,
-        recipient_id: &str,
-    ) -> PathBuf {
-        asset_transfer_dir.as_ref().join(format!(
-            "{}.{CONSIGNMENT_FILE}",
-            self.normalize_recipient_id(recipient_id)
-        ))
+    pub fn get_send_consignment_path<P: AsRef<Path>>(&self, asset_transfer_dir: P) -> PathBuf {
+        asset_transfer_dir.as_ref().join(CONSIGNMENT_FILE)
     }
 }

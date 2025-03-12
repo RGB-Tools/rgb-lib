@@ -366,7 +366,7 @@ fn spend_all() {
 
     // issue
     let asset = test_issue_asset_nia(&mut wallet, &online, None);
-    let asset_blank = test_issue_asset_cfa(
+    let asset_extra = test_issue_asset_cfa(
         &mut wallet,
         &online,
         Some(&[AMOUNT * 2]),
@@ -389,7 +389,7 @@ fn spend_all() {
         .map(|a| a.asset_id.unwrap_or_else(|| s!("")))
         .collect();
     assert!(allocation_asset_ids.contains(&asset.asset_id));
-    assert!(allocation_asset_ids.contains(&asset_blank.asset_id));
+    assert!(allocation_asset_ids.contains(&asset_extra.asset_id));
 
     // send
     test_create_utxos(&mut wallet, &online, false, Some(1), None, FEE_RATE);
@@ -419,9 +419,9 @@ fn spend_all() {
         .iter()
         .find(|a| a.asset_id == Some(asset.asset_id.clone()))
         .unwrap();
-    let asset_blank_asset_transfer = asset_transfers
+    let asset_extra_asset_transfer = asset_transfers
         .iter()
-        .find(|a| a.asset_id == Some(asset_blank.asset_id.clone()))
+        .find(|a| a.asset_id == Some(asset_extra.asset_id.clone()))
         .unwrap();
 
     // change_utxo is not set (sender has no asset change)
@@ -437,8 +437,8 @@ fn spend_all() {
     // asset transfers are user-driven on both sides
     assert!(rcv_asset_transfer.user_driven);
     assert!(asset_transfer.user_driven);
-    // asset_blank asset transfer is not user driven
-    assert!(!asset_blank_asset_transfer.user_driven);
+    // asset_extra asset transfer is not user driven
+    assert!(!asset_extra_asset_transfer.user_driven);
 
     // transfers progress to status WaitingConfirmations after a refresh
     wait_for_refresh(&mut rcv_wallet, &rcv_online, None, None);
@@ -480,12 +480,12 @@ fn spend_all() {
             .any(|a| a.asset_id == Some(asset.asset_id.clone()))
     });
     assert!(!found);
-    // check the blank asset shows up in unspents
+    // check the extra asset shows up in unspents
     let unspents = test_list_unspents(&mut wallet, None, true);
     let found = unspents.iter().any(|u| {
         u.rgb_allocations
             .iter()
-            .any(|a| a.asset_id == Some(asset_blank.asset_id.clone()))
+            .any(|a| a.asset_id == Some(asset_extra.asset_id.clone()))
     });
     assert!(found);
 }
@@ -604,7 +604,7 @@ fn send_twice_success() {
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
-fn send_blank_success() {
+fn send_extra_success() {
     initialize();
 
     let amount_1: u64 = 66;
@@ -705,7 +705,7 @@ fn send_blank_success() {
     change_outpoint_set.insert(RgbOutpoint::from(change_utxo.clone()));
 
     //
-    // 2nd transfer, asset_cfa (blank in 1st send): wallet 1 > wallet 2
+    // 2nd transfer, asset_cfa (extra in 1st send): wallet 1 > wallet 2
     //
 
     // send
@@ -2816,22 +2816,27 @@ fn already_used_fail() {
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
-fn cfa_blank_success() {
+fn cfa_extra_success() {
     initialize();
 
     // wallets
-    let (mut wallet, online) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_noutxo_wallet!();
     let (rcv_wallet, _rcv_online) = get_funded_wallet!();
+
+    // create a single UTXO to issue assets on the same UTXO
+    let num_utxos_created = test_create_utxos(&mut wallet, &online, true, Some(1), None, FEE_RATE);
+    assert_eq!(num_utxos_created, 1);
 
     // issue NIA
     let asset_nia = test_issue_asset_nia(&mut wallet, &online, None);
 
     // issue CFA
-    let _asset_cfa = test_issue_asset_cfa(&mut wallet, &online, None, None);
+    let amt = 42;
+    let _asset_cfa = test_issue_asset_cfa(&mut wallet, &online, Some(&[amt]), None);
 
     let receive_data = test_blind_receive(&rcv_wallet);
 
-    // try sending NIA
+    // send NIA
     let recipient_map = HashMap::from([(
         asset_nia.asset_id,
         vec![Recipient {
@@ -2841,8 +2846,64 @@ fn cfa_blank_success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let result = test_send_begin_result(&mut wallet, &online, &recipient_map);
-    assert!(!result.unwrap().is_empty());
+    let txid = test_send(&mut wallet, &online, &recipient_map);
+    assert!(!txid.is_empty());
+
+    let (transfers, asset_transfers, _) = get_test_transfers_sender(&wallet, &txid);
+    assert_eq!(asset_transfers.len(), 2);
+    assert_eq!(transfers.len(), 2);
+    let asset_transfer_1 = &asset_transfers[0];
+    assert!(asset_transfer_1.user_driven);
+    let asset_transfer_2 = &asset_transfers[1];
+    assert!(!asset_transfer_2.user_driven);
+    let extra_coloring = get_test_coloring(&wallet, asset_transfer_2.idx);
+    assert_eq!(extra_coloring.amount, amt.to_string());
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn uda_extra_success() {
+    initialize();
+
+    // wallets
+    let (mut wallet, online) = get_funded_noutxo_wallet!();
+    let (rcv_wallet, _rcv_online) = get_funded_wallet!();
+
+    // create a single UTXO to issue assets on the same UTXO
+    let num_utxos_created = test_create_utxos(&mut wallet, &online, true, Some(1), None, FEE_RATE);
+    assert_eq!(num_utxos_created, 1);
+
+    // issue NIA
+    let asset_nia = test_issue_asset_nia(&mut wallet, &online, None);
+
+    // issue UDA
+    let _asset_uda = test_issue_asset_uda(&mut wallet, &online, None, None, vec![]);
+
+    let receive_data = test_blind_receive(&rcv_wallet);
+
+    // send NIA
+    let recipient_map = HashMap::from([(
+        asset_nia.asset_id,
+        vec![Recipient {
+            amount: 1,
+            recipient_id: receive_data.recipient_id.clone(),
+            witness_data: None,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid = test_send(&mut wallet, &online, &recipient_map);
+    assert!(!txid.is_empty());
+
+    let (transfers, asset_transfers, _) = get_test_transfers_sender(&wallet, &txid);
+    assert_eq!(asset_transfers.len(), 2);
+    assert_eq!(transfers.len(), 2);
+    let asset_transfer_1 = &asset_transfers[0];
+    assert!(asset_transfer_1.user_driven);
+    let asset_transfer_2 = &asset_transfers[1];
+    assert!(!asset_transfer_2.user_driven);
+    let extra_coloring = get_test_coloring(&wallet, asset_transfer_2.idx);
+    assert_eq!(extra_coloring.amount, "1");
 }
 
 #[cfg(feature = "electrum")]

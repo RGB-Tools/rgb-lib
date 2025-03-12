@@ -3,8 +3,8 @@ use super::*;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 fn _success_common(wallet: &mut Wallet, online: &Online, esplora: bool) {
     fn random_send_btc(wallet: &mut Wallet, online: &Online) {
-        let fee_rate = rand::thread_rng().gen_range(1..10);
-        let amount = rand::thread_rng().gen_range(1000..5000);
+        let fee_rate = rand::rng().random_range(1..10);
+        let amount = rand::rng().random_range(1000..5000);
         let mut attempts = 3;
         loop {
             let addr = test_get_address(wallet).to_string();

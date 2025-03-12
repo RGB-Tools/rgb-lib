@@ -101,7 +101,7 @@ fn success() {
     let approx_expiry = now_timestamp + expiration as i64;
     assert_eq!(invoice.invoice_string(), invoice_from_data.invoice_string());
     assert_eq!(invoice_data.recipient_id, receive_data.recipient_id);
-    assert_eq!(invoice_data.asset_iface, Some(AssetIface::RGB25));
+    assert_eq!(invoice_data.asset_schema, Some(AssetSchema::Cfa));
     assert_eq!(invoice_data.asset_id, Some(asset_id));
     assert_eq!(invoice_data.amount, Some(amount));
     assert_eq!(invoice_data.network, BitcoinNetwork::Regtest);

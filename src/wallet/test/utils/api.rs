@@ -402,8 +402,7 @@ pub(crate) fn test_save_new_asset(
 
     let txid_dir = wallet.get_transfers_dir().join(txid);
     let asset_transfer_dir = wallet.get_asset_transfer_dir(&txid_dir, &asset_id.to_owned());
-    let consignment_path =
-        wallet.get_send_consignment_path(asset_transfer_dir, &receive_data.recipient_id);
+    let consignment_path = wallet.get_send_consignment_path(asset_transfer_dir);
 
     let consignment = RgbTransfer::load_file(consignment_path).unwrap();
     let mut contract = consignment.clone().into_contract();
@@ -412,7 +411,11 @@ pub(crate) fn test_save_new_asset(
     contract.terminals = none!();
     let minimal_contract_validated = contract
         .clone()
-        .validate(rcv_wallet.blockchain_resolver(), rcv_wallet.chain_net())
+        .validate(
+            rcv_wallet.blockchain_resolver(),
+            rcv_wallet.chain_net(),
+            None,
+        )
         .unwrap();
 
     let mut runtime = rcv_wallet.rgb_runtime().unwrap();
@@ -423,14 +426,8 @@ pub(crate) fn test_save_new_asset(
         )
         .unwrap();
     drop(runtime);
-    let schema_id = minimal_contract_validated.schema_id().to_string();
-    let asset_schema = AssetSchema::from_schema_id(schema_id).unwrap();
     rcv_wallet
-        .save_new_asset(
-            &asset_schema,
-            minimal_contract_validated.contract_id(),
-            Some(contract),
-        )
+        .save_new_asset(minimal_contract_validated.contract_id(), Some(contract))
         .unwrap();
 }
 

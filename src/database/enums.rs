@@ -23,17 +23,45 @@ impl fmt::Display for AssetSchema {
     }
 }
 
-impl AssetSchema {
-    pub(crate) const VALUES: [Self; NUM_KNOWN_SCHEMAS] = [Self::Nia, Self::Uda, Self::Cfa];
+impl TryFrom<String> for AssetSchema {
+    type Error = Error;
 
-    /// Get the AssetSchema given a schema ID.
-    pub fn from_schema_id(schema_id: String) -> Result<AssetSchema, Error> {
+    fn try_from(schema_id: String) -> Result<Self, Self::Error> {
         Ok(match &schema_id[..] {
             SCHEMA_ID_NIA => AssetSchema::Nia,
             SCHEMA_ID_UDA => AssetSchema::Uda,
             SCHEMA_ID_CFA => AssetSchema::Cfa,
             _ => return Err(Error::UnknownRgbSchema { schema_id }),
         })
+    }
+}
+
+impl TryFrom<SchemaId> for AssetSchema {
+    type Error = Error;
+
+    fn try_from(schema_id: SchemaId) -> Result<Self, Self::Error> {
+        schema_id.to_string().try_into()
+    }
+}
+
+impl From<AssetSchema> for SchemaId {
+    fn from(asset_schema: AssetSchema) -> Self {
+        match asset_schema {
+            AssetSchema::Cfa => SchemaId::from_str(SCHEMA_ID_CFA).unwrap(),
+            AssetSchema::Nia => SchemaId::from_str(SCHEMA_ID_NIA).unwrap(),
+            AssetSchema::Uda => SchemaId::from_str(SCHEMA_ID_UDA).unwrap(),
+        }
+    }
+}
+
+impl AssetSchema {
+    pub(crate) const VALUES: [Self; NUM_KNOWN_SCHEMAS] = [Self::Nia, Self::Uda, Self::Cfa];
+
+    pub(crate) fn get_from_contract_id(
+        contract_id: ContractId,
+        runtime: &RgbRuntime,
+    ) -> Result<Self, Error> {
+        runtime.genesis(contract_id)?.schema_id.try_into()
     }
 }
 

@@ -84,7 +84,7 @@ fn success() {
     let receive_data = result.unwrap();
     let invoice = Invoice::new(receive_data.invoice).unwrap();
     let invoice_data = invoice.invoice_data();
-    assert_eq!(invoice_data.asset_iface, Some(AssetIface::RGB20));
+    assert_eq!(invoice_data.asset_schema, Some(AssetSchema::Nia));
 
     // asset id is set (UDA)
     let asset = test_issue_asset_uda(&mut wallet, &online, None, None, vec![]);
@@ -100,7 +100,7 @@ fn success() {
     let receive_data = result.unwrap();
     let invoice = Invoice::new(receive_data.invoice).unwrap();
     let invoice_data = invoice.invoice_data();
-    assert_eq!(invoice_data.asset_iface, Some(AssetIface::RGB21));
+    assert_eq!(invoice_data.asset_schema, Some(AssetSchema::Uda));
 
     // asset id is set (CFA)
     let asset = test_issue_asset_cfa(&mut wallet, &online, None, None);
@@ -116,7 +116,7 @@ fn success() {
     let receive_data = result.unwrap();
     let invoice = Invoice::new(receive_data.invoice).unwrap();
     let invoice_data = invoice.invoice_data();
-    assert_eq!(invoice_data.asset_iface, Some(AssetIface::RGB25));
+    assert_eq!(invoice_data.asset_schema, Some(AssetSchema::Cfa));
 
     // all set
     let now_timestamp = now().unix_timestamp();
@@ -137,7 +137,7 @@ fn success() {
     let approx_expiry = now_timestamp + expiration as i64;
     assert_eq!(invoice.invoice_string(), invoice_from_data.invoice_string());
     assert_eq!(invoice_data.recipient_id, receive_data.recipient_id);
-    assert_eq!(invoice_data.asset_iface, Some(AssetIface::RGB25));
+    assert_eq!(invoice_data.asset_schema, Some(AssetSchema::Cfa));
     assert_eq!(invoice_data.asset_id, Some(asset_id));
     assert_eq!(invoice_data.amount, Some(amount));
     assert_eq!(invoice_data.network, BitcoinNetwork::Regtest);
