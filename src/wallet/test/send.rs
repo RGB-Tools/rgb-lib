@@ -4754,6 +4754,121 @@ fn min_fee_rate() {
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
+fn _max_fee_exceeded_common(
+    asset_id: &str,
+    wallet: &mut Wallet,
+    online: &Online,
+    rcv_wallet: &mut Wallet,
+    rcv_online: &Online,
+    transfer_idx: i32,
+) {
+    let fee_rate = 20000;
+    let amount = AMOUNT_SMALL;
+    let amount_sat: u64 = 698;
+
+    // get a lot of funds
+    (0..9).for_each(|_| fund_wallet(test_get_address(wallet)));
+    test_create_utxos(
+        wallet,
+        online,
+        false,
+        Some(20),
+        Some(u32::MAX / 100),
+        FEE_RATE,
+    );
+
+    // prepare transfer data
+    let receive_data = test_witness_receive(rcv_wallet);
+    let recipient_map = HashMap::from([(
+        asset_id.to_string(),
+        vec![Recipient {
+            amount,
+            recipient_id: receive_data.recipient_id,
+            witness_data: Some(WitnessData {
+                amount_sat,
+                blinding: None,
+            }),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+
+    // send
+    let send_result = wallet
+        .send(
+            online.clone(),
+            recipient_map.clone(),
+            false,
+            fee_rate,
+            MIN_CONFIRMATIONS,
+            false,
+        )
+        .unwrap();
+    assert!(!send_result.txid.is_empty());
+
+    // ACK transfer
+    wait_for_refresh(rcv_wallet, rcv_online, None, None);
+    // broadcast tx
+    let result = test_refresh_result(wallet, online, None, &[]).unwrap();
+    assert_eq!(
+        result,
+        HashMap::from([(
+            transfer_idx,
+            RefreshedTransfer {
+                updated_status: None,
+                failure: Some(Error::MaxFeeExceeded {
+                    txid: send_result.txid.clone()
+                }),
+            }
+        )])
+    );
+    test_fail_transfers_single(wallet, online, send_result.batch_transfer_idx);
+    let result = test_refresh_result(wallet, online, None, &[]).unwrap();
+    assert_eq!(result, HashMap::new());
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[serial]
+fn max_fee_exceeded_electrum() {
+    initialize();
+
+    let (mut wallet, online) = get_funded_wallet!();
+    let (mut rcv_wallet, rcv_online) = get_empty_wallet!();
+
+    let asset = test_issue_asset_nia(&mut wallet, &online, None);
+
+    _max_fee_exceeded_common(
+        &asset.asset_id,
+        &mut wallet,
+        &online,
+        &mut rcv_wallet,
+        &rcv_online,
+        2,
+    );
+}
+
+#[cfg(feature = "esplora")]
+#[test]
+#[serial]
+fn max_fee_exceeded_esplora() {
+    initialize();
+
+    let (mut wallet, online) = get_funded_wallet!(ESPLORA_URL.to_string());
+    let (mut rcv_wallet, rcv_online) = get_empty_wallet!(ESPLORA_URL.to_string());
+
+    let asset = test_issue_asset_nia(&mut wallet, &online, None);
+
+    _max_fee_exceeded_common(
+        &asset.asset_id,
+        &mut wallet,
+        &online,
+        &mut rcv_wallet,
+        &rcv_online,
+        2,
+    );
+}
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 fn _min_relay_fee_common(
     asset_id: &str,
     wallet: &mut Wallet,

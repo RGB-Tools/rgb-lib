@@ -442,44 +442,44 @@ impl Wallet {
 
     fn _broadcast_tx(&self, tx: BdkTransaction) -> Result<BdkTransaction, Error> {
         let txid = tx.compute_txid().to_string();
-        self.indexer().broadcast(&tx).map_err(|e| {
-            let mut min_fee_not_met = false;
-            #[cfg_attr(feature = "esplora", allow(unused_mut))]
-            let mut max_fee_exceeded = false;
-            match e {
-                #[cfg(feature = "electrum")]
-                IndexerError::Electrum(ref e) => {
-                    let err_str = e.to_string();
-                    if err_str.contains("min relay fee not met")
-                        || err_str.contains("mempool min fee not met")
-                    {
-                        min_fee_not_met = true;
-                    } else if err_str.contains("Fee exceeds maximum configured") {
-                        max_fee_exceeded = true;
+        let indexer = self.indexer();
+        match indexer.broadcast(&tx) {
+            Ok(_) => {
+                debug!(self.logger, "Broadcasted TX with ID '{}'", txid);
+                Ok(tx)
+            }
+            Err(e) => {
+                match e {
+                    #[cfg(feature = "electrum")]
+                    IndexerError::Electrum(ref e) => {
+                        let err_str = e.to_string();
+                        if err_str.contains("min relay fee not met")
+                            || err_str.contains("mempool min fee not met")
+                        {
+                            return Err(Error::MinFeeNotMet { txid: txid.clone() });
+                        } else if err_str.contains("Fee exceeds maximum configured") {
+                            return Err(Error::MaxFeeExceeded { txid: txid.clone() });
+                        }
                     }
-                }
-                #[cfg(feature = "esplora")]
-                IndexerError::Esplora(ref e) => {
-                    if let EsploraError::HttpResponse { message, .. } = e {
-                        if message.contains("min relay fee not met") {
-                            min_fee_not_met = true;
+                    #[cfg(feature = "esplora")]
+                    IndexerError::Esplora(ref e) => {
+                        if let EsploraError::HttpResponse { message, .. } = e {
+                            if message.contains("min relay fee not met") {
+                                return Err(Error::MinFeeNotMet { txid: txid.clone() });
+                            } else if message.contains("Fee exceeds maximum configured") {
+                                return Err(Error::MaxFeeExceeded { txid: txid.clone() });
+                            }
                         }
                     }
                 }
-            }
-            if min_fee_not_met {
-                Error::MinFeeNotMet { txid: txid.clone() }
-            } else if max_fee_exceeded {
-                Error::MaxFeeExceeded { txid: txid.clone() }
-            } else {
-                Error::FailedBroadcast {
-                    details: e.to_string(),
+                if indexer.get_tx_confirmations(&txid)?.is_none() {
+                    return Err(Error::FailedBroadcast {
+                        details: e.to_string(),
+                    });
                 }
+                Ok(tx)
             }
-        })?;
-        debug!(self.logger, "Broadcasted TX with ID '{}'", txid);
-
-        Ok(tx)
+        }
     }
 
     fn _broadcast_psbt(
@@ -891,7 +891,9 @@ impl Wallet {
     ) -> Result<(), Error> {
         let updated_batch_transfer =
             match self._refresh_transfer(batch_transfer, db_data, &[], true) {
-                Err(Error::MinFeeNotMet { txid: _ }) => Ok(None),
+                Err(Error::MinFeeNotMet { txid: _ }) | Err(Error::MaxFeeExceeded { txid: _ }) => {
+                    Ok(None)
+                }
                 Err(e) => Err(e),
                 Ok(v) => Ok(v),
             }?;
