@@ -607,17 +607,25 @@ fn send_twice_success() {
 fn send_extra_success() {
     initialize();
 
+    let supply_nia = AMOUNT;
+    let supply_cfa = AMOUNT * 2;
     let amount_1: u64 = 66;
-    let amount_2: u64 = 7;
+    let amount_2: u64 = 22;
+    let amount_3: u64 = 7;
+    let amount_4: u64 = 3;
+    let amount_5: u64 = amount_1 + amount_2;
 
     // wallets
     let (mut wallet_1, online_1) = get_funded_noutxo_wallet!();
-    let (mut wallet_2, online_2) = get_funded_wallet!();
-    test_create_utxos(&mut wallet_1, &online_1, false, Some(1), None, FEE_RATE);
+    let (mut wallet_2, online_2) = get_funded_noutxo_wallet!();
+
+    // start with 1 UTXO only so blind receives all use the same one
+    test_create_utxos(&mut wallet_1, &online_1, true, Some(1), None, FEE_RATE);
+    test_create_utxos(&mut wallet_2, &online_2, true, Some(1), None, FEE_RATE);
 
     // issue
     let asset_nia = test_issue_asset_nia(&mut wallet_1, &online_1, None);
-    let asset_cfa = test_issue_asset_cfa(&mut wallet_1, &online_1, Some(&[AMOUNT * 2]), None);
+    let asset_cfa = test_issue_asset_cfa(&mut wallet_1, &online_1, Some(&[supply_cfa]), None);
 
     // check both assets are allocated to the same UTXO
     let unspents = test_list_unspents(&mut wallet_1, None, true);
@@ -660,10 +668,10 @@ fn send_extra_success() {
 
     // take transfers from WaitingCounterparty to Settled
     wait_for_refresh(&mut wallet_2, &online_2, None, None);
-    wait_for_refresh(&mut wallet_1, &online_1, Some(&asset_nia.asset_id), None);
+    wait_for_refresh(&mut wallet_1, &online_1, None, None);
     mine(false, false);
     wait_for_refresh(&mut wallet_2, &online_2, None, None);
-    wait_for_refresh(&mut wallet_1, &online_1, Some(&asset_nia.asset_id), None);
+    wait_for_refresh(&mut wallet_1, &online_1, None, None);
 
     // transfer 1 checks
     let transfers_w1 = test_list_transfers(&wallet_1, Some(&asset_nia.asset_id));
@@ -677,6 +685,13 @@ fn send_extra_success() {
     assert_eq!(transfer_w2.status, TransferStatus::Settled);
     assert_eq!(transfer_w2.amount, amount_1);
     assert_eq!(transfer_w2.kind, TransferKind::ReceiveBlind);
+    // check balances
+    let balance_nia_w1 = test_get_asset_balance(&wallet_1, &asset_nia.asset_id);
+    let balance_cfa_w1 = test_get_asset_balance(&wallet_1, &asset_cfa.asset_id);
+    assert_eq!(balance_nia_w1.settled, supply_nia - amount_1);
+    assert_eq!(balance_cfa_w1.settled, supply_cfa);
+    let balance_nia_w2 = test_get_asset_balance(&wallet_2, &asset_nia.asset_id);
+    assert_eq!(balance_nia_w2.settled, amount_1);
     // sender change
     let change_utxo = transfer_w1.change_utxo.as_ref().unwrap();
     let unspents = test_list_unspents(&mut wallet_1, None, true);
@@ -694,27 +709,23 @@ fn send_extra_success() {
         .iter()
         .find(|a| a.asset_id == Some(asset_cfa.asset_id.clone()))
         .unwrap();
-    assert_eq!(ca_a1.amount, AMOUNT - amount_1);
+    assert_eq!(ca_a1.amount, supply_nia - amount_1);
     assert_eq!(ca_a1.asset_id, Some(asset_nia.asset_id.clone()));
     assert!(ca_a1.settled);
-    assert_eq!(ca_a2.amount, AMOUNT * 2);
+    assert_eq!(ca_a2.amount, supply_cfa);
     assert_eq!(ca_a2.asset_id, Some(asset_cfa.asset_id.clone()));
     assert!(ca_a2.settled);
-    // sender RGB state map
-    let mut change_outpoint_set = BTreeSet::new();
-    change_outpoint_set.insert(RgbOutpoint::from(change_utxo.clone()));
 
     //
-    // 2nd transfer, asset_cfa (extra in 1st send): wallet 1 > wallet 2
+    // 2nd transfer, asset_nia: wallet 1 > wallet 2 (re-using the same recipient UTXO)
     //
 
-    // send
-    let receive_data_2 = test_blind_receive(&wallet_2);
+    let receive_data_1b = test_blind_receive(&wallet_2);
     println!("\n=== send 2");
     let recipient_map = HashMap::from([(
-        asset_cfa.asset_id.clone(),
+        asset_nia.asset_id.clone(),
         vec![Recipient {
-            recipient_id: receive_data_2.recipient_id.clone(),
+            recipient_id: receive_data_1b.recipient_id.clone(),
             witness_data: None,
             amount: amount_2,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -726,16 +737,16 @@ fn send_extra_success() {
 
     // take transfers from WaitingCounterparty to Settled
     wait_for_refresh(&mut wallet_2, &online_2, None, None);
-    wait_for_refresh(&mut wallet_1, &online_1, Some(&asset_cfa.asset_id), None);
+    wait_for_refresh(&mut wallet_1, &online_1, None, None);
     mine(false, false);
     wait_for_refresh(&mut wallet_2, &online_2, None, None);
-    wait_for_refresh(&mut wallet_1, &online_1, Some(&asset_cfa.asset_id), None);
+    wait_for_refresh(&mut wallet_1, &online_1, None, None);
 
     // transfer 2 checks
-    let transfers_w2 = test_list_transfers(&wallet_2, Some(&asset_cfa.asset_id));
-    let transfer_w2 = transfers_w2.last().unwrap();
-    let transfers_w1 = test_list_transfers(&wallet_1, Some(&asset_cfa.asset_id));
+    let transfers_w1 = test_list_transfers(&wallet_1, Some(&asset_nia.asset_id));
     let transfer_w1 = transfers_w1.last().unwrap();
+    let transfers_w2 = test_list_transfers(&wallet_2, Some(&asset_nia.asset_id));
+    let transfer_w2 = transfers_w2.last().unwrap();
     // transfers data
     assert_eq!(transfer_w1.status, TransferStatus::Settled);
     assert_eq!(transfer_w1.amount, amount_2);
@@ -743,6 +754,13 @@ fn send_extra_success() {
     assert_eq!(transfer_w2.status, TransferStatus::Settled);
     assert_eq!(transfer_w2.amount, amount_2);
     assert_eq!(transfer_w2.kind, TransferKind::ReceiveBlind);
+    // check balances
+    let balance_nia_w1 = test_get_asset_balance(&wallet_1, &asset_nia.asset_id);
+    let balance_cfa_w1 = test_get_asset_balance(&wallet_1, &asset_cfa.asset_id);
+    assert_eq!(balance_nia_w1.settled, supply_nia - amount_1 - amount_2);
+    assert_eq!(balance_cfa_w1.settled, supply_cfa);
+    let balance_nia_w2 = test_get_asset_balance(&wallet_2, &asset_nia.asset_id);
+    assert_eq!(balance_nia_w2.settled, amount_1 + amount_2);
     // sender change
     let change_utxo = transfer_w1.change_utxo.as_ref().unwrap();
     let unspents = test_list_unspents(&mut wallet_1, None, true);
@@ -760,15 +778,269 @@ fn send_extra_success() {
         .iter()
         .find(|a| a.asset_id == Some(asset_cfa.asset_id.clone()))
         .unwrap();
-    assert_eq!(ca_a1.amount, AMOUNT - amount_1);
+    assert_eq!(ca_a1.amount, supply_nia - amount_1 - amount_2);
     assert_eq!(ca_a1.asset_id, Some(asset_nia.asset_id.clone()));
     assert!(ca_a1.settled);
-    assert_eq!(ca_a2.amount, AMOUNT * 2 - amount_2);
+    assert_eq!(ca_a2.amount, supply_cfa);
     assert_eq!(ca_a2.asset_id, Some(asset_cfa.asset_id.clone()));
     assert!(ca_a2.settled);
-    // sender RGB state map
-    let mut change_outpoint_set = BTreeSet::new();
-    change_outpoint_set.insert(RgbOutpoint::from(change_utxo.clone()));
+    // recipient allocations
+    let unspents = test_list_unspents(&mut wallet_2, None, true);
+    let allocations: Vec<&RgbAllocation> =
+        unspents.iter().flat_map(|u| &u.rgb_allocations).collect();
+    let a_a1: Vec<&&RgbAllocation> = allocations
+        .iter()
+        .filter(|a| a.asset_id == Some(asset_nia.asset_id.clone()))
+        .collect();
+    assert_eq!(a_a1.len(), 2);
+
+    //
+    // 3rd transfer, asset_cfa (extra in previous sends): wallet 1 > wallet 2
+    //
+
+    test_create_utxos(&mut wallet_1, &online_1, true, Some(2), None, FEE_RATE);
+
+    // send
+    let receive_data_2 = test_blind_receive(&wallet_2);
+    println!("\n=== send 3");
+    let recipient_map = HashMap::from([(
+        asset_cfa.asset_id.clone(),
+        vec![Recipient {
+            recipient_id: receive_data_2.recipient_id.clone(),
+            witness_data: None,
+            amount: amount_3,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid_3 = test_send(&mut wallet_1, &online_1, &recipient_map);
+    assert!(!txid_3.is_empty());
+    show_unspent_colorings(&mut wallet_1, "wallet 1 after send 3, WaitingCounterparty");
+
+    // take transfers from WaitingCounterparty to Settled
+    wait_for_refresh(&mut wallet_2, &online_2, None, None);
+    wait_for_refresh(&mut wallet_1, &online_1, None, None);
+    mine(false, false);
+    wait_for_refresh(&mut wallet_2, &online_2, None, None);
+    wait_for_refresh(&mut wallet_1, &online_1, None, None);
+
+    // transfer 3 checks
+    let transfers_w2 = test_list_transfers(&wallet_2, Some(&asset_cfa.asset_id));
+    let transfer_w2 = transfers_w2.last().unwrap();
+    let transfers_w1 = test_list_transfers(&wallet_1, Some(&asset_cfa.asset_id));
+    let transfer_w1 = transfers_w1.last().unwrap();
+    // transfers data
+    assert_eq!(transfer_w1.status, TransferStatus::Settled);
+    assert_eq!(transfer_w1.amount, amount_3);
+    assert_eq!(transfer_w1.kind, TransferKind::Send);
+    assert_eq!(transfer_w2.status, TransferStatus::Settled);
+    assert_eq!(transfer_w2.amount, amount_3);
+    assert_eq!(transfer_w2.kind, TransferKind::ReceiveBlind);
+    // check balances
+    let balance_nia_w1 = test_get_asset_balance(&wallet_1, &asset_nia.asset_id);
+    let balance_cfa_w1 = test_get_asset_balance(&wallet_1, &asset_cfa.asset_id);
+    assert_eq!(balance_nia_w1.settled, supply_nia - amount_1 - amount_2);
+    assert_eq!(balance_cfa_w1.settled, supply_cfa - amount_3);
+    let balance_nia_w2 = test_get_asset_balance(&wallet_2, &asset_nia.asset_id);
+    let balance_cfa_w2 = test_get_asset_balance(&wallet_2, &asset_cfa.asset_id);
+    assert_eq!(balance_nia_w2.settled, amount_1 + amount_2);
+    assert_eq!(balance_cfa_w2.settled, amount_3);
+    // sender change
+    let change_utxo = transfer_w1.change_utxo.as_ref().unwrap();
+    let unspents = test_list_unspents(&mut wallet_1, None, true);
+    let change_unspent = unspents
+        .into_iter()
+        .find(|u| u.utxo.outpoint == *change_utxo)
+        .unwrap();
+    let change_allocations = change_unspent.rgb_allocations;
+    assert_eq!(change_allocations.len(), 2);
+    let ca_a1 = change_allocations
+        .iter()
+        .find(|a| a.asset_id == Some(asset_nia.asset_id.clone()))
+        .unwrap();
+    let ca_a2 = change_allocations
+        .iter()
+        .find(|a| a.asset_id == Some(asset_cfa.asset_id.clone()))
+        .unwrap();
+    assert_eq!(ca_a1.amount, supply_nia - amount_1 - amount_2);
+    assert_eq!(ca_a1.asset_id, Some(asset_nia.asset_id.clone()));
+    assert!(ca_a1.settled);
+    assert_eq!(ca_a2.amount, supply_cfa - amount_3);
+    assert_eq!(ca_a2.asset_id, Some(asset_cfa.asset_id.clone()));
+    assert!(ca_a2.settled);
+
+    show_unspent_colorings(&mut wallet_2, "wallet 2 after send 3, Settled");
+
+    //
+    // 4th transfer, asset_cfa (2 asset_nia extra transitions): wallet 2 > wallet 1
+    //
+
+    let receive_data_4 = test_blind_receive(&wallet_1);
+    println!("\n=== send 4");
+    let recipient_map = HashMap::from([(
+        asset_cfa.asset_id.clone(),
+        vec![Recipient {
+            recipient_id: receive_data_4.recipient_id.clone(),
+            witness_data: None,
+            amount: amount_4,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid_4 = test_send(&mut wallet_2, &online_2, &recipient_map);
+    assert!(!txid_4.is_empty());
+    show_unspent_colorings(&mut wallet_2, "wallet 2 after send 4, WaitingCounterparty");
+
+    // take transfers from WaitingCounterparty to Settled
+    wait_for_refresh(&mut wallet_1, &online_1, None, None);
+    wait_for_refresh(&mut wallet_2, &online_2, None, None);
+    mine(false, false);
+    wait_for_refresh(&mut wallet_1, &online_1, None, None);
+    wait_for_refresh(&mut wallet_2, &online_2, None, None);
+
+    // transfer 4 checks
+    let transfers_w2 = test_list_transfers(&wallet_2, Some(&asset_cfa.asset_id));
+    let transfer_w2 = transfers_w2.last().unwrap();
+    let transfers_w1 = test_list_transfers(&wallet_1, Some(&asset_cfa.asset_id));
+    let transfer_w1 = transfers_w1.last().unwrap();
+    // transfers data
+    assert_eq!(transfer_w2.status, TransferStatus::Settled);
+    assert_eq!(transfer_w2.amount, amount_4);
+    assert_eq!(transfer_w2.kind, TransferKind::Send);
+    assert_eq!(transfer_w1.status, TransferStatus::Settled);
+    assert_eq!(transfer_w1.amount, amount_4);
+    assert_eq!(transfer_w1.kind, TransferKind::ReceiveBlind);
+    // check balances
+    let balance_nia_w1 = test_get_asset_balance(&wallet_1, &asset_nia.asset_id);
+    let balance_cfa_w1 = test_get_asset_balance(&wallet_1, &asset_cfa.asset_id);
+    assert_eq!(balance_nia_w1.settled, supply_nia - amount_1 - amount_2);
+    assert_eq!(balance_cfa_w1.settled, supply_cfa - amount_3 + amount_4);
+    let balance_nia_w2 = test_get_asset_balance(&wallet_2, &asset_nia.asset_id);
+    let balance_cfa_w2 = test_get_asset_balance(&wallet_2, &asset_cfa.asset_id);
+    assert_eq!(balance_nia_w2.settled, amount_1 + amount_2);
+    assert_eq!(balance_cfa_w2.settled, amount_3 - amount_4);
+    // sender change
+    let change_utxo = transfer_w2.change_utxo.as_ref().unwrap();
+    let unspents = test_list_unspents(&mut wallet_2, None, true);
+    let change_unspent = unspents
+        .into_iter()
+        .find(|u| u.utxo.outpoint == *change_utxo)
+        .unwrap();
+    println!("change_unspent {change_unspent:?}");
+    let change_allocations = change_unspent.rgb_allocations;
+    assert_eq!(change_allocations.len(), 3);
+    let ca_a1: Vec<&RgbAllocation> = change_allocations
+        .iter()
+        .filter(|a| a.asset_id == Some(asset_nia.asset_id.clone()))
+        .collect();
+    assert_eq!(ca_a1.len(), 2);
+    let ca_a2 = change_allocations
+        .iter()
+        .find(|a| a.asset_id == Some(asset_cfa.asset_id.clone()))
+        .unwrap();
+    assert!(ca_a1.iter().any(|a| a.amount == amount_1));
+    assert!(ca_a1.iter().any(|a| a.amount == amount_2));
+    assert!(ca_a1
+        .iter()
+        .all(|a| a.asset_id == Some(asset_nia.asset_id.clone())));
+    assert!(ca_a1.iter().all(|a| a.settled));
+    assert_eq!(ca_a2.amount, amount_3 - amount_4);
+    assert_eq!(ca_a2.asset_id, Some(asset_cfa.asset_id.clone()));
+    assert!(ca_a2.settled);
+
+    //
+    // 5th transfer, asset_nia (merging 2 allocations, no change): wallet 2 > wallet 1
+    //
+
+    let receive_data_5 = test_blind_receive(&wallet_1);
+    println!("\n=== send 5");
+    let recipient_map = HashMap::from([(
+        asset_nia.asset_id.clone(),
+        vec![Recipient {
+            recipient_id: receive_data_5.recipient_id.clone(),
+            witness_data: None,
+            amount: amount_5,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid_5 = test_send(&mut wallet_2, &online_2, &recipient_map);
+    assert!(!txid_5.is_empty());
+    show_unspent_colorings(&mut wallet_2, "wallet 2 after send 5, WaitingCounterparty");
+
+    // take transfers from WaitingCounterparty to Settled
+    wait_for_refresh(&mut wallet_1, &online_1, None, None);
+    wait_for_refresh(&mut wallet_2, &online_2, None, None);
+    mine(false, false);
+    wait_for_refresh(&mut wallet_1, &online_1, None, None);
+    wait_for_refresh(&mut wallet_2, &online_2, None, None);
+
+    // transfer 5 checks
+    let transfers_w2 = test_list_transfers(&wallet_2, Some(&asset_nia.asset_id));
+    let transfer_w2 = transfers_w2.last().unwrap();
+    let transfers_w1 = test_list_transfers(&wallet_1, Some(&asset_nia.asset_id));
+    let transfer_w1 = transfers_w1.last().unwrap();
+    // transfers data
+    assert_eq!(transfer_w2.status, TransferStatus::Settled);
+    assert_eq!(transfer_w2.amount, amount_5);
+    assert_eq!(transfer_w2.kind, TransferKind::Send);
+    assert_eq!(transfer_w1.status, TransferStatus::Settled);
+    assert_eq!(transfer_w1.amount, amount_5);
+    assert_eq!(transfer_w1.kind, TransferKind::ReceiveBlind);
+    // check balances
+    let balance_nia_w1 = test_get_asset_balance(&wallet_1, &asset_nia.asset_id);
+    let balance_cfa_w1 = test_get_asset_balance(&wallet_1, &asset_cfa.asset_id);
+    assert_eq!(balance_nia_w1.settled, supply_nia);
+    assert_eq!(balance_cfa_w1.settled, supply_cfa - amount_3 + amount_4);
+    let balance_nia_w2 = test_get_asset_balance(&wallet_2, &asset_nia.asset_id);
+    let balance_cfa_w2 = test_get_asset_balance(&wallet_2, &asset_cfa.asset_id);
+    assert_eq!(balance_nia_w2.settled, 0);
+    assert_eq!(balance_cfa_w2.settled, amount_3 - amount_4);
+
+    //
+    // 6th transfer, asset_nia (send all, 2 allocations, no change): wallet 1 > wallet 2
+    //
+
+    let receive_data_6 = test_blind_receive(&wallet_2);
+    println!("\n=== send 6");
+    let recipient_map = HashMap::from([(
+        asset_nia.asset_id.clone(),
+        vec![Recipient {
+            recipient_id: receive_data_6.recipient_id.clone(),
+            witness_data: None,
+            amount: supply_nia,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid_6 = test_send(&mut wallet_1, &online_1, &recipient_map);
+    assert!(!txid_6.is_empty());
+    show_unspent_colorings(&mut wallet_1, "wallet 1 after send 6, WaitingCounterparty");
+
+    // take transfers from WaitingCounterparty to Settled
+    wait_for_refresh(&mut wallet_2, &online_2, None, None);
+    wait_for_refresh(&mut wallet_1, &online_1, None, None);
+    mine(false, false);
+    wait_for_refresh(&mut wallet_2, &online_2, None, None);
+    wait_for_refresh(&mut wallet_1, &online_1, None, None);
+
+    // transfer 6 checks
+    let transfers_w1 = test_list_transfers(&wallet_1, Some(&asset_nia.asset_id));
+    let transfer_w1 = transfers_w1.last().unwrap();
+    let transfers_w2 = test_list_transfers(&wallet_2, Some(&asset_nia.asset_id));
+    let transfer_w2 = transfers_w2.last().unwrap();
+    // transfers data
+    assert_eq!(transfer_w1.status, TransferStatus::Settled);
+    assert_eq!(transfer_w1.amount, supply_nia);
+    assert_eq!(transfer_w1.kind, TransferKind::Send);
+    assert_eq!(transfer_w2.status, TransferStatus::Settled);
+    assert_eq!(transfer_w2.amount, supply_nia);
+    assert_eq!(transfer_w2.kind, TransferKind::ReceiveBlind);
+    // check balances
+    let balance_nia_w2 = test_get_asset_balance(&wallet_2, &asset_nia.asset_id);
+    let balance_cfa_w2 = test_get_asset_balance(&wallet_2, &asset_cfa.asset_id);
+    assert_eq!(balance_nia_w2.settled, supply_nia);
+    assert_eq!(balance_cfa_w2.settled, amount_3 - amount_4);
+    let balance_nia_w1 = test_get_asset_balance(&wallet_1, &asset_nia.asset_id);
+    let balance_cfa_w1 = test_get_asset_balance(&wallet_1, &asset_cfa.asset_id);
+    assert_eq!(balance_nia_w1.settled, 0);
+    assert_eq!(balance_cfa_w1.settled, supply_cfa - amount_3 + amount_4);
 }
 
 #[cfg(feature = "electrum")]
