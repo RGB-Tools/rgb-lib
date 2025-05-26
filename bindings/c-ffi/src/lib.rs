@@ -152,41 +152,29 @@ pub extern "C" fn rgblib_go_online(
 #[no_mangle]
 pub extern "C" fn rgblib_issue_asset_cfa(
     wallet: &COpaqueStruct,
-    online: &COpaqueStruct,
     name: *const c_char,
     details_opt: *const c_char,
     precision: *const c_char,
     amounts: *const c_char,
     file_path_opt: *const c_char,
 ) -> CResultString {
-    issue_asset_cfa(
-        wallet,
-        online,
-        name,
-        details_opt,
-        precision,
-        amounts,
-        file_path_opt,
-    )
-    .into()
+    issue_asset_cfa(wallet, name, details_opt, precision, amounts, file_path_opt).into()
 }
 
 #[no_mangle]
 pub extern "C" fn rgblib_issue_asset_nia(
     wallet: &COpaqueStruct,
-    online: &COpaqueStruct,
     ticker: *const c_char,
     name: *const c_char,
     precision: *const c_char,
     amounts: *const c_char,
 ) -> CResultString {
-    issue_asset_nia(wallet, online, ticker, name, precision, amounts).into()
+    issue_asset_nia(wallet, ticker, name, precision, amounts).into()
 }
 
 #[no_mangle]
 pub extern "C" fn rgblib_issue_asset_uda(
     wallet: &COpaqueStruct,
-    online: &COpaqueStruct,
     ticker: *const c_char,
     name: *const c_char,
     details_opt: *const c_char,
@@ -196,7 +184,6 @@ pub extern "C" fn rgblib_issue_asset_uda(
 ) -> CResultString {
     issue_asset_uda(
         wallet,
-        online,
         ticker,
         name,
         details_opt,

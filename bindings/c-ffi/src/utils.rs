@@ -282,7 +282,6 @@ pub(crate) fn go_online(
 
 pub(crate) fn issue_asset_cfa(
     wallet: &COpaqueStruct,
-    online: &COpaqueStruct,
     name: *const c_char,
     details_opt: *const c_char,
     precision: *const c_char,
@@ -290,36 +289,26 @@ pub(crate) fn issue_asset_cfa(
     file_path_opt: *const c_char,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
-    let online = Online::from_opaque(online)?;
     let precision = ptr_to_num(precision)?;
     let amounts = convert_strings_array(amounts)?;
     let details = convert_optional_string(details_opt);
     let file_path = convert_optional_string(file_path_opt);
-    let res = wallet.issue_asset_cfa(
-        (*online).clone(),
-        ptr_to_string(name),
-        details,
-        precision,
-        amounts,
-        file_path,
-    )?;
+    let res =
+        wallet.issue_asset_cfa(ptr_to_string(name), details, precision, amounts, file_path)?;
     Ok(serde_json::to_string(&res)?)
 }
 
 pub(crate) fn issue_asset_nia(
     wallet: &COpaqueStruct,
-    online: &COpaqueStruct,
     ticker: *const c_char,
     name: *const c_char,
     precision: *const c_char,
     amounts: *const c_char,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
-    let online = Online::from_opaque(online)?;
     let precision = ptr_to_num(precision)?;
     let amounts = convert_strings_array(amounts)?;
     let res = wallet.issue_asset_nia(
-        (*online).clone(),
         ptr_to_string(ticker),
         ptr_to_string(name),
         precision,
@@ -331,7 +320,6 @@ pub(crate) fn issue_asset_nia(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn issue_asset_uda(
     wallet: &COpaqueStruct,
-    online: &COpaqueStruct,
     ticker: *const c_char,
     name: *const c_char,
     details_opt: *const c_char,
@@ -340,14 +328,12 @@ pub(crate) fn issue_asset_uda(
     attachments_file_paths: *const c_char,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
-    let online = Online::from_opaque(online)?;
     let details = convert_optional_string(details_opt);
     let precision = ptr_to_num(precision)?;
     let media_file_path = convert_optional_string(media_file_path_opt);
     let attachments_file_paths: Vec<String> =
         serde_json::from_str(&ptr_to_string(attachments_file_paths))?;
     let res = wallet.issue_asset_uda(
-        (*online).clone(),
         ptr_to_string(ticker),
         ptr_to_string(name),
         details,

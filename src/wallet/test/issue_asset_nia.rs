@@ -172,48 +172,16 @@ fn fail() {
     let result = test_issue_asset_nia_result(&mut wallet, &online, Some(&[u64::MAX, u64::MAX]));
     assert!(matches!(result, Err(Error::TooHighIssuanceAmounts)));
 
-    // bad online object
-    let other_online = Online {
-        id: 1,
-        indexer_url: wallet.online_data.as_ref().unwrap().indexer_url.clone(),
-    };
-    let result = wallet.issue_asset_nia(
-        other_online.clone(),
-        TICKER.to_string(),
-        NAME.to_string(),
-        PRECISION,
-        vec![AMOUNT],
-    );
-    assert!(matches!(result, Err(Error::CannotChangeOnline)));
-
     // invalid ticker: empty
-    let result = wallet.issue_asset_nia(
-        online.clone(),
-        s!(""),
-        NAME.to_string(),
-        PRECISION,
-        vec![AMOUNT],
-    );
+    let result = wallet.issue_asset_nia(s!(""), NAME.to_string(), PRECISION, vec![AMOUNT]);
     assert!(matches!(result, Err(Error::InvalidTicker { details: m }) if m == EMPTY_MSG));
 
     // invalid ticker: too long
-    let result = wallet.issue_asset_nia(
-        online.clone(),
-        s!("ABCDEFGHI"),
-        NAME.to_string(),
-        PRECISION,
-        vec![AMOUNT],
-    );
+    let result = wallet.issue_asset_nia(s!("ABCDEFGHI"), NAME.to_string(), PRECISION, vec![AMOUNT]);
     assert!(matches!(result, Err(Error::InvalidTicker { details: m }) if m == IDENT_TOO_LONG_MSG));
 
     // invalid ticker: lowercase
-    let result = wallet.issue_asset_nia(
-        online.clone(),
-        s!("TiCkEr"),
-        NAME.to_string(),
-        PRECISION,
-        vec![AMOUNT],
-    );
+    let result = wallet.issue_asset_nia(s!("TiCkEr"), NAME.to_string(), PRECISION, vec![AMOUNT]);
     assert!(
         matches!(result, Err(Error::InvalidTicker { details: m }) if m == "ticker needs to be all uppercase")
     );
@@ -221,7 +189,6 @@ fn fail() {
     // invalid ticker: with space
     let invalid_ticker = "TICKER WITH SPACE";
     let result = wallet.issue_asset_nia(
-        online.clone(),
         invalid_ticker.to_string(),
         NAME.to_string(),
         PRECISION,
@@ -235,7 +202,6 @@ fn fail() {
     // invalid ticker: unicode characters
     let invalid_ticker = "TICKERWITH℧NICODE";
     let result = wallet.issue_asset_nia(
-        online.clone(),
         invalid_ticker.to_string(),
         NAME.to_string(),
         PRECISION,
@@ -247,18 +213,11 @@ fn fail() {
     );
 
     // invalid name: empty
-    let result = wallet.issue_asset_nia(
-        online.clone(),
-        TICKER.to_string(),
-        s!(""),
-        PRECISION,
-        vec![AMOUNT],
-    );
+    let result = wallet.issue_asset_nia(TICKER.to_string(), s!(""), PRECISION, vec![AMOUNT]);
     assert!(matches!(result, Err(Error::InvalidName { details: m }) if m == EMPTY_MSG));
 
     // invalid name: too long
     let result = wallet.issue_asset_nia(
-        online.clone(),
         TICKER.to_string(),
         ("a").repeat(257),
         PRECISION,
@@ -269,7 +228,6 @@ fn fail() {
     // invalid name: unicode characters
     let invalid_name = "name with ℧nicode characters";
     let result = wallet.issue_asset_nia(
-        online.clone(),
         TICKER.to_string(),
         invalid_name.to_string(),
         PRECISION,
@@ -281,13 +239,7 @@ fn fail() {
     );
 
     // invalid precision
-    let result = wallet.issue_asset_nia(
-        online.clone(),
-        TICKER.to_string(),
-        NAME.to_string(),
-        19,
-        vec![AMOUNT],
-    );
+    let result = wallet.issue_asset_nia(TICKER.to_string(), NAME.to_string(), 19, vec![AMOUNT]);
     assert!(matches!(
         result,
         Err(Error::InvalidPrecision { details: m }) if m == "precision is too high"

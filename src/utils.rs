@@ -622,6 +622,22 @@ pub(crate) fn now() -> OffsetDateTime {
     OffsetDateTime::now_utc()
 }
 
+pub(crate) struct DumbResolver;
+
+impl ResolveWitness for DumbResolver {
+    fn resolve_pub_witness(&self, _: RgbTxid) -> Result<Tx, WitnessResolverError> {
+        unreachable!()
+    }
+
+    fn resolve_pub_witness_ord(&self, _: RgbTxid) -> Result<WitnessOrd, WitnessResolverError> {
+        unreachable!()
+    }
+
+    fn check_chain_net(&self, _: ChainNet) -> Result<(), WitnessResolverError> {
+        Ok(())
+    }
+}
+
 /// Wrapper for the RGB stock and its lockfile.
 pub(crate) struct RgbRuntime {
     /// The RGB stock

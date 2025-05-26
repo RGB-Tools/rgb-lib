@@ -222,7 +222,6 @@ pub(crate) fn test_issue_asset_uda_result(
 ) -> Result<AssetUDA, Error> {
     test_fail_transfers_all(wallet, online);
     wallet.issue_asset_uda(
-        online.clone(),
         TICKER.to_string(),
         NAME.to_string(),
         details.map(|d| d.to_string()),
@@ -259,7 +258,6 @@ pub(crate) fn test_issue_asset_cfa_result(
         vec![AMOUNT]
     };
     wallet.issue_asset_cfa(
-        online.clone(),
         NAME.to_string(),
         Some(DETAILS.to_string()),
         PRECISION,
@@ -289,13 +287,7 @@ pub(crate) fn test_issue_asset_nia_result(
     } else {
         vec![AMOUNT]
     };
-    wallet.issue_asset_nia(
-        online.clone(),
-        TICKER.to_string(),
-        NAME.to_string(),
-        PRECISION,
-        amounts,
-    )
+    wallet.issue_asset_nia(TICKER.to_string(), NAME.to_string(), PRECISION, amounts)
 }
 
 pub(crate) fn test_list_assets(wallet: &Wallet, filter_asset_schemas: &[AssetSchema]) -> Assets {

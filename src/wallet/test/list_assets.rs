@@ -41,13 +41,7 @@ fn success() {
 
     // two issued NIA assets
     let asset_2 = wallet
-        .issue_asset_nia(
-            online.clone(),
-            s!("TICKER2"),
-            s!("NAME2"),
-            PRECISION * 2,
-            vec![AMOUNT * 2],
-        )
+        .issue_asset_nia(s!("TICKER2"), s!("NAME2"), PRECISION * 2, vec![AMOUNT * 2])
         .unwrap();
     let assets = test_list_assets(&wallet, &[]);
     let nia_assets = assets.nia.unwrap();

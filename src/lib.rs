@@ -131,7 +131,7 @@ use bdk_wallet::{
     bitcoin::{
         bip32::ChildNumber,
         bip32::{DerivationPath, KeySource, Xpriv, Xpub},
-        hashes::Hash as Sha256Hash,
+        hashes::{sha256, Hash as Sha256Hash},
         psbt::Psbt,
         psbt::{raw::ProprietaryKey, ExtractTxError, Input, Output},
         secp256k1::Secp256k1,
@@ -152,7 +152,7 @@ use bdk_wallet::{
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use bdk_wallet::{
-    bitcoin::{blockdata::fee_rate::FeeRate, hashes::sha256, Transaction as BdkTransaction, Txid},
+    bitcoin::{blockdata::fee_rate::FeeRate, Transaction as BdkTransaction, Txid},
     chain::spk_client::{FullScanRequest, FullScanResponse, SyncRequest, SyncResponse},
     coin_selection::InsufficientFunds,
     Update,
@@ -166,7 +166,6 @@ use commit_verify::Conceal;
 use electrum::Config as BpElectrumConfig;
 #[cfg(feature = "esplora")]
 use esplora::Config as BpEsploraConfig;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
 use file_format::FileFormat;
 use futures::executor::block_on;
 use invoice::{AddressPayload, Network as RgbNetwork};
@@ -187,26 +186,27 @@ use rgbstd::indexers::AnyResolver;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use rgbstd::{
     containers::IndexedConsignment,
-    contract::ContractBuilder,
-    stl::ContractTerms,
-    stl::{AssetSpec, Details, MediaType, Name, RicardianContract, Ticker},
     validation::{Validity, Warning},
-    Amount, Assign, GenesisSeal, Identity, OwnedFraction, Precision, TokenIndex,
+    Assign,
 };
 use rgbstd::{
     containers::{BuilderSeal, Kit, ValidContract, ValidKit, ValidTransfer},
-    contract::{AllocatedState, IssuerWrapper, TransitionBuilder},
+    contract::{AllocatedState, ContractBuilder, IssuerWrapper, TransitionBuilder},
     info::{ContractInfo, SchemaInfo},
     invoice::InvoiceState,
     invoice::Pay2Vout,
     persistence::{fs::FsBinStore, StashReadProvider},
     persistence::{MemContract, MemContractState, Stock},
     schema::SchemaId,
-    stl::{Attachment, ProofOfReserves as RgbProofOfReserves},
-    stl::{EmbeddedMedia as RgbEmbeddedMedia, TokenData},
+    stl::{
+        AssetSpec, Attachment, ContractTerms, Details, EmbeddedMedia as RgbEmbeddedMedia,
+        MediaType, Name, ProofOfReserves as RgbProofOfReserves, RicardianContract, Ticker,
+        TokenData,
+    },
     validation::{ResolveWitness, Status, WitnessResolverError},
-    Allocation, ChainNet, Genesis, GraphSeal, Layer1, MergeReveal, OpId, Operation, Opout,
-    OutputSeal, Schema, SecretSeal, Transition, TransitionType,
+    Allocation, Amount, ChainNet, Genesis, GenesisSeal, GraphSeal, Identity, Layer1, MergeReveal,
+    OpId, Operation, Opout, OutputSeal, OwnedFraction, Precision, Schema, SecretSeal, TokenIndex,
+    Transition, TransitionType,
 };
 use schemata::{CollectibleFungibleAsset, NonInflatableAsset, UniqueDigitalAsset};
 use scrypt::{
@@ -238,13 +238,13 @@ use zip::write::SimpleFileOptions;
 use crate::utils::INDEXER_BATCH_SIZE;
 #[cfg(feature = "esplora")]
 use crate::utils::INDEXER_PARALLEL_REQUESTS;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
 #[cfg(test)]
-use crate::wallet::test::{
-    mock_asset_terms, mock_contract_details, mock_input_unspents, mock_token_data, mock_vout,
-};
+use crate::wallet::test::{mock_asset_terms, mock_contract_details, mock_token_data};
 #[cfg(test)]
 use crate::wallet::test::{mock_chain_net, skip_check_fee_rate};
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(test)]
+use crate::wallet::test::{mock_input_unspents, mock_vout};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use crate::{
     api::proxy::{GetConsignmentResponse, Proxy},
@@ -294,7 +294,8 @@ use crate::{
         adjust_canonicalization, beneficiary_from_script_buf, from_str_or_number_mandatory,
         from_str_or_number_optional, get_account_xpubs, get_descriptors,
         get_descriptors_from_xpubs, get_genesis_hash, load_rgb_runtime, now, parse_address_str,
-        setup_logger, str_to_xpub, RgbInExt, RgbOutExt, RgbPsbtExt, RgbRuntime, LOG_FILE,
+        setup_logger, str_to_xpub, DumbResolver, RgbInExt, RgbOutExt, RgbPsbtExt, RgbRuntime,
+        LOG_FILE,
     },
     wallet::{Balance, Outpoint, NUM_KNOWN_SCHEMAS, SCHEMA_ID_CFA, SCHEMA_ID_NIA, SCHEMA_ID_UDA},
 };

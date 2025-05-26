@@ -481,18 +481,17 @@ interface Wallet {
 
   [Throws=RgbLibError]
   AssetNIA issue_asset_nia(
-    Online online, string ticker, string name, u8 precision,
-    sequence<u64> amounts);
+    string ticker, string name, u8 precision, sequence<u64> amounts);
 
   [Throws=RgbLibError]
   AssetUDA issue_asset_uda(
-    Online online, string ticker, string name, string? details, u8 precision,
+    string ticker, string name, string? details, u8 precision,
     string? media_file_path, sequence<string> attachments_file_paths);
 
   [Throws=RgbLibError]
   AssetCFA issue_asset_cfa(
-    Online online, string name, string? details, u8 precision,
-    sequence<u64> amounts, string? file_path);
+    string name, string? details, u8 precision, sequence<u64> amounts,
+    string? file_path);
 
   [Throws=RgbLibError]
   Assets list_assets(sequence<AssetSchema> filter_asset_schemas);

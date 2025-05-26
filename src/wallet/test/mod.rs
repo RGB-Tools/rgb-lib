@@ -128,7 +128,6 @@ lazy_static! {
     static ref MOCK_CONTRACT_DATA: Mutex<Vec<Attachment>> = Mutex::new(vec![]);
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub fn mock_asset_terms(
     wallet: &Wallet,
     text: RicardianContract,
@@ -144,12 +143,10 @@ pub fn mock_asset_terms(
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
 lazy_static! {
     static ref MOCK_TOKEN_DATA: Mutex<Vec<TokenData>> = Mutex::new(vec![]);
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub fn mock_token_data(
     wallet: &Wallet,
     index: TokenIndex,
@@ -184,7 +181,6 @@ lazy_static! {
     static ref MOCK_CONTRACT_DETAILS: Mutex<Option<&'static str>> = Mutex::new(None);
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub fn mock_contract_details(wallet: &Wallet) -> Option<Details> {
     let mock = MOCK_CONTRACT_DETAILS.lock().unwrap().take();
     if let Some(details) = mock {

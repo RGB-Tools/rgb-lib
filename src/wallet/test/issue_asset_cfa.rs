@@ -20,7 +20,6 @@ fn success() {
     let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
     let asset_1 = wallet
         .issue_asset_cfa(
-            online.clone(),
             NAME.to_string(),
             None,
             PRECISION,
@@ -266,24 +265,8 @@ fn fail() {
         test_issue_asset_cfa_result(&mut wallet, &online, Some(&[u64::MAX, u64::MAX]), None);
     assert!(matches!(result, Err(Error::TooHighIssuanceAmounts)));
 
-    // bad online object
-    let other_online = Online {
-        id: 1,
-        indexer_url: wallet.online_data.as_ref().unwrap().indexer_url.clone(),
-    };
-    let result = wallet.issue_asset_cfa(
-        other_online.clone(),
-        NAME.to_string(),
-        None,
-        PRECISION,
-        vec![AMOUNT],
-        None,
-    );
-    assert!(matches!(result, Err(Error::CannotChangeOnline)));
-
     // invalid name: empty
     let result = wallet.issue_asset_cfa(
-        online.clone(),
         s!(""),
         Some(DETAILS.to_string()),
         PRECISION,
@@ -294,7 +277,6 @@ fn fail() {
 
     // invalid name: too long
     let result = wallet.issue_asset_cfa(
-        online.clone(),
         ("a").repeat(257),
         Some(DETAILS.to_string()),
         PRECISION,
@@ -306,7 +288,6 @@ fn fail() {
     // invalid name: unicode characters
     let invalid_name = "name with ℧nicode characters";
     let result = wallet.issue_asset_cfa(
-        online.clone(),
         invalid_name.to_string(),
         Some(DETAILS.to_string()),
         PRECISION,
@@ -320,7 +301,6 @@ fn fail() {
 
     // invalid details: empty
     let result = wallet.issue_asset_cfa(
-        online.clone(),
         NAME.to_string(),
         Some(s!("")),
         PRECISION,
@@ -331,7 +311,6 @@ fn fail() {
 
     // invalid details: too long
     let result = wallet.issue_asset_cfa(
-        online.clone(),
         NAME.to_string(),
         Some(("a").repeat(256)),
         PRECISION,
@@ -342,7 +321,6 @@ fn fail() {
 
     // invalid precision
     let result = wallet.issue_asset_cfa(
-        online.clone(),
         NAME.to_string(),
         Some(DETAILS.to_string()),
         19,

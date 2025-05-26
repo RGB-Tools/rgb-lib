@@ -1834,7 +1834,6 @@ fn receive_multiple_different_assets_success() {
     let asset_1 = test_issue_asset_nia(&mut wallet, &online, None);
     let asset_2 = wallet
         .issue_asset_cfa(
-            online.clone(),
             s!("NAME2"),
             Some(DETAILS.to_string()),
             PRECISION,

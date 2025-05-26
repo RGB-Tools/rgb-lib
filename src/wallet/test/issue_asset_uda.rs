@@ -253,37 +253,12 @@ fn fail() {
     // wallet
     let (mut wallet, online) = get_funded_wallet!();
 
-    // bad online object
-    let other_online = Online {
-        id: 1,
-        indexer_url: wallet.online_data.as_ref().unwrap().indexer_url.clone(),
-    };
-    let result = wallet.issue_asset_uda(
-        other_online.clone(),
-        TICKER.to_string(),
-        NAME.to_string(),
-        None,
-        PRECISION,
-        None,
-        vec![],
-    );
-    assert!(matches!(result, Err(Error::CannotChangeOnline)));
-
     // invalid ticker: empty
-    let result = wallet.issue_asset_uda(
-        online.clone(),
-        s!(""),
-        NAME.to_string(),
-        None,
-        PRECISION,
-        None,
-        vec![],
-    );
+    let result = wallet.issue_asset_uda(s!(""), NAME.to_string(), None, PRECISION, None, vec![]);
     assert!(matches!(result, Err(Error::InvalidTicker { details: m }) if m == EMPTY_MSG));
 
     // invalid ticker: too long
     let result = wallet.issue_asset_uda(
-        online.clone(),
         s!("ABCDEFGHI"),
         NAME.to_string(),
         None,
@@ -295,7 +270,6 @@ fn fail() {
 
     // invalid ticker: lowercase
     let result = wallet.issue_asset_uda(
-        online.clone(),
         s!("TiCkEr"),
         NAME.to_string(),
         None,
@@ -310,7 +284,6 @@ fn fail() {
     // invalid ticker: unicode characters
     let invalid_ticker = "TICKER WITH ℧NICODE CHARACTERS";
     let result = wallet.issue_asset_uda(
-        online.clone(),
         invalid_ticker.to_string(),
         NAME.to_string(),
         None,
@@ -324,20 +297,11 @@ fn fail() {
     );
 
     // invalid name: empty
-    let result = wallet.issue_asset_uda(
-        online.clone(),
-        TICKER.to_string(),
-        s!(""),
-        None,
-        PRECISION,
-        None,
-        vec![],
-    );
+    let result = wallet.issue_asset_uda(TICKER.to_string(), s!(""), None, PRECISION, None, vec![]);
     assert!(matches!(result, Err(Error::InvalidName { details: m }) if m == EMPTY_MSG));
 
     // invalid name: too long
     let result = wallet.issue_asset_uda(
-        online.clone(),
         TICKER.to_string(),
         ("a").repeat(257),
         None,
@@ -350,7 +314,6 @@ fn fail() {
     // invalid name: unicode characters
     let invalid_name = "name with ℧nicode characters";
     let result = wallet.issue_asset_uda(
-        online.clone(),
         TICKER.to_string(),
         invalid_name.to_string(),
         None,
@@ -368,15 +331,8 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidDetails { details: m }) if m == IDENT_EMPTY_MSG));
 
     // invalid precision
-    let result = wallet.issue_asset_uda(
-        online.clone(),
-        TICKER.to_string(),
-        NAME.to_string(),
-        None,
-        19,
-        None,
-        vec![],
-    );
+    let result =
+        wallet.issue_asset_uda(TICKER.to_string(), NAME.to_string(), None, 19, None, vec![]);
     assert!(
         matches!(result, Err(Error::InvalidPrecision { details: m }) if m == "precision is too high")
     );

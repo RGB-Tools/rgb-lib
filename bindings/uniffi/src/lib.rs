@@ -321,19 +321,17 @@ impl Wallet {
 
     fn issue_asset_nia(
         &self,
-        online: Online,
         ticker: String,
         name: String,
         precision: u8,
         amounts: Vec<u64>,
     ) -> Result<AssetNIA, RgbLibError> {
         self._get_wallet()
-            .issue_asset_nia(online, ticker, name, precision, amounts)
+            .issue_asset_nia(ticker, name, precision, amounts)
     }
 
     fn issue_asset_uda(
         &self,
-        online: Online,
         ticker: String,
         name: String,
         details: Option<String>,
@@ -342,7 +340,6 @@ impl Wallet {
         attachments_file_paths: Vec<String>,
     ) -> Result<AssetUDA, RgbLibError> {
         self._get_wallet().issue_asset_uda(
-            online,
             ticker,
             name,
             details,
@@ -354,7 +351,6 @@ impl Wallet {
 
     fn issue_asset_cfa(
         &self,
-        online: Online,
         name: String,
         details: Option<String>,
         precision: u8,
@@ -362,7 +358,7 @@ impl Wallet {
         file_path: Option<String>,
     ) -> Result<AssetCFA, RgbLibError> {
         self._get_wallet()
-            .issue_asset_cfa(online, name, details, precision, amounts, file_path)
+            .issue_asset_cfa(name, details, precision, amounts, file_path)
     }
 
     fn list_assets(&self, filter_asset_schemas: Vec<AssetSchema>) -> Result<Assets, RgbLibError> {

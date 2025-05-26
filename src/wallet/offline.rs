@@ -14,6 +14,10 @@ const MIN_BTC_REQUIRED: u64 = 2000;
 
 pub(crate) const NUM_KNOWN_SCHEMAS: usize = 3;
 
+pub(crate) const UDA_FIXED_INDEX: u32 = 0;
+
+pub(crate) const MAX_ATTACHMENTS: usize = 20;
+
 pub(crate) const MAX_TRANSPORT_ENDPOINTS: usize = 3;
 
 pub(crate) const DURATION_RCV_TRANSFER: u32 = 86400;
@@ -1211,6 +1215,10 @@ impl Wallet {
         self.wallet_data.bitcoin_network
     }
 
+    pub(crate) fn chain_net(&self) -> ChainNet {
+        self.bitcoin_network().into()
+    }
+
     pub(crate) fn rgb_runtime(&self) -> Result<RgbRuntime, Error> {
         load_rgb_runtime(self.wallet_dir.clone())
     }
@@ -1382,6 +1390,649 @@ impl Wallet {
             })?;
 
         Ok(())
+    }
+
+    pub(crate) fn check_details(&self, details: String) -> Result<Details, Error> {
+        if details.is_empty() {
+            return Err(Error::InvalidDetails {
+                details: s!("ident must contain at least one character"),
+            });
+        }
+        Details::from_str(&details).map_err(|e| Error::InvalidDetails {
+            details: e.to_string(),
+        })
+    }
+
+    fn _check_name(&self, name: String) -> Result<Name, Error> {
+        Name::try_from(name).map_err(|e| Error::InvalidName {
+            details: e.to_string(),
+        })
+    }
+
+    fn _check_precision(&self, precision: u8) -> Result<Precision, Error> {
+        Precision::try_from(precision).map_err(|_| Error::InvalidPrecision {
+            details: s!("precision is too high"),
+        })
+    }
+
+    fn _check_ticker(&self, ticker: String) -> Result<Ticker, Error> {
+        if ticker.to_ascii_uppercase() != *ticker {
+            return Err(Error::InvalidTicker {
+                details: s!("ticker needs to be all uppercase"),
+            });
+        }
+        Ticker::try_from(ticker).map_err(|e| Error::InvalidTicker {
+            details: e.to_string(),
+        })
+    }
+
+    fn _get_total_issue_amount(&self, amounts: &[u64]) -> Result<u64, Error> {
+        if amounts.is_empty() {
+            return Err(Error::NoIssuanceAmounts);
+        }
+        amounts.iter().try_fold(0u64, |acc, x| {
+            Ok(match acc.checked_add(*x) {
+                None => return Err(Error::TooHighIssuanceAmounts),
+                Some(sum) => sum,
+            })
+        })
+    }
+
+    fn _file_details<P: AsRef<Path>>(
+        &self,
+        original_file_path: P,
+    ) -> Result<(Attachment, Media), Error> {
+        if !original_file_path.as_ref().exists() {
+            return Err(Error::InvalidFilePath {
+                file_path: original_file_path.as_ref().to_string_lossy().to_string(),
+            });
+        }
+        let file_bytes = fs::read(&original_file_path)?;
+        if file_bytes.is_empty() {
+            return Err(Error::EmptyFile {
+                file_path: original_file_path.as_ref().to_string_lossy().to_string(),
+            });
+        }
+        let file_hash: sha256::Hash = Sha256Hash::hash(&file_bytes[..]);
+        let digest_bytes = file_hash.to_byte_array();
+        let mime = FileFormat::from_file(original_file_path.as_ref())?
+            .media_type()
+            .to_string();
+        let media_ty: &'static str = Box::leak(mime.clone().into_boxed_str());
+        let media_type = MediaType::with(media_ty);
+        let digest = file_hash.to_string();
+        let file_path = self
+            .get_media_dir()
+            .join(&digest)
+            .to_string_lossy()
+            .to_string();
+        Ok((
+            Attachment {
+                ty: media_type,
+                digest: digest_bytes.into(),
+            },
+            Media {
+                digest,
+                mime,
+                file_path,
+            },
+        ))
+    }
+
+    pub(crate) fn copy_media_and_save<P: AsRef<Path>>(
+        &self,
+        original_file_path: P,
+        media: &Media,
+    ) -> Result<i32, Error> {
+        let src = original_file_path.as_ref().to_string_lossy().to_string();
+        let dst = media.clone().file_path;
+        if src != dst {
+            fs::copy(src, dst)?;
+        }
+        self.get_or_insert_media(media.get_digest(), media.mime.clone())
+    }
+
+    pub(crate) fn new_asset_terms(
+        &self,
+        text: RicardianContract,
+        media: Option<Attachment>,
+    ) -> ContractTerms {
+        ContractTerms { text, media }
+    }
+
+    /// Issue a new RGB NIA asset with the provided `ticker`, `name`, `precision` and `amounts`,
+    /// then return it.
+    ///
+    /// At least 1 amount needs to be provided and the sum of all amounts cannot exceed the maximum
+    /// `u64` value.
+    ///
+    /// If `amounts` contains more than 1 element, each one will be issued as a separate allocation
+    /// for the same asset (on a separate UTXO that needs to be already available).
+    pub fn issue_asset_nia(
+        &self,
+        ticker: String,
+        name: String,
+        precision: u8,
+        amounts: Vec<u64>,
+    ) -> Result<AssetNIA, Error> {
+        info!(
+            self.logger,
+            "Issuing NIA asset with ticker '{}' name '{}' precision '{}' amounts '{:?}'...",
+            ticker,
+            name,
+            precision,
+            amounts
+        );
+
+        let settled = self._get_total_issue_amount(&amounts)?;
+
+        let db_data = self.database.get_db_data(false)?;
+
+        let mut unspents: Vec<LocalUnspent> = self.database.get_rgb_allocations(
+            self.database.get_unspent_txos(db_data.txos)?,
+            None,
+            None,
+            None,
+        )?;
+        unspents.retain(|u| {
+            !(u.rgb_allocations
+                .iter()
+                .any(|a| !a.incoming && a.status.waiting_counterparty()))
+        });
+
+        let created_at = now().unix_timestamp();
+        let text = RicardianContract::default();
+        #[cfg(test)]
+        let terms = mock_asset_terms(self, text, None);
+        #[cfg(not(test))]
+        let terms = self.new_asset_terms(text, None);
+        #[cfg(test)]
+        let details = mock_contract_details(self);
+        #[cfg(not(test))]
+        let details = None;
+        let spec = AssetSpec {
+            ticker: self._check_ticker(ticker.clone())?,
+            name: self._check_name(name.clone())?,
+            details,
+            precision: self._check_precision(precision)?,
+        };
+
+        let mut runtime = self.rgb_runtime()?;
+        let mut builder = ContractBuilder::with(
+            Identity::default(),
+            NonInflatableAsset::schema(),
+            NonInflatableAsset::types(),
+            NonInflatableAsset::scripts(),
+            self.chain_net(),
+        )
+        .add_global_state("spec", spec.clone())
+        .expect("invalid spec")
+        .add_global_state("terms", terms)
+        .expect("invalid terms")
+        .add_global_state("issuedSupply", Amount::from(settled))
+        .expect("invalid issuedSupply");
+
+        let mut issue_utxos: HashMap<DbTxo, u64> = HashMap::new();
+        for amount in &amounts {
+            let exclude_outpoints: Vec<Outpoint> =
+                issue_utxos.keys().map(|txo| txo.outpoint()).collect();
+            let utxo = self.get_utxo(exclude_outpoints, Some(unspents.clone()), false)?;
+            issue_utxos.insert(utxo.clone(), *amount);
+
+            let blind_seal =
+                BlindSeal::new_random(RgbTxid::from_str(&utxo.txid).unwrap(), utxo.vout);
+            let genesis_seal = GenesisSeal::from(blind_seal);
+
+            builder = builder
+                .add_fungible_state("assetOwner", BuilderSeal::from(genesis_seal), *amount)
+                .expect("invalid global state data");
+        }
+        debug!(self.logger, "Issuing on UTXOs: {issue_utxos:?}");
+
+        let validated_contract = builder.issue_contract().expect("failure issuing contract");
+        let asset_id = validated_contract.contract_id().to_string();
+        runtime
+            .import_contract(validated_contract, &DumbResolver)
+            .expect("failure importing issued contract");
+
+        let asset = self.add_asset_to_db(
+            asset_id.clone(),
+            &AssetSchema::Nia,
+            Some(created_at),
+            spec.details().map(|d| d.to_string()),
+            settled,
+            name,
+            precision,
+            Some(ticker),
+            created_at,
+            None,
+        )?;
+        let batch_transfer = DbBatchTransferActMod {
+            status: ActiveValue::Set(TransferStatus::Settled),
+            expiration: ActiveValue::Set(None),
+            created_at: ActiveValue::Set(created_at),
+            min_confirmations: ActiveValue::Set(0),
+            ..Default::default()
+        };
+        let batch_transfer_idx = self.database.set_batch_transfer(batch_transfer)?;
+        let asset_transfer = DbAssetTransferActMod {
+            user_driven: ActiveValue::Set(true),
+            batch_transfer_idx: ActiveValue::Set(batch_transfer_idx),
+            asset_id: ActiveValue::Set(Some(asset_id)),
+            ..Default::default()
+        };
+        let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
+        let transfer = DbTransferActMod {
+            asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
+            amount: ActiveValue::Set(settled.to_string()),
+            incoming: ActiveValue::Set(true),
+            ..Default::default()
+        };
+        self.database.set_transfer(transfer)?;
+        for (utxo, amount) in issue_utxos {
+            let db_coloring = DbColoringActMod {
+                txo_idx: ActiveValue::Set(utxo.idx),
+                asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
+                r#type: ActiveValue::Set(ColoringType::Issue),
+                amount: ActiveValue::Set(amount.to_string()),
+                ..Default::default()
+            };
+            self.database.set_coloring(db_coloring)?;
+        }
+
+        let asset = AssetNIA::get_asset_details(self, &asset, None, None, None, None, None, None)?;
+
+        self.update_backup_info(false)?;
+
+        info!(self.logger, "Issue asset NIA completed");
+        Ok(asset)
+    }
+
+    pub(crate) fn new_token_data(
+        &self,
+        index: TokenIndex,
+        media_data: &Option<(Attachment, Media)>,
+        attachments: BTreeMap<u8, Attachment>,
+    ) -> TokenData {
+        TokenData {
+            index,
+            media: media_data
+                .as_ref()
+                .map(|(attachment, _)| attachment.clone()),
+            attachments: Confined::try_from(attachments.clone()).unwrap(),
+            ..Default::default()
+        }
+    }
+
+    /// Issue a new RGB UDA asset with the provided `ticker`, `name`, optional `details` and
+    /// `precision`, then return it.
+    ///
+    /// An optional `media_file_path` containing the path to a media file can be provided. Its hash
+    /// and mime type will be encoded in the contract.
+    ///
+    /// An optional `attachments_file_paths` containing paths to extra media files can be provided.
+    /// Their hash and mime type will be encoded in the contract.
+    pub fn issue_asset_uda(
+        &self,
+        ticker: String,
+        name: String,
+        details: Option<String>,
+        precision: u8,
+        media_file_path: Option<String>,
+        attachments_file_paths: Vec<String>,
+    ) -> Result<AssetUDA, Error> {
+        info!(
+            self.logger,
+            "Issuing UDA asset with ticker '{}' name '{}' precision '{}'...",
+            ticker,
+            name,
+            precision,
+        );
+
+        if attachments_file_paths.len() > MAX_ATTACHMENTS {
+            return Err(Error::InvalidAttachments {
+                details: format!("no more than {MAX_ATTACHMENTS} attachments are supported"),
+            });
+        }
+
+        let settled = 1;
+
+        let db_data = self.database.get_db_data(false)?;
+
+        let mut unspents: Vec<LocalUnspent> = self.database.get_rgb_allocations(
+            self.database.get_unspent_txos(db_data.txos)?,
+            None,
+            None,
+            None,
+        )?;
+        unspents.retain(|u| {
+            !(u.rgb_allocations
+                .iter()
+                .any(|a| !a.incoming && a.status.waiting_counterparty()))
+        });
+
+        let created_at = now().unix_timestamp();
+        let text = RicardianContract::default();
+        let terms = ContractTerms { text, media: None };
+
+        let details_obj = if let Some(details) = &details {
+            Some(self.check_details(details.clone())?)
+        } else {
+            None
+        };
+        let ticker_obj = self._check_ticker(ticker.clone())?;
+        let spec = AssetSpec {
+            ticker: ticker_obj.clone(),
+            name: self._check_name(name.clone())?,
+            details: details_obj,
+            precision: self._check_precision(precision)?,
+        };
+
+        let issue_utxo = self.get_utxo(vec![], Some(unspents.clone()), false)?;
+        debug!(self.logger, "Issuing on UTXO: {issue_utxo:?}");
+
+        let blind_seal = BlindSeal::new_random(
+            RgbTxid::from_str(&issue_utxo.txid).unwrap(),
+            issue_utxo.vout,
+        );
+        let genesis_seal = GenesisSeal::from(blind_seal);
+
+        let index = TokenIndex::from_inner(UDA_FIXED_INDEX);
+
+        let fraction = OwnedFraction::from_inner(1);
+        let allocation = Allocation::with(index, fraction);
+
+        let media_data = if let Some(media_file_path) = &media_file_path {
+            Some(self._file_details(media_file_path)?)
+        } else {
+            None
+        };
+
+        let mut attachments = BTreeMap::new();
+        let mut media_attachments = HashMap::new();
+        for (idx, attachment_file_path) in attachments_file_paths.iter().enumerate() {
+            let (attachment, media) = self._file_details(attachment_file_path)?;
+            attachments.insert(idx as u8, attachment);
+            media_attachments.insert(idx as u8, media);
+        }
+
+        #[cfg(test)]
+        let token_data = mock_token_data(self, index, &media_data, attachments);
+        #[cfg(not(test))]
+        let token_data = self.new_token_data(index, &media_data, attachments);
+
+        let token = TokenLight {
+            index: UDA_FIXED_INDEX,
+            media: media_data.as_ref().map(|(_, media)| media.clone()),
+            attachments: media_attachments.clone(),
+            ..Default::default()
+        };
+
+        let mut runtime = self.rgb_runtime()?;
+        let builder = ContractBuilder::with(
+            Identity::default(),
+            UniqueDigitalAsset::schema(),
+            UniqueDigitalAsset::types(),
+            UniqueDigitalAsset::scripts(),
+            self.chain_net(),
+        )
+        .add_global_state("spec", spec)
+        .expect("invalid spec")
+        .add_global_state("terms", terms)
+        .expect("invalid terms")
+        .add_data("assetOwner", BuilderSeal::from(genesis_seal), allocation)
+        .expect("invalid global state data")
+        .add_global_state("tokens", token_data)
+        .expect("invalid tokens");
+
+        let validated_contract = builder.issue_contract().expect("failure issuing contract");
+        let asset_id = validated_contract.contract_id().to_string();
+        runtime
+            .import_contract(validated_contract, &DumbResolver)
+            .expect("failure importing issued contract");
+
+        if let Some((_, media)) = &media_data {
+            self.copy_media_and_save(media_file_path.unwrap(), media)?;
+        }
+        for (idx, attachment_file_path) in attachments_file_paths.into_iter().enumerate() {
+            let media = media_attachments.get(&(idx as u8)).unwrap();
+            self.copy_media_and_save(attachment_file_path, media)?;
+        }
+
+        let asset = self.add_asset_to_db(
+            asset_id.clone(),
+            &AssetSchema::Uda,
+            Some(created_at),
+            details.clone(),
+            settled as u64,
+            name.clone(),
+            precision,
+            Some(ticker.clone()),
+            created_at,
+            None,
+        )?;
+        let batch_transfer = DbBatchTransferActMod {
+            status: ActiveValue::Set(TransferStatus::Settled),
+            expiration: ActiveValue::Set(None),
+            created_at: ActiveValue::Set(created_at),
+            min_confirmations: ActiveValue::Set(0),
+            ..Default::default()
+        };
+        let batch_transfer_idx = self.database.set_batch_transfer(batch_transfer)?;
+        let asset_transfer = DbAssetTransferActMod {
+            user_driven: ActiveValue::Set(true),
+            batch_transfer_idx: ActiveValue::Set(batch_transfer_idx),
+            asset_id: ActiveValue::Set(Some(asset_id.clone())),
+            ..Default::default()
+        };
+        let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
+        let transfer = DbTransferActMod {
+            asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
+            amount: ActiveValue::Set(settled.to_string()),
+            incoming: ActiveValue::Set(true),
+            ..Default::default()
+        };
+        self.database.set_transfer(transfer)?;
+        let db_coloring = DbColoringActMod {
+            txo_idx: ActiveValue::Set(issue_utxo.idx),
+            asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
+            r#type: ActiveValue::Set(ColoringType::Issue),
+            amount: ActiveValue::Set(settled.to_string()),
+            ..Default::default()
+        };
+        self.database.set_coloring(db_coloring)?;
+        let db_token = DbTokenActMod {
+            asset_idx: ActiveValue::Set(asset.idx),
+            index: ActiveValue::Set(UDA_FIXED_INDEX),
+            embedded_media: ActiveValue::Set(false),
+            reserves: ActiveValue::Set(false),
+            ..Default::default()
+        };
+        let token_idx = self.database.set_token(db_token)?;
+        if let Some((_, media)) = &media_data {
+            self.save_token_media(token_idx, media.get_digest(), media.mime.clone(), None)?;
+        }
+        for (attachment_id, media) in media_attachments {
+            self.save_token_media(
+                token_idx,
+                media.get_digest(),
+                media.mime.clone(),
+                Some(attachment_id),
+            )?;
+        }
+
+        let asset =
+            AssetUDA::get_asset_details(self, &asset, Some(token), None, None, None, None, None)?;
+
+        self.update_backup_info(false)?;
+
+        info!(self.logger, "Issue asset UDA completed");
+        Ok(asset)
+    }
+
+    /// Issue a new RGB CFA asset with the provided `name`, optional `details`, `precision` and
+    /// `amounts`, then return it.
+    ///
+    /// An optional `file_path` containing the path to a media file can be provided. Its hash and
+    /// mime type will be encoded in the contract.
+    ///
+    /// At least 1 amount needs to be provided and the sum of all amounts cannot exceed the maximum
+    /// `u64` value.
+    ///
+    /// If `amounts` contains more than 1 element, each one will be issued as a separate allocation
+    /// for the same asset (on a separate UTXO that needs to be already available).
+    pub fn issue_asset_cfa(
+        &self,
+        name: String,
+        details: Option<String>,
+        precision: u8,
+        amounts: Vec<u64>,
+        file_path: Option<String>,
+    ) -> Result<AssetCFA, Error> {
+        info!(
+            self.logger,
+            "Issuing CFA asset with name '{}' precision '{}' amounts '{:?}'...",
+            name,
+            precision,
+            amounts
+        );
+
+        let settled = self._get_total_issue_amount(&amounts)?;
+
+        let db_data = self.database.get_db_data(false)?;
+
+        let mut unspents: Vec<LocalUnspent> = self.database.get_rgb_allocations(
+            self.database.get_unspent_txos(db_data.txos)?,
+            None,
+            None,
+            None,
+        )?;
+        unspents.retain(|u| {
+            !(u.rgb_allocations
+                .iter()
+                .any(|a| !a.incoming && a.status.waiting_counterparty()))
+        });
+
+        let created_at = now().unix_timestamp();
+        let text = RicardianContract::default();
+        let media_data = if let Some(file_path) = &file_path {
+            Some(self._file_details(file_path)?)
+        } else {
+            None
+        };
+        let terms = ContractTerms {
+            text,
+            media: media_data
+                .as_ref()
+                .map(|(attachment, _)| attachment.clone()),
+        };
+        let precision_state = self._check_precision(precision)?;
+        let name_state = self._check_name(name.clone())?;
+
+        let mut runtime = self.rgb_runtime()?;
+        let mut builder = ContractBuilder::with(
+            Identity::default(),
+            CollectibleFungibleAsset::schema(),
+            CollectibleFungibleAsset::types(),
+            CollectibleFungibleAsset::scripts(),
+            self.chain_net(),
+        )
+        .add_global_state("name", name_state)
+        .expect("invalid name")
+        .add_global_state("precision", precision_state)
+        .expect("invalid precision")
+        .add_global_state("terms", terms)
+        .expect("invalid terms")
+        .add_global_state("issuedSupply", Amount::from(settled))
+        .expect("invalid issuedSupply");
+
+        if let Some(details) = &details {
+            builder = builder
+                .add_global_state("details", self.check_details(details.clone())?)
+                .expect("invalid details");
+        };
+
+        let mut issue_utxos: HashMap<DbTxo, u64> = HashMap::new();
+        for amount in &amounts {
+            let exclude_outpoints: Vec<Outpoint> =
+                issue_utxos.keys().map(|txo| txo.outpoint()).collect();
+            let utxo = self.get_utxo(exclude_outpoints, Some(unspents.clone()), false)?;
+            issue_utxos.insert(utxo.clone(), *amount);
+
+            let blind_seal =
+                BlindSeal::new_random(RgbTxid::from_str(&utxo.txid).unwrap(), utxo.vout);
+            let genesis_seal = GenesisSeal::from(blind_seal);
+
+            builder = builder
+                .add_fungible_state("assetOwner", BuilderSeal::from(genesis_seal), *amount)
+                .expect("invalid global state data");
+        }
+        debug!(self.logger, "Issuing on UTXOs: {issue_utxos:?}");
+
+        let validated_contract = builder.issue_contract().expect("failure issuing contract");
+        let asset_id = validated_contract.contract_id().to_string();
+        runtime
+            .import_contract(validated_contract, &DumbResolver)
+            .expect("failure importing issued contract");
+
+        let media_idx = if let Some(file_path) = file_path {
+            let (_, media) = media_data.unwrap();
+            Some(self.copy_media_and_save(file_path, &media)?)
+        } else {
+            None
+        };
+
+        let asset = self.add_asset_to_db(
+            asset_id.clone(),
+            &AssetSchema::Cfa,
+            Some(created_at),
+            details,
+            settled,
+            name,
+            precision,
+            None,
+            created_at,
+            media_idx,
+        )?;
+        let batch_transfer = DbBatchTransferActMod {
+            status: ActiveValue::Set(TransferStatus::Settled),
+            expiration: ActiveValue::Set(None),
+            created_at: ActiveValue::Set(created_at),
+            min_confirmations: ActiveValue::Set(0),
+            ..Default::default()
+        };
+        let batch_transfer_idx = self.database.set_batch_transfer(batch_transfer)?;
+        let asset_transfer = DbAssetTransferActMod {
+            user_driven: ActiveValue::Set(true),
+            batch_transfer_idx: ActiveValue::Set(batch_transfer_idx),
+            asset_id: ActiveValue::Set(Some(asset_id)),
+            ..Default::default()
+        };
+        let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
+        let transfer = DbTransferActMod {
+            asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
+            amount: ActiveValue::Set(settled.to_string()),
+            incoming: ActiveValue::Set(true),
+            ..Default::default()
+        };
+        self.database.set_transfer(transfer)?;
+        for (utxo, amount) in issue_utxos {
+            let db_coloring = DbColoringActMod {
+                txo_idx: ActiveValue::Set(utxo.idx),
+                asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
+                r#type: ActiveValue::Set(ColoringType::Issue),
+                amount: ActiveValue::Set(amount.to_string()),
+                ..Default::default()
+            };
+            self.database.set_coloring(db_coloring)?;
+        }
+
+        let asset = AssetCFA::get_asset_details(self, &asset, None, None, None, None, None, None)?;
+
+        self.update_backup_info(false)?;
+
+        info!(self.logger, "Issue asset CFA completed");
+        Ok(asset)
     }
 
     fn _receive(

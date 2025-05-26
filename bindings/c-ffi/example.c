@@ -93,8 +93,8 @@ int main() {
     const char *created = created_res.inner;
     printf("Created %s UTXOs\n", created);
 
-    CResultString asset_nia_res = rgblib_issue_asset_nia(
-        wlt, online, "USDT", "Tether", "2", "[\"777\", \"66\"]");
+    CResultString asset_nia_res =
+        rgblib_issue_asset_nia(wlt, "USDT", "Tether", "2", "[\"777\", \"66\"]");
     if (asset_nia_res.result == Ok) {
         printf("Issued a NIA asset: %s\n", asset_nia_res.inner);
     } else {
@@ -102,8 +102,8 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    CResultString asset_cfa_res = rgblib_issue_asset_cfa(
-        wlt, online, "Cfa", "desc", "2", "[\"777\"]", NULL);
+    CResultString asset_cfa_res =
+        rgblib_issue_asset_cfa(wlt, "Cfa", "desc", "2", "[\"777\"]", NULL);
     if (asset_cfa_res.result == Ok) {
         printf("Issued a CFA asset: %s\n", asset_cfa_res.inner);
     } else {
@@ -112,7 +112,7 @@ int main() {
     }
 
     CResultString asset_uda_res = rgblib_issue_asset_uda(
-        wlt, online, "TKN", "Token", NULL, "2", "README.md", "[]");
+        wlt, "TKN", "Token", NULL, "2", "README.md", "[]");
     if (asset_uda_res.result == Ok) {
         printf("Issued a UDA asset: %s\n", asset_uda_res.inner);
     } else {

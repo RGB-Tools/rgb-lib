@@ -78,7 +78,6 @@ fn success() {
     let details = None;
     let asset_cfa = wallet
         .issue_asset_cfa(
-            online.clone(),
             NAME.to_string(),
             details.clone(),
             PRECISION,
