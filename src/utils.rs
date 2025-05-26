@@ -509,7 +509,7 @@ pub(crate) fn build_indexer(indexer_url: &str) -> Option<Indexer> {
 }
 
 fn convert_time_fmt_error(cause: time::error::Format) -> io::Error {
-    io::Error::new(ErrorKind::Other, cause)
+    io::Error::other(cause)
 }
 
 fn log_timestamp(io: &mut dyn io::Write) -> io::Result<()> {

@@ -475,7 +475,7 @@ pub(crate) enum InternalError {
     BdkAddUtxoError(#[from] bdk_wallet::tx_builder::AddUtxoError),
 
     #[error("Error from bdk extracting TX: {0}")]
-    BdkExtractTxError(#[from] bdk_wallet::bitcoin::psbt::ExtractTxError),
+    BdkExtractTxError(String),
 
     #[error("Error from bdk signing: {0}")]
     BdkSignerError(#[from] bdk_wallet::signer::SignerError),
@@ -564,6 +564,12 @@ impl From<IndexerError> for Error {
         Error::Indexer {
             details: e.to_string(),
         }
+    }
+}
+
+impl From<bdk_wallet::bitcoin::psbt::ExtractTxError> for InternalError {
+    fn from(e: bdk_wallet::bitcoin::psbt::ExtractTxError) -> Self {
+        InternalError::BdkExtractTxError(e.to_string())
     }
 }
 
