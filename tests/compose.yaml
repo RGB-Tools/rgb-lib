@@ -33,7 +33,7 @@ services:
     build:
       context: ./esplora
       dockerfile: ./Dockerfile.notor
-    image: esplora:4de8457de518526425d4f872d98d5cdb9efdaf0e-notor
+    image: esplora:latest-notor
     profiles: ['tests']
     command: /srv/explorer/run.sh bitcoin-regtest explorer
     environment:
