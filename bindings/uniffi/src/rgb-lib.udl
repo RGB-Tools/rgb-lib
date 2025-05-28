@@ -8,7 +8,7 @@ namespace rgb_lib {
   void restore_backup(string backup_path, string password, string data_dir);
 };
 
-[Error]
+[Error, Remote]
 interface RgbLibError {
   AllocationsAlreadyAvailable();
   AssetNotFound(string asset_id);
@@ -84,18 +84,21 @@ interface RgbLibError {
   WrongPassword();
 };
 
+[Remote]
 enum AssetSchema {
   "Nia",
   "Uda",
   "Cfa",
 };
 
+[Remote]
 dictionary Media {
   string file_path;
   string digest;
   string mime;
 };
 
+[Remote]
 dictionary AssetNIA {
   string asset_id;
   string ticker;
@@ -109,6 +112,7 @@ dictionary AssetNIA {
   Media? media;
 };
 
+[Remote]
 dictionary TokenLight {
     u32 index;
     string? ticker;
@@ -120,6 +124,7 @@ dictionary TokenLight {
     boolean reserves;
 };
 
+[Remote]
 dictionary AssetUDA {
   string asset_id;
   string ticker;
@@ -133,6 +138,7 @@ dictionary AssetUDA {
   TokenLight? token;
 };
 
+[Remote]
 dictionary AssetCFA {
   string asset_id;
   string name;
@@ -145,23 +151,27 @@ dictionary AssetCFA {
   Media? media;
 };
 
+[Remote]
 dictionary Assets {
   sequence<AssetNIA>? nia;
   sequence<AssetUDA>? uda;
   sequence<AssetCFA>? cfa;
 };
 
+[Remote]
 dictionary Balance {
   u64 settled;
   u64 future;
   u64 spendable;
 };
 
+[Remote]
 dictionary BtcBalance {
   Balance vanilla;
   Balance colored;
 };
 
+[Remote]
 enum BitcoinNetwork {
   "Mainnet",
   "Testnet",
@@ -169,6 +179,7 @@ enum BitcoinNetwork {
   "Regtest",
 };
 
+[Remote]
 dictionary ReceiveData {
   string invoice;
   string recipient_id;
@@ -185,6 +196,7 @@ interface RecipientInfo {
   RecipientType recipient_type();
 };
 
+[Remote]
 enum RecipientType {
   "Blind",
   "Witness",
@@ -197,10 +209,12 @@ interface TransportEndpoint {
   TransportType transport_type();
 };
 
+[Remote]
 enum TransportType {
   "JsonRpc",
 };
 
+[Remote]
 enum DatabaseType {
   "Sqlite",
 };
@@ -222,6 +236,7 @@ interface Invoice {
   string invoice_string();
 };
 
+[Remote]
 dictionary InvoiceData {
   string recipient_id;
   AssetSchema? asset_schema;
@@ -232,6 +247,7 @@ dictionary InvoiceData {
   sequence<string> transport_endpoints;
 };
 
+[Remote]
 dictionary Keys {
   string mnemonic;
   string xpub;
@@ -240,16 +256,19 @@ dictionary Keys {
   string account_xpub_colored_fingerprint;
 };
 
+[Remote]
 dictionary EmbeddedMedia {
     string mime;
     sequence<u8> data;
 };
 
+[Remote]
 dictionary ProofOfReserves {
     Outpoint utxo;
     sequence<u8> proof;
 };
 
+[Remote]
 dictionary Token {
     u32 index;
     string? ticker;
@@ -261,6 +280,7 @@ dictionary Token {
     ProofOfReserves? reserves;
 };
 
+[Remote]
 dictionary Metadata {
   AssetSchema asset_schema;
   u64 issued_supply;
@@ -272,26 +292,31 @@ dictionary Metadata {
   Token? token;
 };
 
+[Remote]
 dictionary Online {
   u64 id;
   string indexer_url;
 };
 
+[Remote]
 dictionary Outpoint {
   string txid;
   u32 vout;
 };
 
+[Remote]
 dictionary WitnessData {
   u64 amount_sat;
   u64? blinding;
 };
 
+[Remote]
 dictionary SendResult {
   string txid;
   i32 batch_transfer_idx;
 };
 
+[Remote]
 dictionary Recipient {
   string recipient_id;
   WitnessData? witness_data;
@@ -299,33 +324,39 @@ dictionary Recipient {
   sequence<string> transport_endpoints;
 };
 
+[Remote]
 dictionary RefreshFilter {
   RefreshTransferStatus status;
   boolean incoming;
 };
 
+[Remote]
 dictionary RefreshedTransfer {
   TransferStatus? updated_status;
   RgbLibError? failure;
 };
 
+[Remote]
 enum RefreshTransferStatus {
   "WaitingCounterparty",
   "WaitingConfirmations",
 };
 
+[Remote]
 dictionary RgbAllocation {
   string? asset_id;
   u64 amount;
   boolean settled;
 };
 
+[Remote]
 dictionary TransferTransportEndpoint {
   string endpoint;
   TransportType transport_type;
   boolean used;
 };
 
+[Remote]
 enum TransferKind {
   "Issuance",
   "ReceiveBlind",
@@ -333,6 +364,7 @@ enum TransferKind {
   "Send",
 };
 
+[Remote]
 enum TransferStatus {
   "WaitingCounterparty",
   "WaitingConfirmations",
@@ -340,6 +372,7 @@ enum TransferStatus {
   "Failed",
 };
 
+[Remote]
 dictionary Transaction {
     TransactionType transaction_type;
     string txid;
@@ -349,6 +382,7 @@ dictionary Transaction {
     BlockTime? confirmation_time;
 };
 
+[Remote]
 enum TransactionType {
   "RgbSend",
   "Drain",
@@ -356,11 +390,13 @@ enum TransactionType {
   "User",
 };
 
+[Remote]
 dictionary BlockTime {
   u32 height;
   u64 timestamp;
 };
 
+[Remote]
 dictionary Transfer {
   i32 idx;
   i32 batch_transfer_idx;
@@ -377,11 +413,13 @@ dictionary Transfer {
   sequence<TransferTransportEndpoint> transport_endpoints;
 };
 
+[Remote]
 dictionary Unspent {
   Utxo utxo;
   sequence<RgbAllocation> rgb_allocations;
 };
 
+[Remote]
 dictionary Utxo {
   Outpoint outpoint;
   u64 btc_amount;
@@ -389,6 +427,7 @@ dictionary Utxo {
   boolean exists;
 };
 
+[Remote]
 dictionary WalletData {
   string data_dir;
   BitcoinNetwork bitcoin_network;
