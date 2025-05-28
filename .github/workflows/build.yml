@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        toolchain: [ nightly, stable, 1.81.0 ]
+        toolchain: [ nightly, stable, 1.85.0 ]
         name: [linux, windows, macos]
         include:
           - name: linux
