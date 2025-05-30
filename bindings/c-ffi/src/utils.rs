@@ -456,6 +456,17 @@ pub(crate) fn send(
     Ok(serde_json::to_string(&res)?)
 }
 
+
+pub(crate) fn sign_psbt(
+    wallet: &COpaqueStruct,
+    unsigned_psbt: *const c_char,
+) -> Result<String, Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let unsigned_psbt = ptr_to_string(unsigned_psbt);
+    let signed = wallet.sign_psbt(unsigned_psbt, None)?;
+    Ok(signed)
+}
+
 pub(crate) fn send_btc(
     wallet: &COpaqueStruct,
     online: &COpaqueStruct,
