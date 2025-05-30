@@ -285,6 +285,14 @@ pub extern "C" fn rgblib_send(
 }
 
 #[no_mangle]
+pub extern "C" fn rgblib_sign_psbt(
+    wallet: &COpaqueStruct,
+    unsigned_psbt: *const c_char,
+) -> CResultString {
+    sign_psbt(wallet, unsigned_psbt).into()
+}
+
+#[no_mangle]
 pub extern "C" fn rgblib_send_btc(
     wallet: &COpaqueStruct,
     online: &COpaqueStruct,
