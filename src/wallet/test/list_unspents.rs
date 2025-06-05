@@ -59,7 +59,13 @@ fn success() {
     assert!(
         settled_allocations
             .iter()
-            .all(|a| a.asset_id == Some(asset.asset_id.clone()) && a.amount == AMOUNT && a.settled)
+            .all(|a| a.asset_id == Some(asset.asset_id.clone())
+                && if let Assignment::Fungible(amt) = a.assignment {
+                    amt == AMOUNT
+                } else {
+                    false
+                }
+                && a.settled)
     );
 
     // multiple unspents, one failed blind, not listed
@@ -81,7 +87,7 @@ fn success() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -122,7 +128,13 @@ fn success() {
     assert!(
         allocations
             .iter()
-            .all(|a| a.asset_id == Some(asset.asset_id.clone()) && a.amount == AMOUNT && a.settled)
+            .all(|a| a.asset_id == Some(asset.asset_id.clone())
+                && if let Assignment::Fungible(amt) = a.assignment {
+                    amt == AMOUNT
+                } else {
+                    false
+                }
+                && a.settled)
     );
 
     // new wallets
@@ -135,7 +147,7 @@ fn success() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -159,7 +171,20 @@ fn success() {
         .iter()
         .for_each(|u| allocations.extend(u.rgb_allocations.clone()));
     assert!(!allocations.iter().any(|a| a.settled));
-    assert_eq!(allocations.iter().filter(|a| !a.settled).count(), 1);
+    assert_eq!(
+        rcv_unspent_list_all
+            .iter()
+            .filter(|u| u.pending_blinded > 0)
+            .count(),
+        1
+    );
+    assert_eq!(
+        rcv_unspent_list_all
+            .iter()
+            .filter(|u| u.pending_blinded == 1)
+            .count(),
+        1
+    );
     // check sender lists one settled issue
     let unspent_list_settled = test_list_unspents(&mut wallet, None, true);
     let mut settled_allocations = vec![];
@@ -170,7 +195,13 @@ fn success() {
     assert!(
         settled_allocations
             .iter()
-            .all(|a| a.asset_id == Some(asset.asset_id.clone()) && a.amount == AMOUNT && a.settled)
+            .all(|a| a.asset_id == Some(asset.asset_id.clone())
+                && if let Assignment::Fungible(amt) = a.assignment {
+                    amt == AMOUNT
+                } else {
+                    false
+                }
+                && a.settled)
     );
     // check sender lists one pending change (exists = false) + 1 settled issue
     let unspent_list_all = test_list_unspents(&mut wallet, None, false);
@@ -204,7 +235,12 @@ fn success() {
     assert!(
         pending_allocations
             .iter()
-            .all(|a| a.asset_id == Some(asset.asset_id.clone()) && a.amount == AMOUNT - amount)
+            .all(|a| a.asset_id == Some(asset.asset_id.clone())
+                && if let Assignment::Fungible(amt) = a.assignment {
+                    amt == AMOUNT - amount
+                } else {
+                    false
+                })
     );
     unspent_list_all
         .iter()
@@ -213,7 +249,12 @@ fn success() {
     assert!(
         settled_allocations
             .iter()
-            .all(|a| a.asset_id == Some(asset.asset_id.clone()) && a.amount == AMOUNT)
+            .all(|a| a.asset_id == Some(asset.asset_id.clone())
+                && if let Assignment::Fungible(amt) = a.assignment {
+                    amt == AMOUNT
+                } else {
+                    false
+                })
     );
 
     // transfer progresses to status WaitingConfirmations
@@ -242,8 +283,14 @@ fn success() {
     assert!(
         allocations
             .iter()
-            .all(|a| a.asset_id == Some(asset.asset_id.clone()) && a.amount == amount)
+            .all(|a| a.asset_id == Some(asset.asset_id.clone())
+                && if let Assignment::Fungible(amt) = a.assignment {
+                    amt == amount
+                } else {
+                    false
+                })
     );
+    assert!(rcv_unspent_list_all.iter().all(|u| u.pending_blinded == 0));
     // check sender lists one settled issue
     let unspent_list_settled = test_list_unspents(&mut wallet, None, true);
     let mut settled_allocations = vec![];
@@ -254,7 +301,13 @@ fn success() {
     assert!(
         settled_allocations
             .iter()
-            .all(|a| a.asset_id == Some(asset.asset_id.clone()) && a.amount == AMOUNT && a.settled)
+            .all(|a| a.asset_id == Some(asset.asset_id.clone())
+                && if let Assignment::Fungible(amt) = a.assignment {
+                    amt == AMOUNT
+                } else {
+                    false
+                }
+                && a.settled)
     );
     // check sender lists one pending change (exists = true)
     let unspent_list_all = test_list_unspents(&mut wallet, None, false);
@@ -266,7 +319,12 @@ fn success() {
     assert!(
         pending_allocations
             .iter()
-            .all(|a| a.asset_id == Some(asset.asset_id.clone()) && a.amount == AMOUNT - amount)
+            .all(|a| a.asset_id == Some(asset.asset_id.clone())
+                && if let Assignment::Fungible(amt) = a.assignment {
+                    amt == AMOUNT - amount
+                } else {
+                    false
+                })
     );
     assert_eq!(
         unspent_list_all
@@ -293,7 +351,12 @@ fn success() {
     assert!(
         settled_allocations
             .iter()
-            .all(|a| a.asset_id == Some(asset.asset_id.clone()) && a.amount == amount)
+            .all(|a| a.asset_id == Some(asset.asset_id.clone())
+                && if let Assignment::Fungible(amt) = a.assignment {
+                    amt == amount
+                } else {
+                    false
+                })
     );
     // check receiver lists no pending allocations
     let rcv_unspent_list_all = test_list_unspents(&mut rcv_wallet, None, false);
@@ -313,7 +376,11 @@ fn success() {
         settled_allocations
             .iter()
             .all(|a| a.asset_id == Some(asset.asset_id.clone())
-                && a.amount == AMOUNT - amount
+                && if let Assignment::Fungible(amt) = a.assignment {
+                    amt == AMOUNT - amount
+                } else {
+                    false
+                }
                 && a.settled)
     );
     // check sender lists no pending allocations

@@ -700,6 +700,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d965446196e3b7decd44aa7ee49e31d630118f90ef12f97900f262eb915c951d"
 
 [[package]]
+name = "bigdecimal"
+version = "0.4.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a22f228ab7a1b23027ccc6c350b72868017af7ea8356fbdf19f8d991c690013"
+dependencies = [
+ "autocfg",
+ "libm",
+ "num-bigint",
+ "num-integer",
+ "num-traits",
+ "serde",
+]
+
+[[package]]
 name = "bincode"
 version = "1.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2570,6 +2584,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "num-bigint"
+version = "0.4.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5e44f723f1133c9deac646763579fdb3ac745e418f2a7af9cd0c431da1f20b9"
+dependencies = [
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
 name = "num-bigint-dig"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2752,6 +2776,15 @@ name = "percent-encoding"
 version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3148f5046208a5d56bcfc03053e3ca6334e51da8dfb19b6cdc8b306fae3283e"
+
+[[package]]
+name = "pgvector"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc58e2d255979a31caa7cabfa7aac654af0354220719ab7a68520ae7a91e8c0b"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "pin-project-lite"
@@ -3204,10 +3237,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "rgb-core"
-version = "0.11.1-alpha.3+unreviewed"
+name = "rgb-consensus"
+version = "0.11.1-rc.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ee6739c9704151ca82f9346f73b1d80189637c8291565866fee6859511e2008"
+checksum = "10df5492fec9dc3dcadeb468bcab68a067d945bc53269f7783740b4c8e043021"
 dependencies = [
  "aluvm",
  "amplify",
@@ -3225,10 +3258,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "rgb-invoice"
-version = "0.11.1-alpha.3+unreviewed"
+name = "rgb-invoicing"
+version = "0.11.1-rc.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a53ec3ab57e6727c702b53afb4310b4832e6e93100e6afb52a20b3d9dd0cf7f2"
+checksum = "9ad98218e1563e6dcab095a5ba99a2dd8aea97c7f6eaa19e0124433175e5d64f"
 dependencies = [
  "amplify",
  "baid64",
@@ -3239,7 +3272,7 @@ dependencies = [
  "indexmap 2.9.0",
  "percent-encoding",
  "rand 0.9.1",
- "rgb-core",
+ "rgb-consensus",
  "strict_encoding",
  "strict_types",
 ]
@@ -3265,14 +3298,15 @@ dependencies = [
  "hex",
  "rand 0.9.1",
  "reqwest",
- "rgb-invoice",
+ "rgb-invoicing",
  "rgb-lib-migration",
- "rgb-psbt",
- "rgb-schemata",
- "rgb-std",
+ "rgb-ops",
+ "rgb-psbt-utils",
+ "rgb-schemas",
  "rustls 0.23.27",
  "scrypt",
  "sea-orm",
+ "sea-query",
  "serde",
  "serde_json",
  "slog",
@@ -3305,40 +3339,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "rgb-psbt"
-version = "0.11.1-alpha.3+unreviewed"
+name = "rgb-ops"
+version = "0.11.1-rc.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fddc754038c375c2aaa6ee037b0f0f9d5492e478a187ea7921b85a615e1ace0"
-dependencies = [
- "amplify",
- "baid64",
- "bp-core",
- "bp-std",
- "commit_verify",
- "getrandom 0.3.3",
- "rgb-std",
- "strict_encoding",
- "wasm-bindgen",
-]
-
-[[package]]
-name = "rgb-schemata"
-version = "0.11.1-alpha.2+unreviewed"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcb3adf08782605bc5bb5d03e6715759c324f15afef7d91f5751041ed7403007"
-dependencies = [
- "aluvm",
- "amplify",
- "bp-core",
- "rgb-std",
- "strict_types",
-]
-
-[[package]]
-name = "rgb-std"
-version = "0.11.1-alpha.3+unreviewed"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df04db909a75c8e4090091cfa7ca2b67f5ccec7ee26e847d377cbc1a1bfc0a49"
+checksum = "86e37969c3fe234d70ddffe3a4a97a6e32a2e9cc9a8a3d24f1b1ccd4038cfbb1"
 dependencies = [
  "aluvm",
  "amplify",
@@ -3354,11 +3358,41 @@ dependencies = [
  "indexmap 2.9.0",
  "nonasync",
  "rand 0.9.1",
- "rgb-core",
- "rgb-invoice",
+ "rgb-consensus",
+ "rgb-invoicing",
  "strict_encoding",
  "strict_types",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "rgb-psbt-utils"
+version = "0.11.1-rc.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32a42c2fd5090e4db8972ae68aa2026349721ebae4fa27ca29bf8a69665929ca"
+dependencies = [
+ "amplify",
+ "baid64",
+ "bp-core",
+ "bp-std",
+ "commit_verify",
+ "getrandom 0.3.3",
+ "rgb-ops",
+ "strict_encoding",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "rgb-schemas"
+version = "0.11.1-rc.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c6a5b85c7dac6961b084303aaaf666e3f076c02f20518d773c438d0d9980810"
+dependencies = [
+ "aluvm",
+ "amplify",
+ "bp-core",
+ "rgb-ops",
+ "strict_types",
 ]
 
 [[package]]
@@ -3402,6 +3436,17 @@ dependencies = [
  "spki",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "rust_decimal"
+version = "1.37.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b203a6425500a03e0919c42d3c47caca51e79f1132046626d2c8871c5092035d"
+dependencies = [
+ "arrayvec",
+ "num-traits",
+ "serde",
 ]
 
 [[package]]
@@ -3621,18 +3666,25 @@ checksum = "18b7272b88bd608cd846de24f41b74a0315a135fe761b0aed4ec1ce6a6327a93"
 dependencies = [
  "async-stream",
  "async-trait",
+ "bigdecimal",
+ "chrono",
  "futures-util",
  "log",
  "ouroboros",
+ "pgvector",
+ "rust_decimal",
  "sea-orm-macros",
  "sea-query",
  "sea-query-binder",
  "serde",
+ "serde_json",
  "sqlx",
  "strum",
  "thiserror 2.0.12",
+ "time",
  "tracing",
  "url",
+ "uuid",
 ]
 
 [[package]]
@@ -3692,6 +3744,7 @@ dependencies = [
  "inherent",
  "ordered-float",
  "sea-query-derive",
+ "serde_json",
 ]
 
 [[package]]
@@ -3701,6 +3754,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b0019f47430f7995af63deda77e238c17323359af241233ec768aba1faea7608"
 dependencies = [
  "sea-query",
+ "serde_json",
  "sqlx",
 ]
 
@@ -4835,6 +4889,15 @@ name = "utf8parse"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
+
+[[package]]
+name = "uuid"
+version = "1.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3cf4199d1e5d15ddd86a694e4d0dffa9c323ce759fea589f00fef9d81cc1931d"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "value-bag"

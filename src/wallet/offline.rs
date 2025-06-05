@@ -12,7 +12,7 @@ const TRANSFERS_DIR: &str = "transfers";
 
 const MIN_BTC_REQUIRED: u64 = 2000;
 
-pub(crate) const NUM_KNOWN_SCHEMAS: usize = 3;
+pub(crate) const NUM_KNOWN_SCHEMAS: usize = 4;
 
 pub(crate) const UDA_FIXED_INDEX: u32 = 0;
 
@@ -31,6 +31,8 @@ pub(crate) const SCHEMA_ID_UDA: &str =
     "rgb:sch:~6rjymf3GTE840lb5JoXm2aFwE8eWCk3mCjOf_mUztE#spider-montana-fantasy";
 pub(crate) const SCHEMA_ID_CFA: &str =
     "rgb:sch:JgqK5hJX9YBT4osCV7VcW_iLTcA5csUCnLzvaKTTrNY#mars-house-friend";
+pub(crate) const SCHEMA_ID_IFA: &str =
+    "rgb:sch:boBJfIhHYmFRFveNF5QvmyvgDVh3T5Gicqg6A~_czfY#virgo-koala-fire";
 
 /// The bitcoin balances (in sats) for the vanilla and colored wallets.
 ///
@@ -427,6 +429,78 @@ impl AssetCFA {
     }
 }
 
+/// An Inflatable Fungible Asset.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct AssetIFA {
+    /// ID of the asset
+    pub asset_id: String,
+    /// Ticker of the asset
+    pub ticker: String,
+    /// Name of the asset
+    pub name: String,
+    /// Details of the asset
+    pub details: Option<String>,
+    /// Precision, also known as divisibility, of the asset
+    pub precision: u8,
+    /// Total issued amount
+    pub issued_supply: u64,
+    /// Timestamp of asset genesis
+    pub timestamp: i64,
+    /// Timestamp of asset import
+    pub added_at: i64,
+    /// Current balance of the asset
+    pub balance: Balance,
+    /// Asset media attachment
+    pub media: Option<Media>,
+}
+
+impl AssetIFA {
+    pub(crate) fn get_asset_details(
+        wallet: &Wallet,
+        asset: &DbAsset,
+        transfers: Option<Vec<DbTransfer>>,
+        asset_transfers: Option<Vec<DbAssetTransfer>>,
+        batch_transfers: Option<Vec<DbBatchTransfer>>,
+        colorings: Option<Vec<DbColoring>>,
+        txos: Option<Vec<DbTxo>>,
+        medias: Option<Vec<DbMedia>>,
+    ) -> Result<AssetIFA, Error> {
+        let media = {
+            let medias = if let Some(m) = medias {
+                m
+            } else {
+                wallet.database.iter_media()?
+            };
+            medias
+                .iter()
+                .find(|m| Some(m.idx) == asset.media_idx)
+                .map(|m| Media::from_db_media(m, wallet.get_media_dir()))
+        };
+        let balance = wallet.database.get_asset_balance(
+            asset.id.clone(),
+            transfers,
+            asset_transfers,
+            batch_transfers,
+            colorings,
+            txos,
+        )?;
+        let issued_supply = asset.issued_supply.parse::<u64>().unwrap();
+        Ok(AssetIFA {
+            asset_id: asset.id.clone(),
+            ticker: asset.ticker.clone().unwrap(),
+            name: asset.name.clone(),
+            details: asset.details.clone(),
+            precision: asset.precision,
+            issued_supply,
+            timestamp: asset.timestamp,
+            added_at: asset.added_at,
+            balance,
+            media,
+        })
+    }
+}
+
 /// List of RGB assets, grouped by asset schema.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
@@ -437,6 +511,8 @@ pub struct Assets {
     pub uda: Option<Vec<AssetUDA>>,
     /// List of CFA assets
     pub cfa: Option<Vec<AssetCFA>>,
+    /// List of IFA assets
+    pub ifa: Option<Vec<AssetIFA>>,
 }
 
 /// A balance.
@@ -468,6 +544,15 @@ pub struct ReceiveData {
     pub expiration_timestamp: Option<i64>,
     /// Batch transfer idx
     pub batch_transfer_idx: i32,
+}
+
+/// The type of an RGB recipient
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub enum RecipientType {
+    /// Receive via blinded UTXO
+    Blind,
+    /// Receive via witness TX
+    Witness,
 }
 
 /// RGB recipient information used to be paid
@@ -585,16 +670,81 @@ impl Invoice {
             details: e.to_string(),
         })?;
         let asset_id = decoded.contract.map(|cid| cid.to_string());
-        let amount = match decoded.assignment_state {
-            Some(InvoiceState::Amount(v)) => Some(v.value()),
-            _ => None,
-        };
-        let recipient_id = decoded.beneficiary.to_string();
         let asset_schema = if let Some(schema_id) = decoded.schema {
-            Some(AssetSchema::try_from(schema_id)?)
+            Some(<AssetSchema as std::convert::TryFrom<_>>::try_from(
+                schema_id,
+            )?)
         } else {
             None
         };
+        let assignment_name = decoded.assignment_name.map(|a| a.to_string());
+        let assignment = match asset_schema {
+            None => match (decoded.assignment_state, assignment_name.as_deref()) {
+                (Some(InvoiceState::Amount(v)), Some("assetOwner")) => {
+                    Assignment::Fungible(v.value())
+                }
+                (Some(InvoiceState::Amount(v)), Some("inflationAllowance")) => {
+                    Assignment::InflationRight(v.value())
+                }
+                (Some(InvoiceState::Amount(_)), _) => Assignment::Any,
+                (Some(InvoiceState::Data(_)), Some("assetOwner") | None) => Assignment::NonFungible,
+                (Some(InvoiceState::Void), Some("replaceRight") | None) => Assignment::ReplaceRight,
+                (None, None) => Assignment::Any,
+                (_, _) => {
+                    return Err(Error::InvalidInvoice {
+                        details: s!("unsupported assignment"),
+                    });
+                }
+            },
+            Some(AssetSchema::Nia) | Some(AssetSchema::Cfa) => {
+                match (decoded.assignment_state, assignment_name.as_deref()) {
+                    (Some(InvoiceState::Amount(v)), Some("assetOwner") | None) => {
+                        Assignment::Fungible(v.value())
+                    }
+                    (None, Some("assetOwner") | None) => Assignment::Fungible(0),
+                    (_, _) => {
+                        return Err(Error::InvalidInvoice {
+                            details: s!("invalid assignment"),
+                        });
+                    }
+                }
+            }
+            Some(AssetSchema::Uda) => {
+                match (decoded.assignment_state, assignment_name.as_deref()) {
+                    (Some(InvoiceState::Data(_)) | None, Some("assetOwner") | None) => {
+                        Assignment::NonFungible
+                    }
+                    (_, _) => {
+                        return Err(Error::InvalidInvoice {
+                            details: s!("invalid assignment"),
+                        });
+                    }
+                }
+            }
+            Some(AssetSchema::Ifa) => {
+                match (decoded.assignment_state, assignment_name.as_deref()) {
+                    (Some(InvoiceState::Amount(v)), Some("assetOwner")) => {
+                        Assignment::Fungible(v.value())
+                    }
+                    (None, Some("assetOwner")) => Assignment::Fungible(0),
+                    (Some(InvoiceState::Amount(v)), Some("inflationAllowance")) => {
+                        Assignment::InflationRight(v.value())
+                    }
+                    (None, Some("inflationAllowance")) => Assignment::InflationRight(0),
+                    (Some(InvoiceState::Amount(_)), None) => Assignment::Any,
+                    (Some(InvoiceState::Void), Some("replaceRight") | None) => {
+                        Assignment::ReplaceRight
+                    }
+                    (None, None) => Assignment::Any,
+                    (_, _) => {
+                        return Err(Error::InvalidInvoice {
+                            details: s!("invalid assignment"),
+                        });
+                    }
+                }
+            }
+        };
+        let recipient_id = decoded.beneficiary.to_string();
         let transport_endpoints: Vec<String> =
             decoded.transports.iter().map(|t| t.to_string()).collect();
 
@@ -612,52 +762,12 @@ impl Invoice {
             recipient_id,
             asset_schema,
             asset_id,
-            amount,
+            assignment,
+            assignment_name,
             expiration_timestamp: decoded.expiry,
             transport_endpoints,
             network,
         };
-
-        Ok(Invoice {
-            invoice_string,
-            invoice_data,
-        })
-    }
-
-    /// Parse the provided `invoice_data`.
-    /// Throws an error if the provided data is invalid.
-    pub fn from_invoice_data(invoice_data: InvoiceData) -> Result<Self, Error> {
-        let beneficiary = XChainNet::<Beneficiary>::from_str(&invoice_data.recipient_id)
-            .map_err(|_| Error::InvalidRecipientID)?
-            .into_inner();
-        let network: ChainNet = invoice_data.network.into();
-        let beneficiary = XChainNet::with(network, beneficiary);
-
-        let mut invoice_builder = RgbInvoiceBuilder::new(beneficiary);
-        if let Some(schema) = invoice_data.asset_schema {
-            invoice_builder = invoice_builder.set_schema(schema.into());
-        }
-        if let Some(cid) = &invoice_data.asset_id.clone() {
-            let contract_id = ContractId::from_str(cid).map_err(|_| Error::InvalidAssetID {
-                asset_id: cid.clone(),
-            })?;
-            invoice_builder = invoice_builder.set_contract(contract_id);
-        }
-        for transport in &invoice_data.transport_endpoints {
-            invoice_builder = invoice_builder
-                .add_transport(transport)
-                .map_err(|(_, e)| e)?;
-        }
-        if let Some(amount) = &invoice_data.amount {
-            invoice_builder = invoice_builder.set_amount_raw(*amount);
-        }
-        if let Some(expiry) = &invoice_data.expiration_timestamp {
-            invoice_builder = invoice_builder.set_expiry_timestamp(*expiry);
-        }
-
-        let invoice = invoice_builder.finish();
-
-        let invoice_string = invoice.to_string();
 
         Ok(Invoice {
             invoice_string,
@@ -686,8 +796,10 @@ pub struct InvoiceData {
     pub asset_schema: Option<AssetSchema>,
     /// RGB asset ID
     pub asset_id: Option<String>,
-    /// RGB amount
-    pub amount: Option<u64>,
+    /// RGB assignment
+    pub assignment: Assignment,
+    /// RGB assignment name
+    pub assignment_name: Option<String>,
     /// Bitcoin network
     pub network: BitcoinNetwork,
     /// Invoice expiration
@@ -782,9 +894,8 @@ pub struct Recipient {
     pub recipient_id: String,
     /// Witness data (to be provided only with a witness recipient)
     pub witness_data: Option<WitnessData>,
-    /// RGB amount
-    #[serde(deserialize_with = "from_str_or_number_mandatory")]
-    pub amount: u64,
+    /// RGB assignment
+    pub assignment: Assignment,
     /// Transport endpoints
     pub transport_endpoints: Vec<String>,
 }
@@ -807,8 +918,8 @@ pub struct WitnessData {
 pub struct RgbAllocation {
     /// Asset ID
     pub asset_id: Option<String>,
-    /// RGB amount
-    pub amount: u64,
+    /// RGB assignment
+    pub assignment: Assignment,
     /// Defines if the allocation is settled, meaning it refers to a transfer in the
     /// [`TransferStatus::Settled`] status
     pub settled: bool,
@@ -818,7 +929,7 @@ impl From<LocalRgbAllocation> for RgbAllocation {
     fn from(x: LocalRgbAllocation) -> RgbAllocation {
         RgbAllocation {
             asset_id: x.asset_id.clone(),
-            amount: x.amount,
+            assignment: x.assignment.clone(),
             settled: x.settled(),
         }
     }
@@ -881,8 +992,10 @@ pub struct Transfer {
     pub updated_at: i64,
     /// Status of the transfer
     pub status: TransferStatus,
-    /// Amount in RGB unit (not considering precision)
-    pub amount: u64,
+    /// Requested RGB assignment
+    pub requested_assignment: Option<Assignment>,
+    /// RGB assignmnents
+    pub assignments: Vec<Assignment>,
     /// Type of the transfer
     pub kind: TransferKind,
     /// ID of the Bitcoin transaction anchoring the transfer
@@ -897,6 +1010,8 @@ pub struct Transfer {
     pub expiration: Option<i64>,
     /// Transport endpoints for the transfer
     pub transport_endpoints: Vec<TransferTransportEndpoint>,
+    /// Invoice string of the incoming transfer
+    pub invoice_string: Option<String>,
 }
 
 impl Transfer {
@@ -911,10 +1026,8 @@ impl Transfer {
             created_at: td.created_at,
             updated_at: td.updated_at,
             status: td.status,
-            amount: x
-                .amount
-                .parse::<u64>()
-                .expect("DB should contain a valid u64 value"),
+            requested_assignment: x.requested_assignment.clone(),
+            assignments: td.assignments,
             kind: td.kind,
             txid: td.txid,
             recipient_id: x.recipient_id.clone(),
@@ -922,6 +1035,7 @@ impl Transfer {
             change_utxo: td.change_utxo,
             expiration: td.expiration,
             transport_endpoints,
+            invoice_string: x.invoice_string.clone(),
         }
     }
 }
@@ -972,6 +1086,8 @@ pub struct Unspent {
     pub utxo: Utxo,
     /// RGB allocations on the UTXO
     pub rgb_allocations: Vec<RgbAllocation>,
+    /// Number of pending blind receive operations
+    pub pending_blinded: u32,
 }
 
 impl From<LocalUnspent> for Unspent {
@@ -983,6 +1099,7 @@ impl From<LocalUnspent> for Unspent {
                 .into_iter()
                 .map(RgbAllocation::from)
                 .collect::<Vec<RgbAllocation>>(),
+            pending_blinded: x.pending_blinded,
         }
     }
 }
@@ -992,6 +1109,7 @@ impl From<LocalOutput> for Unspent {
         Unspent {
             utxo: Utxo::from(x),
             rgb_allocations: vec![],
+            pending_blinded: 0,
         }
     }
 }
@@ -1200,6 +1318,16 @@ impl Wallet {
             kit.types = types;
             let valid_kit = kit.validate().map_err(|_| InternalError::Unexpected)?;
             runtime.import_kit(valid_kit)?;
+
+            let schema = InflatableFungibleAsset::schema();
+            let lib = InflatableFungibleAsset::scripts();
+            let types = InflatableFungibleAsset::types();
+            let mut kit = Kit::default();
+            kit.schemata.push(schema).unwrap();
+            kit.scripts.extend(lib.into_values()).unwrap();
+            kit.types = types;
+            let valid_kit = kit.validate().map_err(|_| InternalError::Unexpected)?;
+            runtime.import_kit(valid_kit)?;
         }
 
         // RGB-LIB setup
@@ -1325,9 +1453,10 @@ impl Wallet {
         Ok(mut_unspents
             .iter()
             .filter(|u| u.utxo.exists)
+            .filter(|u| !u.utxo.pending_witness)
             .filter(|u| !exclude_utxos.contains(&u.utxo.outpoint()))
             .filter(|u| {
-                (u.rgb_allocations.len() as u32) <= max_allocs
+                (u.rgb_allocations.len() as u32) + u.pending_blinded <= max_allocs
                     && !u
                         .rgb_allocations
                         .iter()
@@ -1354,12 +1483,13 @@ impl Wallet {
         exclude_utxos: &[Outpoint],
         unspents: Option<&[LocalUnspent]>,
         pending_operation: bool,
+        max_allocations: Option<u32>,
     ) -> Result<DbTxo, Error> {
         let rgb_allocations = if unspents.is_none() {
             let unspent_txos = self.database.get_unspent_txos(vec![])?;
             Some(
                 self.database
-                    .get_rgb_allocations(unspent_txos, None, None, None)?,
+                    .get_rgb_allocations(unspent_txos, None, None, None, None)?,
             )
         } else {
             None
@@ -1369,8 +1499,9 @@ impl Wallet {
             None => rgb_allocations.as_deref().unwrap(),
         };
 
-        let mut allocatable = self.get_available_allocations(unspents, exclude_utxos, None)?;
-        allocatable.sort_by_key(|t| t.rgb_allocations.len());
+        let mut allocatable =
+            self.get_available_allocations(unspents, exclude_utxos, max_allocations)?;
+        allocatable.sort_by_key(|t| t.rgb_allocations.len() + t.pending_blinded as usize);
         match allocatable.first() {
             Some(mut selected) => {
                 if allocatable.len() > 1 && !selected.rgb_allocations.is_empty() {
@@ -1466,6 +1597,24 @@ impl Wallet {
         amounts.iter().try_fold(0u64, |acc, x| {
             acc.checked_add(*x).ok_or(Error::TooHighIssuanceAmounts)
         })
+    }
+
+    fn _get_total_inflation_amount(
+        &self,
+        inflation_amounts: &[u64],
+        issued_supply: u64,
+    ) -> Result<u64, Error> {
+        if inflation_amounts.is_empty() {
+            return Ok(0);
+        }
+        let total_inflation = inflation_amounts.iter().try_fold(0u64, |acc, x| {
+            acc.checked_add(*x).ok_or(Error::TooHighInflationAmounts)
+        })?;
+        issued_supply
+            .checked_add(total_inflation)
+            .ok_or(Error::TooHighInflationAmounts)?;
+
+        Ok(total_inflation)
     }
 
     fn _file_details<P: AsRef<Path>>(
@@ -1571,7 +1720,8 @@ impl Wallet {
         let db_data = self.database.get_db_data(false)?;
 
         let mut unspents: Vec<LocalUnspent> = self.database.get_rgb_allocations(
-            self.database.get_unspent_txos(db_data.txos)?,
+            self.database.get_unspent_txos(db_data.txos.clone())?,
+            None,
             None,
             None,
             None,
@@ -1617,7 +1767,7 @@ impl Wallet {
         let mut issue_utxos: HashMap<DbTxo, u64> = HashMap::new();
         let mut exclude_outpoints = vec![];
         for amount in &amounts {
-            let utxo = self.get_utxo(&exclude_outpoints, Some(&unspents), false)?;
+            let utxo = self.get_utxo(&exclude_outpoints, Some(&unspents), false, None)?;
             exclude_outpoints.push(utxo.outpoint());
             issue_utxos.insert(utxo.clone(), *amount);
 
@@ -1662,7 +1812,6 @@ impl Wallet {
         let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
         let transfer = DbTransferActMod {
             asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
-            amount: ActiveValue::Set(settled.to_string()),
             incoming: ActiveValue::Set(true),
             ..Default::default()
         };
@@ -1672,7 +1821,7 @@ impl Wallet {
                 txo_idx: ActiveValue::Set(utxo.idx),
                 asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
                 r#type: ActiveValue::Set(ColoringType::Issue),
-                amount: ActiveValue::Set(amount.to_string()),
+                assignment: ActiveValue::Set(Assignment::Fungible(amount)),
                 ..Default::default()
             };
             self.database.set_coloring(db_coloring)?;
@@ -1733,12 +1882,11 @@ impl Wallet {
             });
         }
 
-        let settled = 1;
-
         let db_data = self.database.get_db_data(false)?;
 
         let mut unspents: Vec<LocalUnspent> = self.database.get_rgb_allocations(
-            self.database.get_unspent_txos(db_data.txos)?,
+            self.database.get_unspent_txos(db_data.txos.clone())?,
+            None,
             None,
             None,
             None,
@@ -1766,13 +1914,10 @@ impl Wallet {
             precision: self._check_precision(precision)?,
         };
 
-        let issue_utxo = self.get_utxo(&[], Some(&unspents), false)?;
+        let issue_utxo = self.get_utxo(&[], Some(&unspents), false, None)?;
         debug!(self.logger, "Issuing on UTXO: {issue_utxo:?}");
 
         let index = TokenIndex::from_inner(UDA_FIXED_INDEX);
-
-        let fraction = OwnedFraction::from_inner(1);
-        let allocation = Allocation::with(index, fraction);
 
         let media_data = if let Some(media_file_path) = &media_file_path {
             Some(self._file_details(media_file_path)?)
@@ -1793,8 +1938,11 @@ impl Wallet {
         #[cfg(not(test))]
         let token_data = self.new_token_data(index, &media_data, attachments);
 
+        let fraction = OwnedFraction::from_inner(1);
+        let allocation = Allocation::with(token_data.index, fraction);
+
         let token = TokenLight {
-            index: UDA_FIXED_INDEX,
+            index: token_data.index.into(),
             media: media_data.as_ref().map(|(_, media)| media.clone()),
             attachments: media_attachments.clone(),
             ..Default::default()
@@ -1818,7 +1966,7 @@ impl Wallet {
             allocation,
         )
         .expect("invalid global state data")
-        .add_global_state("tokens", token_data)
+        .add_global_state("tokens", token_data.clone())
         .expect("invalid tokens");
 
         let validated_contract = builder.issue_contract().expect("failure issuing contract");
@@ -1840,7 +1988,7 @@ impl Wallet {
             &AssetSchema::Uda,
             Some(created_at),
             details.clone(),
-            settled as u64,
+            1,
             name.clone(),
             precision,
             Some(ticker.clone()),
@@ -1864,7 +2012,6 @@ impl Wallet {
         let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
         let transfer = DbTransferActMod {
             asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
-            amount: ActiveValue::Set(settled.to_string()),
             incoming: ActiveValue::Set(true),
             ..Default::default()
         };
@@ -1873,13 +2020,13 @@ impl Wallet {
             txo_idx: ActiveValue::Set(issue_utxo.idx),
             asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
             r#type: ActiveValue::Set(ColoringType::Issue),
-            amount: ActiveValue::Set(settled.to_string()),
+            assignment: ActiveValue::Set(Assignment::NonFungible),
             ..Default::default()
         };
         self.database.set_coloring(db_coloring)?;
         let db_token = DbTokenActMod {
             asset_idx: ActiveValue::Set(asset.idx),
-            index: ActiveValue::Set(UDA_FIXED_INDEX),
+            index: ActiveValue::Set(token_data.index.into()),
             embedded_media: ActiveValue::Set(false),
             reserves: ActiveValue::Set(false),
             ..Default::default()
@@ -1938,7 +2085,8 @@ impl Wallet {
         let db_data = self.database.get_db_data(false)?;
 
         let mut unspents: Vec<LocalUnspent> = self.database.get_rgb_allocations(
-            self.database.get_unspent_txos(db_data.txos)?,
+            self.database.get_unspent_txos(db_data.txos.clone())?,
+            None,
             None,
             None,
             None,
@@ -1991,7 +2139,7 @@ impl Wallet {
         let mut issue_utxos: HashMap<DbTxo, u64> = HashMap::new();
         let mut exclude_outpoints = vec![];
         for amount in &amounts {
-            let utxo = self.get_utxo(&exclude_outpoints, Some(&unspents), false)?;
+            let utxo = self.get_utxo(&exclude_outpoints, Some(&unspents), false, None)?;
             exclude_outpoints.push(utxo.outpoint());
             issue_utxos.insert(utxo.clone(), *amount);
 
@@ -2043,7 +2191,6 @@ impl Wallet {
         let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
         let transfer = DbTransferActMod {
             asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
-            amount: ActiveValue::Set(settled.to_string()),
             incoming: ActiveValue::Set(true),
             ..Default::default()
         };
@@ -2053,7 +2200,7 @@ impl Wallet {
                 txo_idx: ActiveValue::Set(utxo.idx),
                 asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
                 r#type: ActiveValue::Set(ColoringType::Issue),
-                amount: ActiveValue::Set(amount.to_string()),
+                assignment: ActiveValue::Set(Assignment::Fungible(amount)),
                 ..Default::default()
             };
             self.database.set_coloring(db_coloring)?;
@@ -2067,16 +2214,220 @@ impl Wallet {
         Ok(asset)
     }
 
+    /// Issue a new RGB IFA asset with the provided `ticker`, `name`, `precision`, `amounts`,
+    /// `inflation_amounts` and `replace_rights_num`, then return it.
+    ///
+    /// At least 1 amount needs to be provided and the sum of all amounts cannot exceed the maximum
+    /// `u64` value.
+    ///
+    /// If `amounts` contains more than 1 element, each one will be issued as a separate allocation
+    /// for the same asset (on a separate UTXO that needs to be already available).
+    ///
+    /// The `inflation_amounts` can be empty. If provided the sum of its elements plus the sum of
+    /// `amounts` cannot exceed the maximum `u64` value.
+    ///
+    /// The `replace_rights_num` can be set to 0. If provided it represents the number of replace
+    /// rights to create.
+    pub fn issue_asset_ifa(
+        &self,
+        ticker: String,
+        name: String,
+        precision: u8,
+        amounts: Vec<u64>,
+        inflation_amounts: Vec<u64>,
+        replace_rights_num: u8,
+    ) -> Result<AssetIFA, Error> {
+        info!(
+            self.logger,
+            "Issuing IFA asset with ticker '{}' name '{}' precision '{}' amounts '{:?}' inflation amounts {:?} replace rights num {}...",
+            ticker,
+            name,
+            precision,
+            amounts,
+            inflation_amounts,
+            replace_rights_num,
+        );
+
+        let settled = self._get_total_issue_amount(&amounts)?;
+        let inflation_amt = self._get_total_inflation_amount(&inflation_amounts, settled)?;
+
+        let db_data = self.database.get_db_data(false)?;
+
+        let mut unspents: Vec<LocalUnspent> = self.database.get_rgb_allocations(
+            self.database.get_unspent_txos(db_data.txos.clone())?,
+            None,
+            None,
+            None,
+            None,
+        )?;
+        unspents.retain(|u| {
+            !(u.rgb_allocations
+                .iter()
+                .any(|a| !a.incoming && a.status.waiting_counterparty()))
+        });
+
+        let created_at = now().unix_timestamp();
+        let text = RicardianContract::default();
+        #[cfg(test)]
+        let terms = mock_asset_terms(self, text, None);
+        #[cfg(not(test))]
+        let terms = self.new_asset_terms(text, None);
+        #[cfg(test)]
+        let details = mock_contract_details(self);
+        #[cfg(not(test))]
+        let details = None;
+        let spec = AssetSpec {
+            ticker: self._check_ticker(ticker.clone())?,
+            name: self._check_name(name.clone())?,
+            details,
+            precision: self._check_precision(precision)?,
+        };
+
+        let mut runtime = self.rgb_runtime()?;
+        let mut builder = ContractBuilder::with(
+            Identity::default(),
+            InflatableFungibleAsset::schema(),
+            InflatableFungibleAsset::types(),
+            InflatableFungibleAsset::scripts(),
+            self.chain_net(),
+        )
+        .add_global_state("spec", spec.clone())
+        .expect("invalid spec")
+        .add_global_state("terms", terms)
+        .expect("invalid terms")
+        .add_global_state("issuedSupply", Amount::from(settled))
+        .expect("invalid issuedSupply")
+        .add_global_state("maxSupply", Amount::from(settled + inflation_amt))
+        .expect("invalid maxSupply");
+
+        let mut issue_utxos: HashMap<DbTxo, u64> = HashMap::new();
+        let mut exclude_outpoints: Vec<Outpoint> = vec![];
+        for amount in &amounts {
+            let utxo = self.get_utxo(&exclude_outpoints, Some(&unspents), false, None)?;
+            exclude_outpoints.push(utxo.outpoint());
+            issue_utxos.insert(utxo.clone(), *amount);
+
+            builder = builder
+                .add_fungible_state("assetOwner", self.get_builder_seal(utxo), *amount)
+                .expect("invalid global state data");
+        }
+        debug!(self.logger, "Issuing on UTXOs: {issue_utxos:?}");
+
+        let mut inflation_utxos: HashMap<DbTxo, u64> = HashMap::new();
+        for amount in &inflation_amounts {
+            let utxo = self.get_utxo(&exclude_outpoints, Some(&unspents), false, Some(0))?;
+            exclude_outpoints.push(utxo.outpoint());
+            inflation_utxos.insert(utxo.clone(), *amount);
+
+            builder = builder
+                .add_fungible_state("inflationAllowance", self.get_builder_seal(utxo), *amount)
+                .expect("invalid global state data");
+        }
+        debug!(
+            self.logger,
+            "Assigning inflation rights: {inflation_utxos:?}"
+        );
+
+        let mut replace_utxos: HashSet<DbTxo> = HashSet::new();
+        for _ in 0..replace_rights_num {
+            let utxo = self.get_utxo(&exclude_outpoints, Some(&unspents), false, Some(0))?;
+            exclude_outpoints.push(utxo.outpoint());
+            replace_utxos.insert(utxo.clone());
+
+            builder = builder
+                .add_rights("replaceRight", self.get_builder_seal(utxo))
+                .expect("invalid global state data");
+        }
+        debug!(self.logger, "Assigning replace rights: {replace_utxos:?}");
+
+        let validated_contract = builder.issue_contract().expect("failure issuing contract");
+        let asset_id = validated_contract.contract_id().to_string();
+        runtime
+            .import_contract(validated_contract, &DumbResolver)
+            .expect("failure importing issued contract");
+
+        let asset = self.add_asset_to_db(
+            asset_id.clone(),
+            &AssetSchema::Ifa,
+            Some(created_at),
+            spec.details().map(|d| d.to_string()),
+            settled,
+            name,
+            precision,
+            Some(ticker),
+            created_at,
+            None,
+        )?;
+        let batch_transfer = DbBatchTransferActMod {
+            status: ActiveValue::Set(TransferStatus::Settled),
+            expiration: ActiveValue::Set(None),
+            created_at: ActiveValue::Set(created_at),
+            min_confirmations: ActiveValue::Set(0),
+            ..Default::default()
+        };
+        let batch_transfer_idx = self.database.set_batch_transfer(batch_transfer)?;
+        let asset_transfer = DbAssetTransferActMod {
+            user_driven: ActiveValue::Set(true),
+            batch_transfer_idx: ActiveValue::Set(batch_transfer_idx),
+            asset_id: ActiveValue::Set(Some(asset_id)),
+            ..Default::default()
+        };
+        let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
+        let transfer = DbTransferActMod {
+            asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
+            incoming: ActiveValue::Set(true),
+            ..Default::default()
+        };
+        self.database.set_transfer(transfer)?;
+        for (utxo, amount) in issue_utxos {
+            let db_coloring = DbColoringActMod {
+                txo_idx: ActiveValue::Set(utxo.idx),
+                asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
+                r#type: ActiveValue::Set(ColoringType::Issue),
+                assignment: ActiveValue::Set(Assignment::Fungible(amount)),
+                ..Default::default()
+            };
+            self.database.set_coloring(db_coloring)?;
+        }
+        for (utxo, amount) in inflation_utxos {
+            let db_coloring = DbColoringActMod {
+                txo_idx: ActiveValue::Set(utxo.idx),
+                asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
+                r#type: ActiveValue::Set(ColoringType::Issue),
+                assignment: ActiveValue::Set(Assignment::InflationRight(amount)),
+                ..Default::default()
+            };
+            self.database.set_coloring(db_coloring)?;
+        }
+        for utxo in replace_utxos {
+            let db_coloring = DbColoringActMod {
+                txo_idx: ActiveValue::Set(utxo.idx),
+                asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
+                r#type: ActiveValue::Set(ColoringType::Issue),
+                assignment: ActiveValue::Set(Assignment::ReplaceRight),
+                ..Default::default()
+            };
+            self.database.set_coloring(db_coloring)?;
+        }
+
+        let asset = AssetIFA::get_asset_details(self, &asset, None, None, None, None, None, None)?;
+
+        self.update_backup_info(false)?;
+
+        info!(self.logger, "Issue asset IFA completed");
+        Ok(asset)
+    }
+
     fn _receive(
         &self,
         asset_id: Option<String>,
-        amount: Option<u64>,
+        assignment: Assignment,
         duration_seconds: Option<u32>,
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
         beneficiary: Beneficiary,
-        recipient_type: RecipientType,
-    ) -> Result<(String, String, Option<i64>, i32, i32), Error> {
+        recipient_type: RecipientTypeFull,
+    ) -> Result<(String, String, Option<i64>, i32), Error> {
         #[cfg(test)]
         let network = mock_chain_net(self);
         #[cfg(not(test))]
@@ -2088,7 +2439,7 @@ impl Wallet {
         let (schema, contract_id) = if let Some(aid) = asset_id.clone() {
             let asset = self.database.check_asset_exists(aid.clone())?;
             let contract_id = ContractId::from_str(&aid).expect("invalid contract ID");
-            (Some(asset.schema.into()), Some(contract_id))
+            (Some(asset.schema), Some(contract_id))
         } else {
             (None, None)
         };
@@ -2122,16 +2473,43 @@ impl Wallet {
 
         let mut invoice_builder = RgbInvoiceBuilder::new(beneficiary);
         if let Some(schema) = schema {
-            invoice_builder = invoice_builder.set_schema(schema);
+            invoice_builder = invoice_builder.set_schema(schema.into());
         }
         if let Some(contract_id) = contract_id {
             invoice_builder = invoice_builder.set_contract(contract_id);
         }
         let transports: Vec<&str> = transport_endpoints.iter().map(AsRef::as_ref).collect();
         invoice_builder = invoice_builder.add_transports(transports).unwrap();
-        if let Some(amount) = amount {
-            invoice_builder = invoice_builder.set_amount_raw(amount);
-        }
+        let detected_assignment = match (&assignment, schema) {
+            (
+                Assignment::Fungible(amt),
+                Some(AssetSchema::Nia) | Some(AssetSchema::Cfa) | Some(AssetSchema::Ifa) | None,
+            ) => {
+                invoice_builder = invoice_builder.set_amount_raw(*amt);
+                invoice_builder = invoice_builder.set_assignment_name("assetOwner");
+                assignment
+            }
+            (Assignment::Any, Some(AssetSchema::Nia) | Some(AssetSchema::Cfa)) => {
+                invoice_builder = invoice_builder.set_assignment_name("assetOwner");
+                Assignment::Fungible(0)
+            }
+            (Assignment::NonFungible | Assignment::Any, Some(AssetSchema::Uda)) => {
+                invoice_builder = invoice_builder.set_assignment_name("assetOwner");
+                Assignment::NonFungible
+            }
+            (Assignment::ReplaceRight, Some(AssetSchema::Ifa)) => {
+                invoice_builder = invoice_builder.set_void();
+                invoice_builder = invoice_builder.set_assignment_name("replaceRight");
+                Assignment::ReplaceRight
+            }
+            (Assignment::InflationRight(amt), Some(AssetSchema::Ifa)) => {
+                invoice_builder = invoice_builder.set_amount_raw(*amt);
+                invoice_builder = invoice_builder.set_assignment_name("inflationAllowance");
+                assignment
+            }
+            (Assignment::Any, _) => Assignment::Any,
+            _ => return Err(Error::InvalidAssignment),
+        };
         let created_at = now().unix_timestamp();
         let expiry = if duration_seconds == Some(0) {
             None
@@ -2143,6 +2521,7 @@ impl Wallet {
         };
 
         let invoice = invoice_builder.finish();
+        let invoice_string = invoice.to_string();
 
         let batch_transfer = DbBatchTransferActMod {
             status: ActiveValue::Set(TransferStatus::WaitingCounterparty),
@@ -2161,10 +2540,11 @@ impl Wallet {
         let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
         let transfer = DbTransferActMod {
             asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
-            amount: ActiveValue::Set(s!("0")),
+            requested_assignment: ActiveValue::Set(Some(detected_assignment)),
             incoming: ActiveValue::Set(true),
             recipient_id: ActiveValue::Set(Some(recipient_id.clone())),
             recipient_type: ActiveValue::Set(Some(recipient_type)),
+            invoice_string: ActiveValue::Set(Some(invoice_string.clone())),
             ..Default::default()
         };
         let transfer_idx = self.database.set_transfer(transfer)?;
@@ -2180,13 +2560,7 @@ impl Wallet {
             )?;
         }
 
-        Ok((
-            recipient_id,
-            invoice.to_string(),
-            expiry,
-            batch_transfer_idx,
-            asset_transfer_idx,
-        ))
+        Ok((recipient_id, invoice_string, expiry, batch_transfer_idx))
     }
 
     /// Blind an UTXO to receive RGB assets and return the resulting [`ReceiveData`].
@@ -2214,7 +2588,7 @@ impl Wallet {
     pub fn blind_receive(
         &self,
         asset_id: Option<String>,
-        amount: Option<u64>,
+        assignment: Assignment,
         duration_seconds: Option<u32>,
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
@@ -2231,43 +2605,35 @@ impl Wallet {
             None,
             None,
             None,
+            None,
         )?;
         unspents.retain(|u| {
             !(u.rgb_allocations
                 .iter()
                 .any(|a| !a.incoming && a.status.waiting_counterparty()))
         });
-        let utxo = self.get_utxo(&[], Some(&unspents), true)?;
+        let utxo = self.get_utxo(&[], Some(&unspents), true, None)?;
+        let unblinded_utxo = utxo.outpoint();
         debug!(
             self.logger,
             "Blinding outpoint '{}'",
-            utxo.outpoint().to_string()
+            unblinded_utxo.to_string()
         );
         let blind_seal = self.get_blind_seal(utxo.clone()).transmutate();
         let beneficiary = Beneficiary::BlindedSeal(blind_seal.conceal());
 
-        let (recipient_id, invoice, expiration_timestamp, batch_transfer_idx, asset_transfer_idx) =
-            self._receive(
-                asset_id,
-                amount,
-                duration_seconds,
-                transport_endpoints,
-                min_confirmations,
-                beneficiary,
-                RecipientType::Blind,
-            )?;
+        let (recipient_id, invoice, expiration_timestamp, batch_transfer_idx) = self._receive(
+            asset_id,
+            assignment,
+            duration_seconds,
+            transport_endpoints,
+            min_confirmations,
+            beneficiary,
+            RecipientTypeFull::Blind { unblinded_utxo },
+        )?;
 
         let mut runtime = self.rgb_runtime()?;
         runtime.store_secret_seal(blind_seal)?;
-
-        let db_coloring = DbColoringActMod {
-            txo_idx: ActiveValue::Set(utxo.idx),
-            asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
-            r#type: ActiveValue::Set(ColoringType::Receive),
-            amount: ActiveValue::Set(s!("0")),
-            ..Default::default()
-        };
-        self.database.set_coloring(db_coloring)?;
 
         self.update_backup_info(false)?;
 
@@ -2305,7 +2671,7 @@ impl Wallet {
     pub fn witness_receive(
         &mut self,
         asset_id: Option<String>,
-        amount: Option<u64>,
+        assignment: Assignment,
         duration_seconds: Option<u32>,
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
@@ -2320,14 +2686,14 @@ impl Wallet {
         let script_pubkey = self.get_new_address()?.script_pubkey();
         let beneficiary = beneficiary_from_script_buf(script_pubkey.clone());
 
-        let (recipient_id, invoice, expiration_timestamp, batch_transfer_idx, _) = self._receive(
+        let (recipient_id, invoice, expiration_timestamp, batch_transfer_idx) = self._receive(
             asset_id,
-            amount,
+            assignment,
             duration_seconds,
             transport_endpoints,
             min_confirmations,
             beneficiary,
-            RecipientType::Witness,
+            RecipientTypeFull::Witness { vout: None },
         )?;
 
         self.database
@@ -2748,6 +3114,7 @@ impl Wallet {
         let mut nia = None;
         let mut uda = None;
         let mut cfa = None;
+        let mut ifa = None;
         for schema in filter_asset_schemas {
             match schema {
                 AssetSchema::Nia => {
@@ -2817,11 +3184,31 @@ impl Wallet {
                             .collect::<Result<Vec<AssetCFA>, Error>>()?,
                     );
                 }
+                AssetSchema::Ifa => {
+                    ifa = Some(
+                        assets
+                            .iter()
+                            .filter(|a| a.schema == schema)
+                            .map(|a| {
+                                AssetIFA::get_asset_details(
+                                    self,
+                                    a,
+                                    transfers.clone(),
+                                    asset_transfers.clone(),
+                                    batch_transfers.clone(),
+                                    colorings.clone(),
+                                    txos.clone(),
+                                    medias.clone(),
+                                )
+                            })
+                            .collect::<Result<Vec<AssetIFA>, Error>>()?,
+                    );
+                }
             }
         }
 
         info!(self.logger, "List assets completed");
-        Ok(Assets { nia, uda, cfa })
+        Ok(Assets { nia, uda, cfa, ifa })
     }
 
     pub(crate) fn sync_if_requested(
@@ -2975,7 +3362,7 @@ impl Wallet {
 
         self.sync_if_requested(online, skip_sync)?;
 
-        let db_data = self.database.get_db_data(true)?;
+        let db_data = self.database.get_db_data(false)?;
 
         let mut allocation_txos = self.database.get_unspent_txos(db_data.txos.clone())?;
         let spent_txos_ids: Vec<i32> = db_data
@@ -3021,11 +3408,14 @@ impl Wallet {
             Some(db_data.colorings),
             Some(db_data.batch_transfers),
             Some(db_data.asset_transfers),
+            Some(db_data.transfers),
         )?;
 
         txos_allocations
             .iter_mut()
             .for_each(|t| t.rgb_allocations.retain(|a| a.settled() || a.future()));
+
+        txos_allocations.retain(|t| !(t.rgb_allocations.is_empty() && t.utxo.spent));
 
         let mut unspents: Vec<Unspent> = txos_allocations.into_iter().map(Unspent::from).collect();
 

@@ -33,7 +33,7 @@ fn success() {
     let receive_data = wallet
         .witness_receive(
             None,
-            None,
+            Assignment::Any,
             Some(expiration),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -47,7 +47,7 @@ fn success() {
     let receive_data = wallet
         .witness_receive(
             None,
-            None,
+            Assignment::Any,
             Some(0),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -60,7 +60,7 @@ fn success() {
     let receive_data = wallet
         .witness_receive(
             None,
-            None,
+            Assignment::Any,
             None,
             TRANSPORT_ENDPOINTS.clone(),
             min_confirmations,
@@ -75,7 +75,7 @@ fn success() {
     let asset_id = asset.asset_id;
     let result = wallet.witness_receive(
         Some(asset_id.clone()),
-        None,
+        Assignment::Any,
         None,
         TRANSPORT_ENDPOINTS.clone(),
         MIN_CONFIRMATIONS,
@@ -86,7 +86,7 @@ fn success() {
     let now_timestamp = now().unix_timestamp();
     let result = wallet.witness_receive(
         Some(asset_id.clone()),
-        Some(amount),
+        Assignment::Fungible(amount),
         Some(expiration),
         TRANSPORT_ENDPOINTS.clone(),
         MIN_CONFIRMATIONS,
@@ -96,24 +96,18 @@ fn success() {
 
     // Invoice checks
     let invoice = Invoice::new(receive_data.invoice).unwrap();
-    let mut invoice_data = invoice.invoice_data();
-    let invoice_from_data = Invoice::from_invoice_data(invoice_data.clone()).unwrap();
+    let invoice_data = invoice.invoice_data();
     let approx_expiry = now_timestamp + expiration as i64;
-    assert_eq!(invoice.invoice_string(), invoice_from_data.invoice_string());
     assert_eq!(invoice_data.recipient_id, receive_data.recipient_id);
     assert_eq!(invoice_data.asset_schema, Some(AssetSchema::Cfa));
     assert_eq!(invoice_data.asset_id, Some(asset_id));
-    assert_eq!(invoice_data.amount, Some(amount));
+    assert_eq!(invoice_data.assignment, Assignment::Fungible(amount));
     assert_eq!(invoice_data.network, BitcoinNetwork::Regtest);
     assert!(invoice_data.expiration_timestamp.unwrap() - approx_expiry <= 1);
     assert_eq!(
         invoice_data.transport_endpoints,
         TRANSPORT_ENDPOINTS.clone()
     );
-    let invalid_asset_id = s!("invalid");
-    invoice_data.asset_id = Some(invalid_asset_id.clone());
-    let result = Invoice::from_invoice_data(invoice_data);
-    assert!(matches!(result, Err(Error::InvalidAssetID { asset_id: a }) if a == invalid_asset_id));
 
     // check recipient ID
     let result = RecipientInfo::new(receive_data.recipient_id);
@@ -127,7 +121,7 @@ fn success() {
     ];
     let result = wallet.witness_receive(
         None,
-        None,
+        Assignment::Any,
         Some(0),
         transport_endpoints.clone(),
         MIN_CONFIRMATIONS,

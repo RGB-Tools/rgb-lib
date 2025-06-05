@@ -25,7 +25,8 @@ fn success() {
     );
     assert_eq!(transfer_list.len(), 1);
     let transfer = transfer_list.first().unwrap();
-    assert_eq!(transfer.amount, AMOUNT);
+    assert_eq!(transfer.requested_assignment, None);
+    assert_eq!(transfer.assignments, vec![Assignment::Fungible(AMOUNT)]);
     assert_eq!(transfer.status, TransferStatus::Settled);
 
     // new wallet
@@ -38,7 +39,8 @@ fn success() {
     let transfer_list = test_list_transfers(&wallet, Some(&asset.asset_id));
     assert_eq!(transfer_list.len(), 1);
     let transfer = transfer_list.first().unwrap();
-    assert_eq!(transfer.amount, AMOUNT);
+    assert_eq!(transfer.requested_assignment, None,);
+    assert_eq!(transfer.assignments, vec![Assignment::Fungible(AMOUNT)]);
     assert_eq!(transfer.status, TransferStatus::Settled);
 
     // send
@@ -48,13 +50,13 @@ fn success() {
         asset.asset_id.clone(),
         vec![
             Recipient {
-                amount,
+                assignment: Assignment::Fungible(amount),
                 recipient_id: receive_data_1.recipient_id.clone(),
                 witness_data: None,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
             Recipient {
-                amount: amount * 2,
+                assignment: Assignment::Fungible(amount * 2),
                 recipient_id: receive_data_2.recipient_id.clone(),
                 witness_data: Some(WitnessData {
                     amount_sat: 1000,
@@ -84,8 +86,22 @@ fn success() {
                 && t.recipient_id == Some(receive_data_2.recipient_id.clone())
         })
         .unwrap();
-    assert_eq!(transfer_send_1.amount, amount);
-    assert_eq!(transfer_send_2.amount, amount * 2);
+    assert_eq!(
+        transfer_send_1.requested_assignment,
+        Some(Assignment::Fungible(amount))
+    );
+    assert_eq!(
+        transfer_send_1.assignments,
+        vec![Assignment::Fungible(AMOUNT - amount * 3)]
+    );
+    assert_eq!(
+        transfer_send_2.requested_assignment,
+        Some(Assignment::Fungible(amount * 2))
+    );
+    assert_eq!(
+        transfer_send_2.assignments,
+        vec![Assignment::Fungible(AMOUNT - amount * 3)]
+    );
     assert_eq!(transfer_send_1.status, TransferStatus::WaitingCounterparty);
     assert_eq!(transfer_send_2.status, TransferStatus::WaitingCounterparty);
     assert_eq!(transfer_send_1.txid, Some(txid.clone()));
@@ -106,8 +122,22 @@ fn success() {
         .iter()
         .find(|t| t.kind == TransferKind::ReceiveWitness)
         .unwrap();
-    assert_eq!(transfer_recv_blind.amount, amount);
-    assert_eq!(transfer_recv_witness.amount, amount * 2);
+    assert_eq!(
+        transfer_recv_blind.requested_assignment,
+        Some(Assignment::Any)
+    );
+    assert_eq!(
+        transfer_recv_blind.assignments,
+        vec![Assignment::Fungible(amount)]
+    );
+    assert_eq!(
+        transfer_recv_witness.requested_assignment,
+        Some(Assignment::Any)
+    );
+    assert_eq!(
+        transfer_recv_witness.assignments,
+        vec![Assignment::Fungible(amount * 2)]
+    );
     assert_eq!(
         transfer_recv_blind.status,
         TransferStatus::WaitingConfirmations

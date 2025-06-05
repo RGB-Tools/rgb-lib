@@ -93,7 +93,7 @@ fn transfer_balances() {
         vec![Recipient {
             recipient_id: receive_data_fail.recipient_id.clone(),
             witness_data: None,
-            amount: amount_1,
+            assignment: Assignment::Fungible(amount_1),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -108,7 +108,7 @@ fn transfer_balances() {
         vec![Recipient {
             recipient_id: receive_data_1.recipient_id.clone(),
             witness_data: None,
-            amount: amount_1,
+            assignment: Assignment::Fungible(amount_1),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -200,7 +200,7 @@ fn transfer_balances() {
         vec![Recipient {
             recipient_id: receive_data_2.recipient_id.clone(),
             witness_data: None,
-            amount: amount_2,
+            assignment: Assignment::Fungible(amount_2),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);

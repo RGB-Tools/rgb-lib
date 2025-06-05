@@ -83,7 +83,7 @@ fn success() {
     let receive_data_2 = wallet
         .blind_receive(
             Some(asset.asset_id),
-            None,
+            Assignment::Any,
             None,
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -146,13 +146,13 @@ fn batch_success() {
             Recipient {
                 recipient_id: receive_data_1.recipient_id.clone(),
                 witness_data: None,
-                amount,
+                assignment: Assignment::Fungible(amount),
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
             Recipient {
                 recipient_id: receive_data_2.recipient_id.clone(),
                 witness_data: None,
-                amount,
+                assignment: Assignment::Fungible(amount),
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
         ],
@@ -198,7 +198,7 @@ fn fail() {
     let receive_data = wallet
         .blind_receive(
             Some(asset.asset_id),
-            None,
+            Assignment::Any,
             None,
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,

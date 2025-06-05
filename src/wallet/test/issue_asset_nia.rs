@@ -6,28 +6,35 @@ use super::*;
 fn success() {
     initialize();
 
-    let (mut wallet, online) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_noutxo_wallet!();
 
-    // add a pending operation to an UTXO so spendable balance will be != settled / future
-    let _receive_data = test_blind_receive(&wallet);
+    // prepare UTXOs
+    let num_created = test_create_utxos(&mut wallet, &online, true, Some(2), Some(5000), FEE_RATE);
+    assert_eq!(num_created, 2);
 
     let before_timestamp = now().unix_timestamp();
     let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
     let asset = test_issue_asset_nia(&mut wallet, &online, Some(&[AMOUNT, AMOUNT]));
     let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
-    assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
+
+    // add a pending operation to an UTXO so spendable balance will be != settled / future
+    let _receive_data = test_blind_receive(&wallet);
     show_unspent_colorings(&mut wallet, "after issuance");
+
+    // checks
+    let balance = test_get_asset_balance(&wallet, &asset.asset_id);
+    assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     assert_eq!(asset.ticker, TICKER.to_string());
     assert_eq!(asset.name, NAME.to_string());
     assert_eq!(asset.details, None);
     assert_eq!(asset.precision, PRECISION);
     assert_eq!(asset.issued_supply, AMOUNT * 2);
     assert_eq!(
-        asset.balance,
+        balance,
         Balance {
             settled: AMOUNT * 2,
             future: AMOUNT * 2,
-            spendable: AMOUNT * 2,
+            spendable: AMOUNT,
         }
     );
     assert!(before_timestamp <= asset.added_at && asset.added_at <= now().unix_timestamp());
@@ -106,7 +113,7 @@ fn no_issue_on_pending_send() {
     let recipient_map = HashMap::from([(
         asset_1.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: Some(WitnessData {
                 amount_sat: 1000,

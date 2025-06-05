@@ -143,9 +143,10 @@ int main() {
     const char *assets_2 = assets_res_2.inner;
     printf("Assets: %s\n", assets_2);
 
+    const char *assignment = "{\"Fungible\":77}";
     const char *transport_endpoints = "[\"rpc://127.0.0.1:3000/json-rpc\"]";
-    CResultString receive_data_res =
-        rgblib_blind_receive(wlt, NULL, NULL, NULL, transport_endpoints, "1");
+    CResultString receive_data_res = rgblib_blind_receive(
+        wlt, NULL, assignment, NULL, transport_endpoints, "1");
     if (receive_data_res.result == Ok) {
         printf("Receive data: %s\n", receive_data_res.inner);
     } else {
@@ -163,6 +164,14 @@ int main() {
 
     CResultString fee_res = rgblib_get_fee_estimation(wlt, online, "7");
     printf("Fee estimation: %s\n", fee_res.inner);
+
+    CResultString transfers_res = rgblib_list_transfers(wlt, NULL);
+    if (transfers_res.result == Err) {
+        printf("ERR: %s\n", transfers_res.inner);
+        return EXIT_FAILURE;
+    }
+    const char *transfers = transfers_res.inner;
+    printf("Transfers: %s\n", transfers);
 
     return EXIT_SUCCESS;
 }

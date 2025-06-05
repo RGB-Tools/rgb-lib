@@ -30,13 +30,13 @@ interface RgbLibError {
   Indexer(string details);
   InexistentDataDir();
   InsufficientAllocationSlots();
+  InsufficientAssignments(string asset_id, AssignmentsCollection available);
   InsufficientBitcoins(u64 needed, u64 available);
-  InsufficientSpendableAssets(string asset_id);
-  InsufficientTotalAssets(string asset_id);
   Internal(string details);
   InvalidAddress(string details);
   InvalidAmountZero();
   InvalidAssetID(string asset_id);
+  InvalidAssignment();
   InvalidAttachments(string details);
   InvalidBitcoinKeys();
   InvalidBitcoinNetwork(string network);
@@ -76,7 +76,7 @@ interface RgbLibError {
   Proxy(string details);
   RecipientIDAlreadyUsed();
   RecipientIDDuplicated();
-  SyncNeeded();
+  TooHighInflationAmounts();
   TooHighIssuanceAmounts();
   UnknownRgbSchema(string schema_id);
   UnsupportedBackupVersion(string version);
@@ -92,6 +92,7 @@ enum AssetSchema {
   "Nia",
   "Uda",
   "Cfa",
+  "Ifa",
 };
 
 [Remote]
@@ -155,10 +156,25 @@ dictionary AssetCFA {
 };
 
 [Remote]
+dictionary AssetIFA {
+  string asset_id;
+  string ticker;
+  string name;
+  string? details;
+  u8 precision;
+  u64 issued_supply;
+  i64 timestamp;
+  i64 added_at;
+  Balance balance;
+  Media? media;
+};
+
+[Remote]
 dictionary Assets {
   sequence<AssetNIA>? nia;
   sequence<AssetUDA>? uda;
   sequence<AssetCFA>? cfa;
+  sequence<AssetIFA>? ifa;
 };
 
 [Remote]
@@ -231,20 +247,34 @@ interface Invoice {
   [Throws=RgbLibError]
   constructor(string invoice_string);
 
-  [Name=from_invoice_data, Throws=RgbLibError]
-  constructor(InvoiceData invoice_data);
-
   InvoiceData invoice_data();
 
   string invoice_string();
 };
 
+[Enum]
+interface Assignment {
+  Fungible(u64 amount);
+  NonFungible();
+  InflationRight(u64 amount);
+  ReplaceRight();
+  Any();
+};
+
 [Remote]
+dictionary AssignmentsCollection {
+  u64 fungible;
+  boolean non_fungible;
+  u64 inflation;
+  u8 replace;
+};
+
 dictionary InvoiceData {
   string recipient_id;
   AssetSchema? asset_schema;
   string? asset_id;
-  u64? amount;
+  Assignment assignment;
+  string? assignment_name;
   BitcoinNetwork network;
   i64? expiration_timestamp;
   sequence<string> transport_endpoints;
@@ -319,11 +349,10 @@ dictionary SendResult {
   i32 batch_transfer_idx;
 };
 
-[Remote]
 dictionary Recipient {
   string recipient_id;
   WitnessData? witness_data;
-  u64 amount;
+  Assignment assignment;
   sequence<string> transport_endpoints;
 };
 
@@ -345,10 +374,9 @@ enum RefreshTransferStatus {
   "WaitingConfirmations",
 };
 
-[Remote]
 dictionary RgbAllocation {
   string? asset_id;
-  u64 amount;
+  Assignment assignment;
   boolean settled;
 };
 
@@ -399,14 +427,14 @@ dictionary BlockTime {
   u64 timestamp;
 };
 
-[Remote]
 dictionary Transfer {
   i32 idx;
   i32 batch_transfer_idx;
   i64 created_at;
   i64 updated_at;
   TransferStatus status;
-  u64 amount;
+  Assignment? requested_assignment;
+  sequence<Assignment> assignments;
   TransferKind kind;
   string? txid;
   string? recipient_id;
@@ -414,12 +442,13 @@ dictionary Transfer {
   Outpoint? change_utxo;
   i64? expiration;
   sequence<TransferTransportEndpoint> transport_endpoints;
+  string? invoice_string;
 };
 
-[Remote]
 dictionary Unspent {
   Utxo utxo;
   sequence<RgbAllocation> rgb_allocations;
+  u32 pending_blinded;
 };
 
 [Remote]
@@ -461,12 +490,12 @@ interface Wallet {
 
   [Throws=RgbLibError]
   ReceiveData blind_receive(
-    string? asset_id, u64? amount, u32? duration_seconds,
+    string? asset_id, Assignment assignment, u32? duration_seconds,
     sequence<string> transport_endpoints, u8 min_confirmations);
 
   [Throws=RgbLibError]
   ReceiveData witness_receive(
-    string? asset_id, u64? amount, u32? duration_seconds,
+    string? asset_id, Assignment assignment, u32? duration_seconds,
     sequence<string> transport_endpoints, u8 min_confirmations);
 
   [Throws=RgbLibError]
@@ -538,6 +567,11 @@ interface Wallet {
   AssetCFA issue_asset_cfa(
     string name, string? details, u8 precision, sequence<u64> amounts,
     string? file_path);
+
+  [Throws=RgbLibError]
+  AssetIFA issue_asset_ifa(
+    string ticker, string name, u8 precision, sequence<u64> amounts,
+    sequence<u64> inflation_amounts, u8 replace_rights_num);
 
   [Throws=RgbLibError]
   Assets list_assets(sequence<AssetSchema> filter_asset_schemas);

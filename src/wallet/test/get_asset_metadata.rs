@@ -18,7 +18,7 @@ fn success() {
     let recipient_map = HashMap::from([(
         asset_nia.asset_id.clone(),
         vec![Recipient {
-            amount: 10,
+            assignment: Assignment::Fungible(10),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),

@@ -23,7 +23,7 @@ fn success() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -54,8 +54,11 @@ fn success() {
     assert_eq!(rcv_transfer.ack, None);
     assert_eq!(transfer.ack, None);
     // amount is set only for the sender
-    assert_eq!(rcv_transfer.amount, 0.to_string());
-    assert_eq!(transfer.amount, amount.to_string());
+    assert_eq!(rcv_transfer.requested_assignment, Some(Assignment::Any));
+    assert_eq!(
+        transfer.requested_assignment,
+        Some(Assignment::Fungible(amount))
+    );
     // recipient_id is set
     assert_eq!(
         rcv_transfer.recipient_id,
@@ -125,7 +128,10 @@ fn success() {
     // ack is now true on the sender side
     assert_eq!(transfer.ack, Some(true));
     // amount is now set on the receiver side
-    assert_eq!(rcv_transfer.amount, amount.to_string());
+    assert_eq!(
+        rcv_transfer_data.assignments,
+        vec![Assignment::Fungible(amount)]
+    );
     // asset id is now set on the receiver side
     assert_eq!(rcv_asset_transfer.asset_id, Some(asset.asset_id.clone()));
     // update timestamp has been updated
@@ -187,7 +193,7 @@ fn success() {
     let receive_data_api_proto = rcv_wallet
         .blind_receive(
             None,
-            None,
+            Assignment::Any,
             None,
             transport_endpoints.clone(),
             MIN_CONFIRMATIONS,
@@ -196,7 +202,7 @@ fn success() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data_api_proto.recipient_id.clone(),
             witness_data: None,
             transport_endpoints,
@@ -275,7 +281,7 @@ fn success() {
     let receive_data_invalid_unreachable = rcv_wallet
         .blind_receive(
             None,
-            None,
+            Assignment::Any,
             None,
             transport_endpoints.clone().into_iter().skip(1).collect(),
             MIN_CONFIRMATIONS,
@@ -284,7 +290,7 @@ fn success() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data_invalid_unreachable.recipient_id.clone(),
             witness_data: None,
             transport_endpoints,
@@ -397,7 +403,7 @@ fn spend_all() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount: AMOUNT,
+            assignment: Assignment::Fungible(AMOUNT),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -515,7 +521,7 @@ fn send_twice_success() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount: amount_1,
+            assignment: Assignment::Fungible(amount_1),
             recipient_id: receive_data_1.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -536,8 +542,14 @@ fn send_twice_success() {
     let (rcv_transfer_data, _) = get_test_transfer_data(&rcv_wallet, &rcv_transfer);
     let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid_1);
     let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
-    assert_eq!(rcv_transfer.amount, amount_1.to_string());
-    assert_eq!(transfer.amount, amount_1.to_string());
+    assert_eq!(
+        rcv_transfer_data.assignments,
+        vec![Assignment::Fungible(amount_1)]
+    );
+    assert_eq!(
+        transfer_data.assignments,
+        vec![Assignment::Fungible(AMOUNT - amount_1)]
+    );
     assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
     assert_eq!(transfer_data.status, TransferStatus::Settled);
 
@@ -549,8 +561,8 @@ fn send_twice_success() {
     let change_allocations = change_unspent.rgb_allocations;
     assert_eq!(change_allocations.len(), 1);
     assert_eq!(
-        change_allocations.first().unwrap().amount,
-        AMOUNT - amount_1
+        change_allocations.first().unwrap().assignment,
+        Assignment::Fungible(AMOUNT - amount_1)
     );
 
     //
@@ -562,7 +574,7 @@ fn send_twice_success() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount: amount_2,
+            assignment: Assignment::Fungible(amount_2),
             recipient_id: receive_data_2.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -583,8 +595,14 @@ fn send_twice_success() {
     let (rcv_transfer_data, _) = get_test_transfer_data(&rcv_wallet, &rcv_transfer);
     let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid_2);
     let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
-    assert_eq!(rcv_transfer.amount, amount_2.to_string());
-    assert_eq!(transfer.amount, amount_2.to_string());
+    assert_eq!(
+        rcv_transfer_data.assignments,
+        vec![Assignment::Fungible(amount_2)]
+    );
+    assert_eq!(
+        transfer_data.assignments,
+        vec![Assignment::Fungible(AMOUNT - amount_1 - amount_2)]
+    );
     assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
     assert_eq!(transfer_data.status, TransferStatus::Settled);
 
@@ -596,8 +614,8 @@ fn send_twice_success() {
     let change_allocations = change_unspent.rgb_allocations;
     assert_eq!(change_allocations.len(), 1);
     assert_eq!(
-        change_allocations.first().unwrap().amount,
-        AMOUNT - amount_1 - amount_2
+        change_allocations.first().unwrap().assignment,
+        Assignment::Fungible(AMOUNT - amount_1 - amount_2)
     );
 }
 
@@ -656,9 +674,9 @@ fn send_extra_success() {
     let recipient_map = HashMap::from([(
         asset_nia.asset_id.clone(),
         vec![Recipient {
+            assignment: Assignment::Fungible(amount_1),
             recipient_id: receive_data_1.recipient_id.clone(),
             witness_data: None,
-            amount: amount_1,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -680,10 +698,21 @@ fn send_extra_success() {
     let transfer_w2 = transfers_w2.last().unwrap();
     // transfers data
     assert_eq!(transfer_w1.status, TransferStatus::Settled);
-    assert_eq!(transfer_w1.amount, amount_1);
+    assert_eq!(
+        transfer_w1.requested_assignment,
+        Some(Assignment::Fungible(amount_1))
+    );
+    assert_eq!(
+        transfer_w1.assignments,
+        vec![Assignment::Fungible(supply_nia - amount_1)]
+    );
     assert_eq!(transfer_w1.kind, TransferKind::Send);
     assert_eq!(transfer_w2.status, TransferStatus::Settled);
-    assert_eq!(transfer_w2.amount, amount_1);
+    assert_eq!(transfer_w2.requested_assignment, Some(Assignment::Any));
+    assert_eq!(
+        transfer_w2.assignments,
+        vec![Assignment::Fungible(amount_1)]
+    );
     assert_eq!(transfer_w2.kind, TransferKind::ReceiveBlind);
     // check balances
     let balance_nia_w1 = test_get_asset_balance(&wallet_1, &asset_nia.asset_id);
@@ -709,10 +738,13 @@ fn send_extra_success() {
         .iter()
         .find(|a| a.asset_id == Some(asset_cfa.asset_id.clone()))
         .unwrap();
-    assert_eq!(ca_a1.amount, supply_nia - amount_1);
+    assert_eq!(
+        ca_a1.assignment,
+        Assignment::Fungible(supply_nia - amount_1)
+    );
     assert_eq!(ca_a1.asset_id, Some(asset_nia.asset_id.clone()));
     assert!(ca_a1.settled);
-    assert_eq!(ca_a2.amount, supply_cfa);
+    assert_eq!(ca_a2.assignment, Assignment::Fungible(supply_cfa));
     assert_eq!(ca_a2.asset_id, Some(asset_cfa.asset_id.clone()));
     assert!(ca_a2.settled);
 
@@ -725,9 +757,9 @@ fn send_extra_success() {
     let recipient_map = HashMap::from([(
         asset_nia.asset_id.clone(),
         vec![Recipient {
+            assignment: Assignment::Fungible(amount_2),
             recipient_id: receive_data_1b.recipient_id.clone(),
             witness_data: None,
-            amount: amount_2,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -749,10 +781,21 @@ fn send_extra_success() {
     let transfer_w2 = transfers_w2.last().unwrap();
     // transfers data
     assert_eq!(transfer_w1.status, TransferStatus::Settled);
-    assert_eq!(transfer_w1.amount, amount_2);
+    assert_eq!(
+        transfer_w1.requested_assignment,
+        Some(Assignment::Fungible(amount_2))
+    );
+    assert_eq!(
+        transfer_w1.assignments,
+        vec![Assignment::Fungible(supply_nia - amount_1 - amount_2)]
+    );
     assert_eq!(transfer_w1.kind, TransferKind::Send);
     assert_eq!(transfer_w2.status, TransferStatus::Settled);
-    assert_eq!(transfer_w2.amount, amount_2);
+    assert_eq!(transfer_w2.requested_assignment, Some(Assignment::Any));
+    assert_eq!(
+        transfer_w2.assignments,
+        vec![Assignment::Fungible(amount_2)]
+    );
     assert_eq!(transfer_w2.kind, TransferKind::ReceiveBlind);
     // check balances
     let balance_nia_w1 = test_get_asset_balance(&wallet_1, &asset_nia.asset_id);
@@ -778,10 +821,13 @@ fn send_extra_success() {
         .iter()
         .find(|a| a.asset_id == Some(asset_cfa.asset_id.clone()))
         .unwrap();
-    assert_eq!(ca_a1.amount, supply_nia - amount_1 - amount_2);
+    assert_eq!(
+        ca_a1.assignment,
+        Assignment::Fungible(supply_nia - amount_1 - amount_2)
+    );
     assert_eq!(ca_a1.asset_id, Some(asset_nia.asset_id.clone()));
     assert!(ca_a1.settled);
-    assert_eq!(ca_a2.amount, supply_cfa);
+    assert_eq!(ca_a2.assignment, Assignment::Fungible(supply_cfa));
     assert_eq!(ca_a2.asset_id, Some(asset_cfa.asset_id.clone()));
     assert!(ca_a2.settled);
     // recipient allocations
@@ -806,9 +852,9 @@ fn send_extra_success() {
     let recipient_map = HashMap::from([(
         asset_cfa.asset_id.clone(),
         vec![Recipient {
+            assignment: Assignment::Fungible(amount_3),
             recipient_id: receive_data_2.recipient_id.clone(),
             witness_data: None,
-            amount: amount_3,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -830,10 +876,21 @@ fn send_extra_success() {
     let transfer_w1 = transfers_w1.last().unwrap();
     // transfers data
     assert_eq!(transfer_w1.status, TransferStatus::Settled);
-    assert_eq!(transfer_w1.amount, amount_3);
+    assert_eq!(
+        transfer_w1.requested_assignment,
+        Some(Assignment::Fungible(amount_3))
+    );
+    assert_eq!(
+        transfer_w1.assignments,
+        vec![Assignment::Fungible(supply_cfa - amount_3)]
+    );
     assert_eq!(transfer_w1.kind, TransferKind::Send);
     assert_eq!(transfer_w2.status, TransferStatus::Settled);
-    assert_eq!(transfer_w2.amount, amount_3);
+    assert_eq!(transfer_w2.requested_assignment, Some(Assignment::Any));
+    assert_eq!(
+        transfer_w2.assignments,
+        vec![Assignment::Fungible(amount_3)]
+    );
     assert_eq!(transfer_w2.kind, TransferKind::ReceiveBlind);
     // check balances
     let balance_nia_w1 = test_get_asset_balance(&wallet_1, &asset_nia.asset_id);
@@ -861,10 +918,16 @@ fn send_extra_success() {
         .iter()
         .find(|a| a.asset_id == Some(asset_cfa.asset_id.clone()))
         .unwrap();
-    assert_eq!(ca_a1.amount, supply_nia - amount_1 - amount_2);
+    assert_eq!(
+        ca_a1.assignment,
+        Assignment::Fungible(supply_nia - amount_1 - amount_2)
+    );
     assert_eq!(ca_a1.asset_id, Some(asset_nia.asset_id.clone()));
     assert!(ca_a1.settled);
-    assert_eq!(ca_a2.amount, supply_cfa - amount_3);
+    assert_eq!(
+        ca_a2.assignment,
+        Assignment::Fungible(supply_cfa - amount_3)
+    );
     assert_eq!(ca_a2.asset_id, Some(asset_cfa.asset_id.clone()));
     assert!(ca_a2.settled);
 
@@ -879,9 +942,9 @@ fn send_extra_success() {
     let recipient_map = HashMap::from([(
         asset_cfa.asset_id.clone(),
         vec![Recipient {
+            assignment: Assignment::Fungible(amount_4),
             recipient_id: receive_data_4.recipient_id.clone(),
             witness_data: None,
-            amount: amount_4,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -903,10 +966,21 @@ fn send_extra_success() {
     let transfer_w1 = transfers_w1.last().unwrap();
     // transfers data
     assert_eq!(transfer_w2.status, TransferStatus::Settled);
-    assert_eq!(transfer_w2.amount, amount_4);
+    assert_eq!(
+        transfer_w2.requested_assignment,
+        Some(Assignment::Fungible(amount_4))
+    );
+    assert_eq!(
+        transfer_w2.assignments,
+        vec![Assignment::Fungible(amount_3 - amount_4)]
+    );
     assert_eq!(transfer_w2.kind, TransferKind::Send);
     assert_eq!(transfer_w1.status, TransferStatus::Settled);
-    assert_eq!(transfer_w1.amount, amount_4);
+    assert_eq!(transfer_w1.requested_assignment, Some(Assignment::Any));
+    assert_eq!(
+        transfer_w1.assignments,
+        vec![Assignment::Fungible(amount_4)]
+    );
     assert_eq!(transfer_w1.kind, TransferKind::ReceiveBlind);
     // check balances
     let balance_nia_w1 = test_get_asset_balance(&wallet_1, &asset_nia.asset_id);
@@ -936,15 +1010,31 @@ fn send_extra_success() {
         .iter()
         .find(|a| a.asset_id == Some(asset_cfa.asset_id.clone()))
         .unwrap();
-    assert!(ca_a1.iter().any(|a| a.amount == amount_1));
-    assert!(ca_a1.iter().any(|a| a.amount == amount_2));
+    assert!(
+        ca_a1
+            .iter()
+            .any(|a| if let Assignment::Fungible(amt) = a.assignment {
+                amt == amount_1
+            } else {
+                false
+            })
+    );
+    assert!(
+        ca_a1
+            .iter()
+            .any(|a| if let Assignment::Fungible(amt) = a.assignment {
+                amt == amount_2
+            } else {
+                false
+            })
+    );
     assert!(
         ca_a1
             .iter()
             .all(|a| a.asset_id == Some(asset_nia.asset_id.clone()))
     );
     assert!(ca_a1.iter().all(|a| a.settled));
-    assert_eq!(ca_a2.amount, amount_3 - amount_4);
+    assert_eq!(ca_a2.assignment, Assignment::Fungible(amount_3 - amount_4));
     assert_eq!(ca_a2.asset_id, Some(asset_cfa.asset_id.clone()));
     assert!(ca_a2.settled);
 
@@ -957,9 +1047,9 @@ fn send_extra_success() {
     let recipient_map = HashMap::from([(
         asset_nia.asset_id.clone(),
         vec![Recipient {
+            assignment: Assignment::Fungible(amount_5),
             recipient_id: receive_data_5.recipient_id.clone(),
             witness_data: None,
-            amount: amount_5,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -981,10 +1071,18 @@ fn send_extra_success() {
     let transfer_w1 = transfers_w1.last().unwrap();
     // transfers data
     assert_eq!(transfer_w2.status, TransferStatus::Settled);
-    assert_eq!(transfer_w2.amount, amount_5);
+    assert_eq!(
+        transfer_w2.requested_assignment,
+        Some(Assignment::Fungible(amount_5))
+    );
+    assert_eq!(transfer_w2.assignments, vec![]);
     assert_eq!(transfer_w2.kind, TransferKind::Send);
     assert_eq!(transfer_w1.status, TransferStatus::Settled);
-    assert_eq!(transfer_w1.amount, amount_5);
+    assert_eq!(transfer_w1.requested_assignment, Some(Assignment::Any));
+    assert_eq!(
+        transfer_w1.assignments,
+        vec![Assignment::Fungible(amount_5)]
+    );
     assert_eq!(transfer_w1.kind, TransferKind::ReceiveBlind);
     // check balances
     let balance_nia_w1 = test_get_asset_balance(&wallet_1, &asset_nia.asset_id);
@@ -1005,9 +1103,9 @@ fn send_extra_success() {
     let recipient_map = HashMap::from([(
         asset_nia.asset_id.clone(),
         vec![Recipient {
+            assignment: Assignment::Fungible(supply_nia),
             recipient_id: receive_data_6.recipient_id.clone(),
             witness_data: None,
-            amount: supply_nia,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -1029,10 +1127,18 @@ fn send_extra_success() {
     let transfer_w2 = transfers_w2.last().unwrap();
     // transfers data
     assert_eq!(transfer_w1.status, TransferStatus::Settled);
-    assert_eq!(transfer_w1.amount, supply_nia);
+    assert_eq!(
+        transfer_w1.requested_assignment,
+        Some(Assignment::Fungible(supply_nia))
+    );
+    assert_eq!(transfer_w1.assignments, vec![]);
     assert_eq!(transfer_w1.kind, TransferKind::Send);
     assert_eq!(transfer_w2.status, TransferStatus::Settled);
-    assert_eq!(transfer_w2.amount, supply_nia);
+    assert_eq!(transfer_w2.requested_assignment, Some(Assignment::Any));
+    assert_eq!(
+        transfer_w2.assignments,
+        vec![Assignment::Fungible(supply_nia)]
+    );
     assert_eq!(transfer_w2.kind, TransferKind::ReceiveBlind);
     // check balances
     let balance_nia_w2 = test_get_asset_balance(&wallet_2, &asset_nia.asset_id);
@@ -1082,18 +1188,18 @@ fn send_received_success() {
         (
             asset_nia.asset_id.clone(),
             vec![Recipient {
+                assignment: Assignment::Fungible(amount_1a),
                 recipient_id: receive_data_a20.recipient_id.clone(),
                 witness_data: None,
-                amount: amount_1a,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             }],
         ),
         (
             asset_cfa.asset_id.clone(),
             vec![Recipient {
+                assignment: Assignment::Fungible(amount_1b),
                 recipient_id: receive_data_a25.recipient_id.clone(),
                 witness_data: None,
-                amount: amount_1b,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             }],
         ),
@@ -1122,10 +1228,22 @@ fn send_received_success() {
     let (transfer_data_w1b, _) = get_test_transfer_data(&wallet_1, transfer_w1b);
     let (transfer_data_w2a, _) = get_test_transfer_data(&wallet_2, &transfer_w2a);
     let (transfer_data_w2b, _) = get_test_transfer_data(&wallet_2, &transfer_w2b);
-    assert_eq!(transfer_w1a.amount, amount_1a.to_string());
-    assert_eq!(transfer_w1b.amount, amount_1b.to_string());
-    assert_eq!(transfer_w2a.amount, amount_1a.to_string());
-    assert_eq!(transfer_w2b.amount, amount_1b.to_string());
+    assert_eq!(
+        transfer_w1a.requested_assignment,
+        Some(Assignment::Fungible(amount_1a))
+    );
+    assert_eq!(
+        transfer_w1b.requested_assignment,
+        Some(Assignment::Fungible(amount_1b))
+    );
+    assert_eq!(
+        transfer_data_w2a.assignments,
+        vec![Assignment::Fungible(amount_1a)]
+    );
+    assert_eq!(
+        transfer_data_w2b.assignments,
+        vec![Assignment::Fungible(amount_1b)]
+    );
     assert_eq!(transfer_data_w1a.status, TransferStatus::Settled);
     assert_eq!(transfer_data_w1b.status, TransferStatus::Settled);
     assert_eq!(transfer_data_w2a.status, TransferStatus::Settled);
@@ -1146,8 +1264,14 @@ fn send_received_success() {
         .find(|a| a.asset_id == Some(asset_cfa.asset_id.clone()))
         .unwrap();
     assert_eq!(change_allocations.len(), 2);
-    assert_eq!(change_allocation_a.amount, AMOUNT - amount_1a);
-    assert_eq!(change_allocation_b.amount, AMOUNT * 2 - amount_1b);
+    assert_eq!(
+        change_allocation_a.assignment,
+        Assignment::Fungible(AMOUNT - amount_1a)
+    );
+    assert_eq!(
+        change_allocation_b.assignment,
+        Assignment::Fungible(AMOUNT * 2 - amount_1b)
+    );
 
     //
     // 2nd transfer: wallet 2 > wallet 3
@@ -1160,18 +1284,18 @@ fn send_received_success() {
         (
             asset_nia.asset_id.clone(),
             vec![Recipient {
+                assignment: Assignment::Fungible(amount_2a),
                 recipient_id: receive_data_b20.recipient_id.clone(),
                 witness_data: None,
-                amount: amount_2a,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             }],
         ),
         (
             asset_cfa.asset_id.clone(),
             vec![Recipient {
+                assignment: Assignment::Fungible(amount_2b),
                 recipient_id: receive_data_b25.recipient_id.clone(),
                 witness_data: None,
-                amount: amount_2b,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             }],
         ),
@@ -1200,10 +1324,22 @@ fn send_received_success() {
     let (transfer_data_w2b, _) = get_test_transfer_data(&wallet_2, transfer_w2b);
     let (transfer_data_w3a, _) = get_test_transfer_data(&wallet_3, &transfer_w3a);
     let (transfer_data_w3b, _) = get_test_transfer_data(&wallet_3, &transfer_w3b);
-    assert_eq!(transfer_w2a.amount, amount_2a.to_string());
-    assert_eq!(transfer_w2b.amount, amount_2b.to_string());
-    assert_eq!(transfer_w3a.amount, amount_2a.to_string());
-    assert_eq!(transfer_w3b.amount, amount_2b.to_string());
+    assert_eq!(
+        transfer_w2a.requested_assignment,
+        Some(Assignment::Fungible(amount_2a))
+    );
+    assert_eq!(
+        transfer_w2b.requested_assignment,
+        Some(Assignment::Fungible(amount_2b))
+    );
+    assert_eq!(
+        transfer_data_w3a.assignments,
+        vec![Assignment::Fungible(amount_2a)]
+    );
+    assert_eq!(
+        transfer_data_w3b.assignments,
+        vec![Assignment::Fungible(amount_2b)]
+    );
     assert_eq!(transfer_data_w2a.status, TransferStatus::Settled);
     assert_eq!(transfer_data_w2b.status, TransferStatus::Settled);
     assert_eq!(transfer_data_w3a.status, TransferStatus::Settled);
@@ -1224,8 +1360,14 @@ fn send_received_success() {
         .find(|a| a.asset_id == Some(asset_cfa.asset_id.clone()))
         .unwrap();
     assert_eq!(change_allocations.len(), 2);
-    assert_eq!(change_allocation_a.amount, amount_1a - amount_2a);
-    assert_eq!(change_allocation_b.amount, amount_1b - amount_2b);
+    assert_eq!(
+        change_allocation_a.assignment,
+        Assignment::Fungible(amount_1a - amount_2a)
+    );
+    assert_eq!(
+        change_allocation_b.assignment,
+        Assignment::Fungible(amount_1b - amount_2b)
+    );
 
     // check CFA asset has the correct media after being received
     let cfa_assets = wallet_3
@@ -1287,9 +1429,9 @@ fn send_received_uda_success() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
+            assignment: Assignment::NonFungible,
             recipient_id: receive_data_1.recipient_id.clone(),
             witness_data: None,
-            amount: amount_1,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -1308,8 +1450,8 @@ fn send_received_uda_success() {
     let transfer_w2 = get_test_transfer_recipient(&wallet_2, &receive_data_1.recipient_id);
     let (transfer_data_w1, _) = get_test_transfer_data(&wallet_1, &transfer_w1);
     let (transfer_data_w2, _) = get_test_transfer_data(&wallet_2, &transfer_w2);
-    assert_eq!(transfer_w1.amount, amount_1.to_string());
-    assert_eq!(transfer_w2.amount, amount_1.to_string());
+    assert_eq!(transfer_data_w1.assignments, vec![]);
+    assert_eq!(transfer_data_w2.assignments, vec![Assignment::NonFungible]);
     assert_eq!(transfer_data_w1.status, TransferStatus::Settled);
     assert_eq!(transfer_data_w2.status, TransferStatus::Settled);
 
@@ -1322,12 +1464,12 @@ fn send_received_uda_success() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
+            assignment: Assignment::NonFungible,
             recipient_id: receive_data_2.recipient_id.clone(),
             witness_data: Some(WitnessData {
                 amount_sat: 1000,
                 blinding: None,
             }),
-            amount: amount_1,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -1355,8 +1497,8 @@ fn send_received_uda_success() {
     let (transfer_w2, _, _) = get_test_transfer_sender(&wallet_2, &txid_2);
     let (transfer_data_w3, _) = get_test_transfer_data(&wallet_3, &transfer_w3);
     let (transfer_data_w2, _) = get_test_transfer_data(&wallet_2, &transfer_w2);
-    assert_eq!(transfer_w3.amount, amount_1.to_string());
-    assert_eq!(transfer_w2.amount, amount_1.to_string());
+    assert_eq!(transfer_data_w3.assignments, vec![Assignment::NonFungible]);
+    assert_eq!(transfer_data_w2.assignments, vec![]);
     assert_eq!(transfer_data_w3.status, TransferStatus::Settled);
     assert_eq!(transfer_data_w2.status, TransferStatus::Settled);
 
@@ -1444,9 +1586,9 @@ fn send_received_cfa_success() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
+            assignment: Assignment::Fungible(amount_1),
             recipient_id: receive_data_1.recipient_id.clone(),
             witness_data: None,
-            amount: amount_1,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -1465,8 +1607,14 @@ fn send_received_cfa_success() {
     let transfer_w2 = get_test_transfer_recipient(&wallet_2, &receive_data_1.recipient_id);
     let (transfer_data_w1, _) = get_test_transfer_data(&wallet_1, &transfer_w1);
     let (transfer_data_w2, _) = get_test_transfer_data(&wallet_2, &transfer_w2);
-    assert_eq!(transfer_w1.amount, amount_1.to_string());
-    assert_eq!(transfer_w2.amount, amount_1.to_string());
+    assert_eq!(
+        transfer_data_w1.assignments,
+        vec![Assignment::Fungible(AMOUNT - amount_1)]
+    );
+    assert_eq!(
+        transfer_data_w2.assignments,
+        vec![Assignment::Fungible(amount_1)]
+    );
     assert_eq!(transfer_data_w1.status, TransferStatus::Settled);
     assert_eq!(transfer_data_w2.status, TransferStatus::Settled);
 
@@ -1478,8 +1626,8 @@ fn send_received_cfa_success() {
     let change_allocations = change_unspent.rgb_allocations;
     assert_eq!(change_allocations.len(), 1);
     assert_eq!(
-        change_allocations.first().unwrap().amount,
-        AMOUNT - amount_1
+        change_allocations.first().unwrap().assignment,
+        Assignment::Fungible(AMOUNT - amount_1)
     );
 
     //
@@ -1491,9 +1639,9 @@ fn send_received_cfa_success() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
+            assignment: Assignment::Fungible(amount_2),
             recipient_id: receive_data_2.recipient_id.clone(),
             witness_data: None,
-            amount: amount_2,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -1512,8 +1660,14 @@ fn send_received_cfa_success() {
     let (transfer_w2, _, _) = get_test_transfer_sender(&wallet_2, &txid_2);
     let (transfer_data_w3, _) = get_test_transfer_data(&wallet_3, &transfer_w3);
     let (transfer_data_w2, _) = get_test_transfer_data(&wallet_2, &transfer_w2);
-    assert_eq!(transfer_w3.amount, amount_2.to_string());
-    assert_eq!(transfer_w2.amount, amount_2.to_string());
+    assert_eq!(
+        transfer_data_w3.assignments,
+        vec![Assignment::Fungible(amount_2)]
+    );
+    assert_eq!(
+        transfer_data_w2.assignments,
+        vec![Assignment::Fungible(amount_1 - amount_2)]
+    );
     assert_eq!(transfer_data_w3.status, TransferStatus::Settled);
     assert_eq!(transfer_data_w2.status, TransferStatus::Settled);
 
@@ -1525,8 +1679,8 @@ fn send_received_cfa_success() {
     let change_allocations = change_unspent.rgb_allocations;
     assert_eq!(change_allocations.len(), 1);
     assert_eq!(
-        change_allocations.first().unwrap().amount,
-        amount_1 - amount_2
+        change_allocations.first().unwrap().assignment,
+        Assignment::Fungible(amount_1 - amount_2)
     );
     // check asset has been received correctly
     let cfa_assets = wallet_3
@@ -1586,13 +1740,13 @@ fn receive_multiple_same_asset_success() {
         asset.asset_id.clone(),
         vec![
             Recipient {
-                amount: amount_1,
+                assignment: Assignment::Fungible(amount_1),
                 recipient_id: receive_data_1.recipient_id.clone(),
                 witness_data: None,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
             Recipient {
-                amount: amount_2,
+                assignment: Assignment::Fungible(amount_2),
                 recipient_id: receive_data_2.recipient_id.clone(),
                 witness_data: None,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -1631,10 +1785,16 @@ fn receive_multiple_same_asset_success() {
     assert_eq!(transfer_1.ack, None);
     assert_eq!(transfer_2.ack, None);
     // amount is set only for the sender
-    assert_eq!(rcv_transfer_1.amount, 0.to_string());
-    assert_eq!(rcv_transfer_2.amount, 0.to_string());
-    assert_eq!(transfer_1.amount, amount_1.to_string());
-    assert_eq!(transfer_2.amount, amount_2.to_string());
+    assert_eq!(rcv_transfer_1.requested_assignment, Some(Assignment::Any));
+    assert_eq!(rcv_transfer_2.requested_assignment, Some(Assignment::Any));
+    assert_eq!(
+        transfer_1.requested_assignment,
+        Some(Assignment::Fungible(amount_1))
+    );
+    assert_eq!(
+        transfer_2.requested_assignment,
+        Some(Assignment::Fungible(amount_2))
+    );
     // recipient_id is set
     assert_eq!(
         rcv_transfer_1.recipient_id,
@@ -1765,8 +1925,14 @@ fn receive_multiple_same_asset_success() {
     assert_eq!(transfer_1.ack, Some(true));
     assert_eq!(transfer_2.ack, Some(true));
     // amount is now set on the receiver side
-    assert_eq!(rcv_transfer_1.amount, amount_1.to_string());
-    assert_eq!(rcv_transfer_2.amount, amount_2.to_string());
+    assert_eq!(
+        rcv_transfer_data_1.assignments,
+        vec![Assignment::Fungible(amount_1)]
+    );
+    assert_eq!(
+        rcv_transfer_data_2.assignments,
+        vec![Assignment::Fungible(amount_2)]
+    );
     // asset id is now set on the receiver side
     assert_eq!(rcv_asset_transfer_1.asset_id, Some(asset.asset_id.clone()));
     assert_eq!(rcv_asset_transfer_2.asset_id, Some(asset.asset_id.clone()));
@@ -1855,7 +2021,7 @@ fn receive_multiple_different_assets_success() {
         (
             asset_1.asset_id.clone(),
             vec![Recipient {
-                amount: amount_1,
+                assignment: Assignment::Fungible(amount_1),
                 recipient_id: receive_data_1.recipient_id.clone(),
                 witness_data: None,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -1864,7 +2030,7 @@ fn receive_multiple_different_assets_success() {
         (
             asset_2.asset_id.clone(),
             vec![Recipient {
-                amount: amount_2,
+                assignment: Assignment::Fungible(amount_2),
                 recipient_id: receive_data_2.recipient_id.clone(),
                 witness_data: None,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -1906,10 +2072,16 @@ fn receive_multiple_different_assets_success() {
     assert_eq!(transfer_1.ack, None);
     assert_eq!(transfer_2.ack, None);
     // amount is set only for the sender
-    assert_eq!(rcv_transfer_1.amount, 0.to_string());
-    assert_eq!(rcv_transfer_2.amount, 0.to_string());
-    assert_eq!(transfer_1.amount, amount_1.to_string());
-    assert_eq!(transfer_2.amount, amount_2.to_string());
+    assert_eq!(rcv_transfer_1.requested_assignment, Some(Assignment::Any));
+    assert_eq!(rcv_transfer_2.requested_assignment, Some(Assignment::Any));
+    assert_eq!(
+        transfer_1.requested_assignment,
+        Some(Assignment::Fungible(amount_1))
+    );
+    assert_eq!(
+        transfer_2.requested_assignment,
+        Some(Assignment::Fungible(amount_2))
+    );
     // recipient_id is set
     assert_eq!(
         rcv_transfer_1.recipient_id,
@@ -2038,8 +2210,14 @@ fn receive_multiple_different_assets_success() {
     assert_eq!(transfer_1.ack, Some(true));
     assert_eq!(transfer_2.ack, Some(true));
     // amount is now set on the receiver side
-    assert_eq!(rcv_transfer_1.amount, amount_1.to_string());
-    assert_eq!(rcv_transfer_2.amount, amount_2.to_string());
+    assert_eq!(
+        rcv_transfer_data_1.assignments,
+        vec![Assignment::Fungible(amount_1)]
+    );
+    assert_eq!(
+        rcv_transfer_data_2.assignments,
+        vec![Assignment::Fungible(amount_2)]
+    );
     // asset id is now set on the receiver side
     assert_eq!(
         rcv_asset_transfer_1.asset_id,
@@ -2174,15 +2352,15 @@ fn batch_donation_success() {
             asset_a.asset_id.clone(),
             vec![
                 Recipient {
+                    assignment: Assignment::Fungible(amount_a1),
                     recipient_id: receive_data_a1.recipient_id.clone(),
                     witness_data: None,
-                    amount: amount_a1,
                     transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
                 },
                 Recipient {
+                    assignment: Assignment::Fungible(amount_a2),
                     recipient_id: receive_data_a2.recipient_id.clone(),
                     witness_data: None,
-                    amount: amount_a2,
                     transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
                 },
             ],
@@ -2191,15 +2369,15 @@ fn batch_donation_success() {
             asset_b.asset_id.clone(),
             vec![
                 Recipient {
+                    assignment: Assignment::Fungible(amount_b1),
                     recipient_id: receive_data_b1.recipient_id.clone(),
                     witness_data: None,
-                    amount: amount_b1,
                     transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
                 },
                 Recipient {
+                    assignment: Assignment::Fungible(amount_b2),
                     recipient_id: receive_data_b2.recipient_id.clone(),
                     witness_data: None,
-                    amount: amount_b2,
                     transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
                 },
             ],
@@ -2237,8 +2415,14 @@ fn batch_donation_success() {
     let allocation_b = change_allocations
         .iter()
         .find(|a| a.asset_id == Some(asset_b.asset_id.clone()));
-    assert_eq!(allocation_a.unwrap().amount, AMOUNT - amount_a1 - amount_a2);
-    assert_eq!(allocation_b.unwrap().amount, AMOUNT - amount_b1 - amount_b2);
+    assert_eq!(
+        allocation_a.unwrap().assignment,
+        Assignment::Fungible(AMOUNT - amount_a1 - amount_a2)
+    );
+    assert_eq!(
+        allocation_b.unwrap().assignment,
+        Assignment::Fungible(AMOUNT - amount_b1 - amount_b2)
+    );
 
     // take receiver transfers from WaitingCounterparty to Settled
     // (send_batch doesn't wait for recipient ACKs and proceeds to broadcast)
@@ -2278,7 +2462,7 @@ fn reuse_failed_blinded_success() {
     let receive_data = rcv_wallet
         .blind_receive(
             None,
-            None,
+            Assignment::Any,
             Some(60),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -2287,7 +2471,7 @@ fn reuse_failed_blinded_success() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -2298,9 +2482,7 @@ fn reuse_failed_blinded_success() {
 
     // try to send again and check the asset is not spendable
     let result = test_send_result(&mut wallet, &online, &recipient_map);
-    assert!(
-        matches!(result, Err(Error::InsufficientSpendableAssets { asset_id: id }) if id == asset.asset_id)
-    );
+    assert_matches!(result, Err(Error::InsufficientAssignments { asset_id: t, available: a }) if t == asset.asset_id && a == AssignmentsCollection::default());
 
     // fail transfer so asset allocation can be spent again
     test_fail_transfers_single(&mut wallet, &online, send_result.batch_transfer_idx);
@@ -2333,15 +2515,15 @@ fn ack() {
         asset.asset_id.clone(),
         vec![
             Recipient {
+                assignment: Assignment::Fungible(amount),
                 recipient_id: receive_data_1.recipient_id.clone(),
                 witness_data: None,
-                amount,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
             Recipient {
+                assignment: Assignment::Fungible(amount),
                 recipient_id: receive_data_2.recipient_id.clone(),
                 witness_data: None,
-                amount,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
         ],
@@ -2416,9 +2598,9 @@ fn nack() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
-            amount,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -2487,7 +2669,7 @@ fn no_change_on_pending_send() {
     let recipient_map = HashMap::from([(
         asset_1.asset_id.clone(),
         vec![Recipient {
-            amount: amount_1,
+            assignment: Assignment::Fungible(amount_1),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -2502,7 +2684,7 @@ fn no_change_on_pending_send() {
     let recipient_map = HashMap::from([(
         asset_2.asset_id.clone(),
         vec![Recipient {
-            amount: amount_2,
+            assignment: Assignment::Fungible(amount_2),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -2527,7 +2709,7 @@ fn no_change_on_pending_send() {
     let recipient_map = HashMap::from([(
         asset_2.asset_id,
         vec![Recipient {
-            amount: amount_2,
+            assignment: Assignment::Fungible(amount_2),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -2556,7 +2738,7 @@ fn fail() {
     let receive_data = rcv_wallet
         .blind_receive(
             None,
-            None,
+            Assignment::Any,
             Some(60),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -2567,9 +2749,9 @@ fn fail() {
     let recipient_map = HashMap::from([(
         s!("rgb1inexistent"),
         vec![Recipient {
+            assignment: Assignment::Fungible(AMOUNT / 2),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
-            amount: AMOUNT / 2,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -2580,25 +2762,27 @@ fn fail() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
+            assignment: Assignment::Fungible(AMOUNT + 1),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
-            amount: AMOUNT + 1,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
     let result = test_send_result(&mut wallet, &online, &recipient_map);
-    assert!(
-        matches!(result, Err(Error::InsufficientTotalAssets { asset_id: t }) if t == asset.asset_id)
-    );
+    let collection = AssignmentsCollection {
+        fungible: AMOUNT,
+        ..Default::default()
+    };
+    assert_matches!(result, Err(Error::InsufficientAssignments { asset_id: t, available: a }) if t == asset.asset_id && a == collection);
 
     // transport endpoints: not enough endpoints
     let transport_endpoints = vec![];
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
+            assignment: Assignment::Fungible(AMOUNT / 2),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
-            amount: AMOUNT / 2,
             transport_endpoints,
         }],
     )]);
@@ -2614,9 +2798,9 @@ fn fail() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
+            assignment: Assignment::Fungible(AMOUNT / 2),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
-            amount: AMOUNT / 2,
             transport_endpoints,
         }],
     )]);
@@ -2631,9 +2815,9 @@ fn fail() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
+            assignment: Assignment::Fungible(AMOUNT / 2),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
-            amount: AMOUNT / 2,
             transport_endpoints,
         }],
     )]);
@@ -2651,9 +2835,9 @@ fn fail() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
+            assignment: Assignment::Fungible(AMOUNT / 2),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
-            amount: AMOUNT / 2,
             transport_endpoints,
         }],
     )]);
@@ -2674,9 +2858,9 @@ fn fail() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
+            assignment: Assignment::Fungible(AMOUNT / 2),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
-            amount: AMOUNT / 2,
             transport_endpoints,
         }],
     )]);
@@ -2692,7 +2876,7 @@ fn fail() {
     let receive_data_te = rcv_wallet
         .blind_receive(
             None,
-            None,
+            Assignment::Any,
             None,
             transport_endpoints.clone(),
             MIN_CONFIRMATIONS,
@@ -2701,7 +2885,7 @@ fn fail() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount: AMOUNT / 2,
+            assignment: Assignment::Fungible(AMOUNT / 2),
             recipient_id: receive_data_te.recipient_id,
             witness_data: None,
             transport_endpoints,
@@ -2714,9 +2898,9 @@ fn fail() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
+            assignment: Assignment::Fungible(AMOUNT / 2),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
-            amount: AMOUNT / 2,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -2734,15 +2918,15 @@ fn fail() {
         asset.asset_id.clone(),
         vec![
             Recipient {
+                assignment: Assignment::Fungible(AMOUNT / 2),
                 recipient_id: receive_data.recipient_id.clone(),
                 witness_data: None,
-                amount: AMOUNT / 2,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
             Recipient {
+                assignment: Assignment::Fungible(AMOUNT / 3),
                 recipient_id: receive_data.recipient_id.clone(),
                 witness_data: None,
-                amount: AMOUNT / 3,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
         ],
@@ -2754,9 +2938,9 @@ fn fail() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
+            assignment: Assignment::Fungible(0),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
-            amount: 0,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -2768,7 +2952,7 @@ fn fail() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount: 1,
+            assignment: Assignment::Fungible(1),
             recipient_id: receive_data_blinded.recipient_id.clone(),
             witness_data: Some(WitnessData {
                 amount_sat: 1000,
@@ -2786,7 +2970,7 @@ fn fail() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount: 1,
+            assignment: Assignment::Fungible(1),
             recipient_id: receive_data_witness.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -2800,12 +2984,12 @@ fn fail() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
+            assignment: Assignment::Fungible(AMOUNT / 2),
             recipient_id: receive_data_witness.recipient_id.clone(),
             witness_data: Some(WitnessData {
                 amount_sat: 0,
                 blinding: None,
             }),
-            amount: AMOUNT / 2,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -2819,7 +3003,7 @@ fn fail() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount: 1,
+            assignment: Assignment::Fungible(1),
             recipient_id: receive_data_liquid.recipient_id,
             witness_data: Some(WitnessData {
                 amount_sat: 1000,
@@ -2858,7 +3042,7 @@ fn pending_incoming_transfer_fail() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount: amount_1,
+            assignment: Assignment::Fungible(amount_1),
             recipient_id: receive_data_1.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -2890,9 +3074,9 @@ fn pending_incoming_transfer_fail() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
+            assignment: Assignment::Fungible(amount_2),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
-            amount: amount_2,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -2903,18 +3087,14 @@ fn pending_incoming_transfer_fail() {
     );
     // check input allocation is blocked by pending receive
     let result = test_send_result(&mut rcv_wallet, &rcv_online, &recipient_map);
-    assert!(
-        matches!(result, Err(Error::InsufficientSpendableAssets { asset_id: t }) if t == asset.asset_id)
-    );
+    assert_matches!(result, Err(Error::InsufficientAssignments { asset_id: t, available: a }) if t == asset.asset_id && a == AssignmentsCollection::default());
 
     // refresh on both wallets (no transfer status changes)
     assert!(!test_refresh_all(&mut rcv_wallet, &rcv_online));
     assert!(!test_refresh_asset(&mut wallet, &online, &asset.asset_id));
     // check input allocation is still blocked by pending receive
     let result = test_send_result(&mut rcv_wallet, &rcv_online, &recipient_map);
-    assert!(
-        matches!(result, Err(Error::InsufficientSpendableAssets { asset_id: t }) if t == asset.asset_id)
-    );
+    assert_matches!(result, Err(Error::InsufficientAssignments { asset_id: t, available: a }) if t == asset.asset_id && a == AssignmentsCollection::default());
 }
 
 #[cfg(feature = "electrum")]
@@ -2937,7 +3117,7 @@ fn pending_outgoing_transfer_fail() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: Some(WitnessData {
                 amount_sat: 1000,
@@ -2982,7 +3162,7 @@ fn pending_outgoing_transfer_fail() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount: amount / 2,
+            assignment: Assignment::Fungible(amount / 2),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: Some(WitnessData {
                 amount_sat: 1000,
@@ -2993,18 +3173,14 @@ fn pending_outgoing_transfer_fail() {
     )]);
     // check input allocation is blocked by pending send
     let result = test_send_result(&mut wallet, &online, &recipient_map);
-    assert!(
-        matches!(result, Err(Error::InsufficientSpendableAssets { asset_id: t }) if t == asset.asset_id)
-    );
+    assert_matches!(result, Err(Error::InsufficientAssignments { asset_id: t, available: a }) if t == asset.asset_id && a == AssignmentsCollection::default());
 
     // take transfer from WaitingCounterparty to WaitingConfirmations
     wait_for_refresh(&mut rcv_wallet, &rcv_online, None, None);
     wait_for_refresh(&mut wallet, &online, Some(&asset.asset_id), None);
     // check input allocation is still blocked by pending send
     let result = test_send_result(&mut wallet, &online, &recipient_map);
-    assert!(
-        matches!(result, Err(Error::InsufficientSpendableAssets { asset_id: t }) if t == asset.asset_id)
-    );
+    assert_matches!(result, Err(Error::InsufficientAssignments { asset_id: t, available: a }) if t == asset.asset_id && a == AssignmentsCollection::default());
 }
 
 #[cfg(feature = "electrum")]
@@ -3032,16 +3208,14 @@ fn pending_transfer_input_fail() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
-            amount,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
     let result = test_send_result(&mut wallet, &online, &recipient_map);
-    assert!(
-        matches!(result, Err(Error::InsufficientSpendableAssets { asset_id: t }) if t == asset.asset_id)
-    );
+    assert_matches!(result, Err(Error::InsufficientAssignments { asset_id: t, available: a }) if t == asset.asset_id && a == AssignmentsCollection::default());
 }
 
 #[cfg(feature = "electrum")]
@@ -3067,7 +3241,7 @@ fn already_used_fail() {
     let receive_data = rcv_wallet
         .blind_receive(
             None,
-            None,
+            Assignment::Any,
             Some(60),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -3076,7 +3250,7 @@ fn already_used_fail() {
     let recipient_map = HashMap::from([(
         asset.asset_id,
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -3108,8 +3282,8 @@ fn cfa_extra_success() {
     let asset_nia = test_issue_asset_nia(&mut wallet, &online, None);
 
     // issue CFA
-    let amt = 42;
-    let _asset_cfa = test_issue_asset_cfa(&mut wallet, &online, Some(&[amt]), None);
+    let amount = 42;
+    let _asset_cfa = test_issue_asset_cfa(&mut wallet, &online, Some(&[amount]), None);
 
     let receive_data = test_blind_receive(&rcv_wallet);
 
@@ -3117,7 +3291,7 @@ fn cfa_extra_success() {
     let recipient_map = HashMap::from([(
         asset_nia.asset_id,
         vec![Recipient {
-            amount: 1,
+            assignment: Assignment::Fungible(1),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -3134,7 +3308,7 @@ fn cfa_extra_success() {
     let asset_transfer_2 = &asset_transfers[1];
     assert!(!asset_transfer_2.user_driven);
     let extra_coloring = get_test_coloring(&wallet, asset_transfer_2.idx);
-    assert_eq!(extra_coloring.amount, amt.to_string());
+    assert_eq!(extra_coloring.assignment, Assignment::Fungible(amount));
 }
 
 #[cfg(feature = "electrum")]
@@ -3163,7 +3337,7 @@ fn uda_extra_success() {
     let recipient_map = HashMap::from([(
         asset_nia.asset_id,
         vec![Recipient {
-            amount: 1,
+            assignment: Assignment::Fungible(1),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -3180,7 +3354,7 @@ fn uda_extra_success() {
     let asset_transfer_2 = &asset_transfers[1];
     assert!(!asset_transfer_2.user_driven);
     let extra_coloring = get_test_coloring(&wallet, asset_transfer_2.idx);
-    assert_eq!(extra_coloring.amount, "1");
+    assert_eq!(extra_coloring.assignment, Assignment::NonFungible);
 }
 
 #[cfg(feature = "electrum")]
@@ -3197,23 +3371,30 @@ fn psbt_rgb_consumer_success() {
     println!("utxo 1");
     let num_utxos_created = test_create_utxos(&mut wallet, &online, true, Some(1), None, FEE_RATE);
     assert_eq!(num_utxos_created, 1);
+    show_unspent_colorings(&mut wallet, "after create utxos 1");
 
-    // issue an NIA asset
+    // issue a NIA asset
     println!("issue 1");
     let asset_nia_a = test_issue_asset_nia(&mut wallet, &online, None);
+    show_unspent_colorings(&mut wallet, "after issue 1");
+
+    // issue a 2nd NIA asset on the same UTXO
+    println!("issue 2");
+    let asset_nia_b = test_issue_asset_nia(&mut wallet, &online, None);
+    show_unspent_colorings(&mut wallet, "after issue 2");
 
     // create 1 more UTXO for change, up_to false or AllocationsAlreadyAvailable is returned
     println!("utxo 2");
     let num_utxos_created = test_create_utxos(&mut wallet, &online, false, Some(1), None, FEE_RATE);
     assert_eq!(num_utxos_created, 1);
 
-    // try to send it
+    // try to send the 1st asset
     println!("send_begin 1");
     let receive_data_1 = test_blind_receive(&rcv_wallet);
     let recipient_map = HashMap::from([(
-        asset_nia_a.asset_id,
+        asset_nia_a.asset_id.clone(),
         vec![Recipient {
-            amount: 1,
+            assignment: Assignment::Fungible(1),
             recipient_id: receive_data_1.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -3221,18 +3402,15 @@ fn psbt_rgb_consumer_success() {
     )]);
     let result = test_send_begin_result(&mut wallet, &online, &recipient_map);
     assert!(!result.unwrap().is_empty());
+    show_unspent_colorings(&mut wallet, "after send 1");
 
-    // issue one more NIA asset, should go to the same UTXO as the 1st issuance
-    println!("issue 2");
-    let asset_nia_b = test_issue_asset_nia(&mut wallet, &online, None);
-
-    // try to send the second asset
+    // try to send the 2nd asset
     println!("send_begin 2");
     let receive_data_2 = test_blind_receive(&rcv_wallet);
     let recipient_map = HashMap::from([(
         asset_nia_b.asset_id.clone(),
         vec![Recipient {
-            amount: 1,
+            assignment: Assignment::Fungible(1),
             recipient_id: receive_data_2.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -3240,41 +3418,26 @@ fn psbt_rgb_consumer_success() {
     )]);
     let result = test_send_begin_result(&mut wallet, &online, &recipient_map);
     assert!(!result.unwrap().is_empty());
+    show_unspent_colorings(&mut wallet, "after send 2");
 
-    // exhaust allocations + issue 3rd asset, on a different UTXO
-    println!("exhaust allocations on current UTXO");
-    let new_allocation_count = MAX_ALLOCATIONS_PER_UTXO - 2;
-    for _ in 0..new_allocation_count {
-        let _receive_data = test_blind_receive(&wallet);
-    }
-    println!("issue 3");
-    let asset_nia_c = test_issue_asset_nia(&mut wallet, &online, None);
-    // fail transfers so 1st UTXO can be used as input
-    test_fail_transfers_all(&mut wallet, &online);
-
-    // create 1 more UTXO for change, up_to false or AllocationsAlreadyAvailable is returned
-    println!("utxo 3");
-    let num_utxos_created = test_create_utxos(&mut wallet, &online, false, Some(1), None, FEE_RATE);
-    assert_eq!(num_utxos_created, 1);
-
-    // try to send the second asset to a recipient and the third to different one
+    // try to send the 1st asset to a recipient and the 2nd to different one
     println!("send_begin 3");
     let receive_data_3a = test_blind_receive(&rcv_wallet);
     let receive_data_3b = test_blind_receive(&rcv_wallet);
     let recipient_map = HashMap::from([
         (
-            asset_nia_b.asset_id,
+            asset_nia_a.asset_id,
             vec![Recipient {
-                amount: 1,
+                assignment: Assignment::Fungible(1),
                 recipient_id: receive_data_3a.recipient_id.clone(),
                 witness_data: None,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             }],
         ),
         (
-            asset_nia_c.asset_id,
+            asset_nia_b.asset_id,
             vec![Recipient {
-                amount: 1,
+                assignment: Assignment::Fungible(1),
                 recipient_id: receive_data_3b.recipient_id.clone(),
                 witness_data: None,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -3283,6 +3446,7 @@ fn psbt_rgb_consumer_success() {
     ]);
     let result = test_send_begin_result(&mut wallet, &online, &recipient_map);
     assert!(!result.unwrap().is_empty());
+    show_unspent_colorings(&mut wallet, "after send 3");
 }
 
 #[cfg(feature = "electrum")]
@@ -3317,7 +3481,7 @@ fn insufficient_bitcoins() {
     let recipient_map = HashMap::from([(
         asset_nia_a.asset_id,
         vec![Recipient {
-            amount: 1,
+            assignment: Assignment::Fungible(1),
             recipient_id: receive_data_1.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -3382,7 +3546,7 @@ fn insufficient_allocations_fail() {
     let recipient_map = HashMap::from([(
         asset_nia_a.asset_id,
         vec![Recipient {
-            amount: 1,
+            assignment: Assignment::Fungible(1),
             recipient_id: receive_data_1.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -3436,7 +3600,7 @@ fn insufficient_allocations_success() {
     let recipient_map = HashMap::from([(
         asset_nia_a.asset_id,
         vec![Recipient {
-            amount: 1,
+            assignment: Assignment::Fungible(1),
             recipient_id: receive_data_1.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -3465,7 +3629,7 @@ fn send_to_oneself() {
     let recipient_map = HashMap::from([(
         asset.asset_id,
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -3513,7 +3677,7 @@ fn send_received_back_success() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount: amount_1,
+            assignment: Assignment::Fungible(amount_1),
             recipient_id: receive_data_1.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -3536,8 +3700,14 @@ fn send_received_back_success() {
     let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
     assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
     assert_eq!(transfer_data.status, TransferStatus::Settled);
-    assert_eq!(rcv_transfer.amount, amount_1.to_string());
-    assert_eq!(transfer.amount, amount_1.to_string());
+    assert_eq!(
+        rcv_transfer_data.assignments,
+        vec![Assignment::Fungible(amount_1)]
+    );
+    assert_eq!(
+        transfer_data.assignments,
+        vec![Assignment::Fungible(AMOUNT - amount_1)]
+    );
 
     let unspents = test_list_unspents(&mut wallet, None, true);
     let change_unspent = unspents
@@ -3547,8 +3717,8 @@ fn send_received_back_success() {
     let change_allocations = change_unspent.rgb_allocations;
     assert_eq!(change_allocations.len(), 1);
     assert_eq!(
-        change_allocations.first().unwrap().amount,
-        AMOUNT - amount_1
+        change_allocations.first().unwrap().assignment,
+        Assignment::Fungible(AMOUNT - amount_1)
     );
 
     //
@@ -3560,7 +3730,7 @@ fn send_received_back_success() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount: amount_2,
+            assignment: Assignment::Fungible(amount_2),
             recipient_id: receive_data_2.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -3583,8 +3753,14 @@ fn send_received_back_success() {
     let (transfer_data, _) = get_test_transfer_data(&rcv_wallet, &transfer);
     assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
     assert_eq!(transfer_data.status, TransferStatus::Settled);
-    assert_eq!(rcv_transfer.amount, amount_2.to_string());
-    assert_eq!(transfer.amount, amount_2.to_string());
+    assert_eq!(
+        rcv_transfer_data.assignments,
+        vec![Assignment::Fungible(amount_1 - amount_2)]
+    );
+    assert_eq!(
+        transfer_data.assignments,
+        vec![Assignment::Fungible(amount_2)]
+    );
 
     let unspents = test_list_unspents(&mut rcv_wallet, None, true);
     let change_unspent = unspents
@@ -3594,8 +3770,8 @@ fn send_received_back_success() {
     let change_allocations = change_unspent.rgb_allocations;
     assert_eq!(change_allocations.len(), 1);
     assert_eq!(
-        change_allocations.first().unwrap().amount,
-        amount_1 - amount_2
+        change_allocations.first().unwrap().assignment,
+        Assignment::Fungible(amount_1 - amount_2)
     );
 
     //
@@ -3611,7 +3787,7 @@ fn send_received_back_success() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount: amount_3, // make sure to spend received transfer allocation
+            assignment: Assignment::Fungible(amount_3), // make sure to spend received transfer allocation
             recipient_id: receive_data_3.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -3636,8 +3812,14 @@ fn send_received_back_success() {
     let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
     assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
     assert_eq!(transfer_data.status, TransferStatus::Settled);
-    assert_eq!(rcv_transfer.amount, amount_3.to_string());
-    assert_eq!(transfer.amount, amount_3.to_string());
+    assert_eq!(
+        rcv_transfer_data.assignments,
+        vec![Assignment::Fungible(amount_3)]
+    );
+    assert_eq!(
+        transfer_data.assignments,
+        vec![Assignment::Fungible(change_3)]
+    );
 
     let unspents = test_list_unspents(&mut wallet, None, true);
     let change_unspent = unspents
@@ -3646,7 +3828,10 @@ fn send_received_back_success() {
         .unwrap();
     let change_allocations = change_unspent.rgb_allocations;
     assert_eq!(change_allocations.len(), 1);
-    assert_eq!(change_allocations.first().unwrap().amount, change_3);
+    assert_eq!(
+        change_allocations.first().unwrap().assignment,
+        Assignment::Fungible(change_3)
+    );
 }
 
 #[cfg(feature = "electrum")]
@@ -3672,7 +3857,7 @@ fn witness_success() {
         asset.asset_id.clone(),
         vec![
             Recipient {
-                amount,
+                assignment: Assignment::Fungible(amount),
                 recipient_id: receive_data.recipient_id.clone(),
                 witness_data: Some(WitnessData {
                     amount_sat: 1000,
@@ -3681,7 +3866,7 @@ fn witness_success() {
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
             Recipient {
-                amount: amount * 2,
+                assignment: Assignment::Fungible(amount * 2),
                 recipient_id: receive_data_2.recipient_id,
                 witness_data: Some(WitnessData {
                     amount_sat: 1200,
@@ -3690,7 +3875,7 @@ fn witness_success() {
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
             Recipient {
-                amount: amount * 3,
+                assignment: Assignment::Fungible(amount * 3),
                 recipient_id: receive_data_3.recipient_id,
                 witness_data: Some(WitnessData {
                     amount_sat: 1400,
@@ -3726,7 +3911,10 @@ fn witness_success() {
         rcv_transfer_data.status,
         TransferStatus::WaitingConfirmations
     );
-    assert_eq!(rcv_transfer.amount, amount.to_string());
+    assert_eq!(
+        rcv_transfer_data.assignments,
+        vec![Assignment::Fungible(amount)]
+    );
     // asset id is now set on the receiver side
     assert_eq!(rcv_asset_transfer.asset_id, Some(asset.asset_id.clone()));
 
@@ -3815,7 +4003,7 @@ fn witness_multiple_assets_success() {
             asset_1.asset_id.clone(),
             vec![
                 Recipient {
-                    amount,
+                    assignment: Assignment::Fungible(amount),
                     recipient_id: receive_data_1a.recipient_id.clone(),
                     witness_data: Some(WitnessData {
                         amount_sat: btc_amount_1a,
@@ -3824,7 +4012,7 @@ fn witness_multiple_assets_success() {
                     transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
                 },
                 Recipient {
-                    amount: amount * 2,
+                    assignment: Assignment::Fungible(amount * 2),
                     recipient_id: receive_data_1b.recipient_id.clone(),
                     witness_data: Some(WitnessData {
                         amount_sat: btc_amount_1b,
@@ -3838,7 +4026,7 @@ fn witness_multiple_assets_success() {
             asset_2.asset_id.clone(),
             vec![
                 Recipient {
-                    amount: amount * 3,
+                    assignment: Assignment::Fungible(amount * 3),
                     recipient_id: receive_data_2a.recipient_id.clone(),
                     witness_data: Some(WitnessData {
                         amount_sat: btc_amount_2a,
@@ -3847,7 +4035,7 @@ fn witness_multiple_assets_success() {
                     transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
                 },
                 Recipient {
-                    amount: amount * 4,
+                    assignment: Assignment::Fungible(amount * 4),
                     recipient_id: receive_data_2b.recipient_id.clone(),
                     witness_data: Some(WitnessData {
                         amount_sat: btc_amount_2b,
@@ -3895,10 +4083,22 @@ fn witness_multiple_assets_success() {
         rcv_xfer_data_2b.status,
         TransferStatus::WaitingConfirmations
     );
-    assert_eq!(rcv_xfer_1a.amount, amount.to_string());
-    assert_eq!(rcv_xfer_1b.amount, (amount * 2).to_string());
-    assert_eq!(rcv_xfer_2a.amount, (amount * 3).to_string());
-    assert_eq!(rcv_xfer_2b.amount, (amount * 4).to_string());
+    assert_eq!(
+        rcv_xfer_data_1a.assignments,
+        vec![Assignment::Fungible(amount)]
+    );
+    assert_eq!(
+        rcv_xfer_data_1b.assignments,
+        vec![Assignment::Fungible(amount * 2)]
+    );
+    assert_eq!(
+        rcv_xfer_data_2a.assignments,
+        vec![Assignment::Fungible(amount * 3)]
+    );
+    assert_eq!(
+        rcv_xfer_data_2b.assignments,
+        vec![Assignment::Fungible(amount * 4)]
+    );
     assert_eq!(rcv_asset_xfer_1a.asset_id, Some(asset_1.asset_id.clone()));
     assert_eq!(rcv_asset_xfer_1b.asset_id, Some(asset_1.asset_id.clone()));
     assert_eq!(rcv_asset_xfer_2a.asset_id, Some(asset_2.asset_id.clone()));
@@ -3948,7 +4148,10 @@ fn witness_multiple_assets_success() {
         (rcv_xfer_2a, btc_amount_2a),
         (rcv_xfer_2b, btc_amount_2b),
     ] {
-        let transfer_vout = rcv_xfer.vout.unwrap() as u64;
+        let RecipientTypeFull::Witness { vout } = rcv_xfer.recipient_type.unwrap() else {
+            panic!()
+        };
+        let transfer_vout = vout.unwrap() as u64;
         let tx_out = tx_outputs
             .iter()
             .find(|o| o.get("n").unwrap().as_number().unwrap().as_u64().unwrap() == transfer_vout)
@@ -4050,7 +4253,7 @@ fn witness_multiple_assets_success() {
     let recipient_map = HashMap::from([(
         asset_1.asset_id.clone(),
         vec![Recipient {
-            amount: amount * 5,
+            assignment: Assignment::Fungible(amount * 5),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: Some(WitnessData {
                 amount_sat: 1000,
@@ -4066,7 +4269,7 @@ fn witness_multiple_assets_success() {
     let rcv_xfer = get_test_transfer_recipient(&rcv_wallet, &receive_data.recipient_id);
     let (rcv_xfer_data, rcv_asset_xfer) = get_test_transfer_data(&rcv_wallet, &rcv_xfer);
     assert_eq!(rcv_xfer_data.status, TransferStatus::WaitingCounterparty);
-    assert_eq!(rcv_xfer.amount, 0.to_string());
+    assert_eq!(rcv_xfer.requested_assignment, Some(Assignment::Any));
     assert_eq!(rcv_asset_xfer.asset_id, None);
     // check asset balance: pending witness transfer not counted (no asset ID)
     let asset_1_balance = test_get_asset_balance(&rcv_wallet, &asset_1.asset_id);
@@ -4087,7 +4290,10 @@ fn witness_multiple_assets_success() {
     let rcv_xfer = get_test_transfer_recipient(&rcv_wallet, &receive_data.recipient_id);
     let (rcv_xfer_data, rcv_asset_xfer) = get_test_transfer_data(&rcv_wallet, &rcv_xfer);
     assert_eq!(rcv_xfer_data.status, TransferStatus::WaitingConfirmations);
-    assert_eq!(rcv_xfer.amount, (amount * 5).to_string());
+    assert_eq!(
+        rcv_xfer_data.assignments,
+        vec![Assignment::Fungible(amount * 5)]
+    );
     assert_eq!(rcv_asset_xfer.asset_id, Some(asset_1.asset_id.clone()));
     // check asset balance: pending witness transfer counted (future)
     let asset_1_balance = test_get_asset_balance(&rcv_wallet, &asset_1.asset_id);
@@ -4144,7 +4350,7 @@ fn witness_multiple_inputs_success() {
         asset.asset_id.clone(),
         vec![
             Recipient {
-                amount,
+                assignment: Assignment::Fungible(amount),
                 recipient_id: receive_data_1a.recipient_id.clone(),
                 witness_data: Some(WitnessData {
                     amount_sat: 1000,
@@ -4153,7 +4359,7 @@ fn witness_multiple_inputs_success() {
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
             Recipient {
-                amount: amount * 2,
+                assignment: Assignment::Fungible(amount * 2),
                 recipient_id: receive_data_1b.recipient_id.clone(),
                 witness_data: Some(WitnessData {
                     amount_sat: 1200,
@@ -4178,7 +4384,7 @@ fn witness_multiple_inputs_success() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount: 77,
+            assignment: Assignment::Fungible(77),
             recipient_id: receive_data_2.recipient_id.clone(),
             witness_data: Some(WitnessData {
                 amount_sat: 1000,
@@ -4202,7 +4408,7 @@ fn witness_multiple_inputs_success() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount: 40,
+            assignment: Assignment::Fungible(40),
             recipient_id: receive_data_3.recipient_id.clone(),
             witness_data: Some(WitnessData {
                 amount_sat: 1000,
@@ -4253,7 +4459,7 @@ fn witness_fail_wrong_vout() {
         asset.asset_id.clone(),
         vec![
             Recipient {
-                amount,
+                assignment: Assignment::Fungible(amount),
                 recipient_id: receive_data_1.recipient_id.clone(),
                 witness_data: Some(WitnessData {
                     amount_sat: 1000,
@@ -4262,7 +4468,7 @@ fn witness_fail_wrong_vout() {
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
             Recipient {
-                amount: amount * 2,
+                assignment: Assignment::Fungible(amount * 2),
                 recipient_id: receive_data_2.recipient_id.clone(),
                 witness_data: Some(WitnessData {
                     amount_sat: 2000,
@@ -4321,7 +4527,7 @@ fn _min_confirmations_common(
     let receive_data = rcv_wallet
         .blind_receive(
             None,
-            None,
+            Assignment::Any,
             None,
             TRANSPORT_ENDPOINTS.clone(),
             min_confirmations,
@@ -4330,7 +4536,7 @@ fn _min_confirmations_common(
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -4406,7 +4612,7 @@ fn _min_confirmations_common(
     let receive_data = rcv_wallet
         .blind_receive(
             None,
-            None,
+            Assignment::Any,
             None,
             TRANSPORT_ENDPOINTS.clone(),
             min_confirmations,
@@ -4415,7 +4621,7 @@ fn _min_confirmations_common(
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -4474,7 +4680,7 @@ fn _min_confirmations_common(
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount: amount * 2,
+            assignment: Assignment::Fungible(amount * 2),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -4550,7 +4756,7 @@ fn spend_double_receive() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount: amount_1,
+            assignment: Assignment::Fungible(amount_1),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -4587,7 +4793,7 @@ fn spend_double_receive() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount: amount_2,
+            assignment: Assignment::Fungible(amount_2),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: Some(WitnessData {
                 amount_sat: 1000,
@@ -4638,7 +4844,11 @@ fn spend_double_receive() {
             .unwrap()
             .rgb_allocations
             .iter()
-            .any(|a| a.amount == amount_1)
+            .any(|a| if let Assignment::Fungible(amt) = a.assignment {
+                amt == amount_1
+            } else {
+                false
+            })
     );
     assert!(
         asset_unspents
@@ -4646,7 +4856,11 @@ fn spend_double_receive() {
             .unwrap()
             .rgb_allocations
             .iter()
-            .any(|a| a.amount == amount_2)
+            .any(|a| if let Assignment::Fungible(amt) = a.assignment {
+                amt == amount_2
+            } else {
+                false
+            })
     );
 
     // send 2->3, manually selecting the 1st allocation (blind, amount_1) only
@@ -4655,7 +4869,7 @@ fn spend_double_receive() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount: amount_1, // amount of the 1st received allocation
+            assignment: Assignment::Fungible(amount_1), // amount of the 1st received allocation
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: Some(WitnessData {
                 amount_sat: 1000,
@@ -4677,10 +4891,18 @@ fn spend_double_receive() {
             Some(db_data.colorings.clone()),
             Some(db_data.batch_transfers.clone()),
             Some(db_data.asset_transfers.clone()),
+            Some(db_data.transfers.clone()),
         )
         .unwrap();
     input_unspents.retain(|u| {
-        !u.rgb_allocations.is_empty() && u.rgb_allocations.iter().all(|a| a.amount == amount_1)
+        !u.rgb_allocations.is_empty()
+            && u.rgb_allocations.iter().all(|a| {
+                if let Assignment::Fungible(amt) = a.assignment {
+                    amt == amount_1
+                } else {
+                    false
+                }
+            })
     });
     assert_eq!(input_unspents.len(), 1);
     println!("setting MOCK_INPUT_UNSPENTS");
@@ -4757,7 +4979,7 @@ fn input_sorting() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -4776,7 +4998,16 @@ fn input_sorting() {
     let unspents = list_test_unspents(&mut wallet, "after send");
     let allocations: Vec<&RgbAllocation> =
         unspents.iter().flat_map(|e| &e.rgb_allocations).collect();
-    let mut cur_amounts: Vec<u64> = allocations.iter().map(|a| a.amount).collect();
+    let mut cur_amounts: Vec<u64> = allocations
+        .iter()
+        .map(|a| {
+            if let Assignment::Fungible(amt) = a.assignment {
+                amt
+            } else {
+                0
+            }
+        })
+        .collect();
     cur_amounts.sort();
     let mut expected_amounts = amounts.clone();
     expected_amounts.retain(|a| *a != 111 && *a != 222);
@@ -4805,7 +5036,7 @@ fn spend_witness_receive_utxo() {
     let recipient_map_1 = HashMap::from([(
         asset_a.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data_1.recipient_id.clone(),
             witness_data: Some(WitnessData {
                 amount_sat: 1000,
@@ -4843,29 +5074,9 @@ fn spend_witness_receive_utxo() {
     // make sure the witness receive UTXO is available
     assert!(test_list_unspents(&mut wallet_2, Some(&online_2), false).len() > 1);
 
-    // issue an asset on the witness receive UTXO
-    let asset_b = test_issue_asset_nia(&mut wallet_2, &online_2, None);
-
-    // spending the witness receive UTXO should fail
-    let receive_data_2 = test_witness_receive(&mut wallet_1);
-    let recipient_map_2 = HashMap::from([(
-        asset_b.asset_id.clone(),
-        vec![Recipient {
-            amount: amount * 2,
-            recipient_id: receive_data_2.recipient_id.clone(),
-            witness_data: Some(WitnessData {
-                amount_sat: 1000,
-                blinding: None,
-            }),
-            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
-        }],
-    )]);
-    test_create_utxos(&mut wallet_2, &online_2, false, Some(2), None, FEE_RATE);
-    let result = test_send_result(&mut wallet_2, &online_2, &recipient_map_2);
-    assert!(
-        matches!(result, Err(Error::InsufficientSpendableAssets { asset_id: ref id })
-            if id == &asset_b.asset_id )
-    );
+    // try to issue an asset on the pending witness receive UTXO > should fail
+    let result = test_issue_asset_nia_result(&mut wallet_2, &online_2, Some(&[AMOUNT]));
+    assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 }
 
 #[cfg(feature = "electrum")]
@@ -4889,7 +5100,7 @@ fn rgb_change_on_btc_change() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -4919,7 +5130,7 @@ fn rgb_change_on_btc_change() {
     assert_eq!(change_rgb_allocations.len(), 1);
     let allocation = change_rgb_allocations.first().unwrap();
     assert_eq!(allocation.asset_id, Some(asset.asset_id));
-    assert_eq!(allocation.amount, AMOUNT - amount);
+    assert_eq!(allocation.assignment, Assignment::Fungible(AMOUNT - amount));
 
     // transfers progress to status WaitingConfirmations after a refresh
     wait_for_refresh(&mut rcv_wallet, &rcv_online, None, None);
@@ -4973,7 +5184,7 @@ fn no_inexistent_utxos() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id,
             witness_data: Some(WitnessData {
                 amount_sat: UTXO_SIZE as u64,
@@ -5014,7 +5225,7 @@ fn no_inexistent_utxos() {
     let recipient_map = HashMap::from([(
         asset_2.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id,
             witness_data: Some(WitnessData {
                 amount_sat: UTXO_SIZE as u64,
@@ -5051,7 +5262,7 @@ fn min_fee_rate() {
             .map(|_| {
                 let receive_data = test_witness_receive(&mut rcv_wallet);
                 Recipient {
-                    amount,
+                    assignment: Assignment::Fungible(amount),
                     recipient_id: receive_data.recipient_id,
                     witness_data: Some(WitnessData {
                         amount_sat,
@@ -5126,7 +5337,7 @@ fn _max_fee_exceeded_common(
     let recipient_map = HashMap::from([(
         asset_id.to_string(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id,
             witness_data: Some(WitnessData {
                 amount_sat,
@@ -5232,7 +5443,7 @@ fn _min_relay_fee_common(
             .map(|_| {
                 let receive_data = test_witness_receive(rcv_wallet);
                 Recipient {
-                    amount,
+                    assignment: Assignment::Fungible(amount),
                     recipient_id: receive_data.recipient_id,
                     witness_data: Some(WitnessData {
                         amount_sat,
@@ -5394,7 +5605,7 @@ fn skip_sync() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data_1.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -5419,8 +5630,11 @@ fn skip_sync() {
     let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
 
     // amount
-    assert_eq!(rcv_transfer.amount, 0.to_string());
-    assert_eq!(transfer.amount, amount.to_string());
+    assert_eq!(rcv_transfer.requested_assignment, Some(Assignment::Any));
+    assert_eq!(
+        transfer.requested_assignment,
+        Some(Assignment::Fungible(amount))
+    );
     // status
     assert_eq!(
         rcv_transfer_data.status,
@@ -5433,7 +5647,7 @@ fn skip_sync() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data_2.recipient_id.clone(),
             witness_data: Some(WitnessData {
                 amount_sat: 1000,
@@ -5461,8 +5675,11 @@ fn skip_sync() {
     let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
 
     // amount
-    assert_eq!(rcv_transfer.amount, 0.to_string());
-    assert_eq!(transfer.amount, amount.to_string());
+    assert_eq!(rcv_transfer.requested_assignment, Some(Assignment::Any));
+    assert_eq!(
+        transfer.requested_assignment,
+        Some(Assignment::Fungible(amount))
+    );
     // status
     assert_eq!(
         rcv_transfer_data.status,
@@ -5492,7 +5709,7 @@ fn skip_sync() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data_3.recipient_id.clone(),
             witness_data: Some(WitnessData {
                 amount_sat: 1000,
@@ -5519,8 +5736,11 @@ fn skip_sync() {
     let (rcv_transfer_data, _) = get_test_transfer_data(&wallet, &rcv_transfer);
     let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid_3);
     let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
-    assert_eq!(rcv_transfer.amount, 0.to_string());
-    assert_eq!(transfer.amount, amount.to_string());
+    assert_eq!(rcv_transfer.requested_assignment, Some(Assignment::Any));
+    assert_eq!(
+        transfer.requested_assignment,
+        Some(Assignment::Fungible(amount))
+    );
     assert_eq!(
         rcv_transfer_data.status,
         TransferStatus::WaitingCounterparty
@@ -5539,8 +5759,14 @@ fn skip_sync() {
     let transfers = get_test_transfers(&wallet, asset_transfer.idx);
     let transfer = transfers.first().unwrap();
     let (transfer_data, _) = get_test_transfer_data(&wallet, transfer);
-    assert_eq!(rcv_transfer.amount, amount.to_string());
-    assert_eq!(transfer.amount, amount.to_string());
+    assert_eq!(
+        rcv_transfer_data.assignments,
+        vec![Assignment::Fungible(amount)]
+    );
+    assert_eq!(
+        transfer_data.assignments,
+        vec![Assignment::Fungible(asset.issued_supply - amount * 3)]
+    );
     assert_eq!(
         rcv_transfer_data.status,
         TransferStatus::WaitingConfirmations,
@@ -5549,12 +5775,7 @@ fn skip_sync() {
 
     // mine and refresh skipping sync > cannot refresh ReceiveWitness transfer as a sync is needed
     mine(false, false);
-    let result = wallet.refresh(online.clone(), None, vec![], true).unwrap();
-    assert!(
-        result
-            .iter()
-            .any(|(i, rt)| *i == 4 && rt.failure == Some(Error::SyncNeeded))
-    );
+    wallet.refresh(online.clone(), None, vec![], true).unwrap();
     show_unspent_colorings(&mut wallet, "after refresh 2");
 
     // Send transfer is now settled
@@ -5575,4 +5796,106 @@ fn skip_sync() {
     let rcv_transfer = get_test_transfer_recipient(&wallet, &receive_data_3.recipient_id);
     let (rcv_transfer_data, _) = get_test_transfer_data(&wallet, &rcv_transfer);
     assert_eq!(rcv_transfer_data.status, TransferStatus::Settled,);
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn ifa() {
+    initialize();
+
+    let amount_fungible: u64 = 66;
+    let amount_inflation: u64 = 42;
+
+    // wallets
+    let (mut wallet, online) = get_funded_wallet!();
+    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
+
+    // issue
+    let asset = test_issue_asset_ifa(&mut wallet, &online, None, None, 1);
+    show_unspent_colorings(&mut wallet, "after issuance");
+    let transfers = test_list_transfers(&wallet, Some(&asset.asset_id));
+    assert_eq!(transfers.len(), 1);
+    assert!(transfers.iter().any(|t| t.kind == TransferKind::Issuance));
+
+    // issuance checks
+    let unspents = test_list_unspents(&mut wallet, None, false);
+    let mut allocations = unspents.iter().flat_map(|u| &u.rgb_allocations);
+    assert!(allocations.any(|a| a.assignment == Assignment::Fungible(AMOUNT)));
+    assert!(allocations.any(|a| a.assignment == Assignment::InflationRight(AMOUNT_INFLATION)));
+    assert!(allocations.any(|a| a.assignment == Assignment::ReplaceRight));
+
+    // send
+    let receive_data_fungible = test_blind_receive(&rcv_wallet);
+    let receive_data_inflation = test_blind_receive(&rcv_wallet);
+    let receive_data_replace = test_blind_receive(&rcv_wallet);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![
+            Recipient {
+                assignment: Assignment::Fungible(amount_fungible),
+                recipient_id: receive_data_fungible.recipient_id.clone(),
+                witness_data: None,
+                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+            },
+            Recipient {
+                assignment: Assignment::InflationRight(amount_inflation),
+                recipient_id: receive_data_inflation.recipient_id.clone(),
+                witness_data: None,
+                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+            },
+            Recipient {
+                assignment: Assignment::ReplaceRight,
+                recipient_id: receive_data_replace.recipient_id.clone(),
+                witness_data: None,
+                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+            },
+        ],
+    )]);
+    let txid = test_send(&mut wallet, &online, &recipient_map);
+    assert!(!txid.is_empty());
+    show_unspent_colorings(&mut wallet, "after send");
+
+    // transfers progress to status Settled after refreshing
+    wait_for_refresh(&mut rcv_wallet, &rcv_online, None, None);
+    wait_for_refresh(&mut wallet, &online, None, None);
+    mine(false, false);
+    wait_for_refresh(&mut rcv_wallet, &rcv_online, None, None);
+    wait_for_refresh(&mut wallet, &online, None, None);
+
+    // transfer checks
+    let recv_fungible =
+        get_test_transfer_recipient(&rcv_wallet, &receive_data_fungible.recipient_id);
+    let (recv_fungible_data, _) = get_test_transfer_data(&rcv_wallet, &recv_fungible);
+    assert_eq!(recv_fungible_data.status, TransferStatus::Settled);
+    let recv_inflation =
+        get_test_transfer_recipient(&rcv_wallet, &receive_data_fungible.recipient_id);
+    let (recv_inflation_data, _) = get_test_transfer_data(&rcv_wallet, &recv_inflation);
+    assert_eq!(recv_inflation_data.status, TransferStatus::Settled);
+    let recv_replace =
+        get_test_transfer_recipient(&rcv_wallet, &receive_data_fungible.recipient_id);
+    let (recv_replace_data, _) = get_test_transfer_data(&rcv_wallet, &recv_replace);
+    assert_eq!(recv_replace_data.status, TransferStatus::Settled);
+
+    let transfers = test_list_transfers(&wallet, Some(&asset.asset_id));
+    assert_eq!(transfers.len(), 4);
+    let mut sends = transfers.iter().filter(|t| t.kind == TransferKind::Send);
+    assert_eq!(sends.clone().count(), 3);
+    let send_fungible = sends
+        .find(|t| t.requested_assignment == Some(Assignment::Fungible(amount_fungible)))
+        .unwrap();
+    let send_inflation = sends
+        .find(|t| t.requested_assignment == Some(Assignment::InflationRight(amount_inflation)))
+        .unwrap();
+    let send_replace = sends
+        .find(|t| t.requested_assignment == Some(Assignment::ReplaceRight))
+        .unwrap();
+    assert_eq!(send_fungible.status, TransferStatus::Settled);
+    assert_eq!(send_inflation.status, TransferStatus::Settled);
+    assert_eq!(send_replace.status, TransferStatus::Settled);
+
+    // change checks
+    assert!(send_fungible.change_utxo.is_some());
+    assert!(send_inflation.change_utxo.is_some());
+    assert!(send_replace.change_utxo.is_some());
 }

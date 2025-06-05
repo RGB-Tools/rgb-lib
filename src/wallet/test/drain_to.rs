@@ -81,7 +81,7 @@ fn pending_witness_receive() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: Some(WitnessData {
                 amount_sat: 1000,
@@ -98,9 +98,10 @@ fn pending_witness_receive() {
     wait_for_refresh(&mut wallet, &online, Some(&asset.asset_id), None);
     mine(false, false);
 
-    // receiver still doesn't see the new UTXO (not refreshed a 2nd time yet)
+    // receiver sees the new UTXO
     let unspents = list_test_unspents(&mut rcv_wallet, "before draining");
-    assert_eq!(unspents.len(), 6);
+    assert_eq!(unspents.len(), 7);
+    assert_eq!(unspents.iter().filter(|u| !u.utxo.exists).count(), 1);
 
     // drain receiver, which syncs the wallet, detecting (and draining) the new UTXO as well
     let address = test_get_address(&mut drain_wallet);

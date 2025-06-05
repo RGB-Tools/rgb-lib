@@ -10,10 +10,11 @@ fn success() {
     let file_str = "README.md";
     let image_str = ["tests", "qrcode.png"].join(MAIN_SEPARATOR_STR);
 
-    let (mut wallet, online) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_noutxo_wallet!();
 
-    // add a pending operation to an UTXO so spendable balance will be != settled / future
-    let _receive_data = test_blind_receive(&wallet);
+    // prepare UTXOs
+    let num_created = test_create_utxos(&mut wallet, &online, true, Some(1), Some(5000), FEE_RATE);
+    assert_eq!(num_created, 1);
 
     // required fields only
     println!("\nasset 1");
@@ -21,23 +22,29 @@ fn success() {
     let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
     let asset_1 = test_issue_asset_uda(&mut wallet, &online, None, None, vec![]);
     let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
-    assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
+
+    // add a pending operation to the UTXO so spendable balance will be != settled / future
+    let _receive_data = test_blind_receive(&wallet);
     show_unspent_colorings(&mut wallet, "after issuance 1");
+
+    // checks
+    let balance_1 = test_get_asset_balance(&wallet, &asset_1.asset_id);
+    assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     assert_eq!(asset_1.ticker, TICKER.to_string());
     assert_eq!(asset_1.name, NAME.to_string());
     assert_eq!(asset_1.details, None);
     assert_eq!(asset_1.precision, PRECISION);
     assert_eq!(asset_1.issued_supply, settled);
     assert_eq!(
-        asset_1.balance,
+        balance_1,
         Balance {
             settled,
             future: settled,
-            spendable: settled,
+            spendable: 0,
         }
     );
     let token = asset_1.token.unwrap();
-    assert_eq!(token.index, 0);
+    assert_eq!(token.index, UDA_FIXED_INDEX);
     assert_eq!(token.ticker, None);
     assert_eq!(token.name, None);
     assert_eq!(token.details, None);
@@ -57,16 +64,17 @@ fn success() {
         vec![&image_str, file_str],
     );
     show_unspent_colorings(&mut wallet, "after issuance 2");
+    let balance_2 = test_get_asset_balance(&wallet, &asset_2.asset_id);
     assert_eq!(asset_2.ticker, TICKER.to_string());
     assert_eq!(asset_2.name, NAME.to_string());
     assert_eq!(asset_2.details, Some(DETAILS.to_string()));
     assert_eq!(asset_2.precision, PRECISION);
     assert_eq!(
-        asset_2.balance,
+        balance_2,
         Balance {
             settled,
             future: settled,
-            spendable: settled,
+            spendable: 0,
         }
     );
     let token = asset_2.token.unwrap();
@@ -121,12 +129,13 @@ fn success() {
             .collect(),
     );
     show_unspent_colorings(&mut wallet, "after issuance 3");
+    let balance_3 = test_get_asset_balance(&wallet, &asset_3.asset_id);
     assert_eq!(
-        asset_3.balance,
+        balance_3,
         Balance {
             settled,
             future: settled,
-            spendable: settled,
+            spendable: 0,
         }
     );
     let token = asset_3.token.unwrap();
@@ -159,8 +168,6 @@ fn success() {
 fn no_issue_on_pending_send() {
     initialize();
 
-    let amount: u64 = 1;
-
     let (mut wallet, online) = get_funded_noutxo_wallet!();
     let (mut rcv_wallet, rcv_online) = get_empty_wallet!();
 
@@ -185,7 +192,7 @@ fn no_issue_on_pending_send() {
     let recipient_map = HashMap::from([(
         asset_1.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::NonFungible,
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: Some(WitnessData {
                 amount_sat: 1000,

@@ -44,7 +44,7 @@ fn success() {
     let receive_data_1 = rcv_wallet
         .blind_receive(
             None,
-            None,
+            Assignment::Any,
             Some(expiration),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -61,7 +61,7 @@ fn success() {
         vec![Recipient {
             recipient_id: receive_data_3.recipient_id.clone(),
             witness_data: None,
-            amount,
+            assignment: Assignment::Fungible(amount),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -116,7 +116,7 @@ fn success() {
     let receive_data_2 = rcv_wallet
         .blind_receive(
             Some(asset.asset_id.clone()),
-            None,
+            Assignment::Any,
             Some(expiration),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -126,7 +126,7 @@ fn success() {
     let receive_data_4 = rcv_wallet
         .blind_receive(
             None,
-            None,
+            Assignment::Any,
             Some(expiration),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -142,7 +142,7 @@ fn success() {
         vec![Recipient {
             recipient_id: receive_data_3.recipient_id.clone(),
             witness_data: None,
-            amount,
+            assignment: Assignment::Fungible(amount),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -224,13 +224,13 @@ fn batch_success() {
             Recipient {
                 recipient_id: receive_data_1.recipient_id.clone(),
                 witness_data: None,
-                amount,
+                assignment: Assignment::Fungible(amount),
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
             Recipient {
                 recipient_id: receive_data_2.recipient_id.clone(),
                 witness_data: None,
-                amount,
+                assignment: Assignment::Fungible(amount),
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
         ],
@@ -271,13 +271,13 @@ fn batch_success() {
             Recipient {
                 recipient_id: receive_data_1.recipient_id.clone(),
                 witness_data: None,
-                amount,
+                assignment: Assignment::Fungible(amount),
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
             Recipient {
                 recipient_id: receive_data_2.recipient_id.clone(),
                 witness_data: None,
-                amount,
+                assignment: Assignment::Fungible(amount),
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
         ],
@@ -324,7 +324,7 @@ fn fail() {
     let receive_data = wallet
         .blind_receive(
             Some(asset.asset_id),
-            None,
+            Assignment::Any,
             None,
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -360,7 +360,7 @@ fn fail() {
         vec![Recipient {
             recipient_id: recipient_id.clone(),
             witness_data: None,
-            amount: 66,
+            assignment: Assignment::Fungible(66),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -485,13 +485,13 @@ fn batch_fail() {
             Recipient {
                 recipient_id: receive_data_1.recipient_id.clone(),
                 witness_data: None,
-                amount,
+                assignment: Assignment::Fungible(amount),
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
             Recipient {
                 recipient_id: receive_data_2.recipient_id.clone(),
                 witness_data: None,
-                amount,
+                assignment: Assignment::Fungible(amount),
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
         ],
@@ -559,7 +559,7 @@ fn skip_sync() {
     let receive_data_1 = rcv_wallet
         .blind_receive(
             None,
-            None,
+            Assignment::Any,
             Some(expiration),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -576,7 +576,7 @@ fn skip_sync() {
         vec![Recipient {
             recipient_id: receive_data_3.recipient_id.clone(),
             witness_data: None,
-            amount,
+            assignment: Assignment::Fungible(amount),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -635,7 +635,7 @@ fn skip_sync() {
     let receive_data_2 = rcv_wallet
         .blind_receive(
             Some(asset.asset_id.clone()),
-            None,
+            Assignment::Any,
             Some(expiration),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -645,7 +645,7 @@ fn skip_sync() {
     let receive_data_4 = rcv_wallet
         .blind_receive(
             None,
-            None,
+            Assignment::Any,
             Some(expiration),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -661,7 +661,7 @@ fn skip_sync() {
         vec![Recipient {
             recipient_id: receive_data_3.recipient_id.clone(),
             witness_data: None,
-            amount,
+            assignment: Assignment::Fungible(amount),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);

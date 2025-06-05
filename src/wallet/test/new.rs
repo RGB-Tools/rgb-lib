@@ -232,7 +232,7 @@ fn re_instantiate_wallet() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),

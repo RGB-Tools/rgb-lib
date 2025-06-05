@@ -33,7 +33,7 @@ fn success() {
     let receive_data = wallet
         .blind_receive(
             None,
-            None,
+            Assignment::Any,
             Some(expiration),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -47,7 +47,7 @@ fn success() {
     let receive_data = wallet
         .blind_receive(
             None,
-            None,
+            Assignment::Any,
             Some(0),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -60,7 +60,7 @@ fn success() {
     let receive_data = wallet
         .blind_receive(
             None,
-            None,
+            Assignment::Any,
             None,
             TRANSPORT_ENDPOINTS.clone(),
             min_confirmations,
@@ -75,7 +75,7 @@ fn success() {
     let asset_id = asset.asset_id;
     let result = wallet.blind_receive(
         Some(asset_id.clone()),
-        None,
+        Assignment::Any,
         None,
         TRANSPORT_ENDPOINTS.clone(),
         MIN_CONFIRMATIONS,
@@ -91,7 +91,7 @@ fn success() {
     let asset_id = asset.asset_id;
     let result = wallet.blind_receive(
         Some(asset_id.clone()),
-        None,
+        Assignment::Any,
         None,
         TRANSPORT_ENDPOINTS.clone(),
         MIN_CONFIRMATIONS,
@@ -107,7 +107,7 @@ fn success() {
     let asset_id = asset.asset_id;
     let result = wallet.blind_receive(
         Some(asset_id.clone()),
-        None,
+        Assignment::Any,
         None,
         TRANSPORT_ENDPOINTS.clone(),
         MIN_CONFIRMATIONS,
@@ -122,7 +122,7 @@ fn success() {
     let now_timestamp = now().unix_timestamp();
     let result = wallet.blind_receive(
         Some(asset_id.clone()),
-        Some(amount),
+        Assignment::Fungible(amount),
         Some(expiration),
         TRANSPORT_ENDPOINTS.clone(),
         MIN_CONFIRMATIONS,
@@ -132,24 +132,18 @@ fn success() {
 
     // Invoice checks
     let invoice = Invoice::new(receive_data.invoice).unwrap();
-    let mut invoice_data = invoice.invoice_data();
-    let invoice_from_data = Invoice::from_invoice_data(invoice_data.clone()).unwrap();
+    let invoice_data = invoice.invoice_data();
     let approx_expiry = now_timestamp + expiration as i64;
-    assert_eq!(invoice.invoice_string(), invoice_from_data.invoice_string());
     assert_eq!(invoice_data.recipient_id, receive_data.recipient_id);
     assert_eq!(invoice_data.asset_schema, Some(AssetSchema::Cfa));
     assert_eq!(invoice_data.asset_id, Some(asset_id));
-    assert_eq!(invoice_data.amount, Some(amount));
+    assert_eq!(invoice_data.assignment, Assignment::Fungible(amount));
     assert_eq!(invoice_data.network, BitcoinNetwork::Regtest);
     assert!(invoice_data.expiration_timestamp.unwrap() - approx_expiry <= 1);
     assert_eq!(
         invoice_data.transport_endpoints,
         TRANSPORT_ENDPOINTS.clone()
     );
-    let invalid_asset_id = s!("invalid");
-    invoice_data.asset_id = Some(invalid_asset_id.clone());
-    let result = Invoice::from_invoice_data(invoice_data);
-    assert!(matches!(result, Err(Error::InvalidAssetID { asset_id: a }) if a == invalid_asset_id));
 
     // check recipient ID
     let result = RecipientInfo::new(receive_data.recipient_id);
@@ -163,7 +157,7 @@ fn success() {
     ];
     let result = wallet.blind_receive(
         None,
-        None,
+        Assignment::Any,
         Some(0),
         transport_endpoints.clone(),
         MIN_CONFIRMATIONS,
@@ -188,13 +182,18 @@ fn respect_max_allocations() {
     let available_allocations = UTXO_NUM as u32 * MAX_ALLOCATIONS_PER_UTXO;
     let mut created_allocations = 0;
     for _ in 0..UTXO_NUM {
-        let mut txo_list: HashSet<DbTxo> = HashSet::new();
+        let mut txo_list: HashSet<Outpoint> = HashSet::new();
         for _ in 0..MAX_ALLOCATIONS_PER_UTXO {
             let receive_data = test_blind_receive(&wallet);
             created_allocations += 1;
             let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
-            let coloring = get_test_coloring(&wallet, transfer.asset_transfer_idx);
-            let txo = get_test_txo(&wallet, coloring.txo_idx);
+            let txo = if let RecipientTypeFull::Blind { unblinded_utxo } =
+                transfer.recipient_type.unwrap()
+            {
+                unblinded_utxo
+            } else {
+                panic!("should be a Blind variant");
+            };
             txo_list.insert(txo);
         }
 
@@ -238,7 +237,7 @@ fn pending_outgoing_transfer_fail() {
         vec![Recipient {
             recipient_id: receive_data.recipient_id,
             witness_data: None,
-            amount,
+            assignment: Assignment::Fungible(amount),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
@@ -249,10 +248,7 @@ fn pending_outgoing_transfer_fail() {
     let receive_data = test_blind_receive(&wallet);
     show_unspent_colorings(&mut wallet, "after 1st blind");
     let unspents = test_list_unspents(&mut wallet, None, false);
-    let unspent_blind_1 = unspents
-        .iter()
-        .find(|u| u.rgb_allocations.iter().any(|a| a.asset_id.is_none()))
-        .unwrap();
+    let unspent_blind_1 = unspents.iter().find(|u| u.pending_blinded > 0).unwrap();
     assert_ne!(unspent_issue.utxo.outpoint, unspent_blind_1.utxo.outpoint);
     // remove transfer
     test_fail_transfers_single(&mut wallet, &online, receive_data.batch_transfer_idx);
@@ -265,10 +261,7 @@ fn pending_outgoing_transfer_fail() {
     let _receive_data = test_blind_receive(&wallet);
     show_unspent_colorings(&mut wallet, "after 2nd blind");
     let unspents = test_list_unspents(&mut wallet, None, false);
-    let unspent_blind_2 = unspents
-        .iter()
-        .find(|u| u.rgb_allocations.iter().any(|a| a.asset_id.is_none()))
-        .unwrap();
+    let unspent_blind_2 = unspents.iter().find(|u| u.pending_blinded > 0).unwrap();
     assert_ne!(unspent_issue.utxo.outpoint, unspent_blind_2.utxo.outpoint);
 }
 
@@ -282,7 +275,13 @@ fn fail() {
         wallet: &mut Wallet,
         transport_endpoints: Vec<String>,
     ) -> Result<ReceiveData, Error> {
-        wallet.blind_receive(None, None, Some(0), transport_endpoints, MIN_CONFIRMATIONS)
+        wallet.blind_receive(
+            None,
+            Assignment::Any,
+            Some(0),
+            transport_endpoints,
+            MIN_CONFIRMATIONS,
+        )
     }
 
     let mut wallet = get_test_wallet(true, Some(1)); // using 1 max allocation per utxo
@@ -313,7 +312,7 @@ fn fail() {
     // bad asset id
     let result = wallet.blind_receive(
         Some(s!("rgb1inexistent")),
-        None,
+        Assignment::Any,
         None,
         TRANSPORT_ENDPOINTS.clone(),
         MIN_CONFIRMATIONS,
@@ -432,7 +431,7 @@ fn wrong_asset_fail() {
     let receive_data_a = wallet_1
         .blind_receive(
             Some(asset_a.asset_id),
-            None,
+            Assignment::Any,
             None,
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -442,7 +441,7 @@ fn wrong_asset_fail() {
     let recipient_map = HashMap::from([(
         asset_b.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data_a.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -548,7 +547,7 @@ fn multiple_receive_same_utxo() {
     let recipient_map_1 = HashMap::from([(
         asset_1.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data_1.recipient_id,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -562,7 +561,7 @@ fn multiple_receive_same_utxo() {
     let recipient_map_2 = HashMap::from([(
         asset_2.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data_2.recipient_id,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),

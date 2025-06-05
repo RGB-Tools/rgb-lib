@@ -119,6 +119,16 @@ pub enum Error {
     #[error("Insufficient allocations")]
     InsufficientAllocationSlots,
 
+    /// There are not enough assignments of the requested asset to fulfill the request
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[error("Insufficient total assignments for asset: {asset_id}")]
+    InsufficientAssignments {
+        /// Asset ID
+        asset_id: String,
+        /// Available assignments
+        available: AssignmentsCollection,
+    },
+
     /// There are not enough bitcoins to fulfill the request
     #[error("Insufficient bitcoin funds: needed '{needed}', available '{available}'")]
     InsufficientBitcoins {
@@ -126,20 +136,6 @@ pub enum Error {
         needed: u64,
         /// Sats available for spending
         available: u64,
-    },
-
-    /// There are not enough spendable tokens of the requested asset to fulfill the request
-    #[error("Insufficient spendable funds for asset: {asset_id}")]
-    InsufficientSpendableAssets {
-        /// Asset ID
-        asset_id: String,
-    },
-
-    /// There are not enough total tokens of the requested asset to fulfill the request
-    #[error("Insufficient total funds for asset: {asset_id}")]
-    InsufficientTotalAssets {
-        /// Asset ID
-        asset_id: String,
     },
 
     /// An internal error has been encountered
@@ -166,6 +162,10 @@ pub enum Error {
         /// Asset ID
         asset_id: String,
     },
+
+    /// An invalid assignment has been provided
+    #[error("Invalid assignment")]
+    InvalidAssignment,
 
     /// The provided attachments are invalid
     #[error("Invalid attachments: {details}")]
@@ -397,9 +397,9 @@ pub enum Error {
     #[error("Recipient ID duplicated")]
     RecipientIDDuplicated,
 
-    /// Wallet requires a sync
-    #[error("Sync needed")]
-    SyncNeeded,
+    /// The inflation amount exceeds the max possible supply
+    #[error("The inflation amount exceeds the max possible supply")]
+    TooHighInflationAmounts,
 
     /// Trying to issue too many assets
     #[error("Trying to issue too many assets")]
@@ -576,6 +576,18 @@ impl From<bdk_wallet::bitcoin::psbt::ExtractTxError> for InternalError {
 
 impl From<psrgbt::RgbPsbtError> for InternalError {
     fn from(e: psrgbt::RgbPsbtError) -> Self {
+        InternalError::RgbPsbtError(e.to_string())
+    }
+}
+
+impl From<psrgbt::OpretKeyError> for InternalError {
+    fn from(e: psrgbt::OpretKeyError) -> Self {
+        InternalError::RgbPsbtError(e.to_string())
+    }
+}
+
+impl From<psrgbt::MpcPsbtError> for InternalError {
+    fn from(e: psrgbt::MpcPsbtError) -> Self {
         InternalError::RgbPsbtError(e.to_string())
     }
 }

@@ -628,6 +628,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d965446196e3b7decd44aa7ee49e31d630118f90ef12f97900f262eb915c951d"
 
 [[package]]
+name = "bigdecimal"
+version = "0.4.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a22f228ab7a1b23027ccc6c350b72868017af7ea8356fbdf19f8d991c690013"
+dependencies = [
+ "autocfg",
+ "libm",
+ "num-bigint",
+ "num-integer",
+ "num-traits",
+ "serde",
+]
+
+[[package]]
 name = "bincode"
 version = "1.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2269,7 +2283,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07033963ba89ebaf1584d767badaa2e8fcec21aedea6b8c0346d487d49c28667"
 dependencies = [
  "cfg-if",
- "windows-targets 0.53.0",
+ "windows-targets 0.52.6",
 ]
 
 [[package]]
@@ -2467,6 +2481,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "num-bigint"
+version = "0.4.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5e44f723f1133c9deac646763579fdb3ac745e418f2a7af9cd0c431da1f20b9"
+dependencies = [
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
 name = "num-bigint-dig"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2649,6 +2673,15 @@ name = "percent-encoding"
 version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3148f5046208a5d56bcfc03053e3ca6334e51da8dfb19b6cdc8b306fae3283e"
+
+[[package]]
+name = "pgvector"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc58e2d255979a31caa7cabfa7aac654af0354220719ab7a68520ae7a91e8c0b"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "pin-project-lite"
@@ -3095,10 +3128,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "rgb-core"
-version = "0.11.1-alpha.3+unreviewed"
+name = "rgb-consensus"
+version = "0.11.1-rc.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ee6739c9704151ca82f9346f73b1d80189637c8291565866fee6859511e2008"
+checksum = "10df5492fec9dc3dcadeb468bcab68a067d945bc53269f7783740b4c8e043021"
 dependencies = [
  "aluvm",
  "amplify",
@@ -3116,10 +3149,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "rgb-invoice"
-version = "0.11.1-alpha.3+unreviewed"
+name = "rgb-invoicing"
+version = "0.11.1-rc.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a53ec3ab57e6727c702b53afb4310b4832e6e93100e6afb52a20b3d9dd0cf7f2"
+checksum = "9ad98218e1563e6dcab095a5ba99a2dd8aea97c7f6eaa19e0124433175e5d64f"
 dependencies = [
  "amplify",
  "baid64",
@@ -3130,7 +3163,7 @@ dependencies = [
  "indexmap 2.9.0",
  "percent-encoding",
  "rand 0.9.1",
- "rgb-core",
+ "rgb-consensus",
  "strict_encoding",
  "strict_types",
 ]
@@ -3161,14 +3194,15 @@ dependencies = [
  "rand 0.9.1",
  "regex",
  "reqwest",
- "rgb-invoice",
+ "rgb-invoicing",
  "rgb-lib-migration",
- "rgb-psbt",
- "rgb-schemata",
- "rgb-std",
+ "rgb-ops",
+ "rgb-psbt-utils",
+ "rgb-schemas",
  "rustls 0.23.27",
  "scrypt",
  "sea-orm",
+ "sea-query",
  "serde",
  "serde_json",
  "serial_test",
@@ -3193,40 +3227,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "rgb-psbt"
-version = "0.11.1-alpha.3+unreviewed"
+name = "rgb-ops"
+version = "0.11.1-rc.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fddc754038c375c2aaa6ee037b0f0f9d5492e478a187ea7921b85a615e1ace0"
-dependencies = [
- "amplify",
- "baid64",
- "bp-core",
- "bp-std",
- "commit_verify",
- "getrandom 0.3.3",
- "rgb-std",
- "strict_encoding",
- "wasm-bindgen",
-]
-
-[[package]]
-name = "rgb-schemata"
-version = "0.11.1-alpha.2+unreviewed"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcb3adf08782605bc5bb5d03e6715759c324f15afef7d91f5751041ed7403007"
-dependencies = [
- "aluvm",
- "amplify",
- "bp-core",
- "rgb-std",
- "strict_types",
-]
-
-[[package]]
-name = "rgb-std"
-version = "0.11.1-alpha.3+unreviewed"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df04db909a75c8e4090091cfa7ca2b67f5ccec7ee26e847d377cbc1a1bfc0a49"
+checksum = "86e37969c3fe234d70ddffe3a4a97a6e32a2e9cc9a8a3d24f1b1ccd4038cfbb1"
 dependencies = [
  "aluvm",
  "amplify",
@@ -3242,11 +3246,41 @@ dependencies = [
  "indexmap 2.9.0",
  "nonasync",
  "rand 0.9.1",
- "rgb-core",
- "rgb-invoice",
+ "rgb-consensus",
+ "rgb-invoicing",
  "strict_encoding",
  "strict_types",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "rgb-psbt-utils"
+version = "0.11.1-rc.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32a42c2fd5090e4db8972ae68aa2026349721ebae4fa27ca29bf8a69665929ca"
+dependencies = [
+ "amplify",
+ "baid64",
+ "bp-core",
+ "bp-std",
+ "commit_verify",
+ "getrandom 0.3.3",
+ "rgb-ops",
+ "strict_encoding",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "rgb-schemas"
+version = "0.11.1-rc.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c6a5b85c7dac6961b084303aaaf666e3f076c02f20518d773c438d0d9980810"
+dependencies = [
+ "aluvm",
+ "amplify",
+ "bp-core",
+ "rgb-ops",
+ "strict_types",
 ]
 
 [[package]]
@@ -3290,6 +3324,17 @@ dependencies = [
  "spki",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "rust_decimal"
+version = "1.37.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "faa7de2ba56ac291bd90c6b9bece784a52ae1411f9506544b3eae36dd2356d50"
+dependencies = [
+ "arrayvec",
+ "num-traits",
+ "serde",
 ]
 
 [[package]]
@@ -3504,18 +3549,25 @@ checksum = "18b7272b88bd608cd846de24f41b74a0315a135fe761b0aed4ec1ce6a6327a93"
 dependencies = [
  "async-stream",
  "async-trait",
+ "bigdecimal",
+ "chrono",
  "futures-util",
  "log",
  "ouroboros",
+ "pgvector",
+ "rust_decimal",
  "sea-orm-macros",
  "sea-query",
  "sea-query-binder",
  "serde",
+ "serde_json",
  "sqlx",
  "strum",
  "thiserror 2.0.12",
+ "time",
  "tracing",
  "url",
+ "uuid",
 ]
 
 [[package]]
@@ -3575,6 +3627,7 @@ dependencies = [
  "inherent",
  "ordered-float",
  "sea-query-derive",
+ "serde_json",
 ]
 
 [[package]]
@@ -3584,6 +3637,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b0019f47430f7995af63deda77e238c17323359af241233ec768aba1faea7608"
 dependencies = [
  "sea-query",
+ "serde_json",
  "sqlx",
 ]
 
@@ -4571,6 +4625,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
+name = "uuid"
+version = "1.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3cf4199d1e5d15ddd86a694e4d0dffa9c323ce759fea589f00fef9d81cc1931d"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "value-bag"
 version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4922,27 +4985,11 @@ dependencies = [
  "windows_aarch64_gnullvm 0.52.6",
  "windows_aarch64_msvc 0.52.6",
  "windows_i686_gnu 0.52.6",
- "windows_i686_gnullvm 0.52.6",
+ "windows_i686_gnullvm",
  "windows_i686_msvc 0.52.6",
  "windows_x86_64_gnu 0.52.6",
  "windows_x86_64_gnullvm 0.52.6",
  "windows_x86_64_msvc 0.52.6",
-]
-
-[[package]]
-name = "windows-targets"
-version = "0.53.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1e4c7e8ceaaf9cb7d7507c974735728ab453b67ef8f18febdd7c11fe59dca8b"
-dependencies = [
- "windows_aarch64_gnullvm 0.53.0",
- "windows_aarch64_msvc 0.53.0",
- "windows_i686_gnu 0.53.0",
- "windows_i686_gnullvm 0.53.0",
- "windows_i686_msvc 0.53.0",
- "windows_x86_64_gnu 0.53.0",
- "windows_x86_64_gnullvm 0.53.0",
- "windows_x86_64_msvc 0.53.0",
 ]
 
 [[package]]
@@ -4958,12 +5005,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a4622180e7a0ec044bb555404c800bc9fd9ec262ec147edd5989ccd0c02cd3"
 
 [[package]]
-name = "windows_aarch64_gnullvm"
-version = "0.53.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86b8d5f90ddd19cb4a147a5fa63ca848db3df085e25fee3cc10b39b6eebae764"
-
-[[package]]
 name = "windows_aarch64_msvc"
 version = "0.48.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4974,12 +5015,6 @@ name = "windows_aarch64_msvc"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09ec2a7bb152e2252b53fa7803150007879548bc709c039df7627cabbd05d469"
-
-[[package]]
-name = "windows_aarch64_msvc"
-version = "0.53.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7651a1f62a11b8cbd5e0d42526e55f2c99886c77e007179efff86c2b137e66c"
 
 [[package]]
 name = "windows_i686_gnu"
@@ -4994,22 +5029,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8e9b5ad5ab802e97eb8e295ac6720e509ee4c243f69d781394014ebfe8bbfa0b"
 
 [[package]]
-name = "windows_i686_gnu"
-version = "0.53.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1dc67659d35f387f5f6c479dc4e28f1d4bb90ddd1a5d3da2e5d97b42d6272c3"
-
-[[package]]
 name = "windows_i686_gnullvm"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0eee52d38c090b3caa76c563b86c3a4bd71ef1a819287c19d586d7334ae8ed66"
-
-[[package]]
-name = "windows_i686_gnullvm"
-version = "0.53.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ce6ccbdedbf6d6354471319e781c0dfef054c81fbc7cf83f338a4296c0cae11"
 
 [[package]]
 name = "windows_i686_msvc"
@@ -5024,12 +5047,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "240948bc05c5e7c6dabba28bf89d89ffce3e303022809e73deaefe4f6ec56c66"
 
 [[package]]
-name = "windows_i686_msvc"
-version = "0.53.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "581fee95406bb13382d2f65cd4a908ca7b1e4c2f1917f143ba16efe98a589b5d"
-
-[[package]]
 name = "windows_x86_64_gnu"
 version = "0.48.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5040,12 +5057,6 @@ name = "windows_x86_64_gnu"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "147a5c80aabfbf0c7d901cb5895d1de30ef2907eb21fbbab29ca94c5b08b1a78"
-
-[[package]]
-name = "windows_x86_64_gnu"
-version = "0.53.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e55b5ac9ea33f2fc1716d1742db15574fd6fc8dadc51caab1c16a3d3b4190ba"
 
 [[package]]
 name = "windows_x86_64_gnullvm"
@@ -5060,12 +5071,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "24d5b23dc417412679681396f2b49f3de8c1473deb516bd34410872eff51ed0d"
 
 [[package]]
-name = "windows_x86_64_gnullvm"
-version = "0.53.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a6e035dd0599267ce1ee132e51c27dd29437f63325753051e71dd9e42406c57"
-
-[[package]]
 name = "windows_x86_64_msvc"
 version = "0.48.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5076,12 +5081,6 @@ name = "windows_x86_64_msvc"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
-
-[[package]]
-name = "windows_x86_64_msvc"
-version = "0.53.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "271414315aff87387382ec3d271b52d7ae78726f5d44ac98b4f4030c91880486"
 
 [[package]]
 name = "wit-bindgen-rt"

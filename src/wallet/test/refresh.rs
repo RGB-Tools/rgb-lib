@@ -44,7 +44,7 @@ fn success() {
     let recipient_map_1a = HashMap::from([(
         asset_1.asset_id.clone(),
         vec![Recipient {
-            amount: amount_1,
+            assignment: Assignment::Fungible(amount_1),
             recipient_id: receive_data_2a.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -64,7 +64,7 @@ fn success() {
     let recipient_map_2a = HashMap::from([(
         asset_2.asset_id.clone(),
         vec![Recipient {
-            amount: amount_2,
+            assignment: Assignment::Fungible(amount_2),
             recipient_id: receive_data_1a.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -92,7 +92,7 @@ fn success() {
     let recipient_map_1b = HashMap::from([(
         asset_1.asset_id,
         vec![Recipient {
-            amount: amount_1,
+            assignment: Assignment::Fungible(amount_1),
             recipient_id: receive_data_2b.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -106,7 +106,7 @@ fn success() {
     let recipient_map_2b = HashMap::from([(
         asset_2.asset_id,
         vec![Recipient {
-            amount: amount_2,
+            assignment: Assignment::Fungible(amount_2),
             recipient_id: receive_data_1b.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -354,7 +354,7 @@ fn nia_with_media() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -375,7 +375,7 @@ fn nia_with_media() {
     let recipient_map = HashMap::from([(
         asset.asset_id,
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -429,7 +429,7 @@ fn nia_with_details() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -450,7 +450,7 @@ fn nia_with_details() {
     let recipient_map = HashMap::from([(
         asset.asset_id,
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -486,12 +486,11 @@ fn nia_with_details() {
 fn uda_with_preview_and_reserves() {
     initialize();
 
-    let amount: u64 = 1;
-
     let (mut wallet_1, online_1) = get_funded_wallet!();
     let (mut wallet_2, online_2) = get_funded_wallet!();
     let (mut wallet_3, online_3) = get_funded_wallet!();
 
+    let index_int = 7;
     let data = vec![1u8, 3u8, 9u8];
     let preview_ty = "text/plain";
     let preview = RgbEmbeddedMedia {
@@ -504,7 +503,7 @@ fn uda_with_preview_and_reserves() {
         proof: Confined::try_from(proof.clone()).unwrap(),
     };
     let token_data = TokenData {
-        index: TokenIndex::from_inner(UDA_FIXED_INDEX),
+        index: TokenIndex::from_inner(index_int),
         ticker: Some(Ticker::from(TICKER)),
         name: Some(Name::from(NAME)),
         details: Some(Details::from(DETAILS)),
@@ -521,7 +520,7 @@ fn uda_with_preview_and_reserves() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::NonFungible,
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -549,7 +548,7 @@ fn uda_with_preview_and_reserves() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::NonFungible,
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -562,7 +561,7 @@ fn uda_with_preview_and_reserves() {
     let assets_list = test_list_assets(&wallet_3, &[]);
     let uda = assets_list.uda.unwrap();
     let token = uda[0].token.as_ref().unwrap();
-    assert_eq!(token.index, UDA_FIXED_INDEX);
+    assert_eq!(token.index, index_int);
     assert_eq!(token.ticker, Some(TICKER.to_string()));
     assert_eq!(token.name, Some(NAME.to_string()));
     assert_eq!(token.details, Some(DETAILS.to_string()));
@@ -641,7 +640,7 @@ fn skip_sync() {
     let recipient_map_1a = HashMap::from([(
         asset_1.asset_id.clone(),
         vec![Recipient {
-            amount: amount_1,
+            assignment: Assignment::Fungible(amount_1),
             recipient_id: receive_data_2a.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -667,7 +666,7 @@ fn skip_sync() {
     let recipient_map_2a = HashMap::from([(
         asset_2.asset_id.clone(),
         vec![Recipient {
-            amount: amount_2,
+            assignment: Assignment::Fungible(amount_2),
             recipient_id: receive_data_1a.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -705,7 +704,7 @@ fn skip_sync() {
     let recipient_map_1b = HashMap::from([(
         asset_1.asset_id,
         vec![Recipient {
-            amount: amount_1,
+            assignment: Assignment::Fungible(amount_1),
             recipient_id: receive_data_2b.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -719,7 +718,7 @@ fn skip_sync() {
     let recipient_map_2b = HashMap::from([(
         asset_2.asset_id,
         vec![Recipient {
-            amount: amount_2,
+            assignment: Assignment::Fungible(amount_2),
             recipient_id: receive_data_1b.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),

@@ -56,12 +56,16 @@ fn up_to_allocation_checks() {
     let num_utxos_created = test_create_utxos(&mut wallet, &online, false, Some(1), None, FEE_RATE);
     assert_eq!(num_utxos_created, 1);
     let mut batch_transfer_idxs: Vec<i32> = vec![];
-    let mut txo_list: HashSet<DbTxo> = HashSet::new();
+    let mut txo_list: HashSet<Outpoint> = HashSet::new();
     for _ in 0..MAX_ALLOCATIONS_PER_UTXO {
         let receive_data = test_blind_receive(&wallet);
         let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
-        let coloring = get_test_coloring(&wallet, transfer.asset_transfer_idx);
-        let txo = get_test_txo(&wallet, coloring.txo_idx);
+        let txo =
+            if let RecipientTypeFull::Blind { unblinded_utxo } = transfer.recipient_type.unwrap() {
+                unblinded_utxo
+            } else {
+                panic!("should be a Blind variant");
+            };
         batch_transfer_idxs.push(receive_data.batch_transfer_idx);
         txo_list.insert(txo);
     }
@@ -87,12 +91,16 @@ fn up_to_allocation_checks() {
     let num_utxos_created = test_create_utxos(&mut wallet, &online, true, Some(1), None, FEE_RATE);
     assert_eq!(num_utxos_created, 1);
     // create MAX_ALLOCATIONS_PER_UTXO blinds on the same UTXO
-    let mut txo_list: HashSet<DbTxo> = HashSet::new();
+    let mut txo_list: HashSet<Outpoint> = HashSet::new();
     for _ in 0..MAX_ALLOCATIONS_PER_UTXO {
         let receive_data = test_blind_receive(&wallet);
         let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
-        let coloring = get_test_coloring(&wallet, transfer.asset_transfer_idx);
-        let txo = get_test_txo(&wallet, coloring.txo_idx);
+        let txo =
+            if let RecipientTypeFull::Blind { unblinded_utxo } = transfer.recipient_type.unwrap() {
+                unblinded_utxo
+            } else {
+                panic!("should be a Blind variant");
+            };
         txo_list.insert(txo);
     }
     assert_eq!(txo_list.len(), 1);
@@ -120,7 +128,7 @@ fn up_to_allocation_checks() {
         let recipient_map = HashMap::from([(
             asset.asset_id.clone(),
             vec![Recipient {
-                amount,
+                assignment: Assignment::Fungible(amount),
                 recipient_id: receive_data.recipient_id.clone(),
                 witness_data: None,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),

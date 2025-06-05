@@ -17,6 +17,7 @@ impl MigrationTrait for Migration {
                     .col(string(Txo::BtcAmount))
                     .col(boolean(Txo::Spent))
                     .col(boolean(Txo::Exists))
+                    .col(boolean(Txo::PendingWitness))
                     .to_owned(),
             )
             .await?;
@@ -126,7 +127,7 @@ impl MigrationTrait for Migration {
                     .col(integer(Coloring::TxoIdx))
                     .col(integer(Coloring::AssetTransferIdx))
                     .col(tiny_unsigned(Coloring::Type))
-                    .col(string(Coloring::Amount))
+                    .col(json(Coloring::Assignment))
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk-coloring-assettransfer")
@@ -154,12 +155,12 @@ impl MigrationTrait for Migration {
                     .if_not_exists()
                     .col(pk_auto(Transfer::Idx))
                     .col(integer(Transfer::AssetTransferIdx))
-                    .col(string(Transfer::Amount))
+                    .col(json_null(Transfer::RequestedAssignment))
                     .col(boolean(Transfer::Incoming))
-                    .col(tiny_unsigned_null(Transfer::RecipientType))
+                    .col(json_null(Transfer::RecipientType))
                     .col(string_null(Transfer::RecipientID))
                     .col(boolean_null(Transfer::Ack))
-                    .col(big_unsigned_null(Transfer::Vout))
+                    .col(string_null(Transfer::InvoiceString))
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk-transfer-assettransfer")
@@ -319,29 +320,6 @@ impl MigrationTrait for Migration {
             .await?;
 
         manager
-            .create_table(
-                Table::create()
-                    .table(PendingWitnessOutpoint::Table)
-                    .if_not_exists()
-                    .col(pk_auto(PendingWitnessOutpoint::Idx))
-                    .col(string(PendingWitnessOutpoint::Txid))
-                    .col(big_unsigned(PendingWitnessOutpoint::Vout))
-                    .to_owned(),
-            )
-            .await?;
-        manager
-            .create_index(
-                sea_query::Index::create()
-                    .name("idx-pendingwitnessoutpoint-txid-vout")
-                    .table(PendingWitnessOutpoint::Table)
-                    .col(PendingWitnessOutpoint::Txid)
-                    .col(PendingWitnessOutpoint::Vout)
-                    .unique()
-                    .clone(),
-            )
-            .await?;
-
-        manager
             .create_index(
                 sea_query::Index::create()
                     .name("idx-coloring-assettransferidx-txoidx")
@@ -419,14 +397,6 @@ impl MigrationTrait for Migration {
             .await?;
 
         manager
-            .drop_table(
-                Table::drop()
-                    .table(PendingWitnessOutpoint::Table)
-                    .to_owned(),
-            )
-            .await?;
-
-        manager
             .drop_table(Table::drop().table(PendingWitnessScript::Table).to_owned())
             .await?;
 
@@ -445,6 +415,7 @@ pub enum Txo {
     BtcAmount,
     Spent,
     Exists,
+    PendingWitness,
 }
 
 #[derive(DeriveIden)]
@@ -491,7 +462,7 @@ pub enum Coloring {
     TxoIdx,
     AssetTransferIdx,
     Type,
-    Amount,
+    Assignment,
 }
 
 #[derive(DeriveIden)]
@@ -499,12 +470,12 @@ pub enum Transfer {
     Table,
     Idx,
     AssetTransferIdx,
-    Amount,
+    RequestedAssignment,
     Incoming,
     RecipientType,
     RecipientID,
     Ack,
-    Vout,
+    InvoiceString,
 }
 
 #[derive(DeriveIden)]
@@ -567,14 +538,6 @@ enum PendingWitnessScript {
     Table,
     Idx,
     Script,
-}
-
-#[derive(DeriveIden)]
-enum PendingWitnessOutpoint {
-    Table,
-    Idx,
-    Txid,
-    Vout,
 }
 
 #[derive(DeriveIden)]

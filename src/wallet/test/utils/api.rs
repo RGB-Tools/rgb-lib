@@ -7,7 +7,7 @@ pub(crate) fn test_blind_receive(wallet: &Wallet) -> ReceiveData {
 pub(crate) fn test_blind_receive_result(wallet: &Wallet) -> Result<ReceiveData, Error> {
     wallet.blind_receive(
         None,
-        None,
+        Assignment::Any,
         None,
         TRANSPORT_ENDPOINTS.clone(),
         MIN_CONFIRMATIONS,
@@ -18,7 +18,7 @@ pub(crate) fn test_witness_receive(wallet: &mut Wallet) -> ReceiveData {
     wallet
         .witness_receive(
             None,
-            None,
+            Assignment::Any,
             None,
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -290,6 +290,53 @@ pub(crate) fn test_issue_asset_nia_result(
     wallet.issue_asset_nia(TICKER.to_string(), NAME.to_string(), PRECISION, amounts)
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) fn test_issue_asset_ifa(
+    wallet: &mut Wallet,
+    online: &Online,
+    amounts: Option<&[u64]>,
+    inflation_amounts: Option<&[u64]>,
+    replace_rights_num: u8,
+) -> AssetIFA {
+    test_issue_asset_ifa_result(
+        wallet,
+        online,
+        amounts,
+        inflation_amounts,
+        replace_rights_num,
+    )
+    .unwrap()
+}
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) fn test_issue_asset_ifa_result(
+    wallet: &mut Wallet,
+    online: &Online,
+    amounts: Option<&[u64]>,
+    inflation_amounts: Option<&[u64]>,
+    replace_rights_num: u8,
+) -> Result<AssetIFA, Error> {
+    test_fail_transfers_all(wallet, online);
+    let amounts = if let Some(a) = amounts {
+        a.to_vec()
+    } else {
+        vec![AMOUNT]
+    };
+    let inflation_amounts = if let Some(a) = inflation_amounts {
+        a.to_vec()
+    } else {
+        vec![AMOUNT_INFLATION]
+    };
+    wallet.issue_asset_ifa(
+        TICKER.to_string(),
+        NAME.to_string(),
+        PRECISION,
+        amounts,
+        inflation_amounts,
+        replace_rights_num,
+    )
+}
+
 pub(crate) fn test_list_assets(wallet: &Wallet, filter_asset_schemas: &[AssetSchema]) -> Assets {
     wallet.list_assets(filter_asset_schemas.to_vec()).unwrap()
 }
@@ -374,13 +421,13 @@ pub(crate) fn test_save_new_asset(
     online: &Online,
     rcv_wallet: &mut Wallet,
     asset_id: &String,
-    amount: u64,
+    assignment: Assignment,
 ) {
     let receive_data = test_witness_receive(rcv_wallet);
     let recipient_map = HashMap::from([(
         asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment,
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: Some(WitnessData {
                 amount_sat: 1000,

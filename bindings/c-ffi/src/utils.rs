@@ -188,7 +188,7 @@ pub(crate) fn backup_info(wallet: &COpaqueStruct) -> Result<String, Error> {
 pub(crate) fn blind_receive(
     wallet: &COpaqueStruct,
     asset_id_opt: *const c_char,
-    amount_opt: *const c_char,
+    assignment: *const c_char,
     duration_seconds_opt: *const c_char,
     transport_endpoints: *const c_char,
     min_confirmations: *const c_char,
@@ -197,12 +197,12 @@ pub(crate) fn blind_receive(
     let transport_endpoints: Vec<String> =
         serde_json::from_str(&ptr_to_string(transport_endpoints))?;
     let asset_id = convert_optional_string(asset_id_opt);
-    let amount = convert_optional_number(amount_opt)?;
+    let assignment: Assignment = serde_json::from_str(&ptr_to_string(assignment))?;
     let duration_seconds = convert_optional_number(duration_seconds_opt)?;
     let min_confirmations = ptr_to_num(min_confirmations)?;
     let res = wallet.blind_receive(
         asset_id,
-        amount,
+        assignment,
         duration_seconds,
         transport_endpoints,
         min_confirmations,
@@ -305,6 +305,31 @@ pub(crate) fn issue_asset_cfa(
     let file_path = convert_optional_string(file_path_opt);
     let res =
         wallet.issue_asset_cfa(ptr_to_string(name), details, precision, amounts, file_path)?;
+    Ok(serde_json::to_string(&res)?)
+}
+
+pub(crate) fn issue_asset_ifa(
+    wallet: &COpaqueStruct,
+    ticker: *const c_char,
+    name: *const c_char,
+    precision: *const c_char,
+    amounts: *const c_char,
+    inflation_amounts: *const c_char,
+    replace_rights_num: *const c_char,
+) -> Result<String, Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let precision = ptr_to_num(precision)?;
+    let amounts = convert_strings_array(amounts)?;
+    let inflation_amounts = convert_strings_array(inflation_amounts)?;
+    let replace_rights_num = ptr_to_num(replace_rights_num)?;
+    let res = wallet.issue_asset_ifa(
+        ptr_to_string(ticker),
+        ptr_to_string(name),
+        precision,
+        amounts,
+        inflation_amounts,
+        replace_rights_num,
+    )?;
     Ok(serde_json::to_string(&res)?)
 }
 
@@ -502,7 +527,7 @@ pub(crate) fn sync(wallet: &COpaqueStruct, online: &COpaqueStruct) -> Result<(),
 pub(crate) fn witness_receive(
     wallet: &COpaqueStruct,
     asset_id_opt: *const c_char,
-    amount_opt: *const c_char,
+    assignment: *const c_char,
     duration_seconds_opt: *const c_char,
     transport_endpoints: *const c_char,
     min_confirmations: *const c_char,
@@ -511,12 +536,12 @@ pub(crate) fn witness_receive(
     let transport_endpoints: Vec<String> =
         serde_json::from_str(&ptr_to_string(transport_endpoints))?;
     let asset_id = convert_optional_string(asset_id_opt);
-    let amount = convert_optional_number(amount_opt)?;
+    let assignment: Assignment = serde_json::from_str(&ptr_to_string(assignment))?;
     let duration_seconds = convert_optional_number(duration_seconds_opt)?;
     let min_confirmations = ptr_to_num(min_confirmations)?;
     let res = wallet.witness_receive(
         asset_id,
-        amount,
+        assignment,
         duration_seconds,
         transport_endpoints,
         min_confirmations,

@@ -72,7 +72,7 @@ fn success() {
     let recipient_map = HashMap::from([(
         asset.asset_id,
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: Some(WitnessData {
                 amount_sat: 1000,

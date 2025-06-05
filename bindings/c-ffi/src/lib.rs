@@ -12,7 +12,7 @@ use std::{
 };
 
 use rgb_lib::{
-    AssetSchema, BitcoinNetwork, Error as RgbLibError,
+    AssetSchema, Assignment, BitcoinNetwork, Error as RgbLibError,
     wallet::{Online, Recipient, RefreshFilter, Wallet, WalletData},
 };
 
@@ -72,7 +72,7 @@ pub extern "C" fn rgblib_backup_info(wallet: &COpaqueStruct) -> CResultString {
 pub extern "C" fn rgblib_blind_receive(
     wallet: &COpaqueStruct,
     asset_id_opt: *const c_char,
-    amount_opt: *const c_char,
+    assignment: *const c_char,
     duration_seconds_opt: *const c_char,
     transport_endpoints: *const c_char,
     min_confirmations: *const c_char,
@@ -80,7 +80,7 @@ pub extern "C" fn rgblib_blind_receive(
     blind_receive(
         wallet,
         asset_id_opt,
-        amount_opt,
+        assignment,
         duration_seconds_opt,
         transport_endpoints,
         min_confirmations,
@@ -167,6 +167,28 @@ pub extern "C" fn rgblib_issue_asset_cfa(
     file_path_opt: *const c_char,
 ) -> CResultString {
     issue_asset_cfa(wallet, name, details_opt, precision, amounts, file_path_opt).into()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rgblib_issue_asset_ifa(
+    wallet: &COpaqueStruct,
+    ticker: *const c_char,
+    name: *const c_char,
+    precision: *const c_char,
+    amounts: *const c_char,
+    inflation_amounts: *const c_char,
+    replace_rights_num: *const c_char,
+) -> CResultString {
+    issue_asset_ifa(
+        wallet,
+        ticker,
+        name,
+        precision,
+        amounts,
+        inflation_amounts,
+        replace_rights_num,
+    )
+    .into()
 }
 
 #[unsafe(no_mangle)]
@@ -321,7 +343,7 @@ pub extern "C" fn rgblib_sync(wallet: &COpaqueStruct, online: &COpaqueStruct) ->
 pub extern "C" fn rgblib_witness_receive(
     wallet: &COpaqueStruct,
     asset_id_opt: *const c_char,
-    amount_opt: *const c_char,
+    assignment: *const c_char,
     duration_seconds_opt: *const c_char,
     transport_endpoints: *const c_char,
     min_confirmations: *const c_char,
@@ -329,7 +351,7 @@ pub extern "C" fn rgblib_witness_receive(
     witness_receive(
         wallet,
         asset_id_opt,
-        amount_opt,
+        assignment,
         duration_seconds_opt,
         transport_endpoints,
         min_confirmations,

@@ -20,11 +20,53 @@ pub(crate) const DURATION_SEND_TRANSFER: i64 = 3600;
 pub(crate) const MIN_BLOCK_ESTIMATION: u16 = 1;
 pub(crate) const MAX_BLOCK_ESTIMATION: u16 = 1008;
 
+/// Collection of different RGB assignments.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssignmentsCollection {
+    /// Fungible assignments
+    pub fungible: u64,
+    /// Non-fungible assignments
+    pub non_fungible: bool,
+    /// Inflation assignments
+    pub inflation: u64,
+    /// Replace right assignments
+    pub replace: u8,
+}
+
+impl AssignmentsCollection {
+    fn change(&self, needed: &Self) -> Self {
+        Self {
+            fungible: self.fungible - needed.fungible,
+            non_fungible: false,
+            inflation: self.inflation - needed.inflation,
+            replace: self.replace - needed.replace,
+        }
+    }
+}
+
+impl AssignmentsCollection {
+    fn enough(&self, needed: &Self) -> bool {
+        if self.fungible < needed.fungible {
+            return false;
+        }
+        if self.non_fungible != needed.non_fungible {
+            return false;
+        }
+        if self.inflation < needed.inflation {
+            return false;
+        }
+        if self.replace < needed.replace {
+            return false;
+        }
+        true
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct AssetSpend {
-    txo_map: HashMap<i32, u64>,
+    txo_map: HashMap<i32, Vec<Assignment>>,
     input_outpoints: Vec<BdkOutPoint>,
-    change_amount: u64,
+    change: AssignmentsCollection,
 }
 
 /// The result of a send operation
@@ -47,7 +89,7 @@ struct BtcChange {
 struct InfoBatchTransfer {
     btc_change: Option<BtcChange>,
     change_utxo_idx: Option<i32>,
-    extra_allocations: HashMap<String, Vec<u64>>,
+    extra_allocations: HashMap<String, Vec<Assignment>>,
     donation: bool,
     min_confirmations: u8,
 }
@@ -359,7 +401,7 @@ impl Wallet {
         let db_outpoints: HashSet<String> = db_txos
             .clone()
             .into_iter()
-            .filter(|t| !t.spent)
+            .filter(|t| !t.spent && t.exists)
             .map(|u| u.outpoint().to_string())
             .collect();
         let bdk_utxos = self.bdk_wallet.list_unspent();
@@ -381,42 +423,18 @@ impl Wallet {
             .collect();
 
         for new_utxo in new_utxos.iter().cloned() {
-            let new_db_utxo: DbTxoActMod = new_utxo.clone().into();
+            let mut new_db_utxo: DbTxoActMod = new_utxo.clone().into();
             if !pending_witness_scripts.is_empty() {
                 let pending_witness_script = new_utxo.txout.script_pubkey.to_hex_string();
                 if pending_witness_scripts.contains(&pending_witness_script) {
-                    self.database
-                        .set_pending_witness_outpoint(DbPendingWitnessOutpointActMod {
-                            txid: new_db_utxo.txid.clone(),
-                            vout: new_db_utxo.vout.clone(),
-                            ..Default::default()
-                        })?;
+                    new_db_utxo.pending_witness = ActiveValue::Set(true);
                     self.database
                         .del_pending_witness_script(pending_witness_script)?;
                 }
             }
-            if let Err(e) = self.database.set_txo(new_db_utxo) {
-                debug!(self.logger, "error setting TXO: {e}");
-                if !e.to_string().contains("UNIQUE constraint failed") {
-                    return Err(e.into());
-                }
-            };
+            self.database.set_txo(new_db_utxo.clone())?;
         }
 
-        if external_bdk_utxos.len() - new_utxos.len() > 0 {
-            let inexistent_db_utxos: Vec<DbTxo> =
-                db_txos.into_iter().filter(|t| !t.exists).collect();
-            for inexistent_db_utxo in inexistent_db_utxos {
-                if external_bdk_utxos
-                    .iter()
-                    .any(|u| Outpoint::from(u.outpoint) == inexistent_db_utxo.outpoint())
-                {
-                    let mut db_txo: DbTxoActMod = inexistent_db_utxo.into();
-                    db_txo.exists = ActiveValue::Set(true);
-                    self.database.update_txo(db_txo)?;
-                }
-            }
-        }
         debug!(self.logger, "Synced TXOs");
 
         Ok(())
@@ -615,7 +633,7 @@ impl Wallet {
         let unspent_txos = self.database.get_unspent_txos(vec![])?;
         let unspents = self
             .database
-            .get_rgb_allocations(unspent_txos, None, None, None)?;
+            .get_rgb_allocations(unspent_txos, None, None, None, None)?;
 
         let mut utxos_to_create = num.unwrap_or(UTXO_NUM);
         if up_to {
@@ -1231,46 +1249,77 @@ impl Wallet {
         Ok(consignment_res)
     }
 
-    pub(crate) fn extract_received_amount(
+    pub(crate) fn extract_received_assignments(
         &self,
         consignment: &RgbTransfer,
         witness_id: RgbTxid,
         vout: Option<u32>,
         known_concealed: Option<SecretSeal>,
-    ) -> u64 {
-        let mut amount = 0;
+    ) -> Vec<Assignment> {
+        let mut assignments = vec![];
         if let Some(bundle) = consignment
             .bundles
             .iter()
             .find(|ab| ab.witness_id() == witness_id)
         {
-            'outer: for (_, transition) in &bundle.bundle.known_transitions {
-                for assignment in transition.assignments.values() {
+            for transition in bundle
+                .bundle
+                .known_transitions
+                .iter()
+                .map(|kt| &kt.transition)
+            {
+                for (ass_type, assignment) in transition.assignments.iter() {
                     for fungible_assignment in assignment.as_fungible() {
                         if let Assign::ConfidentialSeal { seal, state, .. } = fungible_assignment {
                             if Some(*seal) == known_concealed {
-                                amount = state.as_u64();
-                                break 'outer;
+                                match *ass_type {
+                                    OS_ASSET => {
+                                        assignments.push(Assignment::Fungible(state.as_u64()));
+                                    }
+                                    OS_INFLATION => {
+                                        assignments
+                                            .push(Assignment::InflationRight(state.as_u64()));
+                                    }
+                                    _ => {}
+                                }
                             }
                         };
                         if let Assign::Revealed { seal, state, .. } = fungible_assignment {
                             if seal.txid == TxPtr::WitnessTx && Some(seal.vout.into_u32()) == vout {
-                                amount = state.as_u64();
-                                break 'outer;
+                                match *ass_type {
+                                    OS_ASSET => {
+                                        assignments.push(Assignment::Fungible(state.as_u64()));
+                                    }
+                                    OS_INFLATION => {
+                                        assignments
+                                            .push(Assignment::InflationRight(state.as_u64()));
+                                    }
+                                    _ => {}
+                                }
                             }
                         };
                     }
                     for structured_assignment in assignment.as_structured() {
                         if let Assign::ConfidentialSeal { seal, .. } = structured_assignment {
                             if Some(*seal) == known_concealed {
-                                amount = 1;
-                                break 'outer;
+                                assignments.push(Assignment::NonFungible);
                             }
                         }
                         if let Assign::Revealed { seal, .. } = structured_assignment {
                             if seal.txid == TxPtr::WitnessTx && Some(seal.vout.into_u32()) == vout {
-                                amount = 1;
-                                break 'outer;
+                                assignments.push(Assignment::NonFungible);
+                            }
+                        };
+                    }
+                    for void_assignment in assignment.as_declarative() {
+                        if let Assign::ConfidentialSeal { seal, .. } = void_assignment {
+                            if Some(*seal) == known_concealed {
+                                assignments.push(Assignment::ReplaceRight);
+                            }
+                        }
+                        if let Assign::Revealed { seal, .. } = void_assignment {
+                            if seal.txid == TxPtr::WitnessTx && Some(seal.vout.into_u32()) == vout {
+                                assignments.push(Assignment::ReplaceRight);
                             }
                         };
                     }
@@ -1278,7 +1327,7 @@ impl Wallet {
             }
         }
 
-        amount
+        assignments
     }
 
     fn _normalize_recipient_id(&self, recipient_id: &str) -> String {
@@ -1424,7 +1473,7 @@ impl Wallet {
             .iter()
             .find(|ab| ab.witness_id() == witness_id)
         {
-            if transfer.recipient_type == Some(RecipientType::Witness) {
+            if let Some(RecipientTypeFull::Witness { .. }) = transfer.recipient_type {
                 if let Some(vout) = vout {
                     if let PubWitness::Tx(tx) = &anchored_bundle.pub_witness {
                         if let Some(output) = tx.outputs().nth(vout as usize) {
@@ -1534,6 +1583,13 @@ impl Wallet {
                             attachments.push(attachment)
                         }
                     }
+                    AssetSchema::Ifa => {
+                        let contract =
+                            runtime.contract_wrapper::<InflatableFungibleAsset>(contract_id)?;
+                        if let Some(attachment) = contract.contract_terms().media {
+                            attachments.push(attachment)
+                        }
+                    }
                 };
                 for attachment in attachments {
                     let digest = hex::encode(attachment.digest);
@@ -1589,7 +1645,8 @@ impl Wallet {
                 .update_asset_transfer(&mut updated_asset_transfer)?;
         }
 
-        let known_concealed = if transfer.recipient_type == Some(RecipientType::Blind) {
+        let known_concealed = if let Some(RecipientTypeFull::Blind { .. }) = transfer.recipient_type
+        {
             let beneficiary = XChainNet::<Beneficiary>::from_str(&recipient_id)
                 .expect("saved recipient ID is invalid");
             match beneficiary.into_inner() {
@@ -1600,19 +1657,16 @@ impl Wallet {
             None
         };
 
-        let amount = self.extract_received_amount(&consignment, witness_id, vout, known_concealed);
-
-        if amount == 0 {
-            error!(
-                self.logger,
-                "Cannot find any receiving allocation with positive amount"
-            );
+        let assignments =
+            self.extract_received_assignments(&consignment, witness_id, vout, known_concealed);
+        if assignments.is_empty() {
+            error!(self.logger, "Cannot find any receiving assignment");
             return self._refuse_consignment(proxy_url, recipient_id, &mut updated_batch_transfer);
-        }
+        };
 
         debug!(
             self.logger,
-            "Consignment is valid. Received '{}' of contract '{}'", amount, asset_id
+            "Consignment is valid. Received '{:?}' of contract '{}'", assignments, asset_id
         );
 
         let ack_res = self
@@ -1621,27 +1675,40 @@ impl Wallet {
             .post_ack(&proxy_url, recipient_id, true)?;
         debug!(self.logger, "Consignment ACK response: {:?}", ack_res);
 
-        let mut updated_transfer: DbTransferActMod = transfer.clone().into();
-        updated_transfer.amount = ActiveValue::Set(amount.to_string());
-        updated_transfer.vout = ActiveValue::Set(vout);
-        self.database.update_transfer(&mut updated_transfer)?;
-
-        if transfer.recipient_type == Some(RecipientType::Blind) {
-            let transfer_colorings = db_data
-                .colorings
-                .clone()
-                .into_iter()
-                .filter(|c| {
-                    c.asset_transfer_idx == asset_transfer.idx && c.r#type == ColoringType::Receive
-                })
-                .collect::<Vec<DbColoring>>()
-                .first()
-                .cloned();
-            let transfer_coloring =
-                transfer_colorings.expect("transfer should be connected to at least one coloring");
-            let mut updated_coloring: DbColoringActMod = transfer_coloring.into();
-            updated_coloring.amount = ActiveValue::Set(amount.to_string());
-            self.database.update_coloring(updated_coloring)?;
+        let utxo_idx = match transfer.recipient_type {
+            Some(RecipientTypeFull::Blind { ref unblinded_utxo }) => {
+                self.database
+                    .get_txo(unblinded_utxo)?
+                    .expect("utxo must exist")
+                    .idx
+            }
+            Some(RecipientTypeFull::Witness { .. }) => {
+                let mut updated_transfer: DbTransferActMod = transfer.clone().into();
+                updated_transfer.recipient_type =
+                    ActiveValue::Set(Some(RecipientTypeFull::Witness { vout }));
+                self.database.update_transfer(&mut updated_transfer)?;
+                let db_utxo = DbTxoActMod {
+                    txid: ActiveValue::Set(txid.clone()),
+                    vout: ActiveValue::Set(vout.unwrap()),
+                    btc_amount: ActiveValue::Set(s!("0")),
+                    spent: ActiveValue::Set(false),
+                    exists: ActiveValue::Set(false),
+                    pending_witness: ActiveValue::Set(true),
+                    ..Default::default()
+                };
+                self.database.set_txo(db_utxo)?
+            }
+            _ => return Err(InternalError::Unexpected.into()),
+        };
+        for assignment in assignments {
+            let db_coloring = DbColoringActMod {
+                txo_idx: ActiveValue::Set(utxo_idx),
+                asset_transfer_idx: ActiveValue::Set(asset_transfer.idx),
+                r#type: ActiveValue::Set(ColoringType::Receive),
+                assignment: ActiveValue::Set(assignment),
+                ..Default::default()
+            };
+            self.database.set_coloring(db_coloring)?;
         }
 
         updated_batch_transfer.txid = ActiveValue::Set(Some(txid));
@@ -1760,7 +1827,7 @@ impl Wallet {
         if incoming {
             let batch_transfer_data =
                 batch_transfer.get_transfers(&db_data.asset_transfers, &db_data.transfers)?;
-            let (asset_transfer, transfer) =
+            let (_asset_transfer, transfer) =
                 self.database.get_incoming_transfer(&batch_transfer_data)?;
             let recipient_id = transfer
                 .clone()
@@ -1774,28 +1841,18 @@ impl Wallet {
             let consignment =
                 RgbTransfer::load_file(consignment_path).map_err(InternalError::from)?;
 
-            if transfer.recipient_type == Some(RecipientType::Witness) {
+            if let Some(RecipientTypeFull::Witness { vout }) = transfer.recipient_type {
                 if !skip_sync {
                     self.sync_db_txos(false)?;
                 }
                 let outpoint = Outpoint {
                     txid: txid.clone(),
-                    vout: transfer.vout.unwrap(),
+                    vout: vout.unwrap(),
                 };
-                if let Some(utxo) = self.database.get_txo(&outpoint)? {
-                    let db_coloring = DbColoringActMod {
-                        txo_idx: ActiveValue::Set(utxo.idx),
-                        asset_transfer_idx: ActiveValue::Set(asset_transfer.idx),
-                        r#type: ActiveValue::Set(ColoringType::Receive),
-                        amount: ActiveValue::Set(transfer.amount),
-                        ..Default::default()
-                    };
-                    self.database.set_coloring(db_coloring)?;
-
-                    self.database.del_pending_witness_outpoint(outpoint)?;
-                } else {
-                    return Err(Error::SyncNeeded);
-                }
+                let txo = self.database.get_txo(&outpoint)?.expect("txo must exist");
+                let mut txo: DbTxoActMod = txo.into();
+                txo.pending_witness = ActiveValue::Set(false);
+                self.database.update_txo(txo)?;
             }
 
             // accept consignment
@@ -1945,24 +2002,32 @@ impl Wallet {
     fn _select_rgb_inputs(
         &self,
         asset_id: String,
-        amount_needed: u64,
+        assignments_needed: AssignmentsCollection,
         unspents: Vec<LocalUnspent>,
-        transfers: Option<Vec<DbTransfer>>,
-        asset_transfers: Option<Vec<DbAssetTransfer>>,
-        batch_transfers: Option<Vec<DbBatchTransfer>>,
-        colorings: Option<Vec<DbColoring>>,
     ) -> Result<AssetSpend, Error> {
         fn cmp_localunspent_allocation_sum(a: &LocalUnspent, b: &LocalUnspent) -> Ordering {
-            let a_sum: u64 = a.rgb_allocations.iter().map(|a| a.amount).sum();
-            let b_sum: u64 = b.rgb_allocations.iter().map(|a| a.amount).sum();
+            let a_sum: u64 = a
+                .rgb_allocations
+                .iter()
+                .map(|a| a.assignment.main_amount())
+                .sum();
+            let b_sum: u64 = b
+                .rgb_allocations
+                .iter()
+                .map(|a| a.assignment.main_amount())
+                .sum();
             a_sum.cmp(&b_sum)
         }
 
         debug!(self.logger, "Selecting inputs for asset '{}'...", asset_id);
-        let mut input_allocations: HashMap<DbTxo, u64> = HashMap::new();
-        let mut amount_input_asset: u64 = 0;
+        let mut input_allocations: HashMap<DbTxo, Vec<Assignment>> = HashMap::new();
+
         let mut mut_unspents = unspents;
-        mut_unspents.sort_by(cmp_localunspent_allocation_sum);
+        if assignments_needed.fungible > 0 {
+            mut_unspents.sort_by(cmp_localunspent_allocation_sum);
+        }
+
+        let mut assignments_collected = AssignmentsCollection::default();
         for unspent in mut_unspents {
             let asset_allocations: Vec<LocalRgbAllocation> = unspent
                 .rgb_allocations
@@ -1972,43 +2037,46 @@ impl Wallet {
             if asset_allocations.is_empty() {
                 continue;
             }
-            let amount_allocation: u64 = asset_allocations.iter().map(|a| a.amount).sum();
-            input_allocations.insert(unspent.utxo, amount_allocation);
-            amount_input_asset += amount_allocation;
-            if amount_input_asset >= amount_needed {
+            asset_allocations
+                .iter()
+                .for_each(|a| a.assignment.add_to_assignments(&mut assignments_collected));
+            input_allocations.insert(
+                unspent.utxo,
+                asset_allocations
+                    .iter()
+                    .map(|a| a.assignment.clone())
+                    .collect(),
+            );
+            if assignments_collected.enough(&assignments_needed) {
                 break;
             }
         }
-        if amount_input_asset < amount_needed {
-            let ass_balance = self.database.get_asset_balance(
-                asset_id.clone(),
-                transfers,
-                asset_transfers,
-                batch_transfers,
-                colorings,
-                None,
-            )?;
-            if ass_balance.future < amount_needed {
-                return Err(Error::InsufficientTotalAssets { asset_id });
-            }
-            return Err(Error::InsufficientSpendableAssets { asset_id });
+        if !assignments_collected.enough(&assignments_needed) {
+            return Err(Error::InsufficientAssignments {
+                asset_id,
+                available: assignments_collected,
+            });
         }
-        debug!(self.logger, "Asset input amount {:?}", amount_input_asset);
+
+        debug!(
+            self.logger,
+            "Asset input assignments {:?}", assignments_collected
+        );
         let inputs: Vec<DbTxo> = input_allocations.clone().into_keys().collect();
         inputs
             .iter()
             .for_each(|t| debug!(self.logger, "Input outpoint '{}'", t.outpoint().to_string()));
-        let txo_map: HashMap<i32, u64> = input_allocations
+        let txo_map: HashMap<i32, Vec<Assignment>> = input_allocations
             .into_iter()
             .map(|(k, v)| (k.idx, v))
             .collect();
         let input_outpoints: Vec<BdkOutPoint> = inputs.into_iter().map(BdkOutPoint::from).collect();
-        let change_amount = amount_input_asset - amount_needed;
-        debug!(self.logger, "Asset change amount {:?}", change_amount);
+        let change = assignments_collected.change(&assignments_needed);
+        debug!(self.logger, "Asset change {:?}", change);
         Ok(AssetSpend {
             txo_map,
             input_outpoints,
-            change_amount,
+            change,
         })
     }
 
@@ -2123,6 +2191,7 @@ impl Wallet {
                         .collect::<Vec<_>>(),
                     Some(unspents),
                     true,
+                    None,
                 )?;
                 debug!(
                     self.logger,
@@ -2154,21 +2223,17 @@ impl Wallet {
         let mut change_utxo_option = None;
         let mut change_utxo_idx = None;
 
-        let prev_outputs = psbt
-            .unsigned_tx
-            .input
-            .iter()
-            .map(|txin| Outpoint::from(txin.previous_output).into())
+        let mut rgb_psbt = RgbPsbt::from_str(&psbt.to_string()).unwrap();
+
+        let prev_outputs = rgb_psbt
+            .inputs()
+            .map(|txin| txin.previous_outpoint)
             .collect::<HashSet<RgbOutpoint>>();
 
-        let mut all_transitions: HashMap<ContractId, BTreeMap<OpId, Vec<RgbOutpoint>>> =
-            HashMap::new();
+        let mut all_transitions: HashMap<ContractId, Vec<Transition>> = HashMap::new();
         let mut asset_beneficiaries = bmap![];
-        let assignment_name = FieldName::from("assetOwner");
         for (asset_id, transfer_info) in transfer_info_map.clone() {
-            let change_amount = transfer_info.asset_spend.change_amount;
             let contract_id = ContractId::from_str(&asset_id).expect("invalid contract ID");
-            let asset_schema = AssetSchema::get_from_contract_id(contract_id, runtime)?;
             let mut asset_transition_builder =
                 runtime.transition_builder(contract_id, "transfer")?;
 
@@ -2185,7 +2250,8 @@ impl Wallet {
                 }
             }
 
-            if change_amount > 0 {
+            let change = transfer_info.asset_spend.change.clone();
+            if change != AssignmentsCollection::default() {
                 let seal = self._get_change_seal(
                     &btc_change,
                     &mut change_utxo_option,
@@ -2193,11 +2259,26 @@ impl Wallet {
                     input_outpoints.clone(),
                     unspents.as_slice(),
                 )?;
-                asset_transition_builder = asset_transition_builder.add_fungible_state(
-                    assignment_name.clone(),
-                    seal,
-                    change_amount,
-                )?;
+                if change.fungible > 0 {
+                    asset_transition_builder = asset_transition_builder.add_fungible_state(
+                        "assetOwner",
+                        seal,
+                        change.fungible,
+                    )?;
+                }
+                if change.inflation > 0 {
+                    asset_transition_builder = asset_transition_builder.add_fungible_state(
+                        "inflationAllowance",
+                        seal,
+                        change.inflation,
+                    )?;
+                }
+                if change.replace > 0 {
+                    for _ in 0..change.replace {
+                        asset_transition_builder =
+                            asset_transition_builder.add_rights("replaceRight", seal)?;
+                    }
+                }
             };
 
             let mut beneficiaries = vec![];
@@ -2215,27 +2296,42 @@ impl Wallet {
                 };
 
                 beneficiaries.push(seal);
-                match asset_schema {
-                    AssetSchema::Nia | AssetSchema::Cfa => {
-                        asset_transition_builder = asset_transition_builder.add_fungible_state(
-                            assignment_name.clone(),
-                            seal,
-                            recipient.amount,
-                        )?;
+
+                match recipient.assignment {
+                    Assignment::Fungible(amt) => {
+                        asset_transition_builder =
+                            asset_transition_builder.add_fungible_state("assetOwner", seal, amt)?;
                     }
-                    AssetSchema::Uda => {
+                    Assignment::NonFungible => {
                         if let AllocatedState::Data(state) = uda_state.clone().unwrap() {
                             asset_transition_builder = asset_transition_builder
-                                .add_data(assignment_name.clone(), seal, Allocation::from(state))
+                                .add_data("assetOwner", seal, Allocation::from(state))
                                 .map_err(Error::from)?;
                         }
                     }
+                    Assignment::InflationRight(amt) => {
+                        asset_transition_builder = asset_transition_builder.add_fungible_state(
+                            "inflationAllowance",
+                            seal,
+                            amt,
+                        )?;
+                    }
+                    Assignment::ReplaceRight => {
+                        asset_transition_builder =
+                            asset_transition_builder.add_rights("replaceRight", seal)?;
+                    }
+                    _ => unreachable!(),
                 }
             }
 
             let transition = asset_transition_builder.complete_transition()?;
-            all_transitions.insert(contract_id, bmap![transition.id() => opid_outpoints]);
-            psbt.push_rgb_transition(transition)?;
+            all_transitions
+                .entry(contract_id)
+                .or_default()
+                .push(transition.clone());
+            rgb_psbt
+                .push_rgb_transition(transition)
+                .map_err(InternalError::from)?;
             asset_beneficiaries.insert(asset_id.clone(), beneficiaries);
 
             let asset_transfer_dir = self.get_asset_transfer_dir(&transfer_dir, &asset_id);
@@ -2266,17 +2362,23 @@ impl Wallet {
             }
         }
 
-        let mut extra_allocations: HashMap<String, Vec<u64>> = HashMap::new();
+        let mut extra_allocations: HashMap<String, Vec<Assignment>> = HashMap::new();
         for (cid, seal_map) in extra_state {
             let schema = runtime.contract_schema(cid)?;
-            for (explicit_seal, assigns) in seal_map {
+            for (_explicit_seal, assigns) in seal_map {
                 for (opout, state) in assigns {
                     let transition_type = schema.default_transition_for_assignment(&opout.ty);
                     let mut extra_builder = runtime.transition_builder_raw(cid, transition_type)?;
-                    let moved_amount = match &state {
-                        AllocatedState::Amount(amt) => amt.as_u64(),
-                        AllocatedState::Data(_) => 1,
-                        _ => 0,
+                    let assignment = match &state {
+                        AllocatedState::Amount(amt) if opout.ty == OS_ASSET => {
+                            Assignment::Fungible(amt.as_u64())
+                        }
+                        AllocatedState::Amount(amt) if opout.ty == OS_INFLATION => {
+                            Assignment::InflationRight(amt.as_u64())
+                        }
+                        AllocatedState::Data(_) => Assignment::NonFungible,
+                        AllocatedState::Void if opout.ty == OS_REPLACE => Assignment::ReplaceRight,
+                        _ => unreachable!(),
                     };
                     let seal = self._get_change_seal(
                         &btc_change,
@@ -2292,44 +2394,44 @@ impl Wallet {
                     all_transitions
                         .entry(cid)
                         .or_default()
-                        .insert(extra_transition.id(), vec![explicit_seal.to_outpoint()]);
+                        .push(extra_transition.clone());
                     extra_allocations
                         .entry(cid.to_string())
                         .or_default()
-                        .push(moved_amount);
-                    psbt.push_rgb_transition(extra_transition)?;
+                        .push(assignment);
+                    rgb_psbt
+                        .push_rgb_transition(extra_transition)
+                        .map_err(InternalError::from)?;
                 }
             }
         }
 
-        let (opreturn_index, _) = psbt
-            .unsigned_tx
-            .output
+        let (opreturn_index, _) = rgb_psbt
+            .to_unsigned_tx()
+            .outputs
             .iter()
             .enumerate()
             .find(|(_, o)| o.script_pubkey.is_op_return())
             .expect("psbt should have an op_return output");
-        let (_, opreturn_output) = psbt
-            .outputs
-            .iter_mut()
+        let (_, opreturn_output) = rgb_psbt
+            .outputs_mut()
             .enumerate()
             .find(|(i, _)| i == &opreturn_index)
             .unwrap();
-        opreturn_output.set_opret_host();
+        opreturn_output
+            .set_opret_host()
+            .map_err(InternalError::from)?;
 
-        for (input, txin) in psbt.inputs.iter_mut().zip(&psbt.unsigned_tx.input) {
-            let prevout = txin.previous_output;
-            let outpoint = RgbOutpoint::new(prevout.txid.to_byte_array().into(), prevout.vout);
-            for (cid, transition_info) in &all_transitions {
-                for (transition_id, outpoints) in transition_info {
-                    if outpoints.contains(&outpoint) {
-                        input.set_rgb_consumer(*cid, *transition_id)?;
-                    }
+        for (cid, transitions) in &all_transitions {
+            for transition in transitions {
+                for opout in transition.inputs() {
+                    rgb_psbt
+                        .set_rgb_contract_consumer(*cid, opout, transition.id())
+                        .map_err(InternalError::from)?;
                 }
             }
         }
 
-        let mut rgb_psbt = RgbPsbt::from_str(&psbt.to_string()).unwrap();
         rgb_psbt.set_rgb_close_method(CloseMethod::OpretFirst);
         rgb_psbt.complete_construction();
         let fascia = rgb_psbt.rgb_commit().map_err(|e| Error::Internal {
@@ -2455,7 +2557,7 @@ impl Wallet {
         &self,
         txid: String,
         transfer_info_map: BTreeMap<String, InfoAssetTransfer>,
-        extra_allocations: HashMap<String, Vec<u64>>,
+        extra_allocations: HashMap<String, Vec<Assignment>>,
         change_utxo_idx: Option<i32>,
         btc_change: Option<BtcChange>,
         status: TransferStatus,
@@ -2488,6 +2590,7 @@ impl Wallet {
                             btc_amount: ActiveValue::Set(btc_change.amount.to_string()),
                             spent: ActiveValue::Set(false),
                             exists: ActiveValue::Set(false),
+                            pending_witness: ActiveValue::Set(false),
                             ..Default::default()
                         };
                         self.database.set_txo(db_utxo)?
@@ -2510,31 +2613,57 @@ impl Wallet {
             };
             let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
 
-            for (input_idx, amount) in asset_spend.txo_map.clone().into_iter() {
-                let db_coloring = DbColoringActMod {
-                    txo_idx: ActiveValue::Set(input_idx),
-                    asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
-                    r#type: ActiveValue::Set(ColoringType::Input),
-                    amount: ActiveValue::Set(amount.to_string()),
-                    ..Default::default()
-                };
-                self.database.set_coloring(db_coloring)?;
+            for (input_idx, assignments) in asset_spend.txo_map.clone().into_iter() {
+                for assignment in assignments {
+                    let db_coloring = DbColoringActMod {
+                        txo_idx: ActiveValue::Set(input_idx),
+                        asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
+                        r#type: ActiveValue::Set(ColoringType::Input),
+                        assignment: ActiveValue::Set(assignment),
+                        ..Default::default()
+                    };
+                    self.database.set_coloring(db_coloring)?;
+                }
             }
-            if asset_spend.change_amount > 0 {
+            if asset_spend.change.fungible > 0 {
                 let db_coloring = DbColoringActMod {
                     txo_idx: ActiveValue::Set(change_utxo_idx.unwrap()),
                     asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
                     r#type: ActiveValue::Set(ColoringType::Change),
-                    amount: ActiveValue::Set(asset_spend.change_amount.to_string()),
+                    assignment: ActiveValue::Set(Assignment::Fungible(asset_spend.change.fungible)),
                     ..Default::default()
                 };
                 self.database.set_coloring(db_coloring)?;
+            }
+            if asset_spend.change.inflation > 0 {
+                let db_coloring = DbColoringActMod {
+                    txo_idx: ActiveValue::Set(change_utxo_idx.unwrap()),
+                    asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
+                    r#type: ActiveValue::Set(ColoringType::Change),
+                    assignment: ActiveValue::Set(Assignment::InflationRight(
+                        asset_spend.change.inflation,
+                    )),
+                    ..Default::default()
+                };
+                self.database.set_coloring(db_coloring)?;
+            }
+            if asset_spend.change.replace > 0 {
+                for _ in 0..asset_spend.change.replace {
+                    let db_coloring = DbColoringActMod {
+                        txo_idx: ActiveValue::Set(change_utxo_idx.unwrap()),
+                        asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
+                        r#type: ActiveValue::Set(ColoringType::Change),
+                        assignment: ActiveValue::Set(Assignment::ReplaceRight),
+                        ..Default::default()
+                    };
+                    self.database.set_coloring(db_coloring)?;
+                }
             }
 
             for recipient in recipients.clone() {
                 let transfer = DbTransferActMod {
                     asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
-                    amount: ActiveValue::Set(recipient.amount.to_string()),
+                    requested_assignment: ActiveValue::Set(Some(recipient.assignment)),
                     incoming: ActiveValue::Set(false),
                     recipient_id: ActiveValue::Set(Some(recipient.recipient_id.clone())),
                     ..Default::default()
@@ -2546,7 +2675,7 @@ impl Wallet {
             }
         }
 
-        for (asset_id, amts) in extra_allocations {
+        for (asset_id, assignments) in extra_allocations {
             let asset_transfer = DbAssetTransferActMod {
                 user_driven: ActiveValue::Set(false),
                 batch_transfer_idx: ActiveValue::Set(batch_transfer_idx),
@@ -2554,12 +2683,12 @@ impl Wallet {
                 ..Default::default()
             };
             let asset_transfer_idx = self.database.set_asset_transfer(asset_transfer)?;
-            for amt in amts {
+            for assignment in assignments {
                 let db_coloring = DbColoringActMod {
                     txo_idx: ActiveValue::Set(change_utxo_idx.unwrap()),
                     asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
                     r#type: ActiveValue::Set(ColoringType::Change),
-                    amount: ActiveValue::Set(amt.to_string()),
+                    assignment: ActiveValue::Set(assignment),
                     ..Default::default()
                 };
                 self.database.set_coloring(db_coloring)?;
@@ -2573,29 +2702,24 @@ impl Wallet {
         &self,
         unspents: &[LocalUnspent],
     ) -> Result<Vec<LocalUnspent>, Error> {
-        let pending_witness_outpoints: Vec<Outpoint> = self
-            .database
-            .iter_pending_witness_outpoints()?
-            .iter()
-            .map(|o| o.outpoint())
-            .collect();
         let mut input_unspents = unspents.to_vec();
         // consider the following UTXOs unspendable:
         // - incoming and pending
         // - outgoing and in waiting counterparty status
         // - pending incoming witness
+        // - pending incoming blinded
         // - inexistent
         input_unspents.retain(|u| {
-            !((u.rgb_allocations
+            !(u.rgb_allocations
                 .iter()
                 .any(|a| a.incoming && a.status.pending()))
-                || (u
+                && !(u
                     .rgb_allocations
                     .iter()
                     .any(|a| !a.incoming && a.status.waiting_counterparty()))
-                || (!pending_witness_outpoints.is_empty()
-                    && pending_witness_outpoints.contains(&u.outpoint()))
-                || !u.utxo.exists)
+                && !u.utxo.pending_witness
+                && u.pending_blinded == 0
+                && u.utxo.exists
         });
         Ok(input_unspents)
     }
@@ -2696,6 +2820,7 @@ impl Wallet {
             Some(db_data.colorings.clone()),
             Some(db_data.batch_transfers.clone()),
             Some(db_data.asset_transfers.clone()),
+            Some(db_data.transfers.clone()),
         )?;
 
         #[cfg(test)]
@@ -2709,15 +2834,32 @@ impl Wallet {
         let mut recipient_vout = 1;
         let mut transfer_info_map: BTreeMap<String, InfoAssetTransfer> = BTreeMap::new();
         for (asset_id, recipients) in recipient_map {
-            self.database.check_asset_exists(asset_id.clone())?;
+            let asset = self.database.check_asset_exists(asset_id.clone())?;
+            let schema = asset.schema;
 
             let mut local_recipients: Vec<LocalRecipient> = vec![];
             for recipient in recipients.clone() {
                 self.check_transport_endpoints(&recipient.transport_endpoints)?;
-                if recipient.amount == 0 {
-                    return Err(Error::InvalidAmountZero);
+                match (&recipient.assignment, schema) {
+                    (
+                        Assignment::Fungible(amt),
+                        AssetSchema::Nia | AssetSchema::Cfa | AssetSchema::Ifa,
+                    ) => {
+                        if *amt == 0 {
+                            return Err(Error::InvalidAmountZero);
+                        }
+                    }
+                    (Assignment::NonFungible, AssetSchema::Uda) => {}
+                    (Assignment::ReplaceRight, AssetSchema::Ifa) => {}
+                    (Assignment::InflationRight(amt), AssetSchema::Ifa) => {
+                        if *amt == 0 {
+                            return Err(Error::InvalidAmountZero);
+                        }
+                    }
+                    _ => {
+                        return Err(Error::InvalidAssignment);
+                    }
                 }
-
                 let mut transport_endpoints: Vec<LocalTransportEndpoint> = vec![];
                 let mut found_valid = false;
                 for endpoint_str in &recipient.transport_endpoints {
@@ -2781,20 +2923,19 @@ impl Wallet {
                 local_recipients.push(LocalRecipient {
                     recipient_id: recipient.recipient_id,
                     local_recipient_data,
-                    amount: recipient.amount,
+                    assignment: recipient.assignment,
                     transport_endpoints,
                 })
             }
 
-            let amount: u64 = recipients.iter().map(|a| a.amount).sum();
+            let mut assignments_needed = AssignmentsCollection::default();
+            recipients
+                .iter()
+                .for_each(|a| a.assignment.add_to_assignments(&mut assignments_needed));
             let asset_spend = self._select_rgb_inputs(
                 asset_id.clone(),
-                amount,
+                assignments_needed,
                 input_unspents.clone(),
-                Some(db_data.transfers.clone()),
-                Some(db_data.asset_transfers.clone()),
-                Some(db_data.batch_transfers.clone()),
-                Some(db_data.colorings.clone()),
             )?;
             let transfer_info = InfoAssetTransfer {
                 recipients: local_recipients.clone(),
@@ -2933,7 +3074,7 @@ impl Wallet {
                         token_medias.as_ref().unwrap(),
                     )
                 }
-                AssetSchema::Nia | AssetSchema::Cfa => None,
+                AssetSchema::Nia | AssetSchema::Cfa | AssetSchema::Ifa => None,
             };
 
             // post consignment(s) and optional media(s)

@@ -9,10 +9,11 @@ fn success() {
     let file_str = "README.md";
     let image_str = ["tests", "qrcode.png"].join(MAIN_SEPARATOR_STR);
 
-    let (mut wallet, online) = get_funded_wallet!();
+    let (mut wallet, online) = get_funded_noutxo_wallet!();
 
-    // add a pending operation to an UTXO so spendable balance will be != settled / future
-    let _receive_data = test_blind_receive(&wallet);
+    // prepare UTXOs
+    let num_created = test_create_utxos(&mut wallet, &online, true, Some(2), Some(5000), FEE_RATE);
+    assert_eq!(num_created, 2);
 
     // required fields only
     println!("\nasset 1");
@@ -28,18 +29,24 @@ fn success() {
         )
         .unwrap();
     let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
-    assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
+
+    // add a pending operation to an UTXO so spendable balance will be != settled / future
+    let _receive_data = test_blind_receive(&wallet);
     show_unspent_colorings(&mut wallet, "after issuance 1");
+
+    // checks
+    let balance_1 = test_get_asset_balance(&wallet, &asset_1.asset_id);
+    assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     assert_eq!(asset_1.name, NAME.to_string());
     assert_eq!(asset_1.details, None);
     assert_eq!(asset_1.precision, PRECISION);
     assert_eq!(asset_1.issued_supply, AMOUNT * 2);
     assert_eq!(
-        asset_1.balance,
+        balance_1,
         Balance {
             settled: AMOUNT * 2,
             future: AMOUNT * 2,
-            spendable: AMOUNT * 2,
+            spendable: AMOUNT,
         }
     );
     assert_eq!(asset_1.media, None);
@@ -54,11 +61,12 @@ fn success() {
         Some(file_str.to_string()),
     );
     show_unspent_colorings(&mut wallet, "after issuance 2");
+    let balance_2 = test_get_asset_balance(&wallet, &asset_2.asset_id);
     assert_eq!(asset_2.name, NAME.to_string());
     assert_eq!(asset_2.details, Some(DETAILS.to_string()));
     assert_eq!(asset_2.precision, PRECISION);
     assert_eq!(
-        asset_2.balance,
+        balance_2,
         Balance {
             settled: AMOUNT * 2,
             future: AMOUNT * 2,
@@ -88,12 +96,13 @@ fn success() {
         Some(image_str.to_string()),
     );
     show_unspent_colorings(&mut wallet, "after issuance 3");
+    let balance_3 = test_get_asset_balance(&wallet, &asset_3.asset_id);
     assert_eq!(
-        asset_3.balance,
+        balance_3,
         Balance {
             settled: AMOUNT * 3,
             future: AMOUNT * 3,
-            spendable: AMOUNT * 3,
+            spendable: 0, // asset 3 allocated to same UTXO with pending blind receive
         }
     );
     assert!(asset_3.media.is_some());
@@ -198,7 +207,7 @@ fn no_issue_on_pending_send() {
     let recipient_map = HashMap::from([(
         asset_1.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
             witness_data: Some(WitnessData {
                 amount_sat: 1000,

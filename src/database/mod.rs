@@ -3,8 +3,8 @@ pub(crate) mod entities;
 use super::*;
 
 use crate::database::entities::{
-    asset, coloring, media, pending_witness_outpoint, pending_witness_script, prelude::*,
-    transfer_transport_endpoint, transport_endpoint, txo,
+    asset, coloring, media, pending_witness_script, prelude::*, transfer_transport_endpoint,
+    transport_endpoint, txo,
 };
 
 #[derive(Clone, Debug)]
@@ -109,16 +109,6 @@ pub(crate) struct DbData {
     pub(crate) txos: Vec<DbTxo>,
 }
 
-impl DbPendingWitnessOutpoint {
-    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
-    pub(crate) fn outpoint(&self) -> Outpoint {
-        Outpoint {
-            txid: self.txid.to_string(),
-            vout: self.vout,
-        }
-    }
-}
-
 impl DbTransfer {
     pub(crate) fn related_transfers(
         &self,
@@ -163,6 +153,7 @@ impl From<LocalOutput> for DbTxoActMod {
             btc_amount: ActiveValue::Set(x.txout.value.to_sat().to_string()),
             spent: ActiveValue::Set(false),
             exists: ActiveValue::Set(true),
+            pending_witness: ActiveValue::Set(false),
         }
     }
 }
@@ -181,13 +172,8 @@ pub(crate) struct LocalUnspent {
     pub utxo: DbTxo,
     /// RGB allocations on the UTXO
     pub rgb_allocations: Vec<LocalRgbAllocation>,
-}
-
-impl LocalUnspent {
-    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
-    pub(crate) fn outpoint(&self) -> Outpoint {
-        self.utxo.outpoint()
-    }
+    /// Number of pending blind receive operations
+    pub pending_blinded: u32,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -217,7 +203,7 @@ impl LocalRecipientData {
 pub(crate) struct LocalRecipient {
     pub recipient_id: String,
     pub local_recipient_data: LocalRecipientData,
-    pub amount: u64,
+    pub assignment: Assignment,
     pub transport_endpoints: Vec<LocalTransportEndpoint>,
 }
 
@@ -225,8 +211,8 @@ pub(crate) struct LocalRecipient {
 pub(crate) struct LocalRgbAllocation {
     /// Asset ID
     pub asset_id: Option<String>,
-    /// RGB amount
-    pub amount: u64,
+    /// RGB assignment
+    pub assignment: Assignment,
     /// The status of the transfer that produced the RGB allocation
     pub status: TransferStatus,
     /// Defines if the allocation is incoming
@@ -252,6 +238,7 @@ pub(crate) struct TransferData {
     pub(crate) kind: TransferKind,
     pub(crate) status: TransferStatus,
     pub(crate) batch_transfer_idx: i32,
+    pub(crate) assignments: Vec<Assignment>,
     pub(crate) txid: Option<String>,
     pub(crate) receive_utxo: Option<Outpoint>,
     pub(crate) change_utxo: Option<Outpoint>,
@@ -314,17 +301,6 @@ impl RgbLibDatabase {
         Ok(res.last_insert_id)
     }
 
-    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
-    pub(crate) fn set_pending_witness_outpoint(
-        &self,
-        pending_witness_outpoint: DbPendingWitnessOutpointActMod,
-    ) -> Result<i32, InternalError> {
-        let res = block_on(
-            PendingWitnessOutpoint::insert(pending_witness_outpoint).exec(self.get_connection()),
-        )?;
-        Ok(res.last_insert_id)
-    }
-
     pub(crate) fn set_pending_witness_script(
         &self,
         pending_witness_script: DbPendingWitnessScriptActMod,
@@ -375,8 +351,47 @@ impl RgbLibDatabase {
 
     #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
     pub(crate) fn set_txo(&self, txo: DbTxoActMod) -> Result<i32, InternalError> {
-        let res = block_on(Txo::insert(txo).exec(self.get_connection()))?;
-        Ok(res.last_insert_id)
+        let mut on_conflict =
+            sea_query::OnConflict::columns([txo::Column::Txid, txo::Column::Vout]);
+        let mut update = false;
+        if txo.exists.clone().unwrap() {
+            update = true;
+            // update exists only if updated value is true
+            on_conflict.update_column(txo::Column::Exists);
+        }
+        if txo.btc_amount.clone().unwrap() != "0" {
+            update = true;
+            // update btc_amount only if updated value is positive
+            on_conflict.update_column(txo::Column::BtcAmount);
+        }
+        if !update {
+            on_conflict.do_nothing();
+        }
+        // this returns RecordNotInserted if the TXO already exists and on_conflict is do_nothing
+        let conn = self.get_connection();
+        let res = block_on(
+            Txo::insert(txo.clone())
+                .on_conflict(on_conflict.to_owned())
+                .exec(conn),
+        );
+        let idx = match res {
+            Ok(insert_result) => insert_result.last_insert_id,
+            Err(DbErr::RecordNotInserted) => {
+                // insert skipped due to ON CONFLICT DO NOTHING -> fetch existing record's idx
+                let existing = self.get_txo(&Outpoint {
+                    txid: txo.txid.unwrap(),
+                    vout: txo.vout.unwrap(),
+                })?;
+                match existing {
+                    Some(record) => record.idx,
+                    None => unreachable!("RecordNotInserted means it already exists"),
+                }
+            }
+            Err(err) => {
+                return Err(err.into());
+            }
+        };
+        Ok(idx)
     }
 
     #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
@@ -387,12 +402,6 @@ impl RgbLibDatabase {
         let res =
             block_on(WalletTransaction::insert(wallet_transaction).exec(self.get_connection()))?;
         Ok(res.last_insert_id)
-    }
-
-    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
-    pub(crate) fn update_coloring(&self, coloring: DbColoringActMod) -> Result<(), InternalError> {
-        block_on(Coloring::update(coloring).exec(self.get_connection()))?;
-        Ok(())
     }
 
     #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
@@ -470,20 +479,6 @@ impl RgbLibDatabase {
         block_on(
             Coloring::delete_many()
                 .filter(coloring::Column::AssetTransferIdx.eq(asset_transfer_idx))
-                .exec(self.get_connection()),
-        )?;
-        Ok(())
-    }
-
-    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
-    pub(crate) fn del_pending_witness_outpoint(
-        &self,
-        outpoint: Outpoint,
-    ) -> Result<(), InternalError> {
-        block_on(
-            PendingWitnessOutpoint::delete_many()
-                .filter(pending_witness_outpoint::Column::Txid.eq(outpoint.txid))
-                .filter(pending_witness_outpoint::Column::Vout.eq(outpoint.vout))
                 .exec(self.get_connection()),
         )?;
         Ok(())
@@ -575,15 +570,6 @@ impl RgbLibDatabase {
 
     pub(crate) fn iter_media(&self) -> Result<Vec<DbMedia>, InternalError> {
         Ok(block_on(Media::find().all(self.get_connection()))?)
-    }
-
-    #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
-    pub(crate) fn iter_pending_witness_outpoints(
-        &self,
-    ) -> Result<Vec<DbPendingWitnessOutpoint>, InternalError> {
-        Ok(block_on(
-            PendingWitnessOutpoint::find().all(self.get_connection()),
-        )?)
     }
 
     #[cfg_attr(not(any(feature = "electrum", feature = "esplora")), allow(dead_code))]
@@ -703,6 +689,7 @@ impl RgbLibDatabase {
             Some(colorings),
             Some(batch_transfers.clone()),
             Some(asset_transfers.clone()),
+            Some(transfers.clone()),
         )?;
 
         let mut allocations: Vec<LocalRgbAllocation> = vec![];
@@ -717,17 +704,19 @@ impl RgbLibDatabase {
         let settled: u64 = ass_allocations
             .iter()
             .filter(|a| a.settled())
-            .map(|a| a.amount)
+            .map(|a| a.assignment.main_amount())
             .sum();
 
         let mut ass_pending_incoming: u64 = ass_allocations
             .iter()
             .filter(|a| !a.txo_spent && a.incoming && a.status.pending())
-            .map(|a| a.amount)
+            .map(|a| a.assignment.main_amount())
             .sum();
         let witness_pending: u64 = transfers
             .iter()
-            .filter(|t| t.incoming && t.recipient_type == Some(RecipientType::Witness))
+            .filter(|t| {
+                t.incoming && matches!(t.recipient_type, Some(RecipientTypeFull::Witness { .. }))
+            })
             .filter_map(
                 |t| match t.related_transfers(&asset_transfers, &batch_transfers) {
                     Ok((at, bt)) => {
@@ -736,7 +725,11 @@ impl RgbLibDatabase {
                             if at.asset_id.unwrap() != asset_id {
                                 return None;
                             }
-                            Some(Ok(t.amount.parse::<u64>().unwrap()))
+                            Some(Ok(t
+                                .requested_assignment
+                                .as_ref()
+                                .map(|a| a.main_amount())
+                                .unwrap_or(0)))
                         } else {
                             None
                         }
@@ -751,7 +744,7 @@ impl RgbLibDatabase {
         let ass_pending_outgoing: u64 = ass_allocations
             .iter()
             .filter(|a| !a.incoming && a.status.pending())
-            .map(|a| a.amount)
+            .map(|a| a.assignment.main_amount())
             .sum();
         let ass_pending: i128 = ass_pending_incoming as i128 - ass_pending_outgoing as i128;
 
@@ -760,11 +753,18 @@ impl RgbLibDatabase {
         let unspendable: u64 = txos_allocations
             .into_iter()
             .filter(|u| {
+                // unspent
                 (!u.utxo.spent
-                    && u.rgb_allocations.iter().any(|a| {
+                    // and with transfers either outgoing and not failed or incoming and pending
+                    && (u.rgb_allocations.iter().any(|a| {
                         (!a.incoming && !a.status.failed()) || (a.incoming && a.status.pending())
-                    }))
+                    })
+                    // or with pending blinded incoming transfers
+                    || u.pending_blinded > 0
+                    ))
+                    // spent
                     || (u.utxo.spent
+                    // and with transfers outgoing and in WaitingConfirmations
                         && u.rgb_allocations
                             .iter()
                             .any(|a| !a.incoming && a.status.waiting_confirmations()))
@@ -775,7 +775,7 @@ impl RgbLibDatabase {
                 u.rgb_allocations
                     .iter()
                     .filter(|a| a.asset_id == Some(asset_id.clone()) && a.settled())
-                    .map(|a| a.amount)
+                    .map(|a| a.assignment.main_amount())
                     .sum::<u64>()
             })
             .sum();
@@ -842,31 +842,13 @@ impl RgbLibDatabase {
             .filter(|&c| c.asset_transfer_idx == asset_transfer.idx)
             .cloned();
 
-        let received: u64 = filtered_coloring
+        let assignments = filtered_coloring
             .clone()
-            .filter(|c| c.incoming())
-            .map(|c| {
-                c.amount
-                    .parse::<u64>()
-                    .expect("DB should contain a valid u64 value")
-            })
-            .sum();
+            .filter(|c| c.r#type != ColoringType::Input)
+            .map(|c| c.assignment)
+            .collect();
 
-        let sent: u64 = filtered_coloring
-            .clone()
-            .filter(|c| !c.incoming())
-            .map(|c| {
-                c.amount
-                    .parse::<u64>()
-                    .expect("DB should contain a valid u64 value")
-            })
-            .sum();
-
-        let incoming = if received == 0 && sent == 0 {
-            true
-        } else {
-            received > sent
-        };
+        let incoming = transfer.incoming;
         let kind = if incoming {
             if filtered_coloring.clone().count() > 0
                 && filtered_coloring
@@ -875,9 +857,9 @@ impl RgbLibDatabase {
             {
                 TransferKind::Issuance
             } else {
-                match transfer.recipient_type.unwrap() {
-                    RecipientType::Blind => TransferKind::ReceiveBlind,
-                    RecipientType::Witness => TransferKind::ReceiveWitness,
+                match transfer.recipient_type.as_ref().unwrap() {
+                    RecipientTypeFull::Blind { .. } => TransferKind::ReceiveBlind,
+                    RecipientTypeFull::Witness { .. } => TransferKind::ReceiveWitness,
                 }
             }
         } else {
@@ -890,42 +872,48 @@ impl RgbLibDatabase {
             .filter(|&t| txo_ids.contains(&t.idx))
             .cloned()
             .collect();
-        let (receive_utxo, change_utxo) = match kind {
-            TransferKind::ReceiveBlind | TransferKind::ReceiveWitness => {
+        let receive_utxo = match &transfer.recipient_type {
+            Some(RecipientTypeFull::Blind { unblinded_utxo }) => Some(unblinded_utxo.clone()),
+            Some(RecipientTypeFull::Witness { .. }) => {
                 let received_txo_idx: Vec<i32> = filtered_coloring
+                    .clone()
                     .filter(|c| c.r#type == ColoringType::Receive)
                     .map(|c| c.txo_idx)
                     .collect();
-                let receive_utxo = transfer_txos
+                transfer_txos
+                    .clone()
                     .into_iter()
                     .filter(|t| received_txo_idx.contains(&t.idx))
                     .map(|t| t.outpoint())
                     .collect::<Vec<Outpoint>>()
                     .first()
-                    .cloned();
-                (receive_utxo, None)
+                    .cloned()
             }
+            _ => None,
+        };
+        let change_utxo = match kind {
+            TransferKind::ReceiveBlind | TransferKind::ReceiveWitness => None,
             TransferKind::Send => {
                 let change_txo_idx: Vec<i32> = filtered_coloring
                     .filter(|c| c.r#type == ColoringType::Change)
                     .map(|c| c.txo_idx)
                     .collect();
-                let change_utxo = transfer_txos
+                transfer_txos
                     .into_iter()
                     .filter(|t| change_txo_idx.contains(&t.idx))
                     .map(|t| t.outpoint())
                     .collect::<Vec<Outpoint>>()
                     .first()
-                    .cloned();
-                (None, change_utxo)
+                    .cloned()
             }
-            TransferKind::Issuance => (None, None),
+            TransferKind::Issuance => None,
         };
 
         Ok(TransferData {
             kind,
             status: batch_transfer.status,
             batch_transfer_idx: batch_transfer.idx,
+            assignments,
             txid: batch_transfer.txid.clone(),
             receive_utxo,
             change_utxo,
@@ -956,14 +944,9 @@ impl RgbLibDatabase {
                 .find(|t| asset_transfer.batch_transfer_idx == t.idx)
                 .expect("asset transfer should be connected to a batch transfer");
 
-            let coloring_amount = c
-                .amount
-                .parse::<u64>()
-                .expect("DB should contain a valid u64 value");
-
             allocations.push(LocalRgbAllocation {
                 asset_id: asset_transfer.asset_id.clone(),
-                amount: coloring_amount,
+                assignment: c.assignment.clone(),
                 status: batch_transfer.status,
                 incoming: c.incoming(),
                 txo_spent: utxo.spent,
@@ -979,6 +962,7 @@ impl RgbLibDatabase {
         colorings: Option<Vec<DbColoring>>,
         batch_transfers: Option<Vec<DbBatchTransfer>>,
         asset_transfers: Option<Vec<DbAssetTransfer>>,
+        transfers: Option<Vec<DbTransfer>>,
     ) -> Result<Vec<LocalUnspent>, Error> {
         let batch_transfers = if let Some(bt) = batch_transfers {
             bt
@@ -995,6 +979,26 @@ impl RgbLibDatabase {
         } else {
             self.iter_colorings()?
         };
+        let transfers = if let Some(ts) = transfers {
+            ts
+        } else {
+            self.iter_transfers()?
+        };
+
+        let pending_blinded_utxos = transfers
+            .iter()
+            .filter_map(|t| match (&t.recipient_type, t.incoming) {
+                (Some(RecipientTypeFull::Blind { unblinded_utxo }), true) => t
+                    .related_transfers(&asset_transfers, &batch_transfers)
+                    .ok()
+                    .filter(|(_, bt)| bt.status.waiting_counterparty())
+                    .map(|_| unblinded_utxo),
+                _ => None,
+            })
+            .fold(HashMap::new(), |mut acc, utxo| {
+                *acc.entry(utxo).or_insert(0) += 1;
+                acc
+            });
 
         utxos
             .iter()
@@ -1007,6 +1011,7 @@ impl RgbLibDatabase {
                         asset_transfers.clone(),
                         batch_transfers.clone(),
                     )?,
+                    pending_blinded: *pending_blinded_utxos.get(&t.outpoint()).unwrap_or(&0),
                 })
             })
             .collect()

@@ -26,7 +26,7 @@ fn success() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -82,7 +82,7 @@ fn success() {
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -214,7 +214,7 @@ fn double_restore() {
     let recipient_map_1 = HashMap::from([(
         asset_1.asset_id.clone(),
         vec![Recipient {
-            amount,
+            assignment: Assignment::Fungible(amount),
             recipient_id: receive_data_1.recipient_id,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -223,7 +223,7 @@ fn double_restore() {
     let recipient_map_2 = HashMap::from([(
         asset_2.asset_id.clone(),
         vec![Recipient {
-            amount: amount * 2,
+            assignment: Assignment::Fungible(amount * 2),
             recipient_id: receive_data_2.recipient_id,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),

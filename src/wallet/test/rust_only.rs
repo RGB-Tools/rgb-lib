@@ -54,7 +54,6 @@ fn success() {
 
     // color PSBT
     assert_eq!(psbt.unsigned_tx.input.len(), 1);
-    let input_outpoint = psbt.unsigned_tx.input.first().unwrap().previous_output;
     let mut output_map = HashMap::new();
     let output = psbt
         .unsigned_tx
@@ -66,7 +65,6 @@ fn success() {
     let vout = output.0 as u32;
     output_map.insert(vout, AMOUNT); // sending AMOUNT since color_psbt doesn't support change
     let asset_coloring_info = AssetColoringInfo {
-        input_outpoints: vec![input_outpoint.into()],
         output_map,
         static_blinding: Some(blinding),
     };
@@ -99,7 +97,7 @@ fn success() {
     let (_cid, bundle) = bundles.iter().next().unwrap();
     let im_keys = bundle.input_map.keys();
     assert_eq!(im_keys.len(), 1);
-    let mut transitions = bundle.known_transitions.values();
+    let mut transitions = bundle.known_transitions.iter().map(|kt| &kt.transition);
     assert_eq!(transitions.len(), 1);
     let transition = transitions.next().unwrap();
     let assignments = &transition.assignments;
@@ -252,7 +250,7 @@ fn save_new_asset_success() {
         &online,
         &mut rcv_wallet,
         &nia_asset.asset_id,
-        asset_amount,
+        Assignment::Fungible(asset_amount),
     );
     assert!(
         &rcv_wallet
@@ -279,7 +277,7 @@ fn save_new_asset_success() {
         &online,
         &mut rcv_wallet,
         &cfa_asset.asset_id,
-        asset_amount,
+        Assignment::Fungible(asset_amount),
     );
     assert!(
         &rcv_wallet
@@ -300,7 +298,6 @@ fn save_new_asset_success() {
     assert_eq!(asset_model.schema, AssetSchema::Cfa);
 
     // UDA
-    let uda_amount: u64 = 1;
     let file_str = "README.md";
     let image_str = ["tests", "qrcode.png"].join(MAIN_SEPARATOR_STR);
     let uda_asset = test_issue_asset_uda(
@@ -316,7 +313,7 @@ fn save_new_asset_success() {
         &online,
         &mut rcv_wallet,
         &uda_asset.asset_id,
-        uda_amount,
+        Assignment::NonFungible,
     );
     assert!(
         &rcv_wallet
@@ -382,7 +379,6 @@ fn color_psbt_fail() {
 
     // prepare coloring data
     assert_eq!(psbt.unsigned_tx.input.len(), 1);
-    let input_outpoint = psbt.unsigned_tx.input.first().unwrap().previous_output;
     let mut output_map = HashMap::new();
     let output = psbt
         .unsigned_tx
@@ -396,7 +392,6 @@ fn color_psbt_fail() {
     // wrong contract ID
     let fake_cid = "rgb:Ar4ouaLv-b7f7Dc_-z5EMvtu-FA5KNh1-nlae~jk-8xMBo7E";
     let asset_coloring_info = AssetColoringInfo {
-        input_outpoints: vec![input_outpoint.into()],
         output_map: output_map.clone(),
         static_blinding: Some(blinding),
     };
@@ -412,53 +407,9 @@ fn color_psbt_fail() {
         matches!(result, Err(Error::Internal { details: m }) if m.contains(&format!("contract {fake_cid} is unknown")))
     );
 
-    // wrong input txid
-    let mut fake_input_op = input_outpoint;
-    fake_input_op.txid =
-        Txid::from_str("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
-    let asset_coloring_info = AssetColoringInfo {
-        input_outpoints: vec![fake_input_op.into()],
-        output_map: output_map.clone(),
-        static_blinding: Some(blinding),
-    };
-    let asset_info_map: HashMap<ContractId, AssetColoringInfo> = HashMap::from_iter([(
-        ContractId::from_str(&asset.asset_id).unwrap(),
-        asset_coloring_info,
-    )]);
-    let coloring_info = ColoringInfo {
-        asset_info_map,
-        static_blinding: Some(blinding),
-        nonce: None,
-    };
-    let result = wallet_send.color_psbt(&mut psbt, coloring_info);
-    let msg = "PSBT contains no contract information";
-    assert!(matches!(result, Err(Error::Internal { details: m }) if m == msg));
-
-    // wrong input vout
-    let mut fake_input_op = input_outpoint;
-    fake_input_op.vout = 666;
-    let asset_coloring_info = AssetColoringInfo {
-        input_outpoints: vec![fake_input_op.into()],
-        output_map: output_map.clone(),
-        static_blinding: Some(blinding),
-    };
-    let asset_info_map: HashMap<ContractId, AssetColoringInfo> = HashMap::from_iter([(
-        ContractId::from_str(&asset.asset_id).unwrap(),
-        asset_coloring_info,
-    )]);
-    let coloring_info = ColoringInfo {
-        asset_info_map,
-        static_blinding: Some(blinding),
-        nonce: None,
-    };
-    let result = wallet_send.color_psbt(&mut psbt, coloring_info);
-    let msg = "PSBT contains no contract information";
-    assert!(matches!(result, Err(Error::Internal { details: m }) if m == msg));
-
     // wrong output map vout
     let fake_o_map: HashMap<u32, u64> = HashMap::from_iter([(666, AMOUNT)]);
     let asset_coloring_info = AssetColoringInfo {
-        input_outpoints: vec![input_outpoint.into()],
         output_map: fake_o_map,
         static_blinding: Some(blinding),
     };
@@ -478,7 +429,6 @@ fn color_psbt_fail() {
     // wrong output map amount
     let fake_o_map = output_map.keys().map(|k| (*k, 999u64)).collect();
     let asset_coloring_info = AssetColoringInfo {
-        input_outpoints: vec![input_outpoint.into()],
         output_map: fake_o_map,
         static_blinding: Some(blinding),
     };

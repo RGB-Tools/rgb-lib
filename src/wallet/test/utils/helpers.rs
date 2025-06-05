@@ -401,16 +401,6 @@ pub(crate) fn get_test_transfer_related(
         .unwrap()
 }
 
-pub(crate) fn get_test_txo(wallet: &Wallet, idx: i32) -> DbTxo {
-    wallet
-        .database
-        .iter_txos()
-        .unwrap()
-        .into_iter()
-        .find(|t| t.idx == idx)
-        .unwrap()
-}
-
 pub(crate) fn list_test_unspents(wallet: &mut Wallet, msg: &str) -> Vec<Unspent> {
     let unspents = test_list_unspents(wallet, None, false);
     println!(
@@ -425,7 +415,7 @@ pub(crate) fn list_test_unspents(wallet: &mut Wallet, msg: &str) -> Vec<Unspent>
             u.utxo.outpoint, u.utxo.btc_amount, u.utxo.colorable
         );
         for a in &u.rgb_allocations {
-            println!("  - {:?} {:?} {:?}", a.asset_id, a.amount, a.settled);
+            println!("  - {:?} {:?} {:?}", a.asset_id, a.assignment, a.settled);
         }
     }
     unspents
@@ -547,6 +537,14 @@ pub(crate) fn wait_for_unspents(
     }
 }
 
+pub(crate) fn get_pending_blind_transfers(wallet: &mut Wallet) -> Vec<Transfer> {
+    let transfers = test_list_transfers(wallet, None);
+    transfers
+        .into_iter()
+        .filter(|t| t.status.pending() && t.kind == TransferKind::ReceiveBlind)
+        .collect()
+}
+
 /// print the provided message, then get colorings for each wallet unspent and print their status,
 /// type, amount and asset
 pub(crate) fn show_unspent_colorings(wallet: &mut Wallet, msg: &str) {
@@ -569,6 +567,14 @@ pub(crate) fn show_unspent_colorings(wallet: &mut Wallet, msg: &str) {
             .into_iter()
             .filter(|c| c.txo_idx == db_txo.idx)
             .collect();
+        let pending_blind_transfers = get_pending_blind_transfers(wallet);
+        let pending_blind_transfers = pending_blind_transfers.iter().filter(|t| {
+            if let Some(txo) = &t.receive_utxo {
+                db_txo.outpoint() == *txo
+            } else {
+                false
+            }
+        });
         println!(
             "> {}:{}, {} sat{}",
             outpoint.txid,
@@ -595,9 +601,12 @@ pub(crate) fn show_unspent_colorings(wallet: &mut Wallet, msg: &str) {
                 "\t- {:?} {:?} of {:?} for {:?}",
                 db_batch_transfer.status,
                 db_coloring.r#type,
-                db_coloring.amount,
+                db_coloring.assignment,
                 db_asset_transfer.asset_id.as_ref(),
             );
+        }
+        for pbt in pending_blind_transfers {
+            println!("\t- pending blind receive with transfer ID {}", pbt.idx);
         }
     }
 }

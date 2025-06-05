@@ -6,8 +6,8 @@
 //! ## Wallet
 //! The main component of the library is the [`Wallet`].
 //!
-//! It allows to create and operate an RGB wallet that can issue, send and receive NIA, CFA and UDA
-//! assets. The library also manages UTXOs and asset allocations.
+//! It allows to create and operate an RGB wallet that can issue, send and receive NIA, CFA, IFA and
+//! UDA assets. The library also manages UTXOs and asset allocations.
 //!
 //! ## Backend
 //! The library uses BDK for walleting operations and several components from the RGB ecosystem for
@@ -74,15 +74,16 @@ pub use rgbstd::{
         ConsignmentExt, Contract, Fascia, FileContent, PubWitness, Transfer as RgbTransfer,
     },
     persistence::UpdateRes,
+    schema::SchemaId,
     vm::WitnessOrd,
 };
 
 pub use crate::{
-    database::enums::{AssetSchema, RecipientType, TransferStatus, TransportType},
+    database::enums::{AssetSchema, Assignment, TransferStatus, TransportType},
     error::Error,
     keys::{generate_keys, restore_keys},
     utils::BitcoinNetwork,
-    wallet::{TransactionType, TransferKind, Wallet, backup::restore_backup},
+    wallet::{RecipientType, TransactionType, TransferKind, Wallet, backup::restore_backup},
 };
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -104,11 +105,7 @@ use std::{
     time::Duration,
 };
 
-use amplify::{
-    Wrapper, bmap,
-    confinement::{Confined, U24},
-    s,
-};
+use amplify::{Wrapper, bmap, confinement::Confined, s};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use amplify::{hex::ToHex, none};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -135,7 +132,7 @@ use bdk_wallet::{
         OutPoint, OutPoint as BdkOutPoint, ScriptBuf, TxOut,
         bip32::{ChildNumber, DerivationPath, Fingerprint, KeySource, Xpriv, Xpub},
         hashes::{Hash as Sha256Hash, sha256},
-        psbt::{ExtractTxError, Input, Output, Psbt, raw::ProprietaryKey},
+        psbt::{ExtractTxError, Psbt},
         secp256k1::Secp256k1,
     },
     chain::{CanonicalizationParams, ChainPosition},
@@ -167,32 +164,28 @@ use esplora::Config as BpEsploraConfig;
 use file_format::FileFormat;
 use futures::executor::block_on;
 use invoice::{AddressPayload, Network as RgbNetwork};
-use psrgbt::{
-    Opids, PropKey, ProprietaryKeyRgb, Psbt as RgbPsbt, RgbExt, RgbPsbt as RgbPsbtTrait,
-    RgbPsbtError,
-};
+use psrgbt::{Psbt as RgbPsbt, RgbExt, RgbPsbt as RgbPsbtTrait};
 use rand::{Rng, distr::Alphanumeric};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use reqwest::{
     blocking::{Client as RestClient, multipart},
     header::CONTENT_TYPE,
 };
-use rgb_lib_migration::{Migrator, MigratorTrait};
+use rgb_lib_migration::{
+    ArrayType, ColumnType, Migrator, MigratorTrait, Nullable, Value, ValueType, ValueTypeErr,
+};
 use rgbinvoice::{Beneficiary, RgbInvoice, RgbInvoiceBuilder, XChainNet};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use rgbstd::indexers::AnyResolver;
 use rgbstd::{
-    Allocation, Amount, ChainNet, Genesis, GraphSeal, Identity, Layer1, MergeReveal, OpId,
-    Operation, Opout, OutputSeal, OwnedFraction, Precision, Schema, SecretSeal, TokenIndex,
-    Transition, TransitionType,
+    Allocation, Amount, ChainNet, Genesis, GraphSeal, Identity, Layer1, Operation, Opout,
+    OutputSeal, OwnedFraction, Precision, Schema, SecretSeal, TokenIndex, Transition,
+    TransitionType,
     containers::{BuilderSeal, Kit, ValidContract, ValidKit, ValidTransfer},
     contract::{AllocatedState, ContractBuilder, IssuerWrapper, TransitionBuilder},
     info::{ContractInfo, SchemaInfo},
-    invoice::InvoiceState,
-    invoice::Pay2Vout,
-    persistence::{MemContract, MemContractState, Stock},
-    persistence::{StashReadProvider, fs::FsBinStore},
-    schema::SchemaId,
+    invoice::{InvoiceState, Pay2Vout},
+    persistence::{MemContract, MemContractState, StashReadProvider, Stock, fs::FsBinStore},
     stl::{
         AssetSpec, Attachment, ContractTerms, Details, EmbeddedMedia as RgbEmbeddedMedia,
         MediaType, Name, ProofOfReserves as RgbProofOfReserves, RicardianContract, Ticker,
@@ -206,14 +199,19 @@ use rgbstd::{
     containers::IndexedConsignment,
     validation::{Validity, Warning},
 };
-use schemata::{CollectibleFungibleAsset, NonInflatableAsset, UniqueDigitalAsset};
+use schemata::{
+    CollectibleFungibleAsset, InflatableFungibleAsset, NonInflatableAsset, UniqueDigitalAsset,
+};
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+use schemata::{OS_ASSET, OS_INFLATION, OS_REPLACE};
 use scrypt::{
     Params, Scrypt,
     password_hash::{PasswordHasher, Salt, SaltString, rand_core::OsRng},
 };
 use sea_orm::{
-    ActiveValue, ColumnTrait, ConnectOptions, Database, DatabaseConnection, DeriveActiveEnum,
-    EntityTrait, EnumIter, IntoActiveValue, QueryFilter, QueryOrder, TryIntoModel,
+    ActiveValue, ColumnTrait, ConnectOptions, Database, DatabaseConnection, DbErr,
+    DeriveActiveEnum, EntityTrait, EnumIter, IntoActiveValue, JsonValue, QueryFilter, QueryOrder,
+    QueryResult, TryGetError, TryGetable, TryIntoModel,
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use seals::txout::TxPtr;
@@ -223,9 +221,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use slog::{Drain, Logger, debug, error, info, o, warn};
 use slog_async::AsyncGuard;
 use slog_term::{FullFormat, PlainDecorator};
-use strict_encoding::{
-    DecodeError, DeserializeError, FieldName, StrictDeserialize, StrictSerialize,
-};
+use strict_encoding::{DecodeError, DeserializeError, FieldName};
 use tempfile::TempDir;
 use time::OffsetDateTime;
 use typenum::consts::U32;
@@ -252,7 +248,7 @@ use crate::{
         INDEXER_RETRIES, INDEXER_STOP_GAP, INDEXER_TIMEOUT, OffchainResolver, check_proxy,
         get_indexer, get_proxy_client, script_buf_from_recipient_id,
     },
-    wallet::Indexer,
+    wallet::{AssignmentsCollection, Indexer},
 };
 use crate::{
     database::{
@@ -264,9 +260,6 @@ use crate::{
             batch_transfer::{ActiveModel as DbBatchTransferActMod, Model as DbBatchTransfer},
             coloring::{ActiveModel as DbColoringActMod, Model as DbColoring},
             media::{ActiveModel as DbMediaActMod, Model as DbMedia},
-            pending_witness_outpoint::{
-                ActiveModel as DbPendingWitnessOutpointActMod, Model as DbPendingWitnessOutpoint,
-            },
             pending_witness_script::{
                 ActiveModel as DbPendingWitnessScriptActMod, Model as DbPendingWitnessScript,
             },
@@ -285,15 +278,17 @@ use crate::{
                 ActiveModel as DbWalletTransactionActMod, Model as DbWalletTransaction,
             },
         },
-        enums::{ColoringType, WalletTransactionType},
+        enums::{ColoringType, RecipientTypeFull, WalletTransactionType},
     },
     error::InternalError,
     utils::{
-        DumbResolver, LOG_FILE, RgbInExt, RgbOutExt, RgbPsbtExt, RgbRuntime,
-        adjust_canonicalization, beneficiary_from_script_buf, from_str_or_number_mandatory,
-        from_str_or_number_optional, get_account_xpubs, get_descriptors,
-        get_descriptors_from_xpubs, get_genesis_hash, load_rgb_runtime, now, parse_address_str,
-        setup_logger, str_to_xpub,
+        DumbResolver, LOG_FILE, RgbRuntime, adjust_canonicalization, beneficiary_from_script_buf,
+        from_str_or_number_mandatory, from_str_or_number_optional, get_account_xpubs,
+        get_descriptors, get_descriptors_from_xpubs, get_genesis_hash, load_rgb_runtime, now,
+        parse_address_str, setup_logger, str_to_xpub,
     },
-    wallet::{Balance, NUM_KNOWN_SCHEMAS, Outpoint, SCHEMA_ID_CFA, SCHEMA_ID_NIA, SCHEMA_ID_UDA},
+    wallet::{
+        Balance, NUM_KNOWN_SCHEMAS, Outpoint, SCHEMA_ID_CFA, SCHEMA_ID_IFA, SCHEMA_ID_NIA,
+        SCHEMA_ID_UDA,
+    },
 };

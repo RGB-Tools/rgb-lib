@@ -52,11 +52,13 @@ scrypt = { version = "0.11.0", default-features = false, features = [
     "simple",
     "std",
 ] }
-sea-orm = { version = "1.1.11", default-features = false, features = [
+sea-orm = { version = "1.1.12", default-features = false, features = [
     "macros",
     "runtime-async-std-rustls",
     "sqlx-sqlite",
+    "with-json",
 ] }
+sea-query = "0.32.6"
 serde = { version = "^1.0", default-features = false, features = [
     "derive",
 ] }
@@ -91,10 +93,10 @@ bp-esplora = { version = "=0.11.1-alpha.2", optional = true, default-features = 
 ] }
 bp-invoice = { version = "=0.11.1-alpha.2", default-features = false }
 commit_verify = { version = "=0.11.1-alpha.2", default-features = false }
-rgb-invoice = { version = "=0.11.1-alpha.3", default-features = false }
-rgb-psbt = { version = "=0.11.1-alpha.3", default-features = false }
-rgb-schemata = { version = "=0.11.1-alpha.2", default-features = false }
-rgb-std = { version = "=0.11.1-alpha.3", default-features = false }
+rgb-invoicing = { version = "=0.11.1-rc.2", default-features = false }
+rgb-psbt-utils = { version = "=0.11.1-rc.2", default-features = false }
+rgb-schemas = { version = "=0.11.1-rc.2", default-features = false }
+rgb-ops = { version = "=0.11.1-rc.2", default-features = false }
 strict_encoding = { version = "=2.8.2", default-features = false }
 
 [dev-dependencies]
@@ -112,12 +114,12 @@ electrum = [
     "bdk_electrum",
     "bp-electrum",
     "reqwest",
-    "rgb-std/electrum_blocking",
+    "rgb-ops/electrum_blocking",
 ]
 esplora = [
     "bdk_esplora",
     "bp-esplora",
     "reqwest",
-    "rgb-std/esplora_blocking",
+    "rgb-ops/esplora_blocking",
 ]
 camel_case = ["default"]

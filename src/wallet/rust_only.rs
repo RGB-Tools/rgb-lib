@@ -7,8 +7,6 @@ use super::*;
 /// RGB asset-specific information to color a transaction
 #[derive(Clone, Debug)]
 pub struct AssetColoringInfo {
-    /// Input outpoints of the assets being spent
-    pub input_outpoints: Vec<Outpoint>,
     /// Map of vouts and asset amounts to color the transaction outputs
     pub output_map: HashMap<u32, u64>,
     /// Static blinding to keep the transaction construction deterministic
@@ -98,7 +96,7 @@ impl Wallet {
             opreturn_first = true;
         }
 
-        let mut psbt = if !transaction
+        let psbt = if !transaction
             .output
             .iter()
             .any(|o| o.script_pubkey.is_op_return())
@@ -119,11 +117,11 @@ impl Wallet {
 
         let runtime = self.rgb_runtime()?;
 
-        let prev_outputs = psbt
-            .unsigned_tx
-            .input
-            .iter()
-            .map(|txin| Outpoint::from(txin.previous_output).into())
+        let mut rgb_psbt = RgbPsbt::from_str(&psbt.to_string()).unwrap();
+
+        let prev_outputs = rgb_psbt
+            .inputs()
+            .map(|txin| txin.previous_outpoint)
             .collect::<HashSet<RgbOutpoint>>();
 
         let mut all_transitions: HashMap<ContractId, Transition> = HashMap::new();
@@ -163,7 +161,7 @@ impl Wallet {
                     vout += 1;
                 }
                 sending_amt += amount;
-                if vout as usize > psbt.outputs.len() {
+                if vout as usize > rgb_psbt.outputs().count() {
                     return Err(Error::InvalidColoringInfo {
                         details: s!("invalid vout in output_map, does not exist in the given PSBT"),
                     });
@@ -177,7 +175,7 @@ impl Wallet {
                 beneficiaries.push(seal);
 
                 match schema {
-                    AssetSchema::Nia | AssetSchema::Cfa => {
+                    AssetSchema::Nia | AssetSchema::Cfa | AssetSchema::Ifa => {
                         asset_transition_builder = asset_transition_builder.add_fungible_state(
                             assignment_name.clone(),
                             seal,
@@ -210,43 +208,38 @@ impl Wallet {
             asset_beneficiaries.insert(contract_id, beneficiaries);
         }
 
-        let (opreturn_index, _) = psbt
-            .unsigned_tx
-            .output
+        let (opreturn_index, _) = rgb_psbt
+            .to_unsigned_tx()
+            .outputs
             .iter()
             .enumerate()
             .find(|(_, o)| o.script_pubkey.is_op_return())
             .expect("psbt should have an op_return output");
-        let (_, opreturn_output) = psbt
-            .outputs
-            .iter_mut()
+        let (_, opreturn_output) = rgb_psbt
+            .outputs_mut()
             .enumerate()
             .find(|(i, _)| i == &opreturn_index)
             .unwrap();
-        opreturn_output.set_opret_host();
+        opreturn_output
+            .set_opret_host()
+            .map_err(InternalError::from)?;
         if let Some(blinding) = coloring_info.static_blinding {
-            opreturn_output.set_mpc_entropy(blinding);
+            opreturn_output
+                .set_mpc_entropy(blinding)
+                .map_err(InternalError::from)?;
         }
 
         for (contract_id, transition) in all_transitions {
-            for (input, txin) in psbt.inputs.iter_mut().zip(&psbt.unsigned_tx.input) {
-                let prevout = txin.previous_output;
-                let outpoint = RgbOutpoint::new(prevout.txid.to_byte_array().into(), prevout.vout);
-                if coloring_info
-                    .asset_info_map
-                    .clone()
-                    .get(&contract_id)
-                    .unwrap()
-                    .input_outpoints
-                    .contains(&outpoint.into())
-                {
-                    input.set_rgb_consumer(contract_id, transition.id())?;
-                }
+            for opout in transition.inputs() {
+                rgb_psbt
+                    .set_rgb_contract_consumer(contract_id, opout, transition.id())
+                    .map_err(InternalError::from)?;
             }
-            psbt.push_rgb_transition(transition)?;
+            rgb_psbt
+                .push_rgb_transition(transition)
+                .map_err(InternalError::from)?;
         }
 
-        let mut rgb_psbt = RgbPsbt::from_str(&psbt.to_string()).unwrap();
         rgb_psbt.set_rgb_close_method(CloseMethod::OpretFirst);
         rgb_psbt.complete_construction();
         let fascia = rgb_psbt.rgb_commit().map_err(|e| Error::Internal {
@@ -318,7 +311,7 @@ impl Wallet {
         vout: u32,
         consignment_endpoint: RgbTransport,
         blinding: u64,
-    ) -> Result<(RgbTransfer, u64), Error> {
+    ) -> Result<(RgbTransfer, Vec<Assignment>), Error> {
         info!(self.logger, "Accepting transfer...");
         let witness_id = RgbTxid::from_str(&txid).map_err(|_| Error::InvalidTxid)?;
         let proxy_url = TransportEndpoint::try_from(consignment_endpoint)?.endpoint;
@@ -381,13 +374,13 @@ impl Wallet {
             .import_contract(minimal_contract_validated, self.blockchain_resolver())
             .expect("failure importing validated contract");
 
-        let remote_rgb_amount =
-            self.extract_received_amount(&consignment, witness_id, Some(vout), None);
+        let received_rgb_assignments =
+            self.extract_received_assignments(&consignment, witness_id, Some(vout), None);
 
         let _status = runtime.accept_transfer(validated_transfer.unwrap(), &resolver)?;
 
         info!(self.logger, "Accept transfer completed");
-        Ok((consignment, remote_rgb_amount))
+        Ok((consignment, received_rgb_assignments))
     }
 
     /// Consume an RGB fascia.
@@ -580,6 +573,33 @@ impl Wallet {
                         precision,
                         issued_supply,
                         None,
+                        details,
+                        media_idx,
+                        None,
+                    )
+                }
+                AssetSchema::Ifa => {
+                    let contract =
+                        runtime.contract_wrapper::<InflatableFungibleAsset>(contract_id)?;
+                    let spec = contract.spec();
+                    let ticker = spec.ticker().to_string();
+                    let name = spec.name().to_string();
+                    let details = spec.details().map(|d| d.to_string());
+                    let precision = spec.precision.into();
+                    let issued_supply = contract.total_issued_supply().into();
+                    let media_idx = if let Some(attachment) = contract.contract_terms().media {
+                        Some(self.get_or_insert_media(
+                            hex::encode(attachment.digest),
+                            attachment.ty.to_string(),
+                        )?)
+                    } else {
+                        None
+                    };
+                    (
+                        name,
+                        precision,
+                        issued_supply,
+                        Some(ticker),
                         details,
                         media_idx,
                         None,
