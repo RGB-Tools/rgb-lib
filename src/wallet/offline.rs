@@ -1444,10 +1444,7 @@ impl Wallet {
             return Err(Error::NoIssuanceAmounts);
         }
         amounts.iter().try_fold(0u64, |acc, x| {
-            Ok(match acc.checked_add(*x) {
-                None => return Err(Error::TooHighIssuanceAmounts),
-                Some(sum) => sum,
-            })
+            acc.checked_add(*x).ok_or(Error::TooHighIssuanceAmounts)
         })
     }
 
