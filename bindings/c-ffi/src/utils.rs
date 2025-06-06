@@ -473,6 +473,15 @@ pub(crate) fn send_btc(
     Ok(res)
 }
 
+pub(crate) fn sign_psbt(
+    wallet: &COpaqueStruct,
+    unsigned_psbt: *const c_char,
+) -> Result<String, Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let unsigned_psbt = ptr_to_string(unsigned_psbt);
+    Ok(wallet.sign_psbt(unsigned_psbt, None)?)
+}
+
 pub(crate) fn sync(wallet: &COpaqueStruct, online: &COpaqueStruct) -> Result<(), Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = Online::from_opaque(online)?;
