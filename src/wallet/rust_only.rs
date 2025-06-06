@@ -336,8 +336,7 @@ impl Wallet {
 
         let mut runtime = self.rgb_runtime()?;
 
-        let blind_seal = BlindSeal::with_blinding(TxPtr::WitnessTx, vout, blinding);
-        let graph_seal = GraphSeal::from(blind_seal);
+        let graph_seal = GraphSeal::with_blinded_vout(vout, blinding);
         runtime.store_secret_seal(graph_seal)?;
 
         let resolver = OffchainResolver {

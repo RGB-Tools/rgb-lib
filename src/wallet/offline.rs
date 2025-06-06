@@ -762,6 +762,12 @@ impl From<Outpoint> for OutPoint {
     }
 }
 
+impl From<DbTxo> for RgbOutpoint {
+    fn from(x: DbTxo) -> RgbOutpoint {
+        RgbOutpoint::new(RgbTxid::from_str(&x.txid).unwrap(), x.vout)
+    }
+}
+
 impl From<Outpoint> for RgbOutpoint {
     fn from(x: Outpoint) -> RgbOutpoint {
         RgbOutpoint::new(RgbTxid::from_str(&x.txid).unwrap(), x.vout)
@@ -1500,6 +1506,18 @@ impl Wallet {
         ContractTerms { text, media }
     }
 
+    pub(crate) fn get_blind_seal(&self, outpoint: impl Into<RgbOutpoint>) -> BlindSeal<RgbTxid> {
+        let outpoint = outpoint.into();
+        BlindSeal::new_random(outpoint.txid, outpoint.vout)
+    }
+
+    pub(crate) fn get_builder_seal(
+        &self,
+        outpoint: impl Into<RgbOutpoint>,
+    ) -> BuilderSeal<BlindSeal<RgbTxid>> {
+        BuilderSeal::from(self.get_blind_seal(outpoint))
+    }
+
     /// Issue a new RGB NIA asset with the provided `ticker`, `name`, `precision` and `amounts`,
     /// then return it.
     ///
@@ -1579,12 +1597,8 @@ impl Wallet {
             let utxo = self.get_utxo(exclude_outpoints, Some(unspents.clone()), false)?;
             issue_utxos.insert(utxo.clone(), *amount);
 
-            let blind_seal =
-                BlindSeal::new_random(RgbTxid::from_str(&utxo.txid).unwrap(), utxo.vout);
-            let genesis_seal = GenesisSeal::from(blind_seal);
-
             builder = builder
-                .add_fungible_state("assetOwner", BuilderSeal::from(genesis_seal), *amount)
+                .add_fungible_state("assetOwner", self.get_builder_seal(utxo), *amount)
                 .expect("invalid global state data");
         }
         debug!(self.logger, "Issuing on UTXOs: {issue_utxos:?}");
@@ -1731,12 +1745,6 @@ impl Wallet {
         let issue_utxo = self.get_utxo(vec![], Some(unspents.clone()), false)?;
         debug!(self.logger, "Issuing on UTXO: {issue_utxo:?}");
 
-        let blind_seal = BlindSeal::new_random(
-            RgbTxid::from_str(&issue_utxo.txid).unwrap(),
-            issue_utxo.vout,
-        );
-        let genesis_seal = GenesisSeal::from(blind_seal);
-
         let index = TokenIndex::from_inner(UDA_FIXED_INDEX);
 
         let fraction = OwnedFraction::from_inner(1);
@@ -1780,7 +1788,11 @@ impl Wallet {
         .expect("invalid spec")
         .add_global_state("terms", terms)
         .expect("invalid terms")
-        .add_data("assetOwner", BuilderSeal::from(genesis_seal), allocation)
+        .add_data(
+            "assetOwner",
+            self.get_builder_seal(issue_utxo.clone()),
+            allocation,
+        )
         .expect("invalid global state data")
         .add_global_state("tokens", token_data)
         .expect("invalid tokens");
@@ -1959,12 +1971,8 @@ impl Wallet {
             let utxo = self.get_utxo(exclude_outpoints, Some(unspents.clone()), false)?;
             issue_utxos.insert(utxo.clone(), *amount);
 
-            let blind_seal =
-                BlindSeal::new_random(RgbTxid::from_str(&utxo.txid).unwrap(), utxo.vout);
-            let genesis_seal = GenesisSeal::from(blind_seal);
-
             builder = builder
-                .add_fungible_state("assetOwner", BuilderSeal::from(genesis_seal), *amount)
+                .add_fungible_state("assetOwner", self.get_builder_seal(utxo), *amount)
                 .expect("invalid global state data");
         }
         debug!(self.logger, "Issuing on UTXOs: {issue_utxos:?}");
@@ -2211,9 +2219,8 @@ impl Wallet {
             "Blinding outpoint '{}'",
             utxo.outpoint().to_string()
         );
-        let blind_seal = BlindSeal::new_random(RgbTxid::from_str(&utxo.txid).unwrap(), utxo.vout);
-        let graph_seal = GraphSeal::from(blind_seal);
-        let beneficiary = Beneficiary::BlindedSeal(graph_seal.conceal());
+        let blind_seal = self.get_blind_seal(utxo.clone()).transmutate();
+        let beneficiary = Beneficiary::BlindedSeal(blind_seal.conceal());
 
         let (recipient_id, invoice, expiration_timestamp, batch_transfer_idx, asset_transfer_idx) =
             self._receive(
@@ -2227,7 +2234,7 @@ impl Wallet {
             )?;
 
         let mut runtime = self.rgb_runtime()?;
-        runtime.store_secret_seal(graph_seal)?;
+        runtime.store_secret_seal(blind_seal)?;
 
         let db_coloring = DbColoringActMod {
             txo_idx: ActiveValue::Set(utxo.idx),

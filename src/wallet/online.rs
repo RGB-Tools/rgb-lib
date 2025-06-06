@@ -2132,10 +2132,7 @@ impl Wallet {
                 *change_utxo_option = Some(change_utxo);
             }
             let change_utxo = change_utxo_option.clone().unwrap();
-            let blind_seal = BlindSeal::new_random(
-                RgbTxid::from_str(&change_utxo.txid).unwrap(),
-                change_utxo.vout,
-            );
+            let blind_seal = self.get_blind_seal(change_utxo).transmutate();
             GraphSeal::from(blind_seal)
         };
         Ok(graph_seal)

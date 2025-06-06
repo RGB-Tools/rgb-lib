@@ -204,8 +204,8 @@ use rgbstd::{
         TokenData,
     },
     validation::{ResolveWitness, Status, WitnessResolverError},
-    Allocation, Amount, ChainNet, Genesis, GenesisSeal, GraphSeal, Identity, Layer1, MergeReveal,
-    OpId, Operation, Opout, OutputSeal, OwnedFraction, Precision, Schema, SecretSeal, TokenIndex,
+    Allocation, Amount, ChainNet, Genesis, GraphSeal, Identity, Layer1, MergeReveal, OpId,
+    Operation, Opout, OutputSeal, OwnedFraction, Precision, Schema, SecretSeal, TokenIndex,
     Transition, TransitionType,
 };
 use schemata::{CollectibleFungibleAsset, NonInflatableAsset, UniqueDigitalAsset};
