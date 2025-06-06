@@ -619,9 +619,7 @@ impl Wallet {
 
         let mut utxos_to_create = num.unwrap_or(UTXO_NUM);
         if up_to {
-            let allocatable = self
-                .get_available_allocations(unspents, vec![], None)?
-                .len() as u8;
+            let allocatable = self.get_available_allocations(unspents, &[], None)?.len() as u8;
             if allocatable >= utxos_to_create {
                 return Err(Error::AllocationsAlreadyAvailable);
             }
@@ -2078,8 +2076,8 @@ impl Wallet {
                     let used_txos: Vec<Outpoint> =
                         all_inputs.clone().into_iter().map(|o| o.into()).collect();
                     let mut free_utxos = self.get_available_allocations(
-                        input_unspents.to_vec(),
-                        used_txos.clone(),
+                        input_unspents,
+                        used_txos.as_slice(),
                         Some(0),
                     )?;
                     // sort UTXOs by BTC amount
@@ -2112,14 +2110,17 @@ impl Wallet {
         change_utxo_option: &mut Option<DbTxo>,
         change_utxo_idx: &mut Option<i32>,
         input_outpoints: Vec<OutPoint>,
-        unspents: Vec<LocalUnspent>,
+        unspents: &[LocalUnspent],
     ) -> Result<BlindSeal<TxPtr>, Error> {
         let graph_seal = if let Some(btc_change) = btc_change {
             GraphSeal::new_random_vout(btc_change.vout)
         } else {
             if change_utxo_option.is_none() {
                 let change_utxo = self.get_utxo(
-                    input_outpoints.into_iter().map(|t| t.into()).collect(),
+                    &input_outpoints
+                        .into_iter()
+                        .map(Outpoint::from)
+                        .collect::<Vec<_>>(),
                     Some(unspents),
                     true,
                 )?;
@@ -2190,7 +2191,7 @@ impl Wallet {
                     &mut change_utxo_option,
                     &mut change_utxo_idx,
                     input_outpoints.clone(),
-                    unspents.clone(),
+                    unspents.as_slice(),
                 )?;
                 asset_transition_builder = asset_transition_builder.add_fungible_state(
                     assignment_name.clone(),
@@ -2282,7 +2283,7 @@ impl Wallet {
                         &mut change_utxo_option,
                         &mut change_utxo_idx,
                         input_outpoints.clone(),
-                        unspents.clone(),
+                        unspents.as_slice(),
                     )?;
                     extra_builder = extra_builder
                         .add_input(opout, state.clone())?

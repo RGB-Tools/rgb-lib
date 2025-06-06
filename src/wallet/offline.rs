@@ -1288,13 +1288,16 @@ impl Wallet {
             .sum())
     }
 
-    pub(crate) fn get_available_allocations(
+    pub(crate) fn get_available_allocations<T>(
         &self,
-        unspents: Vec<LocalUnspent>,
-        exclude_utxos: Vec<Outpoint>,
+        unspents: T,
+        exclude_utxos: &[Outpoint],
         max_allocations: Option<u32>,
-    ) -> Result<Vec<LocalUnspent>, Error> {
-        let mut mut_unspents = unspents;
+    ) -> Result<Vec<LocalUnspent>, Error>
+    where
+        T: Into<Vec<LocalUnspent>>,
+    {
+        let mut mut_unspents = unspents.into();
         mut_unspents
             .iter_mut()
             .for_each(|u| u.rgb_allocations.retain(|a| !a.status.failed()));
@@ -1328,20 +1331,24 @@ impl Wallet {
 
     pub(crate) fn get_utxo(
         &self,
-        exclude_utxos: Vec<Outpoint>,
-        unspents: Option<Vec<LocalUnspent>>,
+        exclude_utxos: &[Outpoint],
+        unspents: Option<&[LocalUnspent]>,
         pending_operation: bool,
     ) -> Result<DbTxo, Error> {
-        let unspents = if let Some(u) = unspents {
-            u
+        let rgb_allocations = if unspents.is_none() {
+            let unspent_txos = self.database.get_unspent_txos(vec![])?;
+            Some(
+                self.database
+                    .get_rgb_allocations(unspent_txos, None, None, None)?,
+            )
         } else {
-            self.database.get_rgb_allocations(
-                self.database.get_unspent_txos(vec![])?,
-                None,
-                None,
-                None,
-            )?
+            None
         };
+        let unspents: &[LocalUnspent] = match unspents {
+            Some(u) => u,
+            None => rgb_allocations.as_deref().unwrap(),
+        };
+
         let mut allocatable = self.get_available_allocations(unspents, exclude_utxos, None)?;
         allocatable.sort_by_key(|t| t.rgb_allocations.len());
         match allocatable.first() {
@@ -1591,10 +1598,10 @@ impl Wallet {
         .expect("invalid issuedSupply");
 
         let mut issue_utxos: HashMap<DbTxo, u64> = HashMap::new();
+        let mut exclude_outpoints = vec![];
         for amount in &amounts {
-            let exclude_outpoints: Vec<Outpoint> =
-                issue_utxos.keys().map(|txo| txo.outpoint()).collect();
-            let utxo = self.get_utxo(exclude_outpoints, Some(unspents.clone()), false)?;
+            let utxo = self.get_utxo(&exclude_outpoints, Some(&unspents), false)?;
+            exclude_outpoints.push(utxo.outpoint());
             issue_utxos.insert(utxo.clone(), *amount);
 
             builder = builder
@@ -1742,7 +1749,7 @@ impl Wallet {
             precision: self._check_precision(precision)?,
         };
 
-        let issue_utxo = self.get_utxo(vec![], Some(unspents.clone()), false)?;
+        let issue_utxo = self.get_utxo(&[], Some(&unspents), false)?;
         debug!(self.logger, "Issuing on UTXO: {issue_utxo:?}");
 
         let index = TokenIndex::from_inner(UDA_FIXED_INDEX);
@@ -1965,10 +1972,10 @@ impl Wallet {
         };
 
         let mut issue_utxos: HashMap<DbTxo, u64> = HashMap::new();
+        let mut exclude_outpoints = vec![];
         for amount in &amounts {
-            let exclude_outpoints: Vec<Outpoint> =
-                issue_utxos.keys().map(|txo| txo.outpoint()).collect();
-            let utxo = self.get_utxo(exclude_outpoints, Some(unspents.clone()), false)?;
+            let utxo = self.get_utxo(&exclude_outpoints, Some(&unspents), false)?;
+            exclude_outpoints.push(utxo.outpoint());
             issue_utxos.insert(utxo.clone(), *amount);
 
             builder = builder
@@ -2213,7 +2220,7 @@ impl Wallet {
                 .iter()
                 .any(|a| !a.incoming && a.status.waiting_counterparty()))
         });
-        let utxo = self.get_utxo(vec![], Some(unspents), true)?;
+        let utxo = self.get_utxo(&[], Some(&unspents), true)?;
         debug!(
             self.logger,
             "Blinding outpoint '{}'",
