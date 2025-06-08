@@ -67,7 +67,7 @@ impl FromStr for BitcoinNetwork {
             _ => {
                 return Err(Error::InvalidBitcoinNetwork {
                     network: s.to_string(),
-                })
+                });
             }
         })
     }
@@ -871,7 +871,7 @@ fn _write_rgb_runtime_lockfile(wallet_dir: &Path) -> Result<(), Error> {
             Err(e) => {
                 return Err(Error::IO {
                     details: e.to_string(),
-                })
+                });
             }
         }
     }
@@ -889,7 +889,7 @@ pub(crate) fn load_rgb_runtime(wallet_dir: PathBuf) -> Result<RgbRuntime, Error>
         if err
             .0
             .downcast_ref::<DeserializeError>()
-            .map(|e| matches!(e, DeserializeError::Decode(DecodeError::Io(ref e)) if e.kind() == ErrorKind::NotFound))
+            .map(|e| matches!(e, DeserializeError::Decode(DecodeError::Io(e)) if e.kind() == ErrorKind::NotFound))
             .unwrap_or_default()
         {
             let mut stock = Stock::in_memory();

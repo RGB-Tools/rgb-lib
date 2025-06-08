@@ -68,12 +68,12 @@ pub use bdk_wallet;
 pub use bdk_wallet::bitcoin;
 pub use rgbinvoice::RgbTransport;
 pub use rgbstd::{
+    ContractId, Txid as RgbTxid,
     containers::{
         ConsignmentExt, Contract, Fascia, FileContent, PubWitness, Transfer as RgbTransfer,
     },
     persistence::UpdateRes,
     vm::WitnessOrd,
-    ContractId, Txid as RgbTxid,
 };
 
 pub use crate::{
@@ -81,12 +81,12 @@ pub use crate::{
     error::Error,
     keys::{generate_keys, restore_keys},
     utils::BitcoinNetwork,
-    wallet::{backup::restore_backup, TransactionType, TransferKind, Wallet},
+    wallet::{TransactionType, TransferKind, Wallet, backup::restore_backup},
 };
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use std::{
-    cmp::{min, Ordering},
+    cmp::{Ordering, min},
     collections::hash_map::DefaultHasher,
     hash::Hasher,
     num::NonZeroU32,
@@ -104,62 +104,62 @@ use std::{
 };
 
 use amplify::{
-    bmap,
+    Wrapper, bmap,
     confinement::{Confined, U24},
-    s, Wrapper,
+    s,
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use amplify::{hex::ToHex, none};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-use base64::{engine::general_purpose, Engine as _};
+use base64::{Engine as _, engine::general_purpose};
 use bc::{Outpoint as RgbOutpoint, ScriptPubkey, Tx};
 #[cfg(feature = "electrum")]
 use bdk_electrum::{
+    BdkElectrumClient,
     electrum_client::{
         Client as ElectrumClient, ConfigBuilder, ElectrumApi, Error as ElectrumError, Param,
     },
-    BdkElectrumClient,
 };
 #[cfg(feature = "esplora")]
 use bdk_esplora::{
+    EsploraExt,
     esplora_client::{
         BlockingClient as EsploraClient, Builder as EsploraBuilder, Error as EsploraError,
     },
-    EsploraExt,
 };
 use bdk_wallet::{
+    ChangeSet, KeychainKind, LocalOutput, PersistedWallet, SignOptions, Wallet as BdkWallet,
     bitcoin::{
-        bip32::ChildNumber,
-        bip32::{DerivationPath, KeySource, Xpriv, Xpub},
-        hashes::{sha256, Hash as Sha256Hash},
-        psbt::Psbt,
-        psbt::{raw::ProprietaryKey, ExtractTxError, Input, Output},
-        secp256k1::Secp256k1,
         Address as BdkAddress, Amount as BdkAmount, BlockHash, Network as BdkNetwork, NetworkKind,
         OutPoint, OutPoint as BdkOutPoint, ScriptBuf, TxOut,
+        bip32::ChildNumber,
+        bip32::{DerivationPath, KeySource, Xpriv, Xpub},
+        hashes::{Hash as Sha256Hash, sha256},
+        psbt::Psbt,
+        psbt::{ExtractTxError, Input, Output, raw::ProprietaryKey},
+        secp256k1::Secp256k1,
     },
     chain::{CanonicalizationParams, ChainPosition},
     descriptor::Segwitv0,
     file_store::Store,
     keys::{
-        bip39::{Language, Mnemonic, WordCount},
         DerivableKey, DescriptorKey,
         DescriptorKey::{Public, Secret},
         DescriptorSecretKey, ExtendedKey, GeneratableKey,
+        bip39::{Language, Mnemonic, WordCount},
     },
     miniscript::DescriptorPublicKey,
-    ChangeSet, KeychainKind, LocalOutput, PersistedWallet, SignOptions, Wallet as BdkWallet,
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use bdk_wallet::{
-    bitcoin::{blockdata::fee_rate::FeeRate, Transaction as BdkTransaction, Txid},
+    Update,
+    bitcoin::{Transaction as BdkTransaction, Txid, blockdata::fee_rate::FeeRate},
     chain::spk_client::{FullScanRequest, FullScanResponse, SyncRequest, SyncResponse},
     coin_selection::InsufficientFunds,
-    Update,
 };
 use chacha20poly1305::{
-    aead::{generic_array::GenericArray, stream},
     Key, KeyInit, XChaCha20Poly1305,
+    aead::{generic_array::GenericArray, stream},
 };
 use commit_verify::Conceal;
 #[cfg(feature = "electrum")]
@@ -173,30 +173,27 @@ use psrgbt::{
     Opids, PropKey, ProprietaryKeyRgb, Psbt as RgbPsbt, RgbExt, RgbPsbt as RgbPsbtTrait,
     RgbPsbtError,
 };
-use rand::{distr::Alphanumeric, Rng};
+use rand::{Rng, distr::Alphanumeric};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use reqwest::{
-    blocking::{multipart, Client as RestClient},
+    blocking::{Client as RestClient, multipart},
     header::CONTENT_TYPE,
 };
 use rgb_lib_migration::{Migrator, MigratorTrait};
 use rgbinvoice::{Beneficiary, RgbInvoice, RgbInvoiceBuilder, XChainNet};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use rgbstd::indexers::AnyResolver;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
 use rgbstd::{
-    containers::IndexedConsignment,
-    validation::{Validity, Warning},
-    Assign,
-};
-use rgbstd::{
+    Allocation, Amount, ChainNet, Genesis, GraphSeal, Identity, Layer1, MergeReveal, OpId,
+    Operation, Opout, OutputSeal, OwnedFraction, Precision, Schema, SecretSeal, TokenIndex,
+    Transition, TransitionType,
     containers::{BuilderSeal, Kit, ValidContract, ValidKit, ValidTransfer},
     contract::{AllocatedState, ContractBuilder, IssuerWrapper, TransitionBuilder},
     info::{ContractInfo, SchemaInfo},
     invoice::InvoiceState,
     invoice::Pay2Vout,
-    persistence::{fs::FsBinStore, StashReadProvider},
     persistence::{MemContract, MemContractState, Stock},
+    persistence::{StashReadProvider, fs::FsBinStore},
     schema::SchemaId,
     stl::{
         AssetSpec, Attachment, ContractTerms, Details, EmbeddedMedia as RgbEmbeddedMedia,
@@ -204,14 +201,17 @@ use rgbstd::{
         TokenData,
     },
     validation::{ResolveWitness, Status, WitnessResolverError},
-    Allocation, Amount, ChainNet, Genesis, GraphSeal, Identity, Layer1, MergeReveal, OpId,
-    Operation, Opout, OutputSeal, OwnedFraction, Precision, Schema, SecretSeal, TokenIndex,
-    Transition, TransitionType,
+};
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+use rgbstd::{
+    Assign,
+    containers::IndexedConsignment,
+    validation::{Validity, Warning},
 };
 use schemata::{CollectibleFungibleAsset, NonInflatableAsset, UniqueDigitalAsset};
 use scrypt::{
-    password_hash::{rand_core::OsRng, PasswordHasher, Salt, SaltString},
     Params, Scrypt,
+    password_hash::{PasswordHasher, Salt, SaltString, rand_core::OsRng},
 };
 use sea_orm::{
     ActiveValue, ColumnTrait, ConnectOptions, Database, DatabaseConnection, DeriveActiveEnum,
@@ -222,7 +222,7 @@ use seals::txout::TxPtr;
 use seals::txout::{BlindSeal, CloseMethod, ExplicitSeal};
 use serde::de::{self, Unexpected, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
-use slog::{debug, error, info, o, warn, Drain, Logger};
+use slog::{Drain, Logger, debug, error, info, o, warn};
 use slog_async::AsyncGuard;
 use slog_term::{FullFormat, PlainDecorator};
 use strict_encoding::{
@@ -251,13 +251,14 @@ use crate::{
     database::{DbData, LocalRecipient, LocalRecipientData, LocalWitnessData},
     error::IndexerError,
     utils::{
-        check_proxy, get_indexer, get_proxy_client, script_buf_from_recipient_id, OffchainResolver,
-        INDEXER_RETRIES, INDEXER_STOP_GAP, INDEXER_TIMEOUT,
+        INDEXER_RETRIES, INDEXER_STOP_GAP, INDEXER_TIMEOUT, OffchainResolver, check_proxy,
+        get_indexer, get_proxy_client, script_buf_from_recipient_id,
     },
     wallet::Indexer,
 };
 use crate::{
     database::{
+        LocalRgbAllocation, LocalTransportEndpoint, LocalUnspent, RgbLibDatabase, TransferData,
         entities::{
             asset::{ActiveModel as DbAssetActMod, Model as DbAsset},
             asset_transfer::{ActiveModel as DbAssetTransferActMod, Model as DbAssetTransfer},
@@ -287,15 +288,14 @@ use crate::{
             },
         },
         enums::{ColoringType, WalletTransactionType},
-        LocalRgbAllocation, LocalTransportEndpoint, LocalUnspent, RgbLibDatabase, TransferData,
     },
     error::InternalError,
     utils::{
+        DumbResolver, LOG_FILE, RgbInExt, RgbOutExt, RgbPsbtExt, RgbRuntime,
         adjust_canonicalization, beneficiary_from_script_buf, from_str_or_number_mandatory,
         from_str_or_number_optional, get_account_xpubs, get_descriptors,
         get_descriptors_from_xpubs, get_genesis_hash, load_rgb_runtime, now, parse_address_str,
-        setup_logger, str_to_xpub, DumbResolver, RgbInExt, RgbOutExt, RgbPsbtExt, RgbRuntime,
-        LOG_FILE,
+        setup_logger, str_to_xpub,
     },
-    wallet::{Balance, Outpoint, NUM_KNOWN_SCHEMAS, SCHEMA_ID_CFA, SCHEMA_ID_NIA, SCHEMA_ID_UDA},
+    wallet::{Balance, NUM_KNOWN_SCHEMAS, Outpoint, SCHEMA_ID_CFA, SCHEMA_ID_NIA, SCHEMA_ID_UDA},
 };

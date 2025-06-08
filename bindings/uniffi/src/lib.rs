@@ -6,6 +6,8 @@ use std::{
 };
 
 use rgb_lib::{
+    AssetSchema, BitcoinNetwork, Error as RgbLibError, RecipientType, TransferStatus,
+    TransportType,
     keys::Keys,
     wallet::{
         Address as RgbLibAddress, AssetCFA, AssetNIA, AssetUDA, Assets, Balance, BlockTime,
@@ -17,8 +19,6 @@ use rgb_lib::{
         TransportEndpoint as RgbLibTransportEndpoint, Unspent, Utxo, Wallet as RgbLibWallet,
         WalletData, WitnessData,
     },
-    AssetSchema, BitcoinNetwork, Error as RgbLibError, RecipientType, TransferStatus,
-    TransportType,
 };
 
 uniffi::include_scaffolding!("rgb-lib");

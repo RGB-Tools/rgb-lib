@@ -143,7 +143,7 @@ impl Indexer {
                             _ => {
                                 return Err(Error::Internal {
                                     details: s!("esplora map doesn't contain the expected keys"),
-                                })
+                                });
                             }
                         }
                     }
@@ -660,12 +660,12 @@ impl Wallet {
                             available,
                         }) => (needed.to_sat(), available.to_sat()),
                         bdk_wallet::error::CreateTxError::OutputBelowDustLimit(_) => {
-                            return Err(Error::OutputBelowDustLimit)
+                            return Err(Error::OutputBelowDustLimit);
                         }
                         _ => {
                             return Err(Error::Internal {
                                 details: e.to_string(),
-                            })
+                            });
                         }
                     };
                     addresses.pop()
@@ -2421,7 +2421,7 @@ impl Wallet {
                     vout,
                 ) {
                     Err(Error::RecipientIDAlreadyUsed) => {
-                        return Err(Error::RecipientIDAlreadyUsed)
+                        return Err(Error::RecipientIDAlreadyUsed);
                     }
                     Err(_) => continue,
                     Ok(()) => {}

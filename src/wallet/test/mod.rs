@@ -26,11 +26,11 @@ use crate::wallet::{
 use crate::{
     database::entities::transfer_transport_endpoint,
     utils::{
-        get_account_data, recipient_id_from_script_buf, script_buf_from_recipient_id, KEYCHAIN_BTC,
-        KEYCHAIN_RGB, RGB_RUNTIME_DIR,
+        KEYCHAIN_BTC, KEYCHAIN_RGB, RGB_RUNTIME_DIR, get_account_data,
+        recipient_id_from_script_buf, script_buf_from_recipient_id,
     },
     wallet::{
-        backup::{get_backup_paths, unzip, zip_dir, BackupPubData, ScryptParams},
+        backup::{BackupPubData, ScryptParams, get_backup_paths, unzip, zip_dir},
         rust_only::{AssetColoringInfo, ColoringInfo, IndexerProtocol},
         test::utils::{api::*, helpers::*},
     },

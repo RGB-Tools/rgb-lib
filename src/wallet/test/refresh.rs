@@ -77,14 +77,16 @@ fn success() {
     assert!(test_refresh_all(&mut wallet_2, &online_2));
     let bak_info_after = wallet_2.database.get_backup_info().unwrap().unwrap();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
-    assert!(test_refresh_result(
-        &mut wallet_1,
-        &online_1,
-        Some(&asset_1.asset_id),
-        &[filter_counter_out.clone()]
-    )
-    .unwrap()
-    .transfers_changed());
+    assert!(
+        test_refresh_result(
+            &mut wallet_1,
+            &online_1,
+            Some(&asset_1.asset_id),
+            &[filter_counter_out.clone()]
+        )
+        .unwrap()
+        .transfers_changed()
+    );
     // wallet 1 > 2, WaitingCounterparty and vice versa
     let receive_data_2b = test_blind_receive(&wallet_2);
     let recipient_map_1b = HashMap::from([(
@@ -530,12 +532,14 @@ fn uda_with_preview_and_reserves() {
 
     wait_for_refresh(&mut wallet_2, &online_2, None, None);
     let assets_list = test_list_assets(&wallet_2, &[]);
-    assert!(assets_list.uda.unwrap()[0]
-        .token
-        .as_ref()
-        .unwrap()
-        .media
-        .is_none());
+    assert!(
+        assets_list.uda.unwrap()[0]
+            .token
+            .as_ref()
+            .unwrap()
+            .media
+            .is_none()
+    );
     wait_for_refresh(&mut wallet_1, &online_1, None, None);
     mine(false, false);
     wait_for_refresh(&mut wallet_2, &online_2, None, None);
@@ -644,15 +648,19 @@ fn skip_sync() {
         }],
     )]);
     // refresh skipping sync > no transfer has changed so return false before and after syncing
-    assert!(!wallet_2
-        .refresh(online_2.clone(), None, vec![], true)
-        .unwrap()
-        .transfers_changed());
+    assert!(
+        !wallet_2
+            .refresh(online_2.clone(), None, vec![], true)
+            .unwrap()
+            .transfers_changed()
+    );
     wallet_2.sync(online_2.clone()).unwrap();
-    assert!(!wallet_2
-        .refresh(online_2.clone(), None, vec![], true)
-        .unwrap()
-        .transfers_changed());
+    assert!(
+        !wallet_2
+            .refresh(online_2.clone(), None, vec![], true)
+            .unwrap()
+            .transfers_changed()
+    );
     let txid_1a = test_send(&mut wallet_1, &online_1, &recipient_map_1a);
     assert!(!txid_1a.is_empty());
     let receive_data_1a = test_blind_receive(&wallet_1);
@@ -668,23 +676,29 @@ fn skip_sync() {
     let txid_2a = test_send(&mut wallet_2, &online_2, &recipient_map_2a);
     assert!(!txid_2a.is_empty());
     // refresh skipping sync > transfers have changed so return true
-    assert!(wallet_1
-        .refresh(online_1.clone(), None, vec![], true)
-        .unwrap()
-        .transfers_changed());
-    assert!(wallet_2
-        .refresh(online_2.clone(), None, vec![], true)
-        .unwrap()
-        .transfers_changed());
-    assert!(wallet_1
-        .refresh(
-            online_1.clone(),
-            Some(asset_1.asset_id.to_string()),
-            vec![filter_counter_out.clone()],
-            true,
-        )
-        .unwrap()
-        .transfers_changed());
+    assert!(
+        wallet_1
+            .refresh(online_1.clone(), None, vec![], true)
+            .unwrap()
+            .transfers_changed()
+    );
+    assert!(
+        wallet_2
+            .refresh(online_2.clone(), None, vec![], true)
+            .unwrap()
+            .transfers_changed()
+    );
+    assert!(
+        wallet_1
+            .refresh(
+                online_1.clone(),
+                Some(asset_1.asset_id.to_string()),
+                vec![filter_counter_out.clone()],
+                true,
+            )
+            .unwrap()
+            .transfers_changed()
+    );
 
     // wallet 1 > 2, WaitingCounterparty and vice versa
     let receive_data_2b = test_blind_receive(&wallet_2);
@@ -756,10 +770,12 @@ fn skip_sync() {
     ));
 
     // refresh incoming WaitingCounterparty only (wallet 1), skipping sync
-    assert!(wallet_1
-        .refresh(online_1.clone(), None, vec![filter_counter_in], true)
-        .unwrap()
-        .transfers_changed());
+    assert!(
+        wallet_1
+            .refresh(online_1.clone(), None, vec![filter_counter_in], true)
+            .unwrap()
+            .transfers_changed()
+    );
     show_unspent_colorings(
         &mut wallet_1,
         "wallet 1 after refresh incoming WaitingCounterparty",
@@ -786,10 +802,12 @@ fn skip_sync() {
     ));
 
     // refresh outgoing WaitingCounterparty only (wallet 2), skipping sync
-    assert!(wallet_2
-        .refresh(online_2.clone(), None, vec![filter_counter_out], true)
-        .unwrap()
-        .transfers_changed());
+    assert!(
+        wallet_2
+            .refresh(online_2.clone(), None, vec![filter_counter_out], true)
+            .unwrap()
+            .transfers_changed()
+    );
     show_unspent_colorings(
         &mut wallet_2,
         "wallet 2 after refresh outgoing WaitingCounterparty",
@@ -818,10 +836,12 @@ fn skip_sync() {
     mine(false, true);
 
     // refresh incoming WaitingConfirmations only (wallet 2), skipping sync
-    assert!(wallet_2
-        .refresh(online_2.clone(), None, vec![filter_confirm_in], true)
-        .unwrap()
-        .transfers_changed());
+    assert!(
+        wallet_2
+            .refresh(online_2.clone(), None, vec![filter_confirm_in], true)
+            .unwrap()
+            .transfers_changed()
+    );
     show_unspent_colorings(
         &mut wallet_2,
         "wallet 2 after refresh incoming WaitingConfirmations",
@@ -848,10 +868,12 @@ fn skip_sync() {
     ));
 
     // refresh outgoing WaitingConfirmations only (wallet 1), skipping sync
-    assert!(wallet_1
-        .refresh(online_1.clone(), None, vec![filter_confirm_out], true)
-        .unwrap()
-        .transfers_changed());
+    assert!(
+        wallet_1
+            .refresh(online_1.clone(), None, vec![filter_confirm_out], true)
+            .unwrap()
+            .transfers_changed()
+    );
     show_unspent_colorings(
         &mut wallet_1,
         "wallet 1 after refresh outgoing WaitingConfirmations",

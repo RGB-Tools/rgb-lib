@@ -7,7 +7,7 @@ async fn main() {
 
 #[cfg(test)]
 mod tests {
-    use std::path::{PathBuf, MAIN_SEPARATOR_STR};
+    use std::path::{MAIN_SEPARATOR_STR, PathBuf};
 
     use rgb_lib_migration::Migrator;
     use sea_orm_migration::sea_orm::{ConnectOptions, Database};

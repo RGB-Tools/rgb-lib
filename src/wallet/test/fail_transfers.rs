@@ -544,14 +544,16 @@ fn skip_sync() {
         &receive_data.recipient_id,
         TransferStatus::WaitingCounterparty
     ));
-    assert!(rcv_wallet
-        .fail_transfers(
-            rcv_online.clone(),
-            Some(receive_data.batch_transfer_idx),
-            false,
-            true
-        )
-        .unwrap());
+    assert!(
+        rcv_wallet
+            .fail_transfers(
+                rcv_online.clone(),
+                Some(receive_data.batch_transfer_idx),
+                false,
+                true
+            )
+            .unwrap()
+    );
 
     // fail all expired WaitingCounterparty transfers
     let receive_data_1 = rcv_wallet
@@ -599,9 +601,11 @@ fn skip_sync() {
         &receive_data_3.recipient_id,
         TransferStatus::WaitingConfirmations
     ));
-    assert!(rcv_wallet
-        .fail_transfers(rcv_online.clone(), None, false, true)
-        .unwrap());
+    assert!(
+        rcv_wallet
+            .fail_transfers(rcv_online.clone(), None, false, true)
+            .unwrap()
+    );
     show_unspent_colorings(&mut rcv_wallet, "receiver run 1 after fail");
     show_unspent_colorings(&mut wallet, "sender run 1 after fail");
     assert!(check_test_transfer_status_recipient(

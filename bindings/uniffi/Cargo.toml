@@ -5,7 +5,7 @@ authors = [
     "Zoe Faltibà <zoefaltiba@gmail.com>",
     "Nicola Busanello <nicola.busanello@gmail.com>",
 ]
-edition = "2021"
+edition = "2024"
 rust-version = "1.85.0"
 
 [lib]

@@ -195,7 +195,9 @@ impl Wallet {
             }
             if sending_amt > asset_available_amt {
                 return Err(Error::InvalidColoringInfo {
-                    details: format!("total amount in output_map ({sending_amt}) greater than available ({asset_available_amt})"),
+                    details: format!(
+                        "total amount in output_map ({sending_amt}) greater than available ({asset_available_amt})"
+                    ),
                 });
             }
 

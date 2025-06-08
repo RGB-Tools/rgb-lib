@@ -30,30 +30,42 @@ fn success() {
     let rcv_transactions = test_list_transactions(&mut wallet, None);
     assert_eq!(transactions.len(), 2);
     assert_eq!(rcv_transactions.len(), 2);
-    assert!(transactions
-        .iter()
-        .any(|t| matches!(t.transaction_type, TransactionType::User)));
-    assert!(transactions
-        .iter()
-        .any(|t| matches!(t.transaction_type, TransactionType::CreateUtxos)));
-    assert!(rcv_transactions
-        .iter()
-        .any(|t| matches!(t.transaction_type, TransactionType::User)));
-    assert!(rcv_transactions
-        .iter()
-        .any(|t| matches!(t.transaction_type, TransactionType::CreateUtxos)));
+    assert!(
+        transactions
+            .iter()
+            .any(|t| matches!(t.transaction_type, TransactionType::User))
+    );
+    assert!(
+        transactions
+            .iter()
+            .any(|t| matches!(t.transaction_type, TransactionType::CreateUtxos))
+    );
+    assert!(
+        rcv_transactions
+            .iter()
+            .any(|t| matches!(t.transaction_type, TransactionType::User))
+    );
+    assert!(
+        rcv_transactions
+            .iter()
+            .any(|t| matches!(t.transaction_type, TransactionType::CreateUtxos))
+    );
     assert!(transactions.iter().any(|t| t.confirmation_time.is_none()));
-    assert!(rcv_transactions
-        .iter()
-        .any(|t| t.confirmation_time.is_none()));
+    assert!(
+        rcv_transactions
+            .iter()
+            .any(|t| t.confirmation_time.is_none())
+    );
     // sync wallet when online is provided
     resume_mining();
     let transactions = test_list_transactions(&mut wallet, Some(&online));
     let rcv_transactions = test_list_transactions(&mut rcv_wallet, Some(&rcv_online));
     assert!(transactions.iter().all(|t| t.confirmation_time.is_some()));
-    assert!(rcv_transactions
-        .iter()
-        .all(|t| t.confirmation_time.is_some()));
+    assert!(
+        rcv_transactions
+            .iter()
+            .all(|t| t.confirmation_time.is_some())
+    );
 
     let asset = test_issue_asset_nia(&mut wallet, &online, None);
     let receive_data = test_witness_receive(&mut rcv_wallet);
@@ -80,24 +92,32 @@ fn success() {
     let rcv_transactions = test_list_transactions(&mut rcv_wallet, Some(&rcv_online));
     assert_eq!(transactions.len(), 3);
     assert_eq!(rcv_transactions.len(), 3);
-    assert!(transactions
-        .iter()
-        .any(|t| matches!(t.transaction_type, TransactionType::RgbSend)));
-    assert!(rcv_transactions
-        .iter()
-        .any(|t| matches!(t.transaction_type, TransactionType::RgbSend)));
+    assert!(
+        transactions
+            .iter()
+            .any(|t| matches!(t.transaction_type, TransactionType::RgbSend))
+    );
+    assert!(
+        rcv_transactions
+            .iter()
+            .any(|t| matches!(t.transaction_type, TransactionType::RgbSend))
+    );
     assert!(transactions.iter().all(|t| t.confirmation_time.is_some()));
-    assert!(rcv_transactions
-        .iter()
-        .all(|t| t.confirmation_time.is_some()));
+    assert!(
+        rcv_transactions
+            .iter()
+            .all(|t| t.confirmation_time.is_some())
+    );
 
     drain_wallet(&mut wallet, &online);
     mine(false, false);
     let transactions = test_list_transactions(&mut wallet, Some(&online));
     assert_eq!(transactions.len(), 4);
-    assert!(transactions
-        .iter()
-        .any(|t| matches!(t.transaction_type, TransactionType::Drain)));
+    assert!(
+        transactions
+            .iter()
+            .any(|t| matches!(t.transaction_type, TransactionType::Drain))
+    );
     assert!(transactions.iter().all(|t| t.confirmation_time.is_some()));
 }
 

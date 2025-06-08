@@ -127,12 +127,16 @@ fn success() {
     // check all transfers are now in status Settled
     let transfer_list = test_list_transfers(&wallet, Some(&asset.asset_id));
     let transfer_list_rcv = test_list_transfers(&rcv_wallet, Some(&asset.asset_id));
-    assert!(transfer_list
-        .iter()
-        .all(|t| t.status == TransferStatus::Settled));
-    assert!(transfer_list_rcv
-        .iter()
-        .all(|t| t.status == TransferStatus::Settled));
+    assert!(
+        transfer_list
+            .iter()
+            .all(|t| t.status == TransferStatus::Settled)
+    );
+    assert!(
+        transfer_list_rcv
+            .iter()
+            .all(|t| t.status == TransferStatus::Settled)
+    );
 }
 
 #[test]

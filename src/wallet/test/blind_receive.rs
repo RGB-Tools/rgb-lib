@@ -540,9 +540,11 @@ fn multiple_receive_same_utxo() {
 
     // check both transfers are to be received on the same UTXO
     let transfers_recv = test_list_transfers(&wallet_recv, None);
-    assert!(transfers_recv
-        .windows(2)
-        .all(|w| w[0].receive_utxo == w[1].receive_utxo));
+    assert!(
+        transfers_recv
+            .windows(2)
+            .all(|w| w[0].receive_utxo == w[1].receive_utxo)
+    );
 
     // issue + send from wallet_send_1 to wallet_recv blind 1
     let asset_1 = test_issue_asset_nia(&mut wallet_send_1, &online_send_1, None);

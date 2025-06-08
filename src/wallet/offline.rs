@@ -604,7 +604,7 @@ impl Invoice {
             _ => {
                 return Err(Error::UnsupportedLayer1 {
                     layer_1: layer_1.to_string(),
-                })
+                });
             }
         };
 

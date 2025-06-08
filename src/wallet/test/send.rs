@@ -938,9 +938,11 @@ fn send_extra_success() {
         .unwrap();
     assert!(ca_a1.iter().any(|a| a.amount == amount_1));
     assert!(ca_a1.iter().any(|a| a.amount == amount_2));
-    assert!(ca_a1
-        .iter()
-        .all(|a| a.asset_id == Some(asset_nia.asset_id.clone())));
+    assert!(
+        ca_a1
+            .iter()
+            .all(|a| a.asset_id == Some(asset_nia.asset_id.clone()))
+    );
     assert!(ca_a1.iter().all(|a| a.settled));
     assert_eq!(ca_a2.amount, amount_3 - amount_4);
     assert_eq!(ca_a2.asset_id, Some(asset_cfa.asset_id.clone()));
@@ -1266,13 +1268,15 @@ fn send_received_uda_success() {
         Some(file_str),
         vec![&image_str, file_str],
     );
-    assert!(wallet_1
-        .database
-        .get_asset(asset.asset_id.clone())
-        .unwrap()
-        .unwrap()
-        .media_idx
-        .is_none());
+    assert!(
+        wallet_1
+            .database
+            .get_asset(asset.asset_id.clone())
+            .unwrap()
+            .unwrap()
+            .media_idx
+            .is_none()
+    );
 
     //
     // 1st transfer: wallet 1 > wallet 2
@@ -1332,13 +1336,15 @@ fn send_received_uda_success() {
 
     // take transfers from WaitingCounterparty to Settled
     wait_for_refresh(&mut wallet_3, &online_3, None, None);
-    assert!(wallet_3
-        .database
-        .get_asset(asset.asset_id.clone())
-        .unwrap()
-        .unwrap()
-        .media_idx
-        .is_none());
+    assert!(
+        wallet_3
+            .database
+            .get_asset(asset.asset_id.clone())
+            .unwrap()
+            .unwrap()
+            .media_idx
+            .is_none()
+    );
     wait_for_refresh(&mut wallet_2, &online_2, Some(&asset.asset_id), None);
     mine(false, false);
     wait_for_refresh(&mut wallet_3, &online_3, None, None);
@@ -3475,9 +3481,11 @@ fn send_to_oneself() {
 
     let batch_transfers = get_test_batch_transfers(&wallet, &txid);
     assert_eq!(batch_transfers.len(), 2);
-    assert!(batch_transfers
-        .iter()
-        .all(|t| t.status == TransferStatus::Settled));
+    assert!(
+        batch_transfers
+            .iter()
+            .all(|t| t.status == TransferStatus::Settled)
+    );
 }
 
 #[cfg(feature = "electrum")]
@@ -4624,18 +4632,22 @@ fn spend_double_receive() {
         })
         .collect();
     assert_eq!(asset_unspents.len(), 2);
-    assert!(asset_unspents
-        .first()
-        .unwrap()
-        .rgb_allocations
-        .iter()
-        .any(|a| a.amount == amount_1));
-    assert!(asset_unspents
-        .last()
-        .unwrap()
-        .rgb_allocations
-        .iter()
-        .any(|a| a.amount == amount_2));
+    assert!(
+        asset_unspents
+            .first()
+            .unwrap()
+            .rgb_allocations
+            .iter()
+            .any(|a| a.amount == amount_1)
+    );
+    assert!(
+        asset_unspents
+            .last()
+            .unwrap()
+            .rgb_allocations
+            .iter()
+            .any(|a| a.amount == amount_2)
+    );
 
     // send 2->3, manually selecting the 1st allocation (blind, amount_1) only
     println!("send witness 2->3");
@@ -5538,9 +5550,11 @@ fn skip_sync() {
     // mine and refresh skipping sync > cannot refresh ReceiveWitness transfer as a sync is needed
     mine(false, false);
     let result = wallet.refresh(online.clone(), None, vec![], true).unwrap();
-    assert!(result
-        .iter()
-        .any(|(i, rt)| *i == 4 && rt.failure == Some(Error::SyncNeeded)));
+    assert!(
+        result
+            .iter()
+            .any(|(i, rt)| *i == 4 && rt.failure == Some(Error::SyncNeeded))
+    );
     show_unspent_colorings(&mut wallet, "after refresh 2");
 
     // Send transfer is now settled

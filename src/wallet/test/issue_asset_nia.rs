@@ -63,13 +63,15 @@ fn multi_success() {
     assert_eq!(outpoints.len(), amounts.len());
 
     // check all allocations are of the same asset
-    assert!(unspents
-        .iter()
-        .filter(|u| !u.rgb_allocations.is_empty())
-        .all(|u| {
-            u.rgb_allocations.len() == 1
-                && u.rgb_allocations.first().unwrap().asset_id == Some(asset.asset_id.clone())
-        }));
+    assert!(
+        unspents
+            .iter()
+            .filter(|u| !u.rgb_allocations.is_empty())
+            .all(|u| {
+                u.rgb_allocations.len() == 1
+                    && u.rgb_allocations.first().unwrap().asset_id == Some(asset.asset_id.clone())
+            })
+    );
 }
 
 #[cfg(feature = "electrum")]

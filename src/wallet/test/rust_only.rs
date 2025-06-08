@@ -43,11 +43,13 @@ fn success() {
         .fee_rate(FeeRate::from_sat_per_vb_unchecked(FEE_RATE));
     let mut psbt = tx_builder.finish().unwrap();
     let mut psbt_copy = psbt.clone();
-    assert!(!psbt
-        .unsigned_tx
-        .output
-        .iter()
-        .any(|o| o.script_pubkey.is_op_return()));
+    assert!(
+        !psbt
+            .unsigned_tx
+            .output
+            .iter()
+            .any(|o| o.script_pubkey.is_op_return())
+    );
     assert!(psbt.proprietary.is_empty());
 
     // color PSBT
@@ -82,11 +84,12 @@ fn success() {
         .unwrap();
 
     // check PSBT
-    assert!(psbt
-        .unsigned_tx
-        .output
-        .iter()
-        .any(|o| o.script_pubkey.is_op_return()));
+    assert!(
+        psbt.unsigned_tx
+            .output
+            .iter()
+            .any(|o| o.script_pubkey.is_op_return())
+    );
     assert!(!psbt.proprietary.is_empty());
     let vout = vout + 1;
 
@@ -251,10 +254,12 @@ fn save_new_asset_success() {
         &nia_asset.asset_id,
         asset_amount,
     );
-    assert!(&rcv_wallet
-        .database
-        .check_asset_exists(nia_asset.asset_id.clone())
-        .is_ok());
+    assert!(
+        &rcv_wallet
+            .database
+            .check_asset_exists(nia_asset.asset_id.clone())
+            .is_ok()
+    );
     let asset_model = rcv_wallet
         .database
         .get_asset(nia_asset.asset_id.clone())
@@ -276,10 +281,12 @@ fn save_new_asset_success() {
         &cfa_asset.asset_id,
         asset_amount,
     );
-    assert!(&rcv_wallet
-        .database
-        .check_asset_exists(cfa_asset.asset_id.clone())
-        .is_ok());
+    assert!(
+        &rcv_wallet
+            .database
+            .check_asset_exists(cfa_asset.asset_id.clone())
+            .is_ok()
+    );
     let asset_model = rcv_wallet
         .database
         .get_asset(cfa_asset.asset_id.clone())
@@ -311,10 +318,12 @@ fn save_new_asset_success() {
         &uda_asset.asset_id,
         uda_amount,
     );
-    assert!(&rcv_wallet
-        .database
-        .check_asset_exists(uda_asset.asset_id.clone())
-        .is_ok());
+    assert!(
+        &rcv_wallet
+            .database
+            .check_asset_exists(uda_asset.asset_id.clone())
+            .is_ok()
+    );
     let asset_model = rcv_wallet
         .database
         .get_asset(uda_asset.asset_id.clone())
