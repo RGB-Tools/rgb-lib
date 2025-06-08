@@ -1139,8 +1139,8 @@ impl Wallet {
             BDK_DB_NAME.to_string()
         };
         let bdk_db_path = wallet_dir.join(bdk_db_name);
-        let mut bdk_database =
-            Store::<ChangeSet>::open_or_create_new(BDK_DB_NAME.as_bytes(), bdk_db_path)?;
+        let (mut bdk_database, _) =
+            Store::<ChangeSet>::load_or_create(BDK_DB_NAME.as_bytes(), bdk_db_path)?;
         let bdk_wallet = match wallet_params.load_wallet(&mut bdk_database)? {
             Some(wallet) => wallet,
             None => BdkWallet::create(desc_colored, desc_vanilla)
@@ -2648,10 +2648,13 @@ impl Wallet {
         let chain = self.bdk_wallet.local_chain();
         let chain_tip = self.bdk_wallet.latest_checkpoint().block_id();
         let outpoints = self.filter_unspents(keychain).map(|lo| ((), lo.outpoint));
-        let balance = self
-            .bdk_wallet
-            .as_ref()
-            .balance(chain, chain_tip, outpoints, |_, _| false);
+        let balance = self.bdk_wallet.as_ref().balance(
+            chain,
+            chain_tip,
+            CanonicalizationParams::default(),
+            outpoints,
+            |_, _| false,
+        );
 
         let future = balance.total();
         Ok(Balance {

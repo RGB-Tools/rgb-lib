@@ -641,8 +641,8 @@ impl From<reqwest::Error> for Error {
     }
 }
 
-impl From<bdk_wallet::file_store::FileError> for Error {
-    fn from(e: bdk_wallet::file_store::FileError) -> Self {
+impl From<bdk_wallet::file_store::StoreErrorWithDump<ChangeSet>> for Error {
+    fn from(e: bdk_wallet::file_store::StoreErrorWithDump<ChangeSet>) -> Self {
         Error::IO {
             details: e.to_string(),
         }

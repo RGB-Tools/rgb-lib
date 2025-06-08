@@ -138,7 +138,7 @@ use bdk_wallet::{
         Address as BdkAddress, Amount as BdkAmount, BlockHash, Network as BdkNetwork, NetworkKind,
         OutPoint, OutPoint as BdkOutPoint, ScriptBuf, TxOut,
     },
-    chain::ChainPosition,
+    chain::{CanonicalizationParams, ChainPosition},
     descriptor::Segwitv0,
     file_store::Store,
     keys::{
