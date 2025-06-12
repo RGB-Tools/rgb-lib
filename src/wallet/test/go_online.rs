@@ -96,13 +96,9 @@ fn consistency_check_fail_bitcoins() {
     let wallet_data_orig = test_get_wallet_data(&wallet_orig);
     test_issue_asset_nia(&mut wallet_orig, &online_orig, None);
 
-    // get wallet fingerprint
+    // get wallet data
     let wallet_dir_orig = test_get_wallet_dir(&wallet_orig);
-    let pubkey = Xpub::from_str(&wallet_data_orig.account_xpub_colored).unwrap();
-    let extended_key: ExtendedKey = ExtendedKey::from(pubkey);
-    let bdk_network = BdkNetwork::from(BitcoinNetwork::Regtest);
-    let xpub = extended_key.into_xpub(bdk_network, &Secp256k1::new());
-    let fingerprint = xpub.fingerprint().to_string();
+    let fingerprint = wallet_data_orig.master_fingerprint.clone();
     // prepare directories
     let data_dir_prefill_1 = get_test_data_dir_path().join("test_consistency.bitcoin.prefill_1");
     let data_dir_prefill_2 = get_test_data_dir_path().join("test_consistency.bitcoin.prefill_2");
@@ -126,18 +122,21 @@ fn consistency_check_fail_bitcoins() {
         &wallet_data_orig.account_xpub_colored,
         &wallet_data_orig.account_xpub_vanilla,
         wallet_data_orig.mnemonic.as_ref().unwrap(),
+        &wallet_data_orig.master_fingerprint,
     );
     let wallet_data_prefill = get_test_wallet_data(
         data_dir_prefill_2.to_str().unwrap(),
         &wallet_data_orig.account_xpub_colored,
         &wallet_data_orig.account_xpub_vanilla,
         wallet_data_orig.mnemonic.as_ref().unwrap(),
+        &wallet_data_orig.master_fingerprint,
     );
     let wallet_data_prefill_2 = get_test_wallet_data(
         data_dir_prefill_3.to_str().unwrap(),
         &wallet_data_orig.account_xpub_colored,
         &wallet_data_orig.account_xpub_vanilla,
         wallet_data_orig.mnemonic.as_ref().unwrap(),
+        &wallet_data_orig.master_fingerprint,
     );
     // copy original wallet's db data to prefilled wallet data dir
     let db_files: Vec<OsString> = fs::read_dir(&wallet_dir_orig)
@@ -205,13 +204,9 @@ fn consistency_check_fail_utxos() {
     let wallet_data_orig = test_get_wallet_data(&wallet_orig);
     test_issue_asset_nia(&mut wallet_orig, &online_orig, None);
 
-    // get wallet fingerprint
+    // get wallet data
     let wallet_dir_orig = test_get_wallet_dir(&wallet_orig);
-    let pubkey = Xpub::from_str(&wallet_data_orig.account_xpub_colored).unwrap();
-    let extended_key: ExtendedKey = ExtendedKey::from(pubkey);
-    let bdk_network = BdkNetwork::from(BitcoinNetwork::Regtest);
-    let xpub = extended_key.into_xpub(bdk_network, &Secp256k1::new());
-    let fingerprint = xpub.fingerprint().to_string();
+    let fingerprint = wallet_data_orig.master_fingerprint.clone();
     // prepare directories
     let data_dir_prefill_1 = get_test_data_dir_path().join("test_consistency.utxos.prefill_1");
     let data_dir_prefill_2 = get_test_data_dir_path().join("test_consistency.utxos.prefill_2");
@@ -235,18 +230,21 @@ fn consistency_check_fail_utxos() {
         &wallet_data_orig.account_xpub_colored,
         &wallet_data_orig.account_xpub_vanilla,
         wallet_data_orig.mnemonic.as_ref().unwrap(),
+        &wallet_data_orig.master_fingerprint,
     );
     let wallet_data_prefill = get_test_wallet_data(
         data_dir_prefill_2.to_str().unwrap(),
         &wallet_data_orig.account_xpub_colored,
         &wallet_data_orig.account_xpub_vanilla,
         wallet_data_orig.mnemonic.as_ref().unwrap(),
+        &wallet_data_orig.master_fingerprint,
     );
     let wallet_data_prefill_2 = get_test_wallet_data(
         data_dir_prefill_3.to_str().unwrap(),
         &wallet_data_orig.account_xpub_colored,
         &wallet_data_orig.account_xpub_vanilla,
         wallet_data_orig.mnemonic.as_ref().unwrap(),
+        &wallet_data_orig.master_fingerprint,
     );
     // copy original wallet's db data to prefilled wallet data dir
     let db_files: Vec<OsString> = fs::read_dir(&wallet_dir_orig)
@@ -314,13 +312,9 @@ fn consistency_check_fail_asset_ids() {
     let wallet_data_orig = test_get_wallet_data(&wallet_orig);
     test_issue_asset_nia(&mut wallet_orig, &online_orig, None);
 
-    // get wallet fingerprint
+    // get wallet data
     let wallet_dir_orig = test_get_wallet_dir(&wallet_orig);
-    let pubkey = Xpub::from_str(&wallet_data_orig.account_xpub_colored).unwrap();
-    let extended_key: ExtendedKey = ExtendedKey::from(pubkey);
-    let bdk_network = BdkNetwork::from(BitcoinNetwork::Regtest);
-    let xpub = extended_key.into_xpub(bdk_network, &Secp256k1::new());
-    let fingerprint = xpub.fingerprint().to_string();
+    let fingerprint = wallet_data_orig.master_fingerprint.clone();
     // prepare directories
     let data_dir_prefill_1 = get_test_data_dir_path().join("test_consistency.assets.prefill_1");
     let data_dir_prefill_2 = get_test_data_dir_path().join("test_consistency.assets.prefill_2");
@@ -344,18 +338,21 @@ fn consistency_check_fail_asset_ids() {
         &wallet_data_orig.account_xpub_colored,
         &wallet_data_orig.account_xpub_vanilla,
         wallet_data_orig.mnemonic.as_ref().unwrap(),
+        &wallet_data_orig.master_fingerprint,
     );
     let wallet_data_prefill_2 = get_test_wallet_data(
         data_dir_prefill_2.to_str().unwrap(),
         &wallet_data_orig.account_xpub_colored,
         &wallet_data_orig.account_xpub_vanilla,
         wallet_data_orig.mnemonic.as_ref().unwrap(),
+        &wallet_data_orig.master_fingerprint,
     );
     let wallet_data_prefill_3 = get_test_wallet_data(
         data_dir_prefill_3.to_str().unwrap(),
         &wallet_data_orig.account_xpub_colored,
         &wallet_data_orig.account_xpub_vanilla,
         wallet_data_orig.mnemonic.as_ref().unwrap(),
+        &wallet_data_orig.master_fingerprint,
     );
     // copy original wallet's data to prefilled wallets 1 + 2 data dir
     for destination in [&wallet_dir_prefill_1, &wallet_dir_prefill_2] {
@@ -403,13 +400,9 @@ fn consistency_check_fail_media() {
         Some(file_str.to_string()),
     );
 
-    // get wallet fingerprint
+    // get wallet data
     let wallet_dir_orig = test_get_wallet_dir(&wallet_orig);
-    let pubkey = Xpub::from_str(&wallet_data_orig.account_xpub_colored).unwrap();
-    let extended_key: ExtendedKey = ExtendedKey::from(pubkey);
-    let bdk_network = BdkNetwork::from(BitcoinNetwork::Regtest);
-    let xpub = extended_key.into_xpub(bdk_network, &Secp256k1::new());
-    let fingerprint = xpub.fingerprint().to_string();
+    let fingerprint = wallet_data_orig.master_fingerprint.clone();
     // prepare directories
     let data_dir_prefill_1 = get_test_data_dir_path().join("test_consistency.media.prefill_1");
     let data_dir_prefill_2 = get_test_data_dir_path().join("test_consistency.media.prefill_2");
@@ -433,18 +426,21 @@ fn consistency_check_fail_media() {
         &wallet_data_orig.account_xpub_colored,
         &wallet_data_orig.account_xpub_vanilla,
         wallet_data_orig.mnemonic.as_ref().unwrap(),
+        &wallet_data_orig.master_fingerprint,
     );
     let wallet_data_prefill_2 = get_test_wallet_data(
         data_dir_prefill_2.to_str().unwrap(),
         &wallet_data_orig.account_xpub_colored,
         &wallet_data_orig.account_xpub_vanilla,
         wallet_data_orig.mnemonic.as_ref().unwrap(),
+        &wallet_data_orig.master_fingerprint,
     );
     let wallet_data_prefill_3 = get_test_wallet_data(
         data_dir_prefill_3.to_str().unwrap(),
         &wallet_data_orig.account_xpub_colored,
         &wallet_data_orig.account_xpub_vanilla,
         wallet_data_orig.mnemonic.as_ref().unwrap(),
+        &wallet_data_orig.master_fingerprint,
     );
     // copy original wallet's data to prefilled wallets 1 + 2 data dir
     for destination in [&wallet_dir_prefill_1, &wallet_dir_prefill_2] {

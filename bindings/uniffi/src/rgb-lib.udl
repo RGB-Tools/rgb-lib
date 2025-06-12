@@ -24,6 +24,7 @@ interface RgbLibError {
   FailedBroadcast(string details);
   FailedIssuance(string details);
   FileAlreadyExists(string path);
+  FingerprintMismatch();
   IO(string details);
   Inconsistency(string details);
   Indexer(string details);
@@ -46,6 +47,7 @@ interface RgbLibError {
   InvalidEstimationBlocks();
   InvalidFeeRate(string details);
   InvalidFilePath(string file_path);
+  InvalidFingerprint();
   InvalidIndexer(string details);
   InvalidInvoice(string details);
   InvalidMnemonic(string details);
@@ -254,7 +256,7 @@ dictionary Keys {
   string xpub;
   string account_xpub_vanilla;
   string account_xpub_colored;
-  string account_xpub_colored_fingerprint;
+  string master_fingerprint;
 };
 
 [Remote]
@@ -437,6 +439,7 @@ dictionary WalletData {
   string account_xpub_vanilla;
   string account_xpub_colored;
   string? mnemonic;
+  string master_fingerprint;
   u8? vanilla_keychain;
 };
 

@@ -1054,6 +1054,8 @@ pub struct WalletData {
     pub account_xpub_colored: String,
     /// Wallet mnemonic phrase
     pub mnemonic: Option<String>,
+    /// Wallet master fingerprint
+    pub master_fingerprint: String,
     /// Keychain index for the vanilla-side of the wallet (default: 0)
     #[serde(deserialize_with = "from_str_or_number_optional")]
     pub vanilla_keychain: Option<u8>,
@@ -1096,8 +1098,21 @@ impl Wallet {
             return Err(Error::InexistentDataDir);
         }
         let data_dir_path = fs::canonicalize(data_dir_path)?;
-        let fingerprint = xpub_rgb.fingerprint().to_string();
-        let wallet_dir = data_dir_path.join(fingerprint);
+        if let Some(mnemonic) = &wdata.mnemonic {
+            // check master fingerprint derived from mnemonic matches provided one
+            let mnemonic = Mnemonic::parse_in(Language::English, mnemonic)?;
+            let master_xprv =
+                Xpriv::new_master(wdata.bitcoin_network, &mnemonic.to_seed("")).unwrap();
+            let master_xpub = Xpub::from_priv(&Secp256k1::new(), &master_xprv);
+            let master_fingerprint = master_xpub.fingerprint();
+            if master_fingerprint
+                != Fingerprint::from_str(&wdata.master_fingerprint)
+                    .map_err(|_| Error::InvalidFingerprint)?
+            {
+                return Err(Error::FingerprintMismatch);
+            }
+        }
+        let wallet_dir = data_dir_path.join(&wdata.master_fingerprint);
         if !wallet_dir.exists() {
             fs::create_dir(&wallet_dir)?;
             fs::create_dir(wallet_dir.join(MEDIA_DIR))?;
@@ -1122,8 +1137,13 @@ impl Wallet {
             )?;
             (desc_colored, desc_vanilla, false)
         } else {
-            let (desc_colored, desc_vanilla) =
-                get_descriptors_from_xpubs(xpub_rgb, xpub_btc, wdata.vanilla_keychain)?;
+            let (desc_colored, desc_vanilla) = get_descriptors_from_xpubs(
+                wdata.bitcoin_network,
+                &wdata.master_fingerprint,
+                xpub_rgb,
+                xpub_btc,
+                wdata.vanilla_keychain,
+            )?;
             (desc_colored, desc_vanilla, true)
         };
         let mut wallet_params = BdkWallet::load()

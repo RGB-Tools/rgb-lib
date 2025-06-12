@@ -57,6 +57,7 @@ pub(crate) fn get_test_wallet_data(
     account_xpub_rgb: &str,
     account_xpub_btc: &str,
     mnemonic: &str,
+    fingerprint: &str,
 ) -> WalletData {
     WalletData {
         data_dir: data_dir.to_string(),
@@ -66,6 +67,7 @@ pub(crate) fn get_test_wallet_data(
         account_xpub_colored: account_xpub_rgb.to_string(),
         account_xpub_vanilla: account_xpub_btc.to_string(),
         mnemonic: Some(mnemonic.to_string()),
+        master_fingerprint: fingerprint.to_string(),
         vanilla_keychain: None,
     }
 }
@@ -91,6 +93,7 @@ pub(crate) fn get_test_wallet_with_net(
         account_xpub_colored: keys.account_xpub_colored,
         account_xpub_vanilla: keys.account_xpub_vanilla,
         mnemonic,
+        master_fingerprint: keys.master_fingerprint,
         vanilla_keychain: None,
     })
     .unwrap();

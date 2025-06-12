@@ -16,6 +16,7 @@ fn success() {
         account_xpub_colored: keys.account_xpub_colored.clone(),
         account_xpub_vanilla: keys.account_xpub_vanilla.clone(),
         mnemonic: Some(keys.mnemonic.clone()),
+        master_fingerprint: keys.master_fingerprint.clone(),
         vanilla_keychain: Some(2),
     })
     .unwrap();
@@ -45,6 +46,7 @@ fn success() {
         account_xpub_colored: keys.account_xpub_colored,
         account_xpub_vanilla: keys.account_xpub_vanilla,
         mnemonic: None,
+        master_fingerprint: keys.master_fingerprint.clone(),
         vanilla_keychain: None,
     })
     .unwrap();

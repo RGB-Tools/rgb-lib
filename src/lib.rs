@@ -49,6 +49,7 @@
 //!         account_xpub_vanilla: keys.account_xpub_vanilla,
 //!         account_xpub_colored: keys.account_xpub_colored,
 //!         mnemonic: Some(keys.mnemonic),
+//!         master_fingerprint: keys.master_fingerprint,
 //!         vanilla_keychain: None,
 //!     };
 //!     let wallet = Wallet::new(wallet_data)?;
@@ -132,11 +133,9 @@ use bdk_wallet::{
     bitcoin::{
         Address as BdkAddress, Amount as BdkAmount, BlockHash, Network as BdkNetwork, NetworkKind,
         OutPoint, OutPoint as BdkOutPoint, ScriptBuf, TxOut,
-        bip32::ChildNumber,
-        bip32::{DerivationPath, KeySource, Xpriv, Xpub},
+        bip32::{ChildNumber, DerivationPath, Fingerprint, KeySource, Xpriv, Xpub},
         hashes::{Hash as Sha256Hash, sha256},
-        psbt::Psbt,
-        psbt::{ExtractTxError, Input, Output, raw::ProprietaryKey},
+        psbt::{ExtractTxError, Input, Output, Psbt, raw::ProprietaryKey},
         secp256k1::Secp256k1,
     },
     chain::{CanonicalizationParams, ChainPosition},
@@ -145,10 +144,9 @@ use bdk_wallet::{
     keys::{
         DerivableKey, DescriptorKey,
         DescriptorKey::{Public, Secret},
-        DescriptorSecretKey, ExtendedKey, GeneratableKey,
+        ExtendedKey, GeneratableKey,
         bip39::{Language, Mnemonic, WordCount},
     },
-    miniscript::DescriptorPublicKey,
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use bdk_wallet::{

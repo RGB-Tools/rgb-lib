@@ -286,24 +286,35 @@ pub(crate) fn str_to_xpub(xpub: &str, bdk_network: BdkNetwork) -> Result<Xpub, E
     Ok(extended_key_btc.into_xpub(bdk_network, &Secp256k1::new()))
 }
 
+pub(crate) fn get_coin_type(bitcoin_network: &BitcoinNetwork, rgb: bool) -> u32 {
+    match (bitcoin_network, rgb) {
+        (BitcoinNetwork::Mainnet, true) => COIN_RGB_MAINNET,
+        (_, true) => COIN_RGB_TESTNET,
+        (_, false) => u32::from(*bitcoin_network != BitcoinNetwork::Mainnet),
+    }
+}
+
+pub(crate) fn get_account_derivation_children(coin_type: u32) -> Vec<ChildNumber> {
+    vec![
+        ChildNumber::from_hardened_idx(PURPOSE as u32).unwrap(),
+        ChildNumber::from_hardened_idx(coin_type).unwrap(),
+        ChildNumber::from_hardened_idx(ACCOUNT as u32).unwrap(),
+    ]
+}
+
 fn derive_account_xprv_from_mnemonic(
     bitcoin_network: BitcoinNetwork,
     mnemonic: &str,
     rgb: bool,
-) -> Result<Xpriv, Error> {
-    let coin_type = match (bitcoin_network, rgb) {
-        (BitcoinNetwork::Mainnet, true) => COIN_RGB_MAINNET,
-        (_, true) => COIN_RGB_TESTNET,
-        (_, false) => u32::from(bitcoin_network != BitcoinNetwork::Mainnet),
-    };
-    let account_derivation_path = vec![
-        ChildNumber::from_hardened_idx(PURPOSE as u32).unwrap(),
-        ChildNumber::from_hardened_idx(coin_type).unwrap(),
-        ChildNumber::from_hardened_idx(ACCOUNT as u32).unwrap(),
-    ];
+) -> Result<(Xpriv, Fingerprint), Error> {
+    let coin_type = get_coin_type(&bitcoin_network, rgb);
+    let account_derivation_children = get_account_derivation_children(coin_type);
     let mnemonic = Mnemonic::parse_in(Language::English, mnemonic.to_string())?;
     let master_xprv = Xpriv::new_master(bitcoin_network, &mnemonic.to_seed("")).unwrap();
-    Ok(master_xprv.derive_priv(&Secp256k1::new(), &account_derivation_path)?)
+    let master_xpub = Xpub::from_priv(&Secp256k1::new(), &master_xprv);
+    let master_fingerprint = master_xpub.fingerprint();
+    let account_xprv = master_xprv.derive_priv(&Secp256k1::new(), &account_derivation_children)?;
+    Ok((account_xprv, master_fingerprint))
 }
 
 fn get_xpub_from_xprv(xprv: &Xpriv) -> Xpub {
@@ -316,18 +327,19 @@ pub fn get_account_data(
     bitcoin_network: BitcoinNetwork,
     mnemonic: &str,
     rgb: bool,
-) -> Result<(Xpriv, Xpub), Error> {
-    let account_xprv = derive_account_xprv_from_mnemonic(bitcoin_network, mnemonic, rgb)?;
+) -> Result<(Xpriv, Xpub, Fingerprint), Error> {
+    let (account_xprv, master_fingerprint) =
+        derive_account_xprv_from_mnemonic(bitcoin_network, mnemonic, rgb)?;
     let account_xpub = get_xpub_from_xprv(&account_xprv);
-    Ok((account_xprv, account_xpub))
+    Ok((account_xprv, account_xpub, master_fingerprint))
 }
 
 pub(crate) fn get_account_xpubs(
     bitcoin_network: BitcoinNetwork,
     mnemonic: &str,
 ) -> Result<(Xpub, Xpub), Error> {
-    let (_, account_xpub_vanilla) = get_account_data(bitcoin_network, mnemonic, false)?;
-    let (_, account_xpub_colored) = get_account_data(bitcoin_network, mnemonic, true)?;
+    let (_, account_xpub_vanilla, _) = get_account_data(bitcoin_network, mnemonic, false)?;
+    let (_, account_xpub_colored, _) = get_account_data(bitcoin_network, mnemonic, true)?;
     Ok((account_xpub_vanilla, account_xpub_colored))
 }
 
@@ -338,11 +350,13 @@ fn derive_descriptor(
     keychain: u8,
     expected_xpub: Xpub,
 ) -> Result<String, Error> {
-    let (account_xprv, account_xpub) = get_account_data(bitcoin_network, mnemonic, rgb)?;
+    let (account_xprv, account_xpub, master_fingerprint) =
+        get_account_data(bitcoin_network, mnemonic, rgb)?;
     if account_xpub != expected_xpub {
         return Err(Error::InvalidBitcoinKeys);
     }
-    calculate_descriptor_from_xprv(account_xprv, keychain)
+    let coin_type = get_coin_type(&bitcoin_network, rgb);
+    calculate_descriptor_from_xprv(&master_fingerprint, coin_type, account_xprv, keychain)
 }
 
 pub(crate) fn get_descriptors(
@@ -370,13 +384,26 @@ pub(crate) fn get_descriptors(
 }
 
 pub(crate) fn get_descriptors_from_xpubs(
+    bitcoin_network: BitcoinNetwork,
+    master_fingerprint: &str,
     xpub_rgb: Xpub,
     xpub_btc: Xpub,
     vanilla_keychain: Option<u8>,
 ) -> Result<(String, String), Error> {
-    let descriptor_colored = calculate_descriptor_from_xpub(xpub_rgb, KEYCHAIN_RGB)?;
-    let descriptor_vanilla =
-        calculate_descriptor_from_xpub(xpub_btc, vanilla_keychain.unwrap_or(KEYCHAIN_BTC))?;
+    let master_fingerprint =
+        Fingerprint::from_str(master_fingerprint).map_err(|_| Error::InvalidFingerprint)?;
+    let descriptor_colored = calculate_descriptor_from_xpub(
+        &master_fingerprint,
+        get_coin_type(&bitcoin_network, true),
+        xpub_rgb,
+        KEYCHAIN_RGB,
+    )?;
+    let descriptor_vanilla = calculate_descriptor_from_xpub(
+        &master_fingerprint,
+        get_coin_type(&bitcoin_network, false),
+        xpub_btc,
+        vanilla_keychain.unwrap_or(KEYCHAIN_BTC),
+    )?;
     Ok((descriptor_colored, descriptor_vanilla))
 }
 
@@ -431,45 +458,64 @@ fn get_derivation_path(keychain: u8) -> DerivationPath {
     DerivationPath::from_iter(derivation_path.clone())
 }
 
-fn get_descriptor_priv_key(xprv: Xpriv, keychain: u8) -> Result<DescriptorSecretKey, Error> {
+pub(crate) fn get_extended_derivation_path(
+    mut account_derivation_children: Vec<ChildNumber>,
+    keychain: u8,
+) -> DerivationPath {
+    let keychain_child = ChildNumber::from_normal_idx(keychain as u32).unwrap();
+    account_derivation_children.push(keychain_child);
+    DerivationPath::from_iter(account_derivation_children.clone())
+}
+
+pub(crate) fn calculate_descriptor_from_xprv(
+    master_fingerprint: &Fingerprint,
+    coin_type: u32,
+    xprv: Xpriv,
+    keychain: u8,
+) -> Result<String, Error> {
+    // derive final xpub from account-level xpub
     let path = get_derivation_path(keychain);
     let der_xprv = &xprv
         .derive_priv(&Secp256k1::new(), &path)
         .expect("provided path should be derivable in an xprv");
-    let origin_prv: KeySource = (xprv.fingerprint(&Secp256k1::new()), path);
+    // derive descriptor with master fingerprint and full derivation path
+    let account_derivation_children = get_account_derivation_children(coin_type);
+    let full_path = get_extended_derivation_path(account_derivation_children, keychain);
+    let origin_prv: KeySource = (*master_fingerprint, full_path.clone());
     let der_xprv_desc_key: DescriptorKey<Segwitv0> = der_xprv
         .into_descriptor_key(Some(origin_prv), DerivationPath::default())
         .expect("should be able to convert xprv in a descriptor key");
-    if let Secret(key, _, _) = der_xprv_desc_key {
-        Ok(key)
+    let key = if let Secret(key, _, _) = der_xprv_desc_key {
+        key
     } else {
-        Err(InternalError::Unexpected)?
-    }
+        return Err(InternalError::Unexpected)?;
+    };
+    Ok(format!("tr({key})"))
 }
 
-fn get_descriptor_pub_key(xpub: Xpub, keychain: u8) -> Result<DescriptorPublicKey, Error> {
+pub(crate) fn calculate_descriptor_from_xpub(
+    master_fingerprint: &Fingerprint,
+    coin_type: u32,
+    xpub: Xpub,
+    keychain: u8,
+) -> Result<String, Error> {
+    // derive final xpub from account-level xpub
     let path = get_derivation_path(keychain);
     let der_xpub = &xpub
         .derive_pub(&Secp256k1::new(), &path)
         .expect("provided path should be derivable in an xpub");
-    let origin_pub: KeySource = (xpub.fingerprint(), path);
+    // derive descriptor with master fingerprint and full derivation path
+    let account_derivation_children = get_account_derivation_children(coin_type);
+    let full_path = get_extended_derivation_path(account_derivation_children, keychain);
+    let origin_pub: KeySource = (*master_fingerprint, full_path);
     let der_xpub_desc_key: DescriptorKey<Segwitv0> = der_xpub
         .into_descriptor_key(Some(origin_pub), DerivationPath::default())
         .expect("should be able to convert xpub in a descriptor key");
-    if let Public(key, _, _) = der_xpub_desc_key {
-        Ok(key)
+    let key = if let Public(key, _, _) = der_xpub_desc_key {
+        key
     } else {
-        Err(InternalError::Unexpected)?
-    }
-}
-
-pub(crate) fn calculate_descriptor_from_xprv(xprv: Xpriv, keychain: u8) -> Result<String, Error> {
-    let key = get_descriptor_priv_key(xprv, keychain)?;
-    Ok(format!("tr({key})"))
-}
-
-pub(crate) fn calculate_descriptor_from_xpub(xpub: Xpub, keychain: u8) -> Result<String, Error> {
-    let key = get_descriptor_pub_key(xpub, keychain)?;
+        return Err(InternalError::Unexpected)?;
+    };
     Ok(format!("tr({key})"))
 }
 

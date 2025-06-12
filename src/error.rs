@@ -85,6 +85,10 @@ pub enum Error {
         path: String,
     },
 
+    /// The master fingerprint derived from the mnemonic doesn't match the provided one
+    #[error("Fingerprint mismatch")]
+    FingerprintMismatch,
+
     /// An I/O error has been encountered
     #[error("I/O error: {details}")]
     IO {
@@ -228,6 +232,10 @@ pub enum Error {
         /// File path
         file_path: String,
     },
+
+    /// The fingerprint is invalid
+    #[error("Invalid fingerprint")]
+    InvalidFingerprint,
 
     /// The provided indexer is invalid
     #[error("Invalid indexer: {details}")]

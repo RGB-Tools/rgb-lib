@@ -14,7 +14,14 @@ fn check_wallet(wallet: &Wallet, network: BitcoinNetwork, keychain_vanilla: Opti
                         .full_derivation_path()
                         .unwrap()
                         .to_string();
-                    assert_eq!(full_derivation_path, KEYCHAIN_RGB.to_string());
+                    let coin_type = get_coin_type(&network, true);
+                    let account_derivation_children = get_account_derivation_children(coin_type);
+                    let expected_full_derivation_path =
+                        get_extended_derivation_path(account_derivation_children, KEYCHAIN_RGB);
+                    assert_eq!(
+                        full_derivation_path,
+                        expected_full_derivation_path.to_string()
+                    );
                 }
                 _ => panic!("wrong descriptor type"),
             },
@@ -25,9 +32,14 @@ fn check_wallet(wallet: &Wallet, network: BitcoinNetwork, keychain_vanilla: Opti
                         .full_derivation_path()
                         .unwrap()
                         .to_string();
+                    let coin_type = get_coin_type(&network, false);
+                    let account_derivation_children = get_account_derivation_children(coin_type);
+                    let keychain_vanilla = keychain_vanilla.unwrap_or(KEYCHAIN_BTC);
+                    let expected_full_derivation_path =
+                        get_extended_derivation_path(account_derivation_children, keychain_vanilla);
                     assert_eq!(
                         full_derivation_path,
-                        keychain_vanilla.unwrap_or(KEYCHAIN_BTC).to_string()
+                        expected_full_derivation_path.to_string()
                     );
                 }
                 _ => panic!("wrong descriptor type"),
@@ -63,6 +75,7 @@ fn success() {
         account_xpub_colored: keys.account_xpub_colored,
         account_xpub_vanilla: keys.account_xpub_vanilla,
         mnemonic: Some(keys.mnemonic),
+        master_fingerprint: keys.master_fingerprint,
         vanilla_keychain,
     })
     .unwrap();
@@ -159,10 +172,22 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidBitcoinKeys)));
 
     // bitcoin network mismatch
-    let mut wallet_data_bad = wallet_data;
+    let mut wallet_data_bad = wallet_data.clone();
     wallet_data_bad.bitcoin_network = BitcoinNetwork::Testnet;
     let result = Wallet::new(wallet_data_bad.clone());
     assert!(matches!(result, Err(Error::BitcoinNetworkMismatch)));
+
+    // invalid fingerprint
+    let mut wallet_data_bad = wallet_data.clone();
+    wallet_data_bad.master_fingerprint = s!("invalid");
+    let result = Wallet::new(wallet_data_bad.clone());
+    assert!(matches!(result, Err(Error::InvalidFingerprint)));
+
+    // fingerprint mismatch
+    let mut wallet_data_bad = wallet_data;
+    wallet_data_bad.master_fingerprint = s!("badbadff");
+    let result = Wallet::new(wallet_data_bad.clone());
+    assert!(matches!(result, Err(Error::FingerprintMismatch)));
 
     // non-writable wallet dir
     let non_writable_path = "non_writable";
@@ -246,7 +271,7 @@ fn re_instantiate_wallet() {
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
-fn watch_only() {
+fn watch_only_success() {
     initialize();
 
     create_test_data_dir();
@@ -262,6 +287,7 @@ fn watch_only() {
         account_xpub_colored: keys.account_xpub_colored.clone(),
         account_xpub_vanilla: keys.account_xpub_vanilla.clone(),
         mnemonic: None,
+        master_fingerprint: keys.master_fingerprint.clone(),
         vanilla_keychain: None,
     })
     .unwrap();
@@ -278,6 +304,7 @@ fn watch_only() {
         account_xpub_colored: keys.account_xpub_colored,
         account_xpub_vanilla: keys.account_xpub_vanilla,
         mnemonic: Some(keys.mnemonic),
+        master_fingerprint: keys.master_fingerprint.clone(),
         vanilla_keychain: None,
     })
     .unwrap();
@@ -311,6 +338,31 @@ fn watch_only() {
     assert_eq!(unspents.len(), UTXO_NUM as usize + 1);
 }
 
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn watch_only_fail() {
+    initialize();
+
+    create_test_data_dir();
+    let bitcoin_network = BitcoinNetwork::Regtest;
+    let keys = generate_keys(bitcoin_network);
+
+    // watch-only wallet invalid fingerprint
+    let result = Wallet::new(WalletData {
+        data_dir: get_test_data_dir_string(),
+        bitcoin_network,
+        database_type: DatabaseType::Sqlite,
+        max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
+        account_xpub_colored: keys.account_xpub_colored.clone(),
+        account_xpub_vanilla: keys.account_xpub_vanilla.clone(),
+        mnemonic: None,
+        master_fingerprint: s!("invalid"),
+        vanilla_keychain: None,
+    });
+    assert!(matches!(result, Err(Error::InvalidFingerprint)));
+}
+
 #[test]
 #[parallel]
 fn get_account_xpub_success() {
@@ -319,12 +371,12 @@ fn get_account_xpub_success() {
     let mnemonic = wallet.wallet_data.mnemonic.unwrap();
 
     // get colored account xpub
-    let (account_xpub, _) = get_account_data(BitcoinNetwork::Regtest, &mnemonic, true).unwrap();
+    let (_, account_xpub, _) = get_account_data(BitcoinNetwork::Regtest, &mnemonic, true).unwrap();
     assert_eq!(account_xpub.network, NetworkKind::Test,);
     assert_eq!(account_xpub.depth, 3);
 
     // get vanilla account xpub
-    let (_, account_xpub) = get_account_data(BitcoinNetwork::Regtest, &mnemonic, false).unwrap();
+    let (_, account_xpub, _) = get_account_data(BitcoinNetwork::Regtest, &mnemonic, false).unwrap();
     assert_eq!(account_xpub.network, NetworkKind::Test,);
     assert_eq!(account_xpub.depth, 3);
 }

@@ -27,6 +27,7 @@ use crate::{
     database::entities::transfer_transport_endpoint,
     utils::{
         KEYCHAIN_BTC, KEYCHAIN_RGB, RGB_RUNTIME_DIR, get_account_data,
+        get_account_derivation_children, get_coin_type, get_extended_derivation_path,
         recipient_id_from_script_buf, script_buf_from_recipient_id,
     },
     wallet::{

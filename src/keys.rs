@@ -16,8 +16,8 @@ pub struct Keys {
     pub account_xpub_vanilla: String,
     /// Account-level xPub of the colored-side of the wallet
     pub account_xpub_colored: String,
-    /// Fingerprint of the account-level xPub of the colored-side of the wallet
-    pub account_xpub_colored_fingerprint: String,
+    /// Fingerprint of the master xPub
+    pub master_fingerprint: String,
 }
 
 /// Generate a set of [`Keys`] for the given Bitcoin network.
@@ -33,13 +33,13 @@ pub fn generate_keys(bitcoin_network: BitcoinNetwork) -> Keys {
     let mnemonic_str = mnemonic.to_string();
     let (account_xpub_vanilla, account_xpub_colored) =
         get_account_xpubs(bitcoin_network, &mnemonic_str).unwrap();
-    let account_xpub_colored_fingerprint = account_xpub_colored.fingerprint().to_string();
+    let master_fingerprint = xpub.fingerprint().to_string();
     Keys {
         mnemonic: mnemonic_str,
         xpub: xpub.clone().to_string(),
         account_xpub_vanilla: account_xpub_vanilla.to_string(),
         account_xpub_colored: account_xpub_colored.to_string(),
-        account_xpub_colored_fingerprint,
+        master_fingerprint,
     }
 }
 
@@ -54,13 +54,13 @@ pub fn restore_keys(bitcoin_network: BitcoinNetwork, mnemonic: String) -> Result
         .into_extended_key()
         .expect("a valid key should have been provided");
     let xpub = &xkey.into_xpub(bdk_network, &Secp256k1::new());
-    let account_xpub_fingerprint = account_xpub_colored.fingerprint().to_string();
+    let master_fingerprint = xpub.fingerprint().to_string();
     Ok(Keys {
         mnemonic,
         xpub: xpub.clone().to_string(),
         account_xpub_vanilla: account_xpub_vanilla.to_string(),
         account_xpub_colored: account_xpub_colored.to_string(),
-        account_xpub_colored_fingerprint: account_xpub_fingerprint,
+        master_fingerprint,
     })
 }
 
@@ -75,18 +75,18 @@ mod test {
             xpub,
             account_xpub_vanilla,
             account_xpub_colored,
-            account_xpub_colored_fingerprint,
+            master_fingerprint,
         } = generate_keys(BitcoinNetwork::Regtest);
 
         assert!(Mnemonic::from_str(&mnemonic).is_ok());
         let pubkey = Xpub::from_str(&xpub);
         assert!(pubkey.is_ok());
+        assert_eq!(
+            pubkey.unwrap().fingerprint().to_string(),
+            master_fingerprint
+        );
         let account_pubkey_rgb = Xpub::from_str(&account_xpub_colored);
         assert!(account_pubkey_rgb.is_ok());
-        assert_eq!(
-            account_pubkey_rgb.unwrap().fingerprint().to_string(),
-            account_xpub_colored_fingerprint
-        );
         let account_pubkey_btc = Xpub::from_str(&account_xpub_vanilla);
         assert!(account_pubkey_btc.is_ok());
     }
@@ -99,15 +99,12 @@ mod test {
             xpub,
             account_xpub_vanilla,
             account_xpub_colored,
-            account_xpub_colored_fingerprint,
+            master_fingerprint,
         } = generate_keys(network);
 
         let keys = restore_keys(network, mnemonic).unwrap();
         assert_eq!(keys.xpub, xpub);
-        assert_eq!(
-            keys.account_xpub_colored_fingerprint,
-            account_xpub_colored_fingerprint
-        );
+        assert_eq!(keys.master_fingerprint, master_fingerprint);
         assert_eq!(keys.account_xpub_colored, account_xpub_colored);
         assert_eq!(keys.account_xpub_vanilla, account_xpub_vanilla);
     }

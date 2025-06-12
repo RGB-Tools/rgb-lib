@@ -19,14 +19,17 @@ int main() {
         json_object_object_get(keys_obj, "account_xpub_vanilla"));
     const char *account_xpub_colored = json_object_get_string(
         json_object_object_get(keys_obj, "account_xpub_colored"));
+    const char *master_fingerprint = json_object_get_string(
+        json_object_object_get(keys_obj, "master_fingerprint"));
     char wallet_data[400];
     sprintf(wallet_data,
             "{ \"data_dir\": \"./data\", \"bitcoin_network\": \"Regtest\", "
             "\"database_type\": \"Sqlite\", \"max_allocations_per_utxo\": "
             "\"1\", \"account_xpub_vanilla\": \"%s\", "
             "\"account_xpub_colored\": \"%s\", \"mnemonic\": \"%s\", "
-            "\"vanilla_keychain\": null }",
-            account_xpub_vanilla, account_xpub_colored, mnemonic);
+            "\"master_fingerprint\": \"%s\", \"vanilla_keychain\": null }",
+            account_xpub_vanilla, account_xpub_colored, mnemonic,
+            master_fingerprint);
 
     printf("Creating wallet...\n");
     CResult wallet = rgblib_new_wallet(wallet_data);
