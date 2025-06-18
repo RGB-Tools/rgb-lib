@@ -2327,6 +2327,27 @@ impl Wallet {
         })
     }
 
+    /// Finalize a PSBT, optionally providing BDK sign options to tweak the behavior of the
+    /// finalizer.
+    pub fn finalize_psbt(
+        &self,
+        signed_psbt: String,
+        sign_options: Option<SignOptions>,
+    ) -> Result<String, Error> {
+        info!(self.logger, "Finalizing PSBT...");
+        let mut psbt = Psbt::from_str(&signed_psbt)?;
+        let sign_options = sign_options.unwrap_or_default();
+        if !self
+            .bdk_wallet
+            .finalize_psbt(&mut psbt, sign_options)
+            .map_err(InternalError::from)?
+        {
+            return Err(Error::CannotFinalizePsbt);
+        }
+        info!(self.logger, "Finalize PSBT completed");
+        Ok(psbt.to_string())
+    }
+
     fn _sign_psbt(&self, psbt: &mut Psbt, sign_options: Option<SignOptions>) -> Result<(), Error> {
         let sign_options = sign_options.unwrap_or_default();
         self.bdk_wallet

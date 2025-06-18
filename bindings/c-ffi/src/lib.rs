@@ -105,6 +105,14 @@ pub extern "C" fn rgblib_create_utxos(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn rgblib_finalize_psbt(
+    wallet: &COpaqueStruct,
+    signed_psbt: *const c_char,
+) -> CResultString {
+    finalize_psbt(wallet, signed_psbt).into()
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn rgblib_generate_keys(bitcoin_network: *const c_char) -> CResultString {
     generate_keys(bitcoin_network).into()
 }

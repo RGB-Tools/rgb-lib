@@ -227,6 +227,15 @@ pub(crate) fn create_utxos(
     Ok(serde_json::to_string(&res)?)
 }
 
+pub(crate) fn finalize_psbt(
+    wallet: &COpaqueStruct,
+    signed_psbt: *const c_char,
+) -> Result<String, Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let signed_psbt = ptr_to_string(signed_psbt);
+    Ok(wallet.finalize_psbt(signed_psbt, None)?)
+}
+
 pub(crate) fn generate_keys(bitcoin_network: *const c_char) -> Result<String, Error> {
     let bitcoin_network = BitcoinNetwork::from_str(&ptr_to_string(bitcoin_network))?;
     let res = rgb_lib::generate_keys(bitcoin_network);

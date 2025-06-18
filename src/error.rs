@@ -46,6 +46,10 @@ pub enum Error {
     #[error("Batch transfer cannot be set to failed status")]
     CannotFailBatchTransfer,
 
+    /// The given PSBT cannot be finalized
+    #[error("The given PSBT cannot be finalized")]
+    CannotFinalizePsbt,
+
     /// The provided file is empty
     #[error("Empty file: {file_path}")]
     EmptyFile {

@@ -200,6 +200,10 @@ impl Wallet {
         )
     }
 
+    fn finalize_psbt(&self, signed_psbt: String) -> Result<String, RgbLibError> {
+        self._get_wallet().finalize_psbt(signed_psbt, None)
+    }
+
     fn sign_psbt(&self, unsigned_psbt: String) -> Result<String, RgbLibError> {
         self._get_wallet().sign_psbt(unsigned_psbt, None)
     }

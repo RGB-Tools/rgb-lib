@@ -18,6 +18,7 @@ interface RgbLibError {
   CannotDeleteBatchTransfer();
   CannotEstimateFees();
   CannotFailBatchTransfer();
+  CannotFinalizePsbt();
   EmptyFile(string file_path);
   FailedBdkSync(string details);
   FailedBroadcast(string details);
@@ -464,6 +465,9 @@ interface Wallet {
   ReceiveData witness_receive(
     string? asset_id, u64? amount, u32? duration_seconds,
     sequence<string> transport_endpoints, u8 min_confirmations);
+
+  [Throws=RgbLibError]
+  string finalize_psbt(string signed_psbt);
 
   [Throws=RgbLibError]
   string sign_psbt(string unsigned_psbt);
