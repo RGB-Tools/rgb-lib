@@ -21,6 +21,7 @@ pub struct Model {
     pub created_at: i64,
     pub updated_at: i64,
     pub expiration: Option<i64>,
+    pub exact_expiry: Option<bool>,
     pub min_confirmations: u8,
 }
 
@@ -32,6 +33,7 @@ pub enum Column {
     CreatedAt,
     UpdatedAt,
     Expiration,
+    ExactExpiry,
     MinConfirmations,
 }
 
@@ -62,6 +64,7 @@ impl ColumnTrait for Column {
             Self::CreatedAt => ColumnType::BigInteger.def(),
             Self::UpdatedAt => ColumnType::BigInteger.def(),
             Self::Expiration => ColumnType::BigInteger.def().null(),
+            Self::ExactExpiry => ColumnType::Boolean.def().null(),
             Self::MinConfirmations => ColumnType::SmallInteger.def(),
         }
     }
