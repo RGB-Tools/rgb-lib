@@ -5899,3 +5899,65 @@ fn ifa() {
     assert!(send_inflation.change_utxo.is_some());
     assert!(send_replace.change_utxo.is_some());
 }
+
+#[cfg(feature = "electrum")]
+#[test]
+#[serial]
+fn pending_witness_ma1_blind_receive_fail() {
+    initialize();
+
+    let amount: u64 = 66;
+
+    // sender wallet
+    let (mut wallet, online) = get_funded_wallet!();
+    // recipient wallet
+    let mut rcv_wallet = get_test_wallet(true, Some(1)); // MAX_ALLOCATIONS_PER_UTXO = 1
+    let rcv_online = rcv_wallet
+        .go_online(true, ELECTRUM_URL.to_string())
+        .unwrap();
+
+    // issue
+    let asset = test_issue_asset_nia(&mut wallet, &online, None);
+
+    // send
+    let receive_data = test_witness_receive(&mut rcv_wallet);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(amount),
+            recipient_id: receive_data.recipient_id.clone(),
+            witness_data: Some(WitnessData {
+                amount_sat: 1000,
+                blinding: None,
+            }),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let SendResult { txid, .. } = wallet
+        .send(
+            online.clone(),
+            recipient_map.clone(),
+            true, // donation, so TX gets broadcast right away
+            FEE_RATE,
+            MIN_CONFIRMATIONS,
+            false,
+        )
+        .unwrap();
+    assert!(!txid.is_empty());
+
+    // sync recipient wallet (no refresh) to see the new UTXO but not the new allocation
+    rcv_wallet.sync(rcv_online).unwrap();
+
+    // make sure the recipient wallet sees 1 colorable UTXO with no RGB allocations
+    let unspents = test_list_unspents(&mut rcv_wallet, None, false);
+    assert_eq!(unspents.len(), 1);
+    assert!(
+        unspents
+            .iter()
+            .all(|u| u.utxo.colorable && u.rgb_allocations.is_empty())
+    );
+
+    // try to blind the new UTXO: it should error as it already has the max allocation number
+    let result = test_blind_receive_result(&rcv_wallet);
+    assert!(matches!(result, Err(Error::InsufficientBitcoins { .. })))
+}
