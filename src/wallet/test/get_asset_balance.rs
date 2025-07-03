@@ -51,9 +51,21 @@ fn transfer_balances() {
 
     let amount_1: u64 = 66;
     let amount_2: u64 = 33;
+    let amount_3: u64 = 11;
 
+    // full sender wallet
     let (mut wallet_send, online_send) = get_funded_wallet!();
-    let (mut wallet_recv, online_recv) = get_funded_wallet!();
+    // recipient wallet with a single UTXO
+    let (mut wallet_recv, online_recv) = get_funded_noutxo_wallet!();
+    let num_created = test_create_utxos(
+        &mut wallet_recv,
+        &online_recv,
+        true,
+        Some(1),
+        None,
+        FEE_RATE,
+    );
+    assert_eq!(num_created, 1);
 
     // issue
     let asset = test_issue_asset_nia(
@@ -77,7 +89,7 @@ fn transfer_balances() {
     assert!(matches!(result, Err(Error::AssetNotFound { asset_id: _ })));
 
     //
-    // 1st transfer
+    // 1st transfer (blinded)
     //
 
     // blind + fail to check failed blinds are not counted in balance
@@ -112,13 +124,12 @@ fn transfer_balances() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    // actual send
     test_send(&mut wallet_send, &online_send, &recipient_map);
 
     show_unspent_colorings(&mut wallet_send, "send after 1st send");
     show_unspent_colorings(&mut wallet_recv, "recv after 1st send");
 
-    // sender balance with transfer WaitingCounterparty
+    // sender balance with transfer WaitingCounterparty (recipient doesn't know the asset yet)
     let transfers = test_list_transfers(&wallet_send, Some(&asset.asset_id));
     assert_eq!(transfers.len(), 3);
     assert_eq!(
@@ -131,6 +142,12 @@ fn transfer_balances() {
         spendable: AMOUNT * 2,
     };
     wait_for_asset_balance(&wallet_send, &asset.asset_id, &expected_balance);
+    let transfers_recv = test_list_transfers(&wallet_recv, None);
+    assert_eq!(transfers_recv.len(), 2);
+    assert_eq!(
+        transfers_recv.last().unwrap().status,
+        TransferStatus::WaitingCounterparty
+    );
 
     // take transfers from WaitingCounterparty to WaitingConfirmations
     wait_for_refresh(&mut wallet_recv, &online_recv, None, None);
@@ -149,6 +166,7 @@ fn transfer_balances() {
     };
     wait_for_asset_balance(&wallet_send, &asset.asset_id, &expected_balance);
     let transfers_recv = test_list_transfers(&wallet_recv, Some(&asset.asset_id));
+    assert_eq!(transfers_recv.len(), 1);
     assert_eq!(
         transfers_recv.last().unwrap().status,
         TransferStatus::WaitingConfirmations
@@ -190,7 +208,7 @@ fn transfer_balances() {
     wait_for_asset_balance(&wallet_recv, &asset.asset_id, &expected_balance);
 
     //
-    // a 2nd transfer
+    // a 2nd transfer (blinded)
     //
 
     // send some assets
@@ -209,7 +227,7 @@ fn transfer_balances() {
     show_unspent_colorings(&mut wallet_send, "send after 2nd send");
     show_unspent_colorings(&mut wallet_recv, "recv after 2nd send");
 
-    // sender balance with transfer WaitingCounterparty
+    // balances with transfer WaitingCounterparty
     let transfers = test_list_transfers(&wallet_send, Some(&asset.asset_id));
     assert_eq!(transfers.len(), 4);
     assert_eq!(
@@ -222,6 +240,18 @@ fn transfer_balances() {
         spendable: AMOUNT * 2,
     };
     wait_for_asset_balance(&wallet_send, &asset.asset_id, &expected_balance);
+    let transfers = test_list_transfers(&wallet_recv, None);
+    assert_eq!(transfers.len(), 2);
+    assert_eq!(
+        transfers.last().unwrap().status,
+        TransferStatus::WaitingCounterparty
+    );
+    let expected_balance = Balance {
+        settled: amount_1,
+        future: amount_1,
+        spendable: 0,
+    };
+    wait_for_asset_balance(&wallet_recv, &asset.asset_id, &expected_balance);
 
     // take transfers from WaitingCounterparty to WaitingConfirmations
     wait_for_refresh(&mut wallet_recv, &online_recv, None, None);
@@ -239,10 +269,16 @@ fn transfer_balances() {
         spendable: AMOUNT * 2,
     };
     wait_for_asset_balance(&wallet_send, &asset.asset_id, &expected_balance);
+    let transfers_recv = test_list_transfers(&wallet_recv, Some(&asset.asset_id));
+    assert_eq!(transfers_recv.len(), 2);
+    assert_eq!(
+        transfers_recv.last().unwrap().status,
+        TransferStatus::WaitingConfirmations
+    );
     let expected_balance = Balance {
         settled: amount_1,
         future: amount_1 + amount_2,
-        spendable: amount_1,
+        spendable: 0,
     };
     wait_for_asset_balance(&wallet_recv, &asset.asset_id, &expected_balance);
 
@@ -263,10 +299,129 @@ fn transfer_balances() {
         spendable: AMOUNT * 3 - amount_1 - amount_2,
     };
     wait_for_asset_balance(&wallet_send, &asset.asset_id, &expected_balance);
+    let transfers_recv = test_list_transfers(&wallet_recv, Some(&asset.asset_id));
+    assert_eq!(
+        transfers_recv.last().unwrap().status,
+        TransferStatus::Settled
+    );
     let expected_balance = Balance {
         settled: amount_1 + amount_2,
         future: amount_1 + amount_2,
         spendable: amount_1 + amount_2,
+    };
+    wait_for_asset_balance(&wallet_recv, &asset.asset_id, &expected_balance);
+
+    //
+    // a 3rd transfer (witness, donation)
+    //
+
+    // send some assets, donation = true to broadcast right away
+    let receive_data_3 = test_witness_receive(&mut wallet_recv);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            recipient_id: receive_data_3.recipient_id.clone(),
+            witness_data: Some(WitnessData {
+                amount_sat: 1000,
+                blinding: None,
+            }),
+            assignment: Assignment::Fungible(amount_3),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    wallet_send
+        .send(
+            online_send.clone(),
+            recipient_map,
+            true,
+            FEE_RATE,
+            MIN_CONFIRMATIONS,
+            false,
+        )
+        .unwrap();
+
+    // sync the wallets
+    wallet_send.sync(online_send.clone()).unwrap();
+    wallet_recv.sync(online_recv.clone()).unwrap();
+
+    show_unspent_colorings(&mut wallet_send, "send after 3rd send");
+    show_unspent_colorings(&mut wallet_recv, "recv after 3rd send");
+
+    // balances after sync but before refresh
+    let transfers = test_list_transfers(&wallet_send, Some(&asset.asset_id));
+    assert_eq!(transfers.len(), 5);
+    assert_eq!(
+        transfers.last().unwrap().status,
+        TransferStatus::WaitingConfirmations // due to donation = true
+    );
+    let transfers = test_list_transfers(&wallet_recv, None);
+    assert_eq!(transfers.len(), 2);
+    assert_eq!(
+        transfers.last().unwrap().status,
+        TransferStatus::WaitingCounterparty
+    );
+    let expected_balance = Balance {
+        settled: AMOUNT * 3 - amount_1 - amount_2,
+        future: AMOUNT * 3 - amount_1 - amount_2 - amount_3,
+        spendable: AMOUNT * 2,
+    };
+    wait_for_asset_balance(&wallet_send, &asset.asset_id, &expected_balance);
+    let expected_balance = Balance {
+        settled: amount_1 + amount_2,
+        future: amount_1 + amount_2,
+        spendable: amount_1 + amount_2,
+    };
+    wait_for_asset_balance(&wallet_recv, &asset.asset_id, &expected_balance);
+
+    // take recipient transfer from WaitingCounterparty to WaitingConfirmations
+    wait_for_refresh(&mut wallet_recv, &online_recv, None, None);
+
+    // balances with transfer WaitingConfirmations
+    let transfers = test_list_transfers(&wallet_send, Some(&asset.asset_id));
+    assert_eq!(
+        transfers.last().unwrap().status,
+        TransferStatus::WaitingConfirmations
+    );
+    let transfers = test_list_transfers(&wallet_recv, Some(&asset.asset_id));
+    assert_eq!(transfers.len(), 3);
+    assert_eq!(
+        transfers.last().unwrap().status,
+        TransferStatus::WaitingConfirmations
+    );
+    let expected_balance = Balance {
+        settled: AMOUNT * 3 - amount_1 - amount_2,
+        future: AMOUNT * 3 - amount_1 - amount_2 - amount_3,
+        spendable: AMOUNT * 2,
+    };
+    wait_for_asset_balance(&wallet_send, &asset.asset_id, &expected_balance);
+    let expected_balance = Balance {
+        settled: amount_1 + amount_2,
+        future: amount_1 + amount_2 + amount_3,
+        spendable: amount_1 + amount_2,
+    };
+    wait_for_asset_balance(&wallet_recv, &asset.asset_id, &expected_balance);
+
+    // take transfers from WaitingConfirmations to Settled
+    mine(false, false);
+    wait_for_refresh(&mut wallet_recv, &online_recv, Some(&asset.asset_id), None);
+    wait_for_refresh(&mut wallet_send, &online_send, Some(&asset.asset_id), None);
+
+    show_unspent_colorings(&mut wallet_send, "send after 3rd send, settled");
+    show_unspent_colorings(&mut wallet_recv, "recv after 3rd send, settled");
+
+    // balances with transfer Settled
+    let transfers = test_list_transfers(&wallet_send, Some(&asset.asset_id));
+    assert_eq!(transfers.last().unwrap().status, TransferStatus::Settled);
+    let expected_balance = Balance {
+        settled: AMOUNT * 3 - amount_1 - amount_2 - amount_3,
+        future: AMOUNT * 3 - amount_1 - amount_2 - amount_3,
+        spendable: AMOUNT * 3 - amount_1 - amount_2 - amount_3,
+    };
+    wait_for_asset_balance(&wallet_send, &asset.asset_id, &expected_balance);
+    let expected_balance = Balance {
+        settled: amount_1 + amount_2 + amount_3,
+        future: amount_1 + amount_2 + amount_3,
+        spendable: amount_1 + amount_2 + amount_3,
     };
     wait_for_asset_balance(&wallet_recv, &asset.asset_id, &expected_balance);
 }
