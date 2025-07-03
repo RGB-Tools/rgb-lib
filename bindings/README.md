@@ -2,18 +2,30 @@
 
 Bindings for other languages are generated using either [uniffi] or [c-ffi].
 
-These are the supported languages and platforms:
+See each project's documentation for more details.
 
-| Language | Tool   | Platform              | Repository       |
+## Official
+
+These are the officially supported languages:
+
+| Language | Tool   | Platform              | Location         |
 | -------- | ------ | --------------------- | ---------------- |
+| C        | c-ffi  | Linux, macOS, Windows | [c-ffi]          |
+| C++      | c-ffi  | Linux, macOS, Windows | [c-ffi]          |
 | Kotlin   | uniffi | android               | [rgb-lib-kotlin] |
 | Node.js  | c-ffi  | Linux, macOS, Windows | [rgb-lib-nodejs] |
 | Python   | uniffi | Linux, macOS, Windows | [rgb-lib-python] |
 | Swift    | uniffi | iOS, macOS            | [rgb-lib-swift]  |
 
-See each project's README for more details.
+## Unofficial
 
+These are the unofficially supported languages:
 
+| Language | Tool   | Platform              | Location         |
+| -------- | ------ | --------------------- | ---------------- |
+| Go       | uniffi | Linux, macOS, Windows | [rgb-lib-go]     |
+
+[rgb-lib-go]: https://github.com/RGB-OS/rgb-lib-go
 [rgb-lib-kotlin]: https://github.com/RGB-Tools/rgb-lib-kotlin
 [rgb-lib-nodejs]: https://github.com/RGB-Tools/rgb-lib-nodejs
 [rgb-lib-python]: https://github.com/RGB-Tools/rgb-lib-python
