@@ -1177,6 +1177,9 @@ pub struct WalletData {
     /// Keychain index for the vanilla-side of the wallet (default: 0)
     #[serde(deserialize_with = "from_str_or_number_optional")]
     pub vanilla_keychain: Option<u8>,
+    /// List of schemas the wallet should support (when issuing, sending and receiving). Empty list
+    /// means the wallet should support all the schemas rgb-lib supports.
+    pub supported_schemas: Vec<AssetSchema>,
 }
 
 /// An RGB wallet.
@@ -1287,47 +1290,24 @@ impl Wallet {
         };
 
         // RGB setup
+        let supported_schemas = wdata.supported_schemas;
+        if supported_schemas.is_empty() {
+            return Err(Error::NoSupportedSchemas);
+        }
+        if wdata.bitcoin_network == BitcoinNetwork::Mainnet
+            && supported_schemas.contains(&AssetSchema::Ifa)
+        {
+            return Err(Error::CannotUseIfaOnMainnet);
+        }
         let mut runtime = load_rgb_runtime(wallet_dir.clone())?;
-        if runtime.schemata()?.len() < NUM_KNOWN_SCHEMAS {
-            let schema = NonInflatableAsset::schema();
-            let lib = NonInflatableAsset::scripts();
-            let types = NonInflatableAsset::types();
-            let mut kit = Kit::default();
-            kit.schemata.push(schema).unwrap();
-            kit.scripts.extend(lib.into_values()).unwrap();
-            kit.types = types;
-            let valid_kit = kit.validate().map_err(|_| InternalError::Unexpected)?;
-            runtime.import_kit(valid_kit)?;
-
-            let schema = UniqueDigitalAsset::schema();
-            let lib = UniqueDigitalAsset::scripts();
-            let types = UniqueDigitalAsset::types();
-            let mut kit = Kit::default();
-            kit.schemata.push(schema).unwrap();
-            kit.scripts.extend(lib.into_values()).unwrap();
-            kit.types = types;
-            let valid_kit = kit.validate().map_err(|_| InternalError::Unexpected)?;
-            runtime.import_kit(valid_kit)?;
-
-            let schema = CollectibleFungibleAsset::schema();
-            let lib = CollectibleFungibleAsset::scripts();
-            let types = CollectibleFungibleAsset::types();
-            let mut kit = Kit::default();
-            kit.schemata.push(schema).unwrap();
-            kit.scripts.extend(lib.into_values()).unwrap();
-            kit.types = types;
-            let valid_kit = kit.validate().map_err(|_| InternalError::Unexpected)?;
-            runtime.import_kit(valid_kit)?;
-
-            let schema = InflatableFungibleAsset::schema();
-            let lib = InflatableFungibleAsset::scripts();
-            let types = InflatableFungibleAsset::types();
-            let mut kit = Kit::default();
-            kit.schemata.push(schema).unwrap();
-            kit.scripts.extend(lib.into_values()).unwrap();
-            kit.types = types;
-            let valid_kit = kit.validate().map_err(|_| InternalError::Unexpected)?;
-            runtime.import_kit(valid_kit)?;
+        let known_schemas = runtime.schemata()?;
+        if known_schemas.len() < NUM_KNOWN_SCHEMAS {
+            let known: HashSet<_> = known_schemas.iter().map(|s| s.id).collect();
+            for schema in supported_schemas {
+                if !known.contains(&SchemaId::from(schema)) {
+                    schema.import_kit(&mut runtime)?;
+                }
+            }
         }
 
         // RGB-LIB setup
@@ -1394,6 +1374,19 @@ impl Wallet {
 
     pub(crate) fn get_transfers_dir(&self) -> PathBuf {
         self.wallet_dir.join(TRANSFERS_DIR)
+    }
+
+    pub(crate) fn supports_schema(&self, asset_schema: &AssetSchema) -> bool {
+        self.wallet_data.supported_schemas.contains(asset_schema)
+    }
+
+    pub(crate) fn check_schema_support(&self, asset_schema: &AssetSchema) -> Result<(), Error> {
+        if !self.supports_schema(asset_schema) {
+            return Err(Error::UnsupportedSchema {
+                asset_schema: *asset_schema,
+            });
+        }
+        Ok(())
     }
 
     pub(crate) fn check_transport_endpoints(
@@ -1715,6 +1708,10 @@ impl Wallet {
             amounts
         );
 
+        let asset_schema = &AssetSchema::Nia;
+
+        self.check_schema_support(asset_schema)?;
+
         let settled = self._get_total_issue_amount(&amounts)?;
 
         let db_data = self.database.get_db_data(false)?;
@@ -1785,7 +1782,7 @@ impl Wallet {
 
         let asset = self.add_asset_to_db(
             asset_id.clone(),
-            &AssetSchema::Nia,
+            asset_schema,
             Some(created_at),
             spec.details().map(|d| d.to_string()),
             settled,
@@ -1875,6 +1872,10 @@ impl Wallet {
             name,
             precision,
         );
+
+        let asset_schema = &AssetSchema::Uda;
+
+        self.check_schema_support(asset_schema)?;
 
         if attachments_file_paths.len() > MAX_ATTACHMENTS {
             return Err(Error::InvalidAttachments {
@@ -1985,7 +1986,7 @@ impl Wallet {
 
         let asset = self.add_asset_to_db(
             asset_id.clone(),
-            &AssetSchema::Uda,
+            asset_schema,
             Some(created_at),
             details.clone(),
             1,
@@ -2080,6 +2081,10 @@ impl Wallet {
             amounts
         );
 
+        let asset_schema = &AssetSchema::Cfa;
+
+        self.check_schema_support(asset_schema)?;
+
         let settled = self._get_total_issue_amount(&amounts)?;
 
         let db_data = self.database.get_db_data(false)?;
@@ -2164,7 +2169,7 @@ impl Wallet {
 
         let asset = self.add_asset_to_db(
             asset_id.clone(),
-            &AssetSchema::Cfa,
+            asset_schema,
             Some(created_at),
             details,
             settled,
@@ -2247,6 +2252,10 @@ impl Wallet {
             inflation_amounts,
             replace_rights_num,
         );
+
+        let asset_schema = &AssetSchema::Ifa;
+
+        self.check_schema_support(asset_schema)?;
 
         let settled = self._get_total_issue_amount(&amounts)?;
         let inflation_amt = self._get_total_inflation_amount(&inflation_amounts, settled)?;
@@ -2348,7 +2357,7 @@ impl Wallet {
 
         let asset = self.add_asset_to_db(
             asset_id.clone(),
-            &AssetSchema::Ifa,
+            asset_schema,
             Some(created_at),
             spec.details().map(|d| d.to_string()),
             settled,

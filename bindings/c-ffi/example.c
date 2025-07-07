@@ -27,7 +27,8 @@ int main() {
             "\"database_type\": \"Sqlite\", \"max_allocations_per_utxo\": "
             "\"1\", \"account_xpub_vanilla\": \"%s\", "
             "\"account_xpub_colored\": \"%s\", \"mnemonic\": \"%s\", "
-            "\"master_fingerprint\": \"%s\", \"vanilla_keychain\": null }",
+            "\"master_fingerprint\": \"%s\", \"vanilla_keychain\": null,"
+            "\"supported_schemas\": [\"Nia\", \"Cfa\", \"Uda\"] }",
             account_xpub_vanilla, account_xpub_colored, mnemonic,
             master_fingerprint);
 

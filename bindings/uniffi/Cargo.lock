@@ -3313,6 +3313,7 @@ dependencies = [
  "slog-async",
  "slog-term",
  "strict_encoding",
+ "strict_types",
  "tempfile",
  "thiserror 2.0.12",
  "time",

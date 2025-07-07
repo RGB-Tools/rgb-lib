@@ -18,6 +18,7 @@ fn success() {
         mnemonic: Some(keys.mnemonic.clone()),
         master_fingerprint: keys.master_fingerprint.clone(),
         vanilla_keychain: Some(2),
+        supported_schemas: AssetSchema::VALUES.to_vec(),
     })
     .unwrap();
 
@@ -48,6 +49,7 @@ fn success() {
         mnemonic: None,
         master_fingerprint: keys.master_fingerprint.clone(),
         vanilla_keychain: None,
+        supported_schemas: AssetSchema::VALUES.to_vec(),
     })
     .unwrap();
     let wallet_2_data = test_get_wallet_data(&wallet_2);

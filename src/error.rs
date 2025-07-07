@@ -50,6 +50,10 @@ pub enum Error {
     #[error("The given PSBT cannot be finalized")]
     CannotFinalizePsbt,
 
+    /// Cannot use IFA schema on mainnet
+    #[error("Cannot use IFA schema on mainnet")]
+    CannotUseIfaOnMainnet,
+
     /// The provided file is empty
     #[error("Empty file: {file_path}")]
     EmptyFile {
@@ -366,6 +370,10 @@ pub enum Error {
     #[error("Issuance request with no provided amounts")]
     NoIssuanceAmounts,
 
+    /// Cannot create a wallet with no supported schemas
+    #[error("Cannot create a wallet with no supported schemas")]
+    NoSupportedSchemas,
+
     /// No valid transport endpoint found
     #[error("No valid transport endpoint found")]
     NoValidTransportEndpoint,
@@ -424,6 +432,13 @@ pub enum Error {
     UnsupportedLayer1 {
         /// Layer 1
         layer_1: String,
+    },
+
+    /// The given schema is not supported
+    #[error("Schema {asset_schema} is not supported")]
+    UnsupportedSchema {
+        /// Asset schema
+        asset_schema: AssetSchema,
     },
 
     /// The given transport type is not supported

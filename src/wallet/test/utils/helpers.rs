@@ -69,6 +69,7 @@ pub(crate) fn get_test_wallet_data(
         mnemonic: Some(mnemonic.to_string()),
         master_fingerprint: fingerprint.to_string(),
         vanilla_keychain: None,
+        supported_schemas: AssetSchema::VALUES.to_vec(),
     }
 }
 
@@ -95,6 +96,7 @@ pub(crate) fn get_test_wallet_with_net(
         mnemonic,
         master_fingerprint: keys.master_fingerprint,
         vanilla_keychain: None,
+        supported_schemas: AssetSchema::VALUES.to_vec(),
     })
     .unwrap();
     println!("wallet directory: {:?}", test_get_wallet_dir(&wallet));

@@ -74,6 +74,46 @@ impl AssetSchema {
         let schema_id = runtime.genesis(contract_id)?.schema_id;
         Self::from_schema_id(schema_id)
     }
+
+    fn schema(&self) -> Schema {
+        match self {
+            Self::Nia => NonInflatableAsset::schema(),
+            Self::Uda => UniqueDigitalAsset::schema(),
+            Self::Cfa => CollectibleFungibleAsset::schema(),
+            Self::Ifa => InflatableFungibleAsset::schema(),
+        }
+    }
+
+    fn scripts(&self) -> Scripts {
+        match self {
+            Self::Nia => NonInflatableAsset::scripts(),
+            Self::Uda => UniqueDigitalAsset::scripts(),
+            Self::Cfa => CollectibleFungibleAsset::scripts(),
+            Self::Ifa => InflatableFungibleAsset::scripts(),
+        }
+    }
+
+    fn types(&self) -> TypeSystem {
+        match self {
+            Self::Nia => NonInflatableAsset::types(),
+            Self::Uda => UniqueDigitalAsset::types(),
+            Self::Cfa => CollectibleFungibleAsset::types(),
+            Self::Ifa => InflatableFungibleAsset::types(),
+        }
+    }
+
+    pub(crate) fn import_kit(&self, runtime: &mut RgbRuntime) -> Result<(), Error> {
+        let schema = self.schema();
+        let lib = self.scripts();
+        let types = self.types();
+        let mut kit = Kit::default();
+        kit.schemata.push(schema).unwrap();
+        kit.scripts.extend(lib.into_values()).unwrap();
+        kit.types = types;
+        let valid_kit = kit.validate().map_err(|_| InternalError::Unexpected)?;
+        runtime.import_kit(valid_kit)?;
+        Ok(())
+    }
 }
 
 impl From<AssetSchema> for SchemaId {

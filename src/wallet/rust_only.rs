@@ -324,6 +324,7 @@ impl Wallet {
 
         let schema_id = consignment.schema_id().to_string();
         let asset_schema: AssetSchema = schema_id.try_into()?;
+        self.check_schema_support(&asset_schema)?;
         debug!(
             self.logger,
             "Got consignment for asset with {} schema", asset_schema

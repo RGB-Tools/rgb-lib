@@ -1531,6 +1531,13 @@ impl Wallet {
         }
 
         let asset_schema: AssetSchema = consignment.schema_id().try_into()?;
+        if !self.supports_schema(&asset_schema) {
+            error!(
+                self.logger,
+                "The wallet doesn't support the provided schema: {}", asset_schema
+            );
+            return self._refuse_consignment(proxy_url, recipient_id, &mut updated_batch_transfer);
+        }
 
         // add asset info to transfer if missing
         if asset_transfer.asset_id.is_none() {
@@ -2836,6 +2843,7 @@ impl Wallet {
         for (asset_id, recipients) in recipient_map {
             let asset = self.database.check_asset_exists(asset_id.clone())?;
             let schema = asset.schema;
+            self.check_schema_support(&schema)?;
 
             let mut local_recipients: Vec<LocalRecipient> = vec![];
             for recipient in recipients.clone() {

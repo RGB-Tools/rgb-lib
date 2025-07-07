@@ -19,6 +19,7 @@ interface RgbLibError {
   CannotEstimateFees();
   CannotFailBatchTransfer();
   CannotFinalizePsbt();
+  CannotUseIfaOnMainnet();
   EmptyFile(string file_path);
   FailedBdkSync(string details);
   FailedBroadcast(string details);
@@ -69,6 +70,7 @@ interface RgbLibError {
   Network(string details);
   NoConsignment();
   NoIssuanceAmounts();
+  NoSupportedSchemas();
   NoValidTransportEndpoint();
   Offline();
   OnlineNeeded();
@@ -81,6 +83,7 @@ interface RgbLibError {
   UnknownRgbSchema(string schema_id);
   UnsupportedBackupVersion(string version);
   UnsupportedLayer1(string layer_1);
+  UnsupportedSchema(AssetSchema asset_schema);
   UnsupportedTransportType();
   WalletDirAlreadyExists(string path);
   WatchOnly();
@@ -470,6 +473,7 @@ dictionary WalletData {
   string? mnemonic;
   string master_fingerprint;
   u8? vanilla_keychain;
+  sequence<AssetSchema> supported_schemas;
 };
 
 interface Wallet {

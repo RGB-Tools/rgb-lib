@@ -191,7 +191,7 @@ use rgbstd::{
         MediaType, Name, ProofOfReserves as RgbProofOfReserves, RicardianContract, Ticker,
         TokenData,
     },
-    validation::{ResolveWitness, Status, WitnessResolverError},
+    validation::{ResolveWitness, Scripts, Status, WitnessResolverError},
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use rgbstd::{
@@ -222,6 +222,7 @@ use slog::{Drain, Logger, debug, error, info, o, warn};
 use slog_async::AsyncGuard;
 use slog_term::{FullFormat, PlainDecorator};
 use strict_encoding::{DecodeError, DeserializeError, FieldName};
+use strict_types::TypeSystem;
 use tempfile::TempDir;
 use time::OffsetDateTime;
 use typenum::consts::U32;

@@ -77,6 +77,7 @@ fn success() {
         mnemonic: Some(keys.mnemonic),
         master_fingerprint: keys.master_fingerprint,
         vanilla_keychain,
+        supported_schemas: AssetSchema::VALUES.to_vec(),
     })
     .unwrap();
     check_wallet(&wallet, bitcoin_network, vanilla_keychain);
@@ -289,6 +290,7 @@ fn watch_only_success() {
         mnemonic: None,
         master_fingerprint: keys.master_fingerprint.clone(),
         vanilla_keychain: None,
+        supported_schemas: AssetSchema::VALUES.to_vec(),
     })
     .unwrap();
     let online_watch = wallet_watch
@@ -306,6 +308,7 @@ fn watch_only_success() {
         mnemonic: Some(keys.mnemonic),
         master_fingerprint: keys.master_fingerprint.clone(),
         vanilla_keychain: None,
+        supported_schemas: AssetSchema::VALUES.to_vec(),
     })
     .unwrap();
 
@@ -359,6 +362,7 @@ fn watch_only_fail() {
         mnemonic: None,
         master_fingerprint: s!("invalid"),
         vanilla_keychain: None,
+        supported_schemas: AssetSchema::VALUES.to_vec(),
     });
     assert!(matches!(result, Err(Error::InvalidFingerprint)));
 }
