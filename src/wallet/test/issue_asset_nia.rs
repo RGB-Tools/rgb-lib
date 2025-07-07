@@ -16,6 +16,15 @@ fn success() {
     let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
     let asset = test_issue_asset_nia(&mut wallet, &online, Some(&[AMOUNT, AMOUNT]));
     let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
+    assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
+
+    // check the asset has been saved with the correct schema
+    let nia_asset_list = test_list_assets(&wallet, &[AssetSchema::Nia]).nia.unwrap();
+    assert!(
+        nia_asset_list
+            .into_iter()
+            .any(|a| a.asset_id == asset.asset_id)
+    );
 
     // add a pending operation to an UTXO so spendable balance will be != settled / future
     let _receive_data = test_blind_receive(&wallet);
@@ -23,7 +32,6 @@ fn success() {
 
     // checks
     let balance = test_get_asset_balance(&wallet, &asset.asset_id);
-    assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     assert_eq!(asset.ticker, TICKER.to_string());
     assert_eq!(asset.name, NAME.to_string());
     assert_eq!(asset.details, None);

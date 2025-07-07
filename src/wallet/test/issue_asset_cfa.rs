@@ -29,6 +29,15 @@ fn success() {
         )
         .unwrap();
     let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
+    assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
+
+    // check the asset has been saved with the correct schema
+    let cfa_asset_list = test_list_assets(&wallet, &[AssetSchema::Cfa]).cfa.unwrap();
+    assert!(
+        cfa_asset_list
+            .into_iter()
+            .any(|a| a.asset_id == asset_1.asset_id)
+    );
 
     // add a pending operation to an UTXO so spendable balance will be != settled / future
     let _receive_data = test_blind_receive(&wallet);
@@ -36,7 +45,6 @@ fn success() {
 
     // checks
     let balance_1 = test_get_asset_balance(&wallet, &asset_1.asset_id);
-    assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     assert_eq!(asset_1.name, NAME.to_string());
     assert_eq!(asset_1.details, None);
     assert_eq!(asset_1.precision, PRECISION);
