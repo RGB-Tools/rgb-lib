@@ -71,10 +71,10 @@ fn success() {
     assert_eq!(batch_transfer.min_confirmations, min_confirmations);
 
     // asset id is set (NIA)
-    let asset = test_issue_asset_nia(&mut wallet, &online, None);
-    let asset_id = asset.asset_id;
+    let asset_nia = test_issue_asset_nia(&mut wallet, &online, None);
+    let asset_nia_id = asset_nia.asset_id;
     let result = wallet.blind_receive(
-        Some(asset_id.clone()),
+        Some(asset_nia_id.clone()),
         Assignment::Any,
         None,
         TRANSPORT_ENDPOINTS.clone(),
@@ -87,10 +87,10 @@ fn success() {
     assert_eq!(invoice_data.asset_schema, Some(AssetSchema::Nia));
 
     // asset id is set (UDA)
-    let asset = test_issue_asset_uda(&mut wallet, &online, None, None, vec![]);
-    let asset_id = asset.asset_id;
+    let asset_uda = test_issue_asset_uda(&mut wallet, &online, None, None, vec![]);
+    let asset_uda_id = asset_uda.asset_id;
     let result = wallet.blind_receive(
-        Some(asset_id.clone()),
+        Some(asset_uda_id.clone()),
         Assignment::Any,
         None,
         TRANSPORT_ENDPOINTS.clone(),
@@ -103,10 +103,10 @@ fn success() {
     assert_eq!(invoice_data.asset_schema, Some(AssetSchema::Uda));
 
     // asset id is set (CFA)
-    let asset = test_issue_asset_cfa(&mut wallet, &online, None, None);
-    let asset_id = asset.asset_id;
+    let asset_cfa = test_issue_asset_cfa(&mut wallet, &online, None, None);
+    let asset_cfa_id = asset_cfa.asset_id;
     let result = wallet.blind_receive(
-        Some(asset_id.clone()),
+        Some(asset_cfa_id.clone()),
         Assignment::Any,
         None,
         TRANSPORT_ENDPOINTS.clone(),
@@ -118,10 +118,27 @@ fn success() {
     let invoice_data = invoice.invoice_data();
     assert_eq!(invoice_data.asset_schema, Some(AssetSchema::Cfa));
 
+    // asset id is set (IFA)
+    test_create_utxos_default(&mut wallet, &online); // more UTXOs to have free alocation slots
+    let asset_ifa = test_issue_asset_ifa(&mut wallet, &online, None, None, 0);
+    let asset_ifa_id = asset_ifa.asset_id;
+    let result = wallet.blind_receive(
+        Some(asset_ifa_id.clone()),
+        Assignment::Any,
+        None,
+        TRANSPORT_ENDPOINTS.clone(),
+        MIN_CONFIRMATIONS,
+    );
+    assert!(result.is_ok());
+    let receive_data = result.unwrap();
+    let invoice = Invoice::new(receive_data.invoice).unwrap();
+    let invoice_data = invoice.invoice_data();
+    assert_eq!(invoice_data.asset_schema, Some(AssetSchema::Ifa));
+
     // all set
     let now_timestamp = now().unix_timestamp();
     let result = wallet.blind_receive(
-        Some(asset_id.clone()),
+        Some(asset_cfa_id.clone()),
         Assignment::Fungible(amount),
         Some(expiration),
         TRANSPORT_ENDPOINTS.clone(),
@@ -136,7 +153,7 @@ fn success() {
     let approx_expiry = now_timestamp + expiration as i64;
     assert_eq!(invoice_data.recipient_id, receive_data.recipient_id);
     assert_eq!(invoice_data.asset_schema, Some(AssetSchema::Cfa));
-    assert_eq!(invoice_data.asset_id, Some(asset_id));
+    assert_eq!(invoice_data.asset_id, Some(asset_cfa_id.clone()));
     assert_eq!(invoice_data.assignment, Assignment::Fungible(amount));
     assert_eq!(invoice_data.network, BitcoinNetwork::Regtest);
     assert!(invoice_data.expiration_timestamp.unwrap() - approx_expiry <= 1);
@@ -144,6 +161,164 @@ fn success() {
         invoice_data.transport_endpoints,
         TRANSPORT_ENDPOINTS.clone()
     );
+
+    // detect assignment: amount, NIA (CFA/IFA)
+    let receive_data = wallet
+        .blind_receive(
+            Some(asset_nia_id.clone()),
+            Assignment::Fungible(amount),
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+    let invoice = Invoice::new(receive_data.invoice).unwrap();
+    let invoice_data = invoice.invoice_data();
+    assert_eq!(invoice_data.assignment, Assignment::Fungible(amount));
+    assert_eq!(invoice_data.assignment_name, Some(s!("assetOwner")));
+    let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
+    assert_eq!(
+        transfer.requested_assignment,
+        Some(Assignment::Fungible(amount))
+    );
+
+    // detect assignment: amount, no schema
+    let receive_data = wallet
+        .blind_receive(
+            None,
+            Assignment::Fungible(amount),
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+    let invoice = Invoice::new(receive_data.invoice).unwrap();
+    let invoice_data = invoice.invoice_data();
+    assert_eq!(invoice_data.assignment, Assignment::Fungible(amount));
+    assert_eq!(invoice_data.assignment_name, Some(s!("assetOwner")));
+    let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
+    assert_eq!(
+        transfer.requested_assignment,
+        Some(Assignment::Fungible(amount))
+    );
+
+    // detect assignment: any, NIA (CFA)
+    let receive_data = wallet
+        .blind_receive(
+            Some(asset_nia_id.clone()),
+            Assignment::Any,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+    let invoice = Invoice::new(receive_data.invoice).unwrap();
+    let invoice_data = invoice.invoice_data();
+    assert_eq!(invoice_data.assignment, Assignment::Fungible(0));
+    assert_eq!(invoice_data.assignment_name, Some(s!("assetOwner")));
+    let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
+    assert_eq!(transfer.requested_assignment, Some(Assignment::Fungible(0)));
+
+    // detect assignment: non fungible, UDA
+    let receive_data = wallet
+        .blind_receive(
+            Some(asset_uda_id.clone()),
+            Assignment::NonFungible,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+    let invoice = Invoice::new(receive_data.invoice).unwrap();
+    let invoice_data = invoice.invoice_data();
+    assert_eq!(invoice_data.assignment, Assignment::NonFungible);
+    assert_eq!(invoice_data.assignment_name, Some(s!("assetOwner")));
+    let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
+    assert_eq!(transfer.requested_assignment, Some(Assignment::NonFungible));
+
+    // detect assignment: any, UDA
+    let receive_data = wallet
+        .blind_receive(
+            Some(asset_uda_id.clone()),
+            Assignment::Any,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+    let invoice = Invoice::new(receive_data.invoice).unwrap();
+    let invoice_data = invoice.invoice_data();
+    assert_eq!(invoice_data.assignment, Assignment::NonFungible);
+    assert_eq!(invoice_data.assignment_name, Some(s!("assetOwner")));
+    let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
+    assert_eq!(transfer.requested_assignment, Some(Assignment::NonFungible));
+
+    // detect assignment: replace right, IFA
+    let receive_data = wallet
+        .blind_receive(
+            Some(asset_ifa_id.clone()),
+            Assignment::ReplaceRight,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+    let invoice = Invoice::new(receive_data.invoice).unwrap();
+    let invoice_data = invoice.invoice_data();
+    assert_eq!(invoice_data.assignment, Assignment::ReplaceRight);
+    assert_eq!(invoice_data.assignment_name, Some(s!("replaceRight")));
+    let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
+    assert_eq!(
+        transfer.requested_assignment,
+        Some(Assignment::ReplaceRight)
+    );
+
+    // detect assignment: inflation right, IFA
+    let receive_data = wallet
+        .blind_receive(
+            Some(asset_ifa_id.clone()),
+            Assignment::InflationRight(amount),
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+    let invoice = Invoice::new(receive_data.invoice).unwrap();
+    let invoice_data = invoice.invoice_data();
+    assert_eq!(invoice_data.assignment, Assignment::InflationRight(amount));
+    assert_eq!(invoice_data.assignment_name, Some(s!("inflationAllowance")));
+    let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
+    assert_eq!(
+        transfer.requested_assignment,
+        Some(Assignment::InflationRight(amount))
+    );
+
+    // detect assignment: any, no schema
+    let receive_data = wallet
+        .blind_receive(
+            None,
+            Assignment::Any,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+    let invoice = Invoice::new(receive_data.invoice).unwrap();
+    let invoice_data = invoice.invoice_data();
+    assert_eq!(invoice_data.assignment, Assignment::Any);
+    assert_eq!(invoice_data.assignment_name, None);
+    let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
+    assert_eq!(transfer.requested_assignment, Some(Assignment::Any));
+
+    // invalid assignment: non fungible, IFA schema
+    let result = wallet.blind_receive(
+        Some(asset_ifa_id.clone()),
+        Assignment::NonFungible,
+        None,
+        TRANSPORT_ENDPOINTS.clone(),
+        MIN_CONFIRMATIONS,
+    );
+    assert_matches!(result, Err(Error::InvalidAssignment));
 
     // check recipient ID
     let result = RecipientInfo::new(receive_data.recipient_id);
