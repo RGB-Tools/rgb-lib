@@ -301,10 +301,6 @@ fn fail() {
     let result = RecipientInfo::new(s!("invalid"));
     assert!(matches!(result, Err(Error::InvalidRecipientID)));
 
-    // invalid invoice
-    let result = Invoice::new(s!("invalid"));
-    assert!(matches!(result, Err(Error::InvalidInvoice { details: _ })));
-
     fund_wallet(test_get_address(&mut wallet));
     mine(false, false);
     test_create_utxos(&mut wallet, &online, true, Some(1), None, FEE_RATE);
@@ -583,4 +579,234 @@ fn multiple_receive_same_utxo() {
         Some(asset_1.asset_id)
     );
     assert_eq!(allocations.last().unwrap().asset_id, Some(asset_2.asset_id));
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn invoice_new() {
+    // schema IDs (for invoices)
+    let mut cfa_sid = SCHEMA_ID_CFA.to_string();
+    cfa_sid.drain(0..8);
+    let cfa_sid = &cfa_sid[..cfa_sid.find('#').unwrap()];
+    let mut ifa_sid = SCHEMA_ID_IFA.to_string();
+    ifa_sid.drain(0..8);
+    let ifa_sid = &ifa_sid[..ifa_sid.find('#').unwrap()];
+    let mut nia_sid = SCHEMA_ID_NIA.to_string();
+    nia_sid.drain(0..8);
+    let nia_sid = &nia_sid[..nia_sid.find('#').unwrap()];
+    let mut uda_sid = SCHEMA_ID_UDA.to_string();
+    uda_sid.drain(0..8);
+    let uda_sid = &uda_sid[..uda_sid.find('#').unwrap()];
+
+    // blinded UTXO
+    let blinded = "bcrt:utxob:tjVmHbI2-U0_umHn-bU4cmP6-l3VW00H-ewoi2uz-XZG6O3i-wUFBW";
+
+    // states
+    let amount = 1u64;
+    let amount_str = "ae";
+    let data_str = "1@0";
+    let void_str = "";
+
+    // invalid invoice (invalid string)
+    let result = Invoice::new(s!("invalid"));
+    assert!(matches!(result, Err(Error::InvalidInvoice { details: _ })));
+
+    // invalid schema (CFA schema, Y characters changed Z)
+    let cfa_sid_mod = cfa_sid.replace("Y", "Z");
+    let invoice_str = format!("rgb:~/{cfa_sid_mod}/~/{blinded}");
+    let result = Invoice::new(invoice_str.to_owned());
+    assert!(
+        matches!(result, Err(Error::InvalidInvoice { details: d }) if d == "invalid schema JgqK5hJX9ZBT4osCV7VcW_iLTcA5csUCnLzvaKTTrNZ.")
+    );
+
+    //
+    // no schema
+    //
+
+    // amount, assetOwner
+    let invoice_str = format!("rgb:~/~/{amount_str}/{blinded}?assignment_name=assetOwner");
+    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
+    let invoice_data = invoice.invoice_data;
+    assert_eq!(invoice_data.assignment, Assignment::Fungible(amount));
+
+    // amount, inflationAllowance
+    let invoice_str = format!("rgb:~/~/{amount_str}/{blinded}?assignment_name=inflationAllowance");
+    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
+    let invoice_data = invoice.invoice_data;
+    assert_eq!(invoice_data.assignment, Assignment::InflationRight(amount));
+
+    // TODO are we sure about this?
+    // amount, invalid name
+    let invoice_str = format!("rgb:~/~/{amount_str}/{blinded}?assignment_name=invalid");
+    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
+    let invoice_data = invoice.invoice_data;
+    assert_eq!(invoice_data.assignment, Assignment::Any);
+
+    // data, assetOwner
+    let invoice_str = format!("rgb:~/~/{data_str}/{blinded}?assignment_name=assetOwner");
+    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
+    let invoice_data = invoice.invoice_data;
+    assert_eq!(invoice_data.assignment, Assignment::NonFungible);
+
+    // data, no name
+    let invoice_str = format!("rgb:~/~/{data_str}/{blinded}");
+    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
+    let invoice_data = invoice.invoice_data;
+    assert_eq!(invoice_data.assignment, Assignment::NonFungible);
+
+    // void, replaceRight
+    let invoice_str = format!("rgb:~/~/{void_str}/{blinded}?assignment_name=replaceRight");
+    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
+    let invoice_data = invoice.invoice_data;
+    assert_eq!(invoice_data.assignment, Assignment::ReplaceRight);
+
+    // void, no name
+    let invoice_str = format!("rgb:~/~/{void_str}/{blinded}");
+    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
+    let invoice_data = invoice.invoice_data;
+    assert_eq!(invoice_data.assignment, Assignment::ReplaceRight);
+
+    // no state, no name
+    let invoice_str = format!("rgb:~/~/~/{blinded}");
+    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
+    let invoice_data = invoice.invoice_data;
+    assert_eq!(invoice_data.assignment, Assignment::Any);
+
+    // invalid invoice (unsupported assignment)
+    let invoice_str = format!("rgb:~/~/{data_str}/{blinded}?assignment_name=replaceRight");
+    let result = Invoice::new(invoice_str.to_owned());
+    assert!(
+        matches!(result, Err(Error::InvalidInvoice { details: d }) if d == "unsupported assignment")
+    );
+
+    //
+    // NIA or CFA
+    //
+
+    // amount, assetOwner
+    let invoice_str = format!("rgb:~/{nia_sid}/{amount_str}/{blinded}?assignment_name=assetOwner");
+    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
+    let invoice_data = invoice.invoice_data;
+    assert_eq!(invoice_data.assignment, Assignment::Fungible(amount));
+
+    // amount, no name
+    let invoice_str = format!("rgb:~/{cfa_sid}/{amount_str}/{blinded}");
+    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
+    let invoice_data = invoice.invoice_data;
+    assert_eq!(invoice_data.assignment, Assignment::Fungible(amount));
+
+    // no state, assetOwner
+    let invoice_str = format!("rgb:~/{nia_sid}/~/{blinded}?assignment_name=assetOwner");
+    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
+    let invoice_data = invoice.invoice_data;
+    assert_eq!(invoice_data.assignment, Assignment::Fungible(0));
+
+    // no state, no name
+    let invoice_str = format!("rgb:~/{cfa_sid}/~/{blinded}");
+    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
+    let invoice_data = invoice.invoice_data;
+    assert_eq!(invoice_data.assignment, Assignment::Fungible(0));
+
+    // invalid invoice (NIA/CFA invalid assignment)
+    let invoice_str = format!("rgb:~/{nia_sid}/~/{blinded}?assignment_name=inflationAllowance");
+    let result = Invoice::new(invoice_str.to_owned());
+    assert!(
+        matches!(result, Err(Error::InvalidInvoice { details: d }) if d == "invalid assignment")
+    );
+
+    //
+    // UDA
+    //
+
+    // data, assetOwner
+    let invoice_str = format!("rgb:~/{uda_sid}/{data_str}/{blinded}?assignment_name=assetOwner");
+    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
+    let invoice_data = invoice.invoice_data;
+    assert_eq!(invoice_data.assignment, Assignment::NonFungible);
+
+    // data, no name
+    let invoice_str = format!("rgb:~/{uda_sid}/{data_str}/{blinded}");
+    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
+    let invoice_data = invoice.invoice_data;
+    assert_eq!(invoice_data.assignment, Assignment::NonFungible);
+
+    // no state, no name
+    let invoice_str = format!("rgb:~/{uda_sid}/~/{blinded}?assignment_name=assetOwner");
+    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
+    let invoice_data = invoice.invoice_data;
+    assert_eq!(invoice_data.assignment, Assignment::NonFungible);
+
+    // no state, no name
+    let invoice_str = format!("rgb:~/{uda_sid}/~/{blinded}");
+    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
+    let invoice_data = invoice.invoice_data;
+    assert_eq!(invoice_data.assignment, Assignment::NonFungible);
+
+    // invalid invoice (UDA invalid assignment)
+    let invoice_str = format!("rgb:~/{uda_sid}/~/{blinded}?assignment_name=inflationAllowance");
+    let result = Invoice::new(invoice_str.to_owned());
+    assert!(
+        matches!(result, Err(Error::InvalidInvoice { details: d }) if d == "invalid assignment")
+    );
+
+    //
+    // IFA
+    //
+
+    // amount, assetOwner
+    let invoice_str = format!("rgb:~/{ifa_sid}/{amount_str}/{blinded}?assignment_name=assetOwner");
+    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
+    let invoice_data = invoice.invoice_data;
+    assert_eq!(invoice_data.assignment, Assignment::Fungible(amount));
+
+    // no state, assetOwner
+    let invoice_str = format!("rgb:~/{ifa_sid}/~/{blinded}?assignment_name=assetOwner");
+    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
+    let invoice_data = invoice.invoice_data;
+    assert_eq!(invoice_data.assignment, Assignment::Fungible(0));
+
+    // amount, inflationAllowance
+    let invoice_str =
+        format!("rgb:~/{ifa_sid}/{amount_str}/{blinded}?assignment_name=inflationAllowance");
+    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
+    let invoice_data = invoice.invoice_data;
+    assert_eq!(invoice_data.assignment, Assignment::InflationRight(amount));
+
+    // no state, inflationAllowance
+    let invoice_str = format!("rgb:~/{ifa_sid}/~/{blinded}?assignment_name=inflationAllowance");
+    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
+    let invoice_data = invoice.invoice_data;
+    assert_eq!(invoice_data.assignment, Assignment::InflationRight(0));
+
+    // amount, no name
+    let invoice_str = format!("rgb:~/{ifa_sid}/~/{blinded}");
+    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
+    let invoice_data = invoice.invoice_data;
+    assert_eq!(invoice_data.assignment, Assignment::Any);
+
+    // void, ReplaceRight
+    let invoice_str = format!("rgb:~/{ifa_sid}/{void_str}/{blinded}?assignment_name=replaceRight");
+    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
+    let invoice_data = invoice.invoice_data;
+    assert_eq!(invoice_data.assignment, Assignment::ReplaceRight);
+
+    // void, no name
+    let invoice_str = format!("rgb:~/{ifa_sid}/{void_str}/{blinded}");
+    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
+    let invoice_data = invoice.invoice_data;
+    assert_eq!(invoice_data.assignment, Assignment::ReplaceRight);
+
+    // no state, no name
+    let invoice_str = format!("rgb:~/{ifa_sid}/~/{blinded}");
+    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
+    let invoice_data = invoice.invoice_data;
+    assert_eq!(invoice_data.assignment, Assignment::Any);
+
+    // invalid invoice (IFA invalid assignment)
+    let invoice_str = format!("rgb:~/{ifa_sid}/~/{blinded}?assignment_name=inexistent");
+    let result = Invoice::new(invoice_str.to_owned());
+    assert!(
+        matches!(result, Err(Error::InvalidInvoice { details: d }) if d == "invalid assignment")
+    );
 }
