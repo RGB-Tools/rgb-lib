@@ -19,7 +19,7 @@ pub enum AssetSchema {
 
 impl fmt::Display for AssetSchema {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 

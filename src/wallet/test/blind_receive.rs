@@ -365,10 +365,7 @@ fn fail() {
         format!("rpc://127.0.0.1:3003/json-rpc"),
     ];
     let result = blind_receive_0exp_withte(&mut wallet, transport_endpoints);
-    let msg = format!(
-        "library supports at max {} transport endpoints",
-        MAX_TRANSPORT_ENDPOINTS
-    );
+    let msg = format!("library supports at max {MAX_TRANSPORT_ENDPOINTS} transport endpoints");
     assert!(matches!(
         result,
         Err(Error::InvalidTransportEndpoints { details: m }) if m == msg

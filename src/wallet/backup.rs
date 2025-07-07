@@ -47,7 +47,7 @@ impl TryInto<Params> for ScryptParams {
 
     fn try_into(self: ScryptParams) -> Result<Params, Error> {
         Params::new(self.log_n, self.r, self.p, self.len).map_err(|e| Error::Internal {
-            details: format!("invalid params {}", e),
+            details: format!("invalid params {e}"),
         })
     }
 }

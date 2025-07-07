@@ -40,7 +40,7 @@ pub enum IndexerProtocol {
 
 impl fmt::Display for IndexerProtocol {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 

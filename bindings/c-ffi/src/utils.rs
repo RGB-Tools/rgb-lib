@@ -36,6 +36,7 @@ impl COpaqueStruct {
 }
 
 trait CReturnType: Sized + 'static {
+    #[allow(clippy::mut_from_ref)]
     fn from_opaque(other: &COpaqueStruct) -> Result<&mut Self, Error> {
         let mut hasher = DefaultHasher::new();
         TypeId::of::<Self>().hash(&mut hasher);
@@ -64,7 +65,7 @@ where
             },
             Err(e) => CResult {
                 result: CResultValue::Err,
-                inner: COpaqueStruct::raw(string_to_ptr(format!("{:?}", e))),
+                inner: COpaqueStruct::raw(string_to_ptr(format!("{e:?}"))),
             },
         }
     }
@@ -82,7 +83,7 @@ where
             },
             Err(e) => CResultString {
                 result: CResultValue::Err,
-                inner: string_to_ptr(format!("{:?}", e)),
+                inner: string_to_ptr(format!("{e:?}")),
             },
         }
     }
@@ -100,7 +101,7 @@ where
             },
             Err(e) => CResultString {
                 result: CResultValue::Err,
-                inner: string_to_ptr(format!("{:?}", e)),
+                inner: string_to_ptr(format!("{e:?}")),
             },
         }
     }
