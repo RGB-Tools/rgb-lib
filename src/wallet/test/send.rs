@@ -5902,7 +5902,7 @@ fn ifa() {
 
 #[cfg(feature = "electrum")]
 #[test]
-#[serial]
+#[parallel]
 fn pending_witness_ma1_blind_receive_fail() {
     initialize();
 
@@ -5960,4 +5960,208 @@ fn pending_witness_ma1_blind_receive_fail() {
     // try to blind the new UTXO: it should error as it already has the max allocation number
     let result = test_blind_receive_result(&rcv_wallet);
     assert!(matches!(result, Err(Error::InsufficientBitcoins { .. })))
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn pending_witness_txo() {
+    initialize();
+
+    let amount: u64 = 66;
+
+    // wallets
+    let (mut wallet, online) = get_funded_wallet!();
+    let (mut rcv_wallet, rcv_online) = get_empty_wallet!();
+
+    // issue
+    let asset = test_issue_asset_nia(&mut wallet, &online, None);
+
+    //
+    // normal
+    //
+
+    // send
+    let receive_data = test_witness_receive(&mut rcv_wallet);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(amount),
+            recipient_id: receive_data.recipient_id.clone(),
+            witness_data: Some(WitnessData {
+                amount_sat: 1000,
+                blinding: None,
+            }),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid = test_send(&mut wallet, &online, &recipient_map);
+    assert!(!txid.is_empty());
+    let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &receive_data.recipient_id);
+    let (rcv_transfer_data, _) = get_test_transfer_data(&rcv_wallet, &rcv_transfer);
+    assert_eq!(
+        rcv_transfer_data.status,
+        TransferStatus::WaitingCounterparty
+    );
+
+    // check the recipient doesn't see the TXO yet + has one pending witness script
+    let rcv_txos = rcv_wallet.database.iter_txos().unwrap();
+    assert!(!rcv_txos.iter().any(|t| t.txid == txid));
+    let rcv_pending_witness_scripts = rcv_wallet.database.iter_pending_witness_scripts().unwrap();
+    assert_eq!(rcv_pending_witness_scripts.len(), 1);
+
+    // sync recipient wallet
+    rcv_wallet.sync(rcv_online.clone()).unwrap();
+
+    // check the recipient doesn't see the TXO yet + has one pending witness
+    let rcv_txos = rcv_wallet.database.iter_txos().unwrap();
+    assert!(!rcv_txos.iter().any(|t| t.txid == txid));
+    let rcv_pending_witness_scripts = rcv_wallet.database.iter_pending_witness_scripts().unwrap();
+    assert_eq!(rcv_pending_witness_scripts.len(), 1);
+
+    // refresh the recipient to move the transfer to WaitingConfirmations
+    test_refresh_all(&mut rcv_wallet, &rcv_online);
+    let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &receive_data.recipient_id);
+    let (rcv_transfer_data, _) = get_test_transfer_data(&rcv_wallet, &rcv_transfer);
+    assert_eq!(
+        rcv_transfer_data.status,
+        TransferStatus::WaitingConfirmations
+    );
+
+    // check the recipient now sees the TXO yet as inexistent + pending witness
+    let rcv_txos = rcv_wallet.database.iter_txos().unwrap();
+    let rcv_witness_txos: Vec<database::entities::txo::Model> =
+        rcv_txos.into_iter().filter(|t| t.txid == txid).collect();
+    assert_eq!(rcv_witness_txos.len(), 1);
+    let rcv_txo = rcv_witness_txos.first().unwrap();
+    assert!(!rcv_txo.exists);
+    assert!(rcv_txo.pending_witness);
+    let rcv_outpoint = Outpoint {
+        txid,
+        vout: rcv_txo.vout,
+    };
+
+    // check the recipient still has the pending witness script
+    let rcv_pending_witness_scripts = rcv_wallet.database.iter_pending_witness_scripts().unwrap();
+    assert_eq!(rcv_pending_witness_scripts.len(), 1);
+
+    // refresh the sender to move the transfer to WaitingConfirmations (broadcast)
+    test_refresh_all(&mut wallet, &online);
+
+    // sync recipient wallet
+    rcv_wallet.sync(rcv_online.clone()).unwrap();
+
+    // check the recipient TXO now exists and is still pending witness
+    let rcv_txo = rcv_wallet.database.get_txo(&rcv_outpoint).unwrap().unwrap();
+    assert!(rcv_txo.exists);
+    assert!(rcv_txo.pending_witness);
+
+    // check the recipient pending witness script has been deleted
+    let rcv_pending_witness_scripts = rcv_wallet.database.iter_pending_witness_scripts().unwrap();
+    assert!(rcv_pending_witness_scripts.is_empty());
+
+    // mine + refresh the recipient to move the transfer to Settled
+    mine(false, false);
+    test_refresh_all(&mut rcv_wallet, &rcv_online);
+    test_refresh_all(&mut wallet, &online); // so that change is spendable
+    let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &receive_data.recipient_id);
+    let (rcv_transfer_data, _) = get_test_transfer_data(&rcv_wallet, &rcv_transfer);
+    assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
+
+    // check the recipient TXO still exists and is no more pending witness
+    let rcv_txo = rcv_wallet.database.get_txo(&rcv_outpoint).unwrap().unwrap();
+    assert!(rcv_txo.exists);
+    assert!(!rcv_txo.pending_witness);
+
+    //
+    // donation
+    //
+
+    // new recipient wallet
+    let (mut rcv_wallet, rcv_online) = get_empty_wallet!();
+
+    // send (donation)
+    let receive_data = test_witness_receive(&mut rcv_wallet);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(amount),
+            recipient_id: receive_data.recipient_id.clone(),
+            witness_data: Some(WitnessData {
+                amount_sat: 1000,
+                blinding: None,
+            }),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let SendResult { txid, .. } = wallet
+        .send(
+            online.clone(),
+            recipient_map.clone(),
+            true,
+            FEE_RATE,
+            MIN_CONFIRMATIONS,
+            false,
+        )
+        .unwrap();
+    assert!(!txid.is_empty());
+    let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &receive_data.recipient_id);
+    let (rcv_transfer_data, _) = get_test_transfer_data(&rcv_wallet, &rcv_transfer);
+    assert_eq!(
+        rcv_transfer_data.status,
+        TransferStatus::WaitingCounterparty
+    );
+
+    // check the recipient doesn't see the TXO yet + has one pending witness script
+    let rcv_txos = rcv_wallet.database.iter_txos().unwrap();
+    assert!(!rcv_txos.iter().any(|t| t.txid == txid));
+    let rcv_pending_witness_scripts = rcv_wallet.database.iter_pending_witness_scripts().unwrap();
+    assert_eq!(rcv_pending_witness_scripts.len(), 1);
+
+    // sync recipient wallet
+    rcv_wallet.sync(rcv_online.clone()).unwrap();
+
+    // check the recipient now sees the TXO, as existent + pending witness
+    let rcv_txos = rcv_wallet.database.iter_txos().unwrap();
+    let rcv_witness_txos: Vec<database::entities::txo::Model> =
+        rcv_txos.into_iter().filter(|t| t.txid == txid).collect();
+    assert_eq!(rcv_witness_txos.len(), 1);
+    let rcv_txo = rcv_witness_txos.first().unwrap();
+    assert!(rcv_txo.exists);
+    assert!(rcv_txo.pending_witness);
+    let rcv_outpoint = Outpoint {
+        txid,
+        vout: rcv_txo.vout,
+    };
+
+    // check pending witness script has been deleted
+    let rcv_pending_witness_scripts = rcv_wallet.database.iter_pending_witness_scripts().unwrap();
+    assert!(rcv_pending_witness_scripts.is_empty());
+
+    // refresh to move the transfer to WaitingConfirmations
+    test_refresh_all(&mut rcv_wallet, &rcv_online);
+    let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &receive_data.recipient_id);
+    let (rcv_transfer_data, _) = get_test_transfer_data(&rcv_wallet, &rcv_transfer);
+    assert_eq!(
+        rcv_transfer_data.status,
+        TransferStatus::WaitingConfirmations
+    );
+
+    // check the TXO is still existent + pending witness
+    let rcv_txo = rcv_wallet.database.get_txo(&rcv_outpoint).unwrap().unwrap();
+    assert!(rcv_txo.exists);
+    assert!(rcv_txo.pending_witness);
+
+    // refresh + mine to move the transfer to Settled
+    test_refresh_all(&mut wallet, &online);
+    mine(false, false);
+    test_refresh_all(&mut rcv_wallet, &rcv_online);
+    let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &receive_data.recipient_id);
+    let (rcv_transfer_data, _) = get_test_transfer_data(&rcv_wallet, &rcv_transfer);
+    assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
+
+    // check the TXO is still existent but not pending witness anymore
+    let rcv_txo = rcv_wallet.database.get_txo(&rcv_outpoint).unwrap().unwrap();
+    assert!(rcv_txo.exists);
+    assert!(!rcv_txo.pending_witness);
 }
