@@ -1198,7 +1198,6 @@ pub struct Wallet {
     pub(crate) bdk_database: Store<ChangeSet>,
     #[cfg(any(feature = "electrum", feature = "esplora"))]
     pub(crate) rest_client: RestClient,
-    max_allocations_per_utxo: u32,
     #[cfg(any(feature = "electrum", feature = "esplora"))]
     pub(crate) online_data: Option<OnlineData>,
 }
@@ -1339,7 +1338,6 @@ impl Wallet {
             bdk_database,
             #[cfg(any(feature = "electrum", feature = "esplora"))]
             rest_client,
-            max_allocations_per_utxo: wdata.max_allocations_per_utxo,
             #[cfg(any(feature = "electrum", feature = "esplora"))]
             online_data: None,
         })
@@ -1374,6 +1372,10 @@ impl Wallet {
 
     pub(crate) fn get_transfers_dir(&self) -> PathBuf {
         self.wallet_dir.join(TRANSFERS_DIR)
+    }
+
+    pub(crate) fn max_allocations_per_utxo(&self) -> u32 {
+        self.wallet_data.max_allocations_per_utxo
     }
 
     pub(crate) fn supports_schema(&self, asset_schema: &AssetSchema) -> bool {
@@ -1442,7 +1444,7 @@ impl Wallet {
         mut_unspents
             .iter_mut()
             .for_each(|u| u.rgb_allocations.retain(|a| !a.status.failed()));
-        let max_allocs = max_allocations.unwrap_or(self.max_allocations_per_utxo - 1);
+        let max_allocs = max_allocations.unwrap_or(self.max_allocations_per_utxo() - 1);
         Ok(mut_unspents
             .iter()
             .filter(|u| u.utxo.exists)
