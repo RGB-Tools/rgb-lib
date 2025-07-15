@@ -1,6 +1,6 @@
 [package]
 name = "rgb-lib-migration"
-version = "0.3.0-alpha.13"
+version = "0.3.0-beta.1"
 authors = [
     "Zoe Faltibà <zoefaltiba@gmail.com>",
     "Nicola Busanello <nicola.busanello@gmail.com>",

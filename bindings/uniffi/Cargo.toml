@@ -20,7 +20,7 @@ path = "uniffi-bindgen.rs"
 default = ["uniffi/cli"]
 
 [dependencies]
-rgb-lib = { version = "0.3.0-alpha.13", path = "../../", features = [
+rgb-lib = { version = "0.3.0-beta.1", path = "../../", features = [
     "electrum",
     "esplora",
 ] }
