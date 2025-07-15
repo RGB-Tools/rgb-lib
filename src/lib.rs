@@ -36,7 +36,7 @@
 //! ### Create an RGB wallet
 //! ```
 //! use rgb_lib::wallet::{DatabaseType, Wallet, WalletData};
-//! use rgb_lib::{generate_keys, BitcoinNetwork};
+//! use rgb_lib::{generate_keys, AssetSchema, BitcoinNetwork};
 //!
 //! fn main() -> Result<(), rgb_lib::Error> {
 //!     let data_dir = tempfile::tempdir()?;
@@ -51,6 +51,7 @@
 //!         mnemonic: Some(keys.mnemonic),
 //!         master_fingerprint: keys.master_fingerprint,
 //!         vanilla_keychain: None,
+//!         supported_schemas: vec![AssetSchema::Nia],
 //!     };
 //!     let wallet = Wallet::new(wallet_data)?;
 //!
