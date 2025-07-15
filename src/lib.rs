@@ -181,7 +181,7 @@ use rgbstd::indexers::AnyResolver;
 use rgbstd::{
     Allocation, Amount, ChainNet, Genesis, GraphSeal, Identity, Layer1, Operation, Opout,
     OutputSeal, OwnedFraction, Precision, Schema, SecretSeal, TokenIndex, Transition,
-    TransitionType,
+    TransitionType, TypeSystem,
     containers::{BuilderSeal, Kit, ValidContract, ValidKit, ValidTransfer},
     contract::{AllocatedState, ContractBuilder, IssuerWrapper, TransitionBuilder},
     info::{ContractInfo, SchemaInfo},
@@ -223,7 +223,6 @@ use slog::{Drain, Logger, debug, error, info, o, warn};
 use slog_async::AsyncGuard;
 use slog_term::{FullFormat, PlainDecorator};
 use strict_encoding::{DecodeError, DeserializeError, FieldName};
-use strict_types::TypeSystem;
 use tempfile::TempDir;
 use time::OffsetDateTime;
 use typenum::consts::U32;
