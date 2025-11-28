@@ -1,11 +1,11 @@
-//! RGB Rust-only methods module
+//! Rust-only functionality.
 //!
-//! This module defines additional utility methods that are not exposed via FFI
+//! This module defines additional utility methods that are not exposed via FFI.
 
 use super::*;
 
 /// RGB asset-specific information to color a transaction
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 pub struct AssetColoringInfo {
     /// Map of vouts and asset amounts to color the transaction outputs
     pub output_map: HashMap<u32, u64>,
@@ -14,7 +14,7 @@ pub struct AssetColoringInfo {
 }
 
 /// RGB information to color a transaction
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 pub struct ColoringInfo {
     /// Asset-specific information
     pub asset_info_map: HashMap<ContractId, AssetColoringInfo>,
@@ -28,7 +28,8 @@ pub struct ColoringInfo {
 pub type AssetBeneficiariesMap = BTreeMap<ContractId, Vec<BuilderSeal<GraphSeal>>>;
 
 /// Indexer protocol
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub enum IndexerProtocol {
     /// An indexer implementing the electrum protocol
     Electrum,
@@ -36,6 +37,7 @@ pub enum IndexerProtocol {
     Esplora,
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 impl fmt::Display for IndexerProtocol {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{self:?}")
@@ -72,9 +74,10 @@ pub fn check_indexer_url(
 /// it only if you know what you're doing</div>
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub fn check_proxy_url(proxy_url: &str) -> Result<(), Error> {
-    check_proxy(proxy_url, None)
+    check_proxy(proxy_url)
 }
 
+/// Rust-only APIs of the wallet.
 impl Wallet {
     /// Color a PSBT.
     ///
@@ -85,7 +88,7 @@ impl Wallet {
         psbt: &mut Psbt,
         coloring_info: ColoringInfo,
     ) -> Result<(Fascia, AssetBeneficiariesMap), Error> {
-        info!(self.logger, "Coloring PSBT...");
+        info!(self.logger(), "Coloring PSBT...");
         let mut transaction = match psbt.clone().extract_tx() {
             Ok(tx) => tx,
             Err(ExtractTxError::MissingInputValue { tx }) => tx, // required for non-standard TXs
@@ -233,11 +236,9 @@ impl Wallet {
 
         psbt.set_rgb_close_method(CloseMethod::OpretFirst);
         psbt.set_as_unmodifiable();
-        let fascia = psbt.rgb_commit().map_err(|e| Error::Internal {
-            details: e.to_string(),
-        })?;
+        let fascia = psbt.rgb_commit().map_err(InternalError::from)?;
 
-        info!(self.logger, "Color PSBT completed");
+        info!(self.logger(), "Color PSBT completed");
         Ok((fascia, asset_beneficiaries))
     }
 
@@ -250,13 +251,13 @@ impl Wallet {
         psbt: &mut Psbt,
         coloring_info: ColoringInfo,
     ) -> Result<Vec<RgbTransfer>, Error> {
-        info!(self.logger, "Coloring PSBT and consuming...");
+        info!(self.logger(), "Coloring PSBT and consuming...");
         let (fascia, asset_beneficiaries) = self.color_psbt(psbt, coloring_info.clone())?;
 
         let witness_txid = psbt.get_txid();
 
         let mut runtime = self.rgb_runtime()?;
-        runtime.consume_fascia(fascia, witness_txid, None)?;
+        runtime.consume_fascia(fascia, None)?;
 
         let mut transfers = vec![];
         for (contract_id, beneficiaries) in asset_beneficiaries {
@@ -281,8 +282,23 @@ impl Wallet {
             )?);
         }
 
-        info!(self.logger, "Color PSBT and consume completed");
+        info!(self.logger(), "Color PSBT and consume completed");
         Ok(transfers)
+    }
+
+    /// Create consignments for a PSBT created with the [`send_begin`](Wallet::send_begin) method.
+    ///
+    /// <div class="warning">This method is meant for special usage and is normally not needed, use
+    /// it only if you know what you're doing</div>
+    pub fn create_consignments(&self, psbt: String) -> Result<(), Error> {
+        info!(self.logger(), "Creating consignments...");
+
+        let psbt = Psbt::from_str(&psbt)?;
+        let (_, transfer_dir, info_contents, fascia) = self.get_transfer_end_data(&psbt)?;
+        self.gen_consignments(&fascia, &info_contents.transfers, &transfer_dir)?;
+
+        info!(self.logger(), "Create consignments completed");
+        Ok(())
     }
 
     /// Accept an RGB transfer using a TXID to retrieve its consignment.
@@ -297,7 +313,7 @@ impl Wallet {
         consignment_endpoint: RgbTransport,
         blinding: u64,
     ) -> Result<(RgbTransfer, Vec<Assignment>), Error> {
-        info!(self.logger, "Accepting transfer...");
+        info!(self.logger(), "Accepting transfer...");
         let witness_id = RgbTxid::from_str(&txid).map_err(|_| Error::InvalidTxid)?;
         let proxy_url = TransportEndpoint::try_from(consignment_endpoint)?.endpoint;
 
@@ -311,7 +327,7 @@ impl Wallet {
         let asset_schema: AssetSchema = schema_id.try_into()?;
         self.check_schema_support(&asset_schema)?;
         debug!(
-            self.logger,
+            self.logger(),
             "Got consignment for asset with {} schema", asset_schema
         );
 
@@ -326,7 +342,7 @@ impl Wallet {
             fallback: self.blockchain_resolver(),
         };
 
-        debug!(self.logger, "Validating consignment...");
+        debug!(self.logger(), "Validating consignment...");
         let asset_schema: AssetSchema = consignment.schema_id().try_into()?;
         let trusted_typesystem = asset_schema.types();
         let validation_config = ValidationConfig {
@@ -337,18 +353,18 @@ impl Wallet {
         let valid_consignment = match consignment.clone().validate(&resolver, &validation_config) {
             Ok(consignment) => consignment,
             Err(ValidationError::InvalidConsignment(e)) => {
-                error!(self.logger, "Consignment is invalid: {}", e);
+                error!(self.logger(), "Consignment is invalid: {}", e);
                 return Err(Error::InvalidConsignment);
             }
             Err(ValidationError::ResolverError(e)) => {
-                warn!(self.logger, "Network error during consignment validation");
+                warn!(self.logger(), "Network error during consignment validation");
                 return Err(Error::Network {
                     details: e.to_string(),
                 });
             }
         };
         let validity = valid_consignment.validation_status().validity();
-        debug!(self.logger, "Consignment validity: {:?}", validity);
+        debug!(self.logger(), "Consignment validity: {:?}", validity);
 
         let valid_contract = valid_consignment.clone().into_valid_contract();
         runtime
@@ -360,7 +376,7 @@ impl Wallet {
 
         let _status = runtime.accept_transfer(valid_consignment, &resolver)?;
 
-        info!(self.logger, "Accept transfer completed");
+        info!(self.logger(), "Accept transfer completed");
         Ok((
             consignment,
             received_rgb_assignments.into_values().collect(),
@@ -374,13 +390,12 @@ impl Wallet {
     pub fn consume_fascia(
         &self,
         fascia: Fascia,
-        witness_txid: RgbTxid,
         witness_ord: Option<WitnessOrd>,
     ) -> Result<(), Error> {
-        info!(self.logger, "Consuming fascia...");
+        info!(self.logger(), "Consuming fascia...");
         self.rgb_runtime()?
-            .consume_fascia(fascia.clone(), witness_txid, witness_ord)?;
-        info!(self.logger, "Consume fascia completed");
+            .consume_fascia(fascia.clone(), witness_ord)?;
+        info!(self.logger(), "Consume fascia completed");
         Ok(())
     }
 
@@ -390,20 +405,9 @@ impl Wallet {
     /// it only if you know what you're doing</div>
     #[cfg(any(feature = "electrum", feature = "esplora"))]
     pub fn get_tx_height(&self, txid: String) -> Result<Option<u32>, Error> {
-        info!(self.logger, "Getting TX height...");
-        let txid = RgbTxid::from_str(&txid).map_err(|_| Error::InvalidTxid)?;
-        let height = match self
-            .blockchain_resolver()
-            .resolve_witness(txid)
-            .map_err(|e| Error::Network {
-                details: e.to_string(),
-            })? {
-            WitnessStatus::Resolved(_, WitnessOrd::Mined(witness_pos)) => {
-                Some(witness_pos.height().get())
-            }
-            _ => None,
-        };
-        info!(self.logger, "Get TX height completed");
+        info!(self.logger(), "Getting TX height...");
+        let height = self.tx_height(txid)?;
+        info!(self.logger(), "Get TX height completed");
         Ok(height)
     }
 
@@ -417,13 +421,13 @@ impl Wallet {
         after_height: u32,
         force_witnesses: Vec<RgbTxid>,
     ) -> Result<UpdateRes, Error> {
-        info!(self.logger, "Updating witnesses...");
+        info!(self.logger(), "Updating witnesses...");
         let update_res = self.rgb_runtime()?.update_witnesses(
             self.blockchain_resolver(),
             after_height,
             force_witnesses,
         )?;
-        info!(self.logger, "Update witnesses completed");
+        info!(self.logger(), "Update witnesses completed");
         Ok(update_res)
     }
 
@@ -455,213 +459,10 @@ impl Wallet {
         txid: String,
         vout: Option<u32>,
     ) -> Result<(), Error> {
-        info!(self.logger, "Posting consignment...");
-        let consignment_res = self.rest_client.clone().post_consignment(
-            proxy_url,
-            recipient_id.clone(),
-            consignment_path,
-            txid.clone(),
-            vout,
-        )?;
-        debug!(
-            self.logger,
-            "Consignment POST response: {:?}", consignment_res
-        );
-
-        if let Some(err) = consignment_res.error {
-            if err.code == -101 {
-                return Err(Error::RecipientIDAlreadyUsed)?;
-            }
-            return Err(Error::InvalidTransportEndpoint {
-                details: format!("proxy error: {}", err.message),
-            });
-        }
-        if consignment_res.result.is_none() {
-            return Err(Error::InvalidTransportEndpoint {
-                details: s!("invalid result"),
-            });
-        }
-
-        info!(self.logger, "Post consignment completed");
-        Ok(())
-    }
-
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
-    pub(crate) fn save_new_asset_internal(
-        &self,
-        runtime: &RgbRuntime,
-        contract_id: ContractId,
-        asset_schema: AssetSchema,
-        valid_contract: ValidContract,
-        valid_transfer: ValidTransfer,
-    ) -> Result<(), Error> {
-        let timestamp = valid_contract.genesis.timestamp;
-        let (local_asset_data, token) = match &asset_schema {
-            AssetSchema::Nia => {
-                let contract = runtime.contract_wrapper::<NonInflatableAsset>(contract_id)?;
-                let spec = contract.spec();
-                let ticker = spec.ticker().to_string();
-                let name = spec.name().to_string();
-                let details = spec.details().map(|d| d.to_string());
-                let precision = spec.precision.into();
-                let initial_supply = contract.total_issued_supply().into();
-                let media_idx = if let Some(attachment) = contract.contract_terms().media {
-                    Some(self.get_or_insert_media(
-                        hex::encode(attachment.digest),
-                        attachment.ty.to_string(),
-                    )?)
-                } else {
-                    None
-                };
-                (
-                    LocalAssetData {
-                        name,
-                        precision,
-                        ticker: Some(ticker),
-                        details,
-                        media_idx,
-                        initial_supply,
-                        max_supply: None,
-                        known_circulating_supply: None,
-                        reject_list_url: None,
-                    },
-                    None,
-                )
-            }
-            AssetSchema::Uda => {
-                let contract = runtime.contract_wrapper::<UniqueDigitalAsset>(contract_id)?;
-                let spec = contract.spec();
-                let ticker = spec.ticker().to_string();
-                let name = spec.name().to_string();
-                let details = spec.details().map(|d| d.to_string());
-                let precision = spec.precision.into();
-                let initial_supply = 1;
-                let media_idx = if let Some(attachment) = contract.contract_terms().media {
-                    Some(self.get_or_insert_media(
-                        hex::encode(attachment.digest),
-                        attachment.ty.to_string(),
-                    )?)
-                } else {
-                    None
-                };
-                let token_full =
-                    Token::from_token_data(&contract.token_data(), self.get_media_dir());
-                (
-                    LocalAssetData {
-                        name,
-                        precision,
-                        ticker: Some(ticker),
-                        details,
-                        media_idx,
-                        initial_supply,
-                        max_supply: None,
-                        known_circulating_supply: None,
-                        reject_list_url: None,
-                    },
-                    Some(token_full),
-                )
-            }
-            AssetSchema::Cfa => {
-                let contract = runtime.contract_wrapper::<CollectibleFungibleAsset>(contract_id)?;
-                let name = contract.name().to_string();
-                let details = contract.details().map(|d| d.to_string());
-                let precision = contract.precision().into();
-                let initial_supply = contract.total_issued_supply().into();
-                let media_idx = if let Some(attachment) = contract.contract_terms().media {
-                    Some(self.get_or_insert_media(
-                        hex::encode(attachment.digest),
-                        attachment.ty.to_string(),
-                    )?)
-                } else {
-                    None
-                };
-                (
-                    LocalAssetData {
-                        name,
-                        precision,
-                        ticker: None,
-                        details,
-                        media_idx,
-                        initial_supply,
-                        max_supply: None,
-                        known_circulating_supply: None,
-                        reject_list_url: None,
-                    },
-                    None,
-                )
-            }
-            AssetSchema::Ifa => {
-                let contract = runtime.contract_wrapper::<InflatableFungibleAsset>(contract_id)?;
-                let spec = contract.spec();
-                let ticker = spec.ticker().to_string();
-                let name = spec.name().to_string();
-                let details = spec.details().map(|d| d.to_string());
-                let precision = spec.precision.into();
-                let media_idx = if let Some(attachment) = contract.contract_terms().media {
-                    Some(self.get_or_insert_media(
-                        hex::encode(attachment.digest),
-                        attachment.ty.to_string(),
-                    )?)
-                } else {
-                    None
-                };
-                let initial_supply = contract.total_issued_supply().into();
-                let max_supply = contract.max_supply().into();
-                let known_circulating_supply = IfaWrapper::with(valid_transfer.contract_data())
-                    .total_issued_supply()
-                    .into();
-                let reject_list_url = contract.reject_list_url().map(|u| u.to_string());
-                (
-                    LocalAssetData {
-                        name,
-                        precision,
-                        ticker: Some(ticker),
-                        details,
-                        media_idx,
-                        initial_supply,
-                        max_supply: Some(max_supply),
-                        known_circulating_supply: Some(known_circulating_supply),
-                        reject_list_url,
-                    },
-                    None,
-                )
-            }
-        };
-
-        let db_asset = self.add_asset_to_db(
-            contract_id.to_string(),
-            &asset_schema,
-            None,
-            timestamp,
-            local_asset_data,
-        )?;
-
-        if let Some(token) = token {
-            let db_token = DbTokenActMod {
-                asset_idx: ActiveValue::Set(db_asset.idx),
-                index: ActiveValue::Set(token.index),
-                ticker: ActiveValue::Set(token.ticker),
-                name: ActiveValue::Set(token.name),
-                details: ActiveValue::Set(token.details),
-                embedded_media: ActiveValue::Set(token.embedded_media.is_some()),
-                reserves: ActiveValue::Set(token.reserves.is_some()),
-                ..Default::default()
-            };
-            let token_idx = self.database.set_token(db_token)?;
-
-            if let Some(media) = &token.media {
-                self.save_token_media(token_idx, media.get_digest(), media.mime.clone(), None)?;
-            }
-            for (attachment_id, media) in token.attachments {
-                self.save_token_media(
-                    token_idx,
-                    media.get_digest(),
-                    media.mime.clone(),
-                    Some(attachment_id),
-                )?;
-            }
-        }
-
+        info!(self.logger(), "Posting consignment...");
+        let proxy_client = ProxyClient::new(proxy_url)?;
+        self.post_consignment_to_proxy(&proxy_client, recipient_id, consignment_path, txid, vout)?;
+        info!(self.logger(), "Post consignment completed");
         Ok(())
     }
 
@@ -675,7 +476,7 @@ impl Wallet {
         consignment: RgbTransfer,
         offchain_txid: String,
     ) -> Result<(), Error> {
-        info!(self.logger, "Saving new asset...");
+        info!(self.logger(), "Saving new asset...");
         let runtime = self.rgb_runtime()?;
 
         let contract_id = consignment.contract_id();
@@ -704,12 +505,12 @@ impl Wallet {
             contract_id,
             asset_schema,
             valid_contract,
-            valid_transfer,
+            Some(valid_transfer),
         )?;
 
         self.update_backup_info(false)?;
 
-        info!(self.logger, "Save new asset completed");
+        info!(self.logger(), "Save new asset completed");
         Ok(())
     }
 
@@ -725,7 +526,7 @@ impl Wallet {
         min_confirmations: u8,
         skip_sync: bool,
     ) -> Result<Vec<LocalOutput>, Error> {
-        info!(self.logger, "Listing unspents vanilla...");
+        info!(self.logger(), "Listing unspents vanilla...");
         self.sync_if_requested(Some(online), skip_sync)?;
 
         let unspents = self.internal_unspents();
@@ -753,7 +554,7 @@ impl Wallet {
             Ok(unspents.collect())
         };
 
-        info!(self.logger, "List unspents vanilla completed");
+        info!(self.logger(), "List unspents vanilla completed");
         res
     }
 
@@ -762,8 +563,18 @@ impl Wallet {
     /// <div class="warning">This method is meant for special usage and is normally not needed, use
     /// it only if you know what you're doing</div>
     pub fn get_send_consignment_path(&self, asset_id: &str, transfer_id: &str) -> PathBuf {
-        let transfer_dir = self.get_transfer_dir(transfer_id);
-        let asset_transfer_dir = self.get_asset_transfer_dir(transfer_dir, asset_id);
-        asset_transfer_dir.join(CONSIGNMENT_FILE)
+        self.send_consignment_path(asset_id, transfer_id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[test]
+    fn display_indexer_protocol() {
+        assert_eq!(IndexerProtocol::Electrum.to_string(), "Electrum");
+        assert_eq!(IndexerProtocol::Esplora.to_string(), "Esplora");
     }
 }

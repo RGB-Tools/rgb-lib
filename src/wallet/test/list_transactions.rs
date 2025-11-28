@@ -15,14 +15,14 @@ fn success() {
     send_to_address(test_get_address(&mut wallet));
     send_to_address(test_get_address(&mut rcv_wallet));
     force_mine_no_resume_when_alone(false);
-    test_create_utxos_default(&mut wallet, &online);
-    test_create_utxos_default(&mut rcv_wallet, &rcv_online);
+    test_create_utxos_default(&mut wallet, online);
+    test_create_utxos_default(&mut rcv_wallet, rcv_online);
     force_mine_no_resume_when_alone(false);
 
     // don't sync wallet without online
-    let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
+    let bak_info_before = wallet.database().get_backup_info().unwrap().unwrap();
     let transactions = test_list_transactions(&mut wallet, None);
-    let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
+    let bak_info_after = wallet.database().get_backup_info().unwrap().unwrap();
     assert_eq!(
         bak_info_after.last_operation_timestamp,
         bak_info_before.last_operation_timestamp
@@ -58,8 +58,8 @@ fn success() {
     );
     // sync wallet when online is provided
     resume_mining();
-    let transactions = test_list_transactions(&mut wallet, Some(&online));
-    let rcv_transactions = test_list_transactions(&mut rcv_wallet, Some(&rcv_online));
+    let transactions = test_list_transactions(&mut wallet, Some(online));
+    let rcv_transactions = test_list_transactions(&mut rcv_wallet, Some(rcv_online));
     assert!(transactions.iter().all(|t| t.confirmation_time.is_some()));
     assert!(
         rcv_transactions
@@ -67,7 +67,7 @@ fn success() {
             .all(|t| t.confirmation_time.is_some())
     );
 
-    let asset = test_issue_asset_nia(&mut wallet, &online, None);
+    let asset = test_issue_asset_nia(&mut wallet, online, None);
     let receive_data = test_witness_receive(&mut rcv_wallet);
     let recipient_map = HashMap::from([(
         asset.asset_id,
@@ -81,15 +81,15 @@ fn success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    test_send(&mut wallet, &online, &recipient_map);
+    test_send(&mut wallet, online, &recipient_map);
     // settle the transfer so the tx gets broadcasted and receiver sees the new UTXO
-    wait_for_refresh(&mut rcv_wallet, &rcv_online, None, None);
-    wait_for_refresh(&mut wallet, &online, None, None);
+    wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
+    wait_for_refresh(&mut wallet, online, None, None);
     mine(false, false);
-    wait_for_refresh(&mut rcv_wallet, &rcv_online, None, None);
-    wait_for_refresh(&mut wallet, &online, None, None);
-    let transactions = test_list_transactions(&mut wallet, Some(&online));
-    let rcv_transactions = test_list_transactions(&mut rcv_wallet, Some(&rcv_online));
+    wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
+    wait_for_refresh(&mut wallet, online, None, None);
+    let transactions = test_list_transactions(&mut wallet, Some(online));
+    let rcv_transactions = test_list_transactions(&mut rcv_wallet, Some(rcv_online));
     assert_eq!(transactions.len(), 3);
     assert_eq!(rcv_transactions.len(), 3);
     assert!(
@@ -109,9 +109,9 @@ fn success() {
             .all(|t| t.confirmation_time.is_some())
     );
 
-    drain_wallet(&mut wallet, &online);
+    drain_wallet(&mut wallet, online);
     mine(false, false);
-    let transactions = test_list_transactions(&mut wallet, Some(&online));
+    let transactions = test_list_transactions(&mut wallet, Some(online));
     assert_eq!(transactions.len(), 4);
     assert!(
         transactions
@@ -141,7 +141,7 @@ fn skip_sync() {
     // transaction list reports the TX after manually syncing
     assert!(wait_for_function(
         || {
-            wallet.sync(online.clone()).unwrap();
+            wallet.sync(online).unwrap();
             let transactions = test_list_transactions(&mut wallet, None);
             transactions.len() == 1
         },

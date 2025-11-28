@@ -16,7 +16,7 @@ fn success() {
     // create 1 UTXO and drain the rest
     test_create_utxos(
         &mut wallet_send,
-        &online_send,
+        online_send,
         false,
         Some(1),
         None,
@@ -25,16 +25,16 @@ fn success() {
     );
     test_drain_to_keep(
         &mut wallet_send,
-        &online_send,
+        online_send,
         &test_get_address(&mut wallet_recv),
     );
 
     // issue
-    let asset = test_issue_asset_nia(&mut wallet_send, &online_send, Some(&[AMOUNT]));
+    let asset = test_issue_asset_nia(&mut wallet_send, online_send, Some(&[AMOUNT]));
 
     // prepare PSBT
     let address = BdkAddress::from_str(&test_get_address(&mut wallet_recv)).unwrap();
-    let mut tx_builder = wallet_send.bdk_wallet.build_tx();
+    let mut tx_builder = wallet_send.bdk_wallet_mut().build_tx();
     tx_builder
         .add_recipient(
             address.assume_checked().script_pubkey(),
@@ -92,9 +92,8 @@ fn success() {
     let vout = vout + 1;
 
     // check fascia
-    let Fascia { bundles, .. } = fascia.clone();
-    assert_eq!(bundles.len(), 1);
-    let (_cid, bundle) = bundles.iter().next().unwrap();
+    assert_eq!(fascia.bundles().len(), 1);
+    let (_cid, bundle) = fascia.bundles().iter().next().unwrap();
     let im_keys = bundle.input_map.keys();
     assert_eq!(im_keys.len(), 1);
     let mut transitions = bundle.known_transitions.iter().map(|kt| &kt.transition);
@@ -160,9 +159,7 @@ fn success() {
         .unwrap();
 
     // consume fascia
-    wallet_send
-        .consume_fascia(fascia, RgbTxid::from_str(&txid).unwrap(), None)
-        .unwrap();
+    wallet_send.consume_fascia(fascia, None).unwrap();
 }
 
 #[cfg(feature = "electrum")]
@@ -175,10 +172,10 @@ fn list_unspents_vanilla_success() {
     let (mut wallet, online) = get_empty_wallet!();
 
     // no unspents
-    let bak_info_before = wallet.database.get_backup_info().unwrap();
+    let bak_info_before = wallet.database().get_backup_info().unwrap();
     assert!(bak_info_before.is_none());
-    let unspent_list = test_list_unspents_vanilla(&mut wallet, &online, None);
-    let bak_info_after = wallet.database.get_backup_info().unwrap();
+    let unspent_list = test_list_unspents_vanilla(&mut wallet, online, None);
+    let bak_info_after = wallet.database().get_backup_info().unwrap();
     assert!(bak_info_after.is_none());
     assert_eq!(unspent_list.len(), 0);
 
@@ -187,24 +184,24 @@ fn list_unspents_vanilla_success() {
     send_to_address(test_get_address(&mut wallet));
 
     // one unspent, no confirmations
-    let unspent_list = test_list_unspents_vanilla(&mut wallet, &online, None);
+    let unspent_list = test_list_unspents_vanilla(&mut wallet, online, None);
     assert_eq!(unspent_list.len(), 0);
-    let unspent_list = test_list_unspents_vanilla(&mut wallet, &online, Some(0));
+    let unspent_list = test_list_unspents_vanilla(&mut wallet, online, Some(0));
     assert_eq!(unspent_list.len(), 1);
 
     mine(false, true);
 
     // one unspent, 1 confirmation
-    let unspent_list = test_list_unspents_vanilla(&mut wallet, &online, None);
+    let unspent_list = test_list_unspents_vanilla(&mut wallet, online, None);
     assert_eq!(unspent_list.len(), 1);
-    let unspent_list = test_list_unspents_vanilla(&mut wallet, &online, Some(0));
+    let unspent_list = test_list_unspents_vanilla(&mut wallet, online, Some(0));
     assert_eq!(unspent_list.len(), 1);
 
-    test_create_utxos_default(&mut wallet, &online);
+    test_create_utxos_default(&mut wallet, online);
 
     // one unspent (change), colored unspents not listed
     mine(false, false);
-    let unspent_list = test_list_unspents_vanilla(&mut wallet, &online, None);
+    let unspent_list = test_list_unspents_vanilla(&mut wallet, online, None);
     assert_eq!(unspent_list.len(), 1);
 }
 
@@ -220,14 +217,14 @@ fn list_unspents_vanilla_skip_sync() {
 
     // no unspents if skipping sync
     let unspents = wallet
-        .list_unspents_vanilla(online.clone(), MIN_CONFIRMATIONS, true)
+        .list_unspents_vanilla(online, MIN_CONFIRMATIONS, true)
         .unwrap();
     assert_eq!(unspents.len(), 0);
 
     // 1 unspent after manually syncing
-    wallet.sync(online.clone()).unwrap();
+    wallet.sync(online).unwrap();
     let unspents = wallet
-        .list_unspents_vanilla(online.clone(), MIN_CONFIRMATIONS, true)
+        .list_unspents_vanilla(online, MIN_CONFIRMATIONS, true)
         .unwrap();
     assert_eq!(unspents.len(), 1);
 }
@@ -244,22 +241,22 @@ fn save_new_asset_success() {
     let (mut rcv_wallet, _rcv_online) = get_empty_wallet!();
 
     // NIA
-    let nia_asset = test_issue_asset_nia(&mut wallet, &online, None);
+    let nia_asset = test_issue_asset_nia(&mut wallet, online, None);
     test_save_new_asset(
         &mut wallet,
-        &online,
+        online,
         &mut rcv_wallet,
         &nia_asset.asset_id,
         Assignment::Fungible(asset_amount),
     );
     assert!(
         &rcv_wallet
-            .database
+            .database()
             .check_asset_exists(nia_asset.asset_id.clone())
             .is_ok()
     );
     let asset_model = rcv_wallet
-        .database
+        .database()
         .get_asset(nia_asset.asset_id.clone())
         .unwrap()
         .unwrap();
@@ -271,22 +268,22 @@ fn save_new_asset_success() {
     assert_eq!(asset_model.schema, AssetSchema::Nia);
 
     // CFA
-    let cfa_asset = test_issue_asset_cfa(&mut wallet, &online, None, None);
+    let cfa_asset = test_issue_asset_cfa(&mut wallet, online, None, None);
     test_save_new_asset(
         &mut wallet,
-        &online,
+        online,
         &mut rcv_wallet,
         &cfa_asset.asset_id,
         Assignment::Fungible(asset_amount),
     );
     assert!(
         &rcv_wallet
-            .database
+            .database()
             .check_asset_exists(cfa_asset.asset_id.clone())
             .is_ok()
     );
     let asset_model = rcv_wallet
-        .database
+        .database()
         .get_asset(cfa_asset.asset_id.clone())
         .unwrap()
         .unwrap();
@@ -298,31 +295,30 @@ fn save_new_asset_success() {
     assert_eq!(asset_model.schema, AssetSchema::Cfa);
 
     // UDA
-    let file_str = "README.md";
     let image_str = ["tests", "qrcode.png"].join(MAIN_SEPARATOR_STR);
     let uda_asset = test_issue_asset_uda(
         &mut wallet,
-        &online,
+        online,
         Some(DETAILS),
-        Some(file_str),
-        vec![&image_str, file_str],
+        Some(FILE_STR),
+        vec![&image_str, FILE_STR],
     );
-    test_create_utxos(&mut wallet, &online, false, None, None, FEE_RATE, None);
+    test_create_utxos(&mut wallet, online, false, None, None, FEE_RATE, None);
     test_save_new_asset(
         &mut wallet,
-        &online,
+        online,
         &mut rcv_wallet,
         &uda_asset.asset_id,
         Assignment::NonFungible,
     );
     assert!(
         &rcv_wallet
-            .database
+            .database()
             .check_asset_exists(uda_asset.asset_id.clone())
             .is_ok()
     );
     let asset_model = rcv_wallet
-        .database
+        .database()
         .get_asset(uda_asset.asset_id.clone())
         .unwrap()
         .unwrap();
@@ -332,6 +328,134 @@ fn save_new_asset_success() {
     assert_eq!(asset_model.precision, PRECISION);
     assert_eq!(asset_model.ticker.unwrap(), TICKER);
     assert_eq!(asset_model.schema, AssetSchema::Uda);
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn color_psbt_uda() {
+    initialize();
+
+    let nonce = 42u64;
+
+    // wallets
+    let (mut wallet_send, online_send) = get_funded_noutxo_wallet!();
+    let (mut wallet_recv, _online_recv) = get_empty_wallet!();
+
+    // create 1 UTXO and drain the rest
+    test_create_utxos(
+        &mut wallet_send,
+        online_send,
+        false,
+        Some(1),
+        None,
+        FEE_RATE,
+        None,
+    );
+    test_drain_to_keep(
+        &mut wallet_send,
+        online_send,
+        &test_get_address(&mut wallet_recv),
+    );
+
+    // issue
+    let asset = test_issue_asset_uda(&mut wallet_send, online_send, None, None, vec![]);
+
+    // create a custom BDK wallet with p2wpkh descriptor to avoid p2tr outputs,
+    // so that the OP_RETURN is appended at the end
+    let mnemonic = Mnemonic::parse_in(
+        Language::English,
+        "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+    )
+    .unwrap();
+    let xprv = Xpriv::new_master(BdkNetwork::Regtest, &mnemonic.to_seed("")).unwrap();
+    let custom_bdk_wallet =
+        BdkWallet::create(format!("wpkh({xprv}/0/*)"), format!("wpkh({xprv}/1/*)"))
+            .network(BdkNetwork::Regtest)
+            .create_wallet_no_persist()
+            .unwrap();
+    let p2wpkh_addr = custom_bdk_wallet
+        .peek_address(KeychainKind::External, 0)
+        .address;
+
+    // prepare PSBT: drain all wallet UTXOs to the p2wpkh address (no p2tr outputs, no change)
+    let mut tx_builder = wallet_send.bdk_wallet_mut().build_tx();
+    tx_builder
+        .drain_wallet()
+        .drain_to(p2wpkh_addr.script_pubkey())
+        .fee_rate(FeeRate::from_sat_per_vb_unchecked(FEE_RATE));
+    let mut psbt = tx_builder.finish().unwrap();
+    assert!(
+        !psbt
+            .unsigned_tx
+            .output
+            .iter()
+            .any(|o| o.script_pubkey.is_op_return())
+    );
+    assert!(psbt.proprietary.is_empty());
+
+    // color PSBT
+    assert_eq!(psbt.unsigned_tx.input.len(), 1);
+    let mut output_map = HashMap::new();
+    output_map.insert(0u32, 1u64); // UDA: assign to vout 0, amount 1
+    let asset_coloring_info = AssetColoringInfo {
+        output_map,
+        static_blinding: None,
+    };
+    let asset_info_map: HashMap<ContractId, AssetColoringInfo> = HashMap::from_iter([(
+        ContractId::from_str(&asset.asset_id).unwrap(),
+        asset_coloring_info,
+    )]);
+    let coloring_info = ColoringInfo {
+        asset_info_map,
+        static_blinding: None,
+        nonce: Some(nonce),
+    };
+    let (fascia, beneficiaries) = wallet_send.color_psbt(&mut psbt, coloring_info).unwrap();
+
+    // check PSBT: OP_RETURN is appended at the end
+    assert!(
+        psbt.unsigned_tx
+            .output
+            .iter()
+            .any(|o| o.script_pubkey.is_op_return())
+    );
+    assert!(!psbt.proprietary.is_empty());
+    assert!(
+        psbt.unsigned_tx
+            .output
+            .last()
+            .unwrap()
+            .script_pubkey
+            .is_op_return()
+    );
+
+    // check fascia
+    assert_eq!(fascia.bundles().len(), 1);
+    let (_cid, bundle) = fascia.bundles().iter().next().unwrap();
+    let im_keys = bundle.input_map.keys();
+    assert_eq!(im_keys.len(), 1);
+    let mut transitions = bundle.known_transitions.iter().map(|kt| &kt.transition);
+    assert_eq!(transitions.len(), 1);
+    let transition = transitions.next().unwrap();
+    let assignments = &transition.assignments;
+    assert_eq!(assignments.len(), 1);
+    let (_, structured) = assignments.iter().next().unwrap();
+    let structured = structured.as_structured();
+    assert_eq!(structured.len(), 1);
+    let seal = structured.first().unwrap().revealed_seal().unwrap();
+    assert_eq!(seal.txid, TxPtr::WitnessTx);
+    assert_eq!(seal.vout.into_u32(), 0);
+
+    // check beneficiaries
+    assert_eq!(beneficiaries.len(), 1);
+    let (_cid, seals) = beneficiaries.first_key_value().unwrap();
+    let seal = match seals.first().unwrap() {
+        BuilderSeal::Revealed(r) => r,
+        BuilderSeal::Concealed(_) => panic!("revealed expected"),
+    };
+    assert_eq!(seal.txid, TxPtr::WitnessTx);
+    assert_eq!(seal.vout.into_u32(), 0);
 }
 
 #[cfg(feature = "electrum")]
@@ -350,7 +474,7 @@ fn color_psbt_fail() {
     // create 1 UTXO and drain the rest
     test_create_utxos(
         &mut wallet_send,
-        &online_send,
+        online_send,
         false,
         Some(1),
         None,
@@ -359,16 +483,16 @@ fn color_psbt_fail() {
     );
     test_drain_to_keep(
         &mut wallet_send,
-        &online_send,
+        online_send,
         &test_get_address(&mut wallet_recv),
     );
 
     // issue
-    let asset = test_issue_asset_nia(&mut wallet_send, &online_send, Some(&[AMOUNT]));
+    let asset = test_issue_asset_nia(&mut wallet_send, online_send, Some(&[AMOUNT]));
 
     // prepare PSBT
     let address = BdkAddress::from_str(&test_get_address(&mut wallet_recv)).unwrap();
-    let mut tx_builder = wallet_send.bdk_wallet.build_tx();
+    let mut tx_builder = wallet_send.bdk_wallet_mut().build_tx();
     tx_builder
         .add_recipient(
             address.assume_checked().script_pubkey(),
@@ -581,4 +705,68 @@ fn get_tx_height_fail() {
     // invalid txid
     let result = wallet.get_tx_height(s!("invalidTxid"));
     assert_matches!(result, Err(Error::InvalidTxid));
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn update_witnesses_success() {
+    initialize();
+
+    let (wallet, _online) = get_empty_wallet!();
+
+    let result = wallet.update_witnesses(0, vec![]);
+    assert!(result.is_ok());
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn upsert_witness_success() {
+    initialize();
+
+    let (wallet, _online) = get_empty_wallet!();
+
+    let result =
+        wallet.upsert_witness(RgbTxid::from_str(FAKE_TXID).unwrap(), WitnessOrd::Tentative);
+    assert!(result.is_ok());
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn create_consignments_success() {
+    initialize();
+
+    let (mut wallet, online) = get_funded_wallet!();
+    let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
+
+    let asset = test_issue_asset_nia(&mut wallet, online, None);
+    let receive_data = rcv_wallet
+        .blind_receive(
+            None,
+            Assignment::Any,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(10),
+            recipient_id: receive_data.recipient_id.clone(),
+            witness_data: None,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let psbt = test_send_begin_result(&mut wallet, online, &recipient_map).unwrap();
+    let result = wallet.create_consignments(psbt.clone());
+    assert!(result.is_ok());
+    let psbt = Psbt::from_str(&psbt).unwrap();
+    let txid = psbt.extract_tx().unwrap().compute_txid().to_string();
+    let consignment_path = wallet
+        .get_asset_transfer_dir(wallet.get_transfers_dir().join(txid), &asset.asset_id)
+        .join(CONSIGNMENT_FILE);
+    assert!(consignment_path.is_file());
 }

@@ -86,3 +86,14 @@ services:
       - 50005:50001
     depends_on:
       - bitcoind_signet_custom
+  rgb-multisig-hub:
+    image: ghcr.io/rgb-tools/rgb-multisig-hub:0.1.0
+    ports:
+      - 8141:3001
+    volumes:
+      - hub:/srv/data
+      - ./hub/config.toml:/srv/data/config.toml:ro
+
+
+volumes:
+  hub:

@@ -3,10 +3,16 @@ use std::{
     io::Write,
     path::MAIN_SEPARATOR_STR,
     process::{Command, Stdio},
-    sync::{Once, RwLock},
+    sync::{
+        Once, RwLock,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
-use bdk_wallet::descriptor::ExtendedDescriptor;
+use amplify::set;
+use bdk_wallet::{bitcoin::Denomination, descriptor::ExtendedDescriptor};
+use biscuit_auth::{KeyPair, builder::date, macros::*};
+use chrono::{DateTime, Utc};
 use once_cell::sync::Lazy;
 use regex::RegexSet;
 use rgbstd::stl::{EmbeddedMedia as RgbEmbeddedMedia, ProofOfReserves as RgbProofOfReserves};
@@ -19,22 +25,19 @@ use super::*;
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use crate::wallet::{
+    online::*,
     rust_only::{check_indexer_url, check_proxy_url},
-    test::utils::chain::*,
     utils::build_indexer,
 };
 use crate::{
     database::entities::transfer_transport_endpoint,
+    keys::{Keys, generate_keys},
     utils::{
         KEYCHAIN_BTC, KEYCHAIN_RGB, RGB_RUNTIME_DIR, block_on, get_account_data,
         get_account_derivation_children, get_coin_type, get_extended_derivation_path,
         recipient_id_from_script_buf, script_buf_from_recipient_id,
     },
-    wallet::{
-        backup::{BackupPubData, ScryptParams, get_backup_paths, unzip, zip_dir},
-        rust_only::{AssetColoringInfo, ColoringInfo, IndexerProtocol},
-        test::utils::{api::*, helpers::*},
-    },
+    wallet::{backup::*, core::*, multisig::*, offline::*, rust_only::*, singlesig::*},
 };
 
 const PROXY_HOST: &str = "127.0.0.1:3000/json-rpc";
@@ -50,8 +53,10 @@ const ELECTRUM_2_URL: &str = "127.0.0.1:50002";
 const ELECTRUM_BLOCKSTREAM_URL: &str = "127.0.0.1:50003";
 const ELECTRUM_SIGNET_CUSTOM_URL: &str = "127.0.0.1:50005";
 const ESPLORA_URL: &str = "http://127.0.0.1:8094/regtest/api";
+const MULTISIG_HUB_URL: &str = "http://127.0.0.1:8141";
 const TEST_DATA_DIR_PARTS: [&str; 2] = ["tests", "tmp"];
 const LISTS_DIR_PARTS: [&str; 2] = ["tests", "lists"];
+const HUB_DIR_PARTS: [&str; 2] = ["tests", "hub"];
 const TICKER: &str = "TICKER";
 const NAME: &str = "asset name";
 const DETAILS: &str = "details with ℧nicode characters";
@@ -60,6 +65,8 @@ const AMOUNT: u64 = 666;
 const AMOUNT_INFLATION: u64 = 400;
 const AMOUNT_SMALL: u64 = 66;
 const FEE_RATE: u64 = 2;
+const FILE_STR: &str = "README.md";
+const PASSWORD: &str = "password";
 const FEE_MSG_LOW: &str = "value under minimum 1";
 const FEE_MSG_OVER: &str = "value overflows";
 const EMPTY_MSG: &str = "must contain at least one character.";
@@ -70,11 +77,14 @@ const IDENT_NOT_START_MSG: &str = "string '{0}' must not start with character '{
 const RESTORE_DIR_PARTS: [&str; 3] = ["tests", "tmp", "restored"];
 const MAX_ALLOCATIONS_PER_UTXO: u32 = 5;
 const MIN_CONFIRMATIONS: u8 = 1;
-const FAKE_TXID: &str = "e5a3e577309df31bd606f48049049d2e1e02b048206ba232944fcc053a176ccb:0";
+const FAKE_TXID: &str = "e5a3e577309df31bd606f48049049d2e1e02b048206ba232944fcc053a176ccb";
+const FAKE_OUTPOINT: &str = "e5a3e577309df31bd606f48049049d2e1e02b048206ba232944fcc053a176ccb:0";
 const UNKNOWN_IDX: i32 = 9999;
 #[cfg(feature = "electrum")]
 const TINY_BTC_AMOUNT: u32 = 330;
 const QUEUE_DEPTH_EXCEEDED: &str = "Work queue depth exceeded";
+const DURATION_RCV_TRANSFER: u32 = 86400;
+const DURATION_SEND_TRANSFER: u32 = 3600;
 
 static INIT: Once = Once::new();
 
@@ -87,6 +97,7 @@ thread_local! {
     pub(crate) static MOCK_SKIP_BUILD_DAG: RefCell<Option<()>> = const { RefCell::new(None) };
     pub(crate) static MOCK_TOKEN_DATA: RefCell<Vec<TokenData>> = const { RefCell::new(vec![]) };
     pub(crate) static MOCK_VOUT: RefCell<Option<u32>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_LOCAL_VERSION: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -108,6 +119,46 @@ pub fn initialize() {
         }
         wait_indexers_sync()
     });
+}
+
+pub fn restart_multisig_hub() {
+    let serivce_name = "rgb-multisig-hub";
+    let cmd_base = vec![s!("-f"), ["tests", "compose.yaml"].join(MAIN_SEPARATOR_STR)];
+    let mut cmd = cmd_base.clone();
+    cmd.extend([
+        s!("rm"),
+        s!("-f"),
+        s!("-s"),
+        s!("-v"),
+        serivce_name.to_string(),
+    ]);
+    Command::new("docker")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .stdout(Stdio::null())
+        .arg("compose")
+        .args(&cmd)
+        .output()
+        .expect("failed to remove hub service");
+    Command::new("docker")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .stdout(Stdio::null())
+        .arg("volume")
+        .arg("rm")
+        .arg("tests_hub")
+        .output()
+        .expect("failed to remove hub volume");
+    let mut cmd = cmd_base.clone();
+    cmd.extend([s!("up"), s!("-d"), serivce_name.to_string()]);
+    Command::new("docker")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .stdout(Stdio::null())
+        .arg("compose")
+        .args(&cmd)
+        .output()
+        .expect("failed to start hub service");
 }
 
 // the get_*_wallet! macros can be called with no arguments to use defaults
@@ -141,8 +192,8 @@ macro_rules! get_funded_wallet {
     };
 }
 
-pub fn mock_asset_terms(
-    wallet: &Wallet,
+pub fn mock_asset_terms<W: WalletOffline + ?Sized>(
+    wallet: &W,
     text: RicardianContract,
     media: Option<Attachment>,
 ) -> ContractTerms {
@@ -157,15 +208,10 @@ pub fn mock_asset_terms(
     })
 }
 
-pub fn mock_token_data(
-    wallet: &Wallet,
-    index: TokenIndex,
-    media_data: &Option<(Attachment, Media)>,
-    attachments: BTreeMap<u8, Attachment>,
-) -> TokenData {
+pub fn mock_token_data(token_data: TokenData) -> TokenData {
     MOCK_TOKEN_DATA.with_borrow_mut(|v| {
         if v.is_empty() {
-            wallet.new_token_data(index, media_data, attachments)
+            token_data
         } else {
             println!("mocking token data");
             v.pop().unwrap()
@@ -174,7 +220,10 @@ pub fn mock_token_data(
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-pub fn mock_input_unspents(wallet: &Wallet, unspents: &[LocalUnspent]) -> Vec<LocalUnspent> {
+pub fn mock_input_unspents<W: WalletOnline + ?Sized>(
+    wallet: &W,
+    unspents: &[LocalUnspent],
+) -> Vec<LocalUnspent> {
     MOCK_INPUT_UNSPENTS.with_borrow_mut(|v| {
         if v.is_empty() {
             wallet.get_input_unspents(unspents).unwrap()
@@ -185,7 +234,7 @@ pub fn mock_input_unspents(wallet: &Wallet, unspents: &[LocalUnspent]) -> Vec<Lo
     })
 }
 
-pub fn mock_contract_details(wallet: &Wallet) -> Option<Details> {
+pub fn mock_contract_details<W: WalletOffline + ?Sized>(wallet: &W) -> Option<Details> {
     let mock = MOCK_CONTRACT_DETAILS.take();
     if let Some(details) = mock {
         println!("mocking contract details");
@@ -195,13 +244,23 @@ pub fn mock_contract_details(wallet: &Wallet) -> Option<Details> {
     }
 }
 
-pub fn mock_chain_net(wallet: &Wallet) -> ChainNet {
+pub fn mock_chain_net<W: WalletOffline + ?Sized>(wallet: &W) -> ChainNet {
     match MOCK_CHAIN_NET.take() {
         Some(chain_net) => {
             println!("mocking chain net");
             chain_net
         }
         None => wallet.bitcoin_network().into(),
+    }
+}
+
+pub fn mock_local_version(version: &str) -> String {
+    let mock = MOCK_LOCAL_VERSION.take();
+    if let Some(mock) = mock {
+        println!("mocking local version");
+        mock
+    } else {
+        version.to_string()
     }
 }
 
@@ -238,6 +297,7 @@ pub fn mock_vout(vout: Option<u32>) -> Option<u32> {
 
 // test utilities
 mod utils;
+pub(crate) use utils::{api::*, chain::*, helpers::*};
 
 // API tests
 mod backup;
@@ -246,6 +306,7 @@ mod create_utxos;
 mod delete_transfers;
 mod drain_to;
 mod fail_transfers;
+mod finalize_psbt;
 mod get_address;
 mod get_asset_balance;
 mod get_asset_metadata;
@@ -263,6 +324,8 @@ mod list_assets;
 mod list_transactions;
 mod list_transfers;
 mod list_unspents;
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+mod multisig;
 mod new;
 mod refresh;
 mod rust_only;

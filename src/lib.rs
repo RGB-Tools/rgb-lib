@@ -1,12 +1,12 @@
 #![allow(clippy::too_many_arguments)]
-#![warn(missing_docs)]
+#![deny(missing_docs)]
 
 //! A library to manage wallets for RGB assets.
 //!
 //! ## Wallet
-//! The main component of the library is the [`Wallet`].
+//! The main components of the library are the [`wallet::Wallet`] and [`wallet::MultisigWallet`].
 //!
-//! It allows to create and operate an RGB wallet that can issue, send and receive NIA, CFA, IFA and
+//! They allow to create and operate RGB wallets that can issue and operate on NIA, CFA, IFA and
 //! UDA assets. The library also manages UTXOs and asset allocations.
 //!
 //! ## Backend
@@ -19,12 +19,16 @@
 //! Database support is designed in order to support multiple database backends. At the moment only
 //! SQLite is supported but adding more should be relatively easy.
 //!
-//! ## Api
-//! RGB asset transfers require the exchange of off-chain data in the form of consignment or media
-//! files.
+//! ## External services
+//! The library uses an external indexer to get information about the Bitcoin network.
+//! At the moment Electrum and Esplora are supported.
 //!
-//! The library currently implements the API for a proxy server to support these data exchanges
-//! between sender and receiver.
+//! RGB asset operations may require the exchange of off-chain data in the form of consignment or
+//! media files with a counterparty. To do so the library is able to interact with a proxy server to
+//! support these data exchanges between the parties.
+//!
+//! The library also supports the use of a multisig hub to support multisig wallets and the use
+//! of a reject list service.
 //!
 //! ## Errors
 //! Errors are handled with the crate `thiserror`.
@@ -33,32 +37,30 @@
 //! Library functionality is exposed for other languages via FFI bindings.
 //!
 //! ## Examples
-//! ### Create an RGB wallet
+//! ### Create an RGB singlesig wallet
 //! ```
-//! use rgb_lib::wallet::{DatabaseType, Wallet, WalletData};
-//! use rgb_lib::{generate_keys, AssetSchema, BitcoinNetwork};
+//! use rgb_lib::keys::generate_keys;
+//! use rgb_lib::wallet::{DatabaseType, SinglesigKeys, Wallet, WalletData};
+//! use rgb_lib::{AssetSchema, BitcoinNetwork};
 //!
 //! fn main() -> Result<(), rgb_lib::Error> {
 //!     let data_dir = tempfile::tempdir()?;
 //!     let keys = generate_keys(BitcoinNetwork::Regtest);
+//!     let single_sig_keys = SinglesigKeys::from_keys(&keys, None);
 //!     let wallet_data = WalletData {
 //!         data_dir: data_dir.path().to_str().unwrap().to_string(),
 //!         bitcoin_network: BitcoinNetwork::Regtest,
 //!         database_type: DatabaseType::Sqlite,
 //!         max_allocations_per_utxo: 5,
-//!         account_xpub_vanilla: keys.account_xpub_vanilla,
-//!         account_xpub_colored: keys.account_xpub_colored,
-//!         mnemonic: Some(keys.mnemonic),
-//!         master_fingerprint: keys.master_fingerprint,
-//!         vanilla_keychain: None,
 //!         supported_schemas: vec![AssetSchema::Nia],
 //!     };
-//!     let wallet = Wallet::new(wallet_data)?;
+//!     let wallet = Wallet::new(wallet_data, single_sig_keys)?;
 //!
 //!     Ok(())
 //! }
 //! ```
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) mod api;
 pub(crate) mod database;
 pub(crate) mod error;
@@ -74,26 +76,25 @@ pub use rgbstd::{
     containers::{ConsignmentExt, Fascia, FileContent, PubWitness, Transfer as RgbTransfer},
     persistence::UpdateRes,
     schema::SchemaId,
+    txout::CloseMethod,
     vm::WitnessOrd,
 };
 
 pub use crate::{
     database::enums::{AssetSchema, Assignment, TransferStatus, TransportType},
     error::Error,
-    keys::{generate_keys, restore_keys},
     utils::{BitcoinNetwork, block_on},
-    wallet::{RecipientType, TransactionType, TransferKind, Wallet, backup::restore_backup},
 };
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use std::{
     cmp::{Ordering, max, min},
-    collections::hash_map::DefaultHasher,
+    collections::{BTreeSet, hash_map::DefaultHasher},
     hash::Hasher,
     num::NonZeroU32,
 };
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fmt, fs,
     hash::Hash,
     io::{self, ErrorKind, Read, Write},
@@ -104,7 +105,11 @@ use std::{
     time::Duration,
 };
 
-use amplify::{Wrapper, bmap, confinement::Confined, s};
+use amplify::{
+    Bytes32, Wrapper, bmap,
+    confinement::{Confined, MediumOrdMap},
+    s,
+};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use base64::{Engine as _, engine::general_purpose};
 #[cfg(feature = "electrum")]
@@ -145,7 +150,7 @@ use bdk_wallet::{
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use bdk_wallet::{
     Update,
-    bitcoin::{Transaction as BdkTransaction, blockdata::fee_rate::FeeRate},
+    bitcoin::{Transaction as BdkTransaction, blockdata::fee_rate::FeeRate, hashes::HashEngine},
     chain::{
         DescriptorExt,
         spk_client::{FullScanRequest, FullScanResponse, SyncRequest, SyncResponse},
@@ -165,47 +170,49 @@ use reqwest::{
     header::CONTENT_TYPE,
 };
 use rgb_lib_migration::{
-    ArrayType, ColumnType, Migrator, MigratorTrait, Nullable, Value, ValueType, ValueTypeErr,
+    ArrayType, ColumnType, Migrator, MigratorTrait, Nullable, Value, ValueTypeErr,
 };
 use rgbinvoice::{AddressPayload, Beneficiary, RgbInvoice, RgbInvoiceBuilder, XChainNet};
 #[cfg(feature = "electrum")]
 use rgbstd::indexers::electrum_blocking::electrum_client::ConfigBuilder;
 use rgbstd::{
-    Allocation, Amount, ChainNet, Genesis, GraphSeal, Identity, Layer1, Operation, Opout,
-    OutputSeal, OwnedFraction, Precision, Schema, SecretSeal, TokenIndex, Transition,
-    TransitionType, TypeSystem,
+    Allocation, Amount, Assign, ChainNet, Genesis, GraphSeal, Identity, KnownTransition, Layer1,
+    Operation as _, Opout, OutputSeal, OwnedFraction, Precision, Schema, SecretSeal, TokenIndex,
+    Transition, TypeSystem,
     containers::{BuilderSeal, Kit, ValidContract, ValidKit, ValidTransfer},
-    contract::{AllocatedState, ContractBuilder, IssuerWrapper, TransitionBuilder},
-    info::{ContractInfo, SchemaInfo},
+    contract::{AllocatedState, ContractBuilder, IssuerWrapper, SchemaWrapper, TransitionBuilder},
+    info::SchemaInfo,
     invoice::{InvoiceState, Pay2Vout},
     persistence::{MemContract, MemContractState, StashReadProvider, Stock, fs::FsBinStore},
-    rgbcore::commit_verify::Conceal,
+    rgbcore::commit_verify::{
+        CommitId, Conceal, TryCommitVerify,
+        mpc::{Commitment, MerkleTree, Message, MultiSource, ProtocolId},
+    },
     stl::{
         AssetSpec, Attachment, ContractTerms, Details, EmbeddedMedia as RgbEmbeddedMedia,
         MediaType, Name, ProofOfReserves as RgbProofOfReserves, RejectListUrl, RicardianContract,
         Ticker, TokenData,
     },
-    txout::{BlindSeal, CloseMethod, ExplicitSeal},
+    txout::{BlindSeal, ExplicitSeal, TxPtr},
     validation::{
         ResolveWitness, Scripts, Status, WitnessOrdProvider, WitnessResolverError, WitnessStatus,
     },
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use rgbstd::{
-    Assign, KnownTransition,
-    containers::Consignment,
-    contract::SchemaWrapper,
+    TransitionType,
+    containers::{Consignment, Contract},
+    contract::FilterIncludeAll,
     daggy::Walker,
     indexers::AnyResolver,
-    txout::TxPtr,
+    info::ContractInfo,
     validation::{OpoutsDagData, ValidationConfig, ValidationError, Validity, Warning},
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
+use schemata::{CfaWrapper, NiaWrapper, UdaWrapper};
 use schemata::{
-    CfaWrapper, IfaWrapper, NiaWrapper, OS_ASSET, OS_INFLATION, OS_REPLACE, UdaWrapper,
-};
-use schemata::{
-    CollectibleFungibleAsset, InflatableFungibleAsset, NonInflatableAsset, UniqueDigitalAsset,
+    CollectibleFungibleAsset, IfaWrapper, InflatableFungibleAsset, NonInflatableAsset, OS_ASSET,
+    OS_INFLATION, TS_INFLATION, TS_TRANSFER, UniqueDigitalAsset,
 };
 use scrypt::{
     Params, Scrypt,
@@ -218,13 +225,19 @@ use sea_orm::{
 };
 use serde::de::{self, Unexpected, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
-use slog::{Drain, Logger, debug, error, info, o, warn};
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+use slog::warn;
+use slog::{Drain, Logger, debug, error, info, o};
 use slog_async::AsyncGuard;
 use slog_term::{FullFormat, PlainDecorator};
 use strict_encoding::{DecodeError, DeserializeError, FieldName};
+#[cfg(test)]
+use strict_types::StrictDumb;
 use tempfile::TempDir;
 use time::OffsetDateTime;
 use typenum::consts::U32;
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+use url::Url;
 use walkdir::WalkDir;
 use zip::write::SimpleFileOptions;
 
@@ -232,28 +245,36 @@ use zip::write::SimpleFileOptions;
 use crate::utils::INDEXER_BATCH_SIZE;
 #[cfg(feature = "esplora")]
 use crate::utils::INDEXER_PARALLEL_REQUESTS;
-#[cfg(test)]
-use crate::wallet::test::{mock_asset_terms, mock_contract_details, mock_token_data};
-#[cfg(test)]
-use crate::wallet::test::{mock_chain_net, skip_build_dag, skip_check_fee_rate};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 #[cfg(test)]
 use crate::wallet::test::{mock_input_unspents, mock_vout};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use crate::{
-    api::proxy::{GetConsignmentResponse, Proxy},
-    api::reject_list::RejectList,
-    database::{DbData, LocalRecipient, LocalRecipientData, LocalWitnessData},
+    api::{
+        multisig_hub::{
+            FileMetadata, FileSource, FileType, InfoResponse, MultisigHubClient, OperationResponse,
+            OperationStatus, OperationType, UserRoleResponse,
+        },
+        proxy::{GetConsignmentResponse, ProxyClient},
+        reject_list::RejectListClient,
+    },
+    database::{
+        DbData,
+        entities::{
+            pending_witness_script::Model as DbPendingWitnessScript,
+            wallet_transaction::ActiveModel as DbWalletTransactionActMod,
+        },
+    },
     error::IndexerError,
     utils::{
-        INDEXER_STOP_GAP, OffchainResolver, check_proxy, get_indexer_and_resolver, get_rest_client,
+        INDEXER_STOP_GAP, OffchainResolver, check_proxy, get_indexer_and_resolver, hash_file,
         script_buf_from_recipient_id,
     },
-    wallet::{AssignmentsCollection, Indexer},
+    wallet::{AssignmentsCollection, Indexer, multisig::RespondToOperation},
 };
 use crate::{
     database::{
-        LocalRgbAllocation, LocalTransportEndpoint, LocalUnspent, RgbLibDatabase, TransferData,
+        RgbLibDatabase,
         entities::{
             asset::{ActiveModel as DbAssetActMod, Model as DbAsset},
             asset_transfer::{ActiveModel as DbAssetTransferActMod, Model as DbAssetTransfer},
@@ -261,9 +282,7 @@ use crate::{
             batch_transfer::{ActiveModel as DbBatchTransferActMod, Model as DbBatchTransfer},
             coloring::{ActiveModel as DbColoringActMod, Model as DbColoring},
             media::{ActiveModel as DbMediaActMod, Model as DbMedia},
-            pending_witness_script::{
-                ActiveModel as DbPendingWitnessScriptActMod, Model as DbPendingWitnessScript,
-            },
+            pending_witness_script::ActiveModel as DbPendingWitnessScriptActMod,
             token::{ActiveModel as DbTokenActMod, Model as DbToken},
             token_media::{ActiveModel as DbTokenMediaActMod, Model as DbTokenMedia},
             transfer::{ActiveModel as DbTransferActMod, Model as DbTransfer},
@@ -275,21 +294,29 @@ use crate::{
                 ActiveModel as DbTransportEndpointActMod, Model as DbTransportEndpoint,
             },
             txo::{ActiveModel as DbTxoActMod, Model as DbTxo},
-            wallet_transaction::{
-                ActiveModel as DbWalletTransactionActMod, Model as DbWalletTransaction,
-            },
+            wallet_transaction::Model as DbWalletTransaction,
         },
         enums::{ColoringType, RecipientTypeFull, WalletTransactionType},
     },
     error::InternalError,
+    keys::Keys,
     utils::{
-        DumbResolver, LOG_FILE, RgbRuntime, adjust_canonicalization, beneficiary_from_script_buf,
-        from_str_or_number_mandatory, from_str_or_number_optional, get_account_xpubs,
-        get_descriptors, get_descriptors_from_xpubs, load_rgb_runtime, now, parse_address_str,
-        setup_logger, str_to_xpub,
+        ACCOUNT, DumbResolver, KEYCHAIN_BTC, KEYCHAIN_RGB, LOG_FILE, PURPOSE, RgbRuntime,
+        adjust_canonicalization, beneficiary_from_script_buf, from_str_or_number_mandatory,
+        from_str_or_number_optional, get_account_xpubs, get_coin_type, get_descriptors,
+        get_descriptors_from_xpubs, hash_bytes, hash_bytes_hex, load_rgb_runtime, now,
+        parse_address_str, setup_logger, str_to_xpub,
     },
     wallet::{
-        Balance, NUM_KNOWN_SCHEMAS, Outpoint, SCHEMA_ID_CFA, SCHEMA_ID_IFA, SCHEMA_ID_NIA,
-        SCHEMA_ID_UDA,
+        Balance, LocalRgbAllocation, LocalUnspent, NUM_KNOWN_SCHEMAS, Outpoint, SCHEMA_ID_CFA,
+        SCHEMA_ID_IFA, SCHEMA_ID_NIA, SCHEMA_ID_UDA, WalletDescriptors,
+    },
+};
+#[cfg(test)]
+use crate::{
+    keys::generate_keys,
+    wallet::test::{
+        mock_asset_terms, mock_chain_net, mock_contract_details, mock_local_version,
+        mock_token_data, skip_build_dag, skip_check_fee_rate,
     },
 };

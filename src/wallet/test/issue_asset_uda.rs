@@ -7,7 +7,6 @@ fn success() {
     initialize();
 
     let settled = 1;
-    let file_str = "README.md";
     let image_str = ["tests", "qrcode.png"].join(MAIN_SEPARATOR_STR);
 
     let (mut wallet, online) = get_funded_noutxo_wallet!();
@@ -15,7 +14,7 @@ fn success() {
     // prepare UTXOs
     test_create_utxos(
         &mut wallet,
-        &online,
+        online,
         true,
         Some(1),
         Some(5000),
@@ -26,9 +25,9 @@ fn success() {
     // required fields only
     println!("\nasset 1");
     let before_timestamp = now().unix_timestamp();
-    let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
-    let asset_1 = test_issue_asset_uda(&mut wallet, &online, None, None, vec![]);
-    let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
+    let bak_info_before = wallet.database().get_backup_info().unwrap().unwrap();
+    let asset_1 = test_issue_asset_uda(&mut wallet, online, None, None, vec![]);
+    let bak_info_after = wallet.database().get_backup_info().unwrap().unwrap();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
 
     // check the asset has been saved with the correct schema
@@ -40,7 +39,7 @@ fn success() {
     );
 
     // add a pending operation to the UTXO so spendable balance will be != settled / future
-    let _receive_data = test_blind_receive(&wallet);
+    let _receive_data = test_blind_receive(&mut wallet);
     show_unspent_colorings(&mut wallet, "after issuance 1");
 
     // checks
@@ -72,10 +71,10 @@ fn success() {
     println!("\nasset 2");
     let asset_2 = test_issue_asset_uda(
         &mut wallet,
-        &online,
+        online,
         Some(DETAILS),
-        Some(file_str),
-        vec![&image_str, file_str],
+        Some(FILE_STR),
+        vec![&image_str, FILE_STR],
     );
     show_unspent_colorings(&mut wallet, "after issuance 2");
     let balance_2 = test_get_asset_balance(&wallet, &asset_2.asset_id);
@@ -98,12 +97,11 @@ fn success() {
     let media = token.media.unwrap();
     assert_eq!(media.mime, "text/plain");
     let dst_path = media.file_path.clone();
-    let src_bytes = std::fs::read(PathBuf::from(file_str)).unwrap();
+    let src_bytes = std::fs::read(PathBuf::from(FILE_STR)).unwrap();
     let dst_bytes = std::fs::read(PathBuf::from(dst_path.clone())).unwrap();
     assert_eq!(src_bytes, dst_bytes);
     // check digest for provided file matches
-    let src_hash: sha256::Hash = Sha256Hash::hash(&src_bytes[..]);
-    let src_digest = src_hash.to_string();
+    let src_digest = hash_bytes_hex(&src_bytes[..]);
     let dst_digest = Path::new(&dst_path).file_name().unwrap().to_string_lossy();
     assert_eq!(src_digest, dst_digest);
     // check attachments
@@ -113,18 +111,16 @@ fn success() {
     let src_bytes = std::fs::read(PathBuf::from(image_str.clone())).unwrap();
     let dst_bytes = std::fs::read(PathBuf::from(dst_path.clone())).unwrap();
     assert_eq!(src_bytes, dst_bytes);
-    let src_hash: sha256::Hash = Sha256Hash::hash(&src_bytes[..]);
-    let src_digest = src_hash.to_string();
+    let src_digest = hash_bytes_hex(&src_bytes[..]);
     let dst_digest = Path::new(&dst_path).file_name().unwrap().to_string_lossy();
     assert_eq!(src_digest, dst_digest);
     let media = token.attachments.get(&1).unwrap();
     assert_eq!(media.mime, "text/plain");
     let dst_path = media.file_path.clone();
-    let src_bytes = std::fs::read(PathBuf::from(file_str)).unwrap();
+    let src_bytes = std::fs::read(PathBuf::from(FILE_STR)).unwrap();
     let dst_bytes = std::fs::read(PathBuf::from(dst_path.clone())).unwrap();
     assert_eq!(src_bytes, dst_bytes);
-    let src_hash: sha256::Hash = Sha256Hash::hash(&src_bytes[..]);
-    let src_digest = src_hash.to_string();
+    let src_digest = hash_bytes_hex(&src_bytes[..]);
     let dst_digest = Path::new(&dst_path).file_name().unwrap().to_string_lossy();
     assert_eq!(src_digest, dst_digest);
 
@@ -132,7 +128,7 @@ fn success() {
     println!("\nmatching max attachment number");
     let asset_3 = test_issue_asset_uda(
         &mut wallet,
-        &online,
+        online,
         None,
         None,
         [image_str.clone()]
@@ -156,8 +152,7 @@ fn success() {
     assert!(!token.embedded_media);
     assert_eq!(token.media, None);
     let attachments_bytes = std::fs::read(PathBuf::from(image_str.clone())).unwrap();
-    let attachment_hash: sha256::Hash = Sha256Hash::hash(&attachments_bytes[..]);
-    let attachment_digest = attachment_hash.to_string();
+    let attachment_digest = hash_bytes_hex(&attachments_bytes[..]);
     let attachment_path = wallet
         .get_wallet_dir()
         .join(MEDIA_DIR)
@@ -188,7 +183,7 @@ fn no_issue_on_pending_send() {
     // prepare UTXO
     test_create_utxos(
         &mut wallet,
-        &online,
+        online,
         true,
         Some(1),
         Some(5000),
@@ -197,7 +192,7 @@ fn no_issue_on_pending_send() {
     );
 
     // issue 1st asset
-    let asset_1 = test_issue_asset_uda(&mut wallet, &online, None, None, vec![]);
+    let asset_1 = test_issue_asset_uda(&mut wallet, online, None, None, vec![]);
     // get 1st issuance UTXO
     let unspents = test_list_unspents(&mut wallet, None, false);
     let unspent_1 = unspents
@@ -222,16 +217,16 @@ fn no_issue_on_pending_send() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&mut wallet, &online, &recipient_map);
+    let txid = test_send(&mut wallet, online, &recipient_map);
     assert!(!txid.is_empty());
 
     // issuing a 2nd asset fails due to missing free allocation slot
-    let result = test_issue_asset_uda_result(&mut wallet, &online, None, None, vec![]);
+    let result = test_issue_asset_uda_result(&mut wallet, online, None, None, vec![]);
     assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 
     // create 1 more UTXO issue 2nd asset
-    test_create_utxos(&mut wallet, &online, false, Some(1), None, FEE_RATE, None);
-    let asset_2 = test_issue_asset_uda(&mut wallet, &online, None, None, vec![]);
+    test_create_utxos(&mut wallet, online, false, Some(1), None, FEE_RATE, None);
+    let asset_2 = test_issue_asset_uda(&mut wallet, online, None, None, vec![]);
     show_unspent_colorings(&mut wallet, "after 2nd issuance");
     // get 2nd issuance UTXO
     let unspents = test_list_unspents(&mut wallet, None, false);
@@ -247,11 +242,11 @@ fn no_issue_on_pending_send() {
     assert_ne!(unspent_1.utxo.outpoint, unspent_2.utxo.outpoint);
 
     // progress transfer to WaitingConfirmations
-    wait_for_refresh(&mut rcv_wallet, &rcv_online, None, None);
-    wait_for_refresh(&mut wallet, &online, Some(&asset_1.asset_id), None);
+    wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
+    wait_for_refresh(&mut wallet, online, Some(&asset_1.asset_id), None);
 
     // issue 3rd asset
-    let asset_3 = test_issue_asset_uda(&mut wallet, &online, None, None, vec![]);
+    let asset_3 = test_issue_asset_uda(&mut wallet, online, None, None, vec![]);
     show_unspent_colorings(&mut wallet, "after 3rd issuance");
     // get 3rd issuance UTXO
     let unspents = test_list_unspents(&mut wallet, None, false);
@@ -371,7 +366,7 @@ fn fail() {
     );
 
     // invalid details
-    let result = test_issue_asset_uda_result(&mut wallet, &online, Some(""), None, vec![]);
+    let result = test_issue_asset_uda_result(&mut wallet, online, Some(""), None, vec![]);
     assert!(matches!(result, Err(Error::InvalidDetails { details: m }) if m == IDENT_EMPTY_MSG));
 
     // invalid precision
@@ -382,26 +377,26 @@ fn fail() {
     );
 
     // invalid media: missing
-    let result = test_issue_asset_uda_result(&mut wallet, &online, None, Some(missing_str), vec![]);
+    let result = test_issue_asset_uda_result(&mut wallet, online, None, Some(missing_str), vec![]);
     assert!(matches!(result, Err(Error::InvalidFilePath { file_path: m }) if m == missing_str));
 
     // invalid media: empty
-    let result = test_issue_asset_uda_result(&mut wallet, &online, None, Some(&empty_str), vec![]);
+    let result = test_issue_asset_uda_result(&mut wallet, online, None, Some(&empty_str), vec![]);
     assert!(matches!(result, Err(Error::EmptyFile { file_path: m }) if m == empty_str));
 
     // invalid attachment: missing
-    let result = test_issue_asset_uda_result(&mut wallet, &online, None, None, vec![missing_str]);
+    let result = test_issue_asset_uda_result(&mut wallet, online, None, None, vec![missing_str]);
     assert!(matches!(result, Err(Error::InvalidFilePath { file_path: m }) if m == missing_str));
 
     // invalid attachment: empty
-    let result = test_issue_asset_uda_result(&mut wallet, &online, None, None, vec![&empty_str]);
+    let result = test_issue_asset_uda_result(&mut wallet, online, None, None, vec![&empty_str]);
     assert!(matches!(result, Err(Error::EmptyFile { file_path: m }) if m == empty_str));
 
     // new wallet
     let (mut wallet, online) = get_empty_wallet!();
 
     // insufficient funds
-    let result = test_issue_asset_uda_result(&mut wallet, &online, None, None, vec![]);
+    let result = test_issue_asset_uda_result(&mut wallet, online, None, None, vec![]);
     assert!(matches!(
         result,
         Err(Error::InsufficientBitcoins {
@@ -414,13 +409,13 @@ fn fail() {
     mine(false, false);
 
     // insufficient allocations
-    let result = test_issue_asset_uda_result(&mut wallet, &online, None, None, vec![]);
+    let result = test_issue_asset_uda_result(&mut wallet, online, None, None, vec![]);
     assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 
     // too many attachments
     let result = test_issue_asset_uda_result(
         &mut wallet,
-        &online,
+        online,
         None,
         None,
         [attachment_str.clone()]

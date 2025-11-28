@@ -11,7 +11,7 @@ fn success() {
     // prepare UTXOs
     test_create_utxos(
         &mut wallet,
-        &online,
+        online,
         true,
         Some(2),
         Some(5000),
@@ -20,9 +20,9 @@ fn success() {
     );
 
     let before_timestamp = now().unix_timestamp();
-    let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
-    let asset = test_issue_asset_nia(&mut wallet, &online, Some(&[AMOUNT, AMOUNT]));
-    let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
+    let bak_info_before = wallet.database().get_backup_info().unwrap().unwrap();
+    let asset = test_issue_asset_nia(&mut wallet, online, Some(&[AMOUNT, AMOUNT]));
+    let bak_info_after = wallet.database().get_backup_info().unwrap().unwrap();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
 
     // check the asset has been saved with the correct schema
@@ -34,7 +34,7 @@ fn success() {
     );
 
     // add a pending operation to an UTXO so spendable balance will be != settled / future
-    let _receive_data = test_blind_receive(&wallet);
+    let _receive_data = test_blind_receive(&mut wallet);
     show_unspent_colorings(&mut wallet, "after issuance");
 
     // checks
@@ -66,7 +66,7 @@ fn multi_success() {
 
     let (mut wallet, online) = get_funded_wallet!();
 
-    let asset = test_issue_asset_nia(&mut wallet, &online, Some(&amounts));
+    let asset = test_issue_asset_nia(&mut wallet, online, Some(&amounts));
 
     // check balance is the sum of the amounts
     assert_eq!(asset.balance.settled, sum);
@@ -110,7 +110,7 @@ fn no_issue_on_pending_send() {
     // prepare UTXO
     test_create_utxos(
         &mut wallet,
-        &online,
+        online,
         true,
         Some(1),
         Some(5000),
@@ -119,7 +119,7 @@ fn no_issue_on_pending_send() {
     );
 
     // issue 1st asset
-    let asset_1 = test_issue_asset_nia(&mut wallet, &online, None);
+    let asset_1 = test_issue_asset_nia(&mut wallet, online, None);
     // get 1st issuance UTXO
     let unspents = test_list_unspents(&mut wallet, None, false);
     let unspent_1 = unspents
@@ -144,16 +144,16 @@ fn no_issue_on_pending_send() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&mut wallet, &online, &recipient_map);
+    let txid = test_send(&mut wallet, online, &recipient_map);
     assert!(!txid.is_empty());
 
     // issuing a 2nd asset fails due to missing free allocation slot
-    let result = test_issue_asset_nia_result(&mut wallet, &online, Some(&[AMOUNT * 2]));
+    let result = test_issue_asset_nia_result(&mut wallet, online, Some(&[AMOUNT * 2]));
     assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 
     // create 1 more UTXO issue 2nd asset
-    test_create_utxos(&mut wallet, &online, false, Some(1), None, FEE_RATE, None);
-    let asset_2 = test_issue_asset_nia(&mut wallet, &online, Some(&[AMOUNT * 2]));
+    test_create_utxos(&mut wallet, online, false, Some(1), None, FEE_RATE, None);
+    let asset_2 = test_issue_asset_nia(&mut wallet, online, Some(&[AMOUNT * 2]));
     show_unspent_colorings(&mut wallet, "after 2nd issuance");
     // get 2nd issuance UTXO
     let unspents = test_list_unspents(&mut wallet, None, false);
@@ -169,11 +169,11 @@ fn no_issue_on_pending_send() {
     assert_ne!(unspent_1.utxo.outpoint, unspent_2.utxo.outpoint);
 
     // progress transfer to WaitingConfirmations
-    wait_for_refresh(&mut rcv_wallet, &rcv_online, None, None);
-    wait_for_refresh(&mut wallet, &online, Some(&asset_1.asset_id), None);
+    wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
+    wait_for_refresh(&mut wallet, online, Some(&asset_1.asset_id), None);
 
     // issue 3rd asset
-    let asset_3 = test_issue_asset_nia(&mut wallet, &online, Some(&[AMOUNT * 3]));
+    let asset_3 = test_issue_asset_nia(&mut wallet, online, Some(&[AMOUNT * 3]));
     show_unspent_colorings(&mut wallet, "after 3rd issuance");
     // get 3rd issuance UTXO
     let unspents = test_list_unspents(&mut wallet, None, false);
@@ -199,7 +199,7 @@ fn fail() {
     let (mut wallet, online) = get_funded_wallet!();
 
     // supply overflow
-    let result = test_issue_asset_nia_result(&mut wallet, &online, Some(&[u64::MAX, u64::MAX]));
+    let result = test_issue_asset_nia_result(&mut wallet, online, Some(&[u64::MAX, u64::MAX]));
     assert!(matches!(result, Err(Error::TooHighIssuanceAmounts)));
 
     // invalid ticker: empty
@@ -289,18 +289,18 @@ fn fail() {
     ));
 
     // invalid amount list (no amounts)
-    let result = test_issue_asset_nia_result(&mut wallet, &online, Some(&[]));
+    let result = test_issue_asset_nia_result(&mut wallet, online, Some(&[]));
     assert!(matches!(result, Err(Error::NoIssuanceAmounts)));
 
     // invalid amount list (1+ amounts == 0)
-    let result = test_issue_asset_nia_result(&mut wallet, &online, Some(&[1, 0, 2]));
+    let result = test_issue_asset_nia_result(&mut wallet, online, Some(&[1, 0, 2]));
     assert!(matches!(result, Err(Error::InvalidAmountZero)));
 
     // new wallet
     let (mut wallet, online) = get_empty_wallet!();
 
     // insufficient funds
-    let result = test_issue_asset_nia_result(&mut wallet, &online, None);
+    let result = test_issue_asset_nia_result(&mut wallet, online, None);
     assert!(matches!(
         result,
         Err(Error::InsufficientBitcoins {
@@ -313,6 +313,6 @@ fn fail() {
     mine(false, false);
 
     // insufficient allocations
-    let result = test_issue_asset_nia_result(&mut wallet, &online, None);
+    let result = test_issue_asset_nia_result(&mut wallet, online, None);
     assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 }

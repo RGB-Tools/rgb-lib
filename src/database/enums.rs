@@ -127,7 +127,7 @@ impl From<AssetSchema> for SchemaId {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
 #[sea_orm(rs_type = "u8", db_type = "TinyUnsigned")]
 pub enum ColoringType {
     #[sea_orm(num_value = 1)]
@@ -146,8 +146,8 @@ impl IntoActiveValue<ColoringType> for ColoringType {
     }
 }
 
-/// The type of an RGB recipient
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+/// The type of an RGB recipient.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub enum RecipientTypeFull {
     /// Receive via blinded UTXO
     Blind { unblinded_utxo: Outpoint },
@@ -174,7 +174,7 @@ impl TryFrom<Value> for RecipientTypeFull {
     }
 }
 
-impl ValueType for RecipientTypeFull {
+impl rgb_lib_migration::ValueType for RecipientTypeFull {
     fn type_name() -> String {
         "json".to_string()
     }
@@ -215,7 +215,7 @@ impl Nullable for RecipientTypeFull {
 }
 
 /// The type of an RGB transport.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, DeriveActiveEnum, Deserialize, Serialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, Deserialize, Serialize)]
 #[sea_orm(rs_type = "u8", db_type = "TinyUnsigned")]
 pub enum TransportType {
     /// HTTP(s) JSON-RPC ([specification](https://github.com/RGB-Tools/rgb-http-json-rpc))
@@ -225,13 +225,13 @@ pub enum TransportType {
 
 /// The status of a [`crate::wallet::Transfer`].
 #[derive(
-    Clone,
-    Copy,
     Debug,
+    Copy,
+    Clone,
     PartialEq,
     Eq,
-    Ord,
     PartialOrd,
+    Ord,
     EnumIter,
     DeriveActiveEnum,
     Deserialize,
@@ -279,7 +279,7 @@ impl TransferStatus {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
 #[sea_orm(rs_type = "u8", db_type = "TinyUnsigned")]
 pub enum WalletTransactionType {
     #[sea_orm(num_value = 1)]
@@ -289,7 +289,7 @@ pub enum WalletTransactionType {
 }
 
 /// An RGB assignment.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub enum Assignment {
     /// Fungible value in RGB units (not considering precision)
     Fungible(u64),
@@ -297,14 +297,11 @@ pub enum Assignment {
     NonFungible,
     /// Inflation right
     InflationRight(u64),
-    /// Replace right
-    ReplaceRight,
     /// Any assignment
     Any,
 }
 
 impl Assignment {
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
     pub(crate) fn from_opout_and_state(opout: Opout, state: &AllocatedState) -> Self {
         match state {
             AllocatedState::Amount(amt) if opout.ty == OS_ASSET => Self::Fungible(amt.as_u64()),
@@ -312,7 +309,6 @@ impl Assignment {
                 Self::InflationRight(amt.as_u64())
             }
             AllocatedState::Data(_) => Self::NonFungible,
-            AllocatedState::Void if opout.ty == OS_REPLACE => Self::ReplaceRight,
             _ => unreachable!(),
         }
     }
@@ -323,7 +319,6 @@ impl Assignment {
             Self::Fungible(amt) => assignments.fungible += amt,
             Self::NonFungible => assignments.non_fungible = true,
             Self::InflationRight(amt) => assignments.inflation += amt,
-            Self::ReplaceRight => assignments.replace += 1,
             _ => unreachable!("when using this method we should know the assignment type"),
         }
     }
@@ -367,7 +362,7 @@ impl TryFrom<Value> for Assignment {
     }
 }
 
-impl ValueType for Assignment {
+impl rgb_lib_migration::ValueType for Assignment {
     fn type_name() -> String {
         "json".to_string()
     }
@@ -402,5 +397,211 @@ impl TryGetable for Assignment {
 impl Nullable for Assignment {
     fn null() -> Value {
         Value::Json(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_schema_id() {
+        // roundtrip
+        for asset_schema in AssetSchema::VALUES {
+            let schema_id = asset_schema.into();
+            let asset_schema_from_schema_id = AssetSchema::from_schema_id(schema_id).unwrap();
+            assert_eq!(asset_schema, asset_schema_from_schema_id);
+        }
+
+        // unknown
+        let err = AssetSchema::try_from(s!("unknown")).unwrap_err();
+        assert_matches!(err, Error::UnknownRgbSchema { schema_id: _ });
+        let err = AssetSchema::from_schema_id(SchemaId::strict_dumb()).unwrap_err();
+        assert_matches!(err, Error::UnknownRgbSchema { schema_id: _ });
+
+        // display
+        assert_eq!(AssetSchema::Nia.to_string(), "Nia");
+        assert_eq!(AssetSchema::Uda.to_string(), "Uda");
+        assert_eq!(AssetSchema::Cfa.to_string(), "Cfa");
+        assert_eq!(AssetSchema::Ifa.to_string(), "Ifa");
+    }
+
+    #[test]
+    fn test_coloring_type_into_active_value() {
+        let variants = [
+            ColoringType::Receive,
+            ColoringType::Issue,
+            ColoringType::Input,
+            ColoringType::Change,
+        ];
+        for variant in variants {
+            let active_value = IntoActiveValue::into_active_value(variant);
+            assert_eq!(active_value, ActiveValue::Set(variant));
+        }
+    }
+
+    #[test]
+    fn test_recipient_type_full() {
+        // roundtrip
+        let blind = RecipientTypeFull::Blind {
+            unblinded_utxo: Outpoint {
+                txid: s!("0000000000000000000000000000000000000000000000000000000000000001"),
+                vout: 0,
+            },
+        };
+        let witness = RecipientTypeFull::Witness { vout: Some(1) };
+        let witness_none = RecipientTypeFull::Witness { vout: None };
+        for recipient in [blind, witness, witness_none] {
+            let value: Value = recipient.clone().into();
+            let recovered = RecipientTypeFull::try_from(value).unwrap();
+            assert_eq!(recipient, recovered);
+        }
+
+        // try from value: not JSON
+        let value = Value::Int(Some(42));
+        let err = RecipientTypeFull::try_from(value).unwrap_err();
+        assert!(matches!(err, sea_orm::DbErr::Type(_)));
+
+        // try from value: invalid JSON
+        let bad_json = serde_json::json!({"bad": "data"});
+        let value = Value::Json(Some(Box::new(bad_json)));
+        let err = RecipientTypeFull::try_from(value).unwrap_err();
+        assert!(matches!(err, sea_orm::DbErr::Custom(_)));
+
+        // value type
+        assert_eq!(
+            <RecipientTypeFull as rgb_lib_migration::ValueType>::type_name(),
+            "json"
+        );
+        assert_eq!(
+            <RecipientTypeFull as rgb_lib_migration::ValueType>::column_type(),
+            ColumnType::Json
+        );
+        assert_eq!(
+            <RecipientTypeFull as rgb_lib_migration::ValueType>::array_type(),
+            ArrayType::Json
+        );
+
+        // value type try from
+        let blind = RecipientTypeFull::Blind {
+            unblinded_utxo: Outpoint {
+                txid: s!("0000000000000000000000000000000000000000000000000000000000000001"),
+                vout: 0,
+            },
+        };
+        let json_val = serde_json::to_value(&blind).unwrap();
+        let value = Value::Json(Some(Box::new(json_val)));
+        let recovered =
+            <RecipientTypeFull as rgb_lib_migration::ValueType>::try_from(value).unwrap();
+        assert_eq!(blind, recovered);
+
+        // value type try from: not JSON
+        let value = Value::Int(Some(42));
+        let err = <RecipientTypeFull as rgb_lib_migration::ValueType>::try_from(value);
+        assert!(err.is_err());
+
+        // value type try from: invalid JSON
+        let bad_json = serde_json::json!({"bad": "data"});
+        let value = Value::Json(Some(Box::new(bad_json)));
+        let err = <RecipientTypeFull as rgb_lib_migration::ValueType>::try_from(value);
+        assert!(err.is_err());
+
+        // nullable
+        let null_val = <RecipientTypeFull as Nullable>::null();
+        assert_eq!(null_val, Value::Json(None));
+    }
+
+    #[test]
+    fn test_assignment() {
+        // roundtrip
+        let assignments = [
+            Assignment::Fungible(100),
+            Assignment::NonFungible,
+            Assignment::InflationRight(500),
+            Assignment::Any,
+        ];
+        for assignment in assignments {
+            // test From<Assignment> for Value (already covered, but needed for roundtrip)
+            let value: Value = assignment.clone().into();
+            // test TryFrom<Value> for Assignment
+            let recovered = Assignment::try_from(value).unwrap();
+            assert_eq!(assignment, recovered);
+        }
+
+        // try from value: not JSON
+        let value = Value::Int(Some(42));
+        let err = Assignment::try_from(value).unwrap_err();
+        assert!(matches!(err, sea_orm::DbErr::Type(_)));
+
+        // try from value: invalid JSON
+        let bad_json = serde_json::json!({"InvalidVariant": 123});
+        let value = Value::Json(Some(Box::new(bad_json)));
+        let err = Assignment::try_from(value).unwrap_err();
+        assert!(matches!(err, sea_orm::DbErr::Custom(_)));
+
+        // value type
+        assert_eq!(
+            <Assignment as rgb_lib_migration::ValueType>::type_name(),
+            "json"
+        );
+        assert_eq!(
+            <Assignment as rgb_lib_migration::ValueType>::column_type(),
+            ColumnType::Json
+        );
+        assert_eq!(
+            <Assignment as rgb_lib_migration::ValueType>::array_type(),
+            ArrayType::Json
+        );
+
+        // value type try from
+        let assignment = Assignment::Fungible(42);
+        let json_val = serde_json::to_value(&assignment).unwrap();
+        let value = Value::Json(Some(Box::new(json_val)));
+        let recovered = <Assignment as rgb_lib_migration::ValueType>::try_from(value).unwrap();
+        assert_eq!(assignment, recovered);
+
+        // value type try from: not JSON
+        let value = Value::Int(Some(42));
+        let err = <Assignment as rgb_lib_migration::ValueType>::try_from(value);
+        assert!(err.is_err());
+
+        // value type try from: invalid JSON
+        let bad_json = serde_json::json!({"InvalidVariant": 123});
+        let value = Value::Json(Some(Box::new(bad_json)));
+        let err = <Assignment as rgb_lib_migration::ValueType>::try_from(value);
+        assert!(err.is_err());
+
+        // nullable
+        let null_val = <Assignment as Nullable>::null();
+        assert_eq!(null_val, Value::Json(None));
+
+        // main amount
+        assert_eq!(Assignment::Fungible(100).main_amount(), 100);
+        assert_eq!(Assignment::Fungible(0).main_amount(), 0);
+        assert_eq!(Assignment::NonFungible.main_amount(), 1);
+        assert_eq!(Assignment::InflationRight(500).main_amount(), 0);
+        assert_eq!(Assignment::Any.main_amount(), 0);
+    }
+
+    #[test]
+    fn test_transfer_status_methods() {
+        assert!(TransferStatus::Failed.failed());
+        assert!(!TransferStatus::Settled.failed());
+        assert!(!TransferStatus::WaitingCounterparty.failed());
+        assert!(!TransferStatus::WaitingConfirmations.failed());
+
+        assert!(TransferStatus::WaitingCounterparty.pending());
+        assert!(TransferStatus::WaitingConfirmations.pending());
+        assert!(!TransferStatus::Settled.pending());
+        assert!(!TransferStatus::Failed.pending());
+
+        assert!(TransferStatus::Settled.settled());
+        assert!(!TransferStatus::Failed.settled());
+
+        assert!(TransferStatus::WaitingConfirmations.waiting_confirmations());
+        assert!(!TransferStatus::WaitingCounterparty.waiting_confirmations());
+
+        assert!(TransferStatus::WaitingCounterparty.waiting_counterparty());
+        assert!(!TransferStatus::WaitingConfirmations.waiting_counterparty());
     }
 }

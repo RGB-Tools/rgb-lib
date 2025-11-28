@@ -33,9 +33,3 @@ cbindgen = "0.29.0"
 default = []
 all = ["camel_case"]
 camel_case = ["rgb-lib/camel_case"]
-
-[patch.crates-io]
-rgb-strict-encoding = { git = "http://github.com/rgb-protocol/rgb-strict-encoding", branch = "master" }
-rgb-consensus = { git = "http://github.com/rgb-protocol/rgb-consensus", branch = "master" }
-rgb-ops = { git = "http://github.com/rgb-protocol/rgb-ops", branch = "master" }
-rgb-invoicing = { git = "http://github.com/rgb-protocol/rgb-ops", branch = "master" }

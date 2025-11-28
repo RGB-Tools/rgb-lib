@@ -13,8 +13,8 @@ pub(crate) struct BackupPaths {
     zip: PathBuf,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub(crate) struct ScryptParams {
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ScryptParams {
     log_n: u8,
     r: u32,
     p: u32,
@@ -69,69 +69,62 @@ impl BackupPubData {
     }
 }
 
-impl Wallet {
-    /// Create a backup of the wallet as a file with the provided name and encrypted with the
-    /// provided password.
-    ///
-    /// Scrypt is used for hashing and xchacha20poly1305 is used for encryption. A random salt for
-    /// hashing and a random nonce for encrypting are randomly generated and included in the final
-    /// backup file, along with the backup version.
-    pub fn backup(&self, backup_path: &str, password: &str) -> Result<(), Error> {
-        self.backup_customize(backup_path, password, None)
-    }
-
-    /// For now this method is only used for testing, a few details should be refined before
-    /// exposing it to the public:
+pub trait WalletBackup: WalletCore {
+    /// For now setting the scrypt params is done only for testing purposes,
+    /// a few details should be refined before allowing to set this in the public API:
     /// - Which parameters should we allow users to change? Should we set sensible minimums?
     /// - Can we guarantee old backups can always be recovered in the future?
-    pub(crate) fn backup_customize(
+    fn backup_customize(
         &self,
         backup_path: &str,
         password: &str,
         scrypt_params: Option<ScryptParams>,
     ) -> Result<(), Error> {
         let prev_backup_info = self.update_backup_info(true)?;
-        match self._backup(backup_path, password, scrypt_params) {
+        match self.backup_raw(backup_path, password, scrypt_params) {
             Ok(()) => Ok(()),
             Err(e) => {
-                error!(self.logger, "Error during backup: {e:?}");
+                error!(self.logger(), "Error during backup: {e:?}");
                 if let Some(prev_backup_info) = prev_backup_info {
                     let mut prev_backup_info: DbBackupInfoActMod = prev_backup_info.into();
-                    self.database.update_backup_info(&mut prev_backup_info)?;
+                    self.database().update_backup_info(&mut prev_backup_info)?;
                 } else {
-                    self.database.del_backup_info()?;
+                    self.database().del_backup_info()?;
                 }
                 Err(e)
             }
         }
     }
 
-    fn _backup(
+    fn backup_raw(
         &self,
         backup_path: &str,
         password: &str,
         scrypt_params: Option<ScryptParams>,
     ) -> Result<(), Error> {
         // setup
-        info!(self.logger, "starting backup...");
+        info!(self.logger(), "starting backup...");
         let backup_file = PathBuf::from(&backup_path);
         if backup_file.exists() {
             return Err(Error::FileAlreadyExists {
                 path: backup_path.to_string(),
             })?;
         }
-        let tmp_base_path = _get_parent_path(&backup_file)?;
+        let tmp_base_path = get_parent_path(&backup_file)?;
         let files = get_backup_paths(&tmp_base_path)?;
         let scrypt_params = scrypt_params.unwrap_or_default();
         let salt = SaltString::generate(&mut OsRng);
         let str_params = serde_json::to_string(&scrypt_params).map_err(InternalError::from)?;
-        debug!(self.logger, "using generated scrypt params: {}", str_params);
+        debug!(
+            self.logger(),
+            "using generated scrypt params: {}", str_params
+        );
         let nonce: String = rand::rng()
             .sample_iter(&Alphanumeric)
             .take(BACKUP_NONCE_LENGTH)
             .map(char::from)
             .collect();
-        debug!(self.logger, "using generated nonce: {}", &nonce);
+        debug!(self.logger(), "using generated nonce: {}", &nonce);
         let backup_pub_data = BackupPubData {
             scrypt_params,
             salt: salt.to_string(),
@@ -141,17 +134,19 @@ impl Wallet {
 
         // create zip archive of wallet data
         debug!(
-            self.logger,
-            "\nzipping {:?} to {:?}", &self.wallet_dir, &files.zip
+            self.logger(),
+            "\nzipping {:?} to {:?}",
+            &self.wallet_dir(),
+            &files.zip
         );
-        zip_dir(&self.wallet_dir, &files.zip, true, &self.logger)?;
+        zip_dir(self.wallet_dir(), &files.zip, true, self.logger())?;
 
         // encrypt the backup file
         debug!(
-            self.logger,
+            self.logger(),
             "\nencrypting {:?} to {:?}", &files.zip, &files.encrypted
         );
-        _encrypt_file(&files.zip, &files.encrypted, password, &backup_pub_data)?;
+        encrypt_file(&files.zip, &files.encrypted, password, &backup_pub_data)?;
 
         // add backup nonce + salt + version to final zip file
         fs::write(
@@ -159,40 +154,46 @@ impl Wallet {
             serde_json::to_string(&backup_pub_data).unwrap(),
         )?;
         debug!(
-            self.logger,
+            self.logger(),
             "\nzipping {:?} to {:?}", &files.tempdir, &backup_file
         );
         zip_dir(
             &PathBuf::from(files.tempdir.path()),
             &backup_file,
             false,
-            &self.logger,
+            self.logger(),
         )?;
 
-        info!(self.logger, "backup completed");
+        info!(self.logger(), "backup completed");
         Ok(())
     }
 
-    /// Return whether the wallet requires to perform a backup.
-    pub fn backup_info(&self) -> Result<bool, Error> {
-        let backup_required = if let Some(backup_info) = self.database.get_backup_info()? {
-            backup_info
-                .last_operation_timestamp
-                .parse::<i128>()
-                .unwrap()
-                > backup_info.last_backup_timestamp.parse::<i128>().unwrap()
-        } else {
-            false
-        };
-        Ok(backup_required)
+    fn get_backup_info(&self) -> Result<bool, Error> {
+        Ok(
+            if let Some(backup_info) = self.database().get_backup_info()? {
+                backup_info
+                    .last_operation_timestamp
+                    .parse::<i128>()
+                    .unwrap()
+                    > backup_info.last_backup_timestamp.parse::<i128>().unwrap()
+            } else {
+                false
+            },
+        )
     }
 
-    pub(crate) fn update_backup_info(
+    fn update_backup_info_with_op_idx(
         &self,
         doing_backup: bool,
+        last_processed_operation_idx: Option<i32>,
     ) -> Result<Option<DbBackupInfo>, Error> {
         let now = ActiveValue::Set(now().unix_timestamp_nanos().to_string());
-        if let Some(backup_info) = self.database.get_backup_info()? {
+        let last_processed_operation_idx = if last_processed_operation_idx.is_some() {
+            ActiveValue::Set(last_processed_operation_idx)
+        } else {
+            ActiveValue::NotSet
+        };
+        if let Some(backup_info) = self.database().get_backup_info()? {
             let prev_backup_info = backup_info.clone();
             let mut backup_info: DbBackupInfoActMod = backup_info.into();
             if doing_backup {
@@ -200,7 +201,8 @@ impl Wallet {
             } else {
                 backup_info.last_operation_timestamp = now;
             }
-            self.database.update_backup_info(&mut backup_info)?;
+            backup_info.last_processed_operation_idx = last_processed_operation_idx;
+            self.database().update_backup_info(&mut backup_info)?;
             Ok(Some(prev_backup_info))
         } else {
             let (last_backup_timestamp, last_operation_timestamp) = if doing_backup {
@@ -211,11 +213,16 @@ impl Wallet {
             let backup_info = DbBackupInfoActMod {
                 last_backup_timestamp,
                 last_operation_timestamp,
+                last_processed_operation_idx,
                 ..Default::default()
             };
-            self.database.set_backup_info(backup_info)?;
+            self.database().set_backup_info(backup_info)?;
             Ok(None)
         }
+    }
+
+    fn update_backup_info(&self, doing_backup: bool) -> Result<Option<DbBackupInfo>, Error> {
+        self.update_backup_info_with_op_idx(doing_backup, None)
     }
 }
 
@@ -228,7 +235,7 @@ pub fn restore_backup(backup_path: &str, password: &str, target_dir: &str) -> Re
     let (logger, _logger_guard) = setup_logger(log_dir, Some(&log_name))?;
     info!(logger, "starting restore...");
     let backup_file = PathBuf::from(backup_path);
-    let tmp_base_path = _get_parent_path(&backup_file)?;
+    let tmp_base_path = get_parent_path(&backup_file)?;
     let files = get_backup_paths(&tmp_base_path)?;
     let target_dir_path = PathBuf::from(&target_dir);
 
@@ -252,10 +259,10 @@ pub fn restore_backup(backup_path: &str, password: &str, target_dir: &str) -> Re
         logger.clone(),
         "decrypting {:?} to {:?}", files.encrypted, files.zip
     );
-    _decrypt_file(&files.encrypted, &files.zip, password, &backup_pub_data)?;
+    decrypt_file(&files.encrypted, &files.zip, password, &backup_pub_data)?;
 
     // check the target wallet directory doesn't already exist
-    let fingerprint = _get_fingerprint_from_zip(&files.zip)?;
+    let fingerprint = get_fingerprint_from_zip(&files.zip)?;
     let wallet_dir = target_dir_path.join(fingerprint);
     if wallet_dir.exists() {
         return Err(Error::WalletDirAlreadyExists {
@@ -288,7 +295,7 @@ pub(crate) fn get_backup_paths(tmp_base_path: &Path) -> Result<BackupPaths, Erro
     })
 }
 
-fn _get_parent_path(file: &Path) -> Result<PathBuf, Error> {
+fn get_parent_path(file: &Path) -> Result<PathBuf, Error> {
     if let Some(parent) = file.parent() {
         Ok(parent.to_path_buf())
     } else {
@@ -358,19 +365,19 @@ pub(crate) fn zip_dir(
     Ok(())
 }
 
-fn _get_zip_archive(zip_path: &PathBuf) -> Result<zip::ZipArchive<std::fs::File>, Error> {
+fn get_zip_archive(zip_path: &PathBuf) -> Result<zip::ZipArchive<std::fs::File>, Error> {
     let file = fs::File::open(zip_path).map_err(InternalError::from)?;
     Ok(zip::ZipArchive::new(file).map_err(InternalError::from)?)
 }
 
-fn _get_fingerprint_from_zip(zip_path: &PathBuf) -> Result<String, Error> {
-    let archive = _get_zip_archive(zip_path)?;
+fn get_fingerprint_from_zip(zip_path: &PathBuf) -> Result<String, Error> {
+    let archive = get_zip_archive(zip_path)?;
     let fingerprint = archive.name_for_index(0).unwrap_or_default();
     Ok(fingerprint.to_string().replace("/", ""))
 }
 
 pub(crate) fn unzip(zip_path: &PathBuf, path_out: &Path, logger: &Logger) -> Result<(), Error> {
-    let mut archive = _get_zip_archive(zip_path)?;
+    let mut archive = get_zip_archive(zip_path)?;
     for i in 0..archive.len() {
         let mut file = archive.by_index(i).map_err(InternalError::from)?;
         let outpath = match file.enclosed_name() {
@@ -401,7 +408,7 @@ pub(crate) fn unzip(zip_path: &PathBuf, path_out: &Path, logger: &Logger) -> Res
     Ok(())
 }
 
-fn _get_cypher_secrets(
+fn get_cypher_secrets(
     password: &str,
     backup_pub_data: &BackupPubData,
 ) -> Result<GenericArray<u8, U32>, Error> {
@@ -428,13 +435,13 @@ fn _get_cypher_secrets(
     Ok(key)
 }
 
-fn _encrypt_file(
+fn encrypt_file(
     path_cleartext: &PathBuf,
     path_encrypted: &PathBuf,
     password: &str,
     backup_pub_data: &BackupPubData,
 ) -> Result<(), Error> {
-    let key = _get_cypher_secrets(password, backup_pub_data)?;
+    let key = get_cypher_secrets(password, backup_pub_data)?;
 
     // - XChacha20Poly1305 is fast, requires no special hardware and supports stream operation
     // - stream mode required as files to encrypt may be big, so avoiding a memory buffer
@@ -471,13 +478,13 @@ fn _encrypt_file(
     Ok(())
 }
 
-fn _decrypt_file(
+fn decrypt_file(
     path_encrypted: &PathBuf,
     path_cleartext: &PathBuf,
     password: &str,
     backup_pub_data: &BackupPubData,
 ) -> Result<(), Error> {
-    let key = _get_cypher_secrets(password, backup_pub_data)?;
+    let key = get_cypher_secrets(password, backup_pub_data)?;
 
     // setup
     let aead = XChaCha20Poly1305::new(&key);

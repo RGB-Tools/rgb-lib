@@ -9,12 +9,12 @@ fn success() {
     let (mut wallet, online) = get_funded_wallet!();
     let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
 
-    let asset_nia = test_issue_asset_nia(&mut wallet, &online, Some(&[AMOUNT, AMOUNT]));
+    let asset_nia = test_issue_asset_nia(&mut wallet, online, Some(&[AMOUNT, AMOUNT]));
     let transfers = test_list_transfers(&wallet, Some(&asset_nia.asset_id));
     assert_eq!(transfers.len(), 1);
     let issuance = transfers.first().unwrap();
     let timestamp = issuance.created_at;
-    let receive_data = test_blind_receive(&rcv_wallet);
+    let receive_data = test_blind_receive(&mut rcv_wallet);
     let recipient_map = HashMap::from([(
         asset_nia.asset_id.clone(),
         vec![Recipient {
@@ -24,11 +24,11 @@ fn success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    test_send(&mut wallet, &online, &recipient_map);
-    wait_for_refresh(&mut rcv_wallet, &rcv_online, None, None);
-    let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
+    test_send(&mut wallet, online, &recipient_map);
+    wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
+    let bak_info_before = wallet.database().get_backup_info().unwrap().unwrap();
     let nia_metadata = test_get_asset_metadata(&rcv_wallet, &asset_nia.asset_id);
-    let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
+    let bak_info_after = wallet.database().get_backup_info().unwrap().unwrap();
     assert_eq!(
         bak_info_after.last_operation_timestamp,
         bak_info_before.last_operation_timestamp
@@ -42,14 +42,13 @@ fn success() {
     assert_eq!(nia_metadata.details, None);
     assert!((timestamp - nia_metadata.timestamp) < 30);
 
-    let file_str = "README.md";
     let image_str = ["tests", "qrcode.png"].join(MAIN_SEPARATOR_STR);
     let asset_uda = test_issue_asset_uda(
         &mut wallet,
-        &online,
+        online,
         Some(DETAILS),
-        Some(file_str),
-        vec![&image_str, file_str],
+        Some(FILE_STR),
+        vec![&image_str, FILE_STR],
     );
     let transfers = test_list_transfers(&wallet, Some(&asset_uda.asset_id));
     assert_eq!(transfers.len(), 1);
@@ -82,7 +81,7 @@ fn success() {
             details.clone(),
             PRECISION,
             vec![AMOUNT, AMOUNT],
-            Some(file_str.to_string()),
+            Some(FILE_STR.to_string()),
         )
         .unwrap();
     let transfers = test_list_transfers(&wallet, Some(&asset_cfa.asset_id));

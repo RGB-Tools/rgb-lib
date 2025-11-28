@@ -9,9 +9,9 @@ fn success() {
     // up_to version with 0 allocatable UTXOs
     println!("\n=== up_to true, 0 allocatable");
     let (mut wallet, online) = get_funded_noutxo_wallet!();
-    let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
-    test_create_utxos(&mut wallet, &online, true, None, None, FEE_RATE, None);
-    let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
+    let bak_info_before = wallet.database().get_backup_info().unwrap().unwrap();
+    test_create_utxos(&mut wallet, online, true, None, None, FEE_RATE, None);
+    let bak_info_after = wallet.database().get_backup_info().unwrap().unwrap();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     let unspents = test_list_unspents(&mut wallet, None, false);
     assert_eq!(unspents.len(), (UTXO_NUM + 1) as usize);
@@ -20,7 +20,7 @@ fn success() {
     println!("\n=== up_to true, need to create 1 more");
     test_create_utxos(
         &mut wallet,
-        &online,
+        online,
         true,
         Some(UTXO_NUM + 1),
         None,
@@ -32,7 +32,7 @@ fn success() {
 
     // forced version always creates UTXOs
     println!("\n=== up_to false");
-    test_create_utxos(&mut wallet, &online, false, None, None, FEE_RATE, None);
+    test_create_utxos(&mut wallet, online, false, None, None, FEE_RATE, None);
     let unspents = test_list_unspents(&mut wallet, None, false);
     assert_eq!(unspents.len(), (UTXO_NUM * 2 + 2) as usize);
 }
@@ -51,11 +51,11 @@ fn up_to_allocation_checks() {
 
     // MAX_ALLOCATIONS_PER_UTXO failed allocations
     //  - check unspent counted as allocatable
-    test_create_utxos(&mut wallet, &online, false, Some(1), None, FEE_RATE, None);
+    test_create_utxos(&mut wallet, online, false, Some(1), None, FEE_RATE, None);
     let mut batch_transfer_idxs: Vec<i32> = vec![];
     let mut txo_list: HashSet<Outpoint> = HashSet::new();
     for _ in 0..MAX_ALLOCATIONS_PER_UTXO {
-        let receive_data = test_blind_receive(&wallet);
+        let receive_data = test_blind_receive(&mut wallet);
         let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
         let txo =
             if let RecipientTypeFull::Blind { unblinded_utxo } = transfer.recipient_type.unwrap() {
@@ -71,12 +71,12 @@ fn up_to_allocation_checks() {
     for batch_transfer_idx in batch_transfer_idxs {
         assert!(test_fail_transfers_single(
             &mut wallet,
-            &online,
+            online,
             batch_transfer_idx
         ));
     }
     // request 1 new UTXO, expecting the existing one is still allocatable
-    let result = wallet.create_utxos(online.clone(), true, Some(1), None, FEE_RATE, false);
+    let result = wallet.create_utxos(online, true, Some(1), None, FEE_RATE, false);
     assert!(matches!(result, Err(Error::AllocationsAlreadyAvailable)));
     let unspents = test_list_unspents(&mut wallet, None, false);
     assert_eq!(unspents.len(), 2);
@@ -85,11 +85,11 @@ fn up_to_allocation_checks() {
     let (mut wallet, online) = get_funded_noutxo_wallet!();
 
     // MAX_ALLOCATIONS_PER_UTXO allocations
-    test_create_utxos(&mut wallet, &online, true, Some(1), None, FEE_RATE, None);
+    test_create_utxos(&mut wallet, online, true, Some(1), None, FEE_RATE, None);
     // create MAX_ALLOCATIONS_PER_UTXO blinds on the same UTXO
     let mut txo_list: HashSet<Outpoint> = HashSet::new();
     for _ in 0..MAX_ALLOCATIONS_PER_UTXO {
-        let receive_data = test_blind_receive(&wallet);
+        let receive_data = test_blind_receive(&mut wallet);
         let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
         let txo =
             if let RecipientTypeFull::Blind { unblinded_utxo } = transfer.recipient_type.unwrap() {
@@ -101,7 +101,7 @@ fn up_to_allocation_checks() {
     }
     assert_eq!(txo_list.len(), 1);
     // request 1 new UTXO, expecting one is created
-    test_create_utxos(&mut wallet, &online, true, Some(1), None, FEE_RATE, None);
+    test_create_utxos(&mut wallet, online, true, Some(1), None, FEE_RATE, None);
     let unspents = test_list_unspents(&mut wallet, None, false);
     assert_eq!(unspents.len(), 3);
 
@@ -110,10 +110,10 @@ fn up_to_allocation_checks() {
         let (mut wallet, online) = get_funded_noutxo_wallet!();
         fund_wallet(test_get_address(&mut rcv_wallet));
 
-        test_create_utxos(&mut wallet, &online, true, Some(1), None, FEE_RATE, None);
+        test_create_utxos(&mut wallet, online, true, Some(1), None, FEE_RATE, None);
         test_create_utxos(
             &mut rcv_wallet,
-            &rcv_online,
+            rcv_online,
             true,
             Some(1),
             None,
@@ -121,9 +121,9 @@ fn up_to_allocation_checks() {
             None,
         );
         // issue
-        let asset = test_issue_asset_nia(&mut wallet, &online, None);
+        let asset = test_issue_asset_nia(&mut wallet, online, None);
         // send
-        let receive_data = test_blind_receive(&rcv_wallet);
+        let receive_data = test_blind_receive(&mut rcv_wallet);
         let recipient_map = HashMap::from([(
             asset.asset_id.clone(),
             vec![Recipient {
@@ -133,42 +133,40 @@ fn up_to_allocation_checks() {
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             }],
         )]);
-        let txid = test_send(&mut wallet, &online, &recipient_map);
+        let txid = test_send(&mut wallet, online, &recipient_map);
         assert!(!txid.is_empty());
 
         // - wait counterparty
         // UTXO 1 (input) locked, new UTXO created for change (exists = false)
         show_unspent_colorings(&mut wallet, "sender after send - WaitingCounterparty");
-        test_create_utxos(&mut wallet, &online, true, Some(1), None, FEE_RATE, None);
+        test_create_utxos(&mut wallet, online, true, Some(1), None, FEE_RATE, None);
         // UTXO 1 (blind) has at least 1 free allocation
         show_unspent_colorings(&mut rcv_wallet, "receiver after send - WaitingCounterparty");
-        let result =
-            rcv_wallet.create_utxos(rcv_online.clone(), true, Some(1), None, FEE_RATE, false);
+        let result = rcv_wallet.create_utxos(rcv_online, true, Some(1), None, FEE_RATE, false);
         assert!(matches!(result, Err(Error::AllocationsAlreadyAvailable)));
 
         // - wait confirmations
-        wait_for_refresh(&mut rcv_wallet, &rcv_online, None, None);
-        wait_for_refresh(&mut wallet, &online, Some(&asset.asset_id), None);
+        wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
+        wait_for_refresh(&mut wallet, online, Some(&asset.asset_id), None);
         // UTXO 1 now spent, UTXO 2 (RGB+BTC change) has at least 1 free allocation, UTXO 3 is empty
         show_unspent_colorings(&mut wallet, "sender after send - WaitingConfirmations");
-        let result = wallet.create_utxos(online.clone(), true, Some(2), None, FEE_RATE, false);
+        let result = wallet.create_utxos(online, true, Some(2), None, FEE_RATE, false);
         assert!(matches!(result, Err(Error::AllocationsAlreadyAvailable)));
         // UTXO 1 (blind) has at least 1 free allocation
         show_unspent_colorings(
             &mut rcv_wallet,
             "receiver after send - WaitingConfirmations",
         );
-        let result =
-            rcv_wallet.create_utxos(rcv_online.clone(), true, Some(1), None, FEE_RATE, false);
+        let result = rcv_wallet.create_utxos(rcv_online, true, Some(1), None, FEE_RATE, false);
         assert!(matches!(result, Err(Error::AllocationsAlreadyAvailable)));
 
         // - settled
         mine(false, false);
-        wait_for_refresh(&mut rcv_wallet, &rcv_online, None, None);
-        wait_for_refresh(&mut wallet, &online, Some(&asset.asset_id), None);
+        wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
+        wait_for_refresh(&mut wallet, online, Some(&asset.asset_id), None);
         // UTXO 1 now spent, UTXO 2 (RGB+BTC change) has at least 1 free allocation, UTXO 3 is empty
         show_unspent_colorings(&mut wallet, "sender after send - Settled");
-        test_create_utxos(&mut wallet, &online, true, Some(3), None, FEE_RATE, Some(1));
+        test_create_utxos(&mut wallet, online, true, Some(3), None, FEE_RATE, Some(1));
         // UTXO 1 (blind) has at least 1 free allocation
         show_unspent_colorings(&mut rcv_wallet, "receiver after send - Settled");
         let result = rcv_wallet.create_utxos(rcv_online, true, Some(1), None, FEE_RATE, false);
@@ -184,7 +182,7 @@ fn fail() {
 
     // cannot create UTXOs for an empty wallet
     let (mut wallet, online) = get_empty_wallet!();
-    let result = wallet.create_utxos(online.clone(), true, None, None, FEE_RATE, false);
+    let result = wallet.create_utxos(online, true, None, None, FEE_RATE, false);
     assert!(matches!(
         result,
         Err(Error::InsufficientBitcoins {
@@ -194,29 +192,29 @@ fn fail() {
     ));
 
     fund_wallet(test_get_address(&mut wallet));
-    test_create_utxos_default(&mut wallet, &online);
+    test_create_utxos_default(&mut wallet, online);
 
     // don't create UTXOs if enough allocations are already available
-    let result = wallet.create_utxos(online.clone(), true, None, None, FEE_RATE, false);
+    let result = wallet.create_utxos(online, true, None, None, FEE_RATE, false);
     assert!(matches!(result, Err(Error::AllocationsAlreadyAvailable)));
 
     // fee min
-    let result = test_create_utxos_begin_result(&mut wallet, &online, false, Some(1), None, 0);
+    let result = test_create_utxos_begin_result(&mut wallet, online, false, Some(1), None, 0);
     assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_LOW));
 
     // fee overflow
     let result =
-        test_create_utxos_begin_result(&mut wallet, &online, false, Some(1), None, u64::MAX);
+        test_create_utxos_begin_result(&mut wallet, online, false, Some(1), None, u64::MAX);
     assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_OVER));
 
     // invalid amount
     let result =
-        test_create_utxos_begin_result(&mut wallet, &online, false, Some(1), Some(0), FEE_RATE);
+        test_create_utxos_begin_result(&mut wallet, online, false, Some(1), Some(0), FEE_RATE);
     assert!(matches!(result, Err(Error::InvalidAmountZero)));
 
     // output below dust limit
     let result =
-        test_create_utxos_begin_result(&mut wallet, &online, false, Some(1), Some(1), FEE_RATE);
+        test_create_utxos_begin_result(&mut wallet, online, false, Some(1), Some(1), FEE_RATE);
     assert!(matches!(result, Err(Error::OutputBelowDustLimit)));
 }
 
@@ -247,10 +245,10 @@ fn casting() {
             spendable: 0,
         },
     };
-    wait_for_btc_balance(&mut wallet, &online, &expected_balance);
+    wait_for_btc_balance(&mut wallet, online, &expected_balance);
     test_create_utxos(
         &mut wallet,
-        &online,
+        online,
         true,
         None,
         Some(utxo_size),
@@ -273,7 +271,7 @@ fn skip_sync() {
     // bitcoin UTXO not yet visible > creating UTXOs skipping sync fails
     let unspents = test_list_unspents(&mut wallet, None, false);
     assert_eq!(unspents.len(), 0);
-    let result = wallet.create_utxos(online.clone(), true, None, None, FEE_RATE, true);
+    let result = wallet.create_utxos(online, true, None, None, FEE_RATE, true);
     assert_matches!(
         result,
         Err(Error::InsufficientBitcoins {
@@ -283,13 +281,13 @@ fn skip_sync() {
     );
 
     // sync so the bitcoin UTXO becomes visible
-    wallet.sync(online.clone()).unwrap();
+    wallet.sync(online).unwrap();
     let unspents = test_list_unspents(&mut wallet, None, false);
     assert_eq!(unspents.len(), 1);
 
     // create UTXOs skipping sync (returns 0 created UTXOs)
     let num_utxos_created = wallet
-        .create_utxos(online.clone(), true, None, None, FEE_RATE, true)
+        .create_utxos(online, true, None, None, FEE_RATE, true)
         .unwrap();
     assert_eq!(num_utxos_created, 0);
 
@@ -298,7 +296,7 @@ fn skip_sync() {
     assert_eq!(unspents.len(), 1);
 
     // created UTXOs become visible after syncing
-    wallet.sync(online.clone()).unwrap();
+    wallet.sync(online).unwrap();
     let unspents = test_list_unspents(&mut wallet, None, false);
     assert_eq!(unspents.len(), (UTXO_NUM + 1) as usize);
 }

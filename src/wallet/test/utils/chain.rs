@@ -2,7 +2,7 @@ use super::*;
 
 static MINER: Lazy<RwLock<Miner>> = Lazy::new(|| RwLock::new(Miner { no_mine_count: 0 }));
 
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct Miner {
     no_mine_count: u32,
 }
@@ -22,7 +22,7 @@ pub(crate) fn bitcoin_cli() -> Vec<String> {
     ]
 }
 
-fn _esplora_bitcoin_cli() -> Vec<String> {
+fn esplora_bitcoin_cli() -> Vec<String> {
     let compose_file = ["tests", "compose.yaml"].join(MAIN_SEPARATOR_STR);
     vec![
         s!("-f"),
@@ -47,7 +47,7 @@ impl Miner {
     fn force_mine(&self, esplora: bool, blocks: u32) -> bool {
         println!("mining (esplora: {esplora}), time: {}", get_current_time());
         let bitcoin_cli = if esplora {
-            _esplora_bitcoin_cli()
+            esplora_bitcoin_cli()
         } else {
             bitcoin_cli()
         };
@@ -182,7 +182,7 @@ pub(crate) fn resume_mining() {
 
 pub(crate) fn estimate_smart_fee(esplora: bool) -> bool {
     let bitcoin_cli = if esplora {
-        _esplora_bitcoin_cli()
+        esplora_bitcoin_cli()
     } else {
         bitcoin_cli()
     };
@@ -222,7 +222,7 @@ pub(crate) fn estimate_smart_fee(esplora: bool) -> bool {
 pub(crate) fn wait_indexers_sync() {
     let t_0 = OffsetDateTime::now_utc();
     let mut max_blockcount = 0;
-    for bitcoin_cli in [bitcoin_cli(), _esplora_bitcoin_cli()] {
+    for bitcoin_cli in [bitcoin_cli(), esplora_bitcoin_cli()] {
         let output = loop {
             if (OffsetDateTime::now_utc() - t_0).as_seconds_f32() > 120.0 {
                 panic!("could not get blockcount ({QUEUE_DEPTH_EXCEEDED})");

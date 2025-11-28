@@ -7,17 +7,17 @@ fn success() {
     initialize();
 
     let amount = 69;
-    let expiration = 60;
+    let expiration_secs = 60i64;
     let (mut wallet, online) = get_funded_wallet!();
 
     // default expiration + min confirmations
-    let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
+    let bak_info_before = wallet.database().get_backup_info().unwrap().unwrap();
     let now_timestamp = now().unix_timestamp();
-    let receive_data = test_blind_receive(&wallet);
-    let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
+    let receive_data = test_blind_receive(&mut wallet);
+    let bak_info_after = wallet.database().get_backup_info().unwrap().unwrap();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     assert!(receive_data.expiration_timestamp.is_some());
-    let timestamp = now_timestamp + DURATION_RCV_TRANSFER as i64;
+    let timestamp = (now_timestamp + DURATION_RCV_TRANSFER as i64) as u64;
     assert!(receive_data.expiration_timestamp.unwrap() - timestamp <= 1);
     let decoded_invoice = Invoice::new(receive_data.invoice).unwrap();
     assert_eq!(
@@ -34,26 +34,14 @@ fn success() {
         .blind_receive(
             None,
             Assignment::Any,
-            Some(expiration),
+            Some((now_timestamp + expiration_secs) as u64),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
         )
         .unwrap();
     assert!(receive_data.expiration_timestamp.is_some());
-    let timestamp = now_timestamp + expiration as i64;
+    let timestamp = (now_timestamp + expiration_secs) as u64;
     assert!(receive_data.expiration_timestamp.unwrap() - timestamp <= 1);
-
-    // 0 expiration
-    let receive_data = wallet
-        .blind_receive(
-            None,
-            Assignment::Any,
-            Some(0),
-            TRANSPORT_ENDPOINTS.clone(),
-            MIN_CONFIRMATIONS,
-        )
-        .unwrap();
-    assert!(receive_data.expiration_timestamp.is_none());
 
     // custom min confirmations
     let min_confirmations = 2;
@@ -71,7 +59,7 @@ fn success() {
     assert_eq!(batch_transfer.min_confirmations, min_confirmations);
 
     // asset id is set (NIA)
-    let asset_nia = test_issue_asset_nia(&mut wallet, &online, None);
+    let asset_nia = test_issue_asset_nia(&mut wallet, online, None);
     let asset_nia_id = asset_nia.asset_id;
     let result = wallet.blind_receive(
         Some(asset_nia_id.clone()),
@@ -87,7 +75,7 @@ fn success() {
     assert_eq!(invoice_data.asset_schema, Some(AssetSchema::Nia));
 
     // asset id is set (UDA)
-    let asset_uda = test_issue_asset_uda(&mut wallet, &online, None, None, vec![]);
+    let asset_uda = test_issue_asset_uda(&mut wallet, online, None, None, vec![]);
     let asset_uda_id = asset_uda.asset_id;
     let result = wallet.blind_receive(
         Some(asset_uda_id.clone()),
@@ -103,7 +91,7 @@ fn success() {
     assert_eq!(invoice_data.asset_schema, Some(AssetSchema::Uda));
 
     // asset id is set (CFA)
-    let asset_cfa = test_issue_asset_cfa(&mut wallet, &online, None, None);
+    let asset_cfa = test_issue_asset_cfa(&mut wallet, online, None, None);
     let asset_cfa_id = asset_cfa.asset_id;
     let result = wallet.blind_receive(
         Some(asset_cfa_id.clone()),
@@ -119,8 +107,8 @@ fn success() {
     assert_eq!(invoice_data.asset_schema, Some(AssetSchema::Cfa));
 
     // asset id is set (IFA)
-    test_create_utxos_default(&mut wallet, &online); // more UTXOs to have free alocation slots
-    let asset_ifa = test_issue_asset_ifa(&mut wallet, &online, None, None, 0, None);
+    test_create_utxos_default(&mut wallet, online); // more UTXOs to have free alocation slots
+    let asset_ifa = test_issue_asset_ifa(&mut wallet, online, None, None, None);
     let asset_ifa_id = asset_ifa.asset_id;
     let result = wallet.blind_receive(
         Some(asset_ifa_id.clone()),
@@ -140,7 +128,7 @@ fn success() {
     let result = wallet.blind_receive(
         Some(asset_cfa_id.clone()),
         Assignment::Fungible(amount),
-        Some(expiration),
+        Some((now_timestamp + expiration_secs) as u64),
         TRANSPORT_ENDPOINTS.clone(),
         MIN_CONFIRMATIONS,
     );
@@ -150,7 +138,7 @@ fn success() {
     // Invoice checks
     let invoice = Invoice::new(receive_data.invoice).unwrap();
     let invoice_data = invoice.invoice_data();
-    let approx_expiry = now_timestamp + expiration as i64;
+    let approx_expiry = (now_timestamp + expiration_secs) as u64;
     assert_eq!(invoice_data.recipient_id, receive_data.recipient_id);
     assert_eq!(invoice_data.asset_schema, Some(AssetSchema::Cfa));
     assert_eq!(invoice_data.asset_id, Some(asset_cfa_id.clone()));
@@ -268,29 +256,6 @@ fn success() {
     let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
     assert_eq!(transfer.requested_assignment, Some(Assignment::NonFungible));
 
-    // detect assignment: replace right, IFA
-    let receive_data = wallet
-        .blind_receive(
-            Some(asset_ifa_id.clone()),
-            Assignment::ReplaceRight,
-            None,
-            TRANSPORT_ENDPOINTS.clone(),
-            MIN_CONFIRMATIONS,
-        )
-        .unwrap();
-    let invoice = Invoice::new(receive_data.invoice).unwrap();
-    let invoice_data = invoice.invoice_data();
-    assert_eq!(invoice_data.assignment, Assignment::ReplaceRight);
-    assert_eq!(
-        invoice_data.assignment_name,
-        Some(RGB_STATE_REPLACE_RIGHT.to_string())
-    );
-    let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
-    assert_eq!(
-        transfer.requested_assignment,
-        Some(Assignment::ReplaceRight)
-    );
-
     // detect assignment: inflation right, IFA
     let receive_data = wallet
         .blind_receive(
@@ -354,14 +319,14 @@ fn success() {
     let result = wallet.blind_receive(
         None,
         Assignment::Any,
-        Some(0),
+        None,
         transport_endpoints.clone(),
         MIN_CONFIRMATIONS,
     );
     assert!(result.is_ok());
     let transfer = get_test_transfer_recipient(&wallet, &result.unwrap().recipient_id);
     let tte_data = wallet
-        .database
+        .database()
         .get_transfer_transport_endpoints_data(transfer.idx)
         .unwrap();
     assert_eq!(tte_data.len(), transport_endpoints.len());
@@ -373,14 +338,14 @@ fn success() {
 fn respect_max_allocations() {
     initialize();
 
-    let (wallet, _online) = get_funded_wallet!();
+    let (mut wallet, _online) = get_funded_wallet!();
 
     let available_allocations = UTXO_NUM as u32 * MAX_ALLOCATIONS_PER_UTXO;
     let mut created_allocations = 0;
     for _ in 0..UTXO_NUM {
         let mut txo_list: HashSet<Outpoint> = HashSet::new();
         for _ in 0..MAX_ALLOCATIONS_PER_UTXO {
-            let receive_data = test_blind_receive(&wallet);
+            let receive_data = test_blind_receive(&mut wallet);
             created_allocations += 1;
             let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
             let txo = if let RecipientTypeFull::Blind { unblinded_utxo } =
@@ -398,7 +363,7 @@ fn respect_max_allocations() {
     }
     assert_eq!(available_allocations, created_allocations);
 
-    let result = test_blind_receive_result(&wallet);
+    let result = test_blind_receive_result(&mut wallet);
     assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 }
 
@@ -414,7 +379,7 @@ fn pending_outgoing_transfer_fail() {
     let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
 
     // issue
-    let asset = test_issue_asset_nia(&mut wallet, &online, None);
+    let asset = test_issue_asset_nia(&mut wallet, online, None);
     let asset_id = asset.asset_id;
     // get issuance UTXO
     let unspents = test_list_unspents(&mut wallet, None, false);
@@ -427,7 +392,7 @@ fn pending_outgoing_transfer_fail() {
         })
         .unwrap();
     // send
-    let receive_data = test_blind_receive(&rcv_wallet);
+    let receive_data = test_blind_receive(&mut rcv_wallet);
     let recipient_map = HashMap::from([(
         asset_id.clone(),
         vec![Recipient {
@@ -437,24 +402,24 @@ fn pending_outgoing_transfer_fail() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&mut wallet, &online, &recipient_map);
+    let txid = test_send(&mut wallet, online, &recipient_map);
     assert!(!txid.is_empty());
 
     // check blind doesn't get allocated to UTXO being spent
-    let receive_data = test_blind_receive(&wallet);
+    let receive_data = test_blind_receive(&mut wallet);
     show_unspent_colorings(&mut wallet, "after 1st blind");
     let unspents = test_list_unspents(&mut wallet, None, false);
     let unspent_blind_1 = unspents.iter().find(|u| u.pending_blinded > 0).unwrap();
     assert_ne!(unspent_issue.utxo.outpoint, unspent_blind_1.utxo.outpoint);
     // remove transfer
-    test_fail_transfers_single(&mut wallet, &online, receive_data.batch_transfer_idx);
+    test_fail_transfers_single(&mut wallet, online, receive_data.batch_transfer_idx);
     test_delete_transfers(&wallet, Some(receive_data.batch_transfer_idx), false);
 
     // take transfer from WaitingCounterparty to WaitingConfirmations
-    wait_for_refresh(&mut rcv_wallet, &rcv_online, None, None);
-    wait_for_refresh(&mut wallet, &online, Some(&asset_id), None);
+    wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
+    wait_for_refresh(&mut wallet, online, Some(&asset_id), None);
     // check blind doesn't get allocated to UTXO being spent
-    let _receive_data = test_blind_receive(&wallet);
+    let _receive_data = test_blind_receive(&mut wallet);
     show_unspent_colorings(&mut wallet, "after 2nd blind");
     let unspents = test_list_unspents(&mut wallet, None, false);
     let unspent_blind_2 = unspents.iter().find(|u| u.pending_blinded > 0).unwrap();
@@ -467,14 +432,14 @@ fn pending_outgoing_transfer_fail() {
 fn fail() {
     initialize();
 
-    fn blind_receive_0exp_withte(
+    fn blind_receive_withte(
         wallet: &mut Wallet,
         transport_endpoints: Vec<String>,
     ) -> Result<ReceiveData, Error> {
         wallet.blind_receive(
             None,
             Assignment::Any,
-            Some(0),
+            None,
             transport_endpoints,
             MIN_CONFIRMATIONS,
         )
@@ -484,7 +449,7 @@ fn fail() {
     let online = test_go_online(&mut wallet, true, None);
 
     // insufficient funds
-    let result = test_blind_receive_result(&wallet);
+    let result = test_blind_receive_result(&mut wallet);
     assert!(matches!(
         result,
         Err(Error::InsufficientBitcoins {
@@ -499,7 +464,19 @@ fn fail() {
 
     fund_wallet(test_get_address(&mut wallet));
     mine(false, false);
-    test_create_utxos(&mut wallet, &online, true, Some(1), None, FEE_RATE, None);
+    test_create_utxos(&mut wallet, online, true, Some(1), None, FEE_RATE, None);
+
+    // 0 expiration
+    let result = wallet
+        .blind_receive(
+            None,
+            Assignment::Any,
+            Some((now().unix_timestamp() - 1) as u64),
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap_err();
+    assert!(matches!(result, Error::InvalidExpiration));
 
     // bad asset id
     let result = wallet.blind_receive(
@@ -512,15 +489,15 @@ fn fail() {
     assert!(matches!(result, Err(Error::AssetNotFound { asset_id: _ })));
 
     // cannot blind if all UTXOS already have an allocation
-    let _asset = test_issue_asset_nia(&mut wallet, &online, None);
-    let result = test_blind_receive_result(&wallet);
+    let _asset = test_issue_asset_nia(&mut wallet, online, None);
+    let result = test_blind_receive_result(&mut wallet);
     assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 
     // transport endpoints: malformed string
     fund_wallet(test_get_address(&mut wallet));
-    test_create_utxos_default(&mut wallet, &online);
+    test_create_utxos_default(&mut wallet, online);
     let transport_endpoints = vec!["malformed".to_string()];
-    let result = blind_receive_0exp_withte(&mut wallet, transport_endpoints);
+    let result = blind_receive_withte(&mut wallet, transport_endpoints);
     assert!(matches!(
         result,
         Err(Error::InvalidTransportEndpoint { details: _ })
@@ -528,7 +505,7 @@ fn fail() {
 
     // transport endpoints: unknown transport type
     let transport_endpoints = vec![format!("unknown://{PROXY_HOST}")];
-    let result = blind_receive_0exp_withte(&mut wallet, transport_endpoints);
+    let result = blind_receive_withte(&mut wallet, transport_endpoints);
     assert!(matches!(
         result,
         Err(Error::InvalidTransportEndpoint { details: _ })
@@ -536,12 +513,12 @@ fn fail() {
 
     // transport endpoints: transport type supported by RgbInvoice but unsupported by rgb-lib
     let transport_endpoints = vec![format!("ws://{PROXY_HOST}")];
-    let result = blind_receive_0exp_withte(&mut wallet, transport_endpoints);
+    let result = blind_receive_withte(&mut wallet, transport_endpoints);
     assert!(matches!(result, Err(Error::UnsupportedTransportType)));
 
     // transport endpoints: not enough endpoints
     let transport_endpoints = vec![];
-    let result = blind_receive_0exp_withte(&mut wallet, transport_endpoints);
+    let result = blind_receive_withte(&mut wallet, transport_endpoints);
     let msg = s!("must provide at least a transport endpoint");
     assert!(matches!(
         result,
@@ -555,7 +532,7 @@ fn fail() {
         format!("rpc://127.0.0.1:3002/json-rpc"),
         format!("rpc://127.0.0.1:3003/json-rpc"),
     ];
-    let result = blind_receive_0exp_withte(&mut wallet, transport_endpoints);
+    let result = blind_receive_withte(&mut wallet, transport_endpoints);
     let msg = format!("library supports at max {MAX_TRANSPORT_ENDPOINTS} transport endpoints");
     assert!(matches!(
         result,
@@ -564,22 +541,22 @@ fn fail() {
 
     // transport endpoints: no endpoints for transfer > Failed
     let transport_endpoints = vec![format!("rpc://{PROXY_HOST}")];
-    let receive_data = blind_receive_0exp_withte(&mut wallet, transport_endpoints).unwrap();
+    let receive_data = blind_receive_withte(&mut wallet, transport_endpoints).unwrap();
     let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
     let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
     let tte_data = wallet
-        .database
+        .database()
         .get_transfer_transport_endpoints_data(transfer.idx)
         .unwrap();
     for (tte, _) in tte_data {
         block_on(
             transfer_transport_endpoint::Entity::delete_by_id(tte.idx)
-                .exec(wallet.database.get_connection()),
+                .exec(wallet.database().get_connection()),
         )
         .unwrap();
     }
     assert_eq!(transfer_data.status, TransferStatus::WaitingCounterparty);
-    wait_for_refresh(&mut wallet, &online, None, None);
+    wait_for_refresh(&mut wallet, online, None, None);
     let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
     let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
     assert_eq!(transfer_data.status, TransferStatus::Failed);
@@ -590,7 +567,7 @@ fn fail() {
         format!("rpc://{PROXY_HOST}"),
         format!("rpc://{PROXY_HOST}"),
     ];
-    let result = blind_receive_0exp_withte(&mut wallet, transport_endpoints);
+    let result = blind_receive_withte(&mut wallet, transport_endpoints);
     let msg = s!("no duplicate transport endpoints allowed");
     assert!(matches!(
         result,
@@ -600,7 +577,7 @@ fn fail() {
     // invoice: unsupported layer 1
     println!("setting MOCK_CHAIN_NET");
     MOCK_CHAIN_NET.replace(Some(ChainNet::LiquidTestnet));
-    let recipient_data = test_blind_receive(&wallet);
+    let recipient_data = test_blind_receive(&mut wallet);
     let result = Invoice::new(recipient_data.invoice);
     assert!(matches!(result, Err(Error::UnsupportedLayer1 { layer_1: l }) if l == "liquid" ));
 }
@@ -617,8 +594,8 @@ fn wrong_asset_fail() {
     let (mut wallet_2, online_2) = get_funded_wallet!();
 
     // issue one asset per wallet
-    let asset_a = test_issue_asset_nia(&mut wallet_1, &online_1, None);
-    let asset_b = test_issue_asset_nia(&mut wallet_2, &online_2, None);
+    let asset_a = test_issue_asset_nia(&mut wallet_1, online_1, None);
+    let asset_b = test_issue_asset_nia(&mut wallet_2, online_2, None);
 
     let receive_data_a = wallet_1
         .blind_receive(
@@ -639,7 +616,7 @@ fn wrong_asset_fail() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&mut wallet_2, &online_2, &recipient_map);
+    let txid = test_send(&mut wallet_2, online_2, &recipient_map);
     assert!(!txid.is_empty());
 
     // transfer is pending
@@ -651,8 +628,8 @@ fn wrong_asset_fail() {
     );
 
     // transfer doesn't progress to status WaitingConfirmations on the receiving side
-    wait_for_refresh(&mut wallet_1, &online_1, None, None);
-    wait_for_refresh(&mut wallet_2, &online_2, None, None);
+    wait_for_refresh(&mut wallet_1, online_1, None, None);
+    wait_for_refresh(&mut wallet_2, online_2, None, None);
 
     // transfer has been NACKed
     let (rcv_transfer_data_a, _) = get_test_transfer_data(&wallet_1, &rcv_transfer_a);
@@ -712,7 +689,7 @@ fn multiple_receive_same_utxo() {
     // create 1 colorable UTXO on receiver wallet
     test_create_utxos(
         &mut wallet_recv,
-        &online_recv,
+        online_recv,
         false,
         Some(1),
         None,
@@ -723,8 +700,8 @@ fn multiple_receive_same_utxo() {
     assert_eq!(unspents_recv.iter().filter(|u| u.utxo.colorable).count(), 1);
 
     // blind twice, yielding 2 invoices paying to the same UTXO
-    let receive_data_1 = test_blind_receive(&wallet_recv);
-    let receive_data_2 = test_blind_receive(&wallet_recv);
+    let receive_data_1 = test_blind_receive(&mut wallet_recv);
+    let receive_data_2 = test_blind_receive(&mut wallet_recv);
 
     // check both transfers are to be received on the same UTXO
     let transfers_recv = test_list_transfers(&wallet_recv, None);
@@ -735,7 +712,7 @@ fn multiple_receive_same_utxo() {
     );
 
     // issue + send from wallet_send_1 to wallet_recv blind 1
-    let asset_1 = test_issue_asset_nia(&mut wallet_send_1, &online_send_1, None);
+    let asset_1 = test_issue_asset_nia(&mut wallet_send_1, online_send_1, None);
     let recipient_map_1 = HashMap::from([(
         asset_1.asset_id.clone(),
         vec![Recipient {
@@ -745,11 +722,11 @@ fn multiple_receive_same_utxo() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid_1 = test_send(&mut wallet_send_1, &online_send_1, &recipient_map_1);
+    let txid_1 = test_send(&mut wallet_send_1, online_send_1, &recipient_map_1);
     assert!(!txid_1.is_empty());
 
     // issue + send from wallet_send_2 to wallet_recv blind 2
-    let asset_2 = test_issue_asset_nia(&mut wallet_send_2, &online_send_2, None);
+    let asset_2 = test_issue_asset_nia(&mut wallet_send_2, online_send_2, None);
     let recipient_map_2 = HashMap::from([(
         asset_2.asset_id.clone(),
         vec![Recipient {
@@ -759,11 +736,11 @@ fn multiple_receive_same_utxo() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid_2 = test_send(&mut wallet_send_2, &online_send_2, &recipient_map_2);
+    let txid_2 = test_send(&mut wallet_send_2, online_send_2, &recipient_map_2);
     assert!(!txid_2.is_empty());
 
     // refresh receiver + check both RGB allocations are on the same UTXO
-    wait_for_refresh(&mut wallet_recv, &online_recv, None, None);
+    wait_for_refresh(&mut wallet_recv, online_recv, None, None);
     let unspents_recv = test_list_unspents(&mut wallet_recv, None, false);
     let unspents_recv_colorable: Vec<&Unspent> =
         unspents_recv.iter().filter(|u| u.utxo.colorable).collect();
@@ -802,7 +779,6 @@ fn invoice_new() {
     let amount = 1u64;
     let amount_str = "ae";
     let data_str = "1@0";
-    let void_str = "";
 
     // invalid invoice (invalid string)
     let result = Invoice::new(s!("invalid"));
@@ -850,18 +826,6 @@ fn invoice_new() {
     let invoice_data = invoice.invoice_data;
     assert_eq!(invoice_data.assignment, Assignment::NonFungible);
 
-    // void, replaceRight
-    let invoice_str = format!("rgb:~/~/{void_str}/{blinded}?assignment_name=replaceRight");
-    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
-    let invoice_data = invoice.invoice_data;
-    assert_eq!(invoice_data.assignment, Assignment::ReplaceRight);
-
-    // void, no name
-    let invoice_str = format!("rgb:~/~/{void_str}/{blinded}");
-    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
-    let invoice_data = invoice.invoice_data;
-    assert_eq!(invoice_data.assignment, Assignment::ReplaceRight);
-
     // no state, no name
     let invoice_str = format!("rgb:~/~/~/{blinded}");
     let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
@@ -869,7 +833,7 @@ fn invoice_new() {
     assert_eq!(invoice_data.assignment, Assignment::Any);
 
     // invalid invoice (unsupported assignment)
-    let invoice_str = format!("rgb:~/~/{data_str}/{blinded}?assignment_name=replaceRight");
+    let invoice_str = format!("rgb:~/~/{data_str}/{blinded}?assignment_name=unsupported");
     let result = Invoice::new(invoice_str.to_owned());
     assert!(
         matches!(result, Err(Error::InvalidInvoice { details: d }) if d == "unsupported assignment")
@@ -979,18 +943,6 @@ fn invoice_new() {
     let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
     let invoice_data = invoice.invoice_data;
     assert_eq!(invoice_data.assignment, Assignment::Any);
-
-    // void, ReplaceRight
-    let invoice_str = format!("rgb:~/{ifa_sid}/{void_str}/{blinded}?assignment_name=replaceRight");
-    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
-    let invoice_data = invoice.invoice_data;
-    assert_eq!(invoice_data.assignment, Assignment::ReplaceRight);
-
-    // void, no name
-    let invoice_str = format!("rgb:~/{ifa_sid}/{void_str}/{blinded}");
-    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
-    let invoice_data = invoice.invoice_data;
-    assert_eq!(invoice_data.assignment, Assignment::ReplaceRight);
 
     // no state, no name
     let invoice_str = format!("rgb:~/{ifa_sid}/~/{blinded}");

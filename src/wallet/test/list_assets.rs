@@ -9,9 +9,9 @@ fn success() {
     let (mut wallet, online) = get_funded_wallet!();
 
     // no assets
-    let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
+    let bak_info_before = wallet.database().get_backup_info().unwrap().unwrap();
     let assets = test_list_assets(&wallet, &[]);
-    let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
+    let bak_info_after = wallet.database().get_backup_info().unwrap().unwrap();
     assert_eq!(
         bak_info_after.last_operation_timestamp,
         bak_info_before.last_operation_timestamp
@@ -19,7 +19,7 @@ fn success() {
     assert_eq!(assets.nia.unwrap().len(), 0);
 
     // one issued NIA asset
-    let asset_1 = test_issue_asset_nia(&mut wallet, &online, None);
+    let asset_1 = test_issue_asset_nia(&mut wallet, online, None);
     let assets = test_list_assets(&wallet, &[]);
     let nia_assets = assets.nia.unwrap();
     let cfa_assets = assets.cfa.unwrap();
@@ -63,7 +63,7 @@ fn success() {
     );
 
     // three issued assets: 2x NIA + 1x CFA
-    let asset_3 = test_issue_asset_cfa(&mut wallet, &online, Some(&[AMOUNT * 3]), None);
+    let asset_3 = test_issue_asset_cfa(&mut wallet, online, Some(&[AMOUNT * 3]), None);
     let assets = test_list_assets(&wallet, &[]);
     let nia_assets = assets.nia.unwrap();
     let cfa_assets = assets.cfa.unwrap();

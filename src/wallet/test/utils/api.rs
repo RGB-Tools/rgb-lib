@@ -1,14 +1,14 @@
 use super::*;
 
-pub(crate) fn test_blind_receive(wallet: &Wallet) -> ReceiveData {
+pub(crate) fn test_blind_receive(wallet: &mut Wallet) -> ReceiveData {
     test_blind_receive_result(wallet).unwrap()
 }
 
-pub(crate) fn test_blind_receive_result(wallet: &Wallet) -> Result<ReceiveData, Error> {
+pub(crate) fn test_blind_receive_result(wallet: &mut Wallet) -> Result<ReceiveData, Error> {
     wallet.blind_receive(
         None,
         Assignment::Any,
-        None,
+        Some((now().unix_timestamp() + DURATION_RCV_TRANSFER as i64) as u64),
         TRANSPORT_ENDPOINTS.clone(),
         MIN_CONFIRMATIONS,
     )
@@ -19,7 +19,7 @@ pub(crate) fn test_witness_receive(wallet: &mut Wallet) -> ReceiveData {
         .witness_receive(
             None,
             Assignment::Any,
-            None,
+            Some((now().unix_timestamp() + DURATION_RCV_TRANSFER as i64) as u64),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
         )
@@ -27,14 +27,14 @@ pub(crate) fn test_witness_receive(wallet: &mut Wallet) -> ReceiveData {
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) fn test_create_utxos_default(wallet: &mut Wallet, online: &Online) {
+pub(crate) fn test_create_utxos_default(wallet: &mut Wallet, online: Online) {
     test_create_utxos(wallet, online, false, None, None, FEE_RATE, None);
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_create_utxos(
     wallet: &mut Wallet,
-    online: &Online,
+    online: Online,
     up_to: bool,
     num: Option<u8>,
     size: Option<u32>,
@@ -64,27 +64,27 @@ pub(crate) fn test_create_utxos(
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_create_utxos_nowait(
     wallet: &mut Wallet,
-    online: &Online,
+    online: Online,
     up_to: bool,
     num: Option<u8>,
     size: Option<u32>,
     fee_rate: u64,
 ) -> u8 {
     wallet
-        .create_utxos(online.clone(), up_to, num, size, fee_rate, false)
+        .create_utxos(online, up_to, num, size, fee_rate, false)
         .unwrap()
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_create_utxos_begin_result(
     wallet: &mut Wallet,
-    online: &Online,
+    online: Online,
     up_to: bool,
     num: Option<u8>,
     size: Option<u32>,
     fee_rate: u64,
 ) -> Result<String, Error> {
-    wallet.create_utxos_begin(online.clone(), up_to, num, size, fee_rate, false)
+    wallet.create_utxos_begin(online, up_to, num, size, fee_rate, false)
 }
 
 pub(crate) fn test_delete_transfers(
@@ -106,63 +106,51 @@ pub(crate) fn test_delete_transfers_result(
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_drain_to_result(
     wallet: &mut Wallet,
-    online: &Online,
+    online: Online,
     address: &str,
     destroy_assets: bool,
 ) -> Result<String, Error> {
-    wallet.drain_to(
-        online.clone(),
-        address.to_string(),
-        destroy_assets,
-        FEE_RATE,
-    )
+    wallet.drain_to(online, address.to_string(), destroy_assets, FEE_RATE)
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_drain_to_begin_result(
     wallet: &mut Wallet,
-    online: &Online,
+    online: Online,
     address: &str,
     destroy_assets: bool,
     fee_rate: u64,
 ) -> Result<String, Error> {
-    wallet.drain_to_begin(
-        online.clone(),
-        address.to_string(),
-        destroy_assets,
-        fee_rate,
-    )
+    wallet.drain_to_begin(online, address.to_string(), destroy_assets, fee_rate)
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) fn test_drain_to_destroy(wallet: &mut Wallet, online: &Online, address: &str) -> String {
+pub(crate) fn test_drain_to_destroy(wallet: &mut Wallet, online: Online, address: &str) -> String {
     wallet
-        .drain_to(online.clone(), address.to_string(), true, FEE_RATE)
+        .drain_to(online, address.to_string(), true, FEE_RATE)
         .unwrap()
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) fn test_drain_to_keep(wallet: &mut Wallet, online: &Online, address: &str) -> String {
+pub(crate) fn test_drain_to_keep(wallet: &mut Wallet, online: Online, address: &str) -> String {
     wallet
-        .drain_to(online.clone(), address.to_string(), false, FEE_RATE)
+        .drain_to(online, address.to_string(), false, FEE_RATE)
         .unwrap()
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) fn test_fail_transfers_all(wallet: &mut Wallet, online: &Online) -> bool {
-    wallet
-        .fail_transfers(online.clone(), None, false, false)
-        .unwrap()
+pub(crate) fn test_fail_transfers_all(wallet: &mut Wallet, online: Online) -> bool {
+    wallet.fail_transfers(online, None, false, false).unwrap()
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_fail_transfers_single(
     wallet: &mut Wallet,
-    online: &Online,
+    online: Online,
     batch_transfer_idx: i32,
 ) -> bool {
     wallet
-        .fail_transfers(online.clone(), Some(batch_transfer_idx), false, false)
+        .fail_transfers(online, Some(batch_transfer_idx), false, false)
         .unwrap()
 }
 
@@ -170,12 +158,12 @@ pub(crate) fn test_get_address(wallet: &mut Wallet) -> String {
     wallet.get_address().unwrap()
 }
 
-pub(crate) fn test_get_asset_balance(wallet: &Wallet, asset_id: &str) -> Balance {
+pub(crate) fn test_get_asset_balance(wallet: &impl RgbWalletOpsOffline, asset_id: &str) -> Balance {
     test_get_asset_balance_result(wallet, asset_id).unwrap()
 }
 
 pub(crate) fn test_get_asset_balance_result(
-    wallet: &Wallet,
+    wallet: &impl RgbWalletOpsOffline,
     asset_id: &str,
 ) -> Result<Balance, Error> {
     wallet.get_asset_balance(asset_id.to_string())
@@ -193,15 +181,15 @@ pub(crate) fn test_get_asset_metadata_result(
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) fn test_get_btc_balance(wallet: &mut Wallet, online: &Online) -> BtcBalance {
-    wallet.get_btc_balance(Some(online.clone()), false).unwrap()
+pub(crate) fn test_get_btc_balance(wallet: &mut Wallet, online: Online) -> BtcBalance {
+    wallet.get_btc_balance(Some(online), false).unwrap()
 }
 
 pub(crate) fn test_get_wallet_data(wallet: &Wallet) -> WalletData {
     wallet.get_wallet_data()
 }
 
-pub(crate) fn test_get_wallet_dir(wallet: &Wallet) -> PathBuf {
+pub(crate) fn test_get_wallet_dir(wallet: &impl RgbWalletOpsOffline) -> PathBuf {
     wallet.get_wallet_dir()
 }
 
@@ -227,7 +215,7 @@ pub(crate) fn test_go_online_result(
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_inflate(
     wallet: &mut Wallet,
-    online: &Online,
+    online: Online,
     asset_id: &str,
     inflation_amounts: &[u64],
 ) -> OperationResult {
@@ -237,12 +225,12 @@ pub(crate) fn test_inflate(
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_inflate_result(
     wallet: &mut Wallet,
-    online: &Online,
+    online: Online,
     asset_id: &str,
     inflation_amounts: &[u64],
 ) -> Result<OperationResult, Error> {
     wallet.inflate(
-        online.clone(),
+        online,
         asset_id.to_string(),
         inflation_amounts.to_vec(),
         FEE_RATE,
@@ -253,22 +241,24 @@ pub(crate) fn test_inflate_result(
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_inflate_begin(
     wallet: &mut Wallet,
-    online: &Online,
+    online: Online,
     asset_id: &str,
     inflation_amounts: &[u64],
 ) -> String {
-    test_inflate_begin_result(wallet, online, asset_id, inflation_amounts).unwrap()
+    test_inflate_begin_result(wallet, online, asset_id, inflation_amounts)
+        .unwrap()
+        .psbt
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_inflate_begin_result(
     wallet: &mut Wallet,
-    online: &Online,
+    online: Online,
     asset_id: &str,
     inflation_amounts: &[u64],
-) -> Result<String, Error> {
+) -> Result<InflateBeginResult, Error> {
     wallet.inflate_begin(
-        online.clone(),
+        online,
         asset_id.to_string(),
         inflation_amounts.to_vec(),
         FEE_RATE,
@@ -279,16 +269,16 @@ pub(crate) fn test_inflate_begin_result(
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_inflate_end_result(
     wallet: &mut Wallet,
-    online: &Online,
+    online: Online,
     signed_psbt: &str,
 ) -> Result<OperationResult, Error> {
-    wallet.inflate_end(online.clone(), signed_psbt.to_string())
+    wallet.inflate_end(online, signed_psbt.to_string())
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_issue_asset_uda(
     wallet: &mut Wallet,
-    online: &Online,
+    online: Online,
     details: Option<&str>,
     media_file_path: Option<&str>,
     attachments_file_paths: Vec<&str>,
@@ -306,7 +296,7 @@ pub(crate) fn test_issue_asset_uda(
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_issue_asset_uda_result(
     wallet: &mut Wallet,
-    online: &Online,
+    online: Online,
     details: Option<&str>,
     media_file_path: Option<&str>,
     attachments_file_paths: Vec<&str>,
@@ -328,7 +318,7 @@ pub(crate) fn test_issue_asset_uda_result(
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_issue_asset_cfa(
     wallet: &mut Wallet,
-    online: &Online,
+    online: Online,
     amounts: Option<&[u64]>,
     file_path: Option<String>,
 ) -> AssetCFA {
@@ -338,7 +328,7 @@ pub(crate) fn test_issue_asset_cfa(
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_issue_asset_cfa_result(
     wallet: &mut Wallet,
-    online: &Online,
+    online: Online,
     amounts: Option<&[u64]>,
     file_path: Option<String>,
 ) -> Result<AssetCFA, Error> {
@@ -360,7 +350,7 @@ pub(crate) fn test_issue_asset_cfa_result(
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_issue_asset_nia(
     wallet: &mut Wallet,
-    online: &Online,
+    online: Online,
     amounts: Option<&[u64]>,
 ) -> AssetNIA {
     test_issue_asset_nia_result(wallet, online, amounts).unwrap()
@@ -369,7 +359,7 @@ pub(crate) fn test_issue_asset_nia(
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_issue_asset_nia_result(
     wallet: &mut Wallet,
-    online: &Online,
+    online: Online,
     amounts: Option<&[u64]>,
 ) -> Result<AssetNIA, Error> {
     test_fail_transfers_all(wallet, online);
@@ -384,30 +374,21 @@ pub(crate) fn test_issue_asset_nia_result(
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_issue_asset_ifa(
     wallet: &mut Wallet,
-    online: &Online,
+    online: Online,
     amounts: Option<&[u64]>,
     inflation_amounts: Option<&[u64]>,
-    replace_rights_num: u8,
     reject_list_url: Option<String>,
 ) -> AssetIFA {
-    test_issue_asset_ifa_result(
-        wallet,
-        online,
-        amounts,
-        inflation_amounts,
-        replace_rights_num,
-        reject_list_url,
-    )
-    .unwrap()
+    test_issue_asset_ifa_result(wallet, online, amounts, inflation_amounts, reject_list_url)
+        .unwrap()
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_issue_asset_ifa_result(
     wallet: &mut Wallet,
-    online: &Online,
+    online: Online,
     amounts: Option<&[u64]>,
     inflation_amounts: Option<&[u64]>,
-    replace_rights_num: u8,
     reject_list_url: Option<String>,
 ) -> Result<AssetIFA, Error> {
     test_fail_transfers_all(wallet, online);
@@ -427,7 +408,6 @@ pub(crate) fn test_issue_asset_ifa_result(
         PRECISION,
         amounts,
         inflation_amounts,
-        replace_rights_num,
         reject_list_url,
     )
 }
@@ -437,33 +417,35 @@ pub(crate) fn test_list_assets(wallet: &Wallet, filter_asset_schemas: &[AssetSch
 }
 
 pub(crate) fn test_list_transactions(
-    wallet: &mut Wallet,
-    online: Option<&Online>,
+    wallet: &mut impl RgbWalletOpsOffline,
+    online: Option<Online>,
 ) -> Vec<Transaction> {
     let skip_sync = online.is_none();
-    let online = online.cloned();
     wallet.list_transactions(online, skip_sync).unwrap()
 }
 
-pub(crate) fn test_list_transfers(wallet: &Wallet, asset_id: Option<&str>) -> Vec<Transfer> {
+pub(crate) fn test_list_transfers(
+    wallet: &impl RgbWalletOpsOffline,
+    asset_id: Option<&str>,
+) -> Vec<Transfer> {
     test_list_transfers_result(wallet, asset_id).unwrap()
 }
 
 pub(crate) fn test_list_transfers_result(
-    wallet: &Wallet,
+    wallet: &impl RgbWalletOpsOffline,
     asset_id: Option<&str>,
 ) -> Result<Vec<Transfer>, Error> {
     let asset_id = asset_id.map(|a| a.to_string());
     wallet.list_transfers(asset_id)
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_list_unspents(
-    wallet: &mut Wallet,
-    online: Option<&Online>,
+    wallet: &mut impl RgbWalletOpsOnline,
+    online: Option<Online>,
     settled_only: bool,
 ) -> Vec<Unspent> {
     let skip_sync = online.is_none();
-    let online = online.cloned();
     wallet
         .list_unspents(online, settled_only, skip_sync)
         .unwrap()
@@ -472,24 +454,24 @@ pub(crate) fn test_list_unspents(
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_list_unspents_vanilla(
     wallet: &mut Wallet,
-    online: &Online,
+    online: Online,
     min_confirmations: Option<u8>,
 ) -> Vec<LocalOutput> {
     let min_confirmations = min_confirmations.unwrap_or(MIN_CONFIRMATIONS);
     wallet
-        .list_unspents_vanilla(online.clone(), min_confirmations, false)
+        .list_unspents_vanilla(online, min_confirmations, false)
         .unwrap()
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) fn test_refresh_all(wallet: &mut Wallet, online: &Online) -> bool {
+pub(crate) fn test_refresh_all(wallet: &mut Wallet, online: Online) -> bool {
     test_refresh_result(wallet, online, None, &[])
         .unwrap()
         .transfers_changed()
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) fn test_refresh_asset(wallet: &mut Wallet, online: &Online, asset_id: &str) -> bool {
+pub(crate) fn test_refresh_asset(wallet: &mut Wallet, online: Online, asset_id: &str) -> bool {
     test_refresh_result(wallet, online, Some(asset_id), &[])
         .unwrap()
         .transfers_changed()
@@ -497,13 +479,13 @@ pub(crate) fn test_refresh_asset(wallet: &mut Wallet, online: &Online, asset_id:
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_refresh_result(
-    wallet: &mut Wallet,
-    online: &Online,
+    wallet: &mut impl RgbWalletOpsOnline,
+    online: Online,
     asset_id: Option<&str>,
     filter: &[RefreshFilter],
 ) -> Result<RefreshResult, Error> {
     wallet.refresh(
-        online.clone(),
+        online,
         asset_id.map(|a| a.to_string()),
         filter.to_vec(),
         false,
@@ -513,7 +495,7 @@ pub(crate) fn test_refresh_result(
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_save_new_asset(
     wallet: &mut Wallet,
-    online: &Online,
+    online: Online,
     rcv_wallet: &mut Wallet,
     asset_id: &String,
     assignment: Assignment,
@@ -560,7 +542,7 @@ pub(crate) fn test_save_new_asset(
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_send(
     wallet: &mut Wallet,
-    online: &Online,
+    online: Online,
     recipient_map: &HashMap<String, Vec<Recipient>>,
 ) -> String {
     let start = Instant::now();
@@ -573,7 +555,7 @@ pub(crate) fn test_send(
         if let Err(e) = result {
             println!("send error: {e}");
             std::thread::sleep(Duration::from_millis(500));
-            wallet.sync(online.clone()).unwrap();
+            wallet.sync(online).unwrap();
             continue;
         }
         break result.unwrap().txid;
@@ -583,15 +565,16 @@ pub(crate) fn test_send(
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_send_result(
     wallet: &mut Wallet,
-    online: &Online,
+    online: Online,
     recipient_map: &HashMap<String, Vec<Recipient>>,
 ) -> Result<OperationResult, Error> {
     wallet.send(
-        online.clone(),
+        online,
         recipient_map.clone(),
         false,
         FEE_RATE,
         MIN_CONFIRMATIONS,
+        Some((now().unix_timestamp() + DURATION_SEND_TRANSFER as i64) as u64),
         false,
     )
 }
@@ -599,22 +582,25 @@ pub(crate) fn test_send_result(
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_send_begin_result(
     wallet: &mut Wallet,
-    online: &Online,
+    online: Online,
     recipient_map: &HashMap<String, Vec<Recipient>>,
 ) -> Result<String, Error> {
-    wallet.send_begin(
-        online.clone(),
-        recipient_map.clone(),
-        false,
-        FEE_RATE,
-        MIN_CONFIRMATIONS,
-    )
+    wallet
+        .send_begin(
+            online,
+            recipient_map.clone(),
+            false,
+            FEE_RATE,
+            MIN_CONFIRMATIONS,
+            None,
+        )
+        .map(|r| r.psbt)
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_send_btc(
     wallet: &mut Wallet,
-    online: &Online,
+    online: Online,
     address: &str,
     amount: u64,
 ) -> String {
@@ -624,9 +610,9 @@ pub(crate) fn test_send_btc(
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_send_btc_result(
     wallet: &mut Wallet,
-    online: &Online,
+    online: Online,
     address: &str,
     amount: u64,
 ) -> Result<String, Error> {
-    wallet.send_btc(online.clone(), address.to_string(), amount, FEE_RATE, false)
+    wallet.send_btc(online, address.to_string(), amount, FEE_RATE, false)
 }

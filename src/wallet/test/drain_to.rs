@@ -23,20 +23,20 @@ fn success() {
             spendable: 0,
         },
     };
-    wait_for_btc_balance(&mut wallet, &online, &expected_balance);
+    wait_for_btc_balance(&mut wallet, online, &expected_balance);
     let address = test_get_address(&mut rcv_wallet); // also updates backup_info
-    let bak_info_before = wallet.database.get_backup_info().unwrap().unwrap();
-    test_drain_to_keep(&mut wallet, &online, &address);
-    let bak_info_after = wallet.database.get_backup_info().unwrap().unwrap();
+    let bak_info_before = wallet.database().get_backup_info().unwrap().unwrap();
+    test_drain_to_keep(&mut wallet, online, &address);
+    let bak_info_after = wallet.database().get_backup_info().unwrap().unwrap();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     mine(false, false);
-    wait_for_unspents(&mut wallet, Some(&online), false, 0);
+    wait_for_unspents(&mut wallet, Some(online), false, 0);
 
     // issue asset (to produce an RGB allocation)
     fund_wallet(test_get_address(&mut wallet));
-    test_create_utxos_default(&mut wallet, &online);
+    test_create_utxos_default(&mut wallet, online);
     mine(false, false);
-    test_issue_asset_nia(&mut wallet, &online, None);
+    test_issue_asset_nia(&mut wallet, online, None);
 
     // drain funded wallet with RGB allocations
     let expected_balance = BtcBalance {
@@ -51,13 +51,13 @@ fn success() {
             spendable: 5000,
         },
     };
-    wait_for_btc_balance(&mut wallet, &online, &expected_balance);
-    test_drain_to_keep(&mut wallet, &online, &test_get_address(&mut rcv_wallet));
+    wait_for_btc_balance(&mut wallet, online, &expected_balance);
+    test_drain_to_keep(&mut wallet, online, &test_get_address(&mut rcv_wallet));
     mine(false, false);
-    wait_for_unspents(&mut wallet, Some(&online), false, UTXO_NUM);
-    test_drain_to_destroy(&mut wallet, &online, &test_get_address(&mut rcv_wallet));
+    wait_for_unspents(&mut wallet, Some(online), false, UTXO_NUM);
+    test_drain_to_destroy(&mut wallet, online, &test_get_address(&mut rcv_wallet));
     mine(false, false);
-    wait_for_unspents(&mut wallet, Some(&online), false, 0);
+    wait_for_unspents(&mut wallet, Some(online), false, 0);
 }
 
 #[cfg(feature = "electrum")]
@@ -74,7 +74,7 @@ fn pending_witness_receive() {
     let (mut drain_wallet, _drain_online) = get_empty_wallet!();
 
     // issue
-    let asset = test_issue_asset_nia(&mut wallet, &online, None);
+    let asset = test_issue_asset_nia(&mut wallet, online, None);
 
     // send
     let receive_data = test_witness_receive(&mut rcv_wallet);
@@ -90,12 +90,12 @@ fn pending_witness_receive() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&mut wallet, &online, &recipient_map);
+    let txid = test_send(&mut wallet, online, &recipient_map);
     assert!(!txid.is_empty());
 
     // refresh receiver (no UTXOs created) + sender (to broadcast) + mine
-    wait_for_refresh(&mut rcv_wallet, &rcv_online, None, None);
-    wait_for_refresh(&mut wallet, &online, Some(&asset.asset_id), None);
+    wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
+    wait_for_refresh(&mut wallet, online, Some(&asset.asset_id), None);
     mine(false, false);
 
     // receiver sees the new UTXO
@@ -105,14 +105,51 @@ fn pending_witness_receive() {
 
     // drain receiver, which syncs the wallet, detecting (and draining) the new UTXO as well
     let address = test_get_address(&mut drain_wallet);
-    test_drain_to_destroy(&mut rcv_wallet, &rcv_online, &address);
+    test_drain_to_destroy(&mut rcv_wallet, rcv_online, &address);
     let unspents = list_test_unspents(&mut rcv_wallet, "after draining");
     assert_eq!(unspents.len(), 0);
 
     // refresh receiver, if draining hadn't synced (before draining) a new UTXO would appear
-    wait_for_refresh(&mut rcv_wallet, &rcv_online, None, None);
+    wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
     let unspents = list_test_unspents(&mut rcv_wallet, "after receiver refresh 2");
     assert_eq!(unspents.len(), 0);
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn drain_to_begin_and_end_success() {
+    initialize();
+
+    // wallets
+    let (mut wallet, online) = get_funded_noutxo_wallet!();
+    let mut rcv_wallet = get_test_wallet(true, None);
+
+    let address = test_get_address(&mut rcv_wallet);
+    let bak_info_before = wallet.database().get_backup_info().unwrap().unwrap();
+
+    // drain_to_begin does not update backup_info
+    let unsigned_psbt = wallet
+        .drain_to_begin(online, address, false, FEE_RATE)
+        .unwrap();
+    let bak_info_after_begin = wallet.database().get_backup_info().unwrap().unwrap();
+    assert_eq!(
+        bak_info_after_begin.last_operation_timestamp,
+        bak_info_before.last_operation_timestamp
+    );
+
+    // sign and broadcast via drain_to_end
+    let signed_psbt = wallet.sign_psbt(unsigned_psbt, None).unwrap();
+    let txid = wallet.drain_to_end(online, signed_psbt).unwrap();
+    assert!(!txid.is_empty());
+
+    // drain_to_end updates backup_info
+    let bak_info_after_end = wallet.database().get_backup_info().unwrap().unwrap();
+    assert!(bak_info_after_end.last_operation_timestamp > bak_info_before.last_operation_timestamp);
+
+    // verify the drain was effective
+    mine(false, false);
+    wait_for_unspents(&mut wallet, Some(online), false, 0);
 }
 
 #[cfg(feature = "electrum")]
@@ -128,7 +165,7 @@ fn fail() {
     // drain empty wallet
     let result = test_drain_to_result(
         &mut wallet,
-        &online,
+        online,
         &test_get_address(&mut rcv_wallet),
         true,
     );
@@ -144,21 +181,21 @@ fn fail() {
     fund_wallet(test_get_address(&mut wallet));
     let result = test_drain_to_result(
         &mut wallet,
-        &rcv_online,
+        rcv_online,
         &test_get_address(&mut rcv_wallet),
         false,
     );
     assert!(matches!(result, Err(Error::CannotChangeOnline)));
 
     // bad address
-    let result = test_drain_to_result(&mut wallet, &online, "invalid address", false);
+    let result = test_drain_to_result(&mut wallet, online, "invalid address", false);
     assert!(matches!(result, Err(Error::InvalidAddress { details: _ })));
 
     // fee min
     fund_wallet(test_get_address(&mut wallet));
     let result = test_drain_to_begin_result(
         &mut wallet,
-        &online,
+        online,
         &test_get_address(&mut rcv_wallet),
         true,
         0,
@@ -169,7 +206,7 @@ fn fail() {
     fund_wallet(test_get_address(&mut wallet));
     let result = test_drain_to_begin_result(
         &mut wallet,
-        &online,
+        online,
         &test_get_address(&mut rcv_wallet),
         true,
         u64::MAX,
@@ -180,7 +217,7 @@ fn fail() {
     let (mut wallet, online) = get_funded_noutxo_wallet(false, None);
     let result = test_drain_to_result(
         &mut wallet,
-        &online,
+        online,
         &test_get_address(&mut rcv_wallet),
         false,
     );

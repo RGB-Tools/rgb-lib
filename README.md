@@ -13,6 +13,11 @@ The library has been designed to offer an offline usage
 library can work without private keys, sign operations will need to be performed
 with another tool).
 
+Multisig wallets are supported: each cosigner uses rgb-lib with the same
+multisig setup and a separate singlesig wallet for signing.
+To coordinate cosigners (propose operations, review, approve or refuse them),
+use the [RGB multisig hub]. See [Multisig][docs-multisig] for more info.
+
 N.B.: this library is still a work in progress and in its testing phase. Also,
 as long as the version is 0.*, API breaking changes should be expected.
 
@@ -53,8 +58,8 @@ docker compose -f tests/compose.yaml down
 The [`docs/`](/docs) directory contains some documents and UML diagrams
 to simplify the initial understanding of how rgb-lib operates.
 
-These include typical flows for issuing/sending/receiving assets
-and the state transitions of an asset transfer.
+These include typical flows for issuing/sending/receiving assets, the state
+transitions of an asset transfer and [multisig][docs-multisig] coordination.
 
 ## Roadmap
 - add an API to extend `BlindData` expiration
@@ -63,9 +68,11 @@ and the state transitions of an asset transfer.
 - improve the library's performance
 
 
+[RGB multisig hub]: https://github.com/RGB-Tools/rgb-multisig-hub
 [RGB proxy]: https://github.com/RGB-Tools/rgb-proxy-server
 [bdk]: https://github.com/bitcoindevkit/bdk
 [bindings]: bindings/
+[docs-multisig]: docs/multisig.md
 [bitcoind]: https://github.com/bitcoin/bitcoin
 [electrs]: https://github.com/romanz/electrs
 [esplora]: https://github.com/Blockstream/esplora

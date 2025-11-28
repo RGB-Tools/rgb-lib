@@ -1,20 +1,20 @@
-//! RGB wallet keys
+//! Wallet keys.
 //!
-//! This module defines the [`Keys`] structure and its related functions.
+//! This module defines the key-related structures and functions.
 
 use super::*;
 
 /// A set of Bitcoin keys used by the wallet.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct Keys {
     /// Mnemonic phrase
     pub mnemonic: String,
     /// Master xPub
     pub xpub: String,
-    /// Account-level xPub of the vanilla-side of the wallet
+    /// Account-level xPub of the vanilla side of the wallet
     pub account_xpub_vanilla: String,
-    /// Account-level xPub of the colored-side of the wallet
+    /// Account-level xPub of the colored side of the wallet
     pub account_xpub_colored: String,
     /// Fingerprint of the master xPub
     pub master_fingerprint: String,
@@ -32,7 +32,7 @@ pub fn generate_keys(bitcoin_network: BitcoinNetwork) -> Keys {
     let xpub = &xkey.into_xpub(bdk_network, &Secp256k1::new());
     let mnemonic_str = mnemonic.to_string();
     let (account_xpub_vanilla, account_xpub_colored) =
-        get_account_xpubs(bitcoin_network, &mnemonic_str).unwrap();
+        get_account_xpubs(&bitcoin_network, &mnemonic_str).unwrap();
     let master_fingerprint = xpub.fingerprint().to_string();
     Keys {
         mnemonic: mnemonic_str,
@@ -47,7 +47,7 @@ pub fn generate_keys(bitcoin_network: BitcoinNetwork) -> Keys {
 pub fn restore_keys(bitcoin_network: BitcoinNetwork, mnemonic: String) -> Result<Keys, Error> {
     let bdk_network = BdkNetwork::from(bitcoin_network);
     let (account_xpub_vanilla, account_xpub_colored) =
-        get_account_xpubs(bitcoin_network, &mnemonic)?;
+        get_account_xpubs(&bitcoin_network, &mnemonic)?;
     let mnemonic_parsed = Mnemonic::parse_in(Language::English, &mnemonic)?;
     let xkey: ExtendedKey = mnemonic_parsed
         .clone()

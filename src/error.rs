@@ -1,4 +1,4 @@
-//! Error
+//! Errors.
 //!
 //! This module defines the [`Error`] enum, containing all error variants returned by functions in
 //! the library.
@@ -33,6 +33,10 @@ pub enum Error {
     /// A wallet cannot go online twice with different data
     #[error("Cannot change online object")]
     CannotChangeOnline,
+
+    /// The given PSBTs cannot be combined
+    #[error("The given PSBTs cannot be combined")]
+    CannotCombinePsbts,
 
     /// Requested batch transfer cannot be deleted
     #[error("Batch transfer cannot be deleted")]
@@ -193,6 +197,13 @@ pub enum Error {
     #[error("Invalid consignment")]
     InvalidConsignment,
 
+    /// The provided cosigner is invalid
+    #[error("Invalid cosigner: {details}")]
+    InvalidCosigner {
+        /// Error details
+        details: String,
+    },
+
     /// The provided asset details is invalid
     #[error("Invalid details: {details}")]
     InvalidDetails {
@@ -215,6 +226,10 @@ pub enum Error {
     /// Trying to request fee estimation for an invalid block number, it must be between 1 and 1008
     #[error("Trying to request fee estimation for an invalid block number")]
     InvalidEstimationBlocks,
+
+    /// The provided expiration is invalid
+    #[error("Invalid expiration")]
+    InvalidExpiration,
 
     /// The provided fee rate is invalid
     #[error("Invalid fee rate: {details}")]
@@ -255,6 +270,15 @@ pub enum Error {
         details: String,
     },
 
+    /// Invalid multisig threshold
+    #[error("Invalid multisig threshold: required={required} with total={total}")]
+    InvalidMultisigThreshold {
+        /// Required threshold
+        required: u8,
+        /// Total cosigners
+        total: u8,
+    },
+
     /// The provided asset name is invalid
     #[error("Invalid name: {details}")]
     InvalidName {
@@ -276,7 +300,7 @@ pub enum Error {
         version: String,
     },
 
-    /// The provided PSBT could not be parsed
+    /// The provided PSBT is invalid
     #[error("Invalid PSBT: {details}")]
     InvalidPsbt {
         /// Error details
@@ -300,6 +324,10 @@ pub enum Error {
     /// The provided recipient ID is neither a blinded UTXO or a script
     #[error("The provided recipient ID is neither a blinded UTXO or a script")]
     InvalidRecipientID,
+
+    /// The provided recipient map is invalid
+    #[error("The provided recipient map is invalid")]
+    InvalidRecipientMap,
 
     /// The provided recipient ID is for a different network than the wallet's one
     #[error("The provided recipient ID is for a different network than the wallet's one")]
@@ -355,6 +383,53 @@ pub enum Error {
         txid: String,
     },
 
+    /// Multisig hub service error
+    #[error("Multisig hub service error: {details}")]
+    MultisigHubService {
+        /// Error details
+        details: String,
+    },
+
+    /// Cannot mark operation as processed
+    #[error("Cannot mark operation as processed: {details}")]
+    MultisigCannotMarkOperationProcessed {
+        /// Error details
+        details: String,
+    },
+
+    /// Cannot respond to operation
+    #[error("Cannot respond to operation: {details}")]
+    MultisigCannotRespondToOperation {
+        /// Error details
+        details: String,
+    },
+
+    /// Cannot initiate a new operation while another is in progress
+    #[error("Cannot initiate a new operation while another is in progress")]
+    MultisigOperationInProgress,
+
+    /// The requested operation was not found
+    #[error("Operation with idx {operation_idx} not found")]
+    MultisigOperationNotFound {
+        /// Operation idx
+        operation_idx: i32,
+    },
+
+    /// Transfer status already set to a different value
+    #[error("Transfer status already set to a different value")]
+    MultisigTransferStatusMismatch,
+
+    /// Received unexpected data from hub
+    #[error("Unexpected hub data: {details}")]
+    MultisigUnexpectedData {
+        /// Error details
+        details: String,
+    },
+
+    /// The user is not a cosigner
+    #[error("User is not a cosigner")]
+    MultisigUserNotCosigner,
+
     /// A network error occurred
     #[error("Network error: {details}")]
     Network {
@@ -366,6 +441,10 @@ pub enum Error {
     #[error("No consignment found")]
     NoConsignment,
 
+    /// No cosigners supplied
+    #[error("No cosigners supplied")]
+    NoCosignersSupplied,
+
     /// Cannot inflate an asset with unknown o zero amounts
     #[error("Inflation request with no amounts or zero amounts")]
     NoInflationAmounts,
@@ -373,6 +452,10 @@ pub enum Error {
     /// Cannot issue an asset without knowing the amounts
     #[error("Issuance request with no provided amounts")]
     NoIssuanceAmounts,
+
+    /// No keys supplied
+    #[error("No keys supplied")]
+    NoKeysSupplied,
 
     /// Cannot create a wallet with no supported schemas
     #[error("Cannot create a wallet with no supported schemas")]
@@ -401,6 +484,13 @@ pub enum Error {
         details: String,
     },
 
+    /// Error during PSBT inspection
+    #[error("Error during PSBT inspection: {details}")]
+    PsbtInspection {
+        /// Error details
+        details: String,
+    },
+
     /// Provided recipient ID has already been used for another transfer
     #[error("Recipient ID already used")]
     RecipientIDAlreadyUsed,
@@ -423,6 +513,13 @@ pub enum Error {
         details: String,
     },
 
+    /// Error during RGB inspection
+    #[error("Error during RGB inspection: {details}")]
+    RgbInspection {
+        /// Error details
+        details: String,
+    },
+
     /// The inflation amount exceeds the max possible supply
     #[error("The inflation amount exceeds the max possible supply")]
     TooHighInflationAmounts,
@@ -430,6 +527,14 @@ pub enum Error {
     /// Trying to issue too many assets
     #[error("Trying to issue too many assets")]
     TooHighIssuanceAmounts,
+
+    /// Provided too many cosigners
+    #[error("Provided too many cosigners")]
+    TooManyCosigners,
+
+    /// PSBT has too many signatures
+    #[error("PSBT has too many signatures")]
+    TooManySignaturesInPsbt,
 
     /// The detected RGB schema is unknown
     #[error("Unknown RGB schema: {schema_id}")]
@@ -528,6 +633,9 @@ pub(crate) enum InternalError {
     #[error("Error from bdk signing: {0}")]
     BdkSignerError(#[from] bdk_wallet::signer::SignerError),
 
+    #[error("Error creating RGB commitment: {0}")]
+    Commit(String),
+
     #[error("Confinement error: {0}")]
     Confinement(#[from] amplify::confinement::Error),
 
@@ -615,9 +723,24 @@ impl From<IndexerError> for Error {
     }
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+impl From<reqwest::Error> for Error {
+    fn from(e: reqwest::Error) -> Self {
+        Error::RestClientBuild {
+            details: e.to_string(),
+        }
+    }
+}
+
 impl From<bdk_wallet::bitcoin::psbt::ExtractTxError> for InternalError {
     fn from(e: bdk_wallet::bitcoin::psbt::ExtractTxError) -> Self {
         InternalError::BdkExtractTxError(e.to_string())
+    }
+}
+
+impl From<psrgbt::CommitError> for InternalError {
+    fn from(e: psrgbt::CommitError) -> Self {
+        InternalError::Commit(e.to_string())
     }
 }
 
@@ -761,5 +884,163 @@ impl From<rgbstd::contract::BuilderError> for Error {
         Error::Internal {
             details: e.to_string(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const FAKE_PSBT: &str = "cHNidP8BAF4CAAAAATQi69UHNVN1H3GVJyjCt2qx9Xsmt56SLSMwGM/GQxgBAQAAAAD9////AfQBAAAAAAAAIlEgoK74YaTaHlE4t4tfisItYxVkOmBakMt96x+kMAS6ArcZCgAAAAEBK+gDAAAAAAAAIlEgjWk7HP1AQKe/fp/RWQmQzRsfIQWHq+fWUteGf/YfEy0hFoJzo2OMevtseGK/uBkC+bautE/IgnmbDCz6eMojamp4GQA39GtzVgAAgB+fDIAAAACAAAAAAAAAAAABFyCCc6NjjHr7bHhiv7gZAvm2rrRPyIJ5mwws+njKI2pqeAAA";
+
+    #[test]
+    fn from_error() {
+        // NotFound error
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+        let err = Error::from(io_err);
+        assert_matches!(err, Error::IO { details } if details.contains("file not found"));
+
+        // Unexpected error
+        let internal = InternalError::Unexpected;
+        let err = Error::from(internal);
+        assert_matches!(err, Error::Internal { details } if details == "Unexpected error");
+
+        // Bip39 error
+        let bip39_err = bdk_wallet::keys::bip39::Error::BadWordCount(5);
+        let err = Error::from(bip39_err);
+        assert_matches!(err, Error::InvalidMnemonic { details } if !details.is_empty());
+
+        // Bip32 error
+        let bip32_err = bdk_wallet::bitcoin::bip32::Error::CannotDeriveFromHardenedKey;
+        let err = Error::from(bip32_err);
+        assert_matches!(err, Error::InvalidPubkey { details } if !details.is_empty());
+
+        // BuilderError error
+        let err = rgbstd::contract::BuilderError::InvalidStateField(FieldName::from("test"));
+        let err = Error::from(err);
+        assert_matches!(err, Error::Internal { details } if !details.is_empty());
+
+        // LoadWithPersistError error
+        let err = bdk_wallet::LoadWithPersistError::Persist(bdk_wallet::FileStoreError::Write(
+            std::io::Error::new(std::io::ErrorKind::PermissionDenied, "no access"),
+        ));
+        let err = Error::from(err);
+        assert_matches!(err, Error::IO { details } if !details.is_empty());
+
+        // CreateWithPersistError error
+        let err = bdk_wallet::CreateWithPersistError::Persist(bdk_wallet::FileStoreError::Write(
+            std::io::Error::new(std::io::ErrorKind::PermissionDenied, "no access"),
+        ));
+        let err = Error::from(err);
+        assert_matches!(err, Error::IO { details } if !details.is_empty());
+
+        // FileStoreError error
+        let err = bdk_wallet::FileStoreError::Write(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "no access",
+        ));
+        let err = Error::from(err);
+        assert_matches!(err, Error::IO { details } if !details.is_empty());
+
+        // StoreErrorWithDump error
+        let err = bdk_wallet::file_store::StoreErrorWithDump::<ChangeSet>::from(
+            std::io::Error::new(std::io::ErrorKind::PermissionDenied, "no access"),
+        );
+        let err = Error::from(err);
+        assert_matches!(err, Error::IO { details } if !details.is_empty());
+
+        // IndexerError error
+        #[cfg(feature = "electrum")]
+        {
+            let err = IndexerError::Electrum(ElectrumError::MissingDomain);
+            let err = Error::from(err);
+            assert_matches!(err, Error::Indexer { details } if !details.is_empty());
+        }
+        #[cfg(all(feature = "esplora", not(feature = "electrum")))]
+        {
+            let err = IndexerError::Esplora(EsploraError::Minreq(minreq::Error::AddressNotFound));
+            let err = Error::from(err);
+            assert_matches!(err, Error::Indexer { details } if !details.is_empty());
+        }
+    }
+
+    #[test]
+    fn from_internal_error() {
+        // BackupInvalidPath error
+        let io_err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "no access");
+        let internal = InternalError::from(io_err);
+        assert_matches!(
+            internal,
+            InternalError::BackupInvalidPath(ref e) if e.to_string().contains("no access")
+        );
+
+        // SerdeJSON error
+        let serde_err = serde_json::from_str::<serde_json::Value>("not json").unwrap_err();
+        let msg = serde_err.to_string();
+        let internal = InternalError::from(serde_err);
+        assert_matches!(
+            internal,
+            InternalError::SerdeJSON(ref e) if e.to_string() == msg
+        );
+
+        // StripPrefix error
+        let strip_err = Path::new("foo").strip_prefix("bar").unwrap_err();
+        let msg = strip_err.to_string();
+        let internal = InternalError::from(strip_err);
+        assert_matches!(
+            internal,
+            InternalError::StripPrefix(ref e) if e.to_string() == msg
+        );
+
+        // ExtractTxError error
+        let psbt = Psbt::from_str(FAKE_PSBT).unwrap();
+        let err = bdk_wallet::bitcoin::psbt::ExtractTxError::SendingTooMuch { psbt };
+        let err = InternalError::from(err);
+        assert_matches!(err, InternalError::BdkExtractTxError(ref e) if !e.is_empty());
+
+        // RgbPsbtError error
+        let err = psrgbt::RgbPsbtError::NoContracts;
+        let err = InternalError::from(err);
+        assert_matches!(err, InternalError::RgbPsbtError(ref e) if !e.is_empty());
+
+        // OpretKeyError error
+        let err = psrgbt::OpretKeyError::NoCommitment;
+        let err = InternalError::from(err);
+        assert_matches!(err, InternalError::RgbPsbtError(ref e) if !e.is_empty());
+
+        // MpcPsbtError error
+        let err = psrgbt::MpcPsbtError::KeyAlreadyPresent;
+        let err = InternalError::from(err);
+        assert_matches!(err, InternalError::RgbPsbtError(ref e) if !e.is_empty());
+
+        // CommitError error
+        let err = psrgbt::CommitError::Rgb(psrgbt::RgbPsbtError::NoContracts);
+        let err = InternalError::from(err);
+        assert_matches!(err, InternalError::Commit(ref e) if !e.is_empty());
+
+        // StockError errors
+        let err: rgbstd::persistence::StockError<
+            rgbstd::persistence::MemStash,
+            rgbstd::persistence::MemState,
+            rgbstd::persistence::MemIndex,
+            rgbstd::persistence::FasciaError,
+        > = rgbstd::persistence::StockError::AbsentValidWitness;
+        let err = InternalError::from(err);
+        assert_matches!(err, InternalError::StockError(ref e) if !e.is_empty());
+        let err: rgbstd::persistence::StockError<
+            rgbstd::persistence::MemStash,
+            rgbstd::persistence::MemState,
+            rgbstd::persistence::MemIndex,
+            rgbstd::persistence::ConsignError,
+        > = rgbstd::persistence::StockError::AbsentValidWitness;
+        let err = InternalError::from(err);
+        assert_matches!(err, InternalError::StockError(ref e) if !e.is_empty());
+        let err: rgbstd::persistence::StockError<
+            rgbstd::persistence::MemStash,
+            rgbstd::persistence::MemState,
+            rgbstd::persistence::MemIndex,
+        > = rgbstd::persistence::StockError::Resolver(s!("test"));
+        let err = InternalError::from(err);
+        assert_matches!(err, InternalError::StockError(ref e) if !e.is_empty());
     }
 }
