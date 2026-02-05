@@ -382,13 +382,11 @@ fn fail() {
     ));
 
     // empty file
-    let empty_file_path = ["tests", "empty"].join(MAIN_SEPARATOR_STR);
-    let result =
-        test_issue_asset_cfa_result(&mut wallet, &online, None, Some(empty_file_path.clone()));
-    assert!(matches!(
-        result,
-        Err(Error::EmptyFile { file_path: t }) if t == empty_file_path
-    ));
+    let empty_path = tempfile::NamedTempFile::with_prefix("issue_asset_cfa::fail_").unwrap();
+    fs::File::create(&empty_path).unwrap();
+    let empty_str = empty_path.path().to_str().unwrap().to_string();
+    let result = test_issue_asset_cfa_result(&mut wallet, &online, None, Some(empty_str.clone()));
+    assert!(matches!(result, Err(Error::EmptyFile { file_path: t }) if t == empty_str));
 
     // new wallet
     let (mut wallet, online) = get_empty_wallet!();

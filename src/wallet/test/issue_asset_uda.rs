@@ -274,8 +274,10 @@ fn fail() {
     initialize();
 
     let attachment_str = ["tests", "qrcode.png"].join(MAIN_SEPARATOR_STR);
-    let empty_str = ["tests", "empty"].join(MAIN_SEPARATOR_STR);
     let missing_str = "missing";
+    let empty_path = tempfile::NamedTempFile::with_prefix("issue_asset_uda::fail_").unwrap();
+    fs::File::create(&empty_path).unwrap();
+    let empty_str = empty_path.path().to_str().unwrap().to_string();
 
     // wallet
     let (mut wallet, online) = get_funded_wallet!();
