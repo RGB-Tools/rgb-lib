@@ -599,7 +599,7 @@ fn fail() {
 
     // invoice: unsupported layer 1
     println!("setting MOCK_CHAIN_NET");
-    *MOCK_CHAIN_NET.lock().unwrap() = Some(ChainNet::LiquidTestnet);
+    MOCK_CHAIN_NET.replace(Some(ChainNet::LiquidTestnet));
     let recipient_data = test_blind_receive(&wallet);
     let result = Invoice::new(recipient_data.invoice);
     assert!(matches!(result, Err(Error::UnsupportedLayer1 { layer_1: l }) if l == "liquid" ));

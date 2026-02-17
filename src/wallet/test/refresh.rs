@@ -303,7 +303,7 @@ fn fail() {
 
 #[cfg(feature = "electrum")]
 #[test]
-#[serial]
+#[parallel]
 fn nia_with_media() {
     initialize();
 
@@ -329,7 +329,7 @@ fn nia_with_media() {
         digest: digest.into(),
     };
     println!("setting MOCK_CONTRACT_DATA");
-    MOCK_CONTRACT_DATA.lock().unwrap().push(attachment.clone());
+    MOCK_CONTRACT_DATA.with_borrow_mut(|v| v.push(attachment.clone()));
     let asset = test_issue_asset_nia(&mut wallet_1, &online_1, None);
     let media_idx = wallet_1
         .copy_media_and_save(
@@ -397,7 +397,7 @@ fn nia_with_media() {
 
 #[cfg(feature = "electrum")]
 #[test]
-#[serial]
+#[parallel]
 fn nia_with_details() {
     initialize();
 
@@ -410,9 +410,8 @@ fn nia_with_details() {
     let (mut wallet_3, online_3) = get_funded_wallet!();
 
     // manually set the asset's details
-    let details = Some(details_str);
     println!("setting MOCK_CONTRACT_DETAILS");
-    *MOCK_CONTRACT_DETAILS.lock().unwrap() = details;
+    MOCK_CONTRACT_DETAILS.replace(Some(details_str.to_string()));
 
     // issue
     let asset = test_issue_asset_nia(&mut wallet_1, &online_1, None);
@@ -478,7 +477,7 @@ fn nia_with_details() {
 
 #[cfg(feature = "electrum")]
 #[test]
-#[serial]
+#[parallel]
 fn uda_with_media() {
     initialize();
 
@@ -504,7 +503,7 @@ fn uda_with_media() {
         digest: digest.into(),
     };
     println!("setting MOCK_CONTRACT_DATA");
-    MOCK_CONTRACT_DATA.lock().unwrap().push(attachment.clone());
+    MOCK_CONTRACT_DATA.with_borrow_mut(|v| v.push(attachment.clone()));
     let asset = test_issue_asset_uda(&mut wallet_1, &online_1, None, Some(file_str), vec![]);
     let media_idx = wallet_1
         .copy_media_and_save(
@@ -572,7 +571,7 @@ fn uda_with_media() {
 
 #[cfg(feature = "electrum")]
 #[test]
-#[serial]
+#[parallel]
 fn uda_with_preview_and_reserves() {
     initialize();
 
@@ -603,7 +602,7 @@ fn uda_with_preview_and_reserves() {
         reserves: Some(reserves),
     };
     println!("setting MOCK_TOKEN_DATA");
-    MOCK_TOKEN_DATA.lock().unwrap().push(token_data.clone());
+    MOCK_TOKEN_DATA.with_borrow_mut(|v| v.push(token_data.clone()));
     let asset = test_issue_asset_uda(&mut wallet_1, &online_1, Some(DETAILS), None, vec![]);
 
     let receive_data = test_blind_receive(&wallet_2);

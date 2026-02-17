@@ -3,17 +3,16 @@ use std::{
     io::Write,
     path::MAIN_SEPARATOR_STR,
     process::{Command, Stdio},
-    sync::{Mutex, Once, RwLock},
+    sync::{Once, RwLock},
 };
 
 use bdk_wallet::descriptor::ExtendedDescriptor;
-use lazy_static::lazy_static;
 use once_cell::sync::Lazy;
 use regex::RegexSet;
 use rgbstd::stl::{EmbeddedMedia as RgbEmbeddedMedia, ProofOfReserves as RgbProofOfReserves};
 use serde_json::Value;
 use serial_test::{parallel, serial};
-use std::time::Instant;
+use std::{cell::RefCell, time::Instant};
 use time::OffsetDateTime;
 
 use super::*;
@@ -79,6 +78,17 @@ const QUEUE_DEPTH_EXCEEDED: &str = "Work queue depth exceeded";
 
 static INIT: Once = Once::new();
 
+thread_local! {
+    pub(crate) static MOCK_CHAIN_NET: RefCell<Option<ChainNet>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_CHECK_FEE_RATE: RefCell<Vec<bool>> = const { RefCell::new(vec![]) };
+    pub(crate) static MOCK_CONTRACT_DATA: RefCell<Vec<Attachment>> = const { RefCell::new(vec![]) };
+    pub(crate) static MOCK_CONTRACT_DETAILS: RefCell<Option<String>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_INPUT_UNSPENTS: RefCell<Vec<LocalUnspent>> = const { RefCell::new(vec![]) };
+    pub(crate) static MOCK_SKIP_BUILD_DAG: RefCell<Option<()>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_TOKEN_DATA: RefCell<Vec<TokenData>> = const { RefCell::new(vec![]) };
+    pub(crate) static MOCK_VOUT: RefCell<Option<u32>> = const { RefCell::new(None) };
+}
+
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub fn initialize() {
     INIT.call_once(|| {
@@ -131,27 +141,20 @@ macro_rules! get_funded_wallet {
     };
 }
 
-lazy_static! {
-    static ref MOCK_CONTRACT_DATA: Mutex<Vec<Attachment>> = Mutex::new(vec![]);
-}
-
 pub fn mock_asset_terms(
     wallet: &Wallet,
     text: RicardianContract,
     media: Option<Attachment>,
 ) -> ContractTerms {
-    let mut mock_reqs = MOCK_CONTRACT_DATA.lock().unwrap();
-    if mock_reqs.is_empty() {
-        wallet.new_asset_terms(text, media)
-    } else {
-        println!("mocking asset terms");
-        let mocked_media = mock_reqs.pop();
-        wallet.new_asset_terms(text, mocked_media)
-    }
-}
-
-lazy_static! {
-    static ref MOCK_TOKEN_DATA: Mutex<Vec<TokenData>> = Mutex::new(vec![]);
+    MOCK_CONTRACT_DATA.with_borrow_mut(|mock_reqs| {
+        if mock_reqs.is_empty() {
+            wallet.new_asset_terms(text, media)
+        } else {
+            println!("mocking contract data");
+            let mocked_media = mock_reqs.pop();
+            wallet.new_asset_terms(text, mocked_media)
+        }
+    })
 }
 
 pub fn mock_token_data(
@@ -160,36 +163,30 @@ pub fn mock_token_data(
     media_data: &Option<(Attachment, Media)>,
     attachments: BTreeMap<u8, Attachment>,
 ) -> TokenData {
-    let mut mock_reqs = MOCK_TOKEN_DATA.lock().unwrap();
-    if mock_reqs.is_empty() {
-        wallet.new_token_data(index, media_data, attachments)
-    } else {
-        println!("mocking token data");
-        mock_reqs.pop().unwrap()
-    }
-}
-
-lazy_static! {
-    static ref MOCK_INPUT_UNSPENTS: Mutex<Vec<LocalUnspent>> = Mutex::new(vec![]);
+    MOCK_TOKEN_DATA.with_borrow_mut(|v| {
+        if v.is_empty() {
+            wallet.new_token_data(index, media_data, attachments)
+        } else {
+            println!("mocking token data");
+            v.pop().unwrap()
+        }
+    })
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub fn mock_input_unspents(wallet: &Wallet, unspents: &[LocalUnspent]) -> Vec<LocalUnspent> {
-    let mut mock_input_unspents = MOCK_INPUT_UNSPENTS.lock().unwrap();
-    if mock_input_unspents.is_empty() {
-        wallet.get_input_unspents(unspents).unwrap()
-    } else {
-        println!("mocking input unspents");
-        mock_input_unspents.drain(..).collect()
-    }
-}
-
-lazy_static! {
-    static ref MOCK_CONTRACT_DETAILS: Mutex<Option<&'static str>> = Mutex::new(None);
+    MOCK_INPUT_UNSPENTS.with_borrow_mut(|v| {
+        if v.is_empty() {
+            wallet.get_input_unspents(unspents).unwrap()
+        } else {
+            println!("mocking input unspents");
+            std::mem::take(v)
+        }
+    })
 }
 
 pub fn mock_contract_details(wallet: &Wallet) -> Option<Details> {
-    let mock = MOCK_CONTRACT_DETAILS.lock().unwrap().take();
+    let mock = MOCK_CONTRACT_DETAILS.take();
     if let Some(details) = mock {
         println!("mocking contract details");
         Some(wallet.check_details(details.to_string()).unwrap())
@@ -198,12 +195,8 @@ pub fn mock_contract_details(wallet: &Wallet) -> Option<Details> {
     }
 }
 
-lazy_static! {
-    static ref MOCK_CHAIN_NET: Mutex<Option<ChainNet>> = Mutex::new(None);
-}
-
 pub fn mock_chain_net(wallet: &Wallet) -> ChainNet {
-    match MOCK_CHAIN_NET.lock().unwrap().take() {
+    match MOCK_CHAIN_NET.take() {
         Some(chain_net) => {
             println!("mocking chain net");
             chain_net
@@ -212,40 +205,28 @@ pub fn mock_chain_net(wallet: &Wallet) -> ChainNet {
     }
 }
 
-lazy_static! {
-    static ref MOCK_CHECK_FEE_RATE: Mutex<Vec<bool>> = Mutex::new(vec![]);
-}
-
 pub fn skip_check_fee_rate() -> bool {
-    let mut mock = MOCK_CHECK_FEE_RATE.lock().unwrap();
-    if mock.is_empty() {
-        false
-    } else {
-        println!("skipping check fee rate (mock)");
-        mock.pop().unwrap()
-    }
-}
-
-lazy_static! {
-    static ref MOCK_SKIP_BUILD_DAG: Mutex<Vec<bool>> = Mutex::new(vec![]);
+    MOCK_CHECK_FEE_RATE.with_borrow_mut(|mock| {
+        if mock.is_empty() {
+            false
+        } else {
+            println!("mocking check fee rate");
+            mock.pop().unwrap()
+        }
+    })
 }
 
 pub fn skip_build_dag() -> bool {
-    let mut mock = MOCK_SKIP_BUILD_DAG.lock().unwrap();
-    if mock.is_empty() {
+    if MOCK_SKIP_BUILD_DAG.take().is_none() {
         false
     } else {
         println!("skipping check dag (mock)");
-        mock.pop().unwrap()
+        true
     }
 }
 
-lazy_static! {
-    static ref MOCK_VOUT: Mutex<Option<u32>> = Mutex::new(None);
-}
-
 pub fn mock_vout(vout: Option<u32>) -> Option<u32> {
-    let mock = MOCK_VOUT.lock().unwrap().take();
+    let mock = MOCK_VOUT.take();
     if mock.is_some() {
         println!("mocking vout");
         assert_ne!(mock, vout);
