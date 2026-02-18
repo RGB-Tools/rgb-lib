@@ -117,6 +117,29 @@ pub(crate) fn mine(esplora: bool, resume: bool) {
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
+pub fn get_tx_height(esplora: bool, txid: &str) -> Option<u64> {
+    let indexer_url = match esplora {
+        true => ESPLORA_URL,
+        false => ELECTRUM_URL,
+    };
+    let indexer = build_indexer(indexer_url).expect("cannot get indexer");
+    indexer.get_tx_confirmations(txid).unwrap()
+}
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub fn mine_tx(esplora: bool, resume: bool, txid: &str) {
+    eprintln!("trying to have TX {txid} mined");
+    for _ in 0..10 {
+        if get_tx_height(esplora, txid).is_some() {
+            println!("TX with ID {txid} has been mined");
+            return;
+        }
+        mine(esplora, resume);
+    }
+    panic!("TX is not getting mined");
+}
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn force_mine_no_resume_when_alone(esplora: bool) {
     let t_0 = OffsetDateTime::now_utc();
     loop {
@@ -242,7 +265,8 @@ pub(crate) fn wait_indexers_sync() {
         indexer_urls.push(ESPLORA_URL);
 
         for indexer_url in indexer_urls {
-            let indexer = build_indexer(indexer_url).expect("cannot get indexer {indexer_url}");
+            let err_msg = format!("cannot get indexer {indexer_url}");
+            let indexer = build_indexer(indexer_url).expect(&err_msg);
             if indexer.block_hash(max_blockcount as usize).is_err() {
                 all_synced = false;
             }

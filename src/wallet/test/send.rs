@@ -6669,6 +6669,7 @@ fn pending_witness_txo() {
     //
 
     // send
+    stop_mining();
     let receive_data = test_witness_receive(&mut rcv_wallet);
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -6748,7 +6749,7 @@ fn pending_witness_txo() {
     assert!(rcv_pending_witness_scripts.is_empty());
 
     // mine + refresh the recipient to move the transfer to Settled
-    mine(false, false);
+    mine(false, true);
     test_refresh_all(&mut rcv_wallet, &rcv_online);
     test_refresh_all(&mut wallet, &online); // so that change is spendable
     let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &receive_data.recipient_id);
@@ -6768,6 +6769,7 @@ fn pending_witness_txo() {
     let (mut rcv_wallet, rcv_online) = get_empty_wallet!();
 
     // send (donation)
+    stop_mining();
     let receive_data = test_witness_receive(&mut rcv_wallet);
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -6841,7 +6843,7 @@ fn pending_witness_txo() {
 
     // refresh + mine to move the transfer to Settled
     test_refresh_all(&mut wallet, &online);
-    mine(false, false);
+    mine(false, true);
     test_refresh_all(&mut rcv_wallet, &rcv_online);
     let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &receive_data.recipient_id);
     let (rcv_transfer_data, _) = get_test_transfer_data(&rcv_wallet, &rcv_transfer);
@@ -7639,6 +7641,7 @@ fn allocations() {
     check_allocations(&wallet_2, &unspents_colorable, &amounts_all, &[], false);
 
     // send the 2 smallest allocations from wallet 2
+    stop_mining();
     let receive_data = test_blind_receive(&wallet_1);
     let recipient_map = HashMap::from([(
         asset_1.asset_id.clone(),
@@ -7693,7 +7696,7 @@ fn allocations() {
     check_unspents(&unspents_colorable, &amounts_user, &amounts_auto, true);
 
     // settle transfer
-    mine(false, false);
+    mine(false, true);
     test_refresh_all(&mut wallet_1, &online_1);
     test_refresh_all(&mut wallet_2, &online_2);
     // check allocation colorings (no input colorings, same change colorings)

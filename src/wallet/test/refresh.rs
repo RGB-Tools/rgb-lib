@@ -224,6 +224,8 @@ fn success() {
     ));
 
     mine(false, true);
+    mine_tx(false, false, &txid_2a);
+    mine_tx(false, false, &txid_2b);
 
     // refresh incoming WaitingConfirmations only (wallet 2)
     assert!(
