@@ -48,6 +48,7 @@ fn _success_common(wallet: &mut Wallet, online: &Online, esplora: bool) {
 
 #[cfg(feature = "electrum")]
 #[test]
+#[ignore = "should be executed alone for performance reasons"]
 #[serial]
 fn success_electrum() {
     initialize();
@@ -59,6 +60,7 @@ fn success_electrum() {
 
 #[cfg(feature = "esplora")]
 #[test]
+#[ignore = "should be executed alone for performance reasons"]
 #[serial]
 fn success_esplora() {
     initialize();

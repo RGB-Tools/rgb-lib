@@ -49,12 +49,14 @@ jobs:
           rustflags: ""
       - name: Test with electrum feature
         run: |
-          cargo test --profile reldebug --no-default-features --features electrum go_online::fail
+          cargo test --profile reldebug --no-default-features --features electrum get_fee_estimation::success_electrum -- --ignored
+          SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features electrum go_online::fail
           SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features electrum send::min_confirmations_electrum
           SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features electrum send::min_relay_fee_electrum
       - name: Test with esplora feature
         run: |
-          cargo test --profile reldebug --no-default-features --features esplora go_online::fail
+          cargo test --profile reldebug --no-default-features --features esplora get_fee_estimation::success_esplora -- --ignored
+          SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features esplora go_online::fail
           SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features esplora send::min_confirmations_esplora
           SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features esplora send::min_relay_fee_esplora
       - name: Test with no default features
