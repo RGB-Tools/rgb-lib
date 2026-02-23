@@ -32,3 +32,5 @@ jobs:
       - name: Lint uniffi bindings
         working-directory: ./bindings/uniffi
         run: cargo clippy
+      - name: check Cargo.lock files are up-to-date
+        run: git diff --quiet || exit 1
