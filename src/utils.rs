@@ -36,6 +36,28 @@ pub(crate) const REST_CLIENT_TIMEOUT: u8 = 90;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 const PROXY_PROTOCOL_VERSION: &str = "0.2";
 
+// sea-orm with runtime-tokio-rustls needs a tokio runtime for connection pool management
+static TOKIO_RUNTIME: LazyLock<tokio::runtime::Runtime> =
+    LazyLock::new(|| tokio::runtime::Runtime::new().expect("failed to create the runtime"));
+
+/// Block on a future, spawning a new thread if already inside a Tokio runtime.
+pub fn block_on<F>(future: F) -> F::Output
+where
+    F: std::future::Future + Send,
+    F::Output: Send,
+{
+    if tokio::runtime::Handle::try_current().is_ok() {
+        // avoid blocking the Tokio runtime thread; spawn a new thread
+        std::thread::scope(|s| {
+            s.spawn(|| TOKIO_RUNTIME.block_on(future))
+                .join()
+                .expect("rgb-lib block_on thread panicked")
+        })
+    } else {
+        TOKIO_RUNTIME.block_on(future)
+    }
+}
+
 /// Supported Bitcoin networks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub enum BitcoinNetwork {

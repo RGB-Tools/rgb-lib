@@ -35,9 +35,7 @@ chacha20poly1305 = { version = "0.10.1", default-features = false, features = [
     "alloc",
     "stream",
 ] }
-futures = { version = "0.3", default-features = false, features = [
-    "executor",
-] }
+tokio = { version = "1", default-features = false }
 generic-array = "=0.14.7"  # temporary pin while waiting for chacha20poly1305 update
 hex = { version = "0.4.3", default-features = false }
 rand = { version = "0.9.1", default-features = false }
@@ -53,9 +51,9 @@ scrypt = { version = "0.11.0", default-features = false, features = [
     "simple",
     "std",
 ] }
-sea-orm = { version = "1.1.12", default-features = false, features = [
+sea-orm = { version = "1.1.19", default-features = false, features = [
     "macros",
-    "runtime-async-std-rustls",
+    "runtime-tokio-rustls",
     "sqlx-sqlite",
     "with-json",
 ] }
