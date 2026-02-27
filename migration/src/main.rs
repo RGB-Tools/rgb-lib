@@ -1,6 +1,6 @@
 use sea_orm_migration::prelude::*;
 
-#[async_std::main]
+#[tokio::main]
 async fn main() {
     cli::run_cli(rgb_lib_migration::Migrator).await;
 }
@@ -16,7 +16,7 @@ mod tests {
 
     const TEST_DATA_DIR_PARTS: [&str; 3] = ["tests", "tmp", "test_db"];
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_migrations() {
         let db_path = PathBuf::from(TEST_DATA_DIR_PARTS.join(MAIN_SEPARATOR_STR));
         std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
