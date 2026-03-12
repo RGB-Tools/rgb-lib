@@ -329,6 +329,7 @@ mod list_unspents;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 mod multisig;
 mod new;
+mod prove_asset_ownership;
 mod refresh;
 mod rust_only;
 mod send;

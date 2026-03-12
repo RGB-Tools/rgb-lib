@@ -133,6 +133,7 @@ use bdk_wallet::{
         OutPoint, OutPoint as BdkOutPoint, ScriptBuf, TxOut,
         bip32::{ChildNumber, DerivationPath, Fingerprint, KeySource, Xpriv, Xpub},
         hashes::{Hash as Sha256Hash, sha256},
+        key::{Keypair, TapTweak, XOnlyPublicKey},
         psbt::{ExtractTxError, Psbt},
         secp256k1::Secp256k1,
     },
@@ -303,10 +304,10 @@ use crate::{
     keys::{Keys, WitnessVersion},
     utils::{
         ACCOUNT, DumbResolver, KEYCHAIN_BTC, KEYCHAIN_RGB, LOG_FILE, PURPOSE, RgbRuntime,
-        adjust_canonicalization, beneficiary_from_script_buf, from_str_or_number_mandatory,
-        from_str_or_number_optional, get_account_xpubs, get_coin_type, get_descriptors,
-        get_descriptors_from_xpubs, hash_bytes, hash_bytes_hex, load_rgb_runtime, now,
-        parse_address_str, setup_logger, str_to_xpub,
+        adjust_canonicalization, beneficiary_from_script_buf, derive_account_xprv_from_mnemonic,
+        from_str_or_number_mandatory, from_str_or_number_optional, get_account_xpubs,
+        get_coin_type, get_descriptors, get_descriptors_from_xpubs, hash_bytes, hash_bytes_hex,
+        load_rgb_runtime, now, parse_address_str, setup_logger, str_to_xpub,
     },
     wallet::{
         Balance, LocalRgbAllocation, LocalUnspent, NUM_KNOWN_SCHEMAS, Outpoint, SCHEMA_ID_CFA,

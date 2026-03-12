@@ -547,6 +547,125 @@ impl Wallet {
             batch_transfer_idx,
         })
     }
+
+    /// Prove ownership of an RGB asset by signing P2TR outputs in the consignment's witness TX.
+    ///
+    /// The signed message is `SHA256(txid || ":" || vout || ":" || message)`, binding the
+    /// signature to the specific UTXO. The caller can include a contract ID, nonce, or any
+    /// other context in `message`.
+    ///
+    /// The method finds all wallet-controlled P2TR outputs in the consignment's witness TX
+    /// and signs each one. Each returned [`UtxoSignature`] contains the 32-byte x-only tweaked
+    /// public key matching the P2TR output's scriptPubKey at bytes `[2..34]`.
+    ///
+    /// Returns an empty `Vec` if no owned P2TR outputs are found.
+    ///
+    /// A wallet with private keys (i.e. not watch-only) is required.
+    pub fn prove_asset_ownership(
+        &self,
+        consignment: &RgbTransfer,
+        message: &[u8],
+    ) -> Result<Vec<UtxoSignature>, Error> {
+        info!(
+            self.logger(),
+            "Proving asset ownership for {}...",
+            consignment.contract_id()
+        );
+        if self.watch_only() {
+            return Err(Error::WatchOnly);
+        }
+
+        let mnemonic_str = self
+            .keys
+            .mnemonic
+            .as_ref()
+            .expect("non-watch-only wallet should have a mnemonic");
+        let bundle = consignment
+            .bundled_witnesses()
+            .last()
+            .ok_or(Error::NoConsignment)?;
+        let tx = bundle.pub_witness.tx().ok_or(Error::NoConsignment)?;
+        let witness_txid = bundle.witness_id().to_string();
+        let secp = Secp256k1::new();
+        let mut signatures = Vec::new();
+
+        // pre-compute account xprvs for both keychains
+        let (rgb_account_xprv, _) = derive_account_xprv_from_mnemonic(
+            &self.wallet_data().bitcoin_network,
+            mnemonic_str,
+            true,
+            self.keys.witness_version,
+        )?;
+        let (vanilla_account_xprv, _) = derive_account_xprv_from_mnemonic(
+            &self.wallet_data().bitcoin_network,
+            mnemonic_str,
+            false,
+            self.keys.witness_version,
+        )?;
+        for (vout, output) in tx.output.iter().enumerate() {
+            if !output.script_pubkey.is_p2tr() {
+                continue;
+            }
+            let spk = output.script_pubkey.as_bytes();
+
+            let (keychain, derivation_index) = match self
+                .bdk_wallet()
+                .derivation_of_spk(output.script_pubkey.clone())
+            {
+                Some(info) => info,
+                None => continue,
+            };
+            let rgb = keychain == KeychainKind::External;
+            let account_xprv = if rgb {
+                &rgb_account_xprv
+            } else {
+                &vanilla_account_xprv
+            };
+
+            let keychain_index = if rgb {
+                KEYCHAIN_RGB
+            } else {
+                self.keys.vanilla_keychain.unwrap_or(KEYCHAIN_BTC)
+            };
+            let child_path = vec![
+                ChildNumber::from_normal_idx(keychain_index as u32).unwrap(),
+                ChildNumber::from_normal_idx(derivation_index).unwrap(),
+            ];
+            let child_xprv = account_xprv.derive_priv(&secp, &child_path)?;
+            let keypair = Keypair::from_secret_key(&secp, &child_xprv.private_key);
+            let (xonly, _) = XOnlyPublicKey::from_keypair(&keypair);
+            let tweaked_keypair = keypair.tap_tweak(&secp, None).to_keypair();
+            let (tweaked_xonly, _) = xonly.tap_tweak(&secp, None);
+
+            // verify our tweaked key matches the scriptPubKey
+            if tweaked_xonly.serialize() != spk[2..34] {
+                continue;
+            }
+            let outpoint = Outpoint {
+                txid: witness_txid.clone(),
+                vout: vout as u32,
+            };
+            let mut preimage = Vec::new();
+            preimage.extend_from_slice(outpoint.txid.as_bytes());
+            preimage.extend_from_slice(b":");
+            preimage.extend_from_slice(outpoint.vout.to_string().as_bytes());
+            preimage.extend_from_slice(b":");
+            preimage.extend_from_slice(message);
+            let msg_hash: sha256::Hash = Sha256Hash::hash(&preimage);
+
+            let msg =
+                bdk_wallet::bitcoin::secp256k1::Message::from_digest(msg_hash.to_byte_array());
+            let sig = secp.sign_schnorr_no_aux_rand(&msg, &tweaked_keypair);
+            signatures.push(UtxoSignature {
+                outpoint,
+                message: msg_hash.to_byte_array().to_vec(),
+                signature: sig.as_ref().to_vec(),
+                pubkey: tweaked_xonly.serialize().to_vec(),
+            });
+        }
+        info!(self.logger(), "Prove asset ownership completed");
+        Ok(signatures)
+    }
 }
 
 /// Online APIs of the wallet.
