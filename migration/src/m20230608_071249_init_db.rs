@@ -84,6 +84,7 @@ impl MigrationTrait for Migration {
                     .col(big_unsigned(BatchTransfer::CreatedAt))
                     .col(big_unsigned(BatchTransfer::UpdatedAt))
                     .col(big_unsigned_null(BatchTransfer::Expiration))
+                    .col(boolean_null(BatchTransfer::ExactExpiry))
                     .col(tiny_unsigned(BatchTransfer::MinConfirmations))
                     .to_owned(),
             )
@@ -443,6 +444,7 @@ pub enum BatchTransfer {
     CreatedAt,
     UpdatedAt,
     Expiration,
+    ExactExpiry,
     MinConfirmations,
 }
 

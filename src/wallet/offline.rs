@@ -1046,8 +1046,12 @@ pub struct Transfer {
     pub receive_utxo: Option<Outpoint>,
     /// Change UTXO of an outgoing transfer
     pub change_utxo: Option<Outpoint>,
-    /// Expiration of the transfer
-    pub expiration: Option<i64>,
+    // before to branch issue37
+        /// Expiration of the transfer
+        //pub expiration: Option<i64>,
+    // after to branch issue37
+    /// Expiration of the transfer and whether it should be exact
+    pub expiration: Option<(i64, bool)>,
     /// Transport endpoints for the transfer
     pub transport_endpoints: Vec<TransferTransportEndpoint>,
     /// Invoice string of the incoming transfer
@@ -1075,7 +1079,10 @@ impl Transfer {
             recipient_id: x.recipient_id.clone(),
             receive_utxo: td.receive_utxo,
             change_utxo: td.change_utxo,
-            expiration: td.expiration,
+             // before to branch issue37
+                //expiration: td.expiration,
+             // after to branch issue37
+             expiration: td.expiration.map(|e| Some((e, td.exact_expiry.unwrap()))),
             transport_endpoints,
             invoice_string: x.invoice_string.clone(),
             consignment_path: td.consignment_path,
