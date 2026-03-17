@@ -130,7 +130,9 @@ pub fn get_tx_height(esplora: bool, txid: &str) -> Option<u64> {
 pub fn mine_tx(esplora: bool, resume: bool, txid: &str) {
     eprintln!("trying to have TX {txid} mined");
     for _ in 0..10 {
-        if get_tx_height(esplora, txid).is_some() {
+        if let Some(conf_num) = get_tx_height(esplora, txid)
+            && conf_num > 0
+        {
             println!("TX with ID {txid} has been mined");
             return;
         }

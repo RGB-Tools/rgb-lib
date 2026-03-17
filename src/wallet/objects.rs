@@ -116,7 +116,7 @@ impl From<Outpoint> for OutPoint {
 ///
 /// This structure is used both for RGB assets and BTC balances (in sats). When used for a BTC
 /// balance it can be used both for the vanilla wallet and the colored wallet.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct Balance {
     /// Settled balance, based on operations that have reached the final status
@@ -1405,7 +1405,7 @@ impl From<LocalRgbAllocation> for RgbAllocation {
 // ────────────────────────────────────────────────────────────
 
 /// The type of a transaction.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub enum TransactionType {
     /// Transaction used to perform an RGB send
     RgbSend,

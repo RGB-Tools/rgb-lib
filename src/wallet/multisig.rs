@@ -504,9 +504,9 @@ pub enum Operation {
 
 #[derive(Debug, Clone)]
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-struct FileResponse {
-    r#type: FileType,
-    filepath: PathBuf,
+pub(crate) struct FileResponse {
+    pub(crate) r#type: FileType,
+    pub(crate) filepath: PathBuf,
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -554,10 +554,10 @@ fn extract_fascia_from_files(files: &[FileResponse]) -> Result<Fascia, Error> {
 
 #[derive(Debug, Clone)]
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-struct NoDetails;
+pub(crate) struct NoDetails;
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-trait OperationHandler {
+pub(crate) trait OperationHandler {
     type Details: Clone;
 
     fn extract_details(files: &[FileResponse]) -> Result<Self::Details, Error>;
@@ -585,7 +585,7 @@ trait OperationHandler {
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-struct CreateUtxosHandler;
+pub(crate) struct CreateUtxosHandler;
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 impl OperationHandler for CreateUtxosHandler {
@@ -621,7 +621,7 @@ impl OperationHandler for CreateUtxosHandler {
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-struct SendBtcHandler;
+pub(crate) struct SendBtcHandler;
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 impl OperationHandler for SendBtcHandler {
@@ -657,7 +657,7 @@ impl OperationHandler for SendBtcHandler {
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-struct SendRgbHandler;
+pub(crate) struct SendRgbHandler;
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 impl OperationHandler for SendRgbHandler {
@@ -716,7 +716,7 @@ impl OperationHandler for SendRgbHandler {
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-struct InflateHandler;
+pub(crate) struct InflateHandler;
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 impl OperationHandler for InflateHandler {
@@ -977,7 +977,7 @@ impl MultisigWallet {
         Ok(())
     }
 
-    fn hub_client(&self) -> &MultisigHubClient {
+    pub(crate) fn hub_client(&self) -> &MultisigHubClient {
         self.online_data()
             .as_ref()
             .unwrap()
@@ -1010,7 +1010,7 @@ impl MultisigWallet {
         Ok(filepath)
     }
 
-    fn get_or_download_files(
+    pub(crate) fn get_or_download_files(
         &self,
         file_metadata: Vec<FileMetadata>,
     ) -> Result<Vec<FileResponse>, Error> {
@@ -1692,7 +1692,7 @@ impl MultisigWallet {
         }))
     }
 
-    fn read_psbt_from_file(path: &Path) -> Result<Psbt, Error> {
+    pub(crate) fn read_psbt_from_file(path: &Path) -> Result<Psbt, Error> {
         let file = fs::File::open(path)?;
         let mut reader = io::BufReader::new(file);
         Psbt::deserialize_from_reader(&mut reader).map_err(|_| Error::MultisigUnexpectedData {

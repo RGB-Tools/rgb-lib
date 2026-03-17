@@ -522,7 +522,10 @@ pub(crate) fn wait_for_refresh(
     asset_id: Option<&str>,
     transfer_ids: Option<&[i32]>,
 ) {
-    println!("waiting for refresh");
+    println!(
+        "waiting for refresh ({})",
+        wallet.internals().wallet_data.data_dir
+    );
     let mut seen = HashSet::new();
     let mut target_set = HashSet::new();
     if let Some(t_ids) = transfer_ids {
@@ -600,7 +603,7 @@ pub(crate) fn wait_for_unspents(
     }
 }
 
-pub(crate) fn get_pending_blind_transfers(wallet: &mut Wallet) -> Vec<Transfer> {
+pub(crate) fn get_pending_blind_transfers(wallet: &mut impl RgbWalletOpsOffline) -> Vec<Transfer> {
     let transfers = test_list_transfers(wallet, None);
     transfers
         .into_iter()
@@ -674,8 +677,11 @@ pub(crate) fn write_opouts_to_reject_list(filename: &str, opouts: &[String]) {
 /// print the provided message, then get colorings for each wallet unspent and print their status,
 /// type, amount and asset
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) fn show_unspent_colorings(wallet: &mut Wallet, msg: &str) {
-    println!("\n{msg}");
+pub(crate) fn show_unspent_colorings(wallet: &mut impl RgbWalletOpsOnline, msg: &str) {
+    println!(
+        "\nwallet {} unspent colorings ({msg})",
+        wallet.get_wallet_data().data_dir
+    );
     let unspents = test_list_unspents(wallet, None, false)
         .into_iter()
         .filter(|u| u.utxo.colorable);
