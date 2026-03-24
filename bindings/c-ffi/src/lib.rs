@@ -410,6 +410,7 @@ pub extern "C" fn rgblib_send_begin(
     fee_rate: *const c_char,
     min_confirmations: *const c_char,
     expiration_timestamp_opt: *const c_char,
+    dry_run: bool,
 ) -> CResultString {
     send_begin(
         wallet,
@@ -419,6 +420,7 @@ pub extern "C" fn rgblib_send_begin(
         fee_rate,
         min_confirmations,
         expiration_timestamp_opt,
+        dry_run,
     )
     .into()
 }

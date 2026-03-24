@@ -2,11 +2,11 @@ pub(crate) mod entities;
 
 use super::*;
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-use crate::database::entities::pending_witness_script;
 use crate::database::entities::{
     asset, coloring, media, prelude::*, transfer_transport_endpoint, transport_endpoint, txo,
 };
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+use crate::database::entities::{batch_transfer, pending_witness_script};
 
 #[derive(Debug, Clone)]
 #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -73,8 +73,13 @@ impl DbBatchTransfer {
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
-    pub(crate) fn pending(&self) -> bool {
-        self.status.pending()
+    pub(crate) fn initiated(&self) -> bool {
+        self.status.initiated()
+    }
+
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub(crate) fn waiting(&self) -> bool {
+        self.status.waiting()
     }
 
     pub(crate) fn waiting_confirmations(&self) -> bool {
@@ -430,6 +435,18 @@ impl RgbLibDatabase {
 
     pub(crate) fn get_backup_info(&self) -> Result<Option<DbBackupInfo>, InternalError> {
         Ok(block_on(BackupInfo::find().one(self.get_connection()))?)
+    }
+
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub(crate) fn get_batch_transfer_by_txid(
+        &self,
+        txid: &str,
+    ) -> Result<Option<DbBatchTransfer>, InternalError> {
+        Ok(block_on(
+            BatchTransfer::find()
+                .filter(batch_transfer::Column::Txid.eq(txid))
+                .one(self.get_connection()),
+        )?)
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]

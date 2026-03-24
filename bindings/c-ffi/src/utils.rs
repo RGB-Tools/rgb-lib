@@ -587,6 +587,7 @@ pub(crate) fn send(
     Ok(serde_json::to_string(&res)?)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn send_begin(
     wallet: &COpaqueStruct,
     online: &COpaqueStruct,
@@ -595,6 +596,7 @@ pub(crate) fn send_begin(
     fee_rate: *const c_char,
     min_confirmations: *const c_char,
     expiration_timestamp_opt: *const c_char,
+    dry_run: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = Online::from_opaque(online)?;
@@ -610,6 +612,7 @@ pub(crate) fn send_begin(
         fee_rate,
         min_confirmations,
         expiration_timestamp,
+        dry_run,
     )?;
     Ok(serde_json::to_string(&res)?)
 }

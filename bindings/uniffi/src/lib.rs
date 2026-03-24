@@ -1126,6 +1126,7 @@ impl Wallet {
         inflation_amounts: Vec<u64>,
         fee_rate: u64,
         min_confirmations: u8,
+        dry_run: bool,
     ) -> Result<InflateBeginResult, RgbLibError> {
         self._get_wallet().inflate_begin(
             online,
@@ -1133,6 +1134,7 @@ impl Wallet {
             inflation_amounts,
             fee_rate,
             min_confirmations,
+            dry_run,
         )
     }
 
@@ -1280,6 +1282,7 @@ impl Wallet {
         fee_rate: u64,
         min_confirmations: u8,
         expiration_timestamp: Option<u64>,
+        dry_run: bool,
     ) -> Result<SendBeginResult, RgbLibError> {
         self._get_wallet().send_begin(
             online,
@@ -1288,6 +1291,7 @@ impl Wallet {
             fee_rate,
             min_confirmations,
             expiration_timestamp,
+            dry_run,
         )
     }
 

@@ -263,6 +263,7 @@ pub(crate) fn test_inflate_begin_result(
         inflation_amounts.to_vec(),
         FEE_RATE,
         MIN_CONFIRMATIONS,
+        true,
     )
 }
 
@@ -584,17 +585,16 @@ pub(crate) fn test_send_begin_result(
     wallet: &mut Wallet,
     online: Online,
     recipient_map: &HashMap<String, Vec<Recipient>>,
-) -> Result<String, Error> {
-    wallet
-        .send_begin(
-            online,
-            recipient_map.clone(),
-            false,
-            FEE_RATE,
-            MIN_CONFIRMATIONS,
-            None,
-        )
-        .map(|r| r.psbt)
+) -> Result<SendBeginResult, Error> {
+    wallet.send_begin(
+        online,
+        recipient_map.clone(),
+        false,
+        FEE_RATE,
+        MIN_CONFIRMATIONS,
+        None,
+        false,
+    )
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]

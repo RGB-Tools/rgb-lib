@@ -2031,6 +2031,7 @@ impl MultisigWallet {
             fee_rate,
             min_confirmations,
             expiration_timestamp.map(|t| t as i64),
+            true,
         )?;
         let res = self.post_operation(
             OperationType::SendRgb,
@@ -2065,8 +2066,13 @@ impl MultisigWallet {
         self.check_online(online)?;
         self.check_is_cosigner()?;
 
-        let data =
-            self.inflate_begin_impl(asset_id, inflation_amounts, fee_rate, min_confirmations)?;
+        let data = self.inflate_begin_impl(
+            asset_id,
+            inflation_amounts,
+            fee_rate,
+            min_confirmations,
+            true,
+        )?;
         let res = self.post_operation(
             OperationType::Inflation,
             PostData::BeginOperationData(Box::new(data)),

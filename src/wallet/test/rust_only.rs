@@ -760,7 +760,9 @@ fn create_consignments_success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let psbt = test_send_begin_result(&mut wallet, online, &recipient_map).unwrap();
+    let psbt = test_send_begin_result(&mut wallet, online, &recipient_map)
+        .unwrap()
+        .psbt;
     let result = wallet.create_consignments(psbt.clone());
     assert!(result.is_ok());
     let psbt = Psbt::from_str(&psbt).unwrap();

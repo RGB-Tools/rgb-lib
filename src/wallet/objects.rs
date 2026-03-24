@@ -1561,6 +1561,8 @@ pub struct RgbInspection {
 pub struct InflateBeginResult {
     /// PSBT to inspect and sign
     pub psbt: String,
+    /// Batch transfer idx, None when `dry_run: true`
+    pub batch_transfer_idx: Option<i32>,
     /// Operation details
     pub details: InflateDetails,
 }
@@ -1585,6 +1587,8 @@ pub struct InflateDetails {
 pub struct SendBeginResult {
     /// PSBT to inspect and sign
     pub psbt: String,
+    /// Batch transfer idx, None when `dry_run: true`
+    pub batch_transfer_idx: Option<i32>,
     /// Operation details
     pub details: SendDetails,
 }
@@ -1810,6 +1814,7 @@ pub struct BeginOperationData {
     pub psbt: Psbt,
     pub transfer_dir: PathBuf,
     pub info_batch_transfer: InfoBatchTransfer,
+    pub batch_transfer_idx: Option<i32>,
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]

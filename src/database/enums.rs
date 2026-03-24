@@ -251,6 +251,9 @@ pub enum TransferStatus {
     /// Failed transfer, this status is final
     #[sea_orm(num_value = 4)]
     Failed = 4,
+    /// Transfer has been initiated (PSBT prepared) but not yet finalized
+    #[sea_orm(num_value = 5)]
+    Initiated = 5,
 }
 
 impl TransferStatus {
@@ -258,7 +261,21 @@ impl TransferStatus {
         self == &TransferStatus::Failed
     }
 
+    pub(crate) fn initiated(&self) -> bool {
+        self == &TransferStatus::Initiated
+    }
+
     pub(crate) fn pending(&self) -> bool {
+        [
+            TransferStatus::Initiated,
+            TransferStatus::WaitingCounterparty,
+            TransferStatus::WaitingConfirmations,
+        ]
+        .contains(self)
+    }
+
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub(crate) fn waiting(&self) -> bool {
         [
             TransferStatus::WaitingCounterparty,
             TransferStatus::WaitingConfirmations,
@@ -589,7 +606,15 @@ mod tests {
         assert!(!TransferStatus::Settled.failed());
         assert!(!TransferStatus::WaitingCounterparty.failed());
         assert!(!TransferStatus::WaitingConfirmations.failed());
+        assert!(!TransferStatus::Initiated.failed());
 
+        assert!(TransferStatus::Initiated.initiated());
+        assert!(!TransferStatus::WaitingCounterparty.initiated());
+        assert!(!TransferStatus::WaitingConfirmations.initiated());
+        assert!(!TransferStatus::Settled.initiated());
+        assert!(!TransferStatus::Failed.initiated());
+
+        assert!(TransferStatus::Initiated.pending());
         assert!(TransferStatus::WaitingCounterparty.pending());
         assert!(TransferStatus::WaitingConfirmations.pending());
         assert!(!TransferStatus::Settled.pending());

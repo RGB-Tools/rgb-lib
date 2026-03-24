@@ -400,6 +400,7 @@ fn fail() {
         vec![1],
         0,
         MIN_CONFIRMATIONS,
+        false,
     );
     assert_matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_LOW);
     //   - overflow
@@ -409,6 +410,7 @@ fn fail() {
         vec![1],
         u64::MAX,
         MIN_CONFIRMATIONS,
+        false,
     );
     assert_matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_OVER);
 

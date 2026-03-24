@@ -77,7 +77,6 @@ fn success() {
     assert!(transfer_data.change_utxo.is_some());
     // create and update timestamps are the same
     assert_eq!(rcv_transfer_data.created_at, rcv_transfer_data.updated_at);
-    assert_eq!(transfer_data.created_at, transfer_data.updated_at);
     // expiration is create timestamp + expiration offset
     assert_eq!(
         rcv_transfer_data.expiration_timestamp.unwrap(),
@@ -1811,8 +1810,6 @@ fn receive_multiple_same_asset_success() {
         rcv_transfer_data_2.created_at,
         rcv_transfer_data_2.updated_at
     );
-    assert_eq!(transfer_data_1.created_at, transfer_data_1.updated_at);
-    assert_eq!(transfer_data_2.created_at, transfer_data_2.updated_at);
     // expiration is create timestamp + expiration offset
     assert_eq!(
         rcv_transfer_data_1.expiration_timestamp.unwrap(),
@@ -2098,8 +2095,6 @@ fn receive_multiple_different_assets_success() {
         rcv_transfer_data_2.created_at,
         rcv_transfer_data_2.updated_at
     );
-    assert_eq!(transfer_data_1.created_at, transfer_data_1.updated_at);
-    assert_eq!(transfer_data_2.created_at, transfer_data_2.updated_at);
     // expiration is create timestamp + expiration offset
     assert_eq!(
         rcv_transfer_data_1.expiration_timestamp.unwrap(),
@@ -2730,12 +2725,12 @@ fn fail() {
 
     // invalid recipient map: empty
     let recipient_map = HashMap::new();
-    let result = test_send_result(&mut wallet, online, &recipient_map).unwrap_err();
+    let result = test_send_begin_result(&mut wallet, online, &recipient_map).unwrap_err();
     assert!(matches!(result, Error::InvalidRecipientMap));
 
     // invalid recipient map: no recipients
     let recipient_map = HashMap::from([(asset.asset_id.clone(), vec![])]);
-    let result = test_send_result(&mut wallet, online, &recipient_map).unwrap_err();
+    let result = test_send_begin_result(&mut wallet, online, &recipient_map).unwrap_err();
     assert!(matches!(result, Error::InvalidRecipientMap));
 
     // invalid input (asset id)
@@ -2748,7 +2743,7 @@ fn fail() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let result = test_send_result(&mut wallet, online, &recipient_map);
+    let result = test_send_begin_result(&mut wallet, online, &recipient_map);
     assert!(matches!(result, Err(Error::AssetNotFound { asset_id: _ })));
 
     // insufficient assets (amount too big)
@@ -2761,7 +2756,7 @@ fn fail() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let result = test_send_result(&mut wallet, online, &recipient_map);
+    let result = test_send_begin_result(&mut wallet, online, &recipient_map);
     let collection = AssignmentsCollection {
         fungible: AMOUNT,
         ..Default::default()
@@ -2864,29 +2859,6 @@ fn fail() {
         Err(Error::InvalidTransportEndpoints { details: m }) if m == msg
     ));
 
-    // transport endpoints: no valid endpoints
-    let transport_endpoints = vec![format!("rpc://{PROXY_HOST_MOD_API}")];
-    let receive_data_te = rcv_wallet
-        .blind_receive(
-            None,
-            Assignment::Any,
-            None,
-            transport_endpoints.clone(),
-            MIN_CONFIRMATIONS,
-        )
-        .unwrap();
-    let recipient_map = HashMap::from([(
-        asset.asset_id.clone(),
-        vec![Recipient {
-            assignment: Assignment::Fungible(AMOUNT / 2),
-            recipient_id: receive_data_te.recipient_id,
-            witness_data: None,
-            transport_endpoints,
-        }],
-    )]);
-    let result = test_send_result(&mut wallet, online, &recipient_map);
-    assert!(matches!(result, Err(Error::NoValidTransportEndpoint)));
-
     // fee min
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -2904,10 +2876,11 @@ fn fail() {
         0,
         MIN_CONFIRMATIONS,
         None,
+        false,
     );
     assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_LOW));
 
-    // fee pverflow
+    // fee overflow
     let result = wallet.send_begin(
         online,
         recipient_map.clone(),
@@ -2915,6 +2888,7 @@ fn fail() {
         u64::MAX,
         MIN_CONFIRMATIONS,
         None,
+        false,
     );
     assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_OVER));
 
@@ -2998,7 +2972,7 @@ fn fail() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let result = test_send_result(&mut wallet, online, &recipient_map);
+    let result = test_send_begin_result(&mut wallet, online, &recipient_map);
     assert!(matches!(result, Err(Error::OutputBelowDustLimit)));
 
     // unsupported layer 1
@@ -3019,6 +2993,29 @@ fn fail() {
     )]);
     let result = test_send_begin_result(&mut wallet, online, &recipient_map);
     assert!(matches!(result, Err(Error::InvalidRecipientNetwork)));
+
+    // transport endpoints: no valid endpoints
+    let transport_endpoints = vec![format!("rpc://{PROXY_HOST_MOD_API}")];
+    let receive_data_te = rcv_wallet
+        .blind_receive(
+            None,
+            Assignment::Any,
+            None,
+            transport_endpoints.clone(),
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(AMOUNT / 2),
+            recipient_id: receive_data_te.recipient_id,
+            witness_data: None,
+            transport_endpoints,
+        }],
+    )]);
+    let result = test_send_result(&mut wallet, online, &recipient_map);
+    assert!(matches!(result, Err(Error::NoValidTransportEndpoint)));
 }
 
 #[cfg(feature = "electrum")]
@@ -3421,9 +3418,10 @@ fn psbt_rgb_consumer_success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let result = test_send_begin_result(&mut wallet, online, &recipient_map);
-    assert!(!result.unwrap().is_empty());
+    let result = test_send_begin_result(&mut wallet, online, &recipient_map).unwrap();
+    assert!(!result.psbt.is_empty());
     show_unspent_colorings(&mut wallet, "after send 1");
+    test_fail_transfers_single(&mut wallet, online, result.batch_transfer_idx.unwrap());
 
     // try to send the 2nd asset
     println!("send_begin 2");
@@ -3437,9 +3435,10 @@ fn psbt_rgb_consumer_success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let result = test_send_begin_result(&mut wallet, online, &recipient_map);
-    assert!(!result.unwrap().is_empty());
+    let result = test_send_begin_result(&mut wallet, online, &recipient_map).unwrap();
+    assert!(!result.psbt.is_empty());
     show_unspent_colorings(&mut wallet, "after send 2");
+    test_fail_transfers_single(&mut wallet, online, result.batch_transfer_idx.unwrap());
 
     // try to send the 1st asset to a recipient and the 2nd to different one
     println!("send_begin 3");
@@ -3465,8 +3464,8 @@ fn psbt_rgb_consumer_success() {
             }],
         ),
     ]);
-    let result = test_send_begin_result(&mut wallet, online, &recipient_map);
-    assert!(!result.unwrap().is_empty());
+    let result = test_send_begin_result(&mut wallet, online, &recipient_map).unwrap();
+    assert!(!result.psbt.is_empty());
     show_unspent_colorings(&mut wallet, "after send 3");
 }
 
@@ -3625,8 +3624,8 @@ fn insufficient_allocations_success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let result = test_send_begin_result(&mut wallet, online, &recipient_map);
-    assert!(!result.unwrap().is_empty());
+    let result = test_send_begin_result(&mut wallet, online, &recipient_map).unwrap();
+    assert!(!result.psbt.is_empty());
 }
 
 #[cfg(feature = "electrum")]
@@ -5364,6 +5363,7 @@ fn min_fee_rate() {
             fee_rate,
             MIN_CONFIRMATIONS,
             None,
+            false,
         )
         .unwrap();
     let psbt = Psbt::from_str(&res.psbt).unwrap();
@@ -5371,6 +5371,7 @@ fn min_fee_rate() {
     assert_eq!(fee, 510);
 
     // actual send
+    test_fail_transfers_single(&mut wallet, online, res.batch_transfer_idx.unwrap());
     let txid = wallet
         .send(
             online,
@@ -5551,11 +5552,13 @@ fn min_relay_fee_common(
             fee_rate,
             MIN_CONFIRMATIONS,
             None,
+            false,
         )
         .unwrap();
     let psbt = Psbt::from_str(&res.psbt).unwrap();
     let fee = psbt.fee().unwrap().to_sat();
     assert_eq!(fee, 0);
+    test_fail_transfers_single(wallet, online, res.batch_transfer_idx.unwrap());
 
     // actual send
     println!("setting MOCK_CHECK_FEE_RATE");
@@ -5611,7 +5614,7 @@ fn min_relay_fee_electrum() {
         online,
         &mut rcv_wallet,
         rcv_online,
-        2,
+        3,
     );
 }
 
@@ -5632,7 +5635,7 @@ fn min_relay_fee_esplora() {
         online,
         &mut rcv_wallet,
         rcv_online,
-        2,
+        3,
     );
 }
 
@@ -7072,8 +7075,14 @@ fn blinded_change_send_begin_only() {
             .unwrap()
     );
     // send (send_begin only)
-    let txid = test_send_begin_result(&mut wallet_1, online_1, &recipient_map).unwrap();
-    assert!(!txid.is_empty());
+    let result = test_send_begin_result(&mut wallet_1, online_1, &recipient_map).unwrap();
+    assert!(!result.psbt.is_empty());
+    // fail the initiated transfer to free up UTXOs for the next send
+    assert!(
+        wallet_1
+            .fail_transfers(online_1, result.batch_transfer_idx, false, false)
+            .unwrap()
+    );
 
     // send 2: 1 > 2 (complete)
     show_unspent_colorings(&mut wallet_1, "wallet 1: pre send 2");
@@ -7348,7 +7357,7 @@ fn send_end_without_send_begin() {
     )]);
     let unsigned_psbt = test_send_begin_result(&mut wallet_1, online_1, &recipient_map).unwrap();
 
-    let signed_psbt = wallet_1.sign_psbt(unsigned_psbt, None).unwrap();
+    let signed_psbt = wallet_1.sign_psbt(unsigned_psbt.psbt, None).unwrap();
     let psbt_txid = Psbt::from_str(&signed_psbt)
         .unwrap()
         .extract_tx()
@@ -7792,7 +7801,7 @@ fn allocations() {
                             .batch_transfer_idx
                 })
                 .unwrap()
-                .pending()
+                .waiting()
         })
         .collect();
     // - 4 pending ones

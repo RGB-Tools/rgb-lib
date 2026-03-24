@@ -384,7 +384,7 @@ pub trait WalletOnline: WalletOffline {
                 .database()
                 .get_batch_transfer_or_fail(batch_transfer_idx, &db_data.batch_transfers)?;
 
-            if !batch_transfer.waiting_counterparty() {
+            if !(batch_transfer.initiated() || batch_transfer.waiting_counterparty()) {
                 return Err(Error::CannotFailBatchTransfer);
             }
 
@@ -400,13 +400,12 @@ pub trait WalletOnline: WalletOffline {
             transfers_changed = true;
             self.try_fail_batch_transfer(batch_transfer, true, &mut db_data)?
         } else {
-            // fail all transfers in status WaitingCounterparty
+            // fail all expired transfers in status Initiated or WaitingCounterparty
             let now = now().unix_timestamp();
-            let expired_batch_transfers = db_data
-                .batch_transfers
-                .clone()
-                .into_iter()
-                .filter(|t| t.waiting_counterparty() && t.expiration.unwrap_or(now) < now);
+            let expired_batch_transfers = db_data.batch_transfers.clone().into_iter().filter(|t| {
+                let expired = t.expiration.unwrap_or(now) < now;
+                expired && (t.initiated() || t.waiting_counterparty())
+            });
             for batch_transfer in expired_batch_transfers {
                 if no_asset_only {
                     let connected_assets = batch_transfer
@@ -1493,7 +1492,7 @@ pub trait WalletOnline: WalletOffline {
                 .batch_transfers
                 .retain(|t| batch_transfers_ids.contains(&t.idx));
         };
-        db_data.batch_transfers.retain(|t| t.pending());
+        db_data.batch_transfers.retain(|t| t.waiting());
 
         let mut refresh_result = HashMap::new();
         for transfer in db_data.batch_transfers.clone() {
@@ -2156,6 +2155,7 @@ pub trait WalletOnline: WalletOffline {
                 psbt: psbt.clone(),
                 transfer_dir: transfer_dir.clone(),
                 info_batch_transfer,
+                batch_transfer_idx: None,
             },
         )))
     }
@@ -2365,21 +2365,33 @@ pub trait WalletOnline: WalletOffline {
 
             for recipient in transfer_info.recipients.clone() {
                 let recipient_type = if transfer_info.main_transition == TypeOfTransition::Inflate {
-                    let vout = if let LocalRecipientData::Witness(local_witness_data) =
-                        recipient.local_recipient_data
-                    {
-                        local_witness_data.vout
-                    } else {
-                        unreachable!("inflation uses witness recipients")
+                    let local_witness_data =
+                        if let LocalRecipientData::Witness(lwd) = recipient.local_recipient_data {
+                            lwd
+                        } else {
+                            unreachable!("inflation uses witness recipients")
+                        };
+                    let vout = local_witness_data.vout;
+                    let txo_idx = match self.database().get_txo(&Outpoint {
+                        txid: txid.clone(),
+                        vout,
+                    })? {
+                        Some(txo) => txo.idx,
+                        None => {
+                            let db_utxo = DbTxoActMod {
+                                txid: ActiveValue::Set(txid.clone()),
+                                vout: ActiveValue::Set(vout),
+                                btc_amount: ActiveValue::Set(
+                                    local_witness_data.amount_sat.to_string(),
+                                ),
+                                spent: ActiveValue::Set(false),
+                                exists: ActiveValue::Set(false),
+                                pending_witness: ActiveValue::Set(false),
+                                ..Default::default()
+                            };
+                            self.database().set_txo(db_utxo)?
+                        }
                     };
-                    let txo_idx = self
-                        .database()
-                        .get_txo(&Outpoint {
-                            txid: txid.clone(),
-                            vout,
-                        })?
-                        .expect("outpoint should be in the DB")
-                        .idx;
                     let db_coloring = DbColoringActMod {
                         txo_idx: ActiveValue::Set(txo_idx),
                         asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
@@ -2451,11 +2463,69 @@ pub trait WalletOnline: WalletOffline {
         Ok(batch_transfer_idx)
     }
 
+    fn update_or_save_transfers(
+        &mut self,
+        txid: String,
+        info_contents: &InfoBatchTransfer,
+        status: TransferStatus,
+        sync_tte_used: bool,
+    ) -> Result<i32, Error> {
+        if let Some(existing) = self.database().get_batch_transfer_by_txid(&txid)? {
+            let mut updated: DbBatchTransferActMod = existing.clone().into();
+            updated.status = ActiveValue::Set(status);
+            self.database().update_batch_transfer(&mut updated)?;
+            if sync_tte_used {
+                let asset_transfers = self.database().iter_asset_transfers()?;
+                let transfers = self.database().iter_transfers()?;
+                let batch_data = existing.get_transfers(&asset_transfers, &transfers)?;
+                for asset_transfer_data in &batch_data.asset_transfers_data {
+                    let asset_id = asset_transfer_data
+                        .asset_transfer
+                        .asset_id
+                        .as_ref()
+                        .expect("exists at this point");
+                    let info_asset = info_contents
+                        .transfers
+                        .get(asset_id)
+                        .expect("exists at this point");
+                    for db_transfer in &asset_transfer_data.transfers {
+                        let recipient = info_asset
+                            .recipients
+                            .iter()
+                            .find(|r| {
+                                db_transfer.recipient_id.as_deref() == Some(r.recipient_id.as_str())
+                            })
+                            .expect("recipient should be set");
+                        let tte_data = self
+                            .database()
+                            .get_transfer_transport_endpoints_data(db_transfer.idx)?;
+                        for (tte, te) in tte_data {
+                            let local_used = recipient
+                                .transport_endpoints
+                                .iter()
+                                .find(|lte| lte.endpoint == te.endpoint)
+                                .is_some_and(|lte| lte.used);
+                            if tte.used != local_used {
+                                let mut updated_tte: DbTransferTransportEndpointActMod = tte.into();
+                                updated_tte.used = ActiveValue::Set(local_used);
+                                self.database()
+                                    .update_transfer_transport_endpoint(&mut updated_tte)?;
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(existing.idx)
+        } else {
+            self.save_transfers(txid, info_contents, status)
+        }
+    }
+
     fn get_input_unspents(&self, unspents: &[LocalUnspent]) -> Result<Vec<LocalUnspent>, Error> {
         let mut input_unspents = unspents.to_vec();
         // consider the following UTXOs unspendable:
         // - incoming and pending
-        // - outgoing and in waiting counterparty status
+        // - outgoing and in initiated or waiting counterparty status
         // - pending incoming witness
         // - pending incoming blinded
         // - inexistent
@@ -2463,10 +2533,9 @@ pub trait WalletOnline: WalletOffline {
             !(u.rgb_allocations
                 .iter()
                 .any(|a| a.incoming && a.status.pending()))
-                && !(u
-                    .rgb_allocations
-                    .iter()
-                    .any(|a| !a.incoming && a.status.waiting_counterparty()))
+                && !(u.rgb_allocations.iter().any(|a| {
+                    !a.incoming && (a.status.initiated() || a.status.waiting_counterparty())
+                }))
                 && !u.utxo.pending_witness
                 && u.pending_blinded == 0
                 && u.utxo.exists
@@ -2531,6 +2600,7 @@ pub trait WalletOnline: WalletOffline {
         expiration_timestamp: Option<i64>,
         runtime: &mut RgbRuntime,
         rejected: &mut HashSet<Opout>,
+        dry_run: bool,
     ) -> Result<PrepareTransferPsbtResult, Error> {
         // prepare BDK PSBT
         let mut all_inputs: HashSet<BdkOutPoint> = transfer_info_map
@@ -2581,6 +2651,16 @@ pub trait WalletOnline: WalletOffline {
         let mut begin_operation_data = begin_operation_data;
         begin_operation_data.transfer_dir = new_transfer_dir;
 
+        if !dry_run {
+            // save transfer to DB with Initiated status to reserve the UTXOs
+            let batch_transfer_idx = self.save_transfers(
+                txid,
+                &begin_operation_data.info_batch_transfer,
+                TransferStatus::Initiated,
+            )?;
+            begin_operation_data.batch_transfer_idx = Some(batch_transfer_idx);
+        }
+
         Ok(PrepareTransferPsbtResult::Success(begin_operation_data))
     }
 
@@ -2591,11 +2671,12 @@ pub trait WalletOnline: WalletOffline {
         info_contents: &InfoBatchTransfer,
         status: TransferStatus,
         fascia: Fascia,
+        sync_tte_used: bool,
         skip_sync: bool,
     ) -> Result<i32, Error> {
         let mut runtime = self.rgb_runtime()?;
         self.broadcast_and_update_rgb(&mut runtime, psbt, fascia, skip_sync)?;
-        self.save_transfers(txid, info_contents, status)
+        self.update_or_save_transfers(txid, info_contents, status, sync_tte_used)
     }
 
     fn send_begin_impl(
@@ -2605,6 +2686,7 @@ pub trait WalletOnline: WalletOffline {
         fee_rate: u64,
         min_confirmations: u8,
         expiration_timestamp: Option<i64>,
+        dry_run: bool,
     ) -> Result<BeginOperationData, Error> {
         if recipient_map.is_empty() || recipient_map.values().any(|v| v.is_empty()) {
             return Err(Error::InvalidRecipientMap);
@@ -2787,6 +2869,7 @@ pub trait WalletOnline: WalletOffline {
                 expiration_timestamp,
                 &mut runtime,
                 &mut rejected,
+                dry_run,
             )? {
                 PrepareTransferPsbtResult::Retry => continue,
                 PrepareTransferPsbtResult::Success(begin_operation_data) => {
@@ -2841,6 +2924,7 @@ pub trait WalletOnline: WalletOffline {
             )?;
         }
 
+        let sync_tte_used = true;
         let batch_transfer_idx = if info_contents.donation {
             self.finalize_transfer_end(
                 txid.clone(),
@@ -2848,13 +2932,15 @@ pub trait WalletOnline: WalletOffline {
                 &info_contents,
                 TransferStatus::WaitingConfirmations,
                 fascia,
+                sync_tte_used,
                 skip_sync,
             )?
         } else {
-            self.save_transfers(
+            self.update_or_save_transfers(
                 txid.clone(),
                 &info_contents,
                 TransferStatus::WaitingCounterparty,
+                sync_tte_used,
             )?
         };
 
@@ -2915,6 +3001,7 @@ pub trait WalletOnline: WalletOffline {
         inflation_amounts: Vec<u64>,
         fee_rate: u64,
         min_confirmations: u8,
+        dry_run: bool,
     ) -> Result<BeginOperationData, Error> {
         let asset = self.database().check_asset_exists(asset_id.clone())?;
         let schema = asset.schema;
@@ -3020,6 +3107,7 @@ pub trait WalletOnline: WalletOffline {
                 None,
                 &mut runtime,
                 &mut rejected,
+                dry_run,
             )? {
                 PrepareTransferPsbtResult::Retry => {
                     unreachable!("unimplemented retry logic for inflate transition")
@@ -3039,6 +3127,7 @@ pub trait WalletOnline: WalletOffline {
             &info_contents,
             TransferStatus::WaitingConfirmations,
             fascia,
+            false,
             false,
         )?;
 

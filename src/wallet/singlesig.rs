@@ -718,6 +718,7 @@ impl Wallet {
             fee_rate,
             min_confirmations,
             expiration_timestamp.map(|t| t as i64),
+            true,
         )?;
         self.sign_psbt_impl(&mut begin_op_data.psbt, None)?;
         let res = self.send_end_impl(&begin_op_data.psbt, skip_sync)?;
@@ -748,6 +749,12 @@ impl Wallet {
     /// An optional expiration UTC timestamp can be specified, which will set the expiration of the
     /// transfer.
     ///
+    /// If `dry_run` is true, the wallet does not persist the transfer in
+    /// [`TransferStatus::Initiated`]. The returned [`SendBeginResult::batch_transfer_idx`] is None
+    /// in that case. The PSBT and on-disk transfer data under the wallet directory are still
+    /// produced. [`send_end`](Wallet::send_end) can still complete the operation and will persist
+    /// the transfer.
+    ///
     /// Signing of the returned PSBT needs to be carried out separately. The signed PSBT then needs
     /// to be fed to the [`send_end`](Wallet::send_end) function to complete the send operation.
     ///
@@ -762,6 +769,7 @@ impl Wallet {
         fee_rate: u64,
         min_confirmations: u8,
         expiration_timestamp: Option<u64>,
+        dry_run: bool,
     ) -> Result<SendBeginResult, Error> {
         info!(self.logger(), "Sending (begin) to: {:?}...", recipient_map);
         self.check_online(online)?;
@@ -771,11 +779,13 @@ impl Wallet {
             fee_rate,
             min_confirmations,
             expiration_timestamp.map(|t| t as i64),
+            dry_run,
         )?;
         self.update_backup_info(false)?;
         info!(self.logger(), "Send (begin) completed");
         Ok(SendBeginResult {
             psbt: begin_op_data.psbt.to_string(),
+            batch_transfer_idx: begin_op_data.batch_transfer_idx,
             details: SendDetails {
                 fascia_path: begin_op_data
                     .transfer_dir
@@ -903,8 +913,13 @@ impl Wallet {
         );
         self.check_xprv()?;
         self.check_online(online)?;
-        let mut begin_op_data =
-            self.inflate_begin_impl(asset_id, inflation_amounts, fee_rate, min_confirmations)?;
+        let mut begin_op_data = self.inflate_begin_impl(
+            asset_id,
+            inflation_amounts,
+            fee_rate,
+            min_confirmations,
+            true,
+        )?;
         self.sign_psbt_impl(&mut begin_op_data.psbt, None)?;
         let res = self.inflate_end_impl(&begin_op_data.psbt)?;
         self.update_backup_info(false)?;
@@ -923,6 +938,12 @@ impl Wallet {
     /// the transaction anchoring the transfer for it to be considered final and move (while
     /// refreshing) to the [`TransferStatus::Settled`] status.
     ///
+    /// If `dry_run` is true, the wallet does not persist the transfer in
+    /// [`TransferStatus::Initiated`]. The returned [`InflateBeginResult::batch_transfer_idx`] is
+    /// None in that case. The PSBT and on-disk transfer data under the wallet directory are still
+    /// produced. [`inflate_end`](Wallet::inflate_end) can still complete the operation and will
+    /// persist the transfer.
+    ///
     /// Signing of the returned PSBT needs to be carried out separately. The signed PSBT then needs
     /// to be fed to the [`inflate_end`](Wallet::inflate_end) function for broadcasting.
     ///
@@ -936,18 +957,25 @@ impl Wallet {
         inflation_amounts: Vec<u64>,
         fee_rate: u64,
         min_confirmations: u8,
+        dry_run: bool,
     ) -> Result<InflateBeginResult, Error> {
         info!(
             self.logger(),
             "Inflating (begin) amounts: {:?}...", inflation_amounts
         );
         self.check_online(online)?;
-        let begin_operation_data =
-            self.inflate_begin_impl(asset_id, inflation_amounts, fee_rate, min_confirmations)?;
+        let begin_operation_data = self.inflate_begin_impl(
+            asset_id,
+            inflation_amounts,
+            fee_rate,
+            min_confirmations,
+            dry_run,
+        )?;
         self.update_backup_info(false)?;
         info!(self.logger(), "Inflate (begin) completed");
         Ok(InflateBeginResult {
             psbt: begin_operation_data.psbt.to_string(),
+            batch_transfer_idx: begin_operation_data.batch_transfer_idx,
             details: InflateDetails {
                 fascia_path: begin_operation_data
                     .transfer_dir

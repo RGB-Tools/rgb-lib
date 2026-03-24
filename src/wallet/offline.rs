@@ -261,10 +261,9 @@ pub trait WalletOffline: WalletBackup {
             .filter(|u| !exclude_utxos.contains(&u.utxo.outpoint()))
             .filter(|u| {
                 (u.rgb_allocations.len() as u32) + u.pending_blinded <= max_allocs
-                    && !u
-                        .rgb_allocations
-                        .iter()
-                        .any(|a| !a.incoming && a.status.waiting_counterparty())
+                    && !u.rgb_allocations.iter().any(|a| {
+                        !a.incoming && (a.status.initiated() || a.status.waiting_counterparty())
+                    })
             })
             .cloned()
             .collect())
