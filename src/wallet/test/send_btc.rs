@@ -193,3 +193,37 @@ fn skip_sync() {
         .unwrap();
     assert!(!txid.is_empty());
 }
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn send_btc_end_rejects_stale_psbt() {
+    initialize();
+
+    let amount: u64 = 1000;
+
+    let (mut wallet, online) = get_empty_wallet!();
+    let (mut rcv_wallet, _rcv_online) = get_empty_wallet!();
+
+    // fund wallet with a single UTXO
+    fund_wallet(test_get_address(&mut wallet));
+    let unspents = test_list_unspents(&mut wallet, Some(&online), false);
+    assert_eq!(unspents.len(), 1);
+
+    // create and sign a PSBT (selects the only available UTXO)
+    let rcv_addr = test_get_address(&mut rcv_wallet);
+    let unsigned_psbt = wallet
+        .send_btc_begin(online.clone(), rcv_addr.clone(), amount, FEE_RATE, true)
+        .unwrap();
+    let signed_psbt = wallet.sign_psbt(unsigned_psbt, None).unwrap();
+
+    // spend the same UTXO via a complete send_btc
+    let txid = wallet
+        .send_btc(online.clone(), rcv_addr, amount, FEE_RATE, true)
+        .unwrap();
+    assert!(!txid.is_empty());
+
+    // send_btc_end with the stale PSBT should detect the spent input
+    let result = wallet.send_btc_end(online, signed_psbt, false);
+    assert!(matches!(result, Err(Error::InvalidPsbt { details: _ })));
+}
