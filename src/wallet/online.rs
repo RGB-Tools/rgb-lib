@@ -578,6 +578,24 @@ impl Wallet {
         }
     }
 
+    fn _check_psbt_inputs(&self, psbt: &Psbt) -> Result<(), Error> {
+        let tx = psbt.clone().extract_tx().map_err(InternalError::from)?;
+        for input in &tx.input {
+            let outpoint = Outpoint {
+                txid: input.previous_output.txid.to_string(),
+                vout: input.previous_output.vout,
+            };
+            if let Some(db_txo) = self.database.get_txo(&outpoint)? {
+                if db_txo.spent {
+                    return Err(Error::InvalidPsbt {
+                        details: format!("input {outpoint} has already been spent"),
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn _broadcast_psbt(
         &mut self,
         signed_psbt: Psbt,
@@ -3771,7 +3789,13 @@ impl Wallet {
         self.check_online(online)?;
 
         let signed_psbt = Psbt::from_str(&signed_psbt)?;
-        let tx = self._broadcast_psbt(signed_psbt, skip_sync)?;
+
+        if !skip_sync {
+            self.sync_db_txos(false)?;
+        }
+        self._check_psbt_inputs(&signed_psbt)?;
+
+        let tx = self._broadcast_psbt(signed_psbt, true)?;
 
         info!(self.logger, "Send BTC (end) completed");
         Ok(tx.compute_txid().to_string())
