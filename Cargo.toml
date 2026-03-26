@@ -82,10 +82,10 @@ zip = { version = "4.0.0", default-features = false, features = [
 
 # RGB-related deps
 amplify = { version = "=4.8.1", default-features = false }
-rgb-invoicing = { version = "=0.11.1-rc.8", default-features = false }
-rgb-psbt-utils = { version = "=0.11.1-rc.8", default-features = false }
-rgb-schemas = { version = "=0.11.1-rc.7", default-features = false }
-rgb-ops = { version = "=0.11.1-rc.8", default-features = false, features = [
+rgb-invoicing = { version = "=0.11.1-rc.9", default-features = false }
+rgb-psbt-utils = { version = "=0.11.1-rc.9", default-features = false }
+rgb-schemas = { version = "=0.11.1-rc.9", default-features = false }
+rgb-ops = { version = "=0.11.1-rc.9", default-features = false, features = [
     "serde",
 ] }
 rgb-strict-encoding = { version = "=1.0.1", default-features = false, features = [

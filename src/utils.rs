@@ -75,16 +75,12 @@ pub enum BitcoinNetwork {
     /// Bitcoin's regtest
     Regtest,
     /// Bitcoin's custom signet
-    SignetCustom([u8; 32]),
+    SignetCustom,
 }
 
 impl fmt::Display for BitcoinNetwork {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if let BitcoinNetwork::SignetCustom(hash) = self {
-            write!(f, "signet-{}", BlockHash::from_byte_array(*hash))
-        } else {
-            write!(f, "{self:?}")
-        }
+        write!(f, "{self:?}")
     }
 }
 
@@ -92,20 +88,13 @@ impl FromStr for BitcoinNetwork {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let s = s.to_lowercase();
-        if let Some(hash) = s.strip_prefix("signet-") {
-            return BlockHash::from_str(hash)
-                .map(|h| BitcoinNetwork::SignetCustom(*h.as_ref()))
-                .map_err(|_| Error::InvalidBitcoinNetwork {
-                    network: s.to_owned(),
-                });
-        }
-        Ok(match s.as_str() {
+        Ok(match s.to_lowercase().as_str() {
             "mainnet" | "bitcoin" => BitcoinNetwork::Mainnet,
             "testnet" | "testnet3" => BitcoinNetwork::Testnet,
             "testnet4" => BitcoinNetwork::Testnet4,
             "regtest" => BitcoinNetwork::Regtest,
             "signet" => BitcoinNetwork::Signet,
+            "signetcustom" => BitcoinNetwork::SignetCustom,
             _ => {
                 return Err(Error::InvalidBitcoinNetwork {
                     network: s.to_string(),
@@ -125,7 +114,7 @@ impl TryFrom<ChainNet> for BitcoinNetwork {
             ChainNet::BitcoinTestnet4 => Ok(BitcoinNetwork::Testnet4),
             ChainNet::BitcoinSignet => Ok(BitcoinNetwork::Signet),
             ChainNet::BitcoinRegtest => Ok(BitcoinNetwork::Regtest),
-            ChainNet::BitcoinSignetCustom(h) => Ok(BitcoinNetwork::SignetCustom(*h.as_ref())),
+            ChainNet::BitcoinSignetCustom => Ok(BitcoinNetwork::SignetCustom),
             _ => Err(Error::UnsupportedLayer1 {
                 layer_1: x.layer1().to_string(),
             }),
@@ -141,7 +130,7 @@ impl From<BitcoinNetwork> for bitcoin::Network {
             BitcoinNetwork::Testnet4 => bitcoin::Network::Testnet4,
             BitcoinNetwork::Signet => bitcoin::Network::Signet,
             BitcoinNetwork::Regtest => bitcoin::Network::Regtest,
-            BitcoinNetwork::SignetCustom(_) => bitcoin::Network::Signet,
+            BitcoinNetwork::SignetCustom => bitcoin::Network::Signet,
         }
     }
 }
@@ -163,7 +152,7 @@ impl From<BitcoinNetwork> for ChainNet {
             BitcoinNetwork::Testnet4 => ChainNet::BitcoinTestnet4,
             BitcoinNetwork::Signet => ChainNet::BitcoinSignet,
             BitcoinNetwork::Regtest => ChainNet::BitcoinRegtest,
-            BitcoinNetwork::SignetCustom(h) => ChainNet::BitcoinSignetCustom(ChainHash::from(h)),
+            BitcoinNetwork::SignetCustom => ChainNet::BitcoinSignetCustom,
         }
     }
 }
@@ -1173,7 +1162,7 @@ mod tests {
         assert_eq!(network, network_from_str);
 
         // signet custom
-        let network = BitcoinNetwork::SignetCustom([0; 32]);
+        let network = BitcoinNetwork::SignetCustom;
         let network_str = network.to_string();
         let network_from_str = BitcoinNetwork::from_str(&network_str).unwrap();
         assert_eq!(network, network_from_str);
@@ -1232,8 +1221,8 @@ mod tests {
         assert_eq!(chain_net, chain_net_from_network);
 
         // signet custom
-        let network = BitcoinNetwork::SignetCustom([0; 32]);
-        let chain_net = ChainNet::BitcoinSignetCustom(ChainHash::from([0; 32]));
+        let network = BitcoinNetwork::SignetCustom;
+        let chain_net = ChainNet::BitcoinSignetCustom;
         let network_from_chain_net = BitcoinNetwork::try_from(chain_net).unwrap();
         assert_eq!(network, network_from_chain_net);
         let chain_net_from_network = ChainNet::from(network);
@@ -1273,7 +1262,7 @@ mod tests {
         assert_eq!(rust_bitcoin_network, bitcoin::Network::Regtest);
 
         // signet custom
-        let network = BitcoinNetwork::SignetCustom([0; 32]);
+        let network = BitcoinNetwork::SignetCustom;
         let rust_bitcoin_network = bitcoin::Network::from(network);
         assert_eq!(rust_bitcoin_network, bitcoin::Network::Signet);
     }

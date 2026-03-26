@@ -1,5 +1,4 @@
 namespace rgb_lib {
-  [Throws=RgbLibError]
   Keys generate_keys(BitcoinNetwork bitcoin_network);
 
   [Throws=RgbLibError]
@@ -221,14 +220,14 @@ dictionary BtcBalance {
   Balance colored;
 };
 
-[Enum]
-interface BitcoinNetwork {
-  Mainnet();
-  Testnet();
-  Testnet4();
-  Signet();
-  Regtest();
-  SignetCustom(sequence<u8> genesis_hash);
+[Remote]
+enum BitcoinNetwork {
+  "Mainnet",
+  "Testnet",
+  "Testnet4",
+  "Signet",
+  "Regtest",
+  "SignetCustom",
 };
 
 [Remote]
@@ -508,6 +507,7 @@ dictionary Utxo {
   boolean exists;
 };
 
+[Remote]
 dictionary WalletData {
   string data_dir;
   BitcoinNetwork bitcoin_network;

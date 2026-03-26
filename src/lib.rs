@@ -132,7 +132,6 @@ use bdk_wallet::{
         Address as BdkAddress, Amount as BdkAmount, BlockHash, Network as BdkNetwork, NetworkKind,
         OutPoint, OutPoint as BdkOutPoint, ScriptBuf, TxOut,
         bip32::{ChildNumber, DerivationPath, Fingerprint, KeySource, Xpriv, Xpub},
-        constants::ChainHash,
         hashes::{Hash as Sha256Hash, sha256},
         psbt::{ExtractTxError, Psbt},
         secp256k1::Secp256k1,
