@@ -539,10 +539,10 @@ impl Wallet {
                         .get_tx_confirmations(&u.outpoint.txid.to_string())
                     {
                         Ok(confirmations) => {
-                            if let Some(confirmations) = confirmations {
-                                if confirmations >= min_confirmations as u64 {
-                                    return Some(Ok(u));
-                                }
+                            if let Some(confirmations) = confirmations
+                                && confirmations >= min_confirmations as u64
+                            {
+                                return Some(Ok(u));
                             }
                             None
                         }

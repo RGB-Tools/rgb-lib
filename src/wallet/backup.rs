@@ -394,11 +394,11 @@ pub(crate) fn unzip(zip_path: &PathBuf, path_out: &Path, logger: &Logger) -> Res
                 outpath.display(),
                 file.size()
             );
-            if let Some(p) = outpath.parent() {
-                if !p.exists() {
-                    debug!(logger, "creating parent dir {}", p.display());
-                    fs::create_dir_all(p)?;
-                }
+            if let Some(p) = outpath.parent()
+                && !p.exists()
+            {
+                debug!(logger, "creating parent dir {}", p.display());
+                fs::create_dir_all(p)?;
             }
             let mut outfile = fs::File::create(&outpath)?;
             std::io::copy(&mut file, &mut outfile)?;

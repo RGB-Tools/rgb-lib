@@ -628,38 +628,33 @@ pub trait WalletOnline: WalletOffline {
                     for (no, fungible_assignment) in typed_assigns.as_fungible().iter().enumerate()
                     {
                         let opout = Opout::new(*opid, *ass_type, no as u16);
-                        if let Assign::ConfidentialSeal { seal, state, .. } = fungible_assignment {
-                            if Some(*seal) == known_concealed {
-                                match *ass_type {
-                                    OS_ASSET => {
-                                        received
-                                            .insert(opout, Assignment::Fungible(state.as_u64()));
-                                    }
-                                    OS_INFLATION => {
-                                        received.insert(
-                                            opout,
-                                            Assignment::InflationRight(state.as_u64()),
-                                        );
-                                    }
-                                    _ => {}
+                        if let Assign::ConfidentialSeal { seal, state, .. } = fungible_assignment
+                            && Some(*seal) == known_concealed
+                        {
+                            match *ass_type {
+                                OS_ASSET => {
+                                    received.insert(opout, Assignment::Fungible(state.as_u64()));
                                 }
+                                OS_INFLATION => {
+                                    received
+                                        .insert(opout, Assignment::InflationRight(state.as_u64()));
+                                }
+                                _ => {}
                             }
                         };
-                        if let Assign::Revealed { seal, state, .. } = fungible_assignment {
-                            if seal.txid == TxPtr::WitnessTx && Some(seal.vout.into_u32()) == vout {
-                                match *ass_type {
-                                    OS_ASSET => {
-                                        received
-                                            .insert(opout, Assignment::Fungible(state.as_u64()));
-                                    }
-                                    OS_INFLATION => {
-                                        received.insert(
-                                            opout,
-                                            Assignment::InflationRight(state.as_u64()),
-                                        );
-                                    }
-                                    _ => {}
+                        if let Assign::Revealed { seal, state, .. } = fungible_assignment
+                            && seal.txid == TxPtr::WitnessTx
+                            && Some(seal.vout.into_u32()) == vout
+                        {
+                            match *ass_type {
+                                OS_ASSET => {
+                                    received.insert(opout, Assignment::Fungible(state.as_u64()));
                                 }
+                                OS_INFLATION => {
+                                    received
+                                        .insert(opout, Assignment::InflationRight(state.as_u64()));
+                                }
+                                _ => {}
                             }
                         };
                     }
@@ -667,15 +662,16 @@ pub trait WalletOnline: WalletOffline {
                         typed_assigns.as_structured().iter().enumerate()
                     {
                         let opout = Opout::new(*opid, *ass_type, no as u16);
-                        if let Assign::ConfidentialSeal { seal, .. } = structured_assignment {
-                            if Some(*seal) == known_concealed {
-                                received.insert(opout, Assignment::NonFungible);
-                            }
+                        if let Assign::ConfidentialSeal { seal, .. } = structured_assignment
+                            && Some(*seal) == known_concealed
+                        {
+                            received.insert(opout, Assignment::NonFungible);
                         }
-                        if let Assign::Revealed { seal, .. } = structured_assignment {
-                            if seal.txid == TxPtr::WitnessTx && Some(seal.vout.into_u32()) == vout {
-                                received.insert(opout, Assignment::NonFungible);
-                            }
+                        if let Assign::Revealed { seal, .. } = structured_assignment
+                            && seal.txid == TxPtr::WitnessTx
+                            && Some(seal.vout.into_u32()) == vout
+                        {
+                            received.insert(opout, Assignment::NonFungible);
                         };
                     }
                 }

@@ -1125,14 +1125,14 @@ impl MultisigWallet {
     }
 
     fn mark_operation_as_processed(&self, operation_idx: i32) -> Result<(), Error> {
-        if self.is_cosigner()? {
-            if let Err(e) = self.hub_client().mark_operation_processed(operation_idx) {
-                // ignore to enable multiple instances and restore from old backups
-                if !matches!(&e, Error::MultisigCannotMarkOperationProcessed { details: d }
-                    if d == "Cannot mark operation as processed: already marked this operation as processed")
-                {
-                    return Err(e);
-                }
+        if self.is_cosigner()?
+            && let Err(e) = self.hub_client().mark_operation_processed(operation_idx)
+        {
+            // ignore to enable multiple instances and restore from old backups
+            if !matches!(&e, Error::MultisigCannotMarkOperationProcessed { details: d }
+                if d == "Cannot mark operation as processed: already marked this operation as processed")
+            {
+                return Err(e);
             }
         }
         self.update_backup_info_with_op_idx(false, Some(operation_idx))?;
