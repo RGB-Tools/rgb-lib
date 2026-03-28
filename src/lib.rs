@@ -162,7 +162,7 @@ use chacha20poly1305::{
 };
 use file_format::FileFormat;
 use psrgbt::{RgbOutExt, RgbPsbtExt};
-use rand::{Rng, distr::Alphanumeric};
+use rand::{RngExt, distr::Alphanumeric};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use reqwest::{
     blocking::{Client as RestClient, multipart},

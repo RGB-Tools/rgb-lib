@@ -38,12 +38,14 @@ chacha20poly1305 = { version = "0.10.1", default-features = false, features = [
 tokio = { version = "1", default-features = false }
 generic-array = "=0.14.7"  # temporary pin while waiting for chacha20poly1305 update
 hex = { version = "0.4.3", default-features = false }
-rand = { version = "0.9.1", default-features = false }
-reqwest = { version = "0.12", optional = true, default-features = false, features = [
+rand = { version = "0.10.0", default-features = false, features = [
+    "thread_rng",
+] }
+reqwest = { version = "0.13", optional = true, default-features = false, features = [
     "blocking",
     "json",
     "multipart",
-    "rustls-tls",
+    "rustls",
 ] }
 rgb-lib-migration = { path = "migration", version = "0.3.0-beta.2" }
 rustls = { version = "0.23", default-features = false }
@@ -57,26 +59,26 @@ sea-orm = { version = "1.1.19", default-features = false, features = [
     "sqlx-sqlite",
     "with-json",
 ] }
-sea-query = "0.32.6"
+sea-query = "0.32.7"
 serde = { version = "^1.0", default-features = false, features = [
     "derive",
 ] }
 serde_json = { version = "^1.0", default-features = false, features = [
     "preserve_order",
 ] }
-slog = { version = "2.7.0", default-features = false }
+slog = { version = "2.8.2", default-features = false }
 slog-async = { version = "2.8.0", default-features = false }
-slog-term = { version = "2.9.1", default-features = false }
+slog-term = { version = "2.9.2", default-features = false }
 tempfile = { version = "3.20.0", default-features = false }
 thiserror = { version = "2.0", default-features = false }
 time = { version = "0.3.41", default-features = false }
-file-format = { version = "0.27.0", default-features = false, features = [
+file-format = { version = "0.29.0", default-features = false, features = [
     "reader",
 ] }
-typenum = { version = "1.18.0", default-features = false }
+typenum = { version = "1.19.0", default-features = false }
 url = { version = "2.5", default-features = false }
 walkdir = { version = "2.5.0", default-features = false }
-zip = { version = "4.0.0", default-features = false, features = [
+zip = { version = "8.4.0", default-features = false, features = [
     "zstd",
 ] }
 
@@ -107,8 +109,8 @@ lazy_static = { version = "1.5.0", default-features = false }
 minreq = { version = "2", default-features = false }
 mockito = { version = "1", default-features = false }
 once_cell = { version = "1.21.3", default-features = false }
-regex = { version = "1.11.1", default-features = false }
-serial_test = { version = "3.2.0", default-features = false }
+regex = { version = "1.12", default-features = false }
+serial_test = { version = "3.4.0", default-features = false }
 
 [features]
 default = ["electrum"]
