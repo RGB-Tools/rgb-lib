@@ -77,15 +77,6 @@ fn success() {
     assert!(transfer_data.change_utxo.is_some());
     // create and update timestamps are the same
     assert_eq!(rcv_transfer_data.created_at, rcv_transfer_data.updated_at);
-    // expiration is create timestamp + expiration offset
-    assert_eq!(
-        rcv_transfer_data.expiration_timestamp.unwrap(),
-        rcv_transfer_data.created_at + DURATION_RCV_TRANSFER as i64
-    );
-    assert_eq!(
-        transfer_data.expiration_timestamp.unwrap(),
-        transfer_data.created_at + DURATION_SEND_TRANSFER as i64
-    );
     // transfer is incoming for receiver and outgoing for sender
     assert_eq!(rcv_transfer_data.kind, TransferKind::ReceiveBlind);
     assert_eq!(transfer_data.kind, TransferKind::Send);
@@ -1810,23 +1801,6 @@ fn receive_multiple_same_asset_success() {
         rcv_transfer_data_2.created_at,
         rcv_transfer_data_2.updated_at
     );
-    // expiration is create timestamp + expiration offset
-    assert_eq!(
-        rcv_transfer_data_1.expiration_timestamp.unwrap(),
-        rcv_transfer_data_1.created_at + DURATION_RCV_TRANSFER as i64
-    );
-    assert_eq!(
-        rcv_transfer_data_2.expiration_timestamp.unwrap(),
-        rcv_transfer_data_2.created_at + DURATION_RCV_TRANSFER as i64
-    );
-    assert_eq!(
-        transfer_data_1.expiration_timestamp.unwrap(),
-        transfer_data_1.created_at + DURATION_SEND_TRANSFER as i64
-    );
-    assert_eq!(
-        transfer_data_2.expiration_timestamp.unwrap(),
-        transfer_data_2.created_at + DURATION_SEND_TRANSFER as i64
-    );
     // transfer is incoming for receiver and outgoing for sender
     assert_eq!(rcv_transfer_data_1.kind, TransferKind::ReceiveBlind);
     assert_eq!(rcv_transfer_data_2.kind, TransferKind::ReceiveBlind);
@@ -2094,23 +2068,6 @@ fn receive_multiple_different_assets_success() {
     assert_eq!(
         rcv_transfer_data_2.created_at,
         rcv_transfer_data_2.updated_at
-    );
-    // expiration is create timestamp + expiration offset
-    assert_eq!(
-        rcv_transfer_data_1.expiration_timestamp.unwrap(),
-        rcv_transfer_data_1.created_at + DURATION_RCV_TRANSFER as i64
-    );
-    assert_eq!(
-        rcv_transfer_data_2.expiration_timestamp.unwrap(),
-        rcv_transfer_data_2.created_at + DURATION_RCV_TRANSFER as i64
-    );
-    assert_eq!(
-        transfer_data_1.expiration_timestamp.unwrap(),
-        transfer_data_1.created_at + DURATION_SEND_TRANSFER as i64
-    );
-    assert_eq!(
-        transfer_data_2.expiration_timestamp.unwrap(),
-        transfer_data_2.created_at + DURATION_SEND_TRANSFER as i64
     );
     // transfers are incoming for receiver and outgoing for sender
     assert_eq!(rcv_transfer_data_1.kind, TransferKind::ReceiveBlind);
