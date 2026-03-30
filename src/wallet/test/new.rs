@@ -126,10 +126,10 @@ fn testnet4_success() {
     assert_eq!(wallet.get_wallet_data().bitcoin_network, bitcoin_network);
 }
 
-#[cfg(all(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
-fn mainnet_success() {
+fn mainnet_success_electrum() {
     create_test_data_dir();
 
     let bitcoin_network = BitcoinNetwork::Mainnet;
@@ -152,7 +152,31 @@ fn mainnet_success() {
     test_go_online(&mut wallet, false, Some(indexer_url));
     assert!(!wallet.watch_only());
     assert_eq!(wallet.get_wallet_data().bitcoin_network, bitcoin_network);
+}
 
+#[cfg(feature = "esplora")]
+#[test]
+#[ignore = "frequently fails due to timeout"]
+#[parallel]
+fn mainnet_success_esplora() {
+    create_test_data_dir();
+
+    let bitcoin_network = BitcoinNetwork::Mainnet;
+    let keys = generate_keys(bitcoin_network);
+    let mut wallet = Wallet::new(
+        WalletData {
+            data_dir: get_test_data_dir_string(),
+            bitcoin_network,
+            database_type: DatabaseType::Sqlite,
+            max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
+            // IFA not supported on mainnet
+            supported_schemas: vec![AssetSchema::Cfa, AssetSchema::Nia, AssetSchema::Uda],
+        },
+        SinglesigKeys::from_keys(&keys, None),
+    )
+    .unwrap();
+
+    check_wallet(&wallet, bitcoin_network, None);
     let indexer_url = "https://blockstream.info/api";
     test_go_online(&mut wallet, false, Some(indexer_url));
     assert!(!wallet.watch_only());
