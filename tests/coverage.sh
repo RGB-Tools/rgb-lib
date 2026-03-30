@@ -3,9 +3,12 @@
 # script to run project tests and report code coverage
 # uses llvm-cov (https://github.com/taiki-e/cargo-llvm-cov)
 
+# note: this is in addition to common ignore patterns llvm-cov appends on its own
+IGNORE_PATTERN='/rgb\-lib/(migration/src/main\.rs|src/database/entities|src/wallet/test|target/llvm\-cov\-target)($|/)'
+
 LLVM_COV_OPTS=()
 CARGO_TEST_OPTS=("--")
-COV="cargo llvm-cov --workspace --all-features"
+COV="cargo llvm-cov --verbose --workspace --all-features --ignore-filename-regex $IGNORE_PATTERN"
 
 _die() {
     echo "err $*"
@@ -33,11 +36,11 @@ help() {
 # cmdline arguments
 while [ -n "$1" ]; do
     case $1 in
-        -h|--help)
+        -h | --help)
             help
             exit 0
             ;;
-        -t|--test)
+        -t | --test)
             CARGO_TEST_OPTS+=("$2")
             shift
             ;;
@@ -66,10 +69,7 @@ rustup component add llvm-tools-preview
 cargo install cargo-llvm-cov
 
 _tit "generating coverage report"
-IGNORE_PATTERN="/rgb\-lib(/.*)?/(tests|examples|benches|migration/src/main.rs|src/database/entities|src/wallet/test)($|/)|/rgb\-lib/target/llvm\-cov\-target($|/)|^$HOME/\.cargo/(registry|git)/|^$HOME/\.rustup/toolchains($|/)"
-$COV --html \
-    --ignore-filename-regex "$IGNORE_PATTERN" \
-    "${LLVM_COV_OPTS[@]}" "${CARGO_TEST_OPTS[@]}" --include-ignored
+$COV --html "${LLVM_COV_OPTS[@]}" "${CARGO_TEST_OPTS[@]}" --include-ignored
 
 ## show html report location
 echo "generated html report: target/llvm-cov/html/index.html"
