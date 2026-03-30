@@ -10,15 +10,20 @@ fn success() {
     let expiration_secs = 60i64;
     let (mut wallet, online) = get_funded_wallet!();
 
-    // default expiration + min confirmations
+    // only mandatory fields
     let bak_info_before = wallet.database().get_backup_info().unwrap().unwrap();
-    let now_timestamp = now().unix_timestamp();
-    let receive_data = test_witness_receive(&mut wallet);
+    let receive_data = wallet
+        .witness_receive(
+            None,
+            Assignment::Any,
+            None,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
     let bak_info_after = wallet.database().get_backup_info().unwrap().unwrap();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
-    assert!(receive_data.expiration_timestamp.is_some());
-    let timestamp = (now_timestamp + DURATION_RCV_TRANSFER as i64) as u64;
-    assert!(receive_data.expiration_timestamp.unwrap() - timestamp <= 1);
+    assert!(receive_data.expiration_timestamp.is_none());
     let decoded_invoice = Invoice::new(receive_data.invoice).unwrap();
     assert_eq!(
         decoded_invoice.invoice_data.network,
@@ -28,70 +33,43 @@ fn success() {
     let (_, batch_transfer) = get_test_transfer_related(&wallet, &transfer);
     assert_eq!(batch_transfer.min_confirmations, MIN_CONFIRMATIONS);
 
-    // positive expiration
-    let now_timestamp = now().unix_timestamp();
+    // asset ID + expiration + 0 min confirmations
+    let asset = test_issue_asset_cfa(&mut wallet, online, None, None);
+    let asset_id = asset.asset_id;
+    let expiration_timestamp = (now().unix_timestamp() + expiration_secs) as u64;
+    let min_confirmations = 0;
     let receive_data = wallet
         .witness_receive(
-            None,
-            Assignment::Any,
-            Some((now_timestamp + expiration_secs) as u64),
-            TRANSPORT_ENDPOINTS.clone(),
-            MIN_CONFIRMATIONS,
-        )
-        .unwrap();
-    assert!(receive_data.expiration_timestamp.is_some());
-    let timestamp = (now_timestamp + expiration_secs) as u64;
-    assert!(receive_data.expiration_timestamp.unwrap() - timestamp <= 1);
-
-    // custom min confirmations
-    let min_confirmations = 2;
-    let receive_data = wallet
-        .witness_receive(
-            None,
-            Assignment::Any,
-            None,
+            Some(asset_id.clone()),
+            Assignment::Fungible(amount),
+            Some(expiration_timestamp),
             TRANSPORT_ENDPOINTS.clone(),
             min_confirmations,
         )
         .unwrap();
+    assert_eq!(
+        receive_data.expiration_timestamp,
+        Some(expiration_timestamp)
+    );
     let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
     let (_, batch_transfer) = get_test_transfer_related(&wallet, &transfer);
     assert_eq!(batch_transfer.min_confirmations, min_confirmations);
-
-    // asset id is set
-    let asset = test_issue_asset_cfa(&mut wallet, online, None, None);
-    let asset_id = asset.asset_id;
-    let result = wallet.witness_receive(
-        Some(asset_id.clone()),
-        Assignment::Any,
-        None,
-        TRANSPORT_ENDPOINTS.clone(),
-        MIN_CONFIRMATIONS,
-    );
-    assert!(result.is_ok());
-
-    // all set
-    let now_timestamp = now().unix_timestamp();
-    let result = wallet.witness_receive(
-        Some(asset_id.clone()),
-        Assignment::Fungible(amount),
-        Some((now_timestamp + expiration_secs) as u64),
-        TRANSPORT_ENDPOINTS.clone(),
-        MIN_CONFIRMATIONS,
-    );
-    assert!(result.is_ok());
-    let receive_data = result.unwrap();
+    let invoice = Invoice::new(receive_data.invoice.clone()).unwrap();
+    let invoice_data = invoice.invoice_data();
+    assert_eq!(invoice_data.asset_schema, Some(AssetSchema::Cfa));
 
     // Invoice checks
     let invoice = Invoice::new(receive_data.invoice).unwrap();
     let invoice_data = invoice.invoice_data();
-    let approx_expiry = (now_timestamp + expiration_secs) as u64;
     assert_eq!(invoice_data.recipient_id, receive_data.recipient_id);
     assert_eq!(invoice_data.asset_schema, Some(AssetSchema::Cfa));
     assert_eq!(invoice_data.asset_id, Some(asset_id));
     assert_eq!(invoice_data.assignment, Assignment::Fungible(amount));
     assert_eq!(invoice_data.network, BitcoinNetwork::Regtest);
-    assert!(invoice_data.expiration_timestamp.unwrap() - approx_expiry <= 1);
+    assert_eq!(
+        invoice_data.expiration_timestamp,
+        Some(expiration_timestamp)
+    );
     assert_eq!(
         invoice_data.transport_endpoints,
         TRANSPORT_ENDPOINTS.clone()

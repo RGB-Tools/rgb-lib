@@ -7,6 +7,7 @@ fn success() {
     initialize();
 
     let amount: u64 = 66;
+    let expiration_secs = 60i64;
 
     // wallets
     let (mut wallet, online) = get_funded_wallet!();
@@ -29,9 +30,21 @@ fn success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
+    let expiration_timestamp = (now().unix_timestamp() + expiration_secs) as u64;
     let bak_info_before = wallet.database().get_backup_info().unwrap().unwrap();
-    let txid = test_send(&mut wallet, online, &recipient_map);
+    let operation_result = wallet
+        .send(
+            online,
+            recipient_map.clone(),
+            false,
+            FEE_RATE,
+            MIN_CONFIRMATIONS,
+            Some(expiration_timestamp),
+            false,
+        )
+        .unwrap();
     let bak_info_after = wallet.database().get_backup_info().unwrap().unwrap();
+    let txid = operation_result.txid;
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     assert!(!txid.is_empty());
     let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
@@ -43,6 +56,11 @@ fn success() {
     let ce = tte_data.first().unwrap();
     assert_eq!(ce.1.endpoint, PROXY_URL);
     assert!(ce.0.used);
+    let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
+    assert_eq!(
+        transfer_data.expiration_timestamp,
+        Some(expiration_timestamp as i64)
+    );
 
     let rcv_transfer = get_test_transfer_recipient(&rcv_wallet, &receive_data.recipient_id);
     let (rcv_transfer_data, rcv_asset_transfer) =
