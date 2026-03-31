@@ -67,6 +67,15 @@ use crate::{
 const PROXY_HOST: &str = "127.0.0.1:3000/json-rpc";
 static PROXY_ENDPOINT: Lazy<String> = Lazy::new(|| format!("rpc://{PROXY_HOST}"));
 #[cfg(feature = "_online")]
+const EVM_RPC_URL: &str = "http://127.0.0.1:8545";
+/// EIP-155 chain ID of the anvil node (its default one, see tests/compose.yaml)
+#[cfg(feature = "_online")]
+const ANVIL_CHAIN_ID: u64 = 31337;
+/// Blocks to mine on anvil for the latest block to become finalized: two epochs of its default
+/// 32 slots
+#[cfg(feature = "electrum")]
+const EVM_FINALITY_DEPTH: u64 = 64;
+#[cfg(feature = "_online")]
 const TEST_DATA_DIR_PARTS: [&str; 2] = ["tests", "tmp_srv"];
 const NOSRV_DATA_DIR_PARTS: [&str; 2] = ["tests", "tmp_nosrv"];
 const PASSWORD: &str = "password";
@@ -161,6 +170,10 @@ const FAKE_TXID: &str = "e5a3e577309df31bd606f48049049d2e1e02b048206ba232944fcc0
 #[cfg(feature = "electrum")]
 const FAKE_OUTPOINT: &str = "e5a3e577309df31bd606f48049049d2e1e02b048206ba232944fcc053a176ccb:0";
 #[cfg(feature = "electrum")]
+const FAKE_EVM_ADDRESS: &str = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+#[cfg(feature = "electrum")]
+const FAKE_PUBKEY: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+#[cfg(feature = "electrum")]
 const FAKE_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 #[cfg(feature = "electrum")]
 const UNKNOWN_IDX: i32 = 9999;
@@ -221,6 +234,9 @@ thread_local! {
     pub(crate) static MOCK_RETENTION_GRACE: RefCell<Option<u32>> = const { RefCell::new(None) };
     pub(crate) static MOCK_MIN_RETENTION_GRACE: RefCell<Option<u32>> = const { RefCell::new(None) };
     pub(crate) static MOCK_CONFIRMATION_MARGIN: RefCell<Option<u32>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_MINT_LOCK_WINDOW: RefCell<Option<u32>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_MINT_AFTER_BLOCK_GRACE: RefCell<Option<i64>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_MAX_MINT_SCAN_BLOCKS: RefCell<Option<u64>> = const { RefCell::new(None) };
 }
 
 #[cfg(feature = "_online")]
@@ -464,6 +480,27 @@ pub fn mock_clock_skew_margin() -> Option<u32> {
     MOCK_CLOCK_SKEW_MARGIN.with_borrow(|m| *m)
 }
 
+/// Minimum time (seconds) left on the invoice of a mint to use instead of
+/// `MIN_MINT_LOCK_WINDOW_SECS`, if set.
+#[cfg(feature = "_online")]
+pub fn mock_mint_lock_window() -> Option<u32> {
+    MOCK_MINT_LOCK_WINDOW.with_borrow(|m| *m)
+}
+
+/// Time (seconds) the block a received mint commits to may precede the invoice to use instead of
+/// `MINT_AFTER_BLOCK_GRACE_SECS`, if set.
+#[cfg(feature = "_online")]
+pub fn mock_mint_after_block_grace() -> Option<i64> {
+    MOCK_MINT_AFTER_BLOCK_GRACE.with_borrow(|m| *m)
+}
+
+/// Maximum number of blocks scanned for the event of a received mint to use instead of
+/// `MAX_MINT_SCAN_BLOCKS`, if set.
+#[cfg(feature = "_online")]
+pub fn mock_max_mint_scan_blocks() -> Option<u64> {
+    MOCK_MAX_MINT_SCAN_BLOCKS.with_borrow(|m| *m)
+}
+
 /// Sender proxy retention grace (seconds) to use instead of the one advertised by the proxy, if
 /// set.
 #[cfg(feature = "_online")]
@@ -497,6 +534,8 @@ pub fn mock_send_end_crash() -> bool {
 // test utilities
 #[macro_use]
 mod utils;
+#[cfg(feature = "electrum")]
+pub(crate) use utils::anvil::*;
 #[cfg(feature = "_online")]
 pub(crate) use utils::chain::*;
 pub(crate) use utils::{api::*, helpers::*};
@@ -535,6 +574,8 @@ mod go_online;
 #[cfg(feature = "electrum")]
 mod inflate;
 #[cfg(feature = "electrum")]
+mod issue_asset_bfa;
+#[cfg(feature = "electrum")]
 mod issue_asset_cfa;
 #[cfg(feature = "electrum")]
 mod issue_asset_ifa;
@@ -554,6 +595,7 @@ mod list_unspents;
 mod load;
 #[cfg(all(feature = "electrum", feature = "rgb_fs_store_migration"))]
 mod migrate;
+mod mint;
 #[cfg(feature = "electrum")]
 mod multisig;
 mod new;

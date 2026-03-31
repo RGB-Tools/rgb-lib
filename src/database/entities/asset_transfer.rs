@@ -2,6 +2,8 @@
 
 use sea_orm::entity::prelude::*;
 
+use crate::wallet::TypeOfTransition;
+
 #[derive(Copy, Clone, Default, Debug, DeriveEntity)]
 pub struct Entity;
 
@@ -17,6 +19,7 @@ pub struct Model {
     pub user_driven: bool,
     pub batch_transfer_idx: i32,
     pub asset_id: Option<String>,
+    pub transition_type: Option<TypeOfTransition>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
@@ -25,6 +28,7 @@ pub enum Column {
     UserDriven,
     BatchTransferIdx,
     AssetId,
+    TransitionType,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DerivePrimaryKey)]
@@ -55,6 +59,7 @@ impl ColumnTrait for Column {
             Self::UserDriven => ColumnType::Boolean.def(),
             Self::BatchTransferIdx => ColumnType::Integer.def(),
             Self::AssetId => ColumnType::String(StringLen::None).def().null(),
+            Self::TransitionType => ColumnType::SmallInteger.def().null(),
         }
     }
 }

@@ -121,6 +121,18 @@ services:
     volumes:
       - hub:/srv/data
       - ./hub/config.toml:/srv/data/config.toml:ro
+  anvil:
+    image: ghcr.io/foundry-rs/foundry:latest
+    profiles: ['tests']
+    command: >
+      anvil
+      --host 0.0.0.0
+      --port 8545
+      --chain-id 31337
+      --block-time 2
+    network_mode: host
+    volumes:
+      - ./contracts:/contracts:ro
 
 
 volumes:

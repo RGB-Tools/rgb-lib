@@ -6,7 +6,7 @@ use utils::*;
 
 #[cfg(feature = "electrum")]
 #[test]
-#[serial]
+#[serial(hub)]
 fn success() {
     initialize();
     op_counter_reset();
@@ -781,7 +781,13 @@ fn success() {
     check_wallets_up_to_date(&mut [&mut wlt_1, &mut wlt_2, &mut wlt_3]);
     let burn_amount = 50;
     let op_init = wlt_1.burn_init(&ifa_asset.asset_id, burn_amount, Some(BURN_REASON));
-    inspect_burn(&wlt_3, &op_init, &ifa_asset, burn_amount, Some(BURN_REASON));
+    inspect_burn(
+        &wlt_3,
+        &op_init,
+        &ifa_asset.asset_id,
+        burn_amount,
+        Some(BURN_REASON),
+    );
     operation_complete::<BurnHandler>(
         op_init.operation_idx,
         &mut [&mut wlt_1, &mut wlt_2, &mut wlt_3],
@@ -806,7 +812,7 @@ fn success() {
 
     println!("\n=== burn discarded (wlt_3) ===");
     let op_init = wlt_3.burn_init(&ifa_asset.asset_id, 1, None);
-    inspect_burn(&wlt_1, &op_init, &ifa_asset, 1, None);
+    inspect_burn(&wlt_1, &op_init, &ifa_asset.asset_id, 1, None);
     operation_complete::<BurnHandler>(
         op_init.operation_idx,
         &mut [],
@@ -1003,7 +1009,7 @@ fn success() {
 
 #[cfg(feature = "electrum")]
 #[test]
-#[serial]
+#[serial(hub)]
 fn fail() {
     initialize();
     op_counter_reset();
@@ -1393,7 +1399,7 @@ fn fail() {
 
 #[cfg(feature = "electrum")]
 #[test]
-#[serial]
+#[serial(hub)]
 fn offline() {
     initialize();
 
@@ -1528,7 +1534,7 @@ fn offline() {
 
 #[cfg(feature = "electrum")]
 #[test]
-#[serial]
+#[serial(hub)]
 fn send_to_oneself() {
     initialize();
     op_counter_reset();

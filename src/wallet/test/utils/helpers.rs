@@ -547,6 +547,10 @@ pub(crate) fn test_go_online_options(indexer_url: Option<&str>) -> OnlineOptions
         vanilla_sync_lookback: INDEXER_SYNC_LOOKBACK as u32,
         failed_witness_receive_grace_secs: FAILED_WITNESS_RECEIVE_GRACE_SECS,
         proxy_auth_keys: HashMap::new(),
+        evm_rpc_urls: HashMap::from([(
+            super::super::ANVIL_CHAIN_ID,
+            super::super::EVM_RPC_URL.to_string(),
+        )]),
     }
 }
 

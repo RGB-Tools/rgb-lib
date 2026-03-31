@@ -7,6 +7,8 @@ fn success() {
     initialize();
 
     let amount: u64 = 66;
+    // allow operations expiring within seconds
+    MOCK_CLOCK_SKEW_MARGIN.replace(Some(1));
     let expiration_secs = 60i64;
 
     // wallets
@@ -2991,6 +2993,8 @@ fn recipient_operation_expired() {
     let receive_data_1 = rcv_party_1.blind_receive();
     let receive_data_2 = rcv_party_2.blind_receive();
     // batch send (2 recipients) with a short operation expiration
+    // allow operations expiring within seconds
+    MOCK_CLOCK_SKEW_MARGIN.replace(Some(1));
     let expiration = (now().unix_timestamp() + 20) as u64;
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -3265,6 +3269,8 @@ fn fail_before_ack_revokes_operation() {
     initialize();
 
     let amount: u64 = 66;
+    // allow the short operation expiration below
+    MOCK_CLOCK_SKEW_MARGIN.replace(Some(5));
 
     let mut party = get_funded_party!();
     let mut rcv_party = get_funded_party!();
@@ -3460,6 +3466,78 @@ fn no_change_on_pending_send() {
     party.show_unspent_colorings("after 3rd send");
     // check change was not allocated on issue 1 UTXO (pending Input coloring)
     assert!(!unspent_1.rgb_allocations.iter().any(|a| !a.settled));
+}
+
+/// Whether an asset of the given schema can be sent with the given assignment.
+#[cfg(feature = "electrum")]
+fn send_assignment_supported(schema: AssetSchema, assignment: &Assignment) -> bool {
+    match schema {
+        AssetSchema::Nia | AssetSchema::Cfa => matches!(assignment, Assignment::Fungible(_)),
+        AssetSchema::Uda => matches!(assignment, Assignment::NonFungible),
+        AssetSchema::Ifa => matches!(
+            assignment,
+            Assignment::Fungible(_) | Assignment::InflationRight(_)
+        ),
+        AssetSchema::Bfa => matches!(assignment, Assignment::Fungible(_) | Assignment::MintRight),
+    }
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn schema_assignment_combinations() {
+    initialize();
+
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+    // more UTXOs to have free allocation slots
+    party.create_utxos_default();
+
+    let receive_data = rcv_party.blind_receive();
+    // all the assignment kinds, with a zero amount where they have one (the iterator's default),
+    // so that a supported assignment is rejected right after passing the assignment check, before
+    // sending anything
+    let assignments: Vec<Assignment> = Assignment::iter().collect();
+    for schema in AssetSchema::iter() {
+        let asset_id = party.issue_asset_of_schema(schema);
+        for assignment in &assignments {
+            let recipient_map = HashMap::from([(
+                asset_id.clone(),
+                vec![Recipient {
+                    assignment: assignment.clone(),
+                    recipient_id: receive_data.recipient_id.clone(),
+                    public_key: Some(receive_data.public_key.clone()),
+                    expiration_timestamp: Some(receive_data.expiration_timestamp),
+                    encryption: Encryption::Optional,
+                    witness_data: None,
+                    transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+                }],
+            )]);
+            let supported = send_assignment_supported(schema, assignment);
+            let has_amount = matches!(
+                assignment,
+                Assignment::Fungible(_) | Assignment::InflationRight(_)
+            );
+            if supported && !has_amount {
+                // there's no way to fail right after the assignment check, a successful send is
+                // covered by the other tests
+                continue;
+            }
+            let result = party.send_begin_result(&recipient_map);
+            let context = format!("schema {schema:?}, assignment {assignment:?}");
+            if supported {
+                assert!(
+                    matches!(result, Err(Error::InvalidAmountZero)),
+                    "{context}: {result:?}"
+                );
+            } else {
+                assert!(
+                    matches!(result, Err(Error::InvalidAssignment)),
+                    "{context}: {result:?}"
+                );
+            }
+        }
+    }
 }
 
 #[cfg(feature = "electrum")]
@@ -3659,6 +3737,19 @@ fn fail() {
     assert_matches!(result, Err(Error::InvoiceExpired));
     let invoice_expiration = default_send_expiration() + INVOICE_EXPIRATION_MARGIN_SECS as u64 - 60;
     let result = party.send_begin_result(&recipient_map_with_expiration(Some(invoice_expiration)));
+    assert_matches!(result, Err(Error::InvalidExpiration));
+
+    // operation expiration: must leave at least the clock skew margin
+    let result = party.wallet.send_begin(
+        party.online,
+        recipient_map_with_expiration(Some(receive_data.expiration_timestamp)),
+        false,
+        FEE_RATE,
+        MIN_CONFIRMATIONS,
+        now().unix_timestamp() as u64 + PROXY_CLOCK_SKEW_MARGIN_SECS as u64 - 60,
+        Some(PROXY_ENDPOINT.clone()),
+        false,
+    );
     assert_matches!(result, Err(Error::InvalidExpiration));
 
     // witness blinding: derived for a proxy recipient, so it cannot be provided
@@ -10518,7 +10609,9 @@ fn out_of_band_fail() {
     ));
 
     // provide_out_of_band_ack on an expired transfer
-    let expiration_secs: u64 = 1;
+    // allow operations expiring within seconds
+    MOCK_CLOCK_SKEW_MARGIN.replace(Some(1));
+    let expiration_secs: u64 = 2;
     let receive_expiring = rcv_party
         .wallet
         .blind_receive(
@@ -11436,6 +11529,8 @@ fn recipient_waits_broadcast_deadline() {
     MOCK_RETENTION_GRACE.replace(Some(retention_grace));
     MOCK_MIN_RETENTION_GRACE.replace(Some(0));
     MOCK_CONFIRMATION_MARGIN.replace(Some(confirmation_margin));
+    // allow the short operation expiration below
+    MOCK_CLOCK_SKEW_MARGIN.replace(Some(5));
 
     let mut party = get_funded_party!();
     let mut rcv_party_1 = get_funded_party!();
@@ -11539,6 +11634,8 @@ fn recipient_fails_unconfirmed_past_deadline() {
     MOCK_RETENTION_GRACE.replace(Some(retention_grace));
     MOCK_MIN_RETENTION_GRACE.replace(Some(0));
     MOCK_CONFIRMATION_MARGIN.replace(Some(confirmation_margin));
+    // allow the short operation expiration below
+    MOCK_CLOCK_SKEW_MARGIN.replace(Some(5));
 
     let mut party = get_funded_party!();
     let mut rcv_party = get_funded_party!();

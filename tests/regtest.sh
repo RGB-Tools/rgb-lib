@@ -129,6 +129,20 @@ _wait_for_proxy() {
     done
 }
 
+_wait_for_anvil() {
+    # wait for anvil to be ready to accept RPC requests
+    start_time=$(date +%s)
+    until $COMPOSE logs anvil |grep -q 'Listening on'; do
+        current_time=$(date +%s)
+        if [ $((current_time - start_time)) -gt $TIMEOUT ]; then
+            echo "Timeout waiting for anvil to start"
+            $COMPOSE logs anvil
+            exit 1
+        fi
+        sleep 1
+    done
+}
+
 stop_services() {
     # bring all services down
     $COMPOSE --profile '*' down -v --remove-orphans
@@ -153,7 +167,7 @@ prepare_tests_environment() {
     TESTS=1
 
     COMPOSE="$COMPOSE --profile tests"
-    EXPOSED_PORTS+=(3001 3002 3003 18444 18445 50002 50003 50004 50005 8094 8140 8141)
+    EXPOSED_PORTS+=(3001 3002 3003 18444 18445 50002 50003 50004 50005 8094 8140 8141 8545)
 
     PROXY_MOD_PROTO="proxy-mod-proto"
     PROXY_MOD_API="proxy-mod-api"
@@ -195,6 +209,8 @@ prepare_tests_environment() {
     _wait_for_proxy $PROXY_MOD_API
 
     _wait_for_proxy proxy-auth
+
+    _wait_for_anvil
 }
 
 prepare_bindings_examples_environment() {

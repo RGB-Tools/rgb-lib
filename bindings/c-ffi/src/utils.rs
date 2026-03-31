@@ -558,6 +558,34 @@ pub(crate) fn invoice_data(invoice_string: *const c_char) -> Result<String, Erro
     Ok(serde_json::to_string(&invoice.invoice_data())?)
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn issue_asset_bfa(
+    wallet: &COpaqueStruct,
+    ticker: *const c_char,
+    name: *const c_char,
+    precision: *const c_char,
+    mint_rights: *const c_char,
+    chain_id: *const c_char,
+    contract_address: *const c_char,
+    reject_list_address: *const c_char,
+) -> Result<String, Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let precision = ptr_to_num(precision)?;
+    let mint_rights = ptr_to_num(mint_rights)?;
+    let chain_id = ptr_to_num(chain_id)?;
+    let reject_list_address = convert_optional_string(reject_list_address);
+    let res = wallet.issue_asset_bfa(
+        ptr_to_string(ticker),
+        ptr_to_string(name),
+        precision,
+        mint_rights,
+        chain_id,
+        ptr_to_string(contract_address),
+        reject_list_address,
+    )?;
+    Ok(serde_json::to_string(&res)?)
+}
+
 pub(crate) fn issue_asset_cfa(
     wallet: &COpaqueStruct,
     name: *const c_char,
@@ -703,6 +731,55 @@ pub(crate) fn load_wallet(
     let master_fingerprint = ptr_to_string(master_fingerprint);
     let mnemonic = convert_optional_string(mnemonic);
     Ok(Wallet::load(&data_dir, &master_fingerprint, mnemonic)?)
+}
+
+pub(crate) fn mint_begin(
+    wallet: &COpaqueStruct,
+    online: *const c_char,
+    asset_id: *const c_char,
+    recipient: *const c_char,
+    fee_rate: *const c_char,
+    min_confirmations: *const c_char,
+    sender_transport_endpoint: *const c_char,
+) -> Result<String, Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let online = convert_online(online)?;
+    let asset_id = ptr_to_string(asset_id);
+    let recipient: Recipient = serde_json::from_str(&ptr_to_string(recipient))?;
+    let fee_rate = ptr_to_num(fee_rate)?;
+    let min_confirmations = ptr_to_num(min_confirmations)?;
+    let sender_transport_endpoint = ptr_to_string(sender_transport_endpoint);
+    let res = wallet.mint_begin(
+        online,
+        asset_id,
+        recipient,
+        fee_rate,
+        min_confirmations,
+        sender_transport_endpoint,
+    )?;
+    Ok(serde_json::to_string(&res)?)
+}
+
+pub(crate) fn get_received_mint(
+    wallet: &COpaqueStruct,
+    recipient_id: *const c_char,
+) -> Result<String, Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let recipient_id = ptr_to_string(recipient_id);
+    let res = wallet.get_received_mint(recipient_id)?;
+    Ok(serde_json::to_string(&res)?)
+}
+
+pub(crate) fn mint_end(
+    wallet: &COpaqueStruct,
+    online: *const c_char,
+    signed_psbt: *const c_char,
+) -> Result<String, Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let online = convert_online(online)?;
+    let signed_psbt = ptr_to_string(signed_psbt);
+    let res = wallet.mint_end(online, signed_psbt)?;
+    Ok(serde_json::to_string(&res)?)
 }
 
 pub(crate) fn new_wallet(wallet_data: *const c_char, keys: *const c_char) -> Result<Wallet, Error> {

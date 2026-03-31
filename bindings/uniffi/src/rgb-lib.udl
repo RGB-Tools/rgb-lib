@@ -28,10 +28,12 @@ interface RgbLibError {
   CannotFinalizePsbt();
   CannotProvideOutOfBandAck(string details);
   CannotProvideOutOfBandConsignment(string details);
-  CannotUseIfaOnMainnet();
+  CannotUseSchemaOnMainnet(AssetSchema asset_schema);
+  ConsignmentValidationFailed(string details);
   Database(string details);
   DuplicateProxyAuthKey(string details);
   EmptyFile(string file_path);
+  EvmChainIdMismatch(u64 expected, u64 actual);
   ExpirationInvalid();
   FailedBdkSync(string details);
   FailedBroadcast(string details);
@@ -64,6 +66,8 @@ interface RgbLibError {
   InvalidEncryptedBlob(string details);
   InvalidEndpointAuthSignature();
   InvalidEstimationBlocks();
+  InvalidEvmContractAddress(string details);
+  InvalidEvmRpcUrl(string details);
   InvalidExpiration();
   InvalidFeeRate(string details);
   InvalidFilePath(string file_path);
@@ -93,8 +97,11 @@ interface RgbLibError {
   InvoiceExpired();
   InvoiceNotReserved();
   InvoiceQuotaExceeded();
+  LastMintRight();
   MaxFeeExceeded(string txid);
   MinFeeNotMet(string txid);
+  MintEventNotFound(string opid);
+  MintEventOutOfScanWindow(string opid, u64 max_scan_blocks);
   MultisigCannotMarkOperationProcessed(string details);
   MultisigCannotRespondToOperation(string details);
   MultisigHubService(string details);
@@ -108,11 +115,13 @@ interface RgbLibError {
   NoBurnAmount();
   NoConsignment();
   NoCosignersSupplied();
+  NoEvmRpcUrl(u64 chain_id);
   NoInflationAmounts();
   NoIssuanceAmounts();
   NoKeysSupplied();
   NoMaxAllocationsPerUtxo();
   NoMedia();
+  NoMintRights();
   NoSupportedSchemas();
   NoValidTransportEndpoint();
   Offline();
@@ -136,6 +145,7 @@ interface RgbLibError {
   TooHighIssuanceAmounts();
   TooManyCosigners();
   TooManySignaturesInPsbt();
+  TransferExpired();
   TransferIDDeleted();
   TransferIDInUse();
   UnknownRgbSchema(string schema_id);
@@ -144,6 +154,7 @@ interface RgbLibError {
   UnsupportedBurn(AssetSchema asset_schema);
   UnsupportedInflation(AssetSchema asset_schema);
   UnsupportedLayer1(string layer_1);
+  UnsupportedMint(AssetSchema asset_schema);
   UnsupportedSchema(AssetSchema asset_schema);
   UnsupportedTransportType();
   UnsupportedWalletManifestVersion(string version);
@@ -160,6 +171,7 @@ enum AssetSchema {
   "Uda",
   "Cfa",
   "Ifa",
+  "Bfa",
 };
 
 [Remote]
@@ -240,11 +252,27 @@ dictionary AssetIFA {
 };
 
 [Remote]
+dictionary AssetBFA {
+  string asset_id;
+  string ticker;
+  string name;
+  string? details;
+  u8 precision;
+  u64 initial_supply;
+  i64 timestamp;
+  i64 added_at;
+  Balance balance;
+  Media? media;
+  string? reject_list_url;
+};
+
+[Remote]
 dictionary Assets {
   sequence<AssetNIA>? nia;
   sequence<AssetUDA>? uda;
   sequence<AssetCFA>? cfa;
   sequence<AssetIFA>? ifa;
+  sequence<AssetBFA>? bfa;
 };
 
 [Remote]
@@ -373,6 +401,7 @@ interface Assignment {
   Fungible(u64 amount);
   NonFungible();
   InflationRight(u64 amount);
+  MintRight();
   Any();
 };
 
@@ -381,6 +410,7 @@ dictionary AssignmentsCollection {
   u64 fungible;
   boolean non_fungible;
   u64 inflation;
+  u64 mint;
 };
 
 dictionary InvoiceData {
@@ -477,6 +507,7 @@ dictionary OnlineOptions {
   u32 vanilla_sync_lookback;
   u32 failed_witness_receive_grace_secs;
   record<string, string> proxy_auth_keys;
+  record<u64, string> evm_rpc_urls;
 };
 
 [Remote]
@@ -555,6 +586,7 @@ enum TransferKind {
   "Send",
   "Inflation",
   "Burn",
+  "Mint",
 };
 
 [Remote]
@@ -721,6 +753,30 @@ dictionary InflateBeginResult {
 };
 
 [Remote]
+dictionary MintDetails {
+  string fascia_path;
+  u8 min_confirmations;
+  u64 entropy;
+  string opid;
+};
+
+[Remote]
+dictionary ReceivedMint {
+  string opid;
+  u64 amount;
+  u64 after_block;
+  u64 evm_chain_id;
+  string bridge_contract;
+};
+
+[Remote]
+dictionary MintBeginResult {
+  string psbt;
+  i32 batch_transfer_idx;
+  MintDetails details;
+};
+
+[Remote]
 dictionary SendDetails {
   string fascia_path;
   u8 min_confirmations;
@@ -828,6 +884,7 @@ enum TypeOfTransition {
   "Inflate",
   "Transfer",
   "Burn",
+  "Mint",
 };
 
 [Remote]
@@ -847,6 +904,7 @@ interface TransitionGlobal {
 [Remote]
 dictionary RgbTransitionInfo {
   TypeOfTransition type;
+  string opid;
   sequence<RgbInputInfo> inputs;
   sequence<RgbOutputInfo> outputs;
   sequence<TransitionGlobal> globals;
@@ -902,6 +960,9 @@ interface Wallet {
   string get_wallet_dir();
 
   string get_media_dir();
+
+  [Throws=RgbLibError]
+  ReceivedMint? get_received_mint(string recipient_id);
 
   [Throws=RgbLibError]
   PsbtInspection inspect_psbt(string psbt);
@@ -1010,6 +1071,14 @@ interface Wallet {
   OperationResult inflate_end(Online online, string signed_psbt);
 
   [Throws=RgbLibError]
+  MintBeginResult mint_begin(
+    Online online, string asset_id, Recipient recipient, u64 fee_rate,
+    u8 min_confirmations, string sender_transport_endpoint);
+
+  [Throws=RgbLibError]
+  OperationResult mint_end(Online online, string signed_psbt);
+
+  [Throws=RgbLibError]
   AssetNIA issue_asset_nia(
     string ticker, string name, u8 precision, sequence<u64> amounts);
 
@@ -1027,6 +1096,11 @@ interface Wallet {
   AssetIFA issue_asset_ifa(
     string ticker, string name, u8 precision, sequence<u64> amounts,
     sequence<u64> inflation_amounts, string? reject_list_url);
+
+  [Throws=RgbLibError]
+  AssetBFA issue_asset_bfa(
+    string ticker, string name, u8 precision, u8 mint_rights, u64 chain_id,
+    string contract_address, string? reject_list_address);
 
   [Throws=RgbLibError]
   Assets list_assets(sequence<AssetSchema> filter_asset_schemas);
@@ -1106,6 +1180,9 @@ interface MultisigWallet {
   string get_wallet_dir();
 
   string get_media_dir();
+
+  [Throws=RgbLibError]
+  ReceivedMint? get_received_mint(string recipient_id);
 
   [Throws=RgbLibError]
   PsbtInspection inspect_psbt(string psbt);

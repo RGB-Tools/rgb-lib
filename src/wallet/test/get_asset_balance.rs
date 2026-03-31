@@ -219,6 +219,7 @@ fn transfer_balances() {
         fungible: 1332,
         non_fungible: false,
         inflation: 0,
+        mint: 0,
     };
     assert_matches!(result, Err(Error::InsufficientAssignments { asset_id, available }) if asset_id == asset_2.asset_id && available == assignments_collection );
     // fail + delete blind receive

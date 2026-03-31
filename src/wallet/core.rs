@@ -10,7 +10,7 @@ pub(crate) const BDK_DB_NAME: &str = "bdk_db";
 // BDK changes that have been applied in memory but whose transaction has not committed yet
 pub(crate) const BDK_PENDING_FILE: &str = "bdk_pending.json";
 
-pub(crate) const NUM_KNOWN_SCHEMAS: usize = 4;
+pub(crate) const NUM_KNOWN_SCHEMAS: usize = 5;
 
 pub(crate) const RGB_LIB_DB_NAME: &str = "rgb_lib_db";
 
@@ -240,8 +240,12 @@ pub(crate) fn setup_rgb(
     if supported_schemas.is_empty() {
         return Err(Error::NoSupportedSchemas);
     }
-    if bitcoin_network == BitcoinNetwork::Mainnet && supported_schemas.contains(&AssetSchema::Ifa) {
-        return Err(Error::CannotUseIfaOnMainnet);
+    if bitcoin_network == BitcoinNetwork::Mainnet
+        && let Some(asset_schema) = supported_schemas.iter().find(|s| !s.allowed_on_mainnet())
+    {
+        return Err(Error::CannotUseSchemaOnMainnet {
+            asset_schema: *asset_schema,
+        });
     }
     let txn = database.begin_transaction()?;
     let mut stock = RgbStock::new(&txn);
@@ -584,6 +588,18 @@ pub trait WalletCore {
             .as_ref()
             .unwrap()
             .failed_witness_receive_grace_secs
+    }
+
+    #[cfg(feature = "_online")]
+    /// The configured EVM RPC URLs, keyed by chain ID
+    fn evm_rpc_urls(&self) -> &HashMap<u64, String> {
+        &self.online_data().as_ref().unwrap().evm_rpc_urls
+    }
+
+    #[cfg(feature = "_online")]
+    /// The configured EVM RPC URL for the given chain ID, if any
+    fn evm_rpc_url(&self, chain_id: u64) -> Option<&str> {
+        self.evm_rpc_urls().get(&chain_id).map(String::as_str)
     }
 
     #[cfg(feature = "_online")]

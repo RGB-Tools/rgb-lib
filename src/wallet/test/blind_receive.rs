@@ -101,7 +101,7 @@ fn success() {
     assert_eq!(invoice_data.asset_schema, Some(AssetSchema::Cfa));
 
     // asset id is set (IFA) + amount
-    party.create_utxos_default(); // more UTXOs to have free alocation slots
+    party.create_utxos_default(); // more UTXOs to have free allocation slots
     let asset_ifa = party.issue_asset_ifa(None, None, None);
     let asset_ifa_id = asset_ifa.asset_id;
     let expiration_timestamp = (now().unix_timestamp() + expiration_secs) as u64;
@@ -282,6 +282,37 @@ fn success() {
         Some(Assignment::InflationRight(amount))
     );
 
+    // detect assignment: amount, BFA
+    party.create_utxos_default(); // more UTXOs to have free allocation slots
+    let asset_bfa = party.issue_asset_bfa(1, FAKE_EVM_ADDRESS.to_string(), None);
+    let asset_bfa_id = asset_bfa.asset_id;
+    let receive_data = party
+        .wallet
+        .blind_receive(
+            Some(party.online),
+            Some(asset_bfa_id.clone()),
+            Assignment::Fungible(amount),
+            default_rcv_expiration(),
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+            None,
+        )
+        .unwrap();
+    let invoice = Invoice::new(receive_data.invoice).unwrap();
+    let invoice_data = invoice.invoice_data();
+    assert_eq!(invoice_data.asset_schema, Some(AssetSchema::Bfa));
+    assert_eq!(invoice_data.asset_id, Some(asset_bfa_id.clone()));
+    assert_eq!(invoice_data.assignment, Assignment::Fungible(amount));
+    assert_eq!(
+        invoice_data.assignment_name,
+        Some(RGB_STATE_ASSET_OWNER.to_string())
+    );
+    let transfer = party.get_test_transfer_recipient(&receive_data.recipient_id);
+    assert_eq!(
+        transfer.requested_assignment,
+        Some(Assignment::Fungible(amount))
+    );
+
     // detect assignment: any, no schema
     let receive_data = party
         .wallet
@@ -337,6 +368,109 @@ fn success() {
     let transfer = party.get_test_transfer_recipient(&result.unwrap().recipient_id);
     let tte_data = party.db_transfer_transport_endpoints_data(transfer.idx);
     assert_eq!(tte_data.len(), transport_endpoints.len());
+}
+
+/// The assignment a receive request ends up with for an asset of the given schema (`None` when no
+/// asset is specified), or `None` if the request is invalid.
+#[cfg(feature = "electrum")]
+fn expected_receive_assignment(
+    schema: Option<AssetSchema>,
+    assignment: &Assignment,
+) -> Option<Assignment> {
+    match schema {
+        None => match assignment {
+            Assignment::Fungible(_) | Assignment::Any => Some(assignment.clone()),
+            Assignment::NonFungible | Assignment::InflationRight(_) | Assignment::MintRight => None,
+        },
+        Some(AssetSchema::Nia) | Some(AssetSchema::Cfa) => match assignment {
+            Assignment::Fungible(_) => Some(assignment.clone()),
+            Assignment::Any => Some(Assignment::Fungible(0)),
+            _ => None,
+        },
+        Some(AssetSchema::Uda) => match assignment {
+            Assignment::NonFungible | Assignment::Any => Some(Assignment::NonFungible),
+            _ => None,
+        },
+        Some(AssetSchema::Ifa) => match assignment {
+            Assignment::Fungible(_) | Assignment::InflationRight(_) | Assignment::Any => {
+                Some(assignment.clone())
+            }
+            _ => None,
+        },
+        Some(AssetSchema::Bfa) => match assignment {
+            Assignment::Fungible(_) | Assignment::MintRight | Assignment::Any => {
+                Some(assignment.clone())
+            }
+            _ => None,
+        },
+    }
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn schema_assignment_combinations() {
+    initialize();
+
+    let amount = 66;
+    let mut party = get_funded_party!();
+    // more UTXOs to have free allocation slots for the issuances and the blind receives
+    party.create_utxos(false, Some(UTXO_NUM * 3), None, FEE_RATE, None);
+
+    // issue all the assets upfront, as blind receives take up allocation slots
+    let mut schemas: Vec<(Option<AssetSchema>, Option<String>)> = vec![(None, None)];
+    for schema in AssetSchema::iter() {
+        schemas.push((Some(schema), Some(party.issue_asset_of_schema(schema))));
+    }
+    // all the assignment kinds, with an amount where they have one
+    let assignments: Vec<Assignment> = Assignment::iter()
+        .map(|a| match a {
+            Assignment::Fungible(_) => Assignment::Fungible(amount),
+            Assignment::InflationRight(_) => Assignment::InflationRight(amount),
+            Assignment::NonFungible | Assignment::MintRight | Assignment::Any => a,
+        })
+        .collect();
+    for (schema, asset_id) in schemas {
+        for assignment in &assignments {
+            let expected = expected_receive_assignment(schema, assignment);
+            for blind in [true, false] {
+                let receive = if blind {
+                    Wallet::blind_receive
+                } else {
+                    Wallet::witness_receive
+                };
+                let result = receive(
+                    &mut party.wallet,
+                    Some(party.online),
+                    asset_id.clone(),
+                    assignment.clone(),
+                    default_rcv_expiration(),
+                    TRANSPORT_ENDPOINTS.clone(),
+                    MIN_CONFIRMATIONS,
+                    None,
+                );
+                let context =
+                    format!("schema {schema:?}, assignment {assignment:?}, blind {blind}");
+                let Some(expected) = &expected else {
+                    assert_matches!(result, Err(Error::InvalidAssignment));
+                    continue;
+                };
+                let receive_data = result.unwrap_or_else(|e| panic!("{context}: {e:?}"));
+                let invoice = Invoice::new(receive_data.invoice.clone())
+                    .unwrap_or_else(|e| panic!("{context}: {e:?}: {}", receive_data.invoice));
+                let invoice_data = invoice.invoice_data();
+                assert_eq!(invoice_data.asset_schema, schema, "{context}");
+                assert_eq!(invoice_data.asset_id, asset_id, "{context}");
+                assert_eq!(&invoice_data.assignment, expected, "{context}");
+                let transfer = party.get_test_transfer_recipient(&receive_data.recipient_id);
+                assert_eq!(
+                    transfer.requested_assignment.as_ref(),
+                    Some(expected),
+                    "{context}"
+                );
+            }
+        }
+    }
 }
 
 #[cfg(feature = "electrum")]

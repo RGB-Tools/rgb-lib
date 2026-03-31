@@ -871,6 +871,7 @@ pub(super) fn issue_asset(
                 .sum::<u64>();
             (IssuedAsset::Ifa(asset), supply, Some(inflation_supply))
         }
+        AssetSchema::Bfa => panic!("multisig wallets cannot issue BFA assets"),
     };
 
     check_issuance(initiator, others, asset.asset_id(), schema);
@@ -1064,7 +1065,7 @@ fn check_asset_metadata<P: OfflineSigParty<W = MultisigWallet>>(
                     token_1 = Some(token.clone());
                 }
             }
-            AssetSchema::Nia | AssetSchema::Ifa => {
+            AssetSchema::Nia | AssetSchema::Ifa | AssetSchema::Bfa => {
                 assert_eq!(meta.token, None);
             }
         }
@@ -1146,6 +1147,13 @@ fn check_issuance(
         let found_ids: Vec<&str> = match schema {
             AssetSchema::Cfa => assets
                 .cfa
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .map(|a| a.asset_id.as_str())
+                .collect(),
+            AssetSchema::Bfa => assets
+                .bfa
                 .as_deref()
                 .unwrap_or_default()
                 .iter()
@@ -1453,7 +1461,7 @@ pub(super) fn inspect_inflate(
 pub(super) fn inspect_burn(
     wallet: &MultisigParty,
     op_init: &InitOperationResult,
-    ifa_asset: &AssetIFA,
+    asset_id: &str,
     burn_amount: u64,
     burn_reason: Option<&str>,
 ) {
@@ -1467,9 +1475,9 @@ pub(super) fn inspect_burn(
         .unwrap();
     assert_eq!(rgb_inspection.close_method, CloseMethod::OpretFirst);
     assert_eq!(rgb_inspection.operations.len(), 1);
-    let ifa_op = &rgb_inspection.operations[0];
-    assert_eq!(ifa_op.asset_id, ifa_asset.asset_id);
-    let burn_transitions: Vec<_> = ifa_op
+    let asset_op = &rgb_inspection.operations[0];
+    assert_eq!(asset_op.asset_id, asset_id);
+    let burn_transitions: Vec<_> = asset_op
         .transitions
         .iter()
         .filter(|t| t.r#type == TypeOfTransition::Burn)

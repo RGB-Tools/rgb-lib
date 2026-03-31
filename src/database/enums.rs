@@ -18,6 +18,9 @@ pub enum AssetSchema {
     /// IFA schema
     #[sea_orm(num_value = 4)]
     Ifa = 4,
+    /// BFA schema
+    #[sea_orm(num_value = 5)]
+    Bfa = 5,
 }
 
 impl fmt::Display for AssetSchema {
@@ -35,6 +38,7 @@ impl TryFrom<String> for AssetSchema {
             SCHEMA_ID_UDA => AssetSchema::Uda,
             SCHEMA_ID_CFA => AssetSchema::Cfa,
             SCHEMA_ID_IFA => AssetSchema::Ifa,
+            SCHEMA_ID_BFA => AssetSchema::Bfa,
             _ => return Err(Error::UnknownRgbSchema { schema_id }),
         })
     }
@@ -50,7 +54,7 @@ impl TryFrom<SchemaId> for AssetSchema {
 
 impl AssetSchema {
     pub(crate) const VALUES: [Self; NUM_KNOWN_SCHEMAS] =
-        [Self::Nia, Self::Uda, Self::Cfa, Self::Ifa];
+        [Self::Nia, Self::Uda, Self::Cfa, Self::Ifa, Self::Bfa];
 
     fn from_schema_id_str(schema_id: String) -> Result<Self, Error> {
         Ok(match &schema_id[..] {
@@ -58,6 +62,7 @@ impl AssetSchema {
             SCHEMA_ID_UDA => AssetSchema::Uda,
             SCHEMA_ID_CFA => AssetSchema::Cfa,
             SCHEMA_ID_IFA => AssetSchema::Ifa,
+            SCHEMA_ID_BFA => AssetSchema::Bfa,
             _ => return Err(Error::UnknownRgbSchema { schema_id }),
         })
     }
@@ -82,6 +87,7 @@ impl AssetSchema {
             Self::Uda => UniqueDigitalAsset::schema_rules(),
             Self::Cfa => CollectibleFungibleAsset::schema_rules(),
             Self::Ifa => InflatableFungibleAsset::schema_rules(),
+            Self::Bfa => BridgedFungibleAsset::schema_rules(),
         }
     }
 
@@ -91,6 +97,86 @@ impl AssetSchema {
             Self::Uda => UniqueDigitalAsset::schema_definition(),
             Self::Cfa => CollectibleFungibleAsset::schema_definition(),
             Self::Ifa => InflatableFungibleAsset::schema_definition(),
+            Self::Bfa => BridgedFungibleAsset::schema_definition(),
+        }
+    }
+
+    /// Whether the schema has state the given concrete `assignment` can refer to.
+    ///
+    /// [`Assignment::Any`] is not a concrete assignment, so it is never supported.
+    pub(crate) fn supports_assignment(&self, assignment: &Assignment) -> bool {
+        match assignment {
+            Assignment::Fungible(_) => match self {
+                Self::Nia | Self::Cfa | Self::Ifa | Self::Bfa => true,
+                Self::Uda => false,
+            },
+            Assignment::NonFungible => match self {
+                Self::Uda => true,
+                Self::Nia | Self::Cfa | Self::Ifa | Self::Bfa => false,
+            },
+            Assignment::InflationRight(_) => match self {
+                Self::Ifa => true,
+                Self::Nia | Self::Uda | Self::Cfa | Self::Bfa => false,
+            },
+            Assignment::MintRight => match self {
+                Self::Bfa => true,
+                Self::Nia | Self::Uda | Self::Cfa | Self::Ifa => false,
+            },
+            Assignment::Any => false,
+        }
+    }
+
+    /// Whether the schema can be used on mainnet.
+    pub(crate) fn allowed_on_mainnet(&self) -> bool {
+        match self {
+            Self::Nia | Self::Uda | Self::Cfa => true,
+            Self::Ifa | Self::Bfa => false,
+        }
+    }
+
+    /// What a request for [`Assignment::Any`] of the schema refers to: the only kind of state it
+    /// can be requested for, or [`Assignment::Any`] itself if there is more than one.
+    pub(crate) fn any_assignment(&self) -> Assignment {
+        match self {
+            Self::Nia | Self::Cfa => Assignment::Fungible(0),
+            Self::Uda => Assignment::NonFungible,
+            Self::Ifa | Self::Bfa => Assignment::Any,
+        }
+    }
+
+    /// Whether the schema can carry a reject list.
+    #[cfg(feature = "_online")]
+    pub(crate) fn supports_reject_list(&self) -> bool {
+        match self {
+            Self::Bfa | Self::Ifa => true,
+            Self::Nia | Self::Uda | Self::Cfa => false,
+        }
+    }
+
+    /// Whether the schema supports inflation.
+    #[cfg(feature = "_online")]
+    pub(crate) fn supports_inflation(&self) -> bool {
+        match self {
+            Self::Ifa => true,
+            Self::Nia | Self::Uda | Self::Cfa | Self::Bfa => false,
+        }
+    }
+
+    /// Whether the schema supports burning.
+    #[cfg(feature = "_online")]
+    pub(crate) fn supports_burn(&self) -> bool {
+        match self {
+            Self::Bfa | Self::Ifa => true,
+            Self::Nia | Self::Uda | Self::Cfa => false,
+        }
+    }
+
+    /// Whether the schema supports mint operations.
+    #[cfg(feature = "_online")]
+    pub(crate) fn supports_mint(&self) -> bool {
+        match self {
+            Self::Bfa => true,
+            Self::Nia | Self::Uda | Self::Cfa | Self::Ifa => false,
         }
     }
 
@@ -106,6 +192,7 @@ impl From<AssetSchema> for SchemaId {
             AssetSchema::Ifa => SchemaId::from_str(SCHEMA_ID_IFA).unwrap(),
             AssetSchema::Nia => SchemaId::from_str(SCHEMA_ID_NIA).unwrap(),
             AssetSchema::Uda => SchemaId::from_str(SCHEMA_ID_UDA).unwrap(),
+            AssetSchema::Bfa => SchemaId::from_str(SCHEMA_ID_BFA).unwrap(),
         }
     }
 }
@@ -361,6 +448,7 @@ pub enum WalletTransactionType {
 
 /// An RGB assignment.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+#[cfg_attr(test, derive(EnumIter))]
 pub enum Assignment {
     /// Fungible value in RGB units (not considering precision)
     Fungible(u64),
@@ -368,6 +456,8 @@ pub enum Assignment {
     NonFungible,
     /// Inflation right
     InflationRight(u64),
+    /// Mint right
+    MintRight,
     /// Any assignment
     Any,
 }
@@ -380,6 +470,7 @@ impl Assignment {
                 Self::InflationRight(amt.as_u64())
             }
             AllocatedState::Data(_) => Self::NonFungible,
+            AllocatedState::Void if opout.ty == OS_MINT => Self::MintRight,
             _ => unreachable!(),
         }
     }
@@ -400,7 +491,23 @@ impl Assignment {
                     .checked_add(*amt)
                     .expect("total inflation amount cannot exceed u64::MAX")
             }
+            Self::MintRight => {
+                assignments.mint = assignments
+                    .mint
+                    .checked_add(1)
+                    .expect("total mint rights cannot exceed u64::MAX")
+            }
             _ => unreachable!("when using this method we should know the assignment type"),
+        }
+    }
+
+    /// The name of the contract state the assignment refers to, if it is a concrete one.
+    pub(crate) fn state_name(&self) -> Option<&'static str> {
+        match self {
+            Self::Fungible(_) | Self::NonFungible => Some(RGB_STATE_ASSET_OWNER),
+            Self::InflationRight(_) => Some(RGB_STATE_INFLATION_ALLOWANCE),
+            Self::MintRight => Some(RGB_STATE_MINT_RIGHT),
+            Self::Any => None,
         }
     }
 
@@ -496,6 +603,9 @@ mod tests {
             let schema_id = asset_schema.into();
             let asset_schema_from_schema_id = AssetSchema::from_schema_id(schema_id).unwrap();
             assert_eq!(asset_schema, asset_schema_from_schema_id);
+            // the constants match the compiled schemata
+            #[cfg(feature = "_online")]
+            assert_eq!(asset_schema.schema_rules().schema_id(), schema_id);
         }
 
         // unknown
@@ -509,6 +619,7 @@ mod tests {
         assert_eq!(AssetSchema::Uda.to_string(), "Uda");
         assert_eq!(AssetSchema::Cfa.to_string(), "Cfa");
         assert_eq!(AssetSchema::Ifa.to_string(), "Ifa");
+        assert_eq!(AssetSchema::Bfa.to_string(), "Bfa");
     }
 
     #[test]

@@ -364,6 +364,30 @@ pub extern "C" fn rgblib_invoice_data(invoice_string: *const c_char) -> CResultS
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn rgblib_issue_asset_bfa(
+    wallet: &COpaqueStruct,
+    ticker: *const c_char,
+    name: *const c_char,
+    precision: *const c_char,
+    mint_rights: *const c_char,
+    chain_id: *const c_char,
+    contract_address: *const c_char,
+    reject_list_address: *const c_char,
+) -> CResultString {
+    issue_asset_bfa(
+        wallet,
+        ticker,
+        name,
+        precision,
+        mint_rights,
+        chain_id,
+        contract_address,
+        reject_list_address,
+    )
+    .into()
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn rgblib_issue_asset_cfa(
     wallet: &COpaqueStruct,
     name: *const c_char,
@@ -473,6 +497,45 @@ pub extern "C" fn rgblib_load_wallet(
     mnemonic: *const c_char,
 ) -> CResult {
     load_wallet(data_dir, master_fingerprint, mnemonic).into()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rgblib_mint_begin(
+    wallet: &COpaqueStruct,
+    online: *const c_char,
+    asset_id: *const c_char,
+    recipient: *const c_char,
+    fee_rate: *const c_char,
+    min_confirmations: *const c_char,
+    sender_transport_endpoint: *const c_char,
+) -> CResultString {
+    mint_begin(
+        wallet,
+        online,
+        asset_id,
+        recipient,
+        fee_rate,
+        min_confirmations,
+        sender_transport_endpoint,
+    )
+    .into()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rgblib_get_received_mint(
+    wallet: &COpaqueStruct,
+    recipient_id: *const c_char,
+) -> CResultString {
+    get_received_mint(wallet, recipient_id).into()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rgblib_mint_end(
+    wallet: &COpaqueStruct,
+    online: *const c_char,
+    signed_psbt: *const c_char,
+) -> CResultString {
+    mint_end(wallet, online, signed_psbt).into()
 }
 
 #[unsafe(no_mangle)]

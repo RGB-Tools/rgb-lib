@@ -786,3 +786,145 @@ fn proxy_auth_keys() {
     let online_data = party.wallet.online_data().as_ref().unwrap();
     assert!(online_data.proxy_auth_keys.is_empty());
 }
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn evm_rpc_urls() {
+    initialize();
+
+    let mut party = offline_party!(get_test_wallet(true, None));
+
+    let options_with_urls = |evm_rpc_urls: HashMap<u64, String>| {
+        let mut online_options = test_go_online_options(None);
+        online_options.evm_rpc_urls = evm_rpc_urls;
+        online_options
+    };
+
+    // endpoint that cannot be reached
+    let result = party.wallet.go_online(options_with_urls(HashMap::from([(
+        ANVIL_CHAIN_ID,
+        s!("http://127.0.0.1:1"),
+    )])));
+    assert!(matches!(
+        result,
+        Err(Error::InvalidEvmRpcUrl { details: _ })
+    ));
+
+    // endpoint that is not an EVM JSON-RPC server
+    let result = party.wallet.go_online(options_with_urls(HashMap::from([(
+        ANVIL_CHAIN_ID,
+        format!("http://{PROXY_HOST}"),
+    )])));
+    assert!(matches!(
+        result,
+        Err(Error::InvalidEvmRpcUrl { details: _ })
+    ));
+
+    // endpoint on a chain other than the one it is configured for
+    let result = party.wallet.go_online(options_with_urls(HashMap::from([(
+        ANVIL_CHAIN_ID + 1,
+        EVM_RPC_URL.to_string(),
+    )])));
+    assert!(matches!(
+        result,
+        Err(Error::EvmChainIdMismatch { expected, actual })
+            if expected == ANVIL_CHAIN_ID + 1 && actual == ANVIL_CHAIN_ID
+    ));
+    assert!(party.wallet.online_data().is_none());
+
+    // endpoints on the right chain not serving what confirming mint events needs
+    let mock_endpoint = |finalized: &str, logs: &str| {
+        let mut server = mockito::Server::new();
+        let rpc_mock = |server: &mut mockito::Server, method: &str, body: &str| {
+            server
+                .mock("POST", "/")
+                .match_body(mockito::Matcher::PartialJsonString(format!(
+                    r#"{{"method":"{method}"}}"#
+                )))
+                .with_body(format!(r#"{{"jsonrpc":"2.0","id":1,{body}}}"#))
+                .create()
+        };
+        let mocks = [
+            rpc_mock(
+                &mut server,
+                "eth_chainId",
+                &format!(r#""result":"0x{ANVIL_CHAIN_ID:x}""#),
+            ),
+            rpc_mock(&mut server, "eth_getBlockByNumber", finalized),
+            rpc_mock(&mut server, "eth_getLogs", logs),
+        ];
+        (server, mocks)
+    };
+    let finalized = r#""result":{"number":"0x10"}"#;
+    // no finalized block
+    let (server, _mocks) = mock_endpoint(
+        r#""error":{"code":-32602,"message":"invalid block tag"}"#,
+        r#""result":[]"#,
+    );
+    let result = party.wallet.go_online(options_with_urls(HashMap::from([(
+        ANVIL_CHAIN_ID,
+        server.url(),
+    )])));
+    assert!(matches!(
+        result,
+        Err(Error::InvalidEvmRpcUrl { ref details })
+            if details.starts_with("cannot get the latest finalized block")
+    ));
+    // only the logs of recent blocks
+    let (server, _mocks) = mock_endpoint(
+        finalized,
+        r#""error":{"code":-32602,"message":"Archive requests require a personal token"}"#,
+    );
+    let result = party.wallet.go_online(options_with_urls(HashMap::from([(
+        ANVIL_CHAIN_ID,
+        server.url(),
+    )])));
+    assert!(matches!(
+        result,
+        Err(Error::InvalidEvmRpcUrl { ref details })
+            if details.starts_with("cannot get the logs of the oldest blocks")
+                && details.ends_with("Archive requests require a personal token")
+    ));
+    // serving both
+    let (server, _mocks) = mock_endpoint(finalized, r#""result":[]"#);
+    party
+        .wallet
+        .go_online(options_with_urls(HashMap::from([(
+            ANVIL_CHAIN_ID,
+            server.url(),
+        )])))
+        .unwrap();
+    assert_eq!(
+        party.wallet.online_data().as_ref().unwrap().evm_rpc_urls,
+        HashMap::from([(ANVIL_CHAIN_ID, server.url())])
+    );
+
+    // no endpoints: going online works, mint operations will need one
+    let online = party
+        .wallet
+        .go_online(options_with_urls(HashMap::new()))
+        .unwrap();
+    assert!(
+        party
+            .wallet
+            .online_data()
+            .as_ref()
+            .unwrap()
+            .evm_rpc_urls
+            .is_empty()
+    );
+
+    // going online again with the same indexer keeps the online object and replaces the URLs
+    let online_2 = party
+        .wallet
+        .go_online(options_with_urls(HashMap::from([(
+            ANVIL_CHAIN_ID,
+            EVM_RPC_URL.to_string(),
+        )])))
+        .unwrap();
+    assert_eq!(online_2, online);
+    let online_data = party.wallet.online_data().as_ref().unwrap();
+    assert_eq!(online_data.evm_rpc_urls.len(), 1);
+    assert_eq!(online_data.evm_rpc_urls[&ANVIL_CHAIN_ID], EVM_RPC_URL);
+}

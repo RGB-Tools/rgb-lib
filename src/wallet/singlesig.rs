@@ -543,6 +543,53 @@ impl Wallet {
         Ok(res)
     }
 
+    /// Issue a new RGB BFA asset with the provided `ticker`, `name` and `precision`, bridging the
+    /// asset from the bridge contract at the provided `contract_address` on the EVM chain with
+    /// the provided EIP-155 `chain_id`, then return it.
+    ///
+    /// The initial supply is zero: assets enter circulation via mint operations (see
+    /// [`mint_begin`](Wallet::mint_begin)), backed by tokens locked on the bridge contract.
+    ///
+    /// The bridge location (chain ID and contract address) is committed in the asset's genesis
+    /// and cannot be changed afterwards: mint operations and their validation use the EVM RPC
+    /// endpoint configured for that chain (see [`OnlineOptions::evm_rpc_urls`]), checking it is
+    /// actually on it.
+    ///
+    /// If a `reject_list_address` is provided, the asset commits to the reject list kept by the
+    /// `IRgbRejectList` contract at that address, on the same chain as the bridge. Transfers
+    /// are then checked against it, which needs the same EVM RPC endpoint.
+    ///
+    /// At least 1 mint right needs to be requested via `mint_rights`. Each one will be issued
+    /// as a separate allocation (on a separate UTXO that needs to be already available).
+    pub fn issue_asset_bfa(
+        &self,
+        ticker: String,
+        name: String,
+        precision: u8,
+        mint_rights: u8,
+        chain_id: u64,
+        contract_address: String,
+        reject_list_address: Option<String>,
+    ) -> Result<AssetBFA, Error> {
+        info!(self.logger(), "Issuing BFA...");
+        let txn = self.database().begin_transaction()?;
+        let issue_data = self.create_bfa_contract(
+            &txn,
+            ticker,
+            name,
+            precision,
+            mint_rights,
+            chain_id,
+            contract_address,
+            reject_list_address,
+        )?;
+        let res = self.finalize_offline_issuance(&txn, &issue_data)?;
+        self.update_backup_info(&txn, false)?;
+        txn.commit()?;
+        info!(self.logger(), "Issue asset BFA completed");
+        Ok(res)
+    }
+
     /// Blind an UTXO to receive RGB assets and return the resulting [`ReceiveData`].
     ///
     /// An optional asset ID can be specified, which will be embedded in the invoice, resulting in
@@ -938,6 +985,9 @@ impl Wallet {
     /// exchange: its consignment is not posted anywhere and it doesn't need a public key, see
     /// [`provide_out_of_band_ack`](Wallet::provide_out_of_band_ack).
     ///
+    /// Mint rights ([`Assignment::MintRight`] recipients) can be duplicated: a single mint right
+    /// of the wallet is spent, however many of them are sent.
+    ///
     /// If `donation` is true, the resulting transaction will be broadcast (by
     /// [`send_end`](Wallet::send_end)) as soon as it's ready, without the need for recipients to
     /// ACK the transfer.
@@ -952,11 +1002,13 @@ impl Wallet {
     /// refreshing) to the [`TransferStatus::Settled`] status.
     ///
     /// An expiration UTC timestamp must be specified, which will set the expiration of the
-    /// transfer. This should be set to the same value specified by the recipient's invoice, so
-    /// that sender and recipient enforce the same deadline; once it passes, the recipient is
-    /// allowed to fail the transfer and the sender will avoid broadcasting it even if a late ACK is
-    /// received. In case of a batch transfer, set it to the minimum (earliest) expiration across
-    /// the recipients' invoices.
+    /// transfer: once it passes, the sender will avoid broadcasting it even if a late ACK is
+    /// received. It must be at least 5 minutes in the future, the clock skew the proxy tolerates
+    /// on timestamps, so that it cannot already be past on the sender proxy's clock. For
+    /// recipients with transport endpoints, it must also be at least 10 minutes (twice that
+    /// tolerance) before the earliest of their invoice expirations, so the TX can only be released
+    /// while they are still waiting for it, even with skewed clocks: their invoices therefore need
+    /// at least 15 minutes left. [`Error::InvalidExpiration`] is returned otherwise.
     ///
     /// The `sender_transport_endpoint` is the sender's own proxy, where recipients post their ACK
     /// and the signed transaction is released. It is required when at least one recipient has
@@ -1457,6 +1509,122 @@ impl Wallet {
         self.update_backup_info(&txn, false)?;
         self.persist_and_commit(txn)?;
         info!(self.logger(), "Burn (end) completed");
+        Ok(res)
+    }
+
+    /// Prepare the PSBT to mint RGB assets, backed by tokens locked on the asset's bridge
+    /// contract on the external chain, to the provided `recipient`, with the provided `fee_rate`
+    /// (in sat/vB).
+    ///
+    /// The `recipient` assignment needs to be an [`Assignment::Fungible`], specifying the amount
+    /// of assets to mint. The operation spends a mint right without allocating a new one, so
+    /// each mint consumes a mint right. To avoid running out of them, the last settled mint right
+    /// of the wallet cannot be spent, erroring with [`Error::LastMintRight`].
+    ///
+    /// The returned [`MintDetails::opid`] identifies the mint operation: the lock of the
+    /// corresponding tokens on the external chain contract needs to commit to it. The consignment
+    /// is posted right away, so the recipient can check the mint before the lock is made (see
+    /// [`get_received_mint`](crate::wallet::RgbWalletOpsOffline::get_received_mint)), while it
+    /// will be able to accept the transfer only once the lock event exists on the external chain.
+    ///
+    /// The `min_confirmations` number determines the minimum number of confirmations needed for
+    /// the transaction anchoring the transfer for it to be considered final and move (while
+    /// refreshing) to the [`TransferStatus::Settled`] status.
+    ///
+    /// The deadline for the lock is the expiration of the recipient's invoice, which is also the
+    /// expiration of the transfer: the lock has to be included on the external chain by then. If
+    /// it is, the transfer is waited for past it, for the lock to be finalized, for up to 24
+    /// hours; otherwise, once the deadline passes, the recipient is allowed to fail the transfer
+    /// and [`mint_end`](Wallet::mint_end) will refuse to broadcast it. The invoice must have at
+    /// least 1 hour left, to leave time for the lock, erroring with [`Error::InvoiceExpired`]
+    /// otherwise. The lock should still be made well before the deadline, paying enough fees for
+    /// it to be included in time, since a lock included after it doesn't mint anything.
+    ///
+    /// Signing of the returned PSBT needs to be carried out separately. The signed PSBT then needs
+    /// to be fed to the [`mint_end`](Wallet::mint_end) function for broadcasting.
+    ///
+    /// This doesn't require the wallet to have private keys.
+    ///
+    /// Returns a PSBT ready to be signed and operation details.
+    pub fn mint_begin(
+        &mut self,
+        online: Online,
+        asset_id: String,
+        recipient: Recipient,
+        fee_rate: u64,
+        min_confirmations: u8,
+        sender_transport_endpoint: String,
+    ) -> Result<MintBeginResult, Error> {
+        info!(self.logger(), "Minting (begin)...");
+        self.check_online(online)?;
+        let txn = self.database().begin_transaction()?;
+        let begin_op_data = self.mint_begin_impl(
+            &txn,
+            asset_id,
+            recipient,
+            fee_rate,
+            min_confirmations,
+            sender_transport_endpoint,
+        )?;
+        self.update_backup_info(&txn, false)?;
+        self.persist_and_commit(txn)?;
+        info!(self.logger(), "Minting (begin) completed");
+        Ok(MintBeginResult {
+            psbt: begin_op_data.psbt.to_string(),
+            batch_transfer_idx: begin_op_data
+                .batch_transfer_idx
+                .expect("a mint is always saved, having no dry run"),
+            details: MintDetails {
+                fascia_path: begin_op_data
+                    .transfer_dir
+                    .join(FASCIA_FILE)
+                    .to_string_lossy()
+                    .to_string(),
+                min_confirmations,
+                entropy: begin_op_data.info_batch_transfer.entropy,
+                opid: begin_op_data.opid.expect("always set for mint"),
+            },
+        })
+    }
+
+    /// Complete the mint operation by broadcasting the provided PSBT and saving the transfer to
+    /// DB.
+    ///
+    /// The provided PSBT, prepared with the [`mint_begin`](Wallet::mint_begin) function, needs
+    /// to have already been signed.
+    ///
+    /// Before broadcasting, the wallet checks via the EVM RPC endpoint (which needs to be on the
+    /// chain of the asset's bridge contract, erroring with [`Error::EvmChainIdMismatch`]
+    /// otherwise) that a lock event committing to the mint operation (see
+    /// [`MintDetails::opid`]) already exists on the bridge contract in a finalized block, erroring
+    /// with [`Error::MintEventNotFound`] otherwise. This enforces the safe operation order: begin,
+    /// lock on the external chain, wait for the lock to be final, then end.
+    ///
+    /// The TX is not broadcast once the deadline for the lock (the expiration of the recipient's
+    /// invoice, see [`mint_begin`](Wallet::mint_begin)) has passed, erroring with
+    /// [`Error::TransferExpired`] instead, since the recipient may have already failed the
+    /// transfer, unless the lock was included on the external chain by the deadline and 24 hours
+    /// haven't passed since it, as the recipient waits for such a lock to be finalized. The
+    /// expired transfer can then be failed with [`fail_transfers`](Wallet::fail_transfers).
+    ///
+    /// A mint that has already failed or been ended errors with [`Error::CannotEndTransfer`].
+    ///
+    /// This doesn't require the wallet to have private keys.
+    ///
+    /// Returns a [`OperationResult`].
+    pub fn mint_end(
+        &mut self,
+        online: Online,
+        signed_psbt: String,
+    ) -> Result<OperationResult, Error> {
+        info!(self.logger(), "Minting (end)...");
+        self.check_online(online)?;
+        let psbt = Psbt::from_str(&signed_psbt)?;
+        let txn = self.database().begin_transaction()?;
+        let res = self.mint_end_impl(&txn, &psbt)?;
+        self.update_backup_info(&txn, false)?;
+        self.persist_and_commit(txn)?;
+        info!(self.logger(), "Minting (end) completed");
         Ok(res)
     }
 }

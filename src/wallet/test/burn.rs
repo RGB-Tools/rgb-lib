@@ -1,6 +1,37 @@
 use super::*;
 
 #[cfg(feature = "electrum")]
+fn mint_bfa_to_self(
+    party: &mut SinglesigParty,
+    asset_id: &str,
+    token_contract: &DeployedContract,
+    bridge_contract: &DeployedContract,
+    amount: u64,
+) {
+    party.create_utxos_default();
+    let receive_data = party.blind_receive();
+    let recipient = Recipient {
+        assignment: Assignment::Fungible(amount),
+        recipient_id: receive_data.recipient_id.clone(),
+        witness_data: None,
+        transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        public_key: Some(receive_data.public_key.clone()),
+        expiration_timestamp: Some(receive_data.expiration_timestamp),
+        encryption: Encryption::Optional,
+    };
+    let res = party.mint_begin(party.online, asset_id, recipient);
+    erc20_approve(&token_contract.address, &bridge_contract.address, amount);
+    bridge_funds_in(&bridge_contract.address, amount, &res.details.opid);
+    evm_mine(EVM_FINALITY_DEPTH);
+    // the consignment is accepted once the mint event is confirmed on the external chain
+    party.wait_for_refresh(None);
+    let signed_psbt = party.wallet.sign_psbt(res.psbt, None).unwrap();
+    party.mint_end(party.online, signed_psbt);
+    mine(false);
+    assert!(party.refresh_asset(asset_id));
+}
+
+#[cfg(feature = "electrum")]
 fn assert_burn_unspents(
     party: &mut SinglesigParty,
     asset_id: &str,
@@ -38,7 +69,7 @@ fn assert_burn_unspents(
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
-fn success() {
+fn ifa_success() {
     initialize();
 
     // wallets
@@ -467,6 +498,376 @@ fn success() {
 
 #[cfg(feature = "electrum")]
 #[test]
+#[serial(evm)]
+fn bfa_success() {
+    initialize();
+
+    let token_supply = 1_000_000;
+    let token_contract = deploy_test_erc20("Bridged Token", "BRG", 18, token_supply);
+    let bridge_contract = deploy_bridge(&token_contract.address);
+
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+
+    let asset = party.issue_asset_bfa(2, bridge_contract.address.clone(), None);
+    party.show_unspent_colorings("after issue");
+    assert_eq!(asset.initial_supply, 0);
+    let transfers = party.list_transfers(Some(&asset.asset_id));
+    assert_eq!(transfers.len(), 1);
+    assert_eq!(transfers.first().unwrap().kind, TransferKind::Issuance);
+
+    mint_bfa_to_self(
+        &mut party,
+        &asset.asset_id,
+        &token_contract,
+        &bridge_contract,
+        AMOUNT,
+    );
+    party.show_unspent_colorings("after mint");
+
+    let bridged_amount = AMOUNT;
+    let balance = party.get_asset_balance(&asset.asset_id);
+    assert_eq!(
+        balance,
+        Balance {
+            settled: bridged_amount,
+            future: bridged_amount,
+            spendable: bridged_amount,
+        }
+    );
+
+    // burn
+    party.create_utxos_default();
+    let burn_amount = 199;
+    let bak_info_before = party.db_backup_info();
+    let res = party.burn(&asset.asset_id, burn_amount, Some(BURN_REASON));
+    let bak_info_after = party.db_backup_info();
+    assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
+    party.show_unspent_colorings("after burn");
+
+    let burn_change = bridged_amount - burn_amount;
+    let remaining_after_burn = bridged_amount - burn_amount;
+    let balance = party.get_asset_balance(&asset.asset_id);
+    assert_eq!(
+        balance,
+        Balance {
+            settled: bridged_amount,
+            future: remaining_after_burn,
+            spendable: 0,
+        }
+    );
+
+    mine(false);
+    assert!(party.refresh_asset(&asset.asset_id));
+
+    let balance = party.get_asset_balance(&asset.asset_id);
+    assert_eq!(
+        balance,
+        Balance {
+            settled: remaining_after_burn,
+            future: remaining_after_burn,
+            spendable: remaining_after_burn,
+        }
+    );
+
+    let transfers = party.list_transfers(Some(&asset.asset_id));
+    let transfer = transfers
+        .iter()
+        .find(|t| t.txid.as_deref() == Some(res.txid.as_str()))
+        .expect("burn transfer not found");
+    assert_eq!(transfer.status, TransferStatus::Settled);
+    assert_eq!(
+        transfer.requested_assignment.as_ref().unwrap(),
+        &Assignment::Fungible(burn_amount)
+    );
+    assert_eq!(
+        transfer.assignments,
+        vec![Assignment::Fungible(burn_change)]
+    );
+    assert_eq!(transfer.kind, TransferKind::Burn);
+    assert_eq!(transfer.txid.as_ref().unwrap(), &res.txid);
+    assert!(transfer.recipient_id.is_none());
+    assert!(transfer.receive_utxo.is_none());
+    assert!(transfer.change_utxo.is_some());
+    assert!(transfer.expiration_timestamp.is_none());
+    assert!(transfer.transport_endpoints.is_empty());
+    assert!(transfer.invoice_string.is_none());
+    assert!(transfer.consignment_path.is_some());
+
+    // check the burn consignment: it carries the burn transition (with the committed reason) and
+    // no terminal, and it validates from the point of view of a third party that doesn't know the
+    // asset
+    let consignment_path = transfer.consignment_path.as_ref().unwrap();
+    let consignment = RgbTransfer::load_file(consignment_path).unwrap();
+    assert!(consignment.terminals.is_empty());
+    let burn_transitions: Vec<_> = consignment
+        .bundles
+        .iter()
+        .flat_map(|witness_bundle| witness_bundle.bundle.known_transitions.iter())
+        .filter(|kt| kt.transition.transition_type == TS_BURN)
+        .collect();
+    assert_eq!(burn_transitions.len(), 1);
+    let burn_reason_type = BridgedFungibleAsset::schema().global_type(RGB_GLOBAL_BURN_REASON);
+    let burn_reason = burn_transitions[0]
+        .transition
+        .globals
+        .get(&burn_reason_type)
+        .and_then(|values| values.first())
+        .map(|data| BurnReason::from_strict_serialized(data.to_inner()).unwrap())
+        .unwrap();
+    assert_eq!(burn_reason.to_string(), BURN_REASON);
+    let validation_config = ValidationConfig {
+        chain_net: rcv_party.wallet.chain_net(),
+        ..Default::default()
+    };
+    // the history carries the mint transition, whose external anchor has to be confirmed on the
+    // external chain (through an RPC endpoint checked to be on the bridge's chain) before the
+    // witnesses can be resolved
+    let mut pending = consignment
+        .validate_deterministic(&AssetSchema::Bfa.schema_rules(), &validation_config)
+        .unwrap();
+    pending
+        .resolve_all_anchors(
+            BridgedFungibleAsset::bridge_location(pending.consignment().genesis()).unwrap(),
+            &EvmClient::new(EVM_RPC_URL).unwrap(),
+        )
+        .unwrap();
+    pending
+        .pending()
+        .resolve_all(&rcv_party.wallet.blockchain_resolver())
+        .unwrap();
+    let valid_consignment = pending.finalize();
+    assert_eq!(
+        valid_consignment.validation_status().validity(),
+        Validity::Valid
+    );
+
+    assert_burn_unspents(
+        &mut party,
+        &asset.asset_id,
+        transfer.change_utxo.as_ref().map(|o| (o, burn_change)),
+    );
+
+    // send remaining to rcv_wallet
+    let receive_data = rcv_party.blind_receive();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(remaining_after_burn),
+            recipient_id: receive_data.recipient_id.clone(),
+            witness_data: None,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
+        }],
+    )]);
+    let txid = party.send_retry(&recipient_map);
+    assert!(!txid.is_empty());
+
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(Some(&asset.asset_id));
+    mine(false);
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(Some(&asset.asset_id));
+
+    let balance = party.get_asset_balance(&asset.asset_id);
+    assert_eq!(
+        balance,
+        Balance {
+            settled: 0,
+            future: 0,
+            spendable: 0,
+        }
+    );
+
+    let rcv_assets = rcv_party.list_assets(&[]);
+    let bfa_assets = rcv_assets.bfa.unwrap();
+    assert_eq!(bfa_assets.len(), 1);
+    let rcv_asset = bfa_assets.last().unwrap();
+    assert_eq!(rcv_asset.asset_id, asset.asset_id);
+    assert_eq!(
+        rcv_asset.balance,
+        Balance {
+            settled: remaining_after_burn,
+            future: remaining_after_burn,
+            spendable: remaining_after_burn,
+        }
+    );
+
+    // burn part of the received amount on rcv_wallet
+    rcv_party.create_utxos_default();
+    let rcv_burn_amount = 50;
+    let res_rcv_burn = rcv_party.burn(&asset.asset_id, rcv_burn_amount, None);
+    rcv_party.show_unspent_colorings("after rcv partial burn");
+
+    let rcv_remaining = remaining_after_burn - rcv_burn_amount;
+    mine(false);
+    assert!(rcv_party.refresh_asset(&asset.asset_id));
+
+    let balance = rcv_party.get_asset_balance(&asset.asset_id);
+    assert_eq!(
+        balance,
+        Balance {
+            settled: rcv_remaining,
+            future: rcv_remaining,
+            spendable: rcv_remaining,
+        }
+    );
+
+    let rcv_transfers = rcv_party.list_transfers(Some(&asset.asset_id));
+    let rcv_burn_transfer = rcv_transfers.last().unwrap();
+    assert_eq!(rcv_burn_transfer.status, TransferStatus::Settled);
+    assert_eq!(rcv_burn_transfer.kind, TransferKind::Burn);
+    assert_eq!(
+        rcv_burn_transfer.requested_assignment.as_ref().unwrap(),
+        &Assignment::Fungible(rcv_burn_amount)
+    );
+    assert_eq!(
+        rcv_burn_transfer.assignments,
+        vec![Assignment::Fungible(rcv_remaining)]
+    );
+    assert_eq!(rcv_burn_transfer.txid.as_ref().unwrap(), &res_rcv_burn.txid);
+
+    assert_burn_unspents(
+        &mut rcv_party,
+        &asset.asset_id,
+        rcv_burn_transfer
+            .change_utxo
+            .as_ref()
+            .map(|o| (o, rcv_remaining)),
+    );
+
+    // burn everything from the receiving wallet
+    rcv_party.create_utxos_default();
+    let res_rcv_burn_all = rcv_party.burn(&asset.asset_id, rcv_remaining, None);
+    rcv_party.show_unspent_colorings("after rcv burn all");
+
+    mine(false);
+    assert!(rcv_party.refresh_asset(&asset.asset_id));
+
+    let balance = rcv_party.get_asset_balance(&asset.asset_id);
+    assert_eq!(
+        balance,
+        Balance {
+            settled: 0,
+            future: 0,
+            spendable: 0,
+        }
+    );
+
+    let rcv_transfers = rcv_party.list_transfers(Some(&asset.asset_id));
+    let rcv_burn_all_transfer = rcv_transfers.last().unwrap();
+    assert_eq!(rcv_burn_all_transfer.status, TransferStatus::Settled);
+    assert_eq!(rcv_burn_all_transfer.kind, TransferKind::Burn);
+    assert_eq!(
+        rcv_burn_all_transfer.requested_assignment.as_ref().unwrap(),
+        &Assignment::Fungible(rcv_remaining)
+    );
+    assert_eq!(
+        rcv_burn_all_transfer.txid.as_ref().unwrap(),
+        &res_rcv_burn_all.txid
+    );
+    assert_eq!(rcv_burn_all_transfer.assignments, vec![]);
+    assert!(rcv_burn_all_transfer.change_utxo.is_none());
+    assert_burn_unspents(&mut rcv_party, &asset.asset_id, None);
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn ifa_reject_list() {
+    initialize();
+
+    let mut party = get_funded_party!();
+
+    // the reject list is empty, so nothing gets rejected, but it is still checked
+    let list_name = "reject_burn.list";
+    write_opouts_to_reject_list(list_name, &[]);
+    let asset = party.issue_asset_ifa(
+        Some(&[AMOUNT]),
+        None,
+        Some(format!("http://localhost:8140/lists/{list_name}")),
+    );
+
+    // burn
+    party.create_utxos_default();
+    let burn_amount = 199;
+    let res = party.burn(&asset.asset_id, burn_amount, Some(BURN_REASON));
+    mine(false);
+    assert!(party.refresh_asset(&asset.asset_id));
+
+    let remaining_after_burn = AMOUNT - burn_amount;
+    let balance = party.get_asset_balance(&asset.asset_id);
+    assert_eq!(
+        balance,
+        Balance {
+            settled: remaining_after_burn,
+            future: remaining_after_burn,
+            spendable: remaining_after_burn,
+        }
+    );
+    let transfers = party.list_transfers(Some(&asset.asset_id));
+    let transfer = transfers.last().unwrap();
+    assert_eq!(transfer.kind, TransferKind::Burn);
+    assert_eq!(transfer.status, TransferStatus::Settled);
+    assert_eq!(transfer.txid.as_ref().unwrap(), &res.txid);
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[serial(evm)]
+fn bfa_reject_list() {
+    initialize();
+
+    let token_contract = deploy_test_erc20("Bridged Token", "BRG", 18, 1_000_000);
+    let bridge_contract = deploy_bridge(&token_contract.address);
+    let reject_list_contract = deploy_reject_list();
+
+    let mut party = get_funded_party!();
+
+    // the reject list is empty, so nothing gets rejected, but it is still checked
+    let asset = party.issue_asset_bfa(
+        2,
+        bridge_contract.address.clone(),
+        Some(reject_list_contract.address.clone()),
+    );
+    mint_bfa_to_self(
+        &mut party,
+        &asset.asset_id,
+        &token_contract,
+        &bridge_contract,
+        AMOUNT,
+    );
+
+    // burn
+    party.create_utxos_default();
+    let burn_amount = 199;
+    let res = party.burn(&asset.asset_id, burn_amount, Some(BURN_REASON));
+    mine(false);
+    assert!(party.refresh_asset(&asset.asset_id));
+
+    let remaining_after_burn = AMOUNT - burn_amount;
+    let balance = party.get_asset_balance(&asset.asset_id);
+    assert_eq!(
+        balance,
+        Balance {
+            settled: remaining_after_burn,
+            future: remaining_after_burn,
+            spendable: remaining_after_burn,
+        }
+    );
+    let transfers = party.list_transfers(Some(&asset.asset_id));
+    let transfer = transfers
+        .iter()
+        .find(|t| t.txid.as_deref() == Some(res.txid.as_str()))
+        .expect("burn transfer not found");
+    assert_eq!(transfer.kind, TransferKind::Burn);
+    assert_eq!(transfer.status, TransferStatus::Settled);
+}
+
+#[cfg(feature = "electrum")]
+#[test]
 #[parallel]
 fn fail() {
     initialize();
@@ -632,15 +1033,16 @@ fn fail() {
     let result = party_nia.burn_begin_result(&asset_ifa.asset_id, 10, None);
     assert_matches!(result, Err(Error::UnsupportedSchema { asset_schema: _ }));
     // - burn not supported
-    let asset_nia = party.issue_asset_nia(None);
-    let asset_cfa = party.issue_asset_cfa(None, None);
-    let asset_uda = party.issue_asset_uda(None, None, vec![]);
-    let unsupported_asset_ids = [
-        (asset_nia.asset_id, AssetSchema::Nia),
-        (asset_cfa.asset_id, AssetSchema::Cfa),
-        (asset_uda.asset_id, AssetSchema::Uda),
-    ];
-    for (asset_id, schema) in unsupported_asset_ids {
+    party.create_utxos_default(); // more UTXOs to have free allocation slots
+    for schema in AssetSchema::iter() {
+        let supported = match schema {
+            AssetSchema::Ifa | AssetSchema::Bfa => true,
+            AssetSchema::Nia | AssetSchema::Uda | AssetSchema::Cfa => false,
+        };
+        if supported {
+            continue;
+        }
+        let asset_id = party.issue_asset_of_schema(schema);
         let result = party.burn_result(&asset_id, 10, None);
         assert_matches!(result, Err(Error::UnsupportedBurn { asset_schema }) if asset_schema == schema);
     }

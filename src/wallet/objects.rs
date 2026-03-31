@@ -64,6 +64,8 @@ pub struct OnlineData {
     pub(crate) indexer_config: IndexerConfig,
     pub(crate) indexer: Indexer,
     pub(crate) resolver: AnyResolver,
+    // EVM JSON-RPC endpoints by EIP-155 chain ID (see OnlineOptions::evm_rpc_urls)
+    pub(crate) evm_rpc_urls: HashMap<u64, String>,
     pub(crate) hub_client: Option<MultisigHubClient>,
     pub(crate) user_role: Option<UserRole>,
     pub(crate) vanilla_sync_lookback: u32,
@@ -136,6 +138,19 @@ pub struct OnlineOptions {
     /// caller must keep supplying a correct key for all endpoints that any pending transfer relies
     /// on: a wrong or missing key for such an endpoint can make `refresh` fail to process it.
     pub proxy_auth_keys: HashMap<String, String>,
+    /// EVM JSON-RPC endpoints to be used for mint operations on bridged assets, by the EIP-155
+    /// chain ID of the chain they are connected to.
+    ///
+    /// A bridged asset commits to the chain its bridge contract lives on: minting it, or
+    /// receiving a mint of it, needs an endpoint for that chain and fails with
+    /// [`Error::NoEvmRpcUrl`] if none is configured. Going online checks each endpoint answers,
+    /// is on the chain it is configured for and serves the latest finalized block and the logs of
+    /// the whole chain history (as mints in the history of a received asset can be from any time),
+    /// failing with an [`Error::InvalidEvmRpcUrl`] otherwise: nodes keeping only the logs of
+    /// recent blocks (e.g. on the free plans of some providers) are not supported.
+    ///
+    /// Only used when the wallet supports the [`AssetSchema::Bfa`] schema.
+    pub evm_rpc_urls: HashMap<u64, String>,
 }
 
 /// Indexer the wallet connects to, see [`OnlineOptions::indexer_config`].
@@ -840,6 +855,82 @@ impl AssetIFA {
     }
 }
 
+/// A Bridged Fungible Asset.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct AssetBFA {
+    /// ID of the asset
+    pub asset_id: String,
+    /// Ticker of the asset
+    pub ticker: String,
+    /// Name of the asset
+    pub name: String,
+    /// Details of the asset
+    pub details: Option<String>,
+    /// Precision, also known as divisibility, of the asset
+    pub precision: u8,
+    /// Initial issued supply
+    pub initial_supply: u64,
+    /// Timestamp of asset genesis
+    pub timestamp: i64,
+    /// Timestamp of asset import
+    pub added_at: i64,
+    /// Current balance of the asset
+    pub balance: Balance,
+    /// Asset media attachment
+    pub media: Option<Media>,
+    /// Reject list URL
+    pub reject_list_url: Option<String>,
+}
+
+impl AssetBFA {
+    pub(crate) fn get_asset_details(
+        txn: &DbTxn,
+        wallet: &(impl WalletOffline + ?Sized),
+        asset: &DbAsset,
+        transfers: Option<Vec<DbTransfer>>,
+        asset_transfers: Option<Vec<DbAssetTransfer>>,
+        batch_transfers: Option<Vec<DbBatchTransfer>>,
+        colorings: Option<Vec<DbColoring>>,
+        txos: Option<Vec<DbTxo>>,
+        medias: Option<Vec<DbMedia>>,
+    ) -> Result<AssetBFA, Error> {
+        let media = {
+            let medias = if let Some(m) = medias {
+                m
+            } else {
+                txn.iter_media()?
+            };
+            medias
+                .iter()
+                .find(|m| Some(m.idx) == asset.media_idx)
+                .map(|m| Media::from_db_media(m, wallet.media_dir()))
+        };
+        let balance = txn.get_asset_balance(
+            asset.id.clone(),
+            transfers,
+            asset_transfers,
+            batch_transfers,
+            colorings,
+            txos,
+        )?;
+        let initial_supply = asset.initial_supply.parse::<u64>().unwrap();
+        Ok(AssetBFA {
+            asset_id: asset.id.clone(),
+            ticker: asset.ticker.clone().unwrap(),
+            name: asset.name.clone(),
+            details: asset.details.clone(),
+            precision: asset.precision,
+            initial_supply,
+            timestamp: asset.timestamp,
+            added_at: asset.added_at,
+            balance,
+            media,
+            reject_list_url: asset.reject_list_url.clone(),
+        })
+    }
+}
+
 /// List of RGB assets, grouped by asset schema.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
@@ -852,6 +943,8 @@ pub struct Assets {
     pub cfa: Option<Vec<AssetCFA>>,
     /// List of IFA assets
     pub ifa: Option<Vec<AssetIFA>>,
+    /// List of BFA assets
+    pub bfa: Option<Vec<AssetBFA>>,
 }
 
 pub(crate) trait IssuedAssetDetails: Sized {
@@ -918,6 +1011,17 @@ impl IssuedAssetDetails for AssetIFA {
     }
 }
 
+impl IssuedAssetDetails for AssetBFA {
+    fn from_issuance(
+        txn: &DbTxn,
+        wallet: &(impl WalletOffline + ?Sized),
+        asset: &DbAsset,
+        _issue_data: &IssueData,
+    ) -> Result<Self, Error> {
+        Self::get_asset_details(txn, wallet, asset, None, None, None, None, None, None)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct LocalAssetData {
     pub(crate) asset_id: String,
@@ -959,6 +1063,8 @@ pub struct AssignmentsCollection {
     pub non_fungible: bool,
     /// Inflation right assignments
     pub inflation: u64,
+    /// Mint right assignments
+    pub mint: u64,
 }
 
 #[cfg(feature = "_online")]
@@ -981,6 +1087,13 @@ impl AssignmentsCollection {
             .expect("total inflation amount cannot exceed u64::MAX");
     }
 
+    fn add_mint(&mut self) {
+        self.mint = self
+            .mint
+            .checked_add(1)
+            .expect("total mint rights cannot exceed u64::MAX");
+    }
+
     pub(crate) fn add_opout_state(&mut self, opout: &Opout, state: &AllocatedState) {
         match state {
             AllocatedState::Amount(amt) if opout.ty == OS_ASSET => {
@@ -991,6 +1104,9 @@ impl AssignmentsCollection {
             }
             AllocatedState::Data(_) => {
                 self.add_non_fungible();
+            }
+            AllocatedState::Void if opout.ty == OS_MINT => {
+                self.add_mint();
             }
             _ => {}
         }
@@ -1010,6 +1126,7 @@ impl AssignmentsCollection {
                 needed.inflation.saturating_sub(self.inflation) > 0
             }
             (AllocatedState::Data(_), _) => needed.non_fungible && !self.non_fungible,
+            (AllocatedState::Void, OS_MINT) => needed.mint.saturating_sub(self.mint) > 0,
             _ => false,
         }
     }
@@ -1025,6 +1142,10 @@ impl AssignmentsCollection {
                 .inflation
                 .checked_sub(needed.inflation)
                 .expect("selected inputs must cover outputs"),
+            mint: self
+                .mint
+                .checked_sub(needed.mint)
+                .expect("selected inputs must cover outputs"),
         }
     }
 
@@ -1038,19 +1159,29 @@ impl AssignmentsCollection {
         if self.inflation < needed.inflation {
             return false;
         }
+        if self.mint < needed.mint {
+            return false;
+        }
         true
     }
 }
 
 /// Type of RGB transition
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize, Serialize, EnumIter, DeriveActiveEnum)]
+#[sea_orm(rs_type = "u8", db_type = "TinyUnsigned")]
 pub enum TypeOfTransition {
     /// Inflation transition (issuing new tokens)
-    Inflate,
+    #[sea_orm(num_value = 2)]
+    Inflate = 2,
     /// Transfer transition (moving existing tokens)
-    Transfer,
+    #[sea_orm(num_value = 1)]
+    Transfer = 1,
     /// Burn transition (burning existing tokens)
-    Burn,
+    #[sea_orm(num_value = 3)]
+    Burn = 3,
+    /// Mint transition (minting assets backed by tokens locked on the external chain)
+    #[sea_orm(num_value = 4)]
+    Mint = 4,
 }
 
 impl TypeOfTransition {
@@ -1060,6 +1191,7 @@ impl TypeOfTransition {
             Self::Inflate => "inflate",
             Self::Transfer => "transfer",
             Self::Burn => "burn",
+            Self::Mint => "mint",
         }
     }
 }
@@ -1264,6 +1396,24 @@ impl Invoice {
                     }
                 }
             }
+            Some(AssetSchema::Bfa) => {
+                match (decoded.assignment_state, assignment_name.as_deref()) {
+                    (Some(InvoiceState::Amount(v)), Some(RGB_STATE_ASSET_OWNER)) => {
+                        Assignment::Fungible(v.value())
+                    }
+                    (None, Some(RGB_STATE_ASSET_OWNER)) => Assignment::Fungible(0),
+                    (Some(InvoiceState::Void) | None, Some(RGB_STATE_MINT_RIGHT)) => {
+                        Assignment::MintRight
+                    }
+                    (Some(InvoiceState::Amount(_)), None) => Assignment::Any,
+                    (None, None) => Assignment::Any,
+                    (_, _) => {
+                        return Err(Error::InvalidInvoice {
+                            details: s!("invalid assignment"),
+                        });
+                    }
+                }
+            }
         };
         let recipient_id = decoded.beneficiary.to_string();
         let transport_endpoints: Vec<String> =
@@ -1396,6 +1546,8 @@ pub enum TransferKind {
     Inflation,
     /// A burn transfer
     Burn,
+    /// A mint transfer, bringing in assets backed by tokens locked on the external chain
+    Mint,
 }
 
 #[derive(Debug, Clone)]
@@ -1818,6 +1970,8 @@ pub enum TransitionGlobal {
 pub struct RgbTransitionInfo {
     /// The transition type
     pub r#type: TypeOfTransition,
+    /// ID of the operation
+    pub opid: String,
     /// Details of the transition inputs
     pub inputs: Vec<RgbInputInfo>,
     /// Details of the transition outputs
@@ -1849,7 +2003,7 @@ pub struct RgbInspection {
 }
 
 // ────────────────────────────────────────────────────────────
-// Send, inflate, burn & refresh operations
+// Send, inflate, burn, mint & refresh operations
 // ────────────────────────────────────────────────────────────
 
 /// The result of a burn begin operation.
@@ -1904,6 +2058,51 @@ pub struct InflateDetails {
     pub min_confirmations: u8,
     /// Entropy used for the merkle tree construction operation
     pub entropy: u64,
+}
+
+/// The result of a mint begin operation.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg(feature = "_online")]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct MintBeginResult {
+    /// PSBT to inspect and sign
+    pub psbt: String,
+    /// Batch transfer idx
+    pub batch_transfer_idx: i32,
+    /// Operation details
+    pub details: MintDetails,
+}
+
+/// Details for mint operations.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg(feature = "_online")]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct MintDetails {
+    /// Path to fascia file for inspection
+    pub fascia_path: String,
+    /// Minimum confirmations for the operation
+    pub min_confirmations: u8,
+    /// Entropy used for the merkle tree construction operation
+    pub entropy: u64,
+    /// ID of the mint operation
+    pub opid: String,
+}
+
+/// A mint received by the wallet, as checked by it: what its sender has to lock on the external
+/// chain for the mint to complete.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct ReceivedMint {
+    /// ID of the mint operation, which the lock has to commit to
+    pub opid: String,
+    /// Amount minted, which the lock has to match
+    pub amount: u64,
+    /// External chain block the lock has to follow
+    pub after_block: u64,
+    /// EIP-155 chain ID of the EVM chain the asset's bridge contract lives on
+    pub evm_chain_id: u64,
+    /// Address of the asset's bridge contract, where the lock has to be made
+    pub bridge_contract: String,
 }
 
 /// The result of a send begin operation.
@@ -2112,9 +2311,52 @@ pub struct AssetSpend {
     pub input_btc_amt: u64,
 }
 
+/// Where a contract's reject list is published.
+#[cfg(feature = "_online")]
+#[derive(Debug, Clone)]
+pub enum RejectListSource {
+    /// A list of opouts served at a URL
+    Url(String),
+    /// A list of operation IDs kept by an `IRgbRejectList` EVM contract
+    Evm(EvmContract),
+}
+
+#[cfg(feature = "_online")]
+impl From<RejectListLocation> for RejectListSource {
+    fn from(location: RejectListLocation) -> Self {
+        match location {
+            RejectListLocation::Url(url) => Self::Url(url.to_string()),
+            RejectListLocation::Evm(contract) => Self::Evm(contract),
+        }
+    }
+}
+
+/// The decisions of a reject list about single opouts, each holding only its latest decision.
+///
+/// This only tells whether an opout is listed: which decision applies to an allocation, given the
+/// ones along its history, is decided when walking the history (see `check_dag`).
+#[cfg(feature = "_online")]
+#[derive(Debug, Default)]
+pub struct RejectList {
+    pub(crate) reject_opouts: HashSet<Opout>,
+    pub(crate) allow_opouts: HashSet<Opout>,
+}
+
+#[cfg(feature = "_online")]
+impl RejectList {
+    pub(crate) fn rejects(&self, opout: &Opout) -> bool {
+        self.reject_opouts.contains(opout)
+    }
+
+    pub(crate) fn allows(&self, opout: &Opout) -> bool {
+        self.allow_opouts.contains(opout)
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AssetInfo {
     pub contract_id: ContractId,
+    pub schema: AssetSchema,
     pub reject_list_url: Option<String>,
 }
 
@@ -2137,6 +2379,30 @@ pub struct InfoAssetTransfer {
     pub beneficiaries_blinded: Vec<SecretSeal>,
     pub beneficiaries_witness: Vec<ExplicitSeal<RgbTxid>>,
     pub burn_reason: Option<BurnReason>,
+    pub after_block: Option<u64>,
+}
+
+impl InfoAssetTransfer {
+    /// OpIds of the transitions to explicitly request when consigning from `fascia`: a burn has no
+    /// beneficiary, so its transition is selected by OpId, while the others are selected by their
+    /// beneficiaries
+    pub(crate) fn requested_opids(&self, fascia: &Fascia) -> Vec<OpId> {
+        if self.main_transition != TypeOfTransition::Burn {
+            return vec![];
+        }
+        fascia
+            .bundles()
+            .get(&self.asset_info.contract_id)
+            .map(|bundle| {
+                bundle
+                    .known_transitions
+                    .iter()
+                    .filter(|kt| kt.transition.transition_type == TS_BURN)
+                    .map(|kt| kt.opid)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -2188,6 +2454,7 @@ pub struct BeginOperationData {
     pub transfer_dir: PathBuf,
     pub info_batch_transfer: InfoBatchTransfer,
     pub batch_transfer_idx: Option<i32>,
+    pub opid: Option<String>,
 }
 
 #[cfg(feature = "_online")]

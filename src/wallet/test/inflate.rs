@@ -501,17 +501,17 @@ fn fail() {
     let result = party_nia.inflate_begin_result(&asset_ifa.asset_id, &[1]);
     assert_matches!(result, Err(Error::UnsupportedSchema { asset_schema: _ }));
     // - inflation not supported
-    let asset_nia = party.issue_asset_nia(None);
-    let asset_cfa = party.issue_asset_cfa(None, None);
-    let asset_uda = party.issue_asset_uda(None, None, vec![]);
-    let unsupported_asset_ids = [
-        (asset_nia.asset_id, AssetSchema::Nia),
-        (asset_cfa.asset_id, AssetSchema::Cfa),
-        (asset_uda.asset_id, AssetSchema::Uda),
-    ];
-    for (asset_id, schema) in unsupported_asset_ids {
-        let inflation_amounts = vec![200, 42];
-        let result = party.inflate_result(&asset_id, &inflation_amounts);
+    party.create_utxos_default(); // more UTXOs to have free allocation slots
+    for schema in AssetSchema::iter() {
+        let supported = match schema {
+            AssetSchema::Ifa => true,
+            AssetSchema::Nia | AssetSchema::Uda | AssetSchema::Cfa | AssetSchema::Bfa => false,
+        };
+        if supported {
+            continue;
+        }
+        let asset_id = party.issue_asset_of_schema(schema);
+        let result = party.inflate_result(&asset_id, &[200, 42]);
         assert_matches!(result, Err(Error::UnsupportedInflation { asset_schema }) if asset_schema == schema);
     }
     // - inflation amounts (none, zero)

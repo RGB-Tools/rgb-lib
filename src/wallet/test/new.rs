@@ -507,12 +507,10 @@ fn supported_schemas() {
     let asset_nia = party_nia.issue_asset_nia(Some(&[AMOUNT]));
 
     // issue a different schema asset, should fail
-    let result = party_nia.issue_asset_cfa_result(Some(&[AMOUNT]), None);
-    assert_matches!(result, Err(Error::UnsupportedSchema { asset_schema: _ }));
-    let result = party_nia.issue_asset_ifa_result(Some(&[AMOUNT]), None, None);
-    assert_matches!(result, Err(Error::UnsupportedSchema { asset_schema: _ }));
-    let result = party_nia.issue_asset_uda_result(None, None, vec![]);
-    assert_matches!(result, Err(Error::UnsupportedSchema { asset_schema: _ }));
+    for schema in AssetSchema::iter().filter(|s| *s != AssetSchema::Nia) {
+        let result = party_nia.issue_asset_of_schema_result(schema);
+        assert_matches!(result, Err(Error::UnsupportedSchema { asset_schema }) if asset_schema == schema);
+    }
 
     // recipient wallet (UDA schema supported)
     let keys_rcv = generate_keys(bitcoin_network, WitnessVersion::Taproot);
@@ -595,6 +593,38 @@ fn supported_schemas() {
     let result = party_cfa.send_result(&recipient_map);
     assert_matches!(result, Err(Error::UnsupportedSchema { asset_schema: _ }));
 
+    // wallet (BFA schema supported)
+    let mut wallet_bfa = Wallet::new(
+        WalletData {
+            data_dir: get_test_data_dir_string(),
+            bitcoin_network,
+            database_type: DatabaseType::Sqlite,
+            max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
+            supported_schemas: vec![AssetSchema::Bfa],
+        },
+        SinglesigKeys::from_keys(&keys, None),
+    )
+    .unwrap();
+    let online_bfa = wallet_bfa.go_online(test_go_online_options(None)).unwrap();
+    let mut party_bfa = party!(wallet_bfa, online_bfa);
+
+    // send asset unsupported by the sender
+    let receive_data = rcv_party_uda.blind_receive();
+    let recipient_map = HashMap::from([(
+        asset_nia.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(66),
+            recipient_id: receive_data.recipient_id.clone(),
+            witness_data: None,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
+        }],
+    )]);
+    let result = party_bfa.send_result(&recipient_map);
+    assert_matches!(result, Err(Error::UnsupportedSchema { asset_schema: _ }));
+
     // wallet (no schema supported)
     let result = Wallet::new(
         WalletData {
@@ -611,23 +641,30 @@ fn supported_schemas() {
         assert_matches!(e, Error::NoSupportedSchemas);
     }
 
-    // wallet (mainnet, IFA schema supported)
+    // wallet (mainnet), for each schema
     let bitcoin_network = BitcoinNetwork::Mainnet;
-    let keys_mainnet = generate_keys(bitcoin_network, WitnessVersion::Taproot);
-    let result = Wallet::new(
-        WalletData {
-            data_dir: get_test_data_dir_string(),
-            bitcoin_network,
-            database_type: DatabaseType::Sqlite,
-            max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
-            supported_schemas: vec![AssetSchema::Nia, AssetSchema::Ifa],
-        },
-        SinglesigKeys::from_keys(&keys_mainnet, None),
-    );
-    // IFA on mainnet not allowed
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert_matches!(e, Error::CannotUseIfaOnMainnet);
+    for schema in AssetSchema::iter() {
+        let allowed = match schema {
+            AssetSchema::Nia | AssetSchema::Uda | AssetSchema::Cfa => true,
+            AssetSchema::Ifa | AssetSchema::Bfa => false,
+        };
+        let keys_mainnet = generate_keys(bitcoin_network, WitnessVersion::Taproot);
+        let result = Wallet::new(
+            WalletData {
+                data_dir: get_test_data_dir_string(),
+                bitcoin_network,
+                database_type: DatabaseType::Sqlite,
+                max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
+                supported_schemas: vec![AssetSchema::Nia, schema],
+            },
+            SinglesigKeys::from_keys(&keys_mainnet, None),
+        );
+        if allowed {
+            assert!(result.is_ok());
+        } else {
+            let err = result.err();
+            assert_matches!(err, Some(Error::CannotUseSchemaOnMainnet { asset_schema }) if asset_schema == schema);
+        }
     }
 }
 
