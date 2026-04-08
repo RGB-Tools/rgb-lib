@@ -5,8 +5,8 @@ compatible wallets in a simple fashion, without having to worry about Bitcoin
 and RGB internals.
 
 It primarily uses [bdk] to provide Bitcoin walleting functionalities, and
-several RGB libraries such as [rgb-core] to provide RGB specific
-functionalities.
+several RGB libraries to provide RGB specific functionalities that can be found
+in the [rgb-protocol] organization.
 
 The library has been designed to offer an offline usage
 (some APIs do not require using Internet) and also a watch-only usage (the
@@ -76,4 +76,4 @@ transitions of an asset transfer and [multisig][docs-multisig] coordination.
 [bitcoind]: https://github.com/bitcoin/bitcoin
 [electrs]: https://github.com/romanz/electrs
 [esplora]: https://github.com/Blockstream/esplora
-[rgb-core]: https://github.com/RGB-WG/rgb-core
+[rgb-protocol]: https://github.com/rgb-protocol
