@@ -380,6 +380,12 @@ pub(crate) fn inflate(
     Ok(serde_json::to_string(&res)?)
 }
 
+pub(crate) fn invoice_data(invoice_string: *const c_char) -> Result<String, Error> {
+    let invoice_string = ptr_to_string(invoice_string);
+    let invoice = rgb_lib::wallet::Invoice::new(invoice_string)?;
+    Ok(serde_json::to_string(&invoice.invoice_data())?)
+}
+
 pub(crate) fn issue_asset_cfa(
     wallet: &COpaqueStruct,
     name: *const c_char,

@@ -243,6 +243,11 @@ pub extern "C" fn rgblib_inflate(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn rgblib_invoice_data(invoice_string: *const c_char) -> CResultString {
+    invoice_data(invoice_string).into()
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn rgblib_issue_asset_cfa(
     wallet: &COpaqueStruct,
     name: *const c_char,
