@@ -2095,10 +2095,12 @@ pub trait WalletOffline: WalletBackup {
                     RecipientTypeFull::Witness { .. } => TransferKind::ReceiveWitness,
                 }
             }
-        } else if filtered_coloring.clone().count() > 0
-            && filtered_coloring
-                .clone()
-                .any(|c| c.r#type == ColoringType::Issue)
+        } else if transfer.recipient_id.is_none() {
+            // burn is the only outgoing transfer with no recipient
+            TransferKind::Burn
+        } else if filtered_coloring
+            .clone()
+            .any(|c| c.r#type == ColoringType::Issue)
         {
             // inflation transfer is outgoing and connected to issue colorings
             TransferKind::Inflation
@@ -2134,7 +2136,7 @@ pub trait WalletOffline: WalletBackup {
         };
         let change_utxo = match kind {
             TransferKind::ReceiveBlind | TransferKind::ReceiveWitness => None,
-            TransferKind::Send | TransferKind::Inflation => {
+            TransferKind::Send | TransferKind::Inflation | TransferKind::Burn => {
                 let change_txo_idx: Vec<i32> = filtered_coloring
                     .filter(|c| c.r#type == ColoringType::Change)
                     .map(|c| c.txo_idx)
@@ -2151,10 +2153,12 @@ pub trait WalletOffline: WalletBackup {
         };
 
         let consignment_path = match (&kind, batch_transfer.status) {
-            (TransferKind::Send | TransferKind::Inflation, _) => Some(self.send_consignment_path(
-                &asset_transfer.asset_id.clone().unwrap(),
-                &batch_transfer.txid.clone().unwrap(),
-            )),
+            (TransferKind::Send | TransferKind::Inflation | TransferKind::Burn, _) => {
+                Some(self.send_consignment_path(
+                    &asset_transfer.asset_id.clone().unwrap(),
+                    &batch_transfer.txid.clone().unwrap(),
+                ))
+            }
             (
                 TransferKind::ReceiveBlind | TransferKind::ReceiveWitness,
                 TransferStatus::WaitingCounterparty,
@@ -2539,6 +2543,7 @@ pub trait WalletOffline: WalletBackup {
                 let kind = match transition.transition_type {
                     TS_TRANSFER => TypeOfTransition::Transfer,
                     TS_INFLATION => TypeOfTransition::Inflate,
+                    TS_BURN => TypeOfTransition::Burn,
                     _ => {
                         return Err(Error::RgbInspection {
                             details: format!(

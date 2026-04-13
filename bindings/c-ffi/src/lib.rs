@@ -67,6 +67,57 @@ pub extern "C" fn rgblib_backup_info(wallet: &COpaqueStruct) -> CResultString {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn rgblib_burn(
+    wallet: &COpaqueStruct,
+    online: *const c_char,
+    asset_id: *const c_char,
+    amount: *const c_char,
+    fee_rate: *const c_char,
+    min_confirmations: *const c_char,
+) -> CResultString {
+    burn(
+        wallet,
+        online,
+        asset_id,
+        amount,
+        fee_rate,
+        min_confirmations,
+    )
+    .into()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rgblib_burn_begin(
+    wallet: &COpaqueStruct,
+    online: *const c_char,
+    asset_id: *const c_char,
+    amount: *const c_char,
+    fee_rate: *const c_char,
+    min_confirmations: *const c_char,
+    dry_run: bool,
+) -> CResultString {
+    burn_begin(
+        wallet,
+        online,
+        asset_id,
+        amount,
+        fee_rate,
+        min_confirmations,
+        dry_run,
+    )
+    .into()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rgblib_burn_end(
+    wallet: &COpaqueStruct,
+    online: *const c_char,
+    signed_psbt: *const c_char,
+) -> CResultString {
+    burn_end(wallet, online, signed_psbt).into()
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn rgblib_blind_receive(
     wallet: &COpaqueStruct,
     asset_id_opt: *const c_char,

@@ -871,6 +871,8 @@ pub enum TypeOfTransition {
     Inflate,
     /// Transfer transition (moving existing tokens)
     Transfer,
+    /// Burn transition (burning existing tokens)
+    Burn,
 }
 
 impl TypeOfTransition {
@@ -879,6 +881,7 @@ impl TypeOfTransition {
         match self {
             Self::Inflate => "inflate",
             Self::Transfer => "transfer",
+            Self::Burn => "burn",
         }
     }
 }
@@ -1185,6 +1188,8 @@ pub enum TransferKind {
     Send,
     /// An inflation transfer
     Inflation,
+    /// A burn transfer
+    Burn,
 }
 
 #[derive(Debug, Clone)]
@@ -1585,8 +1590,34 @@ pub struct RgbInspection {
 }
 
 // ────────────────────────────────────────────────────────────
-// Send, inflate & refresh operations
+// Send, inflate, burn & refresh operations
 // ────────────────────────────────────────────────────────────
+
+/// The result of a burn begin operation.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct BurnBeginResult {
+    /// PSBT to inspect and sign
+    pub psbt: String,
+    /// Batch transfer idx, None when `dry_run: true`
+    pub batch_transfer_idx: Option<i32>,
+    /// Operation details
+    pub details: BurnDetails,
+}
+
+/// Details for burn operations.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct BurnDetails {
+    /// Path to fascia file for inspection
+    pub fascia_path: String,
+    /// Minimum confirmations for the operation
+    pub min_confirmations: u8,
+    /// Entropy used for the merkle tree construction operation
+    pub entropy: u64,
+}
 
 /// The result of an inflate begin operation.
 #[derive(Debug, Clone, Deserialize, Serialize)]

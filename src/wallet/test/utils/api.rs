@@ -27,6 +27,70 @@ pub(crate) fn test_witness_receive(wallet: &mut Wallet) -> ReceiveData {
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) fn test_burn(
+    wallet: &mut Wallet,
+    online: Online,
+    asset_id: &str,
+    amount: u64,
+) -> OperationResult {
+    test_burn_result(wallet, online, asset_id, amount).unwrap()
+}
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) fn test_burn_result(
+    wallet: &mut Wallet,
+    online: Online,
+    asset_id: &str,
+    amount: u64,
+) -> Result<OperationResult, Error> {
+    wallet.burn(
+        online,
+        asset_id.to_string(),
+        amount,
+        FEE_RATE,
+        MIN_CONFIRMATIONS,
+    )
+}
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) fn test_burn_begin(
+    wallet: &mut Wallet,
+    online: Online,
+    asset_id: &str,
+    amount: u64,
+) -> String {
+    test_burn_begin_result(wallet, online, asset_id, amount)
+        .unwrap()
+        .psbt
+}
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) fn test_burn_begin_result(
+    wallet: &mut Wallet,
+    online: Online,
+    asset_id: &str,
+    amount: u64,
+) -> Result<BurnBeginResult, Error> {
+    wallet.burn_begin(
+        online,
+        asset_id.to_string(),
+        amount,
+        FEE_RATE,
+        MIN_CONFIRMATIONS,
+        true,
+    )
+}
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) fn test_burn_end_result(
+    wallet: &mut Wallet,
+    online: Online,
+    signed_psbt: &str,
+) -> Result<OperationResult, Error> {
+    wallet.burn_end(online, signed_psbt.to_string())
+}
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_create_utxos_default(wallet: &mut Wallet, online: Online) {
     test_create_utxos(wallet, online, false, None, None, FEE_RATE, None);
 }

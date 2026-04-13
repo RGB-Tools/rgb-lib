@@ -211,7 +211,7 @@ use rgbstd::{
 use schemata::{CfaWrapper, NiaWrapper, UdaWrapper};
 use schemata::{
     CollectibleFungibleAsset, IfaWrapper, InflatableFungibleAsset, NonInflatableAsset, OS_ASSET,
-    OS_INFLATION, TS_INFLATION, TS_TRANSFER, UniqueDigitalAsset,
+    OS_INFLATION, TS_BURN, TS_INFLATION, TS_TRANSFER, UniqueDigitalAsset,
 };
 use scrypt::{
     Params, Scrypt,

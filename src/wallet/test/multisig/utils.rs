@@ -110,6 +110,12 @@ impl Sanitizable for InflateDetails {
     }
 }
 
+impl Sanitizable for BurnDetails {
+    fn sanitize(&mut self) {
+        self.fascia_path = sanitize_path(&self.fascia_path);
+    }
+}
+
 impl Sanitizable for SendDetails {
     fn sanitize(&mut self) {
         self.fascia_path = sanitize_path(&self.fascia_path);
@@ -133,6 +139,26 @@ impl Sanitizable for Operation {
                 details.sanitize();
             }
             Operation::InflationToReview {
+                psbt: _,
+                details,
+                status: _,
+            } => {
+                details.sanitize();
+            }
+            Operation::BurnCompleted {
+                txid: _,
+                details,
+                status: _,
+            } => {
+                details.sanitize();
+            }
+            Operation::BurnDiscarded { details, status: _ } => {
+                details.sanitize();
+            }
+            Operation::BurnPending { details, status: _ } => {
+                details.sanitize();
+            }
+            Operation::BurnToReview {
                 psbt: _,
                 details,
                 status: _,
@@ -507,6 +533,25 @@ pub(super) trait MultisigOps {
             FEE_RATE,
             1,
         )
+    }
+
+    fn burn_init(&mut self, asset_id: &str, amount: u64) -> InitOperationResult {
+        println!(
+            "burn init {}",
+            self.multisig_mut().get_wallet_data().data_dir
+        );
+        let bt_before = self.bak_ts();
+        let res = self.burn_init_res(asset_id, amount).unwrap();
+        assert!(self.bak_ts() > bt_before);
+        op_counter_bump();
+        println!("initiated burn with operation ID {}", res.operation_idx);
+        res
+    }
+
+    fn burn_init_res(&mut self, asset_id: &str, amount: u64) -> Result<InitOperationResult, Error> {
+        let online = self.online();
+        self.multisig_mut()
+            .burn_init(online, asset_id.to_string(), amount, FEE_RATE, 1)
     }
 
     fn issue_asset_cfa(&mut self, amounts: Option<&[u64]>, file_path: Option<String>) -> AssetCFA {
@@ -1453,6 +1498,30 @@ pub(super) fn inspect_inflate(
     let mut sorted_expected = inflation_amounts.to_vec();
     sorted_expected.sort();
     assert_eq!(sorted_inflate_outputs, sorted_expected);
+}
+
+pub(super) fn inspect_burn(
+    wallet: &MultisigParty,
+    op_init: &InitOperationResult,
+    ifa_asset: &AssetIFA,
+) {
+    let psbt = &op_init.psbt;
+    let (_, files) = wallet.get_op_and_files(op_init.operation_idx);
+    let details = BurnHandler::extract_details(&files).unwrap();
+    let rgb_inspection = wallet
+        .multisig
+        .inspect_rgb_transfer(psbt.clone(), details.fascia_path, details.entropy)
+        .unwrap();
+    assert_eq!(rgb_inspection.close_method, CloseMethod::OpretFirst);
+    assert_eq!(rgb_inspection.operations.len(), 1);
+    let ifa_op = &rgb_inspection.operations[0];
+    assert_eq!(ifa_op.asset_id, ifa_asset.asset_id);
+    let burn_transitions: Vec<_> = ifa_op
+        .transitions
+        .iter()
+        .filter(|t| t.r#type == TypeOfTransition::Burn)
+        .collect();
+    assert_eq!(burn_transitions.len(), 1);
 }
 
 pub(super) fn inspect_send(

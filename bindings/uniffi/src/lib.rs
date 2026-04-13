@@ -13,10 +13,10 @@ use rgb_lib::{
     utils::BitcoinNetwork,
     wallet::{
         Address as RgbLibAddress, AssetCFA, AssetIFA, AssetNIA, AssetUDA, Assets,
-        AssignmentsCollection, Balance, BlockTime, BtcBalance, Cosigner as CosignerData,
-        DatabaseType, EmbeddedMedia, HubInfo, InflateBeginResult, InflateDetails,
-        InitOperationResult, Invoice as RgbLibInvoice, InvoiceData as RgbLibInvoiceData, Media,
-        Metadata, MultisigKeys, MultisigOnlineOptions,
+        AssignmentsCollection, Balance, BlockTime, BtcBalance, BurnBeginResult, BurnDetails,
+        Cosigner as CosignerData, DatabaseType, EmbeddedMedia, HubInfo, InflateBeginResult,
+        InflateDetails, InitOperationResult, Invoice as RgbLibInvoice,
+        InvoiceData as RgbLibInvoiceData, Media, Metadata, MultisigKeys, MultisigOnlineOptions,
         MultisigVotingStatus as RgbLibMultisigVotingStatus, MultisigWallet as RgbLibMultisigWallet,
         Online, OnlineOptions, Operation as RgbLibOperation, OperationInfo as RgbLibOperationInfo,
         OperationResult, Outpoint, ProofOfReserves, PsbtInputInfo, PsbtInspection, PsbtOutputInfo,
@@ -448,6 +448,24 @@ pub enum Operation {
         details: InflateDetails,
         status: MultisigVotingStatus,
     },
+    BurnToReview {
+        psbt: String,
+        details: BurnDetails,
+        status: MultisigVotingStatus,
+    },
+    BurnPending {
+        details: BurnDetails,
+        status: MultisigVotingStatus,
+    },
+    BurnCompleted {
+        txid: String,
+        details: BurnDetails,
+        status: MultisigVotingStatus,
+    },
+    BurnDiscarded {
+        details: BurnDetails,
+        status: MultisigVotingStatus,
+    },
     IssuanceCompleted {
         asset_id: String,
     },
@@ -575,6 +593,32 @@ impl From<RgbLibOperation> for Operation {
                     status: status.into(),
                 }
             }
+            RgbLibOperation::BurnToReview {
+                psbt,
+                details,
+                status,
+            } => Operation::BurnToReview {
+                psbt,
+                details,
+                status: status.into(),
+            },
+            RgbLibOperation::BurnPending { status, details } => Operation::BurnPending {
+                details,
+                status: status.into(),
+            },
+            RgbLibOperation::BurnCompleted {
+                txid,
+                details,
+                status,
+            } => Operation::BurnCompleted {
+                txid,
+                details,
+                status: status.into(),
+            },
+            RgbLibOperation::BurnDiscarded { details, status } => Operation::BurnDiscarded {
+                details,
+                status: status.into(),
+            },
             RgbLibOperation::IssuanceCompleted { asset_id } => {
                 Operation::IssuanceCompleted { asset_id }
             }
@@ -676,6 +720,32 @@ impl From<Operation> for RgbLibOperation {
                     status: status.into(),
                 }
             }
+            Operation::BurnToReview {
+                psbt,
+                details,
+                status,
+            } => RgbLibOperation::BurnToReview {
+                psbt,
+                details,
+                status: status.into(),
+            },
+            Operation::BurnPending { status, details } => RgbLibOperation::BurnPending {
+                details,
+                status: status.into(),
+            },
+            Operation::BurnCompleted {
+                txid,
+                details,
+                status,
+            } => RgbLibOperation::BurnCompleted {
+                txid,
+                details,
+                status: status.into(),
+            },
+            Operation::BurnDiscarded { details, status } => RgbLibOperation::BurnDiscarded {
+                details,
+                status: status.into(),
+            },
             Operation::IssuanceCompleted { asset_id } => {
                 RgbLibOperation::IssuanceCompleted { asset_id }
             }
@@ -1047,6 +1117,45 @@ impl Wallet {
 
     fn go_online(&self, online_options: OnlineOptions) -> Result<Online, RgbLibError> {
         self._get_wallet().go_online(online_options)
+    }
+
+    fn burn(
+        &self,
+        online: Online,
+        asset_id: String,
+        amount: u64,
+        fee_rate: u64,
+        min_confirmations: u8,
+    ) -> Result<OperationResult, RgbLibError> {
+        self._get_wallet()
+            .burn(online, asset_id, amount, fee_rate, min_confirmations)
+    }
+
+    fn burn_begin(
+        &self,
+        online: Online,
+        asset_id: String,
+        amount: u64,
+        fee_rate: u64,
+        min_confirmations: u8,
+        dry_run: bool,
+    ) -> Result<BurnBeginResult, RgbLibError> {
+        self._get_wallet().burn_begin(
+            online,
+            asset_id,
+            amount,
+            fee_rate,
+            min_confirmations,
+            dry_run,
+        )
+    }
+
+    fn burn_end(
+        &self,
+        online: Online,
+        signed_psbt: String,
+    ) -> Result<OperationResult, RgbLibError> {
+        self._get_wallet().burn_end(online, signed_psbt)
     }
 
     fn inflate(
@@ -1456,6 +1565,18 @@ impl MultisigWallet {
 
     fn hub_info(&self, online: Online) -> Result<HubInfo, RgbLibError> {
         self._get_wallet().hub_info(online)
+    }
+
+    fn burn_init(
+        &self,
+        online: Online,
+        asset_id: String,
+        amount: u64,
+        fee_rate: u64,
+        min_confirmations: u8,
+    ) -> Result<InitOperationResult, RgbLibError> {
+        self._get_wallet()
+            .burn_init(online, asset_id, amount, fee_rate, min_confirmations)
     }
 
     fn inflate_init(

@@ -85,6 +85,7 @@ interface RgbLibError {
   Network(string details);
   NoConsignment();
   NoCosignersSupplied();
+  NoBurnAmount();
   NoInflationAmounts();
   NoIssuanceAmounts();
   NoKeysSupplied();
@@ -107,6 +108,7 @@ interface RgbLibError {
   UnknownRgbSchema(string schema_id);
   UnknownTransfer(string txid);
   UnsupportedBackupVersion(string version);
+  UnsupportedBurn(AssetSchema asset_schema);
   UnsupportedInflation(AssetSchema asset_schema);
   UnsupportedLayer1(string layer_1);
   UnsupportedSchema(AssetSchema asset_schema);
@@ -479,6 +481,7 @@ enum TransferKind {
   "ReceiveWitness",
   "Send",
   "Inflation",
+  "Burn",
 };
 
 [Remote]
@@ -592,6 +595,20 @@ dictionary MultisigVotingStatus {
 };
 
 [Remote]
+dictionary BurnDetails {
+  string fascia_path;
+  u8 min_confirmations;
+  u64 entropy;
+};
+
+[Remote]
+dictionary BurnBeginResult {
+  string psbt;
+  i32? batch_transfer_idx;
+  BurnDetails details;
+};
+
+[Remote]
 dictionary InflateDetails {
   string fascia_path;
   u8 min_confirmations;
@@ -638,6 +655,10 @@ interface Operation {
   InflationPending(InflateDetails details, MultisigVotingStatus status);
   InflationCompleted(string txid, InflateDetails details, MultisigVotingStatus status);
   InflationDiscarded(InflateDetails details, MultisigVotingStatus status);
+  BurnToReview(string psbt, BurnDetails details, MultisigVotingStatus status);
+  BurnPending(BurnDetails details, MultisigVotingStatus status);
+  BurnCompleted(string txid, BurnDetails details, MultisigVotingStatus status);
+  BurnDiscarded(BurnDetails details, MultisigVotingStatus status);
   IssuanceCompleted(string asset_id);
   BlindReceiveCompleted(ReceiveData details);
   WitnessReceiveCompleted(ReceiveData details);
@@ -708,6 +729,7 @@ dictionary RgbOperationInfo {
 enum TypeOfTransition {
   "Inflate",
   "Transfer",
+  "Burn",
 };
 
 [Remote]
@@ -850,6 +872,19 @@ interface Wallet {
 
   [Throws=RgbLibError]
   Online go_online(OnlineOptions online_options);
+
+  [Throws=RgbLibError]
+  OperationResult burn(
+    Online online, string asset_id, u64 amount, u64 fee_rate,
+    u8 min_confirmations);
+
+  [Throws=RgbLibError]
+  BurnBeginResult burn_begin(
+    Online online, string asset_id, u64 amount, u64 fee_rate,
+    u8 min_confirmations, boolean dry_run);
+
+  [Throws=RgbLibError]
+  OperationResult burn_end(Online online, string signed_psbt);
 
   [Throws=RgbLibError]
   OperationResult inflate(
@@ -998,6 +1033,11 @@ interface MultisigWallet {
 
   [Throws=RgbLibError]
   HubInfo hub_info(Online online);
+
+  [Throws=RgbLibError]
+  InitOperationResult burn_init(
+    Online online, string asset_id, u64 amount, u64 fee_rate,
+    u8 min_confirmations);
 
   [Throws=RgbLibError]
   InitOperationResult inflate_init(

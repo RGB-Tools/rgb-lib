@@ -305,6 +305,7 @@ pub(crate) use utils::{api::*, chain::*, helpers::*};
 mod abort_pending_vanilla_tx;
 mod backup;
 mod blind_receive;
+mod burn;
 mod create_utxos;
 mod delete_transfers;
 mod drain_to;

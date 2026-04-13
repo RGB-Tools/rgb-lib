@@ -491,6 +491,40 @@ pub enum Operation {
         status: MultisigVotingStatus,
     },
 
+    // Burn variants
+    /// Burn operation waiting for user's response (ACK/NACK)
+    BurnToReview {
+        /// PSBT to sign
+        psbt: String,
+        /// Operation details
+        details: BurnDetails,
+        /// Operation voting status
+        status: MultisigVotingStatus,
+    },
+    /// Burn operation already responded to, waiting for threshold to be met
+    BurnPending {
+        /// Operation details
+        details: BurnDetails,
+        /// Operation voting status
+        status: MultisigVotingStatus,
+    },
+    /// Burn operation approved and finalized (threshold reached)
+    BurnCompleted {
+        /// Operation TXID
+        txid: String,
+        /// Operation details
+        details: BurnDetails,
+        /// Operation voting status
+        status: MultisigVotingStatus,
+    },
+    /// Burn operation rejected (NACKs exceeded threshold)
+    BurnDiscarded {
+        /// Operation details
+        details: BurnDetails,
+        /// Operation voting status
+        status: MultisigVotingStatus,
+    },
+
     // Auto-approved operations
     /// Issuance operation completed (auto-approved)
     IssuanceCompleted {
@@ -776,6 +810,72 @@ impl OperationHandler for InflateHandler {
         combined_psbt: &Psbt,
     ) -> Result<String, Error> {
         let res = wallet.inflate_end_impl(combined_psbt)?;
+        Ok(res.txid)
+    }
+
+    fn reconstruct_transfer_directory(
+        wallet: &MultisigWallet,
+        txid: &str,
+        files: &[FileResponse],
+    ) -> Result<(), Error> {
+        wallet.reconstruct_rgb_transfer_directory(txid, files)
+    }
+}
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) struct BurnHandler;
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+impl OperationHandler for BurnHandler {
+    type Details = BurnDetails;
+
+    fn extract_details(files: &[FileResponse]) -> Result<Self::Details, Error> {
+        let fascia_path = extract_fascia_path(files)?;
+        let info_batch_transfer = InfoBatchTransfer::extract_from_files(files)?;
+        if info_batch_transfer.transfers.len() != 1 {
+            return Err(Error::MultisigUnexpectedData {
+                details: format!(
+                    "expected 1 transfer for burn, got {} transfers",
+                    info_batch_transfer.transfers.len()
+                ),
+            });
+        }
+        Ok(BurnDetails {
+            fascia_path,
+            min_confirmations: info_batch_transfer.min_confirmations,
+            entropy: info_batch_transfer.entropy,
+        })
+    }
+
+    fn to_review(psbt: String, details: Self::Details, status: MultisigVotingStatus) -> Operation {
+        Operation::BurnToReview {
+            psbt,
+            details,
+            status,
+        }
+    }
+
+    fn pending(details: Self::Details, status: MultisigVotingStatus) -> Operation {
+        Operation::BurnPending { details, status }
+    }
+
+    fn completed(txid: String, details: Self::Details, status: MultisigVotingStatus) -> Operation {
+        Operation::BurnCompleted {
+            txid,
+            details,
+            status,
+        }
+    }
+
+    fn discarded(details: Self::Details, status: MultisigVotingStatus) -> Operation {
+        Operation::BurnDiscarded { details, status }
+    }
+
+    fn finalize_and_execute(
+        wallet: &mut MultisigWallet,
+        combined_psbt: &Psbt,
+    ) -> Result<String, Error> {
+        let res = wallet.burn_end_impl(combined_psbt)?;
         Ok(res.txid)
     }
 
@@ -1676,12 +1776,16 @@ impl MultisigWallet {
                 op.operation_type,
                 OperationType::SendRgb
                     | OperationType::Inflation
+                    | OperationType::Burn
                     | OperationType::WitnessReceive
                     | OperationType::BlindReceive
             );
         if needs_refresh {
             let _ = self.refresh_impl(None, vec![], true);
-            if !matches!(op.operation_type, OperationType::Inflation) {
+            if !matches!(
+                op.operation_type,
+                OperationType::Inflation | OperationType::Burn
+            ) {
                 let _ = self.refresh_impl(None, vec![], true);
             }
         }
@@ -1805,6 +1909,7 @@ impl MultisigWallet {
             OperationType::SendBtc => self.handle_operation::<SendBtcHandler>(op, &files)?,
             OperationType::SendRgb => self.handle_operation::<SendRgbHandler>(op, &files)?,
             OperationType::Inflation => self.handle_operation::<InflateHandler>(op, &files)?,
+            OperationType::Burn => self.handle_operation::<BurnHandler>(op, &files)?,
             OperationType::Issuance => match op.status {
                 OperationStatus::Approved => {
                     let asset_id = self.accept_issuance_consignment(&files)?;
@@ -2092,6 +2197,36 @@ impl MultisigWallet {
         )?;
         self.update_backup_info(false)?;
         info!(self.logger(), "Initiate inflating completed");
+        Ok(res)
+    }
+
+    /// Prepare the PSBT to burn the specified `amount` of RGB assets, with the provided `fee_rate`
+    /// (in sat/vB) and post the operation to the hub.
+    ///
+    /// The `min_confirmations` number determines the minimum number of confirmations needed for
+    /// the transaction anchoring the transfer for it to be considered final and move (while
+    /// refreshing) to the [`TransferStatus::Settled`] status.
+    ///
+    /// Returns a PSBT ready to be signed and the operation index on the hub.
+    pub fn burn_init(
+        &mut self,
+        online: Online,
+        asset_id: String,
+        amount: u64,
+        fee_rate: u64,
+        min_confirmations: u8,
+    ) -> Result<InitOperationResult, Error> {
+        info!(self.logger(), "Initiate burning amount: {}...", amount);
+        self.check_online(online)?;
+        self.check_is_cosigner()?;
+
+        let data = self.burn_begin_impl(asset_id, amount, fee_rate, min_confirmations, true)?;
+        let res = self.post_operation(
+            OperationType::Burn,
+            PostData::BeginOperationData(Box::new(data)),
+        )?;
+        self.update_backup_info(false)?;
+        info!(self.logger(), "Initiate burning completed");
         Ok(res)
     }
 }

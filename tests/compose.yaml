@@ -87,7 +87,7 @@ services:
     depends_on:
       - bitcoind_signet_custom
   rgb-multisig-hub:
-    image: ghcr.io/rgb-tools/rgb-multisig-hub:0.1.0
+    image: ghcr.io/rgb-tools/rgb-multisig-hub:0.1.1
     ports:
       - 8141:3001
     volumes:

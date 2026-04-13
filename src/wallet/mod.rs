@@ -35,8 +35,9 @@ pub use objects::{
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub use objects::{
-    InflateBeginResult, InflateDetails, OnlineOptions, OperationResult, RefreshFilter,
-    RefreshResult, RefreshTransferStatus, RefreshedTransfer, SendBeginResult, SendDetails,
+    BurnBeginResult, BurnDetails, InflateBeginResult, InflateDetails, OnlineOptions,
+    OperationResult, RefreshFilter, RefreshResult, RefreshTransferStatus, RefreshedTransfer,
+    SendBeginResult, SendDetails,
 };
 pub use offline::RgbWalletOpsOffline;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -81,7 +82,7 @@ pub(crate) const SCHEMA_ID_UDA: &str =
 pub(crate) const SCHEMA_ID_CFA: &str =
     "rgb:sch:JgqK5hJX9YBT4osCV7VcW_iLTcA5csUCnLzvaKTTrNY#mars-house-friend";
 pub(crate) const SCHEMA_ID_IFA: &str =
-    "rgb:sch:p6H_wtDgei9HHUVLjKW0tNdHHFLhfHxrn9QX_QQUE78#scale-year-shave";
+    "rgb:sch:IpjJhFLz3oywYKQxO3KmFgR0Aa415nlTNrNyEFqMZCE#shoe-colombo-mango";
 
 pub(crate) const RGB_STATE_ASSET_OWNER: &str = "assetOwner";
 pub(crate) const RGB_STATE_INFLATION_ALLOWANCE: &str = "inflationAllowance";
@@ -89,3 +90,7 @@ pub(crate) const RGB_GLOBAL_ISSUED_SUPPLY: &str = "issuedSupply";
 pub(crate) const RGB_GLOBAL_REJECT_LIST_URL: &str = "rejectListUrl";
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) const RGB_METADATA_ALLOWED_INFLATION: &str = "allowedInflation";
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) const RGB_METADATA_BURNED_ASSET: &str = "burnedAsset";
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) const RGB_METADATA_BURNED_INFLATION: &str = "burnedInflation";

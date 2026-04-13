@@ -715,6 +715,43 @@ fn success() {
         false,
     );
 
+    println!("\n=== burn (wlt_1) ===");
+    check_wallets_up_to_date(&mut [&mut wlt_1, &mut wlt_2, &mut wlt_3]);
+    let burn_amount = 50;
+    let op_init = wlt_1.burn_init(&ifa_asset.asset_id, burn_amount);
+    inspect_burn(&wlt_3, &op_init, &ifa_asset);
+    operation_complete::<BurnHandler>(
+        op_init.operation_idx,
+        &mut [&mut wlt_1, &mut wlt_2, &mut wlt_3],
+        &mut [],
+        &mut [],
+        true,
+    );
+    settle_transfer(
+        &mut [&mut wlt_1, &mut wlt_2, &mut wlt_3],
+        &mut [] as &mut [&mut MultisigParty],
+        Some(&ifa_asset.asset_id),
+        None,
+        Some(&op_init.psbt),
+        false,
+    );
+    let post_burn_supply = new_supply - burn_amount;
+    check_asset_balance(
+        &[&wlt_1, &wlt_2, &wlt_3],
+        &ifa_asset.asset_id,
+        (post_burn_supply, post_burn_supply, post_burn_supply),
+    );
+
+    println!("\n=== burn discarded (wlt_3) ===");
+    let op_init = wlt_3.burn_init(&ifa_asset.asset_id, 1);
+    operation_complete::<BurnHandler>(
+        op_init.operation_idx,
+        &mut [],
+        &mut [&mut wlt_1, &mut wlt_2],
+        &mut [&mut wlt_3],
+        false,
+    );
+
     println!("\n=== send BTC (wlt_1 → singlesig) ===");
     check_wallets_up_to_date(&mut [&mut wlt_1, &mut wlt_2, &mut wlt_3]);
     let amount = 1000;
@@ -743,7 +780,7 @@ fn success() {
             wlt_3.multisig_mut(),
         ],
         (0, 6442, 6442),
-        (16452, 16452, 16452),
+        (15366, 15366, 15366),
     );
     let op_init_last_successful = op_init;
 
@@ -831,12 +868,12 @@ fn success() {
 
     // final state expectations
     let btc_final_vanilla = (0, 6442, 6442);
-    let btc_final_colored = (16452, 16452, 16452);
+    let btc_final_colored = (15366, 15366, 15366);
     let tx_type_final = TransactionType::SendBtc;
     #[rustfmt::skip]
     let assets_final = HashMap::from([
         (cfa_asset.asset_id.as_str(), (180, 180, 180, 3, TransferStatus::Settled)),
-        (ifa_asset.asset_id.as_str(), (201, 201, 201, 3, TransferStatus::Settled)),
+        (ifa_asset.asset_id.as_str(), (151, 151, 151, 4, TransferStatus::Settled)),
         (nia_asset_1.asset_id.as_str(), (84, 84, 84, 2, TransferStatus::Settled)),
         (nia_asset_2.asset_id.as_str(), (26, 26, 26, 4, TransferStatus::Failed)),
         (uda_asset.asset_id.as_str(), (1, 1, 1, 3, TransferStatus::Settled)),

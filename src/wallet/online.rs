@@ -4,6 +4,7 @@
 
 use super::*;
 
+const SCHEMAS_SUPPORTING_BURN: [database::enums::AssetSchema; 1] = [AssetSchema::Ifa];
 const SCHEMAS_SUPPORTING_INFLATION: [database::enums::AssetSchema; 1] = [AssetSchema::Ifa];
 
 const SIGNED_PSBT_FILE: &str = "signed.psbt";
@@ -1938,6 +1939,23 @@ pub trait WalletOnline: WalletOffline {
         })
     }
 
+    fn get_beneficiary_seal(
+        &self,
+        local_recipient_data: &LocalRecipientData,
+    ) -> BuilderSeal<GraphSeal> {
+        match local_recipient_data {
+            LocalRecipientData::Blind(secret_seal) => BuilderSeal::Concealed(*secret_seal),
+            LocalRecipientData::Witness(witness_data) => {
+                let graph_seal = if let Some(blinding) = witness_data.blinding {
+                    GraphSeal::with_blinded_vout(witness_data.vout, blinding)
+                } else {
+                    GraphSeal::new_random_vout(witness_data.vout)
+                };
+                BuilderSeal::Revealed(graph_seal)
+            }
+        }
+    }
+
     fn get_change_seal(
         &self,
         btc_change: &Option<BtcChange>,
@@ -2094,22 +2112,13 @@ pub trait WalletOnline: WalletOffline {
 
             let mut beneficiaries = vec![];
             for recipient in &transfer_info.recipients {
-                let seal: BuilderSeal<GraphSeal> = match &recipient.local_recipient_data {
-                    LocalRecipientData::Blind(secret_seal) => BuilderSeal::Concealed(*secret_seal),
-                    LocalRecipientData::Witness(witness_data) => {
-                        let graph_seal = if let Some(blinding) = witness_data.blinding {
-                            GraphSeal::with_blinded_vout(witness_data.vout, blinding)
-                        } else {
-                            GraphSeal::new_random_vout(witness_data.vout)
-                        };
-                        BuilderSeal::Revealed(graph_seal)
-                    }
-                };
-
-                beneficiaries.push((seal, recipient.recipient_id.clone()));
-
+                let seal;
                 match &recipient.assignment {
                     Assignment::Fungible(amt) => {
+                        if *amt == 0 {
+                            continue;
+                        }
+                        seal = self.get_beneficiary_seal(&recipient.local_recipient_data);
                         asset_transition_builder = asset_transition_builder.add_fungible_state(
                             RGB_STATE_ASSET_OWNER,
                             seal,
@@ -2118,12 +2127,19 @@ pub trait WalletOnline: WalletOffline {
                     }
                     Assignment::NonFungible => {
                         if let AllocatedState::Data(state) = uda_state.clone().unwrap() {
+                            seal = self.get_beneficiary_seal(&recipient.local_recipient_data);
                             asset_transition_builder = asset_transition_builder
                                 .add_data(RGB_STATE_ASSET_OWNER, seal, Allocation::from(state))
                                 .map_err(Error::from)?;
+                        } else {
+                            continue;
                         }
                     }
                     Assignment::InflationRight(amt) => {
+                        if *amt == 0 {
+                            continue;
+                        }
+                        seal = self.get_beneficiary_seal(&recipient.local_recipient_data);
                         asset_transition_builder = asset_transition_builder.add_fungible_state(
                             RGB_STATE_INFLATION_ALLOWANCE,
                             seal,
@@ -2131,7 +2147,9 @@ pub trait WalletOnline: WalletOffline {
                         )?;
                     }
                     _ => unreachable!(),
-                }
+                };
+
+                beneficiaries.push((seal, recipient.recipient_id.clone()));
             }
 
             let change = inputs_added.change(&transfer_info.original_assignments_needed);
@@ -2160,16 +2178,28 @@ pub trait WalletOnline: WalletOffline {
                 }
             };
 
-            if transfer_info.main_transition == TypeOfTransition::Inflate {
-                let inflation = transfer_info.original_assignments_needed.inflation;
-                asset_transition_builder = asset_transition_builder
-                    .add_global_state(RGB_GLOBAL_ISSUED_SUPPLY, Amount::from(inflation))
-                    .unwrap()
-                    .add_metadata(
-                        RGB_METADATA_ALLOWED_INFLATION,
-                        Amount::from(change.inflation),
-                    )
-                    .unwrap();
+            // add necessary globals/metadata to transition
+            match transfer_info.main_transition {
+                TypeOfTransition::Inflate => {
+                    let inflation = transfer_info.original_assignments_needed.inflation;
+                    asset_transition_builder = asset_transition_builder
+                        .add_global_state(RGB_GLOBAL_ISSUED_SUPPLY, Amount::from(inflation))
+                        .unwrap()
+                        .add_metadata(
+                            RGB_METADATA_ALLOWED_INFLATION,
+                            Amount::from(change.inflation),
+                        )
+                        .unwrap();
+                }
+                TypeOfTransition::Burn => {
+                    let burn = transfer_info.original_assignments_needed.fungible;
+                    asset_transition_builder = asset_transition_builder
+                        .add_metadata(RGB_METADATA_BURNED_ASSET, Amount::from(burn))
+                        .unwrap()
+                        .add_metadata(RGB_METADATA_BURNED_INFLATION, Amount::from(0u64))
+                        .unwrap();
+                }
+                _ => {}
             }
 
             let transition = asset_transition_builder.complete_transition()?;
@@ -2572,53 +2602,68 @@ pub trait WalletOnline: WalletOffline {
             }
 
             for recipient in transfer_info.recipients.clone() {
-                let recipient_type = if transfer_info.main_transition == TypeOfTransition::Inflate {
-                    let local_witness_data =
-                        if let LocalRecipientData::Witness(lwd) = recipient.local_recipient_data {
+                let (rcpt_id, rcpt_type, req_ass) = match transfer_info.main_transition {
+                    TypeOfTransition::Inflate => {
+                        let local_witness_data = if let LocalRecipientData::Witness(lwd) =
+                            recipient.local_recipient_data
+                        {
                             lwd
                         } else {
                             unreachable!("inflation uses witness recipients")
                         };
-                    let vout = local_witness_data.vout;
-                    let txo_idx = match self.database().get_txo(&Outpoint {
-                        txid: txid.clone(),
-                        vout,
-                    })? {
-                        Some(txo) => txo.idx,
-                        None => {
-                            let db_utxo = DbTxoActMod {
-                                txid: ActiveValue::Set(txid.clone()),
-                                vout: ActiveValue::Set(vout),
-                                btc_amount: ActiveValue::Set(
-                                    local_witness_data.amount_sat.to_string(),
-                                ),
-                                spent: ActiveValue::Set(false),
-                                exists: ActiveValue::Set(false),
-                                pending_witness: ActiveValue::Set(false),
-                                ..Default::default()
-                            };
-                            self.database().set_txo(db_utxo)?
-                        }
-                    };
-                    let db_coloring = DbColoringActMod {
-                        txo_idx: ActiveValue::Set(txo_idx),
-                        asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
-                        r#type: ActiveValue::Set(ColoringType::Issue),
-                        assignment: ActiveValue::Set(recipient.assignment.clone()),
-                        ..Default::default()
-                    };
-                    self.database().set_coloring(db_coloring)?;
-                    Some(RecipientTypeFull::Witness { vout: Some(vout) })
-                } else {
-                    None
+                        let vout = local_witness_data.vout;
+                        let txo_idx = match self.database().get_txo(&Outpoint {
+                            txid: txid.clone(),
+                            vout,
+                        })? {
+                            Some(txo) => txo.idx,
+                            None => {
+                                let db_utxo = DbTxoActMod {
+                                    txid: ActiveValue::Set(txid.clone()),
+                                    vout: ActiveValue::Set(vout),
+                                    btc_amount: ActiveValue::Set(
+                                        local_witness_data.amount_sat.to_string(),
+                                    ),
+                                    spent: ActiveValue::Set(false),
+                                    exists: ActiveValue::Set(false),
+                                    pending_witness: ActiveValue::Set(false),
+                                    ..Default::default()
+                                };
+                                self.database().set_txo(db_utxo)?
+                            }
+                        };
+                        let db_coloring = DbColoringActMod {
+                            txo_idx: ActiveValue::Set(txo_idx),
+                            asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
+                            r#type: ActiveValue::Set(ColoringType::Issue),
+                            assignment: ActiveValue::Set(recipient.assignment.clone()),
+                            ..Default::default()
+                        };
+                        self.database().set_coloring(db_coloring)?;
+                        (
+                            Some(recipient.recipient_id.clone()),
+                            Some(RecipientTypeFull::Witness { vout: Some(vout) }),
+                            recipient.assignment,
+                        )
+                    }
+                    TypeOfTransition::Burn => (
+                        None,
+                        None,
+                        Assignment::Fungible(transfer_info.original_assignments_needed.fungible),
+                    ),
+                    TypeOfTransition::Transfer => (
+                        Some(recipient.recipient_id.clone()),
+                        None,
+                        recipient.assignment,
+                    ),
                 };
 
                 let transfer = DbTransferActMod {
                     asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
-                    requested_assignment: ActiveValue::Set(Some(recipient.assignment)),
+                    requested_assignment: ActiveValue::Set(Some(req_ass)),
                     incoming: ActiveValue::Set(false),
-                    recipient_id: ActiveValue::Set(Some(recipient.recipient_id.clone())),
-                    recipient_type: ActiveValue::Set(recipient_type),
+                    recipient_id: ActiveValue::Set(rcpt_id),
+                    recipient_type: ActiveValue::Set(rcpt_type),
                     ..Default::default()
                 };
                 let transfer_idx = self.database().set_transfer(transfer)?;
@@ -3260,7 +3305,7 @@ pub trait WalletOnline: WalletOffline {
             input_unspents.clone(),
         )?;
 
-        let network: ChainNet = self.bitcoin_network().into();
+        let chainnet: ChainNet = self.bitcoin_network().into();
         let amount_sat = asset_spend.input_btc_amt / inflation_amounts.len() as u64;
         let dust = self
             .bdk_wallet()
@@ -3275,7 +3320,7 @@ pub trait WalletOnline: WalletOffline {
                 .get_new_addresses(KeychainKind::External, 1)?
                 .script_pubkey();
             let beneficiary = beneficiary_from_script_buf(script_pubkey.clone());
-            let beneficiary = XChainNet::with(network, beneficiary);
+            let beneficiary = XChainNet::with(chainnet, beneficiary);
             let recipient_id = beneficiary.to_string();
             witness_recipients.push((script_pubkey, amount_sat));
             let vout = idx as u32 + 1; // start from 1 because of OP_RETURN
@@ -3334,7 +3379,7 @@ pub trait WalletOnline: WalletOffline {
                 dry_run,
             )? {
                 PrepareTransferPsbtResult::Retry => {
-                    unreachable!("unimplemented retry logic for inflate transition")
+                    unreachable!("inflate transition has no retry logic")
                 }
                 PrepareTransferPsbtResult::Success(begin_operation_data) => *begin_operation_data,
             },
@@ -3368,6 +3413,134 @@ pub trait WalletOnline: WalletOffline {
         updated_asset.known_circulating_supply =
             ActiveValue::Set(Some(updated_known_circulating_supply.to_string()));
         self.database().update_asset(&mut updated_asset)?;
+
+        Ok(OperationResult {
+            txid,
+            batch_transfer_idx,
+            entropy: info_contents.entropy,
+        })
+    }
+
+    fn burn_begin_impl(
+        &mut self,
+        asset_id: String,
+        amount: u64,
+        fee_rate: u64,
+        min_confirmations: u8,
+        dry_run: bool,
+    ) -> Result<BeginOperationData, Error> {
+        let asset = self.database().check_asset_exists(asset_id.clone())?;
+        let schema = asset.schema;
+        self.check_schema_support(&schema)?;
+        if !SCHEMAS_SUPPORTING_BURN.contains(&schema) {
+            return Err(Error::UnsupportedBurn {
+                asset_schema: schema,
+            });
+        }
+
+        if amount == 0 {
+            return Err(Error::NoBurnAmount);
+        }
+
+        let (fee_rate_checked, unspents, input_unspents, mut runtime) =
+            self.get_transfer_begin_data(fee_rate)?;
+
+        let assignments_needed = AssignmentsCollection {
+            fungible: amount,
+            ..Default::default()
+        };
+        let asset_spend = self.select_rgb_inputs(
+            asset_id.clone(),
+            &assignments_needed,
+            input_unspents.clone(),
+        )?;
+
+        let chainnet: ChainNet = self.bitcoin_network().into();
+        let script_pubkey = self
+            .get_new_addresses(KeychainKind::External, 1)?
+            .script_pubkey();
+        let dust = self
+            .bdk_wallet()
+            .public_descriptor(KeychainKind::External)
+            .dust_value()
+            .to_sat();
+        let witness_recipients: Vec<(ScriptBuf, u64)> = vec![(script_pubkey.clone(), dust)];
+        let beneficiary = beneficiary_from_script_buf(script_pubkey.clone());
+        let beneficiary = XChainNet::with(chainnet, beneficiary);
+        let recipient_id = beneficiary.to_string();
+        let local_recipients = vec![LocalRecipient {
+            recipient_id,
+            local_recipient_data: LocalRecipientData::Witness(LocalWitnessData {
+                amount_sat: dust,
+                blinding: None,
+                vout: 1,
+            }),
+            assignment: Assignment::Fungible(0),
+            transport_endpoints: vec![],
+        }];
+
+        let contract_id = ContractId::from_str(&asset_id).expect("invalid contract ID");
+        let asset_info = AssetInfo {
+            contract_id,
+            reject_list_url: asset.reject_list_url,
+        };
+        let transfer_info = InfoAssetTransfer {
+            asset_info,
+            recipients: local_recipients.clone(),
+            asset_spend: asset_spend.clone(),
+            change: AssignmentsCollection::default(),
+            original_assignments_needed: assignments_needed.clone(),
+            assignments_needed,
+            assignments_spent: HashMap::new(),
+            main_transition: TypeOfTransition::Burn,
+            beneficiaries_blinded: vec![],
+            beneficiaries_witness: vec![],
+        };
+        let mut transfer_info_map: BTreeMap<String, InfoAssetTransfer> =
+            BTreeMap::from([(asset_id.clone(), transfer_info)]);
+
+        let receive_ids: Vec<String> = local_recipients
+            .iter()
+            .map(|lr| lr.recipient_id.clone())
+            .collect();
+        let transfer_dir = self.setup_transfer_directory(receive_ids)?;
+
+        let mut rejected = HashSet::new();
+        Ok(
+            match self.prepare_transfer_psbt(
+                &mut transfer_info_map,
+                transfer_dir.clone(),
+                false,
+                unspents,
+                &input_unspents,
+                &witness_recipients,
+                fee_rate_checked,
+                min_confirmations,
+                None,
+                &mut runtime,
+                &mut rejected,
+                dry_run,
+            )? {
+                PrepareTransferPsbtResult::Retry => {
+                    unreachable!("burn transition has no retry logic")
+                }
+                PrepareTransferPsbtResult::Success(begin_operation_data) => *begin_operation_data,
+            },
+        )
+    }
+
+    fn burn_end_impl(&mut self, signed_psbt: &Psbt) -> Result<OperationResult, Error> {
+        let (txid, _transfer_dir, info_contents, fascia) =
+            self.get_transfer_end_data(signed_psbt)?;
+
+        let batch_transfer_idx = self.finalize_transfer_end(
+            txid.clone(),
+            signed_psbt,
+            &info_contents,
+            TransferStatus::WaitingConfirmations,
+            fascia,
+            false,
+        )?;
 
         Ok(OperationResult {
             txid,

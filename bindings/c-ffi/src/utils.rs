@@ -185,6 +185,62 @@ pub(crate) fn backup_info(wallet: &COpaqueStruct) -> Result<String, Error> {
     Ok(serde_json::to_string(&res)?)
 }
 
+pub(crate) fn burn(
+    wallet: &COpaqueStruct,
+    online: *const c_char,
+    asset_id: *const c_char,
+    amount: *const c_char,
+    fee_rate: *const c_char,
+    min_confirmations: *const c_char,
+) -> Result<String, Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let online = convert_online(online)?;
+    let asset_id = ptr_to_string(asset_id);
+    let amount = ptr_to_num(amount)?;
+    let fee_rate = ptr_to_num(fee_rate)?;
+    let min_confirmations = ptr_to_num(min_confirmations)?;
+    let res = wallet.burn(online, asset_id, amount, fee_rate, min_confirmations)?;
+    Ok(serde_json::to_string(&res)?)
+}
+
+pub(crate) fn burn_begin(
+    wallet: &COpaqueStruct,
+    online: *const c_char,
+    asset_id: *const c_char,
+    amount: *const c_char,
+    fee_rate: *const c_char,
+    min_confirmations: *const c_char,
+    dry_run: bool,
+) -> Result<String, Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let online = convert_online(online)?;
+    let asset_id = ptr_to_string(asset_id);
+    let amount = ptr_to_num(amount)?;
+    let fee_rate = ptr_to_num(fee_rate)?;
+    let min_confirmations = ptr_to_num(min_confirmations)?;
+    let res = wallet.burn_begin(
+        online,
+        asset_id,
+        amount,
+        fee_rate,
+        min_confirmations,
+        dry_run,
+    )?;
+    Ok(serde_json::to_string(&res)?)
+}
+
+pub(crate) fn burn_end(
+    wallet: &COpaqueStruct,
+    online: *const c_char,
+    signed_psbt: *const c_char,
+) -> Result<String, Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let online = convert_online(online)?;
+    let signed_psbt = ptr_to_string(signed_psbt);
+    let res = wallet.burn_end(online, signed_psbt)?;
+    Ok(serde_json::to_string(&res)?)
+}
+
 pub(crate) fn blind_receive(
     wallet: &COpaqueStruct,
     asset_id_opt: *const c_char,

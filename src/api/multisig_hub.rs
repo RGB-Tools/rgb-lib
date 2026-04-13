@@ -126,6 +126,7 @@ pub(crate) enum OperationType {
     Inflation = 5,
     BlindReceive = 6,
     WitnessReceive = 7,
+    Burn = 8,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

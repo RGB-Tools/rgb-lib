@@ -1062,4 +1062,99 @@ impl Wallet {
         info!(self.logger(), "Inflate (end) completed");
         Ok(res)
     }
+
+    /// Burn RGB assets.
+    ///
+    /// This calls [`burn_begin`](Wallet::burn_begin), signs the resulting PSBT and finally
+    /// calls [`burn_end`](Wallet::burn_end).
+    ///
+    /// A wallet with private keys is required.
+    pub fn burn(
+        &mut self,
+        online: Online,
+        asset_id: String,
+        amount: u64,
+        fee_rate: u64,
+        min_confirmations: u8,
+    ) -> Result<OperationResult, Error> {
+        info!(self.logger(), "Burning amount: {}...", amount);
+        self.check_xprv()?;
+        self.check_online(online)?;
+        let mut begin_op_data =
+            self.burn_begin_impl(asset_id, amount, fee_rate, min_confirmations, true)?;
+        self.sign_psbt_impl(&mut begin_op_data.psbt, None)?;
+        let res = self.burn_end_impl(&begin_op_data.psbt)?;
+        self.update_backup_info(false)?;
+        info!(self.logger(), "Burn completed");
+        Ok(res)
+    }
+
+    /// Prepare the PSBT to burn RGB assets according to the given amount, with the provided
+    /// `fee_rate` (in sat/vB).
+    ///
+    /// The amount of assets to burn is specified by the `amount` parameter and cannot be zero.
+    ///
+    /// If `dry_run` is true, the wallet does not persist the transfer in
+    /// [`TransferStatus::Initiated`]. The returned [`BurnBeginResult::batch_transfer_idx`] is None
+    /// in that case. The PSBT and on-disk transfer data under the wallet directory are still
+    /// produced. [`burn_end`](Wallet::burn_end) can still complete the operation and will persist
+    /// the transfer.
+    ///
+    /// Signing of the returned PSBT needs to be carried out separately. The signed PSBT then needs
+    /// to be fed to the [`burn_end`](Wallet::burn_end) function for broadcasting.
+    ///
+    /// This doesn't require the wallet to have private keys.
+    ///
+    /// Returns a PSBT ready to be signed and operation details.
+    pub fn burn_begin(
+        &mut self,
+        online: Online,
+        asset_id: String,
+        amount: u64,
+        fee_rate: u64,
+        min_confirmations: u8,
+        dry_run: bool,
+    ) -> Result<BurnBeginResult, Error> {
+        info!(self.logger(), "Burning (begin) amount: {}...", amount);
+        self.check_online(online)?;
+        let begin_operation_data =
+            self.burn_begin_impl(asset_id, amount, fee_rate, min_confirmations, dry_run)?;
+        self.update_backup_info(false)?;
+        info!(self.logger(), "Burn (begin) completed");
+        Ok(BurnBeginResult {
+            psbt: begin_operation_data.psbt.to_string(),
+            batch_transfer_idx: begin_operation_data.batch_transfer_idx,
+            details: BurnDetails {
+                fascia_path: begin_operation_data
+                    .transfer_dir
+                    .join(FASCIA_FILE)
+                    .to_string_lossy()
+                    .to_string(),
+                min_confirmations,
+                entropy: begin_operation_data.info_batch_transfer.entropy,
+            },
+        })
+    }
+
+    /// Complete the burn operation by broadcasting the provided PSBT and saving the transfer to DB.
+    ///
+    /// The provided PSBT, prepared with the [`burn_begin`](Wallet::burn_begin) function, needs to
+    /// have already been signed.
+    ///
+    /// This doesn't require the wallet to have private keys.
+    ///
+    /// Returns a [`OperationResult`].
+    pub fn burn_end(
+        &mut self,
+        online: Online,
+        signed_psbt: String,
+    ) -> Result<OperationResult, Error> {
+        info!(self.logger(), "Burning (end)...");
+        self.check_online(online)?;
+        let psbt = Psbt::from_str(&signed_psbt)?;
+        let res = self.burn_end_impl(&psbt)?;
+        self.update_backup_info(false)?;
+        info!(self.logger(), "Burn (end) completed");
+        Ok(res)
+    }
 }
