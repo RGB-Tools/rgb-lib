@@ -860,6 +860,16 @@ pub trait WalletOnline: WalletOffline {
         };
         let contract_id = consignment.contract_id();
         let asset_id = contract_id.to_string();
+        let asset_schema: AssetSchema = consignment.schema_id().try_into()?;
+
+        // check if the received schema is supported
+        if !self.supports_schema(&asset_schema) {
+            error!(
+                self.logger(),
+                "The wallet doesn't support the provided schema: {}", asset_schema
+            );
+            return self.refuse_consignment(proxy_url, recipient_id, &mut updated_batch_transfer);
+        }
 
         // check if DB transfer is connected to an asset
         if let Some(aid) = asset_transfer.asset_id.clone() {
@@ -892,7 +902,6 @@ pub trait WalletOnline: WalletOffline {
 
         // validate consignment
         debug!(self.logger(), "Validating consignment...");
-        let asset_schema: AssetSchema = consignment.schema_id().try_into()?;
         let trusted_typesystem = asset_schema.types();
         let validation_config = ValidationConfig {
             chain_net: self.chain_net(),
@@ -984,14 +993,6 @@ pub trait WalletOnline: WalletOffline {
                     &mut updated_batch_transfer,
                 );
             }
-        }
-
-        if !self.supports_schema(&asset_schema) {
-            error!(
-                self.logger(),
-                "The wallet doesn't support the provided schema: {}", asset_schema
-            );
-            return self.refuse_consignment(proxy_url, recipient_id, &mut updated_batch_transfer);
         }
 
         let known_concealed = if let Some(RecipientTypeFull::Blind { .. }) = transfer.recipient_type
