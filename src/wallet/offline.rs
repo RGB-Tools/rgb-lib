@@ -2265,9 +2265,9 @@ pub trait WalletOffline: WalletBackup {
         Ok(signature_count)
     }
 
-    fn inspect_psbt_impl(&self, psbt: String) -> Result<PsbtInspection, Error> {
+    fn inspect_psbt_impl(&self, psbt: &str) -> Result<PsbtInspection, Error> {
         // check request data validity
-        let psbt = Psbt::from_str(&psbt)?;
+        let psbt = Psbt::from_str(psbt)?;
 
         // collect PSBT inputs
         let mut inputs = Vec::new();
@@ -2849,7 +2849,7 @@ pub trait RgbWalletOpsOffline: WalletOffline + WalletBackup {
     /// Inspect a PSBT to return its information.
     fn inspect_psbt(&self, psbt: String) -> Result<PsbtInspection, Error> {
         info!(self.logger(), "Inspecting PSBT...");
-        let inspection = self.inspect_psbt_impl(psbt)?;
+        let inspection = self.inspect_psbt_impl(&psbt)?;
         info!(self.logger(), "PSBT inspection completed");
         Ok(inspection)
     }
