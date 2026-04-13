@@ -1468,15 +1468,15 @@ fn send_btc_completed(
     wlt_1.sync();
     wlt_2.sync();
     let transactions = test_list_transactions(wlt_1.multisig, Some(wlt_1.online));
-    let transaction = transactions.last().unwrap();
+    let transaction = transactions.first().unwrap();
     assert_eq!(transaction.txid, txid);
     assert_matches!(transaction.transaction_type, TransactionType::User);
     let transactions = test_list_transactions(wlt_2.multisig, Some(wlt_2.online));
-    let transaction = transactions.last().unwrap();
+    let transaction = transactions.first().unwrap();
     assert_eq!(transaction.txid, txid);
     assert_matches!(transaction.transaction_type, TransactionType::User);
     let transactions = test_list_transactions(wlt_3.multisig, Some(wlt_3.online));
-    let transaction = transactions.last().unwrap();
+    let transaction = transactions.first().unwrap();
     assert_eq!(transaction.txid, txid);
     assert_matches!(transaction.transaction_type, TransactionType::User);
     mine(false, false);

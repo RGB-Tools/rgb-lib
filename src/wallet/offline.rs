@@ -1965,7 +1965,8 @@ pub trait WalletOffline: WalletBackup {
             .collect();
         Ok(self
             .bdk_wallet()
-            .transactions()
+            .transactions_sort_by(|tx1, tx2| tx2.chain_position.cmp(&tx1.chain_position))
+            .into_iter()
             .map(|t| {
                 let txid = t.tx_node.txid.to_string();
                 let transaction_type = if drain_txids.contains(&txid) {
@@ -2737,7 +2738,7 @@ pub trait RgbWalletOpsOffline: WalletOffline + WalletBackup {
         Ok(assets)
     }
 
-    /// List the Bitcoin [`Transaction`]s known to the wallet.
+    /// List the Bitcoin [`Transaction`]s known to the wallet, newest first.
     fn list_transactions(
         &mut self,
         online: Option<Online>,
