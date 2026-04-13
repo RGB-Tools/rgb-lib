@@ -430,7 +430,7 @@ pub trait WalletOnline: WalletOffline {
                 .database()
                 .get_batch_transfer_or_fail(batch_transfer_idx, &db_data.batch_transfers)?;
 
-            if !(batch_transfer.initiated() || batch_transfer.waiting_counterparty()) {
+            if !batch_transfer.is_fallible() {
                 return Err(Error::CannotFailBatchTransfer);
             }
 
@@ -446,11 +446,11 @@ pub trait WalletOnline: WalletOffline {
             transfers_changed = true;
             self.try_fail_batch_transfer(batch_transfer, true, &mut db_data)?
         } else {
-            // fail all expired transfers in status Initiated or WaitingCounterparty
+            // fail all expired transfers that are in a fallible status
             let now = now().unix_timestamp();
             let expired_batch_transfers = db_data.batch_transfers.clone().into_iter().filter(|t| {
                 let expired = t.expiration.unwrap_or(now) < now;
-                expired && (t.initiated() || t.waiting_counterparty())
+                expired && t.is_fallible()
             });
             for batch_transfer in expired_batch_transfers {
                 if no_asset_only {
@@ -812,6 +812,68 @@ pub trait WalletOnline: WalletOffline {
         attachments
     }
 
+    fn safe_height(&self, min_confirmations: u8) -> Result<u32, Error> {
+        Ok(self
+            .indexer()
+            .get_latest_block_height()?
+            .saturating_sub(min_confirmations as u32)
+            + 1)
+    }
+
+    fn collect_unsafe_history_txids(warnings: &[Warning], exclude_txid: &str) -> HashSet<String> {
+        let mut txids = HashSet::new();
+        for warning in warnings {
+            if let Warning::UnsafeHistory(unsafe_history) = warning {
+                for other_txids in unsafe_history.values() {
+                    for txid in other_txids {
+                        let txid = txid.to_string();
+                        if txid != *exclude_txid {
+                            txids.insert(txid);
+                        }
+                    }
+                }
+            }
+        }
+        txids
+    }
+
+    fn ack_consignment(
+        &self,
+        batch_transfer: &DbBatchTransfer,
+        recipient_id: String,
+        updated_batch_transfer: &mut DbBatchTransferActMod,
+        proxy_url: String,
+    ) -> Result<Option<DbBatchTransfer>, Error> {
+        debug!(self.logger(), "ACKing consignment...");
+
+        match self.set_hub_accept_status(batch_transfer.idx)? {
+            Some(true) => {}
+            Some(false) => return Ok(Some(self.fail_batch_transfer(batch_transfer)?)),
+            None => return Ok(None),
+        }
+
+        let proxy_client = ProxyClient::new(&proxy_url)?;
+        match proxy_client.post_ack(&recipient_id, true) {
+            Ok(r) => {
+                debug!(self.logger(), "Consignment ACK response: {:?}", r);
+            }
+            Err(e) if e.to_string().contains("Cannot change ACK") => {
+                warn!(self.logger(), "Found an NACK when trying ACK");
+            }
+            Err(e) => {
+                error!(self.logger(), "Failed to post ACK: {e}");
+                return Err(e);
+            }
+        };
+
+        updated_batch_transfer.status = ActiveValue::Set(TransferStatus::WaitingConfirmations);
+
+        Ok(Some(
+            self.database()
+                .update_batch_transfer(updated_batch_transfer)?,
+        ))
+    }
+
     fn wait_consignment(
         &self,
         batch_transfer: &DbBatchTransfer,
@@ -819,18 +881,14 @@ pub trait WalletOnline: WalletOffline {
     ) -> Result<Option<DbBatchTransfer>, Error> {
         debug!(self.logger(), "Waiting consignment...");
 
-        let batch_transfer_data =
-            batch_transfer.get_transfers(&db_data.asset_transfers, &db_data.transfers)?;
-        let (asset_transfer, transfer) = self
-            .database()
-            .get_incoming_transfer(&batch_transfer_data)?;
+        let (asset_transfer, transfer) =
+            batch_transfer.get_incoming_transfer(&db_data.asset_transfers, &db_data.transfers)?;
         let recipient_id = transfer
             .recipient_id
             .clone()
             .expect("transfer should have a recipient ID");
         debug!(self.logger(), "Recipient ID: {recipient_id}");
 
-        // check if a consignment has been posted
         let tte_data = self
             .database()
             .get_transfer_transport_endpoints_data(transfer.idx)?;
@@ -839,10 +897,37 @@ pub trait WalletOnline: WalletOffline {
         {
             return Ok(Some(updated_transfer));
         }
-        let mut proxy_res = None;
-        for (transfer_transport_endpoint, transport_endpoint) in tte_data {
-            let result =
-                match self.get_consignment(&transport_endpoint.endpoint, recipient_id.clone()) {
+
+        let mut updated_batch_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
+
+        // if we already downloaded the consignment and its metadata in a
+        // previous attempt that failed during validation for a transient
+        // reason (e.g. network error), reuse them instead of hitting the proxy
+        // again; the endpoint we used is recoverable from the DB via the
+        // `used` flag on the transfer transport endpoint
+        let consignment_path = self.get_receive_consignment_path(&recipient_id);
+        let consignment_meta_path = self.get_receive_consignment_meta_path(&recipient_id);
+        let (proxy_url, txid, vout) = if consignment_path.exists()
+            && consignment_meta_path.exists()
+            && let Some(cached_proxy_url) = tte_data
+                .iter()
+                .find(|(tte, _)| tte.used)
+                .map(|(_, te)| te.endpoint.clone())
+            && let Ok(meta_str) = fs::read_to_string(&consignment_meta_path)
+            && let Ok(meta) = serde_json::from_str::<ReceivedConsignmentMeta>(&meta_str)
+        {
+            debug!(
+                self.logger(),
+                "Reusing previously-downloaded consignment for {recipient_id}"
+            );
+            (cached_proxy_url, meta.txid, meta.vout)
+        } else {
+            // download consignment and its metadata
+            let mut proxy_res = None;
+            for (transfer_transport_endpoint, transport_endpoint) in tte_data {
+                let result = match self
+                    .get_consignment(&transport_endpoint.endpoint, recipient_id.clone())
+                {
                     Err(Error::NoConsignment) => {
                         info!(
                             self.logger(),
@@ -854,46 +939,54 @@ pub trait WalletOnline: WalletOffline {
                     Ok(r) => r,
                 };
 
-            proxy_res = Some((
-                result.consignment,
-                transport_endpoint.endpoint,
-                result.txid,
-                result.vout,
-            ));
-            let mut updated_transfer_transport_endpoint: DbTransferTransportEndpointActMod =
-                transfer_transport_endpoint.into();
-            updated_transfer_transport_endpoint.used = ActiveValue::Set(true);
-            self.database()
-                .update_transfer_transport_endpoint(&mut updated_transfer_transport_endpoint)?;
-            break;
-        }
-        let (consignment, proxy_url, txid, vout) = if let Some(res) = proxy_res {
-            (res.0, res.1, res.2, res.3)
-        } else {
-            return Ok(None);
-        };
-
-        let mut updated_batch_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
-
-        // write consignment
-        let consignment_path = self.get_receive_consignment_path(&recipient_id);
-        let transfer_dir = consignment_path.parent().unwrap();
-        fs::create_dir_all(transfer_dir)?;
-        let consignment_bytes = match general_purpose::STANDARD.decode(consignment) {
-            Ok(b) => b,
-            Err(e) => {
-                error!(self.logger(), "Failed to decode consignment bytes: {e}");
-                return self.refuse_consignment(
-                    proxy_url,
-                    recipient_id,
-                    &mut updated_batch_transfer,
-                );
+                proxy_res = Some((
+                    result.consignment,
+                    transport_endpoint.endpoint,
+                    result.txid,
+                    result.vout,
+                ));
+                let mut updated_transfer_transport_endpoint: DbTransferTransportEndpointActMod =
+                    transfer_transport_endpoint.into();
+                updated_transfer_transport_endpoint.used = ActiveValue::Set(true);
+                self.database()
+                    .update_transfer_transport_endpoint(&mut updated_transfer_transport_endpoint)?;
+                break;
             }
+            let (consignment_b64, proxy_url, txid, vout) = if let Some(res) = proxy_res {
+                (res.0, res.1, res.2, res.3)
+            } else {
+                return Ok(None);
+            };
+
+            // write consignment
+            let transfer_dir = consignment_path.parent().unwrap();
+            fs::create_dir_all(transfer_dir)?;
+            let consignment_bytes = match general_purpose::STANDARD.decode(consignment_b64) {
+                Ok(b) => b,
+                Err(e) => {
+                    error!(self.logger(), "Failed to decode consignment bytes: {e}");
+                    return self.refuse_consignment(
+                        proxy_url,
+                        recipient_id,
+                        &mut updated_batch_transfer,
+                    );
+                }
+            };
+            fs::write(&consignment_path, consignment_bytes).expect("Unable to write file");
+
+            // write consignment metadata
+            let meta = ReceivedConsignmentMeta {
+                txid: txid.clone(),
+                vout,
+            };
+            let meta_str = serde_json::to_string(&meta).map_err(InternalError::from)?;
+            fs::write(&consignment_meta_path, meta_str)?;
+
+            (proxy_url, txid, vout)
         };
-        fs::write(consignment_path.clone(), consignment_bytes).expect("Unable to write file");
 
         let mut runtime = self.rgb_runtime()?;
-        let consignment = match RgbTransfer::load_file(consignment_path) {
+        let consignment = match RgbTransfer::load_file(&consignment_path) {
             Ok(c) => c,
             Err(e) => {
                 error!(self.logger(), "Failed to load consignment file: {e}");
@@ -948,12 +1041,12 @@ pub trait WalletOnline: WalletOffline {
 
         // validate consignment
         debug!(self.logger(), "Validating consignment...");
-        let trusted_typesystem = asset_schema.types();
+        let safe_height = NonZeroU32::new(self.safe_height(batch_transfer.min_confirmations)?);
         let validation_config = ValidationConfig {
             chain_net: self.chain_net(),
-            trusted_typesystem,
+            trusted_typesystem: asset_schema.types(),
             build_opouts_dag: true,
-            ..Default::default()
+            safe_height,
         };
         let resolver = OffchainResolver {
             witness_id,
@@ -1052,9 +1145,9 @@ pub trait WalletOnline: WalletOffline {
         } else {
             None
         };
-        let received =
+        let receiving =
             self.extract_received_assignments(&consignment, witness_id, vout, known_concealed);
-        if received.is_empty() {
+        if receiving.is_empty() {
             error!(self.logger(), "Cannot find any receiving assignment");
             return self.refuse_consignment(proxy_url, recipient_id, &mut updated_batch_transfer);
         };
@@ -1076,7 +1169,7 @@ pub trait WalletOnline: WalletOffline {
                         .expect("build_opouts_dag is true"),
                     &reject_opouts,
                     &allow_opouts,
-                    &received.clone().into_keys().collect(),
+                    &receiving.clone().into_keys().collect(),
                 )?;
 
                 if !to_reject.is_empty() {
@@ -1099,16 +1192,18 @@ pub trait WalletOnline: WalletOffline {
             }
         }
 
-        // add asset info to transfer if missing
         if asset_transfer.asset_id.is_none() {
-            // check if asset is known
-            let exists_check = self.database().check_asset_exists(asset_id.clone());
-            if exists_check.is_err() {
+            if self
+                .database()
+                .check_asset_exists(asset_id.clone())
+                .is_err()
+            {
                 // unknown asset
                 debug!(self.logger(), "Receiving unknown contract...");
                 let valid_contract = valid_consignment.clone().into_valid_contract();
 
                 let attachments = self.extract_attachments(&valid_contract, asset_schema);
+                let mut saved_media_paths = vec![];
                 for attachment in attachments {
                     let digest = hex::encode(attachment.digest);
                     let media_path = self.media_dir().join(&digest);
@@ -1135,11 +1230,15 @@ pub trait WalletOnline: WalletOffline {
                                 );
                             }
                             fs::write(&media_path, file_bytes)?;
+                            saved_media_paths.push(media_path);
                         } else {
                             error!(
                                 self.logger(),
                                 "Cannot find the media file but the contract defines one"
                             );
+                            for path in saved_media_paths {
+                                fs::remove_file(path)?;
+                            }
                             return self.refuse_consignment(
                                 proxy_url,
                                 recipient_id,
@@ -1158,40 +1257,27 @@ pub trait WalletOnline: WalletOffline {
                     contract_id,
                     asset_schema,
                     valid_contract,
-                    Some(valid_consignment),
+                    Some(valid_consignment.clone()),
                 )?;
             }
 
+            // add asset info to transfer if missing
             let mut updated_asset_transfer: DbAssetTransferActMod = asset_transfer.clone().into();
             updated_asset_transfer.asset_id = ActiveValue::Set(Some(asset_id.clone()));
             self.database()
                 .update_asset_transfer(&mut updated_asset_transfer)?;
         }
 
+        // save validated consignment
+        let valid_consignment_path = self.get_receive_valid_consignment_path(&consignment_path);
+        valid_consignment.save_file(&valid_consignment_path)?;
+
         debug!(
             self.logger(),
-            "Consignment is valid. Received '{:?}' of contract '{}'", received, asset_id
+            "Consignment is valid. Receiving '{:?}' of contract '{}'", receiving, asset_id
         );
 
-        match self.set_hub_accept_status(batch_transfer.idx)? {
-            Some(true) => {}
-            Some(false) => return Ok(Some(self.fail_batch_transfer(batch_transfer)?)),
-            None => return Ok(None),
-        }
-
-        let proxy_client = ProxyClient::new(&proxy_url)?;
-        match proxy_client.post_ack(&recipient_id, true) {
-            Ok(r) => {
-                debug!(self.logger(), "Consignment ACK response: {:?}", r);
-            }
-            Err(e) if e.to_string().contains("Cannot change ACK") => {
-                warn!(self.logger(), "Found an NACK when trying ACK");
-            }
-            Err(e) => {
-                error!(self.logger(), "Failed to post ACK: {e}");
-                return Err(e);
-            }
-        };
+        updated_batch_transfer.txid = ActiveValue::Set(Some(txid.clone()));
 
         let utxo_idx = match transfer.recipient_type {
             Some(RecipientTypeFull::Blind { ref unblinded_utxo }) => {
@@ -1218,7 +1304,7 @@ pub trait WalletOnline: WalletOffline {
             }
             _ => return Err(InternalError::Unexpected.into()),
         };
-        for assignment in received.into_values() {
+        for assignment in receiving.into_values() {
             let db_coloring = DbColoringActMod {
                 txo_idx: ActiveValue::Set(utxo_idx),
                 asset_transfer_idx: ActiveValue::Set(asset_transfer.idx),
@@ -1229,13 +1315,81 @@ pub trait WalletOnline: WalletOffline {
             self.database().set_coloring(db_coloring)?;
         }
 
-        updated_batch_transfer.txid = ActiveValue::Set(Some(txid));
-        updated_batch_transfer.status = ActiveValue::Set(TransferStatus::WaitingConfirmations);
+        // if the consignment contains unsafe history set status to WaitingSafeHeight and stop here
+        if validation_status.validity() == Validity::Warnings {
+            let unsafe_txids =
+                Self::collect_unsafe_history_txids(&validation_status.warnings, &txid);
+            if !unsafe_txids.is_empty() {
+                warn!(
+                    self.logger(),
+                    "Unsafe history detected in consignment: {unsafe_txids:?}"
+                );
+                updated_batch_transfer.status = ActiveValue::Set(TransferStatus::WaitingSafeHeight);
+                return Ok(Some(
+                    self.database()
+                        .update_batch_transfer(&mut updated_batch_transfer)?,
+                ));
+            }
+        }
 
-        Ok(Some(
-            self.database()
-                .update_batch_transfer(&mut updated_batch_transfer)?,
-        ))
+        self.ack_consignment(
+            batch_transfer,
+            recipient_id,
+            &mut updated_batch_transfer,
+            proxy_url,
+        )
+    }
+
+    fn wait_safe_height(
+        &mut self,
+        batch_transfer: &DbBatchTransfer,
+        db_data: &mut DbData,
+    ) -> Result<Option<DbBatchTransfer>, Error> {
+        debug!(self.logger(), "Waiting safe height...");
+
+        let (_, transfer) =
+            batch_transfer.get_incoming_transfer(&db_data.asset_transfers, &db_data.transfers)?;
+        let recipient_id = transfer
+            .recipient_id
+            .clone()
+            .expect("transfer should have a recipient ID");
+        let consignment_path = self.get_receive_consignment_path(&recipient_id);
+        let valid_consignment_path = self.get_receive_valid_consignment_path(&consignment_path);
+        let valid_consignment =
+            ValidTransfer::load_file(&valid_consignment_path).map_err(InternalError::from)?;
+        let validation_status = valid_consignment.validation_status();
+        let txid = batch_transfer
+            .txid
+            .as_deref()
+            .expect("batch_transfer in WaitingSafeHeight must have a txid");
+        let unsafe_txids = Self::collect_unsafe_history_txids(&validation_status.warnings, txid);
+
+        if !unsafe_txids.is_empty() {
+            let safe_height = self.safe_height(batch_transfer.min_confirmations)?;
+            for txid in unsafe_txids {
+                let Some(tx_height) = self.tx_height(txid)? else {
+                    return Ok(None);
+                };
+                if tx_height > safe_height {
+                    return Ok(None);
+                }
+            }
+        }
+
+        let mut updated_batch_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
+        let tte_data = self
+            .database()
+            .get_transfer_transport_endpoints_data(transfer.idx)?;
+        let (_, transport_endpoint) = tte_data
+            .into_iter()
+            .find(|(tte, _)| tte.used)
+            .expect("there should be 1 used TTE");
+        self.ack_consignment(
+            batch_transfer,
+            recipient_id,
+            &mut updated_batch_transfer,
+            transport_endpoint.endpoint,
+        )
     }
 
     fn wait_ack(
@@ -1379,19 +1533,13 @@ pub trait WalletOnline: WalletOffline {
         }
 
         if incoming {
-            let batch_transfer_data =
-                batch_transfer.get_transfers(&db_data.asset_transfers, &db_data.transfers)?;
-            let (asset_transfer, transfer) = self
-                .database()
-                .get_incoming_transfer(&batch_transfer_data)?;
+            let (asset_transfer, transfer) = batch_transfer
+                .get_incoming_transfer(&db_data.asset_transfers, &db_data.transfers)?;
             let recipient_id = transfer
                 .clone()
                 .recipient_id
                 .expect("transfer should have a recipient ID");
             debug!(self.logger(), "Recipient ID: {recipient_id}");
-            let consignment_path = self.get_receive_consignment_path(&recipient_id);
-            let consignment =
-                RgbTransfer::load_file(consignment_path).map_err(InternalError::from)?;
 
             if let Some(RecipientTypeFull::Witness { vout }) = transfer.recipient_type {
                 if !skip_sync {
@@ -1408,23 +1556,13 @@ pub trait WalletOnline: WalletOffline {
             }
 
             // accept consignment
-            let mut safe_height = None;
-            if let Some(tx_height) = self.tx_height(txid)? {
-                safe_height = Some(NonZeroU32::new(tx_height).unwrap())
-            }
-            let asset_schema: AssetSchema = consignment.schema_id().try_into()?;
-            let validation_config = ValidationConfig {
-                chain_net: self.chain_net(),
-                trusted_typesystem: asset_schema.types(),
-                safe_height,
-                ..Default::default()
-            };
-            let valid_consignment = consignment
-                .validate(self.blockchain_resolver(), &validation_config)
-                .map_err(|_| InternalError::Unexpected)?;
+            let consignment_path = self.get_receive_consignment_path(&recipient_id);
+            let valid_consignment_path = self.get_receive_valid_consignment_path(&consignment_path);
+            let valid_consignment =
+                ValidTransfer::load_file(&valid_consignment_path).map_err(InternalError::from)?;
             let mut runtime = self.rgb_runtime()?;
-            let validation_status =
-                runtime.accept_transfer(valid_consignment.clone(), self.blockchain_resolver())?;
+            runtime.accept_transfer(valid_consignment.clone(), self.blockchain_resolver())?;
+            let asset_schema: AssetSchema = valid_consignment.schema_id().try_into()?;
             if asset_schema == AssetSchema::Ifa {
                 let contract_id = valid_consignment.contract_id();
                 let contract_wrapper =
@@ -1443,21 +1581,6 @@ pub trait WalletOnline: WalletOffline {
                     updated_asset.known_circulating_supply =
                         ActiveValue::Set(Some(known_circulating_supply.to_string()));
                     self.database().update_asset(&mut updated_asset)?;
-                }
-            }
-
-            match validation_status.validity() {
-                Validity::Valid => {}
-                Validity::Warnings => {
-                    if let Warning::UnsafeHistory(ref unsafe_history) =
-                        validation_status.warnings[0]
-                    {
-                        warn!(
-                            self.logger(),
-                            "Cannot accept transfer because of unsafe history: {unsafe_history:?}"
-                        );
-                        return Ok(None);
-                    }
                 }
             }
         }
@@ -1509,6 +1632,7 @@ pub trait WalletOnline: WalletOffline {
                 }
                 self.wait_counterparty(transfer, db_data, incoming, skip_sync)
             }
+            TransferStatus::WaitingSafeHeight => self.wait_safe_height(transfer, db_data),
             TransferStatus::WaitingConfirmations => {
                 self.wait_confirmations(transfer, db_data, incoming, skip_sync)
             }

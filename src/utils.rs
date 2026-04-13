@@ -698,7 +698,7 @@ impl RgbRuntime {
         &mut self,
         contract: ValidTransfer,
         resolver: &R,
-    ) -> Result<Status, InternalError> {
+    ) -> Result<(), InternalError> {
         self.stock
             .accept_transfer(contract, resolver)
             .map_err(InternalError::from)
@@ -771,7 +771,7 @@ impl RgbRuntime {
         &mut self,
         contract: ValidContract,
         resolver: &R,
-    ) -> Result<Status, InternalError> {
+    ) -> Result<(), InternalError> {
         self.stock
             .import_contract(contract, resolver)
             .map_err(InternalError::from)

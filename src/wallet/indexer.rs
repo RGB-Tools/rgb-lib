@@ -117,6 +117,23 @@ impl Indexer {
         }
     }
 
+    pub(crate) fn get_latest_block_height(&self) -> Result<u32, Error> {
+        Ok(match self {
+            #[cfg(feature = "electrum")]
+            Indexer::Electrum(client) => {
+                let header = client
+                    .inner
+                    .block_headers_subscribe()
+                    .map_err(IndexerError::from)?;
+                u32::try_from(header.height).map_err(|_| Error::Indexer {
+                    details: s!("electrs returned invalid height"),
+                })?
+            }
+            #[cfg(feature = "esplora")]
+            Indexer::Esplora(client) => client.get_height().map_err(IndexerError::from)?,
+        })
+    }
+
     pub(crate) fn get_tx_confirmations(&self, txid: &str) -> Result<Option<u64>, Error> {
         Ok(match self {
             #[cfg(feature = "electrum")]
@@ -155,7 +172,7 @@ impl Indexer {
                 let txid = Txid::from_str(txid).unwrap();
                 let tx_status = client.get_tx_status(&txid).map_err(IndexerError::from)?;
                 if let Some(tx_height) = tx_status.block_height {
-                    let height = client.get_height().map_err(IndexerError::from)?;
+                    let height = self.get_latest_block_height()?;
                     Some((height - tx_height + 1) as u64)
                 } else if client.get_tx(&txid).map_err(IndexerError::from)?.is_none() {
                     None

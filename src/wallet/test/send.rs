@@ -4750,6 +4750,7 @@ fn min_confirmations_common(
     let txid = test_send(rcv_wallet, rcv_online, &recipient_map);
     assert!(!txid.is_empty());
 
+    force_mine_no_resume_when_alone(esplora);
     wait_for_refresh(wallet, online, None, None);
     wait_for_refresh(rcv_wallet, rcv_online, Some(&asset.asset_id), None);
     drop(_guard);
@@ -7950,4 +7951,138 @@ fn cross_type_p2tr_to_p2wpkh() {
     assert_eq!(balance_sender.settled, AMOUNT - amount + amount_back);
     let balance_receiver = test_get_asset_balance(&rcv_wallet, &asset.asset_id);
     assert_eq!(balance_receiver.settled, amount - amount_back);
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn unsafe_history_waits_for_safe_height() {
+    initialize();
+
+    let amount_1: u64 = 66;
+    let amount_2: u64 = 33;
+
+    // wallets
+    let (mut wallet_1, online_1) = get_funded_wallet!();
+    let (mut wallet_2, online_2) = get_funded_wallet!();
+
+    // issue
+    let asset = test_issue_asset_nia(&mut wallet_1, online_1, None);
+
+    // 1st transfer: wallet 1 > wallet 2
+    let receive_data_1 = test_blind_receive(&mut wallet_2);
+    let recipient_map_1 = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(amount_1),
+            recipient_id: receive_data_1.recipient_id.clone(),
+            witness_data: None,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid_1 = test_send(&mut wallet_1, online_1, &recipient_map_1);
+    assert!(!txid_1.is_empty());
+    let _guard = stop_mining_when_alone();
+    wait_for_refresh(&mut wallet_2, online_2, None, None);
+    wait_for_refresh(&mut wallet_1, online_1, Some(&asset.asset_id), None);
+    force_mine_no_resume_when_alone(false);
+    wait_for_refresh(&mut wallet_2, online_2, None, None);
+    wait_for_refresh(&mut wallet_1, online_1, Some(&asset.asset_id), None);
+    assert!(check_test_transfer_status_recipient(
+        &wallet_2,
+        &receive_data_1.recipient_id,
+        TransferStatus::Settled
+    ));
+    assert!(check_test_transfer_status_sender(
+        &wallet_1,
+        &txid_1,
+        TransferStatus::Settled
+    ));
+
+    // 2nd transfer: wallet 1 > wallet 2 with min_confirmations = 2
+    // txid_1 has only one confirmation, so transfer parks in WaitingSafeHeight
+    let receive_data_2 = wallet_2
+        .blind_receive(
+            None,
+            Assignment::Any,
+            Some((now().unix_timestamp() + DURATION_RCV_TRANSFER as i64) as u64),
+            TRANSPORT_ENDPOINTS.clone(),
+            2,
+        )
+        .unwrap();
+    let recipient_map_2 = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(amount_2),
+            recipient_id: receive_data_2.recipient_id.clone(),
+            witness_data: None,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid_2 = test_send(&mut wallet_1, online_1, &recipient_map_2);
+    assert!(!txid_2.is_empty());
+
+    // transfer parks in WaitingSafeHeight because it contains unsafe history
+    wait_for_refresh(
+        &mut wallet_2,
+        online_2,
+        None,
+        Some(&[receive_data_2.batch_transfer_idx]),
+    );
+    assert!(check_test_transfer_status_recipient(
+        &wallet_2,
+        &receive_data_2.recipient_id,
+        TransferStatus::WaitingSafeHeight
+    ));
+
+    // mine another block so txid_1 reaches 2 confirmations, then refresh to ACK
+    force_mine_no_resume_when_alone(false);
+    wait_for_refresh(
+        &mut wallet_2,
+        online_2,
+        None,
+        Some(&[receive_data_2.batch_transfer_idx]),
+    );
+    assert!(check_test_transfer_status_recipient(
+        &wallet_2,
+        &receive_data_2.recipient_id,
+        TransferStatus::WaitingConfirmations
+    ));
+
+    // sender sees the ACK and broadcasts txid_2
+    wait_for_refresh(&mut wallet_1, online_1, Some(&asset.asset_id), None);
+    assert!(check_test_transfer_status_sender(
+        &wallet_1,
+        &txid_2,
+        TransferStatus::WaitingConfirmations
+    ));
+
+    // mine, sender (min_confirmations = 1) settles, recipient (min_confirmations = 2) still in WaitingConfirmations
+    force_mine_no_resume_when_alone(false);
+    wait_for_refresh(&mut wallet_1, online_1, Some(&asset.asset_id), None);
+    assert!(check_test_transfer_status_sender(
+        &wallet_1,
+        &txid_2,
+        TransferStatus::Settled
+    ));
+    assert!(!test_refresh_all(&mut wallet_2, online_2));
+    assert!(check_test_transfer_status_recipient(
+        &wallet_2,
+        &receive_data_2.recipient_id,
+        TransferStatus::WaitingConfirmations
+    ));
+
+    // mine again so txid_2 reaches 2 confirmations, recipient settles
+    force_mine_no_resume_when_alone(false);
+    wait_for_refresh(
+        &mut wallet_2,
+        online_2,
+        None,
+        Some(&[receive_data_2.batch_transfer_idx]),
+    );
+    assert!(check_test_transfer_status_recipient(
+        &wallet_2,
+        &receive_data_2.recipient_id,
+        TransferStatus::Settled
+    ));
 }

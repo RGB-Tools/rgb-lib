@@ -54,7 +54,7 @@ pub(crate) use indexer::Indexer;
 pub(crate) use objects::{
     AssetInfo, AssetSpend, BeginOperationData, BtcChange, LocalRecipient, LocalRecipientData,
     LocalWitnessData, OnlineData, PrepareRgbPsbtResult, PrepareTransferPsbtResult,
-    RefreshResultTrait,
+    ReceivedConsignmentMeta, RefreshResultTrait,
 };
 pub(crate) use objects::{
     InfoAssetTransfer, InfoBatchTransfer, IssueData, IssuedAssetDetails, LocalAssetData,

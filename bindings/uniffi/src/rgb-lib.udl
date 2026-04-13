@@ -453,6 +453,7 @@ enum TransferKind {
 [Remote]
 enum TransferStatus {
   "WaitingCounterparty",
+  "WaitingSafeHeight",
   "WaitingConfirmations",
   "Settled",
   "Failed",

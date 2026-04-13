@@ -1452,27 +1452,18 @@ impl MultisigWallet {
     }
 
     fn accept_issuance_consignment(&mut self, files: &[FileResponse]) -> Result<String, Error> {
-        // get and validate contract
+        // get the validated contract
         let consignment_file = files
             .iter()
             .find(|f| matches!(f.r#type, FileType::Consignment))
             .ok_or(Error::MultisigUnexpectedData {
                 details: s!("issuance consignment not found"),
             })?;
-        let contract =
-            Contract::load_file(&consignment_file.filepath).map_err(InternalError::from)?;
-        let asset_schema: AssetSchema = contract.schema_id().try_into()?;
-        let validation_config = ValidationConfig {
-            chain_net: self.chain_net(),
-            trusted_typesystem: asset_schema.types(),
-            ..Default::default()
-        };
-        let valid_contract = contract
-            .clone()
-            .validate(&DumbResolver, &validation_config)
-            .unwrap();
+        let valid_contract =
+            ValidContract::load_file(&consignment_file.filepath).map_err(InternalError::from)?;
+        let asset_schema: AssetSchema = valid_contract.schema_id().try_into()?;
 
-        // import and save contract
+        // import and move contract file to the issue consignment path
         let mut runtime = self.rgb_runtime()?;
         runtime
             .import_contract(valid_contract.clone(), &DumbResolver)
@@ -1480,7 +1471,7 @@ impl MultisigWallet {
         let contract_id = valid_contract.contract_id();
         let asset_id = contract_id.to_string();
         let contract_path = self.get_issue_consignment_path(&asset_id);
-        valid_contract.save_file(&contract_path)?;
+        fs::rename(&consignment_file.filepath, &contract_path)?;
 
         // handle media files, if any
         let media_files = files

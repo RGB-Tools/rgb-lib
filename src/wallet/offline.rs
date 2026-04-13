@@ -8,6 +8,8 @@ const TRANSFERS_DIR: &str = "transfers";
 
 const CONSIGNMENT_RCV_FILE: &str = "rcv_compose.rgbc";
 
+const CONSIGNMENT_RCV_META_FILE: &str = "rcv_compose.meta.json";
+
 const MIN_BTC_REQUIRED: u64 = 2000;
 
 const ASSET_ID_PREFIX: &str = "rgb:";
@@ -2038,6 +2040,16 @@ pub trait WalletOffline: WalletBackup {
         self.get_transfers_dir()
             .join(self.normalize_recipient_id(recipient_id))
             .join(CONSIGNMENT_RCV_FILE)
+    }
+
+    fn get_receive_consignment_meta_path(&self, recipient_id: &str) -> PathBuf {
+        self.get_transfers_dir()
+            .join(self.normalize_recipient_id(recipient_id))
+            .join(CONSIGNMENT_RCV_META_FILE)
+    }
+
+    fn get_receive_valid_consignment_path(&self, consignment_path: &Path) -> PathBuf {
+        consignment_path.with_extension("valid.rgbc")
     }
 
     fn send_consignment_path(&self, asset_id: &str, transfer_id: &str) -> PathBuf {

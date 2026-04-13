@@ -242,6 +242,9 @@ pub enum TransferStatus {
     /// Waiting for the counterparty to take action
     #[sea_orm(num_value = 1)]
     WaitingCounterparty = 1,
+    /// Waiting for safe height to be reached
+    #[sea_orm(num_value = 6)]
+    WaitingSafeHeight = 6,
     /// Waiting for the transfer transaction to reach the required number of confirmations
     #[sea_orm(num_value = 2)]
     WaitingConfirmations = 2,
@@ -269,6 +272,7 @@ impl TransferStatus {
         [
             TransferStatus::Initiated,
             TransferStatus::WaitingCounterparty,
+            TransferStatus::WaitingSafeHeight,
             TransferStatus::WaitingConfirmations,
         ]
         .contains(self)
@@ -278,6 +282,7 @@ impl TransferStatus {
     pub(crate) fn waiting(&self) -> bool {
         [
             TransferStatus::WaitingCounterparty,
+            TransferStatus::WaitingSafeHeight,
             TransferStatus::WaitingConfirmations,
         ]
         .contains(self)
@@ -293,6 +298,16 @@ impl TransferStatus {
 
     pub(crate) fn waiting_counterparty(&self) -> bool {
         self == &TransferStatus::WaitingCounterparty
+    }
+
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub(crate) fn is_fallible(&self) -> bool {
+        [
+            TransferStatus::Initiated,
+            TransferStatus::WaitingCounterparty,
+            TransferStatus::WaitingSafeHeight,
+        ]
+        .contains(self)
     }
 }
 

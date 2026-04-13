@@ -200,7 +200,7 @@ use rgbstd::{
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use rgbstd::{
     TransitionType,
-    containers::{Consignment, Contract},
+    containers::Consignment,
     contract::FilterIncludeAll,
     daggy::Walker,
     indexers::AnyResolver,

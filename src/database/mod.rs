@@ -69,13 +69,26 @@ impl DbBatchTransfer {
         })
     }
 
-    pub(crate) fn failed(&self) -> bool {
-        self.status.failed()
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub(crate) fn get_incoming_transfer(
+        &self,
+        asset_transfers: &[DbAssetTransfer],
+        transfers: &[DbTransfer],
+    ) -> Result<(DbAssetTransfer, DbTransfer), Error> {
+        let batch_transfer_data = self.get_transfers(asset_transfers, transfers)?;
+        let asset_transfer_data = batch_transfer_data
+            .asset_transfers_data
+            .first() // incoming batch transfer has only one asset transfer
+            .expect("asset transfer should be connected to a batch transfer");
+        let transfer = asset_transfer_data
+            .transfers
+            .first() // incoming asset transfer has only one transfer
+            .expect("transfer should be connected to an asset transfer");
+        Ok((asset_transfer_data.asset_transfer.clone(), transfer.clone()))
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
-    pub(crate) fn initiated(&self) -> bool {
-        self.status.initiated()
+    pub(crate) fn failed(&self) -> bool {
+        self.status.failed()
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -88,8 +101,8 @@ impl DbBatchTransfer {
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
-    pub(crate) fn waiting_counterparty(&self) -> bool {
-        self.status.waiting_counterparty()
+    pub(crate) fn is_fallible(&self) -> bool {
+        self.status.is_fallible()
     }
 }
 
@@ -813,22 +826,6 @@ impl RgbLibDatabase {
         } else {
             Err(Error::BatchTransferNotFound { idx })
         }
-    }
-
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
-    pub(crate) fn get_incoming_transfer(
-        &self,
-        batch_transfer_data: &DbBatchTransferData,
-    ) -> Result<(DbAssetTransfer, DbTransfer), Error> {
-        let asset_transfer_data = batch_transfer_data
-            .asset_transfers_data
-            .first()
-            .expect("asset transfer should be connected to a batch transfer");
-        let transfer = asset_transfer_data
-            .transfers
-            .first()
-            .expect("transfer should be connected to an asset transfer");
-        Ok((asset_transfer_data.asset_transfer.clone(), transfer.clone()))
     }
 
     fn get_utxo_allocations(

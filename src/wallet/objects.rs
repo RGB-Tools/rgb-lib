@@ -1840,3 +1840,10 @@ pub enum PrepareTransferPsbtResult {
     Retry,
     Success(Box<BeginOperationData>),
 }
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ReceivedConsignmentMeta {
+    pub txid: String,
+    pub vout: Option<u32>,
+}
