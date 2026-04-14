@@ -7,6 +7,7 @@ pub use super::batch_transfer::Entity as BatchTransfer;
 pub use super::coloring::Entity as Coloring;
 pub use super::media::Entity as Media;
 pub use super::pending_witness_script::Entity as PendingWitnessScript;
+pub use super::reserved_txo::Entity as ReservedTxo;
 pub use super::token::Entity as Token;
 pub use super::token_media::Entity as TokenMedia;
 pub use super::transfer::Entity as Transfer;

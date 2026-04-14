@@ -300,6 +300,7 @@ mod utils;
 pub(crate) use utils::{api::*, chain::*, helpers::*};
 
 // API tests
+mod abort_pending_vanilla_tx;
 mod backup;
 mod blind_receive;
 mod create_utxos;
@@ -321,6 +322,7 @@ mod issue_asset_ifa;
 mod issue_asset_nia;
 mod issue_asset_uda;
 mod list_assets;
+mod list_pending_vanilla_txs;
 mod list_transactions;
 mod list_transfers;
 mod list_unspents;

@@ -228,6 +228,7 @@ pub(crate) fn create_utxos(
     Ok(serde_json::to_string(&res)?)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn create_utxos_begin(
     wallet: &COpaqueStruct,
     online: &COpaqueStruct,
@@ -236,13 +237,14 @@ pub(crate) fn create_utxos_begin(
     size_opt: *const c_char,
     fee_rate: *const c_char,
     skip_sync: bool,
+    dry_run: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = Online::from_opaque(online)?;
     let num = convert_optional_number(num_opt)?;
     let size = convert_optional_number(size_opt)?;
     let fee_rate = ptr_to_num(fee_rate)?;
-    let res = wallet.create_utxos_begin(*online, up_to, num, size, fee_rate, skip_sync)?;
+    let res = wallet.create_utxos_begin(*online, up_to, num, size, fee_rate, skip_sync, dry_run)?;
     Ok(res)
 }
 

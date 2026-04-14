@@ -1413,8 +1413,20 @@ pub enum TransactionType {
     Drain,
     /// Transaction used to create UTXOs
     CreateUtxos,
-    /// Transaction not created by rgb-lib directly
-    User,
+    /// Transaction used to perform a BTC send
+    SendBtc,
+    /// Transaction not created via rgb-lib
+    Untracked,
+}
+
+/// A pending vanilla transaction that has reserved TXOs in the wallet.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct PendingVanillaTx {
+    /// Transaction ID
+    pub txid: String,
+    /// Type of vanilla operation that reserved the TXOs
+    pub r#type: WalletTransactionType,
 }
 
 /// A Bitcoin transaction.

@@ -296,13 +296,15 @@ impl TransferStatus {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, Deserialize, Serialize)]
 #[sea_orm(rs_type = "u8", db_type = "TinyUnsigned")]
 pub enum WalletTransactionType {
     #[sea_orm(num_value = 1)]
     CreateUtxos = 1,
     #[sea_orm(num_value = 2)]
     Drain = 2,
+    #[sea_orm(num_value = 3)]
+    SendBtc = 3,
 }
 
 /// An RGB assignment.

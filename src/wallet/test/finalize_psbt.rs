@@ -8,7 +8,7 @@ fn success() {
     let (mut wallet, online) = get_funded_wallet!();
     let address = test_get_address(&mut wallet);
     let unsigned_psbt_str = wallet
-        .send_btc_begin(online, address, AMOUNT, FEE_RATE, false)
+        .send_btc_begin(online, address, AMOUNT, FEE_RATE, false, true)
         .unwrap();
     let signed_psbt = wallet.sign_psbt(unsigned_psbt_str.clone(), None).unwrap();
     let finalized_psbt = wallet.finalize_psbt(signed_psbt, None);
@@ -26,7 +26,7 @@ fn fail() {
 
     let address = test_get_address(&mut wallet_1);
     let unsigned_psbt_str = wallet_1
-        .send_btc_begin(online, address, AMOUNT, FEE_RATE, false)
+        .send_btc_begin(online, address, AMOUNT, FEE_RATE, false, true)
         .unwrap();
     let wallet_2 = get_test_wallet(true, None);
     let result = wallet_2.finalize_psbt(unsigned_psbt_str, None);

@@ -734,7 +734,7 @@ fn success() {
             wlt_3.multisig_mut(),
         ],
         &op_init.psbt,
-        &TransactionType::User,
+        &TransactionType::SendBtc,
     );
     check_btc_balance(
         &mut [
@@ -832,7 +832,7 @@ fn success() {
     // final state expectations
     let btc_final_vanilla = (0, 6442, 6442);
     let btc_final_colored = (16452, 16452, 16452);
-    let tx_type_final = TransactionType::User;
+    let tx_type_final = TransactionType::SendBtc;
     #[rustfmt::skip]
     let assets_final = HashMap::from([
         (cfa_asset.asset_id.as_str(), (180, 180, 180, 3, TransferStatus::Settled)),

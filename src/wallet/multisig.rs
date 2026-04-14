@@ -1960,7 +1960,7 @@ impl MultisigWallet {
         info!(self.logger(), "Initiate creating UTXOs...");
         self.check_online(online)?;
         self.check_is_cosigner()?;
-        let psbt = self.create_utxos_begin_impl(up_to, num, size, fee_rate, skip_sync)?;
+        let psbt = self.create_utxos_begin_impl(up_to, num, size, fee_rate, skip_sync, true)?;
         let res = self.post_operation(OperationType::CreateUtxos, PostData::Psbt(psbt))?;
         self.update_backup_info(false)?;
         info!(self.logger(), "Initiate creating UTXOs completed");
@@ -1983,7 +1983,7 @@ impl MultisigWallet {
         info!(self.logger(), "Initiate sending BTC...");
         self.check_online(online)?;
         self.check_is_cosigner()?;
-        let psbt = self.send_btc_begin_impl(address, amount, fee_rate, skip_sync)?;
+        let psbt = self.send_btc_begin_impl(address, amount, fee_rate, skip_sync, true)?;
         let res = self.post_operation(OperationType::SendBtc, PostData::Psbt(psbt))?;
         self.update_backup_info(false)?;
         info!(self.logger(), "Initiate sending BTC completed");

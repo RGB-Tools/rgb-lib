@@ -928,9 +928,10 @@ impl Wallet {
         size: Option<u32>,
         fee_rate: u64,
         skip_sync: bool,
+        dry_run: bool,
     ) -> Result<String, RgbLibError> {
         self._get_wallet()
-            .create_utxos_begin(online, up_to, num, size, fee_rate, skip_sync)
+            .create_utxos_begin(online, up_to, num, size, fee_rate, skip_sync, dry_run)
     }
 
     fn create_utxos_end(
@@ -969,9 +970,10 @@ impl Wallet {
         address: String,
         destroy_assets: bool,
         fee_rate: u64,
+        dry_run: bool,
     ) -> Result<String, RgbLibError> {
         self._get_wallet()
-            .drain_to_begin(online, address, destroy_assets, fee_rate)
+            .drain_to_begin(online, address, destroy_assets, fee_rate, dry_run)
     }
 
     fn drain_to_end(&self, online: Online, signed_psbt: String) -> Result<String, RgbLibError> {
@@ -1243,9 +1245,10 @@ impl Wallet {
         amount: u64,
         fee_rate: u64,
         skip_sync: bool,
+        dry_run: bool,
     ) -> Result<String, RgbLibError> {
         self._get_wallet()
-            .send_btc_begin(online, address, amount, fee_rate, skip_sync)
+            .send_btc_begin(online, address, amount, fee_rate, skip_sync, dry_run)
     }
 
     fn send_btc_end(

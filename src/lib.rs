@@ -261,6 +261,7 @@ use crate::{
         DbData,
         entities::{
             pending_witness_script::Model as DbPendingWitnessScript,
+            reserved_txo::ActiveModel as DbReservedTxoActMod,
             wallet_transaction::ActiveModel as DbWalletTransactionActMod,
         },
     },
@@ -282,6 +283,7 @@ use crate::{
             coloring::{ActiveModel as DbColoringActMod, Model as DbColoring},
             media::{ActiveModel as DbMediaActMod, Model as DbMedia},
             pending_witness_script::ActiveModel as DbPendingWitnessScriptActMod,
+            reserved_txo::Model as DbReservedTxo,
             token::{ActiveModel as DbTokenActMod, Model as DbToken},
             token_media::{ActiveModel as DbTokenMediaActMod, Model as DbTokenMedia},
             transfer::{ActiveModel as DbTransferActMod, Model as DbTransfer},

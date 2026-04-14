@@ -130,7 +130,7 @@ fn drain_to_begin_and_end_success() {
 
     // drain_to_begin does not update backup_info
     let unsigned_psbt = wallet
-        .drain_to_begin(online, address, false, FEE_RATE)
+        .drain_to_begin(online, address, false, FEE_RATE, true)
         .unwrap();
     let bak_info_after_begin = wallet.database().get_backup_info().unwrap().unwrap();
     assert_eq!(
@@ -222,4 +222,87 @@ fn fail() {
         false,
     );
     assert!(matches!(result, Err(Error::WatchOnly)));
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn reservation_interaction() {
+    initialize();
+
+    // wallet with several vanilla UTXOs so drain keep can still succeed while one
+    // is reserved
+    let (mut wallet, online) = get_empty_wallet!();
+    for _ in 0..3 {
+        fund_wallet(test_get_address(&mut wallet));
+    }
+    wallet.sync(online).unwrap();
+
+    let (mut rcv_wallet, _rcv_online) = get_empty_wallet!();
+    let (mut drain_wallet, _drain_online) = get_empty_wallet!();
+
+    // reserve one (or more) vanilla UTXO via send_btc_begin(dry_run=false)
+    let send_psbt_str = wallet
+        .send_btc_begin(
+            online,
+            test_get_address(&mut rcv_wallet),
+            1000,
+            FEE_RATE,
+            true,
+            false,
+        )
+        .unwrap();
+    let send_psbt = Psbt::from_str(&send_psbt_str).unwrap();
+    let reserved_inputs: HashSet<(String, u32)> = send_psbt
+        .unsigned_tx
+        .input
+        .iter()
+        .map(|i| (i.previous_output.txid.to_string(), i.previous_output.vout))
+        .collect();
+    assert!(!reserved_inputs.is_empty());
+
+    // drain (keep assets) must avoid the reserved outpoints
+    let drain_psbt_str = wallet
+        .drain_to_begin(
+            online,
+            test_get_address(&mut drain_wallet),
+            false,
+            FEE_RATE,
+            true,
+        )
+        .unwrap();
+    let drain_psbt = Psbt::from_str(&drain_psbt_str).unwrap();
+    let drain_inputs: HashSet<(String, u32)> = drain_psbt
+        .unsigned_tx
+        .input
+        .iter()
+        .map(|i| (i.previous_output.txid.to_string(), i.previous_output.vout))
+        .collect();
+    assert!(!drain_inputs.is_empty());
+    assert!(drain_inputs.is_disjoint(&reserved_inputs));
+
+    // drain with destroy_assets=true ignores reservations: it consumes the reserved outpoints along
+    // with everything else
+    let destroy_psbt_str = wallet
+        .drain_to_begin(
+            online,
+            test_get_address(&mut drain_wallet),
+            true,
+            FEE_RATE,
+            true,
+        )
+        .unwrap();
+    let destroy_psbt = Psbt::from_str(&destroy_psbt_str).unwrap();
+    let destroy_inputs: HashSet<(String, u32)> = destroy_psbt
+        .unsigned_tx
+        .input
+        .iter()
+        .map(|i| (i.previous_output.txid.to_string(), i.previous_output.vout))
+        .collect();
+    // the destroy drain should include all reserved outpoints
+    assert!(
+        reserved_inputs
+            .iter()
+            .all(|outpoint| destroy_inputs.contains(outpoint))
+    );
 }

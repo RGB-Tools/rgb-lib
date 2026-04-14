@@ -14,6 +14,7 @@ interface RgbLibError {
   AssetNotFound(string asset_id);
   BatchTransferNotFound(i32 idx);
   BitcoinNetworkMismatch();
+  CannotAbortPendingVanillaTx();
   CannotChangeOnline();
   CannotCombinePsbts();
   CannotDeleteBatchTransfer();
@@ -465,7 +466,8 @@ enum TransactionType {
   "RgbSend",
   "Drain",
   "CreateUtxos",
-  "User",
+  "SendBtc",
+  "Untracked",
 };
 
 [Remote]
@@ -765,7 +767,7 @@ interface Wallet {
   [Throws=RgbLibError]
   string create_utxos_begin(
     Online online, boolean up_to, u8? num, u32? size, u64 fee_rate,
-    boolean skip_sync);
+    boolean skip_sync, boolean dry_run);
 
   [Throws=RgbLibError]
   u8 create_utxos_end(Online online, string signed_psbt, boolean skip_sync);
@@ -779,7 +781,8 @@ interface Wallet {
 
   [Throws=RgbLibError]
   string drain_to_begin(
-    Online online, string address, boolean destroy_assets, u64 fee_rate);
+    Online online, string address, boolean destroy_assets, u64 fee_rate,
+    boolean dry_run);
 
   [Throws=RgbLibError]
   string drain_to_end(Online online, string signed_psbt);
@@ -878,7 +881,8 @@ interface Wallet {
 
   [Throws=RgbLibError]
   string send_btc_begin(
-    Online online, string address, u64 amount, u64 fee_rate, boolean skip_sync);
+    Online online, string address, u64 amount, u64 fee_rate, boolean skip_sync,
+    boolean dry_run);
 
   [Throws=RgbLibError]
   string send_btc_end(Online online, string signed_psbt, boolean skip_sync);

@@ -9,7 +9,7 @@ fn success() {
     let address = test_get_address(&mut wallet);
 
     let unsigned_psbt_str = wallet
-        .send_btc_begin(online, address, AMOUNT, FEE_RATE, false)
+        .send_btc_begin(online, address, AMOUNT, FEE_RATE, false, true)
         .unwrap();
 
     // no SignOptions

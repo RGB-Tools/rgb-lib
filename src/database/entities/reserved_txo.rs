@@ -2,14 +2,12 @@
 
 use sea_orm::entity::prelude::*;
 
-use crate::database::enums::WalletTransactionType;
-
 #[derive(Copy, Clone, Default, Debug, DeriveEntity)]
 pub struct Entity;
 
 impl EntityName for Entity {
     fn table_name(&self) -> &str {
-        "wallet_transaction"
+        "reserved_txo"
     }
 }
 
@@ -17,14 +15,16 @@ impl EntityName for Entity {
 pub struct Model {
     pub idx: i32,
     pub txid: String,
-    pub r#type: WalletTransactionType,
+    pub vout: u32,
+    pub reserved_for: Option<i32>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
 pub enum Column {
     Idx,
     Txid,
-    Type,
+    Vout,
+    ReservedFor,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DerivePrimaryKey)]
@@ -41,7 +41,7 @@ impl PrimaryKeyTrait for PrimaryKey {
 
 #[derive(Copy, Clone, Debug, EnumIter)]
 pub enum Relation {
-    ReservedTxo,
+    WalletTransaction,
 }
 
 impl ColumnTrait for Column {
@@ -50,7 +50,8 @@ impl ColumnTrait for Column {
         match self {
             Self::Idx => ColumnType::Integer.def(),
             Self::Txid => ColumnType::String(StringLen::None).def(),
-            Self::Type => ColumnType::SmallInteger.def(),
+            Self::Vout => ColumnType::BigInteger.def(),
+            Self::ReservedFor => ColumnType::Integer.def().null(),
         }
     }
 }
@@ -58,14 +59,17 @@ impl ColumnTrait for Column {
 impl RelationTrait for Relation {
     fn def(&self) -> RelationDef {
         match self {
-            Self::ReservedTxo => Entity::has_many(super::reserved_txo::Entity).into(),
+            Self::WalletTransaction => Entity::belongs_to(super::wallet_transaction::Entity)
+                .from(Column::ReservedFor)
+                .to(super::wallet_transaction::Column::Idx)
+                .into(),
         }
     }
 }
 
-impl Related<super::reserved_txo::Entity> for Entity {
+impl Related<super::wallet_transaction::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::ReservedTxo.def()
+        Relation::WalletTransaction.def()
     }
 }
 

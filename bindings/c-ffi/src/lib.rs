@@ -117,9 +117,10 @@ pub extern "C" fn rgblib_create_utxos_begin(
     size_opt: *const c_char,
     fee_rate: *const c_char,
     skip_sync: bool,
+    dry_run: bool,
 ) -> CResultString {
     create_utxos_begin(
-        wallet, online, up_to, num_opt, size_opt, fee_rate, skip_sync,
+        wallet, online, up_to, num_opt, size_opt, fee_rate, skip_sync, dry_run,
     )
     .into()
 }

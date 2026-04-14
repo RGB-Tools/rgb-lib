@@ -38,6 +38,10 @@ pub enum Error {
     #[error("The given PSBTs cannot be combined")]
     CannotCombinePsbts,
 
+    /// Requested pending vanilla TX cannot be aborted
+    #[error("Pending vanilla TX cannot be aborted")]
+    CannotAbortPendingVanillaTx,
+
     /// Requested batch transfer cannot be deleted
     #[error("Batch transfer cannot be deleted")]
     CannotDeleteBatchTransfer,

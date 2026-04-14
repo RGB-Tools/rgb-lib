@@ -84,7 +84,7 @@ pub(crate) fn test_create_utxos_begin_result(
     size: Option<u32>,
     fee_rate: u64,
 ) -> Result<String, Error> {
-    wallet.create_utxos_begin(online, up_to, num, size, fee_rate, false)
+    wallet.create_utxos_begin(online, up_to, num, size, fee_rate, false, true)
 }
 
 pub(crate) fn test_delete_transfers(
@@ -121,7 +121,7 @@ pub(crate) fn test_drain_to_begin_result(
     destroy_assets: bool,
     fee_rate: u64,
 ) -> Result<String, Error> {
-    wallet.drain_to_begin(online, address.to_string(), destroy_assets, fee_rate)
+    wallet.drain_to_begin(online, address.to_string(), destroy_assets, fee_rate, true)
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]

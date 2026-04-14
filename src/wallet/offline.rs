@@ -1622,8 +1622,24 @@ pub trait WalletOffline: WalletBackup {
         skip_sync: bool,
     ) -> Result<BtcBalance, Error> {
         self.sync_if_requested(online, skip_sync)?;
-        let vanilla = self.get_btc_balance_for_keychain(KeychainKind::Internal)?;
+        let mut vanilla = self.get_btc_balance_for_keychain(KeychainKind::Internal)?;
         let colored = self.get_btc_balance_for_keychain(KeychainKind::External)?;
+
+        let reserved: HashSet<BdkOutPoint> = self
+            .database()
+            .iter_reserved_txos()?
+            .into_iter()
+            .map(BdkOutPoint::from)
+            .collect();
+        if !reserved.is_empty() {
+            let reserved_sum: u64 = self
+                .internal_unspents()
+                .filter(|u| reserved.contains(&u.outpoint))
+                .map(|u| u.txout.value.to_sat())
+                .sum();
+            vanilla.spendable = vanilla.spendable.saturating_sub(reserved_sum);
+        }
+
         Ok(BtcBalance { vanilla, colored })
     }
 
@@ -1787,13 +1803,24 @@ pub trait WalletOffline: WalletBackup {
         Ok(local_asset_data)
     }
 
-    fn get_unspendable_bdk_outpoints(&self) -> Result<Vec<BdkOutPoint>, Error> {
+    fn get_reserved_vanilla_outpoints(&self) -> Result<Vec<BdkOutPoint>, Error> {
         Ok(self
+            .database()
+            .iter_reserved_txos()?
+            .into_iter()
+            .map(BdkOutPoint::from)
+            .collect())
+    }
+
+    fn get_unspendable_bdk_outpoints(&self) -> Result<Vec<BdkOutPoint>, Error> {
+        let mut outpoints: Vec<BdkOutPoint> = self
             .database()
             .iter_txos()?
             .into_iter()
             .map(BdkOutPoint::from)
-            .collect())
+            .collect();
+        outpoints.extend(self.get_reserved_vanilla_outpoints()?);
+        Ok(outpoints)
     }
 
     fn get_script_pubkey(&self, address: &str) -> Result<ScriptBuf, Error> {
@@ -1950,11 +1977,13 @@ pub trait WalletOffline: WalletBackup {
 
         let mut create_utxos_txids = vec![];
         let mut drain_txids = vec![];
+        let mut send_btc_txids = vec![];
         let wallet_transactions = self.database().iter_wallet_transactions()?;
         for tx in wallet_transactions {
             match tx.r#type {
                 WalletTransactionType::CreateUtxos => create_utxos_txids.push(tx.txid),
                 WalletTransactionType::Drain => drain_txids.push(tx.txid),
+                WalletTransactionType::SendBtc => send_btc_txids.push(tx.txid),
             }
         }
         let rgb_send_txids: Vec<String> = self
@@ -1975,8 +2004,10 @@ pub trait WalletOffline: WalletBackup {
                     TransactionType::CreateUtxos
                 } else if rgb_send_txids.contains(&txid) {
                     TransactionType::RgbSend
+                } else if send_btc_txids.contains(&txid) {
+                    TransactionType::SendBtc
                 } else {
-                    TransactionType::User
+                    TransactionType::Untracked
                 };
                 let confirmation_time = match t.chain_position {
                     ChainPosition::Confirmed { anchor, .. } => Some(BlockTime {

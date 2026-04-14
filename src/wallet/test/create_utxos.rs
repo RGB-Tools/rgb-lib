@@ -300,3 +300,104 @@ fn skip_sync() {
     let unspents = test_list_unspents(&mut wallet, None, false);
     assert_eq!(unspents.len(), (UTXO_NUM + 1) as usize);
 }
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn begin_reservation_interactions() {
+    initialize();
+
+    // two independent funding UTXOs, each with enough BTC to cover create_utxos
+    let (mut wallet, online) = get_empty_wallet!();
+    fund_wallet(test_get_address(&mut wallet));
+    fund_wallet(test_get_address(&mut wallet));
+    let (mut rcv_wallet, _rcv_online) = get_empty_wallet!();
+
+    // create_utxos_begin(dry_run=false) creates CreateUtxos reservation rows
+    let unsigned_psbt_str = wallet
+        .create_utxos_begin(online, true, None, None, FEE_RATE, false, false)
+        .unwrap();
+    let unsigned_psbt = Psbt::from_str(&unsigned_psbt_str).unwrap();
+    let psbt_txid = unsigned_psbt.unsigned_tx.compute_txid().to_string();
+    let psbt_inputs: HashSet<(String, u32)> = unsigned_psbt
+        .unsigned_tx
+        .input
+        .iter()
+        .map(|i| (i.previous_output.txid.to_string(), i.previous_output.vout))
+        .collect();
+    assert!(!psbt_inputs.is_empty());
+
+    // wallet_transaction(CreateUtxos) row exists with reservations matching inputs
+    let (wt, reservations) = wallet
+        .database()
+        .get_wallet_transaction_with_reserved_txos_by_txid(&psbt_txid)
+        .unwrap()
+        .expect("wallet_transaction should exist after dry_run=false begin");
+    assert_eq!(wt.r#type, WalletTransactionType::CreateUtxos);
+    assert!(reservations.iter().all(|r| r.reserved_for == Some(wt.idx)));
+    let reserved_set: HashSet<(String, u32)> = reservations
+        .iter()
+        .map(|r| (r.txid.clone(), r.vout))
+        .collect();
+    assert_eq!(reserved_set, psbt_inputs);
+
+    // list_pending_vanilla_txs reports the in-flight CreateUtxos entry
+    let pending = wallet.list_pending_vanilla_txs().unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].txid, psbt_txid);
+    assert_eq!(pending[0].r#type, WalletTransactionType::CreateUtxos);
+    // clear this in-flight create_utxos reservation
+    wallet.abort_pending_vanilla_tx(psbt_txid).unwrap();
+    assert!(wallet.database().iter_reserved_txos().unwrap().is_empty());
+
+    // reserve (at least) one vanilla UTXO via send_btc_begin(dry_run=false). BDK's
+    // coin selection only picks the minimum inputs for amount + fee, so one of the
+    // two funding UTXOs will be left untouched.
+    let _ = wallet
+        .send_btc_begin(
+            online,
+            test_get_address(&mut rcv_wallet),
+            1000,
+            FEE_RATE,
+            false,
+            false,
+        )
+        .unwrap();
+    let reserved_set: HashSet<(String, u32)> = wallet
+        .database()
+        .iter_reserved_txos()
+        .unwrap()
+        .iter()
+        .map(|r| (r.txid.clone(), r.vout))
+        .collect();
+    assert_eq!(reserved_set.len(), 1);
+
+    // create_utxos_begin(dry_run=true) must not select any reserved outpoint
+    let unsigned_psbt_str = wallet
+        .create_utxos_begin(online, true, Some(1), None, FEE_RATE, false, true)
+        .unwrap();
+    let unsigned_psbt = Psbt::from_str(&unsigned_psbt_str).unwrap();
+    let create_inputs: HashSet<(String, u32)> = unsigned_psbt
+        .unsigned_tx
+        .input
+        .iter()
+        .map(|i| (i.previous_output.txid.to_string(), i.previous_output.vout))
+        .collect();
+    assert_eq!(create_inputs.len(), 1);
+    assert!(create_inputs.is_disjoint(&reserved_set));
+
+    // reserve the remaining vanilla UTXO via create_utxos_begin(dry_run=false)
+    let _ = wallet
+        .create_utxos_begin(online, true, None, None, FEE_RATE, false, false)
+        .unwrap();
+
+    // now all vanilla UTXOs are reserved, so another begin has nothing usable left
+    let result = wallet.create_utxos_begin(online, false, Some(1), None, FEE_RATE, true, true);
+    assert!(matches!(
+        result,
+        Err(Error::InsufficientBitcoins {
+            needed: _,
+            available: 0
+        })
+    ));
+}

@@ -4,9 +4,10 @@ use super::*;
 
 use crate::database::entities::{
     asset, coloring, media, prelude::*, transfer_transport_endpoint, transport_endpoint, txo,
+    wallet_transaction,
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-use crate::database::entities::{batch_transfer, pending_witness_script};
+use crate::database::entities::{batch_transfer, pending_witness_script, reserved_txo};
 
 #[derive(Debug, Clone)]
 #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -145,6 +146,13 @@ impl DbTxo {
     }
 }
 
+impl From<DbReservedTxo> for BdkOutPoint {
+    fn from(r: DbReservedTxo) -> BdkOutPoint {
+        BdkOutPoint::from_str(&format!("{}:{}", r.txid, r.vout))
+            .expect("DB should contain a valid outpoint")
+    }
+}
+
 impl From<DbTxo> for BdkOutPoint {
     fn from(x: DbTxo) -> BdkOutPoint {
         BdkOutPoint::from_str(&x.outpoint().to_string())
@@ -228,6 +236,15 @@ impl RgbLibDatabase {
             PendingWitnessScript::insert(pending_witness_script).exec(self.get_connection()),
         )?;
         Ok(res.last_insert_id)
+    }
+
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub(crate) fn set_reserved_txos(
+        &self,
+        reserved_txos: Vec<DbReservedTxoActMod>,
+    ) -> Result<(), InternalError> {
+        block_on(ReservedTxo::insert_many(reserved_txos).exec(self.get_connection()))?;
+        Ok(())
     }
 
     pub(crate) fn set_token(&self, token: DbTokenActMod) -> Result<i32, InternalError> {
@@ -420,8 +437,27 @@ impl RgbLibDatabase {
         Ok(())
     }
 
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub(crate) fn del_reserved_txos(
+        &self,
+        reserved_txos: &[DbReservedTxo],
+    ) -> Result<(), InternalError> {
+        let idxs = reserved_txos.iter().map(|r| r.idx).collect::<Vec<_>>();
+        block_on(
+            ReservedTxo::delete_many()
+                .filter(reserved_txo::Column::Idx.is_in(idxs))
+                .exec(self.get_connection()),
+        )?;
+        Ok(())
+    }
+
     pub(crate) fn del_txo(&self, idx: i32) -> Result<(), InternalError> {
         block_on(Coloring::delete_by_id(idx).exec(self.get_connection()))?;
+        Ok(())
+    }
+
+    pub(crate) fn del_wallet_transaction(&self, idx: i32) -> Result<(), InternalError> {
+        block_on(WalletTransaction::delete_by_id(idx).exec(self.get_connection()))?;
         Ok(())
     }
 
@@ -489,6 +525,31 @@ impl RgbLibDatabase {
         )?)
     }
 
+    pub(crate) fn get_wallet_transactions_by_idxs(
+        &self,
+        idxs: &[i32],
+    ) -> Result<Vec<DbWalletTransaction>, InternalError> {
+        Ok(block_on(
+            WalletTransaction::find()
+                .filter(wallet_transaction::Column::Idx.is_in(idxs.to_vec()))
+                .all(self.get_connection()),
+        )?)
+    }
+
+    pub(crate) fn get_wallet_transaction_with_reserved_txos_by_txid(
+        &self,
+        txid: &str,
+    ) -> Result<Option<(DbWalletTransaction, Vec<DbReservedTxo>)>, InternalError> {
+        Ok(block_on(
+            WalletTransaction::find()
+                .filter(wallet_transaction::Column::Txid.eq(txid))
+                .find_with_related(ReservedTxo)
+                .all(self.get_connection()),
+        )?
+        .into_iter()
+        .next())
+    }
+
     pub(crate) fn iter_assets(&self) -> Result<Vec<DbAsset>, InternalError> {
         Ok(block_on(Asset::find().all(self.get_connection()))?)
     }
@@ -516,6 +577,10 @@ impl RgbLibDatabase {
         Ok(block_on(
             PendingWitnessScript::find().all(self.get_connection()),
         )?)
+    }
+
+    pub(crate) fn iter_reserved_txos(&self) -> Result<Vec<DbReservedTxo>, InternalError> {
+        Ok(block_on(ReservedTxo::find().all(self.get_connection()))?)
     }
 
     pub(crate) fn iter_token_medias(&self) -> Result<Vec<DbTokenMedia>, InternalError> {

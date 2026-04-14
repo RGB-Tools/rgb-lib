@@ -246,6 +246,57 @@ impl Wallet {
         Ok(address.to_string())
     }
 
+    /// List the pending vanilla transactions that have reserved TXOs in the wallet.
+    ///
+    /// A vanilla transaction becomes "pending" when the caller invokes a vanilla `_begin` method
+    /// (e.g. [`send_btc_begin`](Wallet::send_btc_begin)) with `dry_run = false`. The reserved
+    /// TXOs are freed when the matching `_end` method is called or via
+    /// [`abort_pending_vanilla_tx`](Wallet::abort_pending_vanilla_tx).
+    pub fn list_pending_vanilla_txs(&self) -> Result<Vec<PendingVanillaTx>, Error> {
+        info!(self.logger(), "Listing pending vanilla TXs...");
+        let reserved_idxs: Vec<i32> = self
+            .database()
+            .iter_reserved_txos()?
+            .into_iter()
+            .filter_map(|r| r.reserved_for)
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        if reserved_idxs.is_empty() {
+            return Ok(vec![]);
+        }
+        let result = self
+            .database()
+            .get_wallet_transactions_by_idxs(&reserved_idxs)?
+            .into_iter()
+            .map(|wt| PendingVanillaTx {
+                txid: wt.txid,
+                r#type: wt.r#type,
+            })
+            .collect();
+        info!(self.logger(), "List pending vanilla TXs completed");
+        Ok(result)
+    }
+
+    /// Abort a pending vanilla transaction, releasing the TXOs it reserved.
+    ///
+    /// Errors with [`Error::CannotAbortPendingVanillaTx`] if no pending vanilla transaction with
+    /// the given `txid` is found (e.g. because it was never created by the wallet, was already
+    /// aborted or has been broadcast).
+    pub fn abort_pending_vanilla_tx(&self, txid: String) -> Result<(), Error> {
+        info!(self.logger(), "Aborting pending vanilla TX {}...", txid);
+        let (wt, reservations) = self
+            .database()
+            .get_wallet_transaction_with_reserved_txos_by_txid(&txid)?
+            .ok_or(Error::CannotAbortPendingVanillaTx)?;
+        if reservations.is_empty() {
+            return Err(Error::CannotAbortPendingVanillaTx);
+        }
+        self.database().del_wallet_transaction(wt.idx)?; // relies on cascade to delete reserved txos
+        info!(self.logger(), "Abort pending vanilla TX completed");
+        Ok(())
+    }
+
     fn finalize_offline_issuance<T: IssuedAssetDetails>(
         &self,
         issue_data: &IssueData,
@@ -528,7 +579,7 @@ impl Wallet {
         info!(self.logger(), "Creating UTXOs...");
         self.check_xprv()?;
         self.check_online(online)?;
-        let mut psbt = self.create_utxos_begin_impl(up_to, num, size, fee_rate, skip_sync)?;
+        let mut psbt = self.create_utxos_begin_impl(up_to, num, size, fee_rate, skip_sync, true)?;
         self.sign_psbt_impl(&mut psbt, None)?;
         let res = self.create_utxos_end_impl(&psbt, skip_sync)?;
         self.update_backup_info(false)?;
@@ -552,6 +603,11 @@ impl Wallet {
     /// UTXOs, the number is decremented by one until it is possible to complete the operation. If
     /// the number reaches zero, an error is returned.
     ///
+    /// If `dry_run` is true, the wallet does not reserve the selected vanilla TXOs. The returned
+    /// PSBT can still be signed and completed with
+    /// [`create_utxos_end`](Wallet::create_utxos_end) but concurrent vanilla operations may try
+    /// to spend the same inputs.
+    ///
     /// Signing of the returned PSBT needs to be carried out separately. The signed PSBT then needs
     /// to be fed to the [`create_utxos_end`](Wallet::create_utxos_end) function.
     ///
@@ -566,10 +622,11 @@ impl Wallet {
         size: Option<u32>,
         fee_rate: u64,
         skip_sync: bool,
+        dry_run: bool,
     ) -> Result<String, Error> {
         info!(self.logger(), "Creating UTXOs (begin)...");
         self.check_online(online)?;
-        let res = self.create_utxos_begin_impl(up_to, num, size, fee_rate, skip_sync)?;
+        let res = self.create_utxos_begin_impl(up_to, num, size, fee_rate, skip_sync, dry_run)?;
         info!(self.logger(), "Create UTXOs (begin) completed");
         Ok(res.to_string())
     }
@@ -636,7 +693,7 @@ impl Wallet {
         );
         self.check_xprv()?;
         self.check_online(online)?;
-        let mut psbt = self.drain_to_begin_impl(address, destroy_assets, fee_rate)?;
+        let mut psbt = self.drain_to_begin_impl(address, destroy_assets, fee_rate, true)?;
         self.sign_psbt_impl(&mut psbt, None)?;
         let tx = self.drain_to_end_impl(&psbt)?;
         self.update_backup_info(false)?;
@@ -652,6 +709,10 @@ impl Wallet {
     /// only do this if you know what you're doing! After destroying assets the wallet's RGB state
     /// could be compromised and therefore the wallet should not be used anymore.</div>
     ///
+    /// If `dry_run` is true, the wallet does not reserve the selected vanilla TXOs. The returned
+    /// PSBT can still be signed and completed with [`drain_to_end`](Wallet::drain_to_end) but
+    /// concurrent vanilla operations may try to spend the same inputs.
+    ///
     /// Signing of the returned PSBT needs to be carried out separately. The signed PSBT then needs
     /// to be fed to the [`drain_to_end`](Wallet::drain_to_end) function.
     ///
@@ -664,13 +725,14 @@ impl Wallet {
         address: String,
         destroy_assets: bool,
         fee_rate: u64,
+        dry_run: bool,
     ) -> Result<String, Error> {
         info!(
             self.logger(),
             "Draining (begin) to '{}' destroying asset '{}'...", address, destroy_assets
         );
         self.check_online(online)?;
-        let psbt = self.drain_to_begin_impl(address, destroy_assets, fee_rate)?;
+        let psbt = self.drain_to_begin_impl(address, destroy_assets, fee_rate, dry_run)?;
         info!(self.logger(), "Drain (begin) completed");
         Ok(psbt.to_string())
     }
@@ -840,7 +902,7 @@ impl Wallet {
         info!(self.logger(), "Sending BTC...");
         self.check_xprv()?;
         self.check_online(online)?;
-        let mut psbt = self.send_btc_begin_impl(address, amount, fee_rate, skip_sync)?;
+        let mut psbt = self.send_btc_begin_impl(address, amount, fee_rate, skip_sync, true)?;
         self.sign_psbt_impl(&mut psbt, None)?;
         let res = self.send_btc_end_impl(&psbt, skip_sync)?;
         info!(self.logger(), "Send BTC completed");
@@ -849,6 +911,10 @@ impl Wallet {
 
     /// Prepare the PSBT to send the specified `amount` of bitcoins (in sats) using the vanilla
     /// wallet to the specified Bitcoin `address` with the specified `fee_rate` (in sat/vB).
+    ///
+    /// If `dry_run` is true, the wallet does not reserve the selected vanilla TXOs. The returned
+    /// PSBT can still be signed and completed with [`send_btc_end`](Wallet::send_btc_end) but
+    /// concurrent vanilla operations may try to spend the same inputs.
     ///
     /// Signing of the returned PSBT needs to be carried out separately. The signed PSBT then needs
     /// to be fed to the [`send_btc_end`](Wallet::send_btc_end) function.
@@ -863,10 +929,11 @@ impl Wallet {
         amount: u64,
         fee_rate: u64,
         skip_sync: bool,
+        dry_run: bool,
     ) -> Result<String, Error> {
         info!(self.logger(), "Sending BTC (begin)...");
         self.check_online(online)?;
-        let res = self.send_btc_begin_impl(address, amount, fee_rate, skip_sync)?;
+        let res = self.send_btc_begin_impl(address, amount, fee_rate, skip_sync, dry_run)?;
         info!(self.logger(), "Send BTC (begin) completed");
         Ok(res.to_string())
     }
