@@ -415,3 +415,22 @@ fn full_send_btc_leaves_no_pending() {
     );
     assert!(wallet.list_pending_vanilla_txs().unwrap().is_empty());
 }
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn send_btc_end_twice() {
+    initialize();
+
+    // wallet
+    let (mut wallet, online) = get_funded_wallet!();
+
+    // prepare PSBT
+    let address = test_get_address(&mut wallet);
+    let unsigned_psbt = wallet.send_btc_begin(online, address, 1000, FEE_RATE, false, false).unwrap();
+    let signed_psbt = wallet.sign_psbt(unsigned_psbt, None).unwrap();
+
+    // call send_btc_end twice with the same PSBT, which should work (idempotent)
+    wallet.send_btc_end(online, signed_psbt.clone(), false).unwrap();
+    wallet.send_btc_end(online, signed_psbt, false).unwrap();
+}
