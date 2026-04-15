@@ -957,23 +957,20 @@ impl Wallet {
         &self,
         online: Online,
         address: String,
-        destroy_assets: bool,
         fee_rate: u64,
     ) -> Result<String, RgbLibError> {
-        self._get_wallet()
-            .drain_to(online, address, destroy_assets, fee_rate)
+        self._get_wallet().drain_to(online, address, fee_rate)
     }
 
     fn drain_to_begin(
         &self,
         online: Online,
         address: String,
-        destroy_assets: bool,
         fee_rate: u64,
         dry_run: bool,
     ) -> Result<String, RgbLibError> {
         self._get_wallet()
-            .drain_to_begin(online, address, destroy_assets, fee_rate, dry_run)
+            .drain_to_begin(online, address, fee_rate, dry_run)
     }
 
     fn drain_to_end(&self, online: Online, signed_psbt: String) -> Result<String, RgbLibError> {

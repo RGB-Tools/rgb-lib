@@ -332,7 +332,6 @@ pub trait WalletOnline: WalletOffline {
     fn drain_to_begin_impl(
         &mut self,
         address: String,
-        destroy_assets: bool,
         fee_rate: u64,
         dry_run: bool,
     ) -> Result<Psbt, Error> {
@@ -342,20 +341,11 @@ pub trait WalletOnline: WalletOffline {
 
         let script_pubkey = self.get_script_pubkey(&address)?;
 
-        let mut unspendable = None;
-        if !destroy_assets {
-            unspendable = Some(self.get_unspendable_bdk_outpoints()?);
-        }
-
         let mut tx_builder = self.bdk_wallet_mut().build_tx();
         tx_builder
             .drain_wallet()
             .drain_to(script_pubkey)
             .fee_rate(fee_rate_checked);
-
-        if let Some(unspendable) = unspendable {
-            tx_builder.unspendable(unspendable);
-        }
 
         let psbt = tx_builder.finish().map_err(|e| match e {
             bdk_wallet::error::CreateTxError::CoinSelection(InsufficientFunds {

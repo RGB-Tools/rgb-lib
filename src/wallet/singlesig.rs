@@ -684,16 +684,12 @@ impl Wallet {
         &mut self,
         online: Online,
         address: String,
-        destroy_assets: bool,
         fee_rate: u64,
     ) -> Result<String, Error> {
-        info!(
-            self.logger(),
-            "Draining to '{}' destroying asset '{}'...", address, destroy_assets
-        );
+        info!(self.logger(), "Draining to '{}'...", address);
         self.check_xprv()?;
         self.check_online(online)?;
-        let mut psbt = self.drain_to_begin_impl(address, destroy_assets, fee_rate, true)?;
+        let mut psbt = self.drain_to_begin_impl(address, fee_rate, true)?;
         self.sign_psbt_impl(&mut psbt, None)?;
         let tx = self.drain_to_end_impl(&psbt)?;
         self.update_backup_info(false)?;
@@ -701,13 +697,12 @@ impl Wallet {
         Ok(tx.compute_txid().to_string())
     }
 
-    /// Prepare the PSBT to send bitcoin funds not in use for RGB allocations, or all funds if
-    /// `destroy_assets` is set to true, to the provided Bitcoin `address` with the provided
+    /// Prepare the PSBT to send all bitcoin funds to the provided `address` with the provided
     /// `fee_rate` (in sat/vB).
     ///
-    /// <div class="warning">Warning: setting <code>destroy_assets</code> to true is dangerous,
-    /// only do this if you know what you're doing! After destroying assets the wallet's RGB state
-    /// could be compromised and therefore the wallet should not be used anymore.</div>
+    /// <div class="warning">Warning: draining all funds is a destructive and irreversible
+    /// operation, only do this if you know what you're doing! After draining the wallet will not
+    /// be usable anymore.</div>
     ///
     /// If `dry_run` is true, the wallet does not reserve the selected vanilla TXOs. The returned
     /// PSBT can still be signed and completed with [`drain_to_end`](Wallet::drain_to_end) but
@@ -723,16 +718,12 @@ impl Wallet {
         &mut self,
         online: Online,
         address: String,
-        destroy_assets: bool,
         fee_rate: u64,
         dry_run: bool,
     ) -> Result<String, Error> {
-        info!(
-            self.logger(),
-            "Draining (begin) to '{}' destroying asset '{}'...", address, destroy_assets
-        );
+        info!(self.logger(), "Draining (begin) to '{}'...", address);
         self.check_online(online)?;
-        let psbt = self.drain_to_begin_impl(address, destroy_assets, fee_rate, dry_run)?;
+        let psbt = self.drain_to_begin_impl(address, fee_rate, dry_run)?;
         info!(self.logger(), "Drain (begin) completed");
         Ok(psbt.to_string())
     }

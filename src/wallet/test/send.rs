@@ -3454,7 +3454,7 @@ fn insufficient_bitcoins() {
     let (mut wallet, online) = get_funded_noutxo_wallet!();
     let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
 
-    // create 1 UTXO with not enough bitcoins for a send and drain the rest
+    // create 1 UTXO with not enough bitcoins for a send and send the rest
     test_create_utxos(
         &mut wallet,
         online,
@@ -3464,7 +3464,12 @@ fn insufficient_bitcoins() {
         FEE_RATE,
         None,
     );
-    test_drain_to_keep(&mut wallet, online, &test_get_address(&mut rcv_wallet));
+    test_send_btc(
+        &mut wallet,
+        online,
+        &test_get_address(&mut rcv_wallet),
+        99_999_000,
+    );
 
     // issue an NIA asset
     let asset_nia_a = test_issue_asset_nia(&mut wallet, online, None);
@@ -3491,7 +3496,7 @@ fn insufficient_bitcoins() {
         })
     ));
 
-    // create 1 UTXO for change (add funds, create UTXO, drain the rest)
+    // create 1 UTXO for change (add funds, create UTXO, send the rest)
     fund_wallet(test_get_address(&mut wallet));
     test_create_utxos(
         &mut wallet,
@@ -3502,7 +3507,12 @@ fn insufficient_bitcoins() {
         FEE_RATE,
         None,
     );
-    test_drain_to_keep(&mut wallet, online, &test_get_address(&mut rcv_wallet));
+    test_send_btc(
+        &mut wallet,
+        online,
+        &test_get_address(&mut rcv_wallet),
+        99_999_000,
+    );
 
     // send works with no colorable UTXOs available as additional bitcoin inputs
     wait_for_unspents(&mut wallet, None, false, 2);

@@ -13,7 +13,7 @@ fn success() {
     let (mut wallet_send, online_send) = get_funded_noutxo_wallet!();
     let (mut wallet_recv, _online_recv) = get_empty_wallet!();
 
-    // create 1 UTXO and drain the rest
+    // create 1 UTXO and send the rest
     test_create_utxos(
         &mut wallet_send,
         online_send,
@@ -23,10 +23,11 @@ fn success() {
         FEE_RATE,
         None,
     );
-    test_drain_to_keep(
+    test_send_btc(
         &mut wallet_send,
         online_send,
         &test_get_address(&mut wallet_recv),
+        99_998_200,
     );
 
     // issue
@@ -342,7 +343,7 @@ fn color_psbt_uda() {
     let (mut wallet_send, online_send) = get_funded_noutxo_wallet!();
     let (mut wallet_recv, _online_recv) = get_empty_wallet!();
 
-    // create 1 UTXO and drain the rest
+    // create 1 UTXO and send the rest
     test_create_utxos(
         &mut wallet_send,
         online_send,
@@ -352,10 +353,11 @@ fn color_psbt_uda() {
         FEE_RATE,
         None,
     );
-    test_drain_to_keep(
+    test_send_btc(
         &mut wallet_send,
         online_send,
         &test_get_address(&mut wallet_recv),
+        99_998_200,
     );
 
     // issue
@@ -471,7 +473,7 @@ fn color_psbt_fail() {
     let (mut wallet_send, online_send) = get_funded_noutxo_wallet!();
     let (mut wallet_recv, _online_recv) = get_empty_wallet!();
 
-    // create 1 UTXO and drain the rest
+    // create 1 UTXO and send the rest
     test_create_utxos(
         &mut wallet_send,
         online_send,
@@ -481,10 +483,11 @@ fn color_psbt_fail() {
         FEE_RATE,
         None,
     );
-    test_drain_to_keep(
+    test_send_btc(
         &mut wallet_send,
         online_send,
         &test_get_address(&mut wallet_recv),
+        99_998_200,
     );
 
     // issue

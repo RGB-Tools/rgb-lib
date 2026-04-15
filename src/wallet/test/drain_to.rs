@@ -26,7 +26,7 @@ fn success() {
     wait_for_btc_balance(&mut wallet, online, &expected_balance);
     let address = test_get_address(&mut rcv_wallet); // also updates backup_info
     let bak_info_before = wallet.database().get_backup_info().unwrap().unwrap();
-    test_drain_to_keep(&mut wallet, online, &address);
+    test_drain_to(&mut wallet, online, &address);
     let bak_info_after = wallet.database().get_backup_info().unwrap().unwrap();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     mine(false, false);
@@ -52,10 +52,7 @@ fn success() {
         },
     };
     wait_for_btc_balance(&mut wallet, online, &expected_balance);
-    test_drain_to_keep(&mut wallet, online, &test_get_address(&mut rcv_wallet));
-    mine(false, false);
-    wait_for_unspents(&mut wallet, Some(online), false, UTXO_NUM);
-    test_drain_to_destroy(&mut wallet, online, &test_get_address(&mut rcv_wallet));
+    test_drain_to(&mut wallet, online, &test_get_address(&mut rcv_wallet));
     mine(false, false);
     wait_for_unspents(&mut wallet, Some(online), false, 0);
 }
@@ -105,7 +102,7 @@ fn pending_witness_receive() {
 
     // drain receiver, which syncs the wallet, detecting (and draining) the new UTXO as well
     let address = test_get_address(&mut drain_wallet);
-    test_drain_to_destroy(&mut rcv_wallet, rcv_online, &address);
+    test_drain_to(&mut rcv_wallet, rcv_online, &address);
     let unspents = list_test_unspents(&mut rcv_wallet, "after draining");
     assert_eq!(unspents.len(), 0);
 
@@ -130,7 +127,7 @@ fn drain_to_begin_and_end_success() {
 
     // drain_to_begin does not update backup_info
     let unsigned_psbt = wallet
-        .drain_to_begin(online, address, false, FEE_RATE, true)
+        .drain_to_begin(online, address, FEE_RATE, true)
         .unwrap();
     let bak_info_after_begin = wallet.database().get_backup_info().unwrap().unwrap();
     assert_eq!(
@@ -163,12 +160,7 @@ fn fail() {
     let (mut rcv_wallet, rcv_online) = get_empty_wallet!();
 
     // drain empty wallet
-    let result = test_drain_to_result(
-        &mut wallet,
-        online,
-        &test_get_address(&mut rcv_wallet),
-        true,
-    );
+    let result = test_drain_to_result(&mut wallet, online, &test_get_address(&mut rcv_wallet));
     assert!(matches!(
         result,
         Err(Error::InsufficientBitcoins {
@@ -179,27 +171,17 @@ fn fail() {
 
     // bad online object
     fund_wallet(test_get_address(&mut wallet));
-    let result = test_drain_to_result(
-        &mut wallet,
-        rcv_online,
-        &test_get_address(&mut rcv_wallet),
-        false,
-    );
+    let result = test_drain_to_result(&mut wallet, rcv_online, &test_get_address(&mut rcv_wallet));
     assert!(matches!(result, Err(Error::CannotChangeOnline)));
 
     // bad address
-    let result = test_drain_to_result(&mut wallet, online, "invalid address", false);
+    let result = test_drain_to_result(&mut wallet, online, "invalid address");
     assert!(matches!(result, Err(Error::InvalidAddress { details: _ })));
 
     // fee min
     fund_wallet(test_get_address(&mut wallet));
-    let result = test_drain_to_begin_result(
-        &mut wallet,
-        online,
-        &test_get_address(&mut rcv_wallet),
-        true,
-        0,
-    );
+    let result =
+        test_drain_to_begin_result(&mut wallet, online, &test_get_address(&mut rcv_wallet), 0);
     assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_LOW));
 
     // fee overflow
@@ -208,19 +190,13 @@ fn fail() {
         &mut wallet,
         online,
         &test_get_address(&mut rcv_wallet),
-        true,
         u64::MAX,
     );
     assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_OVER));
 
     // no private keys
     let (mut wallet, online) = get_funded_noutxo_wallet(false, None);
-    let result = test_drain_to_result(
-        &mut wallet,
-        online,
-        &test_get_address(&mut rcv_wallet),
-        false,
-    );
+    let result = test_drain_to_result(&mut wallet, online, &test_get_address(&mut rcv_wallet));
     assert!(matches!(result, Err(Error::WatchOnly)));
 }
 
@@ -230,8 +206,7 @@ fn fail() {
 fn reservation_interaction() {
     initialize();
 
-    // wallet with several vanilla UTXOs so drain keep can still succeed while one
-    // is reserved
+    // wallet with several vanilla UTXOs so send_btc_begin can reserve a subset
     let (mut wallet, online) = get_empty_wallet!();
     for _ in 0..3 {
         fund_wallet(test_get_address(&mut wallet));
@@ -261,15 +236,10 @@ fn reservation_interaction() {
         .collect();
     assert!(!reserved_inputs.is_empty());
 
-    // drain (keep assets) must avoid the reserved outpoints
+    // drain always spends all wallet UTXOs, including those reserved by in-flight vanilla
+    // transactions
     let drain_psbt_str = wallet
-        .drain_to_begin(
-            online,
-            test_get_address(&mut drain_wallet),
-            false,
-            FEE_RATE,
-            true,
-        )
+        .drain_to_begin(online, test_get_address(&mut drain_wallet), FEE_RATE, true)
         .unwrap();
     let drain_psbt = Psbt::from_str(&drain_psbt_str).unwrap();
     let drain_inputs: HashSet<(String, u32)> = drain_psbt
@@ -279,30 +249,9 @@ fn reservation_interaction() {
         .map(|i| (i.previous_output.txid.to_string(), i.previous_output.vout))
         .collect();
     assert!(!drain_inputs.is_empty());
-    assert!(drain_inputs.is_disjoint(&reserved_inputs));
-
-    // drain with destroy_assets=true ignores reservations: it consumes the reserved outpoints along
-    // with everything else
-    let destroy_psbt_str = wallet
-        .drain_to_begin(
-            online,
-            test_get_address(&mut drain_wallet),
-            true,
-            FEE_RATE,
-            true,
-        )
-        .unwrap();
-    let destroy_psbt = Psbt::from_str(&destroy_psbt_str).unwrap();
-    let destroy_inputs: HashSet<(String, u32)> = destroy_psbt
-        .unsigned_tx
-        .input
-        .iter()
-        .map(|i| (i.previous_output.txid.to_string(), i.previous_output.vout))
-        .collect();
-    // the destroy drain should include all reserved outpoints
     assert!(
         reserved_inputs
             .iter()
-            .all(|outpoint| destroy_inputs.contains(outpoint))
+            .all(|outpoint| drain_inputs.contains(outpoint))
     );
 }

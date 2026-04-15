@@ -149,7 +149,7 @@ pub(crate) fn get_funded_wallet(
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn drain_wallet(wallet: &mut Wallet, online: Online) {
     let mut rcv_wallet = get_test_wallet(false, None);
-    test_drain_to_destroy(wallet, online, &rcv_wallet.get_address().unwrap());
+    test_drain_to(wallet, online, &rcv_wallet.get_address().unwrap());
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]

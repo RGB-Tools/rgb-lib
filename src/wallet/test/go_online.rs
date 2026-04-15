@@ -168,7 +168,7 @@ fn consistency_check_fail_bitcoins() {
         bdk_wallet.persist(bdk_database).unwrap();
     }
     let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
-    test_drain_to_destroy(
+    test_drain_to(
         &mut wallet_empty,
         online_empty,
         &test_get_address(&mut rcv_wallet),
@@ -258,17 +258,17 @@ fn consistency_check_fail_utxos() {
         bdk_wallet.persist(bdk_database).unwrap();
     }
     let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
-    test_drain_to_keep(
+    test_drain_to(
         &mut wallet_empty,
         online_empty,
         &test_get_address(&mut rcv_wallet),
     );
 
     // detect asset inconsistency
-    let err = "DB assets do not match with ones stored in RGB";
+    let err = "spent bitcoins with another wallet";
     let mut wallet_prefill = Wallet::new(wallet_data_prefill, keys.clone()).unwrap();
     let result = test_go_online_result(&mut wallet_prefill, false, None);
-    assert!(matches!(result, Err(Error::Inconsistency { details: e }) if e == err));
+    assert!(matches!(result, Err(Error::Inconsistency { details: e }) if e.contains(err)));
 
     // make sure detection works multiple times (doesn't get reset on first failed check)
     let mut wallet_prefill_2 = Wallet::new(wallet_data_prefill_2, keys.clone()).unwrap();
@@ -278,7 +278,7 @@ fn consistency_check_fail_utxos() {
         fs::copy(src, dst).unwrap();
     }
     let result = test_go_online_result(&mut wallet_prefill_2, false, None);
-    assert!(matches!(result, Err(Error::Inconsistency { details: e }) if e == err));
+    assert!(matches!(result, Err(Error::Inconsistency { details: e }) if e.contains(err)));
 }
 
 #[cfg(feature = "electrum")]

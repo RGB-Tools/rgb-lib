@@ -777,11 +777,11 @@ interface Wallet {
 
   [Throws=RgbLibError]
   string drain_to(
-    Online online, string address, boolean destroy_assets, u64 fee_rate);
+    Online online, string address, u64 fee_rate);
 
   [Throws=RgbLibError]
   string drain_to_begin(
-    Online online, string address, boolean destroy_assets, u64 fee_rate,
+    Online online, string address, u64 fee_rate,
     boolean dry_run);
 
   [Throws=RgbLibError]
