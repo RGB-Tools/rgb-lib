@@ -271,10 +271,6 @@ impl WalletOnline for MultisigWallet {
         Ok(())
     }
 
-    fn list_internal_for_broadcast(&self) -> impl Iterator<Item = LocalOutput> + '_ {
-        self.internal_outputs()
-    }
-
     fn get_hub_fail_status(&self, batch_transfer_idx: i32) -> Result<bool, Error> {
         Ok(self
             .hub_client()

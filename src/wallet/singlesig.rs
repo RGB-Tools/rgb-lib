@@ -132,10 +132,6 @@ impl WalletOnline for Wallet {
         }
         Ok(())
     }
-
-    fn list_internal_for_broadcast(&self) -> impl Iterator<Item = LocalOutput> + '_ {
-        self.internal_unspents()
-    }
 }
 
 /// Common offline APIs of the wallet.

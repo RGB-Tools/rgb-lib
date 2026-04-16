@@ -87,8 +87,6 @@ pub trait WalletOnline: WalletOffline {
         }
     }
 
-    fn list_internal_for_broadcast(&self) -> impl Iterator<Item = LocalOutput> + '_;
-
     fn broadcast_psbt(
         &mut self,
         signed_psbt: &Psbt,
@@ -101,24 +99,14 @@ pub trait WalletOnline: WalletOffline {
                 .map_err(InternalError::from)?,
         )?;
 
-        let internal_outpoints: Vec<(String, u32)> = self
-            .list_internal_for_broadcast()
-            .map(|u| (u.outpoint.txid.to_string(), u.outpoint.vout))
-            .collect();
-
         for input in tx.clone().input {
             let txid = input.previous_output.txid.to_string();
             let vout = input.previous_output.vout;
-            if internal_outpoints.contains(&(txid.clone(), vout)) {
-                continue;
+            if let Some(db_txo) = self.database().get_txo(&Outpoint { txid, vout })? {
+                let mut db_txo: DbTxoActMod = db_txo.into();
+                db_txo.spent = ActiveValue::Set(true);
+                self.database().update_txo(db_txo)?;
             }
-            let mut db_txo: DbTxoActMod = self
-                .database()
-                .get_txo(&Outpoint { txid, vout })?
-                .expect("outpoint should be in the DB")
-                .into();
-            db_txo.spent = ActiveValue::Set(true);
-            self.database().update_txo(db_txo)?;
         }
 
         if !skip_sync {
