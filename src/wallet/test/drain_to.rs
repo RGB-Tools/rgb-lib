@@ -206,7 +206,7 @@ fn fail() {
 fn reservation_interaction() {
     initialize();
 
-    // wallet with several vanilla UTXOs so send_btc_begin can reserve a subset
+    // wallet with several vanilla UTXOs so they can be reserved
     let (mut wallet, online) = get_empty_wallet!();
     for _ in 0..3 {
         fund_wallet(test_get_address(&mut wallet));
@@ -215,6 +215,32 @@ fn reservation_interaction() {
 
     let (mut rcv_wallet, _rcv_online) = get_empty_wallet!();
     let (mut drain_wallet, _drain_online) = get_empty_wallet!();
+
+    // reserve all vanilla UTXO via drain_to_begin(dry_run=false)
+    let psbt = wallet
+        .drain_to_begin(online, test_get_address(&mut rcv_wallet), FEE_RATE, false)
+        .unwrap();
+
+    // check send_btc cannot spend the reserved UTXOs
+    let res = wallet.send_btc_begin(
+        online,
+        test_get_address(&mut rcv_wallet),
+        1000,
+        FEE_RATE,
+        true,
+        false,
+    );
+    assert_matches!(
+        res,
+        Err(Error::InsufficientBitcoins {
+            needed: _,
+            available: _
+        })
+    );
+
+    // cancel pending drain_to to unlock the reserved inputs
+    let txid = Psbt::from_str(&psbt).unwrap().get_txid().to_string();
+    wallet.abort_pending_vanilla_tx(txid).unwrap();
 
     // reserve one (or more) vanilla UTXO via send_btc_begin(dry_run=false)
     let send_psbt_str = wallet
