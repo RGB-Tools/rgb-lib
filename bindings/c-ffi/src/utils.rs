@@ -295,9 +295,13 @@ pub(crate) fn finalize_psbt(
     Ok(wallet.finalize_psbt(signed_psbt, None)?)
 }
 
-pub(crate) fn generate_keys(bitcoin_network: *const c_char) -> Result<String, Error> {
+pub(crate) fn generate_keys(
+    bitcoin_network: *const c_char,
+    witness_version: *const c_char,
+) -> Result<String, Error> {
     let bitcoin_network = BitcoinNetwork::from_str(&ptr_to_string(bitcoin_network))?;
-    let res = rgb_lib::keys::generate_keys(bitcoin_network);
+    let witness_version = WitnessVersion::from_str(&ptr_to_string(witness_version))?;
+    let res = rgb_lib::keys::generate_keys(bitcoin_network, witness_version);
     Ok(serde_json::to_string(&res)?)
 }
 
@@ -558,10 +562,12 @@ pub(crate) fn restore_backup(
 pub(crate) fn restore_keys(
     bitcoin_network: *const c_char,
     mnemonic: *const c_char,
+    witness_version: *const c_char,
 ) -> Result<String, Error> {
     let bitcoin_network = BitcoinNetwork::from_str(&ptr_to_string(bitcoin_network))?;
     let mnemonic = ptr_to_string(mnemonic);
-    let res = rgb_lib::keys::restore_keys(bitcoin_network, mnemonic)?;
+    let witness_version = WitnessVersion::from_str(&ptr_to_string(witness_version))?;
+    let res = rgb_lib::keys::restore_keys(bitcoin_network, mnemonic, witness_version)?;
     Ok(serde_json::to_string(&res)?)
 }
 

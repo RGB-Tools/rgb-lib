@@ -39,13 +39,13 @@
 //! ## Examples
 //! ### Create an RGB singlesig wallet
 //! ```
-//! use rgb_lib::keys::generate_keys;
+//! use rgb_lib::keys::{generate_keys, WitnessVersion};
 //! use rgb_lib::wallet::{DatabaseType, SinglesigKeys, Wallet, WalletData};
 //! use rgb_lib::{AssetSchema, BitcoinNetwork};
 //!
 //! fn main() -> Result<(), rgb_lib::Error> {
 //!     let data_dir = tempfile::tempdir()?;
-//!     let keys = generate_keys(BitcoinNetwork::Regtest);
+//!     let keys = generate_keys(BitcoinNetwork::Regtest, WitnessVersion::Taproot);
 //!     let single_sig_keys = SinglesigKeys::from_keys(&keys, None);
 //!     let wallet_data = WalletData {
 //!         data_dir: data_dir.path().to_str().unwrap().to_string(),
@@ -300,7 +300,7 @@ use crate::{
         enums::{ColoringType, RecipientTypeFull, WalletTransactionType},
     },
     error::InternalError,
-    keys::Keys,
+    keys::{Keys, WitnessVersion},
     utils::{
         ACCOUNT, DumbResolver, KEYCHAIN_BTC, KEYCHAIN_RGB, LOG_FILE, PURPOSE, RgbRuntime,
         adjust_canonicalization, beneficiary_from_script_buf, from_str_or_number_mandatory,

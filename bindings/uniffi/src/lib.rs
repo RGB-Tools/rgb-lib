@@ -9,7 +9,7 @@ use std::{
 use rgb_lib::{
     AssetSchema, Assignment as RgbLibAssignment, CloseMethod, Error as RgbLibError, TransferStatus,
     TransportType,
-    keys::Keys,
+    keys::{Keys, WitnessVersion},
     utils::BitcoinNetwork,
     wallet::{
         Address as RgbLibAddress, AssetCFA, AssetIFA, AssetNIA, AssetUDA, Assets,
@@ -690,12 +690,16 @@ impl From<RespondToOperation> for RgbLibRespondToOperation {
     }
 }
 
-fn generate_keys(bitcoin_network: BitcoinNetwork) -> Keys {
-    rgb_lib::keys::generate_keys(bitcoin_network)
+fn generate_keys(bitcoin_network: BitcoinNetwork, witness_version: WitnessVersion) -> Keys {
+    rgb_lib::keys::generate_keys(bitcoin_network, witness_version)
 }
 
-fn restore_keys(bitcoin_network: BitcoinNetwork, mnemonic: String) -> Result<Keys, RgbLibError> {
-    rgb_lib::keys::restore_keys(bitcoin_network, mnemonic)
+fn restore_keys(
+    bitcoin_network: BitcoinNetwork,
+    mnemonic: String,
+    witness_version: WitnessVersion,
+) -> Result<Keys, RgbLibError> {
+    rgb_lib::keys::restore_keys(bitcoin_network, mnemonic, witness_version)
 }
 
 fn restore_backup(

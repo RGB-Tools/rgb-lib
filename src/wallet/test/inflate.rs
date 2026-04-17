@@ -421,7 +421,7 @@ fn fail() {
     // - schema not supported
     create_test_data_dir();
     let bitcoin_network = BitcoinNetwork::Regtest;
-    let keys = generate_keys(bitcoin_network);
+    let keys = generate_keys(bitcoin_network, WitnessVersion::Taproot);
     let mut wallet_nia = Wallet::new(
         WalletData {
             data_dir: get_test_data_dir_string(),

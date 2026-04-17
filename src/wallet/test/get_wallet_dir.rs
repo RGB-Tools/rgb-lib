@@ -5,7 +5,7 @@ use super::*;
 fn success() {
     let test_data_dir = create_test_data_dir();
 
-    let keys = generate_keys(BitcoinNetwork::Regtest);
+    let keys = generate_keys(BitcoinNetwork::Regtest, WitnessVersion::Taproot);
     let wallet = Wallet::new(
         get_test_wallet_data(test_data_dir.to_string_lossy().as_ref()),
         SinglesigKeys::from_keys(&keys, None),

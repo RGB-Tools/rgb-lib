@@ -13,6 +13,7 @@ use std::{
 
 use rgb_lib::{
     AssetSchema, Assignment, Error as RgbLibError,
+    keys::WitnessVersion,
     utils::BitcoinNetwork,
     wallet::{
         Online, Recipient, RefreshFilter, RgbWalletOpsOffline, RgbWalletOpsOnline, SinglesigKeys,
@@ -171,8 +172,11 @@ pub extern "C" fn rgblib_finalize_psbt(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rgblib_generate_keys(bitcoin_network: *const c_char) -> CResultString {
-    generate_keys(bitcoin_network).into()
+pub extern "C" fn rgblib_generate_keys(
+    bitcoin_network: *const c_char,
+    witness_version: *const c_char,
+) -> CResultString {
+    generate_keys(bitcoin_network, witness_version).into()
 }
 
 #[unsafe(no_mangle)]
@@ -379,8 +383,9 @@ pub extern "C" fn rgblib_restore_backup(
 pub extern "C" fn rgblib_restore_keys(
     bitcoin_network: *const c_char,
     mnemonic: *const c_char,
+    witness_version: *const c_char,
 ) -> CResultString {
-    restore_keys(bitcoin_network, mnemonic).into()
+    restore_keys(bitcoin_network, mnemonic, witness_version).into()
 }
 
 #[unsafe(no_mangle)]

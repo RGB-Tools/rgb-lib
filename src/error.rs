@@ -373,6 +373,13 @@ pub enum Error {
     #[error("Invalid vanilla keychain")]
     InvalidVanillaKeychain,
 
+    /// Invalid witness version
+    #[error("Invalid witness version: {witness_version}")]
+    InvalidWitnessVersion {
+        /// The invalid witness version
+        witness_version: String,
+    },
+
     /// The maximum fee has been exceeded
     #[error("Max fee exceeded for transfer with TXID: {txid}")]
     MaxFeeExceeded {

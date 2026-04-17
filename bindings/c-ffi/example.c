@@ -4,7 +4,9 @@
 
 int main() {
     const char *bitcoin_network = "Regtest";
-    CResultString keys_res = rgblib_generate_keys(bitcoin_network);
+    const char *witness_version = "Taproot";
+    CResultString keys_res =
+        rgblib_generate_keys(bitcoin_network, witness_version);
     if (keys_res.result == Err) {
         printf("ERR: %s\n", keys_res.inner);
         return EXIT_FAILURE;
