@@ -26,6 +26,17 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
+        manager
+            .create_index(
+                sea_query::Index::create()
+                    .name("idx-reservedtxo-txid-vout")
+                    .table(ReservedTxo::Table)
+                    .col(ReservedTxo::Txid)
+                    .col(ReservedTxo::Vout)
+                    .unique()
+                    .clone(),
+            )
+            .await?;
 
         Ok(())
     }
