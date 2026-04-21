@@ -150,6 +150,10 @@ impl RgbWalletOpsOnline for Wallet {}
 
 /// Offline APIs of the wallet.
 impl Wallet {
+    pub(crate) fn watch_only(&self) -> bool {
+        self.keys.mnemonic.is_none()
+    }
+
     /// Create a new RGB singlesig wallet based on the provided [`WalletData`] and
     /// [`SinglesigKeys`].
     pub fn new(wallet_data: WalletData, keys: SinglesigKeys) -> Result<Self, Error> {
@@ -671,10 +675,6 @@ impl Wallet {
 /// Online APIs of the wallet.
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 impl Wallet {
-    pub(crate) fn watch_only(&self) -> bool {
-        self.keys.mnemonic.is_none()
-    }
-
     fn check_xprv(&self) -> Result<(), Error> {
         if self.watch_only() {
             error!(self.logger(), "Invalid operation for a watch only wallet");
