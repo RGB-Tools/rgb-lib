@@ -19,7 +19,7 @@ jobs:
         with:
           components: rustfmt
       - name: Format
-        run: cargo fmt --all -- --check
+        run: cargo fmt --all -- --check --config format_code_in_doc_comments=true
       - name: Format c-ffi bindings
         working-directory: ./bindings/c-ffi
         run: |
