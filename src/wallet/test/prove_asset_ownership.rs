@@ -126,3 +126,33 @@ fn fail() {
     let result = wallet.prove_asset_ownership(&empty_consignment, b"test");
     assert!(matches!(result, Err(Error::NoConsignment)));
 }
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn not_owned_returns_empty() {
+    initialize();
+
+    let amount: u64 = 66;
+    let (mut wallet, online) = get_funded_wallet!();
+    let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
+    let asset = test_issue_asset_nia(&mut wallet, online, None);
+    let receive_data = test_blind_receive(&mut rcv_wallet);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(amount),
+            recipient_id: receive_data.recipient_id.clone(),
+            witness_data: None,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid = test_send(&mut wallet, online, &recipient_map);
+    let consignment_path = wallet.get_send_consignment_path(&asset.asset_id, &txid);
+    let consignment = RgbTransfer::load_file(consignment_path).unwrap();
+
+    let signatures = rcv_wallet
+        .prove_asset_ownership(&consignment, b"not mine")
+        .unwrap();
+    assert!(signatures.is_empty());
+}
