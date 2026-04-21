@@ -2007,7 +2007,7 @@ pub trait WalletOffline: WalletBackup {
                 } else if send_btc_txids.contains(&txid) {
                     TransactionType::SendBtc
                 } else {
-                    TransactionType::Untracked
+                    TransactionType::Incoming
                 };
                 let confirmation_time = match t.chain_position {
                     ChainPosition::Confirmed { anchor, .. } => Some(BlockTime {

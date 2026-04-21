@@ -475,7 +475,7 @@ enum TransactionType {
   "Drain",
   "CreateUtxos",
   "SendBtc",
-  "Untracked",
+  "Incoming",
 };
 
 [Remote]

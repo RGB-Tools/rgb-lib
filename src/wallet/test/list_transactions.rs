@@ -33,7 +33,7 @@ fn success() {
     assert!(
         transactions
             .iter()
-            .any(|t| matches!(t.transaction_type, TransactionType::Untracked))
+            .any(|t| matches!(t.transaction_type, TransactionType::Incoming))
     );
     assert!(
         transactions
@@ -43,7 +43,7 @@ fn success() {
     assert!(
         rcv_transactions
             .iter()
-            .any(|t| matches!(t.transaction_type, TransactionType::Untracked))
+            .any(|t| matches!(t.transaction_type, TransactionType::Incoming))
     );
     assert!(
         rcv_transactions

@@ -1415,8 +1415,8 @@ pub enum TransactionType {
     CreateUtxos,
     /// Transaction used to perform a BTC send
     SendBtc,
-    /// Transaction not created via rgb-lib
-    Untracked,
+    /// Incoming transaction
+    Incoming,
 }
 
 /// A pending vanilla transaction that has reserved TXOs in the wallet.
