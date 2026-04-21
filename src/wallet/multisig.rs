@@ -2085,7 +2085,7 @@ mod test {
 
     #[test]
     fn cosigner_display_and_parse() {
-        let keys = generate_keys(BitcoinNetwork::Regtest);
+        let keys = generate_keys(BitcoinNetwork::Regtest, WitnessVersion::Taproot);
 
         // vanilla_keychain None
         let cosigner = Cosigner::from_keys(&keys, None);

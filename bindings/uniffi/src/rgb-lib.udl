@@ -1,8 +1,8 @@
 namespace rgb_lib {
-  Keys generate_keys(BitcoinNetwork bitcoin_network);
+  Keys generate_keys(BitcoinNetwork bitcoin_network, WitnessVersion witness_version);
 
   [Throws=RgbLibError]
-  Keys restore_keys(BitcoinNetwork bitcoin_network, string mnemonic);
+  Keys restore_keys(BitcoinNetwork bitcoin_network, string mnemonic, WitnessVersion witness_version);
 
   [Throws=RgbLibError]
   void restore_backup(string backup_path, string password, string data_dir);
@@ -71,6 +71,7 @@ interface RgbLibError {
   InvalidTransportEndpoints(string details);
   InvalidTxid();
   InvalidVanillaKeychain();
+  InvalidWitnessVersion(string witness_version);
   MaxFeeExceeded(string txid);
   MinFeeNotMet(string txid);
   MultisigHubService(string details);
@@ -271,6 +272,12 @@ enum DatabaseType {
   "Sqlite",
 };
 
+[Remote]
+enum WitnessVersion {
+  "SegWitV0",
+  "Taproot",
+};
+
 interface Address {
   [Throws=RgbLibError]
   constructor(string address_string, BitcoinNetwork bitcoin_network);
@@ -330,6 +337,7 @@ dictionary Keys {
   string account_xpub_vanilla;
   string account_xpub_colored;
   string master_fingerprint;
+  WitnessVersion witness_version;
 };
 
 [Remote]
@@ -525,6 +533,7 @@ dictionary SinglesigKeys {
   u8? vanilla_keychain;
   string master_fingerprint;
   string? mnemonic;
+  WitnessVersion witness_version;
 };
 
 [Remote]

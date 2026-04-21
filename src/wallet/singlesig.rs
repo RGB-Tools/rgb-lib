@@ -19,6 +19,9 @@ pub struct SinglesigKeys {
     pub master_fingerprint: String,
     /// Wallet mnemonic phrase
     pub mnemonic: Option<String>,
+    /// Witness version these keys were derived with
+    #[serde(default)]
+    pub witness_version: WitnessVersion,
 }
 
 impl SinglesigKeys {
@@ -36,6 +39,7 @@ impl SinglesigKeys {
                 self.vanilla_keychain,
                 &xpub_btc,
                 &xpub_rgb,
+                self.witness_version,
             )?;
             // check master fingerprint derived from mnemonic matches provided one
             let mnemonic = Mnemonic::parse_in(Language::English, mnemonic)?;
@@ -56,6 +60,7 @@ impl SinglesigKeys {
                 &xpub_rgb,
                 &xpub_btc,
                 self.vanilla_keychain,
+                self.witness_version,
             )?;
             (descs, true)
         })
@@ -69,6 +74,7 @@ impl SinglesigKeys {
             vanilla_keychain,
             master_fingerprint: keys.master_fingerprint.clone(),
             mnemonic: Some(keys.mnemonic.clone()),
+            witness_version: keys.witness_version,
         }
     }
 
@@ -80,6 +86,7 @@ impl SinglesigKeys {
             vanilla_keychain,
             master_fingerprint: keys.master_fingerprint.clone(),
             mnemonic: None,
+            witness_version: keys.witness_version,
         }
     }
 }

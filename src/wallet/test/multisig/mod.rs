@@ -21,10 +21,10 @@ fn success() {
         .collect();
 
     // multisig wallet keys
-    let wlt_1_keys = generate_keys(bitcoin_network);
-    let wlt_2_keys = generate_keys(bitcoin_network);
-    let wlt_3_keys = generate_keys(bitcoin_network);
-    let wlt_4_keys = generate_keys(bitcoin_network);
+    let wlt_1_keys = generate_keys(bitcoin_network, WitnessVersion::Taproot);
+    let wlt_2_keys = generate_keys(bitcoin_network, WitnessVersion::Taproot);
+    let wlt_3_keys = generate_keys(bitcoin_network, WitnessVersion::Taproot);
+    let wlt_4_keys = generate_keys(bitcoin_network, WitnessVersion::Taproot);
 
     // cosigners
     let cosigners = vec![
@@ -928,9 +928,9 @@ fn fail() {
     let _ = fs::create_dir_all(&data_dir);
 
     // multisig wallet keys
-    let wlt_1_keys = generate_keys(bitcoin_network);
-    let wlt_2_keys = generate_keys(bitcoin_network);
-    let wlt_3_keys = generate_keys(bitcoin_network);
+    let wlt_1_keys = generate_keys(bitcoin_network, WitnessVersion::Taproot);
+    let wlt_2_keys = generate_keys(bitcoin_network, WitnessVersion::Taproot);
+    let wlt_3_keys = generate_keys(bitcoin_network, WitnessVersion::Taproot);
 
     // cosigners
     let cosigners = vec![
@@ -1079,7 +1079,7 @@ fn fail() {
     assert_matches!(res.as_ref().err().unwrap(), Error::InvalidCosigner { details: d } if *d == format!("invalid vanilla xpub '{invalid_xpub}'"));
 
     // invalid xpub network
-    let invalid_keys = generate_keys(BitcoinNetwork::Mainnet);
+    let invalid_keys = generate_keys(BitcoinNetwork::Mainnet, WitnessVersion::Taproot);
     let invalid_cosigner = Cosigner::from_keys(&invalid_keys, None);
     // - colored xpub
     let mut invalid_cosigners = cosigners.clone();
@@ -1127,7 +1127,7 @@ fn fail() {
     assert_matches!(err, Error::MultisigHubService { details: d } if d == "Missing or invalid credentials");
 
     // token for cosigner not in hub config
-    let wlt_badtoken_keys = generate_keys(bitcoin_network);
+    let wlt_badtoken_keys = generate_keys(bitcoin_network, WitnessVersion::Taproot);
     let invalid_cosigner_token = create_token(
         &root_keypair,
         Role::Cosigner(wlt_badtoken_keys.account_xpub_colored),

@@ -15,7 +15,8 @@ fn check_wallet(wallet: &Wallet, network: BitcoinNetwork, keychain_vanilla: Opti
                         .unwrap()
                         .to_string();
                     let coin_type = get_coin_type(&network, true);
-                    let account_derivation_children = get_account_derivation_children(coin_type);
+                    let account_derivation_children =
+                        get_account_derivation_children(WitnessVersion::Taproot, coin_type);
                     let expected_full_derivation_path =
                         get_extended_derivation_path(account_derivation_children, KEYCHAIN_RGB);
                     assert_eq!(
@@ -33,7 +34,8 @@ fn check_wallet(wallet: &Wallet, network: BitcoinNetwork, keychain_vanilla: Opti
                         .unwrap()
                         .to_string();
                     let coin_type = get_coin_type(&network, false);
-                    let account_derivation_children = get_account_derivation_children(coin_type);
+                    let account_derivation_children =
+                        get_account_derivation_children(WitnessVersion::Taproot, coin_type);
                     let keychain_vanilla = keychain_vanilla.unwrap_or(KEYCHAIN_BTC);
                     let expected_full_derivation_path =
                         get_extended_derivation_path(account_derivation_children, keychain_vanilla);
@@ -65,7 +67,7 @@ fn success() {
 
     // with custom vanilla keychain
     let bitcoin_network = BitcoinNetwork::Regtest;
-    let keys = generate_keys(bitcoin_network);
+    let keys = generate_keys(bitcoin_network, WitnessVersion::Taproot);
     let vanilla_keychain = Some(u8::MAX);
     let wallet = Wallet::new(
         WalletData {
@@ -133,7 +135,7 @@ fn mainnet_success_electrum() {
     create_test_data_dir();
 
     let bitcoin_network = BitcoinNetwork::Mainnet;
-    let keys = generate_keys(bitcoin_network);
+    let keys = generate_keys(bitcoin_network, WitnessVersion::Taproot);
     let mut wallet = Wallet::new(
         WalletData {
             data_dir: get_test_data_dir_string(),
@@ -162,7 +164,7 @@ fn mainnet_success_esplora() {
     create_test_data_dir();
 
     let bitcoin_network = BitcoinNetwork::Mainnet;
-    let keys = generate_keys(bitcoin_network);
+    let keys = generate_keys(bitcoin_network, WitnessVersion::Taproot);
     let mut wallet = Wallet::new(
         WalletData {
             data_dir: get_test_data_dir_string(),
@@ -218,7 +220,7 @@ fn fail() {
 
     // invalid bitcoin keys
     let mut keys_bad = keys.clone();
-    let alt_keys = generate_keys(BitcoinNetwork::Regtest);
+    let alt_keys = generate_keys(BitcoinNetwork::Regtest, WitnessVersion::Taproot);
     keys_bad.account_xpub_colored = alt_keys.xpub;
     let result = Wallet::new(wallet_data.clone(), keys_bad);
     assert!(matches!(result, Err(Error::InvalidBitcoinKeys)));
@@ -327,7 +329,7 @@ fn watch_only_success() {
     initialize();
 
     let bitcoin_network = BitcoinNetwork::Regtest;
-    let keys = generate_keys(bitcoin_network);
+    let keys = generate_keys(bitcoin_network, WitnessVersion::Taproot);
 
     // watch-only wallet
     let mut wallet_watch = Wallet::new(
@@ -394,7 +396,7 @@ fn watch_only_fail() {
     initialize();
 
     let bitcoin_network = BitcoinNetwork::Regtest;
-    let keys = generate_keys(bitcoin_network);
+    let keys = generate_keys(bitcoin_network, WitnessVersion::Taproot);
 
     // watch-only wallet invalid fingerprint
     let mut keys_bad = keys.clone();
@@ -421,13 +423,24 @@ fn get_account_xpub_success() {
     let mnemonic = wallet.get_keys().mnemonic.clone().unwrap();
 
     // get colored account xpub
-    let (_, account_xpub, _) = get_account_data(&BitcoinNetwork::Regtest, &mnemonic, true).unwrap();
+    let (_, account_xpub, _) = get_account_data(
+        &BitcoinNetwork::Regtest,
+        &mnemonic,
+        true,
+        WitnessVersion::Taproot,
+    )
+    .unwrap();
     assert_eq!(account_xpub.network, NetworkKind::Test,);
     assert_eq!(account_xpub.depth, 3);
 
     // get vanilla account xpub
-    let (_, account_xpub, _) =
-        get_account_data(&BitcoinNetwork::Regtest, &mnemonic, false).unwrap();
+    let (_, account_xpub, _) = get_account_data(
+        &BitcoinNetwork::Regtest,
+        &mnemonic,
+        false,
+        WitnessVersion::Taproot,
+    )
+    .unwrap();
     assert_eq!(account_xpub.network, NetworkKind::Test,);
     assert_eq!(account_xpub.depth, 3);
 }
@@ -462,7 +475,7 @@ fn supported_schemas() {
     let bitcoin_network = BitcoinNetwork::Regtest;
 
     // wallet (NIA schema supported)
-    let keys = generate_keys(bitcoin_network);
+    let keys = generate_keys(bitcoin_network, WitnessVersion::Taproot);
     let mut wallet_nia = Wallet::new(
         WalletData {
             data_dir: get_test_data_dir_string(),
@@ -493,7 +506,7 @@ fn supported_schemas() {
     assert_matches!(result, Err(Error::UnsupportedSchema { asset_schema: _ }));
 
     // recipient wallet (UDA schema supported)
-    let keys_rcv = generate_keys(bitcoin_network);
+    let keys_rcv = generate_keys(bitcoin_network, WitnessVersion::Taproot);
     let mut rcv_wallet_uda = Wallet::new(
         WalletData {
             data_dir: get_test_data_dir_string(),
@@ -585,7 +598,7 @@ fn supported_schemas() {
 
     // wallet (mainnet, IFA schema supported)
     let bitcoin_network = BitcoinNetwork::Mainnet;
-    let keys_mainnet = generate_keys(bitcoin_network);
+    let keys_mainnet = generate_keys(bitcoin_network, WitnessVersion::Taproot);
     let result = Wallet::new(
         WalletData {
             data_dir: get_test_data_dir_string(),

@@ -7822,3 +7822,128 @@ fn allocations() {
         );
     }
 }
+
+// End-to-end RGB on P2WPKH: fund + create_utxos + issue NIA + receive + send.
+// Exercises the OpretFirst commitment on a non-taproot output with both
+// blinded and witness recipients.
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn p2wpkh_send_receive_nia() {
+    initialize();
+
+    let amount_blind: u64 = 40;
+    let amount_witness: u64 = 26;
+    let total = amount_blind + amount_witness;
+
+    let (mut wallet, online) = get_funded_wallet_p2wpkh();
+    let (mut rcv_wallet, rcv_online) = get_funded_wallet_p2wpkh();
+
+    let asset = test_issue_asset_nia(&mut wallet, online, None);
+
+    // two recipients on the P2WPKH receiver: one blinded, one witness
+    let receive_blind = test_blind_receive(&mut rcv_wallet);
+    let receive_witness = test_witness_receive(&mut rcv_wallet);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![
+            Recipient {
+                assignment: Assignment::Fungible(amount_blind),
+                recipient_id: receive_blind.recipient_id.clone(),
+                witness_data: None,
+                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+            },
+            Recipient {
+                assignment: Assignment::Fungible(amount_witness),
+                recipient_id: receive_witness.recipient_id.clone(),
+                witness_data: Some(WitnessData {
+                    amount_sat: 1000,
+                    blinding: None,
+                }),
+                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+            },
+        ],
+    )]);
+    let txid = test_send(&mut wallet, online, &recipient_map);
+    assert!(!txid.is_empty());
+
+    // drive transfers from WaitingCounterparty to Settled
+    wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
+    wait_for_refresh(&mut wallet, online, Some(&asset.asset_id), None);
+    mine(false, false);
+    wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
+    wait_for_refresh(&mut wallet, online, Some(&asset.asset_id), None);
+
+    // settled balance on both sides
+    let balance_sender = test_get_asset_balance(&wallet, &asset.asset_id);
+    assert_eq!(balance_sender.settled, AMOUNT - total);
+    let balance_receiver = test_get_asset_balance(&rcv_wallet, &asset.asset_id);
+    assert_eq!(balance_receiver.settled, total);
+}
+
+// Cross-type RGB transfer (P2TR → P2WPKH) with a full send-back roundtrip.
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn cross_type_p2tr_to_p2wpkh() {
+    initialize();
+
+    let amount: u64 = 66;
+    let amount_back: u64 = 10;
+
+    let (mut wallet, online) = get_funded_wallet!();
+    let (mut rcv_wallet, rcv_online) = get_funded_wallet_p2wpkh();
+
+    let asset = test_issue_asset_nia(&mut wallet, online, None);
+
+    // P2TR → P2WPKH
+    let receive_data = test_blind_receive(&mut rcv_wallet);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(amount),
+            recipient_id: receive_data.recipient_id.clone(),
+            witness_data: None,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid = test_send(&mut wallet, online, &recipient_map);
+    assert!(!txid.is_empty());
+
+    // drive transfers from WaitingCounterparty to Settled
+    wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
+    wait_for_refresh(&mut wallet, online, Some(&asset.asset_id), None);
+    mine(false, false);
+    wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
+    wait_for_refresh(&mut wallet, online, Some(&asset.asset_id), None);
+
+    let balance_sender = test_get_asset_balance(&wallet, &asset.asset_id);
+    assert_eq!(balance_sender.settled, AMOUNT - amount);
+    let balance_receiver = test_get_asset_balance(&rcv_wallet, &asset.asset_id);
+    assert_eq!(balance_receiver.settled, amount);
+
+    // P2WPKH → P2TR (send some back to complete the roundtrip)
+    let receive_back = test_blind_receive(&mut wallet);
+    let recipient_map_back = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(amount_back),
+            recipient_id: receive_back.recipient_id.clone(),
+            witness_data: None,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid_back = test_send(&mut rcv_wallet, rcv_online, &recipient_map_back);
+    assert!(!txid_back.is_empty());
+
+    wait_for_refresh(&mut wallet, online, None, None);
+    wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
+    mine(false, false);
+    wait_for_refresh(&mut wallet, online, None, None);
+    wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
+
+    let balance_sender = test_get_asset_balance(&wallet, &asset.asset_id);
+    assert_eq!(balance_sender.settled, AMOUNT - amount + amount_back);
+    let balance_receiver = test_get_asset_balance(&rcv_wallet, &asset.asset_id);
+    assert_eq!(balance_receiver.settled, amount - amount_back);
+}
