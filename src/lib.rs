@@ -39,7 +39,7 @@
 //! ## Examples
 //! ### Create an RGB singlesig wallet
 //! ```
-//! use rgb_lib::keys::{generate_keys, WitnessVersion};
+//! use rgb_lib::keys::{WitnessVersion, generate_keys};
 //! use rgb_lib::wallet::{DatabaseType, SinglesigKeys, Wallet, WalletData};
 //! use rgb_lib::{AssetSchema, BitcoinNetwork};
 //!
