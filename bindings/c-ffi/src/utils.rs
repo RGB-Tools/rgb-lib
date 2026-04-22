@@ -51,7 +51,6 @@ trait CReturnType: Sized + 'static {
     }
 }
 impl CReturnType for Wallet {}
-impl CReturnType for Online {}
 
 impl<T: 'static, E> From<Result<T, E>> for CResult
 where
@@ -126,14 +125,15 @@ fn convert_optional_number<T: serde::de::DeserializeOwned>(
     })
 }
 
-fn convert_optional_online<'a>(
-    online: *const COpaqueStruct,
-) -> Result<Option<&'a mut Online>, Error> {
+fn convert_online(online: *const c_char) -> Result<Online, Error> {
+    Ok(serde_json::from_str(&ptr_to_string(online))?)
+}
+
+fn convert_optional_online(online: *const c_char) -> Result<Option<Online>, Error> {
     Ok(if online.is_null() {
         None
     } else {
-        let ref_struct: &COpaqueStruct = unsafe { &*online };
-        Some(Online::from_opaque(ref_struct)?)
+        Some(convert_online(online)?)
     })
 }
 
@@ -212,7 +212,7 @@ pub(crate) fn blind_receive(
 
 pub(crate) fn create_utxos(
     wallet: &COpaqueStruct,
-    online: &COpaqueStruct,
+    online: *const c_char,
     up_to: bool,
     num_opt: *const c_char,
     size_opt: *const c_char,
@@ -220,18 +220,18 @@ pub(crate) fn create_utxos(
     skip_sync: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
-    let online = Online::from_opaque(online)?;
+    let online = convert_online(online)?;
     let num = convert_optional_number(num_opt)?;
     let size = convert_optional_number(size_opt)?;
     let fee_rate = ptr_to_num(fee_rate)?;
-    let res = wallet.create_utxos(*online, up_to, num, size, fee_rate, skip_sync)?;
+    let res = wallet.create_utxos(online, up_to, num, size, fee_rate, skip_sync)?;
     Ok(serde_json::to_string(&res)?)
 }
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn create_utxos_begin(
     wallet: &COpaqueStruct,
-    online: &COpaqueStruct,
+    online: *const c_char,
     up_to: bool,
     num_opt: *const c_char,
     size_opt: *const c_char,
@@ -240,24 +240,24 @@ pub(crate) fn create_utxos_begin(
     dry_run: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
-    let online = Online::from_opaque(online)?;
+    let online = convert_online(online)?;
     let num = convert_optional_number(num_opt)?;
     let size = convert_optional_number(size_opt)?;
     let fee_rate = ptr_to_num(fee_rate)?;
-    let res = wallet.create_utxos_begin(*online, up_to, num, size, fee_rate, skip_sync, dry_run)?;
+    let res = wallet.create_utxos_begin(online, up_to, num, size, fee_rate, skip_sync, dry_run)?;
     Ok(res)
 }
 
 pub(crate) fn create_utxos_end(
     wallet: &COpaqueStruct,
-    online: &COpaqueStruct,
+    online: *const c_char,
     signed_psbt: *const c_char,
     skip_sync: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
-    let online = Online::from_opaque(online)?;
+    let online = convert_online(online)?;
     let signed_psbt = ptr_to_string(signed_psbt);
-    let res = wallet.create_utxos_end(*online, signed_psbt, skip_sync)?;
+    let res = wallet.create_utxos_end(online, signed_psbt, skip_sync)?;
     Ok(serde_json::to_string(&res)?)
 }
 
@@ -274,15 +274,15 @@ pub(crate) fn delete_transfers(
 
 pub(crate) fn fail_transfers(
     wallet: &COpaqueStruct,
-    online: &COpaqueStruct,
+    online: *const c_char,
     batch_transfer_idx_opt: *const c_char,
     no_asset_only: bool,
     skip_sync: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
-    let online = Online::from_opaque(online)?;
+    let online = convert_online(online)?;
     let batch_transfer_idx = convert_optional_number(batch_transfer_idx_opt)?;
-    let res = wallet.fail_transfers(*online, batch_transfer_idx, no_asset_only, skip_sync)?;
+    let res = wallet.fail_transfers(online, batch_transfer_idx, no_asset_only, skip_sync)?;
     Ok(serde_json::to_string(&res)?)
 }
 
@@ -332,24 +332,24 @@ pub(crate) fn get_asset_metadata(
 
 pub(crate) fn get_btc_balance(
     wallet: &COpaqueStruct,
-    online: *const COpaqueStruct,
+    online: *const c_char,
     skip_sync: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = convert_optional_online(online)?;
-    let res = wallet.get_btc_balance(online.cloned(), skip_sync)?;
+    let res = wallet.get_btc_balance(online, skip_sync)?;
     Ok(serde_json::to_string(&res)?)
 }
 
 pub(crate) fn get_fee_estimation(
     wallet: &COpaqueStruct,
-    online: &COpaqueStruct,
+    online: *const c_char,
     blocks: *const c_char,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
-    let online = Online::from_opaque(online)?;
+    let online = convert_online(online)?;
     let blocks = ptr_to_num(blocks)?;
-    let res = wallet.get_fee_estimation(*online, blocks)?;
+    let res = wallet.get_fee_estimation(online, blocks)?;
     Ok(serde_json::to_string(&res)?)
 }
 
@@ -357,27 +357,28 @@ pub(crate) fn go_online(
     wallet: &COpaqueStruct,
     skip_consistency_check: bool,
     electrum_url: *const c_char,
-) -> Result<Online, Error> {
+) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
-    Ok(wallet.go_online(skip_consistency_check, ptr_to_string(electrum_url))?)
+    let res = wallet.go_online(skip_consistency_check, ptr_to_string(electrum_url))?;
+    Ok(serde_json::to_string(&res)?)
 }
 
 pub(crate) fn inflate(
     wallet: &COpaqueStruct,
-    online: &COpaqueStruct,
+    online: *const c_char,
     asset_id: *const c_char,
     inflation_amounts: *const c_char,
     fee_rate: *const c_char,
     min_confirmations: *const c_char,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
-    let online = Online::from_opaque(online)?;
+    let online = convert_online(online)?;
     let asset_id = ptr_to_string(asset_id);
     let inflation_amounts = convert_strings_array(inflation_amounts)?;
     let fee_rate = ptr_to_num(fee_rate)?;
     let min_confirmations = ptr_to_num(min_confirmations)?;
     let res = wallet.inflate(
-        *online,
+        online,
         asset_id,
         inflation_amounts,
         fee_rate,
@@ -495,12 +496,12 @@ pub(crate) fn list_assets(
 
 pub(crate) fn list_transactions(
     wallet: &COpaqueStruct,
-    online: &COpaqueStruct,
+    online: *const c_char,
     skip_sync: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
-    let online = Online::from_opaque(online)?;
-    let res = wallet.list_transactions(Some(*online), skip_sync)?;
+    let online = convert_online(online)?;
+    let res = wallet.list_transactions(Some(online), skip_sync)?;
     Ok(serde_json::to_string(&res)?)
 }
 
@@ -516,13 +517,13 @@ pub(crate) fn list_transfers(
 
 pub(crate) fn list_unspents(
     wallet: &COpaqueStruct,
-    online: &COpaqueStruct,
+    online: *const c_char,
     settled_only: bool,
     skip_sync: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
-    let online = Online::from_opaque(online)?;
-    let res = wallet.list_unspents(Some(*online), settled_only, skip_sync)?;
+    let online = convert_online(online)?;
+    let res = wallet.list_unspents(Some(online), settled_only, skip_sync)?;
     Ok(serde_json::to_string(&res)?)
 }
 
@@ -534,16 +535,16 @@ pub(crate) fn new_wallet(wallet_data: *const c_char, keys: *const c_char) -> Res
 
 pub(crate) fn refresh(
     wallet: &COpaqueStruct,
-    online: &COpaqueStruct,
+    online: *const c_char,
     asset_id_opt: *const c_char,
     filter: *const c_char,
     skip_sync: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
-    let online = Online::from_opaque(online)?;
+    let online = convert_online(online)?;
     let filter: Vec<RefreshFilter> = serde_json::from_str(&ptr_to_string(filter))?;
     let asset_id = convert_optional_string(asset_id_opt);
-    let res = wallet.refresh(*online, asset_id, filter, skip_sync)?;
+    let res = wallet.refresh(online, asset_id, filter, skip_sync)?;
     Ok(serde_json::to_string(&res)?)
 }
 
@@ -574,7 +575,7 @@ pub(crate) fn restore_keys(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn send(
     wallet: &COpaqueStruct,
-    online: &COpaqueStruct,
+    online: *const c_char,
     recipient_map: *const c_char,
     donation: bool,
     fee_rate: *const c_char,
@@ -583,14 +584,14 @@ pub(crate) fn send(
     skip_sync: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
-    let online = Online::from_opaque(online)?;
+    let online = convert_online(online)?;
     let recipient_map: HashMap<String, Vec<Recipient>> =
         serde_json::from_str(&ptr_to_string(recipient_map))?;
     let fee_rate = ptr_to_num(fee_rate)?;
     let min_confirmations = ptr_to_num(min_confirmations)?;
     let expiration_timestamp = convert_optional_number(expiration_timestamp_opt)?;
     let res = wallet.send(
-        *online,
+        online,
         recipient_map,
         donation,
         fee_rate,
@@ -604,7 +605,7 @@ pub(crate) fn send(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn send_begin(
     wallet: &COpaqueStruct,
-    online: &COpaqueStruct,
+    online: *const c_char,
     recipient_map: *const c_char,
     donation: bool,
     fee_rate: *const c_char,
@@ -613,14 +614,14 @@ pub(crate) fn send_begin(
     dry_run: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
-    let online = Online::from_opaque(online)?;
+    let online = convert_online(online)?;
     let recipient_map: HashMap<String, Vec<Recipient>> =
         serde_json::from_str(&ptr_to_string(recipient_map))?;
     let fee_rate = ptr_to_num(fee_rate)?;
     let min_confirmations = ptr_to_num(min_confirmations)?;
     let expiration_timestamp = convert_optional_number(expiration_timestamp_opt)?;
     let res = wallet.send_begin(
-        *online,
+        online,
         recipient_map,
         donation,
         fee_rate,
@@ -633,31 +634,31 @@ pub(crate) fn send_begin(
 
 pub(crate) fn send_btc(
     wallet: &COpaqueStruct,
-    online: &COpaqueStruct,
+    online: *const c_char,
     address: *const c_char,
     amount: *const c_char,
     fee_rate: *const c_char,
     skip_sync: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
-    let online = Online::from_opaque(online)?;
+    let online = convert_online(online)?;
     let address = ptr_to_string(address);
     let amount = ptr_to_num(amount)?;
     let fee_rate = ptr_to_num(fee_rate)?;
-    let res = wallet.send_btc(*online, address, amount, fee_rate, skip_sync)?;
+    let res = wallet.send_btc(online, address, amount, fee_rate, skip_sync)?;
     Ok(res)
 }
 
 pub(crate) fn send_end(
     wallet: &COpaqueStruct,
-    online: &COpaqueStruct,
+    online: *const c_char,
     signed_psbt: *const c_char,
     skip_sync: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
-    let online = Online::from_opaque(online)?;
+    let online = convert_online(online)?;
     let signed_psbt = ptr_to_string(signed_psbt);
-    let res = wallet.send_end(*online, signed_psbt, skip_sync)?;
+    let res = wallet.send_end(online, signed_psbt, skip_sync)?;
     Ok(serde_json::to_string(&res)?)
 }
 
@@ -670,10 +671,10 @@ pub(crate) fn sign_psbt(
     Ok(wallet.sign_psbt(unsigned_psbt, None)?)
 }
 
-pub(crate) fn sync(wallet: &COpaqueStruct, online: &COpaqueStruct) -> Result<(), Error> {
+pub(crate) fn sync(wallet: &COpaqueStruct, online: *const c_char) -> Result<(), Error> {
     let wallet = Wallet::from_opaque(wallet)?;
-    let online = Online::from_opaque(online)?;
-    wallet.sync(*online)?;
+    let online = convert_online(online)?;
+    wallet.sync(online)?;
     Ok(())
 }
 

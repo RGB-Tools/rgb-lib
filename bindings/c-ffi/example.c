@@ -23,19 +23,24 @@ int main() {
         json_object_object_get(keys_obj, "account_xpub_colored"));
     const char *master_fingerprint = json_object_get_string(
         json_object_object_get(keys_obj, "master_fingerprint"));
-    char wallet_data[400];
-    sprintf(wallet_data,
-            "{ \"data_dir\": \"./data\", \"bitcoin_network\": \"Regtest\", "
-            "\"database_type\": \"Sqlite\", \"max_allocations_per_utxo\": "
-            "\"1\", \"account_xpub_vanilla\": \"%s\", "
-            "\"account_xpub_colored\": \"%s\", \"mnemonic\": \"%s\", "
-            "\"master_fingerprint\": \"%s\", \"vanilla_keychain\": null,"
-            "\"supported_schemas\": [\"Nia\", \"Cfa\", \"Uda\"] }",
-            account_xpub_vanilla, account_xpub_colored, mnemonic,
-            master_fingerprint);
+    const char *keys_witness_version = json_object_get_string(
+        json_object_object_get(keys_obj, "witness_version"));
+
+    const char *wallet_data =
+        "{ \"data_dir\": \"./data\", \"bitcoin_network\": \"Regtest\", "
+        "\"database_type\": \"Sqlite\", \"max_allocations_per_utxo\": \"1\", "
+        "\"supported_schemas\": [\"Nia\", \"Cfa\", \"Uda\"] }";
+    char keys_data[600];
+    sprintf(keys_data,
+            "{ \"account_xpub_vanilla\": \"%s\", "
+            "\"account_xpub_colored\": \"%s\", \"vanilla_keychain\": null, "
+            "\"master_fingerprint\": \"%s\", \"mnemonic\": \"%s\", "
+            "\"witness_version\": \"%s\" }",
+            account_xpub_vanilla, account_xpub_colored, master_fingerprint,
+            mnemonic, keys_witness_version);
 
     printf("Creating wallet...\n");
-    CResult wallet = rgblib_new_wallet(wallet_data);
+    CResult wallet = rgblib_new_wallet(wallet_data, keys_data);
     if (wallet.result == Err) {
         printf("ERR: %s\n", wallet.inner);
         return EXIT_FAILURE;
@@ -73,12 +78,13 @@ int main() {
     printf("BTC balance: %s\n", btc_balance_1);
 
     printf("Wallet is going online...\n");
-    CResult online_res = rgblib_go_online(wlt, false, "tcp://localhost:50001");
+    CResultString online_res =
+        rgblib_go_online(wlt, false, "tcp://localhost:50001");
     if (online_res.result == Err) {
         printf("ERR: %s\n", online_res.inner);
         return EXIT_FAILURE;
     }
-    const struct COpaqueStruct *online = &online_res.inner;
+    const char *online = online_res.inner;
     printf("Wallet went online\n");
 
     CResultString btc_balance_res_2 =
