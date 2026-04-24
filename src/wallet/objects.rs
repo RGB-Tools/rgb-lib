@@ -228,6 +228,24 @@ impl From<RgbEmbeddedMedia> for EmbeddedMedia {
     }
 }
 
+/// A cryptographic proof of UTXO ownership via message signing.
+///
+/// Contains a Bitcoin message signature and the public key that produced it,
+/// allowing a third party to verify that the signer controls the private key
+/// corresponding to the UTXO's scriptPubKey.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct UtxoSignature {
+    /// The outpoint (txid:vout) of the UTXO whose ownership is being proved
+    pub outpoint: Outpoint,
+    /// The message that was signed (the SHA256 digest, not the raw input)
+    pub message: Vec<u8>,
+    /// The BIP-340 Schnorr signature (64 bytes)
+    pub signature: Vec<u8>,
+    /// The 32-byte x-only taproot-tweaked public key matching the P2TR output's scriptPubKey
+    pub pubkey: Vec<u8>,
+}
+
 /// A proof of reserves.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
