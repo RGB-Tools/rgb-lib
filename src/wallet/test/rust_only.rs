@@ -224,7 +224,17 @@ fn list_unspents_vanilla_skip_sync() {
     assert_eq!(unspents.len(), 0);
 
     // 1 unspent after manually syncing
-    wallet.sync(online).unwrap();
+    wallet
+        .sync(
+            online,
+            SyncOptions {
+                keychain: SyncKeychain::Vanilla {
+                    lookback: INDEXER_SYNC_LOOKBACK as u32,
+                },
+                strategy: SyncStrategy::FastSync,
+            },
+        )
+        .unwrap();
     let unspents = wallet
         .list_unspents_vanilla(online, MIN_CONFIRMATIONS, true)
         .unwrap();

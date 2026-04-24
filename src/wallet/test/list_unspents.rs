@@ -407,7 +407,17 @@ fn skip_sync() {
     assert_eq!(unspents.len(), 0);
 
     // 1 unspent after manually syncing
-    wallet.sync(online).unwrap();
+    wallet
+        .sync(
+            online,
+            SyncOptions {
+                keychain: SyncKeychain::Vanilla {
+                    lookback: INDEXER_SYNC_LOOKBACK as u32,
+                },
+                strategy: SyncStrategy::FastSync,
+            },
+        )
+        .unwrap();
     let unspents = test_list_unspents(&mut wallet, None, false);
     assert_eq!(unspents.len(), 1);
 }

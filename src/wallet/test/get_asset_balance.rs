@@ -465,13 +465,28 @@ fn transfer_balances() {
             FEE_RATE,
             MIN_CONFIRMATIONS,
             None,
-            false,
         )
         .unwrap();
 
     // sync the wallets
-    wallet_send.sync(online_send).unwrap();
-    wallet_recv.sync(online_recv).unwrap();
+    wallet_send
+        .sync(
+            online_send,
+            SyncOptions {
+                keychain: SyncKeychain::Colored,
+                strategy: SyncStrategy::FastSync,
+            },
+        )
+        .unwrap();
+    wallet_recv
+        .sync(
+            online_recv,
+            SyncOptions {
+                keychain: SyncKeychain::Colored,
+                strategy: SyncStrategy::FastSync,
+            },
+        )
+        .unwrap();
 
     show_unspent_colorings(&mut wallet_send, "send after 3rd send");
     show_unspent_colorings(&mut wallet_recv, "recv after 3rd send");

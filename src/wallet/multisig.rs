@@ -213,7 +213,7 @@ impl WalletCore for MultisigWallet {
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
-    fn sync_db_txos(&mut self, full_scan: bool, include_spent: bool) -> Result<(), Error> {
+    fn sync_wallet(&mut self, options: SyncOptions, include_spent: bool) -> Result<(), Error> {
         // sync addresses
         let response = self.hub_client().get_current_address_indices()?;
         let (bdk_wallet, bdk_database) = self.bdk_wallet_db_mut();
@@ -238,7 +238,7 @@ impl WalletCore for MultisigWallet {
             bdk_wallet.persist(bdk_database)?;
         }
         // sync UTXOs
-        self.sync_db_txos_with_bdk(full_scan, include_spent)
+        self.sync_bdk_and_db_txos(options, include_spent)
     }
 }
 
@@ -329,6 +329,17 @@ impl RgbWalletOpsOnline for MultisigWallet {
         info!(self.logger(), "Fail transfers completed");
         Ok(changed)
     }
+}
+
+/// Multisig-specific options for the [`MultisigWallet::go_online`] method.
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct MultisigOnlineOptions {
+    /// URL of the multisig hub
+    pub hub_url: String,
+    /// Authentication token for the multisig hub
+    pub hub_token: String,
 }
 
 /// Voting status for multisig operations.
@@ -611,7 +622,7 @@ impl OperationHandler for CreateUtxosHandler {
         wallet: &mut MultisigWallet,
         combined_psbt: &Psbt,
     ) -> Result<String, Error> {
-        wallet.create_utxos_end_impl(combined_psbt, false)?;
+        wallet.create_utxos_end_impl(combined_psbt)?;
         Ok(combined_psbt.unsigned_tx.compute_txid().to_string())
     }
 }
@@ -647,7 +658,7 @@ impl OperationHandler for SendBtcHandler {
         wallet: &mut MultisigWallet,
         combined_psbt: &Psbt,
     ) -> Result<String, Error> {
-        wallet.send_btc_end_impl(combined_psbt, false)?;
+        wallet.send_btc_end_impl(combined_psbt)?;
         Ok(combined_psbt.unsigned_tx.compute_txid().to_string())
     }
 }
@@ -698,7 +709,7 @@ impl OperationHandler for SendRgbHandler {
         wallet: &mut MultisigWallet,
         combined_psbt: &Psbt,
     ) -> Result<String, Error> {
-        let res = wallet.send_end_impl(combined_psbt, false)?;
+        let res = wallet.send_end_impl(combined_psbt)?;
         Ok(res.txid)
     }
 
@@ -1053,23 +1064,15 @@ impl MultisigWallet {
 
     /// Return the existing or freshly generated wallet [`Online`] data.
     ///
-    /// Setting `skip_consistency_check` to false runs a check on assets (RGB vs rgb-lib DB) and
-    /// medias (DB vs actual files) to try and detect possible inconsistencies in the wallet.
-    /// Setting `skip_consistency_check` to true bypasses the check and allows operating an
-    /// inconsistent wallet.
-    ///
-    /// <div class="warning">Warning: setting <tt>skip_consistency_check</tt> to true is dangerous,
-    /// only do this if you know what you're doing!</div>
+    /// See [`OnlineOptions`] and [`MultisigOnlineOptions`] for details on the available options.
     pub fn go_online(
         &mut self,
-        skip_consistency_check: bool,
-        indexer_url: String,
-        hub_url: String,
-        hub_token: String,
+        online_options: OnlineOptions,
+        multisig_online_options: MultisigOnlineOptions,
     ) -> Result<Online, Error> {
         info!(self.logger(), "Going online...");
         // check hub URL validity
-        let valid_url = match Url::parse(&hub_url) {
+        let valid_url = match Url::parse(&multisig_online_options.hub_url) {
             Ok(url) => matches!(url.scheme(), "http" | "https") && url.host_str().is_some(),
             Err(_) => false,
         };
@@ -1080,7 +1083,10 @@ impl MultisigWallet {
         }
 
         // check hub connectivity and configuration
-        let hub_client = MultisigHubClient::new(&hub_url, &hub_token)?;
+        let hub_client = MultisigHubClient::new(
+            &multisig_online_options.hub_url,
+            &multisig_online_options.hub_token,
+        )?;
         let info = hub_client.info()?;
         const RGB_LIB_VERSION: &str = env!("CARGO_PKG_VERSION");
         let local_version = RGB_LIB_VERSION
@@ -1100,7 +1106,7 @@ impl MultisigWallet {
         }
 
         // shared go online logic
-        let online = self.go_online_impl(skip_consistency_check, &indexer_url)?;
+        let online = self.go_online_impl(&online_options)?;
 
         // set multisig-specific OnlineData fields
         self.online_data_mut().as_mut().unwrap().hub_client = Some(hub_client);
@@ -1522,7 +1528,13 @@ impl MultisigWallet {
             let txo = match self.database().get_txo(&outpoint)? {
                 Some(txo) => txo,
                 None => {
-                    self.sync_db_txos(false, true)?;
+                    self.sync_wallet(
+                        SyncOptions {
+                            keychain: SyncKeychain::Colored,
+                            strategy: SyncStrategy::FastSync,
+                        },
+                        true,
+                    )?;
                     self.database().get_txo(&outpoint)?.expect("should exist")
                 }
             };
@@ -1632,7 +1644,22 @@ impl MultisigWallet {
         self.check_online(online)?;
 
         // make sure the wallet is synced and transfers are up-to-date
-        self.sync_db_txos(false, false)?;
+        self.sync_wallet(
+            SyncOptions {
+                keychain: SyncKeychain::Colored,
+                strategy: SyncStrategy::FullSync,
+            },
+            false,
+        )?;
+        self.sync_wallet(
+            SyncOptions {
+                keychain: SyncKeychain::Vanilla {
+                    lookback: self.vanilla_sync_lookback(),
+                },
+                strategy: SyncStrategy::FullSync,
+            },
+            false,
+        )?;
         self.refresh_impl(None, vec![], true)?;
         self.refresh_impl(None, vec![], true)?;
 

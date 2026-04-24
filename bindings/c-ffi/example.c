@@ -163,7 +163,8 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    CResultString sync_res = rgblib_sync(wlt, online);
+    CResultString sync_res = rgblib_sync(
+        wlt, online, "{\"keychain\":\"Colored\",\"type\":\"FullSync\"}");
     if (sync_res.result == Ok) {
         printf("Synced\n");
     } else {

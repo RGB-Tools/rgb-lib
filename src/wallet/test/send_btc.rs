@@ -159,7 +159,7 @@ fn skip_sync() {
     assert_eq!(unspents.len(), 1);
 
     // send a 1st time skipping sync (spending the only UTXO)
-    let txid = wallet
+    let txid_1 = wallet
         .send_btc(
             online,
             test_get_address(&mut rcv_wallet),
@@ -168,20 +168,10 @@ fn skip_sync() {
             true,
         )
         .unwrap();
-    assert!(!txid.is_empty());
-    // send a 2nd time skipping sync > FailedBroadcast
-    let result = wallet.send_btc(
-        online,
-        test_get_address(&mut rcv_wallet),
-        amount,
-        FEE_RATE,
-        true,
-    );
-    assert_matches!(result, Err(Error::FailedBroadcast { details: _ }));
-
-    // sync and retry the 2nd send skipping sync > change UTXO is now available
-    wallet.sync(online).unwrap();
-    let txid = wallet
+    assert!(!txid_1.is_empty());
+    // send a 2nd time skipping sync > succeeds because the change UTXO from send 1
+    // is staged into BDK by broadcast_psbt's apply_unconfirmed_txs
+    let txid_2 = wallet
         .send_btc(
             online,
             test_get_address(&mut rcv_wallet),
@@ -190,7 +180,8 @@ fn skip_sync() {
             true,
         )
         .unwrap();
-    assert!(!txid.is_empty());
+    assert!(!txid_2.is_empty());
+    assert_ne!(txid_1, txid_2);
 }
 
 #[cfg(feature = "electrum")]
@@ -268,7 +259,7 @@ fn begin_reservation_interactions() {
 
     // sign + end releases the reservations but keeps the wallet_transaction row
     let signed_psbt = wallet.sign_psbt(unsigned_psbt_str, None).unwrap();
-    let _end_txid = wallet.send_btc_end(online, signed_psbt, false).unwrap();
+    let _end_txid = wallet.send_btc_end(online, signed_psbt).unwrap();
     assert!(wallet.database().iter_reserved_txos().unwrap().is_empty());
     assert!(wallet.list_pending_vanilla_txs().unwrap().is_empty());
 
@@ -322,7 +313,7 @@ fn begin_reservation_interactions() {
 
     // end still creates the SendBtc row after broadcast (for list_transactions)
     let signed_psbt = wallet.sign_psbt(unsigned_psbt_str, None).unwrap();
-    let end_txid = wallet.send_btc_end(online, signed_psbt, false).unwrap();
+    let end_txid = wallet.send_btc_end(online, signed_psbt).unwrap();
     assert_eq!(end_txid, psbt_txid);
     assert!(wallet.database().iter_reserved_txos().unwrap().is_empty());
     let wts: Vec<_> = wallet
@@ -348,7 +339,17 @@ fn two_concurrent_begins_pick_disjoint_inputs() {
     for _ in 0..3 {
         fund_wallet(test_get_address(&mut wallet));
     }
-    wallet.sync(online).unwrap();
+    wallet
+        .sync(
+            online,
+            SyncOptions {
+                keychain: SyncKeychain::Vanilla {
+                    lookback: INDEXER_SYNC_LOOKBACK as u32,
+                },
+                strategy: SyncStrategy::FastSync,
+            },
+        )
+        .unwrap();
 
     let (mut rcv_wallet, _rcv_online) = get_empty_wallet!();
 
@@ -433,8 +434,6 @@ fn send_btc_end_twice() {
     let signed_psbt = wallet.sign_psbt(unsigned_psbt, None).unwrap();
 
     // call send_btc_end twice with the same PSBT, which should work (idempotent)
-    wallet
-        .send_btc_end(online, signed_psbt.clone(), false)
-        .unwrap();
-    wallet.send_btc_end(online, signed_psbt, false).unwrap();
+    wallet.send_btc_end(online, signed_psbt.clone()).unwrap();
+    wallet.send_btc_end(online, signed_psbt).unwrap();
 }

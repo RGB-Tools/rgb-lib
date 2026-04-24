@@ -422,13 +422,7 @@ fn fail() {
 
     // insufficient funds
     let result = test_blind_receive_result(&mut wallet);
-    assert!(matches!(
-        result,
-        Err(Error::InsufficientBitcoins {
-            needed: _,
-            available: _
-        })
-    ));
+    assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 
     // invalid recipient ID
     let result = RecipientInfo::new(s!("invalid"));

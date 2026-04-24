@@ -211,7 +211,17 @@ fn reservation_interaction() {
     for _ in 0..3 {
         fund_wallet(test_get_address(&mut wallet));
     }
-    wallet.sync(online).unwrap();
+    wallet
+        .sync(
+            online,
+            SyncOptions {
+                keychain: SyncKeychain::Vanilla {
+                    lookback: INDEXER_SYNC_LOOKBACK as u32,
+                },
+                strategy: SyncStrategy::FastSync,
+            },
+        )
+        .unwrap();
 
     let (mut rcv_wallet, _rcv_online) = get_empty_wallet!();
     let (mut drain_wallet, _drain_online) = get_empty_wallet!();

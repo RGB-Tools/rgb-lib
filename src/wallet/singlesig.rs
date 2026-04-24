@@ -116,7 +116,22 @@ impl WalletOffline for Wallet {}
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 impl WalletOnline for Wallet {
     fn wallet_specific_consistency_checks(&mut self) -> Result<(), Error> {
-        self.sync_db_txos(true, false)?;
+        self.sync_wallet(
+            SyncOptions {
+                keychain: SyncKeychain::Colored,
+                strategy: SyncStrategy::FullScan,
+            },
+            false,
+        )?;
+        self.sync_wallet(
+            SyncOptions {
+                keychain: SyncKeychain::Vanilla {
+                    lookback: self.vanilla_sync_lookback(),
+                },
+                strategy: SyncStrategy::FullScan,
+            },
+            false,
+        )?;
         let bdk_utxos: Vec<String> = self
             .bdk_wallet()
             .list_unspent()
@@ -580,7 +595,7 @@ impl Wallet {
         self.check_online(online)?;
         let mut psbt = self.create_utxos_begin_impl(up_to, num, size, fee_rate, skip_sync, true)?;
         self.sign_psbt_impl(&mut psbt, None)?;
-        let res = self.create_utxos_end_impl(&psbt, skip_sync)?;
+        let res = self.create_utxos_end_impl(&psbt)?;
         self.update_backup_info(false)?;
         info!(self.logger(), "Create UTXOs completed");
         Ok(res)
@@ -637,38 +652,22 @@ impl Wallet {
     ///
     /// This doesn't require the wallet to have private keys.
     ///
-    /// Returns the number of created UTXOs, if `skip_sync` is set to true this will be 0.
-    pub fn create_utxos_end(
-        &mut self,
-        online: Online,
-        signed_psbt: String,
-        skip_sync: bool,
-    ) -> Result<u8, Error> {
+    /// Returns the number of created UTXOs.
+    pub fn create_utxos_end(&mut self, online: Online, signed_psbt: String) -> Result<u8, Error> {
         info!(self.logger(), "Creating UTXOs (end)...");
         self.check_online(online)?;
         let psbt = Psbt::from_str(&signed_psbt)?;
-        let res = self.create_utxos_end_impl(&psbt, skip_sync)?;
+        let res = self.create_utxos_end_impl(&psbt)?;
         info!(self.logger(), "Create UTXOs (end) completed");
         Ok(res)
     }
 
     /// Return the existing or freshly generated wallet [`Online`] data.
     ///
-    /// Setting `skip_consistency_check` to false runs a check on UTXOs (BDK vs rgb-lib DB), assets
-    /// (RGB vs rgb-lib DB) and medias (DB vs actual files) to try and detect possible
-    /// inconsistencies in the wallet.
-    /// Setting `skip_consistency_check` to true bypasses the check and allows operating an
-    /// inconsistent wallet.
-    ///
-    /// <div class="warning">Warning: setting <tt>skip_consistency_check</tt> to true is dangerous,
-    /// only do this if you know what you're doing!</div>
-    pub fn go_online(
-        &mut self,
-        skip_consistency_check: bool,
-        indexer_url: String,
-    ) -> Result<Online, Error> {
+    /// See [`OnlineOptions`] for details on the available options.
+    pub fn go_online(&mut self, online_options: OnlineOptions) -> Result<Online, Error> {
         info!(self.logger(), "Going online...");
-        let online = self.go_online_impl(skip_consistency_check, &indexer_url)?;
+        let online = self.go_online_impl(&online_options)?;
         info!(self.logger(), "Go online completed");
         Ok(online)
     }
@@ -759,7 +758,6 @@ impl Wallet {
         fee_rate: u64,
         min_confirmations: u8,
         expiration_timestamp: Option<u64>,
-        skip_sync: bool,
     ) -> Result<OperationResult, Error> {
         info!(self.logger(), "Sending to: {:?}...", recipient_map);
         self.check_xprv()?;
@@ -773,7 +771,7 @@ impl Wallet {
             true,
         )?;
         self.sign_psbt_impl(&mut begin_op_data.psbt, None)?;
-        let res = self.send_end_impl(&begin_op_data.psbt, skip_sync)?;
+        let res = self.send_end_impl(&begin_op_data.psbt)?;
         self.update_backup_info(false)?;
         info!(self.logger(), "Send completed");
         Ok(res)
@@ -806,6 +804,9 @@ impl Wallet {
     /// in that case. The PSBT and on-disk transfer data under the wallet directory are still
     /// produced. [`send_end`](Wallet::send_end) can still complete the operation and will persist
     /// the transfer.
+    ///
+    /// This API requires to be online since it checks the validity and reachability of the
+    /// transport endpoints.
     ///
     /// Signing of the returned PSBT needs to be carried out separately. The signed PSBT then needs
     /// to be fed to the [`send_end`](Wallet::send_end) function to complete the send operation.
@@ -864,12 +865,11 @@ impl Wallet {
         &mut self,
         online: Online,
         signed_psbt: String,
-        skip_sync: bool,
     ) -> Result<OperationResult, Error> {
         info!(self.logger(), "Sending (end)...");
         self.check_online(online)?;
         let psbt = Psbt::from_str(&signed_psbt)?;
-        let res = self.send_end_impl(&psbt, skip_sync)?;
+        let res = self.send_end_impl(&psbt)?;
         self.update_backup_info(false)?;
         info!(self.logger(), "Send (end) completed");
         Ok(res)
@@ -894,7 +894,7 @@ impl Wallet {
         self.check_online(online)?;
         let mut psbt = self.send_btc_begin_impl(address, amount, fee_rate, skip_sync, true)?;
         self.sign_psbt_impl(&mut psbt, None)?;
-        let res = self.send_btc_end_impl(&psbt, skip_sync)?;
+        let res = self.send_btc_end_impl(&psbt)?;
         info!(self.logger(), "Send BTC completed");
         Ok(res)
     }
@@ -936,16 +936,11 @@ impl Wallet {
     /// This doesn't require the wallet to have private keys.
     ///
     /// Returns the TXID of the broadcasted transaction.
-    pub fn send_btc_end(
-        &mut self,
-        online: Online,
-        signed_psbt: String,
-        skip_sync: bool,
-    ) -> Result<String, Error> {
+    pub fn send_btc_end(&mut self, online: Online, signed_psbt: String) -> Result<String, Error> {
         info!(self.logger(), "Sending BTC (end)...");
         self.check_online(online)?;
         let psbt = Psbt::from_str(&signed_psbt)?;
-        let res = self.send_btc_end_impl(&psbt, skip_sync)?;
+        let res = self.send_btc_end_impl(&psbt)?;
         info!(self.logger(), "Send BTC (end) completed");
         Ok(res)
     }
@@ -1052,8 +1047,6 @@ impl Wallet {
     /// needs to have already been signed.
     ///
     /// This doesn't require the wallet to have private keys.
-    ///
-    /// The API syncs and doesn't provide a way to skip that.
     ///
     /// Returns a [`OperationResult`].
     pub fn inflate_end(

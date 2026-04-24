@@ -281,22 +281,40 @@ fn skip_sync() {
     );
 
     // sync so the bitcoin UTXO becomes visible
-    wallet.sync(online).unwrap();
+    wallet
+        .sync(
+            online,
+            SyncOptions {
+                keychain: SyncKeychain::Vanilla {
+                    lookback: INDEXER_SYNC_LOOKBACK as u32,
+                },
+                strategy: SyncStrategy::FastSync,
+            },
+        )
+        .unwrap();
     let unspents = test_list_unspents(&mut wallet, None, false);
     assert_eq!(unspents.len(), 1);
 
-    // create UTXOs skipping sync (returns 0 created UTXOs)
+    // create UTXOs skipping sync
     let num_utxos_created = wallet
         .create_utxos(online, true, None, None, FEE_RATE, true)
         .unwrap();
-    assert_eq!(num_utxos_created, 0);
+    assert_eq!(num_utxos_created, UTXO_NUM);
 
-    // created UTXOs not yet visible
+    // created UTXOs already visible
     let unspents = test_list_unspents(&mut wallet, None, false);
-    assert_eq!(unspents.len(), 1);
+    assert_eq!(unspents.len(), (UTXO_NUM + 1) as usize);
 
-    // created UTXOs become visible after syncing
-    wallet.sync(online).unwrap();
+    // created UTXOs still consistent after syncing
+    wallet
+        .sync(
+            online,
+            SyncOptions {
+                keychain: SyncKeychain::Colored,
+                strategy: SyncStrategy::FastSync,
+            },
+        )
+        .unwrap();
     let unspents = test_list_unspents(&mut wallet, None, false);
     assert_eq!(unspents.len(), (UTXO_NUM + 1) as usize);
 }

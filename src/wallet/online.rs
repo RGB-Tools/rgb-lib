@@ -39,9 +39,9 @@ pub trait WalletOnline: WalletOffline {
         Ok(fee_rate)
     }
 
-    fn sync_impl(&mut self, online: Online) -> Result<(), Error> {
+    fn sync_impl(&mut self, online: Online, options: SyncOptions) -> Result<(), Error> {
         self.check_online(online)?;
-        self.sync_db_txos_with_bdk(false, false)?;
+        self.sync_bdk_and_db_txos(options, false)?;
         Ok(())
     }
 
@@ -87,17 +87,24 @@ pub trait WalletOnline: WalletOffline {
         }
     }
 
-    fn broadcast_psbt(
-        &mut self,
-        signed_psbt: &Psbt,
-        skip_sync: bool,
-    ) -> Result<BdkTransaction, Error> {
+    fn broadcast_psbt(&mut self, signed_psbt: &Psbt) -> Result<BdkTransaction, Error> {
         let tx = self.broadcast_tx(
             signed_psbt
                 .clone()
                 .extract_tx()
                 .map_err(InternalError::from)?,
         )?;
+
+        // apply the broadcast TX into BDK directly so its outputs are immediately visible
+        // (revealed change SPKs match without needing a wallet sync)
+        let seen_at = now().unix_timestamp() as u64;
+        let (bdk_wallet, bdk_db) = self.bdk_wallet_db_mut();
+        bdk_wallet.apply_unconfirmed_txs([(tx.clone(), seen_at)]);
+        bdk_wallet.persist(bdk_db)?;
+
+        // promote any newly-known colored UTXOs (e.g. the change output) from
+        // exists=false to exists=true in the rgb_lib DB
+        self.update_db_colored_txos_from_bdk(false)?;
 
         for input in tx.clone().input {
             let txid = input.previous_output.txid.to_string();
@@ -107,10 +114,6 @@ pub trait WalletOnline: WalletOffline {
                 db_txo.spent = ActiveValue::Set(true);
                 self.database().update_txo(db_txo)?;
             }
-        }
-
-        if !skip_sync {
-            self.sync_db_txos(false, false)?;
         }
 
         Ok(tx)
@@ -174,9 +177,8 @@ pub trait WalletOnline: WalletOffline {
         runtime: &mut RgbRuntime,
         signed_psbt: &Psbt,
         fascia: Fascia,
-        skip_sync: bool,
     ) -> Result<BdkTransaction, Error> {
-        let tx = self.broadcast_psbt(signed_psbt, skip_sync)?;
+        let tx = self.broadcast_psbt(signed_psbt)?;
         runtime.consume_fascia(fascia, None)?;
         Ok(tx)
     }
@@ -212,7 +214,15 @@ pub trait WalletOnline: WalletOffline {
         let fee_rate_checked = self.check_fee_rate(fee_rate)?;
 
         if !skip_sync {
-            self.sync_db_txos(false, false)?;
+            self.sync_wallet(
+                SyncOptions {
+                    keychain: SyncKeychain::Vanilla {
+                        lookback: self.vanilla_sync_lookback(),
+                    },
+                    strategy: SyncStrategy::FastSync,
+                },
+                false,
+            )?;
         }
 
         let unspent_txos = self.database().get_unspent_txos(vec![])?;
@@ -298,19 +308,17 @@ pub trait WalletOnline: WalletOffline {
         })
     }
 
-    fn create_utxos_end_impl(&mut self, signed_psbt: &Psbt, skip_sync: bool) -> Result<u8, Error> {
-        let tx = self.broadcast_psbt(signed_psbt, skip_sync)?;
+    fn create_utxos_end_impl(&mut self, signed_psbt: &Psbt) -> Result<u8, Error> {
+        let tx = self.broadcast_psbt(signed_psbt)?;
 
         self.finalize_vanilla_wallet_transaction(signed_psbt, WalletTransactionType::CreateUtxos)?;
 
         let mut num_utxos_created = 0;
-        if !skip_sync {
-            let bdk_utxos: Vec<LocalOutput> = self.bdk_wallet().list_unspent().collect();
-            let txid = tx.compute_txid();
-            for utxo in bdk_utxos.into_iter() {
-                if utxo.outpoint.txid == txid && utxo.keychain == KeychainKind::External {
-                    num_utxos_created += 1
-                }
+        let bdk_utxos: Vec<LocalOutput> = self.bdk_wallet().list_unspent().collect();
+        let txid = tx.compute_txid();
+        for utxo in bdk_utxos.into_iter() {
+            if utxo.outpoint.txid == txid && utxo.keychain == KeychainKind::External {
+                num_utxos_created += 1
             }
         }
 
@@ -325,7 +333,22 @@ pub trait WalletOnline: WalletOffline {
     ) -> Result<Psbt, Error> {
         let fee_rate_checked = self.check_fee_rate(fee_rate)?;
 
-        self.sync_db_txos(false, false)?;
+        self.sync_wallet(
+            SyncOptions {
+                keychain: SyncKeychain::Colored,
+                strategy: SyncStrategy::FastSync,
+            },
+            false,
+        )?;
+        self.sync_wallet(
+            SyncOptions {
+                keychain: SyncKeychain::Vanilla {
+                    lookback: self.vanilla_sync_lookback(),
+                },
+                strategy: SyncStrategy::FastSync,
+            },
+            false,
+        )?;
 
         let script_pubkey = self.get_script_pubkey(&address)?;
 
@@ -359,7 +382,7 @@ pub trait WalletOnline: WalletOffline {
     }
 
     fn drain_to_end_impl(&mut self, signed_psbt: &Psbt) -> Result<BdkTransaction, Error> {
-        let tx = self.broadcast_psbt(signed_psbt, false)?;
+        let tx = self.broadcast_psbt(signed_psbt)?;
         self.finalize_vanilla_wallet_transaction(signed_psbt, WalletTransactionType::Drain)?;
         Ok(tx)
     }
@@ -419,7 +442,13 @@ pub trait WalletOnline: WalletOffline {
         skip_sync: bool,
     ) -> Result<bool, Error> {
         if !skip_sync {
-            self.sync_db_txos(false, false)?;
+            self.sync_wallet(
+                SyncOptions {
+                    keychain: SyncKeychain::Colored,
+                    strategy: SyncStrategy::FastSync,
+                },
+                false,
+            )?;
         }
 
         let mut db_data = self.database().get_db_data(false)?;
@@ -514,34 +543,36 @@ pub trait WalletOnline: WalletOffline {
         self.indexer().fee_estimation(blocks)
     }
 
-    fn get_online_data(&self, indexer_url: &str) -> Result<(Online, OnlineData), Error> {
+    fn get_online_data(
+        &self,
+        online_options: &OnlineOptions,
+    ) -> Result<(Online, OnlineData), Error> {
         let id = now().unix_timestamp_nanos() as u64;
         let online = Online { id };
 
-        let (indexer, resolver) = get_indexer_and_resolver(indexer_url, self.bitcoin_network())?;
+        let (indexer, resolver) =
+            get_indexer_and_resolver(&online_options.indexer_url, self.bitcoin_network())?;
         indexer.populate_tx_cache(self.bdk_wallet());
 
         let online_data = OnlineData {
             id: online.id,
-            indexer_url: indexer_url.to_string(),
+            indexer_url: online_options.indexer_url.to_string(),
             indexer,
             resolver,
             hub_client: None,
             user_role: None,
+            vanilla_sync_lookback: online_options.vanilla_sync_lookback,
         };
 
         Ok((online, online_data))
     }
 
-    fn go_online_impl(
-        &mut self,
-        skip_consistency_check: bool,
-        indexer_url: &str,
-    ) -> Result<Online, Error> {
+    fn go_online_impl(&mut self, online_options: &OnlineOptions) -> Result<Online, Error> {
+        let indexer_url = &online_options.indexer_url;
         let online = if let Some(online_data) = self.online_data().as_ref() {
             let online = Online { id: online_data.id };
-            if online_data.indexer_url != indexer_url {
-                let (online, online_data) = self.get_online_data(indexer_url)?;
+            if online_data.indexer_url != *indexer_url {
+                let (online, online_data) = self.get_online_data(online_options)?;
                 *self.online_data_mut() = Some(online_data);
                 info!(self.logger(), "Went online with new indexer URL");
                 online
@@ -550,12 +581,12 @@ pub trait WalletOnline: WalletOffline {
                 online
             }
         } else {
-            let (online, online_data) = self.get_online_data(indexer_url)?;
+            let (online, online_data) = self.get_online_data(online_options)?;
             *self.online_data_mut() = Some(online_data);
             online
         };
 
-        if !skip_consistency_check {
+        if !online_options.skip_consistency_check {
             let runtime = self.rgb_runtime()?;
             self.check_consistency(&runtime)?;
         }
@@ -1396,7 +1427,6 @@ pub trait WalletOnline: WalletOffline {
         &mut self,
         batch_transfer: &DbBatchTransfer,
         db_data: &mut DbData,
-        skip_sync: bool,
     ) -> Result<Option<DbBatchTransfer>, Error> {
         debug!(self.logger(), "Waiting ACK...");
 
@@ -1476,7 +1506,7 @@ pub trait WalletOnline: WalletOffline {
             let fascia_path = transfer_dir.join(FASCIA_FILE);
             let fascia_str = fs::read_to_string(fascia_path)?;
             let fascia: Fascia = serde_json::from_str(&fascia_str).map_err(InternalError::from)?;
-            self.broadcast_and_update_rgb(&mut runtime, &signed_psbt, fascia, skip_sync)?;
+            self.broadcast_and_update_rgb(&mut runtime, &signed_psbt, fascia)?;
             updated_batch_transfer.status = ActiveValue::Set(TransferStatus::WaitingConfirmations);
         } else {
             return Ok(None);
@@ -1543,7 +1573,13 @@ pub trait WalletOnline: WalletOffline {
 
             if let Some(RecipientTypeFull::Witness { vout }) = transfer.recipient_type {
                 if !skip_sync {
-                    self.sync_db_txos(false, false)?;
+                    self.sync_wallet(
+                        SyncOptions {
+                            keychain: SyncKeychain::Colored,
+                            strategy: SyncStrategy::FastSync,
+                        },
+                        false,
+                    )?;
                 }
                 let outpoint = Outpoint {
                     txid: txid.clone(),
@@ -1598,12 +1634,11 @@ pub trait WalletOnline: WalletOffline {
         transfer: &DbBatchTransfer,
         db_data: &mut DbData,
         incoming: bool,
-        skip_sync: bool,
     ) -> Result<Option<DbBatchTransfer>, Error> {
         if incoming {
             self.wait_consignment(transfer, db_data)
         } else {
-            self.wait_ack(transfer, db_data, skip_sync)
+            self.wait_ack(transfer, db_data)
         }
     }
 
@@ -1630,7 +1665,7 @@ pub trait WalletOnline: WalletOffline {
                 if self.get_hub_fail_status(transfer.idx)? {
                     return Ok(Some(self.fail_batch_transfer(transfer)?));
                 }
-                self.wait_counterparty(transfer, db_data, incoming, skip_sync)
+                self.wait_counterparty(transfer, db_data, incoming)
             }
             TransferStatus::WaitingSafeHeight => self.wait_safe_height(transfer, db_data),
             TransferStatus::WaitingConfirmations => {
@@ -1896,7 +1931,7 @@ pub trait WalletOnline: WalletOffline {
                         all_inputs.insert(a.utxo.into());
                         continue;
                     }
-                    return Err(self.detect_btc_unspendable_err()?);
+                    return Err(Error::InsufficientAllocationSlots);
                 }
                 Err(e) => return Err(e),
             };
@@ -2487,7 +2522,13 @@ pub trait WalletOnline: WalletOffline {
                 let txo_idx = match self.database().get_txo(&outpoint)? {
                     Some(txo) => txo.idx,
                     None => {
-                        self.sync_db_txos(false, true)?;
+                        self.sync_wallet(
+                            SyncOptions {
+                                keychain: SyncKeychain::Colored,
+                                strategy: SyncStrategy::FastSync,
+                            },
+                            true,
+                        )?;
                         let bdk_utxo = self.database().get_txo(&outpoint)?.expect("should exist");
                         let new_db_utxo: DbTxoActMod = bdk_utxo.clone().into();
                         self.database().set_txo(new_db_utxo)?
@@ -2600,7 +2641,13 @@ pub trait WalletOnline: WalletOffline {
                 let input_idx = match self.database().get_txo(&outpoint)? {
                     Some(txo) => txo.idx,
                     None => {
-                        self.sync_db_txos(false, true)?;
+                        self.sync_wallet(
+                            SyncOptions {
+                                keychain: SyncKeychain::Colored,
+                                strategy: SyncStrategy::FastSync,
+                            },
+                            true,
+                        )?;
                         let bdk_utxo = self.database().get_txo(&outpoint)?.expect("should exist");
                         let new_db_utxo: DbTxoActMod = bdk_utxo.clone().into();
                         self.database().set_txo(new_db_utxo)?
@@ -2839,10 +2886,9 @@ pub trait WalletOnline: WalletOffline {
         status: TransferStatus,
         fascia: Fascia,
         sync_tte_used: bool,
-        skip_sync: bool,
     ) -> Result<i32, Error> {
         let mut runtime = self.rgb_runtime()?;
-        self.broadcast_and_update_rgb(&mut runtime, psbt, fascia, skip_sync)?;
+        self.broadcast_and_update_rgb(&mut runtime, psbt, fascia)?;
         self.update_or_save_transfers(txid, info_contents, status, sync_tte_used)
     }
 
@@ -3046,11 +3092,7 @@ pub trait WalletOnline: WalletOffline {
         })
     }
 
-    fn send_end_impl(
-        &mut self,
-        signed_psbt: &Psbt,
-        skip_sync: bool,
-    ) -> Result<OperationResult, Error> {
+    fn send_end_impl(&mut self, signed_psbt: &Psbt) -> Result<OperationResult, Error> {
         let (txid, transfer_dir, mut info_contents, fascia) =
             self.get_transfer_end_data(signed_psbt)?;
 
@@ -3100,7 +3142,6 @@ pub trait WalletOnline: WalletOffline {
                 TransferStatus::WaitingConfirmations,
                 fascia,
                 sync_tte_used,
-                skip_sync,
             )?
         } else {
             self.update_or_save_transfers(
@@ -3129,7 +3170,15 @@ pub trait WalletOnline: WalletOffline {
         let fee_rate_checked = self.check_fee_rate(fee_rate)?;
 
         if !skip_sync {
-            self.sync_db_txos(false, false)?;
+            self.sync_wallet(
+                SyncOptions {
+                    keychain: SyncKeychain::Vanilla {
+                        lookback: self.vanilla_sync_lookback(),
+                    },
+                    strategy: SyncStrategy::FastSync,
+                },
+                false,
+            )?;
         }
 
         let script_pubkey = self.get_script_pubkey(&address)?;
@@ -3164,8 +3213,8 @@ pub trait WalletOnline: WalletOffline {
         Ok(psbt)
     }
 
-    fn send_btc_end_impl(&mut self, signed_psbt: &Psbt, skip_sync: bool) -> Result<String, Error> {
-        let tx = self.broadcast_psbt(signed_psbt, skip_sync)?;
+    fn send_btc_end_impl(&mut self, signed_psbt: &Psbt) -> Result<String, Error> {
+        let tx = self.broadcast_psbt(signed_psbt)?;
         self.finalize_vanilla_wallet_transaction(signed_psbt, WalletTransactionType::SendBtc)?;
         Ok(tx.compute_txid().to_string())
     }
@@ -3303,7 +3352,6 @@ pub trait WalletOnline: WalletOffline {
             TransferStatus::WaitingConfirmations,
             fascia,
             false,
-            false,
         )?;
 
         let (asset_id, transfer_info) = info_contents.transfers.into_iter().next().unwrap();
@@ -3362,10 +3410,14 @@ pub trait RgbWalletOpsOnline: RgbWalletOpsOffline + WalletOnline {
         Ok(changed)
     }
 
-    /// Sync the wallet and save new colored UTXOs to the DB
-    fn sync(&mut self, online: Online) -> Result<(), Error> {
+    /// Sync the wallet and save new colored UTXOs to the DB.
+    ///
+    /// Gets [`SyncOptions`] to configure the sync strategy and keychain.
+    ///
+    /// Callers that want both keychains synced must invoke this method once per keychain.
+    fn sync(&mut self, online: Online, options: SyncOptions) -> Result<(), Error> {
         info!(self.logger(), "Syncing...");
-        self.sync_impl(online)?;
+        self.sync_impl(online, options)?;
         info!(self.logger(), "Sync completed");
         Ok(())
     }

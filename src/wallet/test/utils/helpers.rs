@@ -129,7 +129,7 @@ pub(crate) fn get_funded_wallet_p2wpkh() -> (Wallet, Online) {
         SinglesigKeys::from_keys(&keys, None),
     )
     .unwrap();
-    let online = wallet.go_online(true, ELECTRUM_URL.to_string()).unwrap();
+    let online = wallet.go_online(test_go_online_options(None)).unwrap();
     fund_wallet(wallet.get_address().unwrap());
     test_create_utxos_default(&mut wallet, online);
     (wallet, online)
@@ -142,7 +142,7 @@ pub(crate) fn get_empty_wallet(
 ) -> (Wallet, Online) {
     let mut wallet = get_test_wallet(private_keys, None);
     let online = wallet
-        .go_online(true, indexer_url.unwrap_or(ELECTRUM_URL.to_string()))
+        .go_online(test_go_online_options(indexer_url.as_deref()))
         .unwrap();
     (wallet, online)
 }

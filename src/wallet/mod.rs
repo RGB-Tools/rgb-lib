@@ -21,8 +21,8 @@ pub use backup::restore_backup;
 pub use multisig::{Cosigner, MultisigKeys, MultisigWallet};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub use multisig::{
-    HubInfo, InitOperationResult, MultisigVotingStatus, Operation, OperationInfo,
-    RespondToOperation, UserRole,
+    HubInfo, InitOperationResult, MultisigOnlineOptions, MultisigVotingStatus, Operation,
+    OperationInfo, RespondToOperation, UserRole,
 };
 pub use objects::{
     Address, AssetCFA, AssetIFA, AssetNIA, AssetUDA, Assets, AssignmentsCollection, Balance,
@@ -35,8 +35,8 @@ pub use objects::{
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub use objects::{
-    InflateBeginResult, InflateDetails, OperationResult, RefreshFilter, RefreshResult,
-    RefreshTransferStatus, RefreshedTransfer, SendBeginResult, SendDetails,
+    InflateBeginResult, InflateDetails, OnlineOptions, OperationResult, RefreshFilter,
+    RefreshResult, RefreshTransferStatus, RefreshedTransfer, SendBeginResult, SendDetails,
 };
 pub use offline::RgbWalletOpsOffline;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -48,6 +48,8 @@ pub(crate) use core::{
     ASSETS_DIR, MEDIA_DIR, NUM_KNOWN_SCHEMAS, WalletCore, WalletInternals, setup_bdk, setup_db,
     setup_new_wallet, setup_rgb,
 };
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub use core::{SyncKeychain, SyncOptions, SyncStrategy};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) use indexer::Indexer;
 #[cfg(any(feature = "electrum", feature = "esplora"))]

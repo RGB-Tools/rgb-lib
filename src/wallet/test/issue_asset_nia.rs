@@ -301,13 +301,7 @@ fn fail() {
 
     // insufficient funds
     let result = test_issue_asset_nia_result(&mut wallet, online, None);
-    assert!(matches!(
-        result,
-        Err(Error::InsufficientBitcoins {
-            needed: _,
-            available: _
-        })
-    ));
+    assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 
     fund_wallet(test_get_address(&mut wallet));
     mine(false);

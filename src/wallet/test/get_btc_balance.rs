@@ -114,7 +114,17 @@ fn skip_sync() {
     ) -> impl FnMut() -> bool + 'a {
         move || -> bool {
             if sync {
-                wallet.sync(online).unwrap();
+                wallet
+                    .sync(
+                        online,
+                        SyncOptions {
+                            keychain: SyncKeychain::Vanilla {
+                                lookback: INDEXER_SYNC_LOOKBACK as u32,
+                            },
+                            strategy: SyncStrategy::FastSync,
+                        },
+                    )
+                    .unwrap();
             }
             let balance = wallet.get_btc_balance(None, true).unwrap();
             balance == *expected_balance
@@ -212,13 +222,13 @@ fn skip_sync() {
             spendable: 5000,
         },
     };
-    // no change to balance if sync is skipped
-    assert!(!wait_for_function(
+    // balance reflects the self-broadcast TX immediately (no manual sync needed)
+    assert!(wait_for_function(
         get_check(&mut wallet, online, &expected_balance, false),
         check_timeout,
         check_interval,
     ));
-    // balance updated after manual sync
+    // still consistent after a manual sync
     assert!(wait_for_function(
         get_check(&mut wallet, online, &expected_balance, true),
         check_timeout,

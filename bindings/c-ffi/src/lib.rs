@@ -16,8 +16,8 @@ use rgb_lib::{
     keys::WitnessVersion,
     utils::BitcoinNetwork,
     wallet::{
-        Online, Recipient, RefreshFilter, RgbWalletOpsOffline, RgbWalletOpsOnline, SinglesigKeys,
-        Wallet, WalletData,
+        Online, OnlineOptions, Recipient, RefreshFilter, RgbWalletOpsOffline, RgbWalletOpsOnline,
+        SinglesigKeys, SyncOptions, Wallet, WalletData,
     },
 };
 
@@ -124,9 +124,8 @@ pub extern "C" fn rgblib_create_utxos_end(
     wallet: &COpaqueStruct,
     online: *const c_char,
     signed_psbt: *const c_char,
-    skip_sync: bool,
 ) -> CResultString {
-    create_utxos_end(wallet, online, signed_psbt, skip_sync).into()
+    create_utxos_end(wallet, online, signed_psbt).into()
 }
 
 #[unsafe(no_mangle)]
@@ -214,10 +213,9 @@ pub extern "C" fn rgblib_get_fee_estimation(
 #[unsafe(no_mangle)]
 pub extern "C" fn rgblib_go_online(
     wallet: &COpaqueStruct,
-    skip_consistency_check: bool,
-    electrum_url: *const c_char,
+    online_options: *const c_char,
 ) -> CResultString {
-    go_online(wallet, skip_consistency_check, electrum_url).into()
+    go_online(wallet, online_options).into()
 }
 
 #[unsafe(no_mangle)]
@@ -390,7 +388,6 @@ pub extern "C" fn rgblib_send(
     fee_rate: *const c_char,
     min_confirmations: *const c_char,
     expiration_timestamp_opt: *const c_char,
-    skip_sync: bool,
 ) -> CResultString {
     send(
         wallet,
@@ -400,7 +397,6 @@ pub extern "C" fn rgblib_send(
         fee_rate,
         min_confirmations,
         expiration_timestamp_opt,
-        skip_sync,
     )
     .into()
 }
@@ -446,9 +442,8 @@ pub extern "C" fn rgblib_send_end(
     wallet: &COpaqueStruct,
     online: *const c_char,
     signed_psbt: *const c_char,
-    skip_sync: bool,
 ) -> CResultString {
-    send_end(wallet, online, signed_psbt, skip_sync).into()
+    send_end(wallet, online, signed_psbt).into()
 }
 
 #[unsafe(no_mangle)]
@@ -460,8 +455,12 @@ pub extern "C" fn rgblib_sign_psbt(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rgblib_sync(wallet: &COpaqueStruct, online: *const c_char) -> CResultString {
-    sync(wallet, online).into()
+pub extern "C" fn rgblib_sync(
+    wallet: &COpaqueStruct,
+    online: *const c_char,
+    options: *const c_char,
+) -> CResultString {
+    sync(wallet, online, options).into()
 }
 
 #[unsafe(no_mangle)]

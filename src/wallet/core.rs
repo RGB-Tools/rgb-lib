@@ -13,6 +13,54 @@ pub(crate) const RGB_LIB_DB_NAME: &str = "rgb_lib_db";
 pub(crate) const ASSETS_DIR: &str = "assets";
 pub(crate) const MEDIA_DIR: &str = "media_files";
 
+/// Which keychain contributes SPKs to the sync request.
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SyncKeychain {
+    /// Sync the colored keychain
+    Colored,
+    /// Sync the vanilla keychain
+    Vanilla {
+        /// Number of addresses preceding the lookback anchor (last used or, if none, last
+        /// revealed) to scan
+        lookback: u32,
+    },
+}
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+impl SyncKeychain {
+    fn keychain(&self) -> KeychainKind {
+        match self {
+            SyncKeychain::Colored => KeychainKind::External,
+            SyncKeychain::Vanilla { .. } => KeychainKind::Internal,
+        }
+    }
+}
+
+/// Strategy used to build the indexer sync request.
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SyncStrategy {
+    /// BIP44 stop-gap full scan
+    FullScan,
+    /// Sync all revealed SPKs
+    FullSync,
+    /// Sync only SPKs we strictly need to observe:
+    /// - colored: SPKs used in pending transfers or unconfirmed transactions
+    /// - vanilla: a tail of recently revealed SPKs
+    FastSync,
+}
+
+/// Options driving a single sync invocation.
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncOptions {
+    /// Which keychain to sync
+    pub keychain: SyncKeychain,
+    /// Sync strategy
+    pub strategy: SyncStrategy,
+}
+
 pub struct WalletInternals {
     pub(crate) wallet_data: WalletData,
     pub(crate) logger: Logger,
@@ -182,6 +230,11 @@ pub trait WalletCore {
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
+    fn vanilla_sync_lookback(&self) -> u32 {
+        self.online_data().as_ref().unwrap().vanilla_sync_lookback
+    }
+
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
     fn check_online(&self, online: Online) -> Result<(), Error> {
         if let Some(online_data) = &self.online_data() {
             if online_data.id != online.id {
@@ -196,15 +249,100 @@ pub trait WalletCore {
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
-    fn sync_db_txos_with_bdk(&mut self, full_scan: bool, include_spent: bool) -> Result<(), Error> {
-        debug!(self.logger(), "Syncing TXOs...");
+    fn fast_sync_colored_spks(&self) -> Result<HashSet<ScriptBuf>, Error> {
+        let mut spks: HashSet<ScriptBuf> = HashSet::new();
+        for pws in self.database().iter_pending_witness_scripts()? {
+            spks.insert(ScriptBuf::from_hex(&pws.script).expect("valid script"));
+        }
+        Ok(spks)
+    }
 
-        let update: Update = if full_scan {
-            let request = self.bdk_wallet().start_full_scan();
-            self.indexer().full_scan(request)?.into()
-        } else {
-            let request = self.bdk_wallet().start_sync_with_revealed_spks();
-            self.indexer().sync(request)?.into()
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    fn fast_sync_vanilla_spks(&self, lookback: u32) -> HashSet<ScriptBuf> {
+        let spk_index = self.bdk_wallet().spk_index();
+        let Some(last_revealed) = spk_index.last_revealed_index(KeychainKind::Internal) else {
+            return HashSet::new();
+        };
+        let lookback_anchor = spk_index
+            .last_used_index(KeychainKind::Internal)
+            .unwrap_or(last_revealed);
+        let start = lookback_anchor.saturating_sub(lookback);
+        spk_index
+            .revealed_keychain_spks(KeychainKind::Internal)
+            .filter(|(i, _)| *i >= start && *i <= last_revealed)
+            .map(|(_, spk)| spk)
+            .collect()
+    }
+
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    fn unconfirmed_colored_spks(&self) -> HashSet<ScriptBuf> {
+        let spk_index = self.bdk_wallet().spk_index();
+        let mut spks: HashSet<ScriptBuf> = HashSet::new();
+        for tx in self
+            .bdk_wallet()
+            .transactions()
+            .filter(|tx| matches!(tx.chain_position, ChainPosition::Unconfirmed { .. }))
+        {
+            // first input is enough for the indexer's to return the TX info
+            for input in tx.tx_node.tx.input.iter() {
+                if let Some(((kc, _), txout)) = spk_index.txout(input.previous_output)
+                    && kc == KeychainKind::External
+                {
+                    spks.insert(txout.script_pubkey.clone());
+                    break;
+                }
+            }
+        }
+        spks
+    }
+
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    fn sync_bdk_and_db_txos(
+        &mut self,
+        options: SyncOptions,
+        include_spent: bool,
+    ) -> Result<(), Error> {
+        debug!(self.logger(), "Syncing {:?}...", options);
+
+        let kc = options.keychain.keychain();
+        let latest_checkpoint = self.bdk_wallet().latest_checkpoint();
+        let update: Update = match options.strategy {
+            SyncStrategy::FullScan => {
+                let mut iters = self.bdk_wallet().spk_index().all_unbounded_spk_iters();
+                let iter = iters.remove(&kc).expect("keychain must exist");
+                let request = FullScanRequest::builder()
+                    .chain_tip(latest_checkpoint)
+                    .spks_for_keychain(kc, iter);
+                self.indexer().full_scan(request)?.into()
+            }
+            SyncStrategy::FullSync => {
+                let spks: Vec<ScriptBuf> = self
+                    .bdk_wallet()
+                    .spk_index()
+                    .revealed_keychain_spks(kc)
+                    .map(|(_, spk)| spk)
+                    .collect();
+                let request = SyncRequest::builder()
+                    .chain_tip(latest_checkpoint)
+                    .spks(spks);
+                self.indexer().sync(request)?.into()
+            }
+            SyncStrategy::FastSync => {
+                let mut spks: HashSet<ScriptBuf> = HashSet::new();
+                match options.keychain {
+                    SyncKeychain::Colored => {
+                        spks.extend(self.fast_sync_colored_spks()?);
+                        spks.extend(self.unconfirmed_colored_spks());
+                    }
+                    SyncKeychain::Vanilla { lookback } => {
+                        spks.extend(self.fast_sync_vanilla_spks(lookback));
+                    }
+                }
+                let request = SyncRequest::builder()
+                    .chain_tip(latest_checkpoint)
+                    .spks(spks);
+                self.indexer().sync(request)?.into()
+            }
         };
         let (bdk_wallet, bdk_db) = self.bdk_wallet_db_mut();
         bdk_wallet
@@ -214,10 +352,19 @@ pub trait WalletCore {
             })?;
         bdk_wallet.persist(bdk_db)?;
 
+        if matches!(options.keychain, SyncKeychain::Colored) {
+            self.update_db_colored_txos_from_bdk(include_spent)?;
+        }
+
+        debug!(self.logger(), "Synced");
+        Ok(())
+    }
+
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    fn update_db_colored_txos_from_bdk(&mut self, include_spent: bool) -> Result<(), Error> {
         let db_txos = self.database().iter_txos()?;
 
         let db_outpoints: HashSet<String> = db_txos
-            .clone()
             .into_iter()
             .filter(|t| t.exists && (include_spent || !t.spent))
             .map(|u| u.outpoint().to_string())
@@ -252,13 +399,11 @@ pub trait WalletCore {
             self.database().set_txo(new_db_utxo.clone())?;
         }
 
-        debug!(self.logger(), "Synced TXOs");
-
         Ok(())
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
-    fn sync_db_txos(&mut self, full_scan: bool, include_spent: bool) -> Result<(), Error> {
-        self.sync_db_txos_with_bdk(full_scan, include_spent)
+    fn sync_wallet(&mut self, options: SyncOptions, include_spent: bool) -> Result<(), Error> {
+        self.sync_bdk_and_db_txos(options, include_spent)
     }
 }

@@ -317,10 +317,11 @@ pub(super) fn get_test_ms_wallet(keys: &MultisigKeys, dir: String) -> MultisigWa
 
 pub(super) fn ms_go_online_res(wallet: &mut MultisigWallet, token: &str) -> Result<Online, Error> {
     wallet.go_online(
-        false,
-        ELECTRUM_URL.to_string(),
-        MULTISIG_HUB_URL.to_string(),
-        token.to_string(),
+        test_go_online_options(None),
+        MultisigOnlineOptions {
+            hub_url: MULTISIG_HUB_URL.to_string(),
+            hub_token: token.to_string(),
+        },
     )
 }
 

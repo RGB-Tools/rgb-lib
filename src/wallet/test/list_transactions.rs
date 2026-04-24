@@ -141,7 +141,17 @@ fn skip_sync() {
     // transaction list reports the TX after manually syncing
     assert!(wait_for_function(
         || {
-            wallet.sync(online).unwrap();
+            wallet
+                .sync(
+                    online,
+                    SyncOptions {
+                        keychain: SyncKeychain::Vanilla {
+                            lookback: INDEXER_SYNC_LOOKBACK as u32,
+                        },
+                        strategy: SyncStrategy::FastSync,
+                    },
+                )
+                .unwrap();
             let transactions = test_list_transactions(&mut wallet, None);
             transactions.len() == 1
         },

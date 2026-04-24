@@ -55,7 +55,7 @@ fn success() {
 
     // completing the send_btc drops it from the list
     let signed = wallet.sign_psbt(send_psbt_str, None).unwrap();
-    let _ = wallet.send_btc_end(online, signed, false).unwrap();
+    let _ = wallet.send_btc_end(online, signed).unwrap();
     let pending = wallet.list_pending_vanilla_txs().unwrap();
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0].r#type, WalletTransactionType::CreateUtxos);

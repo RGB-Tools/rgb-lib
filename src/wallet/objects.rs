@@ -66,6 +66,28 @@ pub struct OnlineData {
     pub(crate) resolver: AnyResolver,
     pub(crate) hub_client: Option<MultisigHubClient>,
     pub(crate) user_role: Option<UserRole>,
+    pub(crate) vanilla_sync_lookback: u32,
+}
+
+/// Options for the [`Wallet::go_online`] and [`MultisigWallet::go_online`] methods.
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct OnlineOptions {
+    /// URL of the indexer to use
+    pub indexer_url: String,
+    /// Whether to skip the consistency check when going online.
+    ///
+    /// Setting this to false runs a check on UTXOs (BDK vs rgb-lib DB), assets (RGB vs rgb-lib DB)
+    /// and media (DB vs actual files) to try and detect possible inconsistencies in the wallet.
+    /// Setting this to true bypasses the check and allows operating an inconsistent wallet.
+    ///
+    /// <div class="warning">Warning: setting <tt>skip_consistency_check</tt> to true is dangerous,
+    /// only do this if you know what you're doing!</div>
+    pub skip_consistency_check: bool,
+    /// Number of addresses before the last used (or last revealed if none) address to sync when
+    /// doing an automatic FastSync for the vanilla keychain
+    pub vanilla_sync_lookback: u32,
 }
 
 // ────────────────────────────────────────────────────────────

@@ -16,24 +16,59 @@ use rgb_lib::{
         AssignmentsCollection, Balance, BlockTime, BtcBalance, Cosigner as CosignerData,
         DatabaseType, EmbeddedMedia, HubInfo, InflateBeginResult, InflateDetails,
         InitOperationResult, Invoice as RgbLibInvoice, InvoiceData as RgbLibInvoiceData, Media,
-        Metadata, MultisigKeys, MultisigVotingStatus as RgbLibMultisigVotingStatus,
-        MultisigWallet as RgbLibMultisigWallet, Online, Operation as RgbLibOperation,
-        OperationInfo as RgbLibOperationInfo, OperationResult, Outpoint, ProofOfReserves,
-        PsbtInputInfo, PsbtInspection, PsbtOutputInfo, ReceiveData, Recipient as RgbLibRecipient,
-        RecipientInfo as RgbLibRecipientInfo, RecipientType, RefreshFilter, RefreshTransferStatus,
-        RefreshedTransfer, RespondToOperation as RgbLibRespondToOperation,
-        RgbAllocation as RgbLibRgbAllocation, RgbInputInfo as RgbLibRgbInputInfo,
-        RgbInspection as RgbLibRgbInspection, RgbOperationInfo as RgbLibRgbOperationInfo,
-        RgbOutputInfo as RgbLibRgbOutputInfo, RgbTransitionInfo as RgbLibRgbTransitionInfo,
-        RgbWalletOpsOffline, RgbWalletOpsOnline, SendBeginResult, SendDetails, SinglesigKeys,
-        Token, TokenLight, Transaction, TransactionType, Transfer as RgbLibTransfer, TransferKind,
-        TransferTransportEndpoint, TransportEndpoint as RgbLibTransportEndpoint, TypeOfTransition,
-        Unspent as RgbLibUnspent, UserRole, Utxo, Wallet as RgbLibWallet, WalletData,
-        WalletDescriptors, WitnessData,
+        Metadata, MultisigKeys, MultisigOnlineOptions,
+        MultisigVotingStatus as RgbLibMultisigVotingStatus, MultisigWallet as RgbLibMultisigWallet,
+        Online, OnlineOptions, Operation as RgbLibOperation, OperationInfo as RgbLibOperationInfo,
+        OperationResult, Outpoint, ProofOfReserves, PsbtInputInfo, PsbtInspection, PsbtOutputInfo,
+        ReceiveData, Recipient as RgbLibRecipient, RecipientInfo as RgbLibRecipientInfo,
+        RecipientType, RefreshFilter, RefreshTransferStatus, RefreshedTransfer,
+        RespondToOperation as RgbLibRespondToOperation, RgbAllocation as RgbLibRgbAllocation,
+        RgbInputInfo as RgbLibRgbInputInfo, RgbInspection as RgbLibRgbInspection,
+        RgbOperationInfo as RgbLibRgbOperationInfo, RgbOutputInfo as RgbLibRgbOutputInfo,
+        RgbTransitionInfo as RgbLibRgbTransitionInfo, RgbWalletOpsOffline, RgbWalletOpsOnline,
+        SendBeginResult, SendDetails, SinglesigKeys, SyncKeychain as RgbLibSyncKeychain,
+        SyncOptions as RgbLibSyncOptions, SyncStrategy, Token, TokenLight, Transaction,
+        TransactionType, Transfer as RgbLibTransfer, TransferKind, TransferTransportEndpoint,
+        TransportEndpoint as RgbLibTransportEndpoint, TypeOfTransition, Unspent as RgbLibUnspent,
+        UserRole, Utxo, Wallet as RgbLibWallet, WalletData, WalletDescriptors, WitnessData,
     },
 };
 
 uniffi::include_scaffolding!("rgb-lib");
+
+// temporary solution needed because the Enum attribute doesn't support the Remote one
+pub enum SyncKeychain {
+    Colored,
+    Vanilla { lookback: u32 },
+}
+impl From<RgbLibSyncKeychain> for SyncKeychain {
+    fn from(orig: RgbLibSyncKeychain) -> Self {
+        match orig {
+            RgbLibSyncKeychain::Colored => SyncKeychain::Colored,
+            RgbLibSyncKeychain::Vanilla { lookback } => SyncKeychain::Vanilla { lookback },
+        }
+    }
+}
+impl From<SyncKeychain> for RgbLibSyncKeychain {
+    fn from(orig: SyncKeychain) -> Self {
+        match orig {
+            SyncKeychain::Colored => RgbLibSyncKeychain::Colored,
+            SyncKeychain::Vanilla { lookback } => RgbLibSyncKeychain::Vanilla { lookback },
+        }
+    }
+}
+pub struct SyncOptions {
+    pub keychain: SyncKeychain,
+    pub strategy: SyncStrategy,
+}
+impl From<SyncOptions> for RgbLibSyncOptions {
+    fn from(orig: SyncOptions) -> Self {
+        Self {
+            keychain: orig.keychain.into(),
+            strategy: orig.strategy,
+        }
+    }
+}
 
 // temporary solution needed because the Enum attribute doesn't support the Remote one
 pub enum Assignment {
@@ -938,14 +973,8 @@ impl Wallet {
             .create_utxos_begin(online, up_to, num, size, fee_rate, skip_sync, dry_run)
     }
 
-    fn create_utxos_end(
-        &self,
-        online: Online,
-        signed_psbt: String,
-        skip_sync: bool,
-    ) -> Result<u8, RgbLibError> {
-        self._get_wallet()
-            .create_utxos_end(online, signed_psbt, skip_sync)
+    fn create_utxos_end(&self, online: Online, signed_psbt: String) -> Result<u8, RgbLibError> {
+        self._get_wallet().create_utxos_end(online, signed_psbt)
     }
 
     fn delete_transfers(
@@ -1016,13 +1045,8 @@ impl Wallet {
         self._get_wallet().get_fee_estimation(online, blocks)
     }
 
-    fn go_online(
-        &self,
-        skip_consistency_check: bool,
-        indexer_url: String,
-    ) -> Result<Online, RgbLibError> {
-        self._get_wallet()
-            .go_online(skip_consistency_check, indexer_url)
+    fn go_online(&self, online_options: OnlineOptions) -> Result<Online, RgbLibError> {
+        self._get_wallet().go_online(online_options)
     }
 
     fn inflate(
@@ -1184,7 +1208,6 @@ impl Wallet {
         fee_rate: u64,
         min_confirmations: u8,
         expiration_timestamp: Option<u64>,
-        skip_sync: bool,
     ) -> Result<OperationResult, RgbLibError> {
         self._get_wallet().send(
             online,
@@ -1193,7 +1216,6 @@ impl Wallet {
             fee_rate,
             min_confirmations,
             expiration_timestamp,
-            skip_sync,
         )
     }
 
@@ -1222,9 +1244,8 @@ impl Wallet {
         &self,
         online: Online,
         signed_psbt: String,
-        skip_sync: bool,
     ) -> Result<OperationResult, RgbLibError> {
-        self._get_wallet().send_end(online, signed_psbt, skip_sync)
+        self._get_wallet().send_end(online, signed_psbt)
     }
 
     fn send_btc(
@@ -1252,18 +1273,12 @@ impl Wallet {
             .send_btc_begin(online, address, amount, fee_rate, skip_sync, dry_run)
     }
 
-    fn send_btc_end(
-        &self,
-        online: Online,
-        signed_psbt: String,
-        skip_sync: bool,
-    ) -> Result<String, RgbLibError> {
-        self._get_wallet()
-            .send_btc_end(online, signed_psbt, skip_sync)
+    fn send_btc_end(&self, online: Online, signed_psbt: String) -> Result<String, RgbLibError> {
+        self._get_wallet().send_btc_end(online, signed_psbt)
     }
 
-    fn sync(&self, online: Online) -> Result<(), RgbLibError> {
-        self._get_wallet().sync(online)
+    fn sync(&self, online: Online, options: SyncOptions) -> Result<(), RgbLibError> {
+        self._get_wallet().sync(online, options.into())
     }
 
     fn inspect_psbt(&self, psbt: String) -> Result<PsbtInspection, RgbLibError> {
@@ -1432,13 +1447,11 @@ impl MultisigWallet {
 
     fn go_online(
         &self,
-        skip_consistency_check: bool,
-        indexer_url: String,
-        hub_url: String,
-        hub_token: String,
+        online_options: OnlineOptions,
+        multisig_online_options: MultisigOnlineOptions,
     ) -> Result<Online, RgbLibError> {
         let mut wallet = self.wallet_mutex.lock().expect("wallet");
-        wallet.go_online(skip_consistency_check, indexer_url, hub_url, hub_token)
+        wallet.go_online(online_options, multisig_online_options)
     }
 
     fn hub_info(&self, online: Online) -> Result<HubInfo, RgbLibError> {
@@ -1606,9 +1619,9 @@ impl MultisigWallet {
             .send_btc_init(online, address, amount, fee_rate, skip_sync)
     }
 
-    fn sync(&self, online: Online) -> Result<(), RgbLibError> {
+    fn sync(&self, online: Online, options: SyncOptions) -> Result<(), RgbLibError> {
         let mut wallet = self.wallet_mutex.lock().expect("wallet");
-        wallet.sync(online)
+        wallet.sync(online, options.into())
     }
 
     fn get_address(&self, online: Online) -> Result<String, RgbLibError> {

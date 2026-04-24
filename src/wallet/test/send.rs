@@ -40,7 +40,6 @@ fn success() {
             FEE_RATE,
             MIN_CONFIRMATIONS,
             Some(expiration_timestamp),
-            false,
         )
         .unwrap();
     let bak_info_after = wallet.database().get_backup_info().unwrap().unwrap();
@@ -298,15 +297,7 @@ fn success() {
     let unspents = test_list_unspents(&mut wallet, None, false);
     let unspents_color_count_before = unspents.iter().filter(|u| u.utxo.colorable).count();
     let txid = wallet
-        .send(
-            online,
-            recipient_map,
-            false,
-            7,
-            MIN_CONFIRMATIONS,
-            None,
-            false,
-        )
+        .send(online, recipient_map, false, 7, MIN_CONFIRMATIONS, None)
         .unwrap()
         .txid;
     assert!(!txid.is_empty());
@@ -2344,7 +2335,6 @@ fn batch_donation_success() {
             FEE_RATE,
             MIN_CONFIRMATIONS,
             None,
-            false,
         )
         .unwrap()
         .txid;
@@ -3488,13 +3478,7 @@ fn insufficient_bitcoins() {
         }],
     )]);
     let result = test_send_begin_result(&mut wallet, online, &recipient_map);
-    assert!(matches!(
-        result,
-        Err(Error::InsufficientBitcoins {
-            needed: _,
-            available: _
-        })
-    ));
+    assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 
     // create 1 UTXO for change (add funds, create UTXO, send the rest)
     fund_wallet(test_get_address(&mut wallet));
@@ -4609,7 +4593,6 @@ fn min_confirmations_common(
             FEE_RATE,
             min_confirmations,
             None,
-            false,
         )
         .unwrap()
         .txid;
@@ -4695,7 +4678,6 @@ fn min_confirmations_common(
             FEE_RATE,
             min_confirmations,
             None,
-            false,
         )
         .unwrap()
         .txid;
@@ -4840,7 +4822,6 @@ fn spend_double_receive() {
             FEE_RATE,
             MIN_CONFIRMATIONS,
             None,
-            false,
         )
         .unwrap()
         .txid;
@@ -4881,7 +4862,6 @@ fn spend_double_receive() {
             FEE_RATE,
             MIN_CONFIRMATIONS,
             None,
-            false,
         )
         .unwrap()
         .txid;
@@ -5367,7 +5347,6 @@ fn min_fee_rate() {
             fee_rate,
             MIN_CONFIRMATIONS,
             None,
-            false,
         )
         .unwrap()
         .txid;
@@ -5428,7 +5407,6 @@ fn max_fee_exceeded_common(
             fee_rate,
             MIN_CONFIRMATIONS,
             None,
-            false,
         )
         .unwrap();
     assert!(!send_result.txid.is_empty());
@@ -5558,7 +5536,6 @@ fn min_relay_fee_common(
             fee_rate,
             MIN_CONFIRMATIONS,
             None,
-            false,
         )
         .unwrap();
     assert!(!send_result.txid.is_empty());
@@ -5697,7 +5674,6 @@ fn skip_sync() {
             FEE_RATE,
             MIN_CONFIRMATIONS,
             None,
-            true,
         )
         .unwrap()
         .txid;
@@ -5748,7 +5724,6 @@ fn skip_sync() {
             FEE_RATE,
             MIN_CONFIRMATIONS,
             None,
-            true,
         )
         .unwrap()
         .txid;
@@ -5815,7 +5790,6 @@ fn skip_sync() {
             FEE_RATE,
             MIN_CONFIRMATIONS,
             None,
-            true,
         )
         .unwrap()
         .txid;
@@ -5879,7 +5853,15 @@ fn skip_sync() {
     assert_eq!(transfer_data.status, TransferStatus::Settled);
 
     // sync and refresh again (still skipping sync) > ReceiveWitness transfer now refreshes + new UTXO appears
-    wallet.sync(online).unwrap();
+    wallet
+        .sync(
+            online,
+            SyncOptions {
+                keychain: SyncKeychain::Colored,
+                strategy: SyncStrategy::FastSync,
+            },
+        )
+        .unwrap();
     wallet.refresh(online, None, vec![], true).unwrap();
     show_unspent_colorings(&mut wallet, "after refresh 3");
 
@@ -6547,9 +6529,7 @@ fn pending_witness_ma1_blind_receive_fail() {
     let (mut wallet, online) = get_funded_wallet!();
     // recipient wallet
     let mut rcv_wallet = get_test_wallet(true, Some(1)); // MAX_ALLOCATIONS_PER_UTXO = 1
-    let rcv_online = rcv_wallet
-        .go_online(true, ELECTRUM_URL.to_string())
-        .unwrap();
+    let rcv_online = rcv_wallet.go_online(test_go_online_options(None)).unwrap();
 
     // issue
     let asset = test_issue_asset_nia(&mut wallet, online, None);
@@ -6576,13 +6556,20 @@ fn pending_witness_ma1_blind_receive_fail() {
             FEE_RATE,
             MIN_CONFIRMATIONS,
             None,
-            false,
         )
         .unwrap();
     assert!(!txid.is_empty());
 
     // sync recipient wallet (no refresh) to see the new UTXO but not the new allocation
-    rcv_wallet.sync(rcv_online).unwrap();
+    rcv_wallet
+        .sync(
+            rcv_online,
+            SyncOptions {
+                keychain: SyncKeychain::Colored,
+                strategy: SyncStrategy::FastSync,
+            },
+        )
+        .unwrap();
 
     // make sure the recipient wallet sees 1 colorable UTXO with no RGB allocations
     let unspents = test_list_unspents(&mut rcv_wallet, None, false);
@@ -6595,7 +6582,7 @@ fn pending_witness_ma1_blind_receive_fail() {
 
     // try to blind the new UTXO: it should error as it already has the max allocation number
     let result = test_blind_receive_result(&mut rcv_wallet);
-    assert!(matches!(result, Err(Error::InsufficientBitcoins { .. })))
+    assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 }
 
 #[cfg(feature = "electrum")]
@@ -6651,7 +6638,15 @@ fn pending_witness_txo() {
     assert_eq!(rcv_pending_witness_scripts.len(), 1);
 
     // sync recipient wallet
-    rcv_wallet.sync(rcv_online).unwrap();
+    rcv_wallet
+        .sync(
+            rcv_online,
+            SyncOptions {
+                keychain: SyncKeychain::Colored,
+                strategy: SyncStrategy::FastSync,
+            },
+        )
+        .unwrap();
 
     // check the recipient doesn't see the TXO yet + has one pending witness
     let rcv_txos = rcv_wallet.database().iter_txos().unwrap();
@@ -6695,7 +6690,15 @@ fn pending_witness_txo() {
     test_refresh_all(&mut wallet, online);
 
     // sync recipient wallet
-    rcv_wallet.sync(rcv_online).unwrap();
+    rcv_wallet
+        .sync(
+            rcv_online,
+            SyncOptions {
+                keychain: SyncKeychain::Colored,
+                strategy: SyncStrategy::FastSync,
+            },
+        )
+        .unwrap();
 
     // check the recipient TXO now exists and is still pending witness
     let rcv_txo = rcv_wallet
@@ -6761,7 +6764,6 @@ fn pending_witness_txo() {
             FEE_RATE,
             MIN_CONFIRMATIONS,
             None,
-            false,
         )
         .unwrap();
     assert!(!txid.is_empty());
@@ -6782,7 +6784,15 @@ fn pending_witness_txo() {
     assert_eq!(rcv_pending_witness_scripts.len(), 1);
 
     // sync recipient wallet
-    rcv_wallet.sync(rcv_online).unwrap();
+    rcv_wallet
+        .sync(
+            rcv_online,
+            SyncOptions {
+                keychain: SyncKeychain::Colored,
+                strategy: SyncStrategy::FastSync,
+            },
+        )
+        .unwrap();
 
     // check the recipient now sees the TXO, as existent + pending witness
     let rcv_txos = rcv_wallet.database().iter_txos().unwrap();
@@ -7227,7 +7237,6 @@ fn donation_recipient_nack() {
             FEE_RATE,
             MIN_CONFIRMATIONS,
             None,
-            false,
         )
         .unwrap()
         .txid;
@@ -7353,7 +7362,7 @@ fn send_end_without_send_begin() {
         .unwrap()
         .compute_txid()
         .to_string();
-    let result = wallet_2.send_end(online_2, signed_psbt, false);
+    let result = wallet_2.send_end(online_2, signed_psbt);
     assert_matches!(result, Err(Error::UnknownTransfer { txid }) if txid == psbt_txid);
 }
 

@@ -252,12 +252,11 @@ pub(crate) fn create_utxos_end(
     wallet: &COpaqueStruct,
     online: *const c_char,
     signed_psbt: *const c_char,
-    skip_sync: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = convert_online(online)?;
     let signed_psbt = ptr_to_string(signed_psbt);
-    let res = wallet.create_utxos_end(online, signed_psbt, skip_sync)?;
+    let res = wallet.create_utxos_end(online, signed_psbt)?;
     Ok(serde_json::to_string(&res)?)
 }
 
@@ -355,11 +354,11 @@ pub(crate) fn get_fee_estimation(
 
 pub(crate) fn go_online(
     wallet: &COpaqueStruct,
-    skip_consistency_check: bool,
-    electrum_url: *const c_char,
+    online_options: *const c_char,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
-    let res = wallet.go_online(skip_consistency_check, ptr_to_string(electrum_url))?;
+    let online_options: OnlineOptions = serde_json::from_str(&ptr_to_string(online_options))?;
+    let res = wallet.go_online(online_options)?;
     Ok(serde_json::to_string(&res)?)
 }
 
@@ -581,7 +580,6 @@ pub(crate) fn send(
     fee_rate: *const c_char,
     min_confirmations: *const c_char,
     expiration_timestamp_opt: *const c_char,
-    skip_sync: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = convert_online(online)?;
@@ -597,7 +595,6 @@ pub(crate) fn send(
         fee_rate,
         min_confirmations,
         expiration_timestamp,
-        skip_sync,
     )?;
     Ok(serde_json::to_string(&res)?)
 }
@@ -653,12 +650,11 @@ pub(crate) fn send_end(
     wallet: &COpaqueStruct,
     online: *const c_char,
     signed_psbt: *const c_char,
-    skip_sync: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = convert_online(online)?;
     let signed_psbt = ptr_to_string(signed_psbt);
-    let res = wallet.send_end(online, signed_psbt, skip_sync)?;
+    let res = wallet.send_end(online, signed_psbt)?;
     Ok(serde_json::to_string(&res)?)
 }
 
@@ -671,10 +667,15 @@ pub(crate) fn sign_psbt(
     Ok(wallet.sign_psbt(unsigned_psbt, None)?)
 }
 
-pub(crate) fn sync(wallet: &COpaqueStruct, online: *const c_char) -> Result<(), Error> {
+pub(crate) fn sync(
+    wallet: &COpaqueStruct,
+    online: *const c_char,
+    options: *const c_char,
+) -> Result<(), Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = convert_online(online)?;
-    wallet.sync(online)?;
+    let options: SyncOptions = serde_json::from_str(&ptr_to_string(options))?;
+    wallet.sync(online, options)?;
     Ok(())
 }
 

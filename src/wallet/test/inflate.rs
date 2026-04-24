@@ -355,9 +355,7 @@ fn fail() {
     // inflate errors
     // - watch-only (_check_xprv)
     let mut wallet_wo = get_test_wallet(false, None);
-    let online_wo = wallet_wo
-        .go_online(false, ELECTRUM_URL.to_string())
-        .unwrap();
+    let online_wo = wallet_wo.go_online(test_go_online_options(None)).unwrap();
     let result = test_inflate_result(&mut wallet_wo, online_wo, &asset_ifa.asset_id, &[1]);
     assert_matches!(result, Err(Error::WatchOnly));
 
@@ -434,7 +432,7 @@ fn fail() {
     )
     .unwrap();
     let online_nia = wallet_nia
-        .go_online(true, ELECTRUM_URL.to_string())
+        .go_online(test_go_online_options(Some(ELECTRUM_URL)))
         .unwrap();
     fund_wallet(wallet_nia.get_address().unwrap());
     test_create_utxos_default(&mut wallet_nia, online_nia);
@@ -474,7 +472,7 @@ fn fail() {
     )
     .unwrap();
     let online_nia = wallet_nia
-        .go_online(true, ELECTRUM_URL.to_string())
+        .go_online(test_go_online_options(Some(ELECTRUM_URL)))
         .unwrap();
     let result = test_inflate_begin_result(&mut wallet_nia, online_nia, &asset_ifa.asset_id, &[1]);
     assert_matches!(result, Err(Error::UnsupportedSchema { asset_schema: _ }));

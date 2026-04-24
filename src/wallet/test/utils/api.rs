@@ -185,6 +185,15 @@ pub(crate) fn test_get_wallet_dir(wallet: &impl RgbWalletOpsOffline) -> PathBuf 
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) fn test_go_online_options(indexer_url: Option<&str>) -> OnlineOptions {
+    OnlineOptions {
+        indexer_url: indexer_url.unwrap_or(ELECTRUM_URL).to_string(),
+        skip_consistency_check: true,
+        vanilla_sync_lookback: INDEXER_SYNC_LOOKBACK as u32,
+    }
+}
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn test_go_online(
     wallet: &mut Wallet,
     skip_consistency_check: bool,
@@ -199,8 +208,9 @@ pub(crate) fn test_go_online_result(
     skip_consistency_check: bool,
     indexer_url: Option<&str>,
 ) -> Result<Online, Error> {
-    let electrum = indexer_url.unwrap_or(ELECTRUM_URL).to_string();
-    wallet.go_online(skip_consistency_check, electrum)
+    let mut online_options = test_go_online_options(indexer_url);
+    online_options.skip_consistency_check = skip_consistency_check;
+    wallet.go_online(online_options)
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -547,7 +557,15 @@ pub(crate) fn test_send(
         if let Err(e) = result {
             println!("send error: {e}");
             std::thread::sleep(Duration::from_millis(500));
-            wallet.sync(online).unwrap();
+            wallet
+                .sync(
+                    online,
+                    SyncOptions {
+                        keychain: SyncKeychain::Colored,
+                        strategy: SyncStrategy::FastSync,
+                    },
+                )
+                .unwrap();
             continue;
         }
         break result.unwrap().txid;
@@ -567,7 +585,6 @@ pub(crate) fn test_send_result(
         FEE_RATE,
         MIN_CONFIRMATIONS,
         Some((now().unix_timestamp() + DURATION_SEND_TRANSFER as i64) as u64),
-        false,
     )
 }
 

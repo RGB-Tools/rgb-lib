@@ -527,7 +527,7 @@ impl Wallet {
         skip_sync: bool,
     ) -> Result<Vec<LocalOutput>, Error> {
         info!(self.logger(), "Listing unspents vanilla...");
-        self.sync_if_requested(Some(online), skip_sync)?;
+        self.sync_if_requested(Some(online), skip_sync, KeychainKind::Internal)?;
 
         let unspents = self.internal_unspents();
 

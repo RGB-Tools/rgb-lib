@@ -22,7 +22,17 @@ fn success_common(wallet: &mut Wallet, online: Online, esplora: bool) {
                 break;
             }
         }
-        wallet.sync(online).unwrap();
+        wallet
+            .sync(
+                online,
+                SyncOptions {
+                    keychain: SyncKeychain::Vanilla {
+                        lookback: INDEXER_SYNC_LOOKBACK as u32,
+                    },
+                    strategy: SyncStrategy::FastSync,
+                },
+            )
+            .unwrap();
     }
 
     for _ in 0..100 {

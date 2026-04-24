@@ -1148,10 +1148,11 @@ fn fail() {
     // invalid hub URL
     let err = wlt_badtoken_multisig
         .go_online(
-            false,
-            ELECTRUM_URL.to_string(),
-            s!("invalid"),
-            cosigner_tokens[0].to_string(),
+            test_go_online_options(None),
+            MultisigOnlineOptions {
+                hub_url: s!("invalid"),
+                hub_token: cosigner_tokens[0].to_string(),
+            },
         )
         .unwrap_err();
     assert_matches!(err, Error::MultisigHubService { details: d } if d == "URL must be valid and start with http:// or https://");
@@ -1184,7 +1185,16 @@ fn fail() {
     let signed_psbt = wlt_2_singlesig
         .sign_psbt(unsigned_psbt.clone(), None)
         .unwrap();
-    wlt_2.multisig_mut().sync_db_txos(false, false).unwrap();
+    wlt_2
+        .multisig_mut()
+        .sync_wallet(
+            SyncOptions {
+                keychain: SyncKeychain::Colored,
+                strategy: SyncStrategy::FastSync,
+            },
+            false,
+        )
+        .unwrap();
     wlt_2.respond_to_operation(op_idx_1, RespondToOperation::Ack(signed_psbt.clone()));
     let err = wlt_3
         .respond_to_operation_res(op_idx_1, RespondToOperation::Nack)

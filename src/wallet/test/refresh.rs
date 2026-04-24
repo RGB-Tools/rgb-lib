@@ -745,7 +745,15 @@ fn skip_sync() {
             .unwrap()
             .transfers_changed()
     );
-    wallet_2.sync(online_2).unwrap();
+    wallet_2
+        .sync(
+            online_2,
+            SyncOptions {
+                keychain: SyncKeychain::Colored,
+                strategy: SyncStrategy::FastSync,
+            },
+        )
+        .unwrap();
     assert!(
         !wallet_2
             .refresh(online_2, None, vec![], true)
