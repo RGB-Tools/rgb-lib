@@ -28,10 +28,10 @@ impl SinglesigKeys {
     pub(crate) fn build_descriptors(
         &self,
         bitcoin_network: &BitcoinNetwork,
-        bdk_network: &BdkNetwork,
     ) -> Result<(WalletDescriptors, bool), Error> {
-        let xpub_rgb = str_to_xpub(&self.account_xpub_colored, bdk_network)?;
-        let xpub_btc = str_to_xpub(&self.account_xpub_vanilla, bdk_network)?;
+        let network_kind = bitcoin_network.network_kind();
+        let xpub_rgb = str_to_xpub(&self.account_xpub_colored, &network_kind)?;
+        let xpub_btc = str_to_xpub(&self.account_xpub_vanilla, &network_kind)?;
         Ok(if let Some(mnemonic) = &self.mnemonic {
             let descs = get_descriptors(
                 bitcoin_network,
@@ -154,10 +154,9 @@ impl Wallet {
     /// [`SinglesigKeys`].
     pub fn new(wallet_data: WalletData, keys: SinglesigKeys) -> Result<Self, Error> {
         let wdata = wallet_data.clone();
-        let bdk_network = BdkNetwork::from(wdata.bitcoin_network);
 
         // wallet keys
-        let (descs, watch_only) = keys.build_descriptors(&wdata.bitcoin_network, &bdk_network)?;
+        let (descs, watch_only) = keys.build_descriptors(&wdata.bitcoin_network)?;
 
         // wallet directory and file logging setup
         let (wallet_dir, logger, _logger_guard) =
@@ -170,7 +169,7 @@ impl Wallet {
             descs.colored,
             descs.vanilla,
             watch_only,
-            bdk_network,
+            BdkNetwork::from(wdata.bitcoin_network),
         )?;
 
         // setup RGB
@@ -204,10 +203,7 @@ impl Wallet {
     /// Return the descriptors of the wallet.
     pub fn get_descriptors(&self) -> WalletDescriptors {
         self.keys
-            .build_descriptors(
-                &self.internals.wallet_data.bitcoin_network,
-                &BdkNetwork::from(self.internals.wallet_data.bitcoin_network),
-            )
+            .build_descriptors(&self.internals.wallet_data.bitcoin_network)
             .expect("already succeeded at wallet creation")
             .0
     }

@@ -875,7 +875,6 @@ impl MultisigWallet {
     /// [`MultisigKeys`].
     pub fn new(wallet_data: WalletData, keys: MultisigKeys) -> Result<Self, Error> {
         let wdata = wallet_data.clone();
-        let bdk_network = BdkNetwork::from(wdata.bitcoin_network);
 
         // wallet keys
         let descs = keys.build_descriptors(wdata.bitcoin_network)?;
@@ -894,7 +893,7 @@ impl MultisigWallet {
             descs.colored,
             descs.vanilla,
             true,
-            bdk_network,
+            BdkNetwork::from(wdata.bitcoin_network),
         )?;
 
         // setup RGB

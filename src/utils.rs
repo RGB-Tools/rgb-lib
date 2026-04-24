@@ -78,6 +78,15 @@ pub enum BitcoinNetwork {
     SignetCustom,
 }
 
+impl BitcoinNetwork {
+    pub(crate) fn network_kind(&self) -> NetworkKind {
+        match self {
+            BitcoinNetwork::Mainnet => NetworkKind::Main,
+            _ => NetworkKind::Test,
+        }
+    }
+}
+
 impl fmt::Display for BitcoinNetwork {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{self:?}")
@@ -258,10 +267,10 @@ where
     deserialize_str_or_number(deserializer)
 }
 
-pub(crate) fn str_to_xpub(xpub: &str, bdk_network: &BdkNetwork) -> Result<Xpub, Error> {
+pub(crate) fn str_to_xpub(xpub: &str, network_kind: &NetworkKind) -> Result<Xpub, Error> {
     let pubkey_btc = Xpub::from_str(xpub)?;
     let extended_key_btc: ExtendedKey = ExtendedKey::from(pubkey_btc);
-    Ok(extended_key_btc.into_xpub(*bdk_network, &Secp256k1::new()))
+    Ok(extended_key_btc.into_xpub(*network_kind, &Secp256k1::new()))
 }
 
 pub(crate) fn get_coin_type(bitcoin_network: &BitcoinNetwork, rgb: bool) -> u32 {

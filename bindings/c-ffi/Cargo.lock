@@ -362,9 +362,9 @@ dependencies = [
 
 [[package]]
 name = "bdk_file_store"
-version = "0.21.1"
+version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "446f02da319941ea78454a479fca72707f3355a62db3bb1c2c13b94e7f963ce0"
+checksum = "c7b9a98edb58d02b601239832674a9ca9f1465e08e1dd1fac3a0e34004372406"
 dependencies = [
  "bdk_core",
  "bincode",
@@ -373,9 +373,9 @@ dependencies = [
 
 [[package]]
 name = "bdk_wallet"
-version = "2.0.0"
+version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f278518ee6f2a17711fd4662dc34ce6153792a7a21575f05a9c8e2cb9ba36245"
+checksum = "67f3c4f9526d22374fca5b7ff1d6bf8d921ab56db2dac8df66a2c5561b31d4ef"
 dependencies = [
  "bdk_chain",
  "bdk_file_store",

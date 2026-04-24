@@ -455,10 +455,7 @@ fn get_descriptors_success() {
     // get descriptors from keys
     let keys = wallet.get_keys();
     let bitcoin_network = wallet.bitcoin_network();
-    let descriptors = keys
-        .build_descriptors(&bitcoin_network, &BdkNetwork::from(bitcoin_network))
-        .unwrap()
-        .0;
+    let descriptors = keys.build_descriptors(&bitcoin_network).unwrap().0;
 
     // get descriptors from wallet
     let wlt_descriptors = wallet.get_descriptors();
