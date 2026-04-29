@@ -299,7 +299,9 @@ pub fn mock_vout(vout: Option<u32>) -> Option<u32> {
 // test utilities
 #[macro_use]
 mod utils;
-pub(crate) use utils::{api::*, chain::*, helpers::*};
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) use utils::chain::*;
+pub(crate) use utils::{api::*, helpers::*};
 
 // API tests
 mod abort_pending_vanilla_tx;
