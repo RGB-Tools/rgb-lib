@@ -435,7 +435,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidRecipientID)));
 
     fund_wallet(test_get_address(&mut wallet));
-    mine(false, false);
+    mine(false);
     test_create_utxos(&mut wallet, online, true, Some(1), None, FEE_RATE, None);
 
     // expiration in the past

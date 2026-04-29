@@ -29,7 +29,7 @@ fn success() {
     assert_eq!(balance, expected_balance);
 
     // future balance after funding
-    stop_mining();
+    let _guard = stop_mining();
     send_to_address(test_get_address(&mut wallet));
     let expected_balance = BtcBalance {
         vanilla: Balance {
@@ -46,7 +46,8 @@ fn success() {
     wait_for_btc_balance(&mut wallet, online, &expected_balance);
 
     // settled balance after mining
-    mine(false, true);
+    drop(_guard);
+    mine(false);
     let expected_balance = BtcBalance {
         vanilla: Balance {
             settled: 100000000,
@@ -62,7 +63,7 @@ fn success() {
     assert_eq!(test_get_btc_balance(&mut wallet, online), expected_balance);
 
     // future vanilla change + colored UTXOs balance
-    stop_mining();
+    let _guard = stop_mining();
     test_create_utxos_default(&mut wallet, online);
     let expected_balance = BtcBalance {
         vanilla: Balance {
@@ -79,7 +80,8 @@ fn success() {
     assert_eq!(test_get_btc_balance(&mut wallet, online), expected_balance);
 
     // settled balance after mining
-    mine(false, true);
+    drop(_guard);
+    mine(false);
     let expected_balance = BtcBalance {
         vanilla: Balance {
             settled: 99994347,
@@ -138,7 +140,7 @@ fn skip_sync() {
     assert_eq!(balance, expected_balance);
 
     // future balance after funding
-    stop_mining();
+    let _guard = stop_mining();
     send_to_address(test_get_address(&mut wallet));
     let expected_balance = BtcBalance {
         vanilla: Balance {
@@ -166,7 +168,8 @@ fn skip_sync() {
     ));
 
     // settled balance after mining
-    mine(false, true);
+    drop(_guard);
+    mine(false);
     let expected_balance = BtcBalance {
         vanilla: Balance {
             settled: 100000000,
@@ -193,7 +196,7 @@ fn skip_sync() {
     ));
 
     // future vanilla change + colored UTXOs balance (create UTXOs skipping sync)
-    stop_mining();
+    let _guard = stop_mining();
     wallet
         .create_utxos(online, false, None, None, FEE_RATE, true)
         .unwrap();
@@ -223,7 +226,8 @@ fn skip_sync() {
     ));
 
     // settled balance after mining
-    mine(false, true);
+    drop(_guard);
+    mine(false);
     let expected_balance = BtcBalance {
         vanilla: Balance {
             settled: 99994347,

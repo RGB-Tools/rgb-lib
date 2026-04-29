@@ -479,7 +479,7 @@ fn fail() {
     ));
 
     fund_wallet(test_get_address(&mut wallet));
-    mine(false, false);
+    mine(false);
 
     // insufficient allocations
     let result = test_issue_asset_ifa_result(&mut wallet, online, None, None, None);

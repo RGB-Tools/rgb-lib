@@ -133,7 +133,7 @@ fn success() {
     // fund wallet 1
     let sats = 30_000;
     send_sats_to_address(wlt_1.get_address(), Some(sats));
-    mine(false, false);
+    mine(false);
 
     check_hub_info(&mut [&mut wlt_1, &mut wlt_2, &mut wlt_3]);
 
@@ -1158,7 +1158,7 @@ fn fail() {
 
     // respond with PSBT that has no signatures
     send_sats_to_address(wlt_1.get_address(), Some(10_000));
-    mine(false, false);
+    mine(false);
     let op_init = wlt_1.create_utxos_init(false, None, None, FEE_RATE);
     let op_idx_1 = op_init.operation_idx;
     let unsigned_psbt = op_init.psbt.clone();

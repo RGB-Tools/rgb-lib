@@ -298,7 +298,7 @@ fn re_instantiate_wallet() {
     // take transfers from WaitingCounterparty to Settled
     wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
     wait_for_refresh(&mut wallet, online, Some(&asset.asset_id), None);
-    mine(false, false);
+    mine(false);
     wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
     wait_for_refresh(&mut wallet, online, Some(&asset.asset_id), None);
 
@@ -367,7 +367,7 @@ fn watch_only_success() {
 
     // fund wallet
     fund_wallet(address_watch);
-    mine(false, false);
+    mine(false);
     let unspents = test_list_unspents(&mut wallet_watch, Some(online_watch), false);
     assert_eq!(unspents.len(), 1);
 

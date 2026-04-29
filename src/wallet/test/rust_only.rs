@@ -180,7 +180,7 @@ fn list_unspents_vanilla_success() {
     assert!(bak_info_after.is_none());
     assert_eq!(unspent_list.len(), 0);
 
-    stop_mining();
+    let _guard = stop_mining();
 
     send_to_address(test_get_address(&mut wallet));
 
@@ -190,7 +190,8 @@ fn list_unspents_vanilla_success() {
     let unspent_list = test_list_unspents_vanilla(&mut wallet, online, Some(0));
     assert_eq!(unspent_list.len(), 1);
 
-    mine(false, true);
+    drop(_guard);
+    mine(false);
 
     // one unspent, 1 confirmation
     let unspent_list = test_list_unspents_vanilla(&mut wallet, online, None);
@@ -201,7 +202,7 @@ fn list_unspents_vanilla_success() {
     test_create_utxos_default(&mut wallet, online);
 
     // one unspent (change), colored unspents not listed
-    mine(false, false);
+    mine(false);
     let unspent_list = test_list_unspents_vanilla(&mut wallet, online, None);
     assert_eq!(unspent_list.len(), 1);
 }

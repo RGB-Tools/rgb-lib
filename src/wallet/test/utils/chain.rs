@@ -7,6 +7,14 @@ pub(crate) struct Miner {
     no_mine_count: u32,
 }
 
+pub(crate) struct MinerStopGuard;
+
+impl Drop for MinerStopGuard {
+    fn drop(&mut self) {
+        MINER.write().unwrap().resume_mining();
+    }
+}
+
 pub(crate) fn bitcoin_cli() -> Vec<String> {
     let compose_file = ["tests", "compose.yaml"].join(MAIN_SEPARATOR_STR);
     vec![
@@ -94,11 +102,8 @@ impl Miner {
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) fn mine_blocks(esplora: bool, blocks: u32, resume: bool) {
+pub(crate) fn mine_blocks(esplora: bool, blocks: u32) {
     let t_0 = OffsetDateTime::now_utc();
-    if resume {
-        resume_mining();
-    }
     loop {
         if (OffsetDateTime::now_utc() - t_0).as_seconds_f32() > 120.0 {
             panic!("unable to mine");
@@ -112,8 +117,8 @@ pub(crate) fn mine_blocks(esplora: bool, blocks: u32, resume: bool) {
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) fn mine(esplora: bool, resume: bool) {
-    mine_blocks(esplora, 1, resume)
+pub(crate) fn mine(esplora: bool) {
+    mine_blocks(esplora, 1)
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -127,7 +132,7 @@ pub fn get_tx_height(esplora: bool, txid: &str) -> Option<u64> {
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-pub fn mine_tx(esplora: bool, resume: bool, txid: &str) {
+pub fn mine_tx(esplora: bool, txid: &str) {
     eprintln!("trying to have TX {txid} mined");
     for _ in 0..10 {
         if let Some(conf_num) = get_tx_height(esplora, txid)
@@ -136,7 +141,7 @@ pub fn mine_tx(esplora: bool, resume: bool, txid: &str) {
             println!("TX with ID {txid} has been mined");
             return;
         }
-        mine(esplora, resume);
+        mine(esplora);
     }
     panic!("TX is not getting mined");
 }
@@ -158,11 +163,12 @@ pub(crate) fn force_mine_no_resume_when_alone(esplora: bool) {
     }
 }
 
-pub(crate) fn stop_mining() {
-    MINER.write().unwrap().stop_mining()
+pub(crate) fn stop_mining() -> MinerStopGuard {
+    MINER.write().unwrap().stop_mining();
+    MinerStopGuard
 }
 
-pub(crate) fn stop_mining_when_alone() {
+pub(crate) fn stop_mining_when_alone() -> MinerStopGuard {
     let t_0 = OffsetDateTime::now_utc();
     loop {
         if (OffsetDateTime::now_utc() - t_0).as_seconds_f32() > 120.0 {
@@ -176,10 +182,7 @@ pub(crate) fn stop_mining_when_alone() {
         drop(miner);
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
-}
-
-pub(crate) fn resume_mining() {
-    MINER.write().unwrap().resume_mining()
+    MinerStopGuard
 }
 
 pub(crate) fn estimate_smart_fee(esplora: bool) -> bool {

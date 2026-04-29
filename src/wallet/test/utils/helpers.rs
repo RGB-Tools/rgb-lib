@@ -215,7 +215,7 @@ pub(crate) fn send_sats_to_address(address: String, sats: Option<u64>) {
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn fund_wallet(address: String) {
     send_to_address(address);
-    mine(false, false);
+    mine(false);
 }
 
 pub(crate) fn check_test_transfer_status_recipient(

@@ -58,7 +58,7 @@ fn success() {
         }
     );
 
-    mine(false, false);
+    mine(false);
 
     assert!(test_refresh_asset(&mut wallet, online, &asset.asset_id));
     show_unspent_colorings(&mut wallet, "after inflate mine + refresh");
@@ -225,7 +225,7 @@ fn success() {
     show_unspent_colorings(&mut wallet, "after send refresh 1");
 
     // transfers progress to status Settled after tx mining + refresh
-    mine(false, false);
+    mine(false);
     std::thread::sleep(Duration::from_millis(1000)); // make sure updated_at will be at least +1s
     wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
     wait_for_refresh(&mut wallet, online, Some(&asset.asset_id), None);
@@ -281,7 +281,7 @@ fn success() {
         &asset.asset_id,
         &last_inflation_amounts,
     );
-    mine(false, false);
+    mine(false);
     wait_for_refresh(&mut wallet, online, Some(&asset.asset_id), None);
     show_unspent_colorings(&mut wallet, "after last inflate mine + refresh");
 
@@ -329,7 +329,7 @@ fn success() {
 
     wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
     wait_for_refresh(&mut wallet, online, Some(&asset.asset_id), None);
-    mine(false, false);
+    mine(false);
     wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
     wait_for_refresh(&mut wallet, online, Some(&asset.asset_id), None);
 
@@ -452,7 +452,7 @@ fn fail() {
     assert!(!txid.is_empty());
     wait_for_refresh(&mut wallet_nia, online_nia, None, None);
     wait_for_refresh(&mut wallet, online, None, None);
-    mine(false, false);
+    mine(false);
     wait_for_refresh(&mut wallet_nia, online_nia, None, None);
     wait_for_refresh(&mut wallet, online, None, None);
     let transfer_recv = get_test_transfer_recipient(&wallet_nia, &receive_data.recipient_id);

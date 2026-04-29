@@ -15,7 +15,7 @@ fn success() {
     // initial balance
     fund_wallet(test_get_address(&mut wallet));
     test_create_utxos_default(&mut wallet, online);
-    mine(false, false);
+    mine(false);
     let expected_balance = BtcBalance {
         vanilla: Balance {
             settled: 99994347,
@@ -44,7 +44,7 @@ fn success() {
         bak_info_before.last_operation_timestamp
     );
     assert!(!txid.is_empty());
-    mine(false, false);
+    mine(false);
     let expected_balance = BtcBalance {
         vanilla: Balance {
             settled: 99993038,
@@ -287,7 +287,7 @@ fn begin_reservation_interactions() {
     assert_eq!(wts.len(), 1);
 
     // list_transactions sees it as SendBtc
-    mine(false, false);
+    mine(false);
     let transactions = test_list_transactions(&mut wallet, Some(online));
     let entry = transactions
         .iter()

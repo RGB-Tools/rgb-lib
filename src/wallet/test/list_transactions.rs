@@ -8,7 +8,7 @@ fn success() {
 
     let amount: u64 = 66;
 
-    stop_mining_when_alone();
+    let _guard = stop_mining_when_alone();
     let (mut wallet, online) = get_empty_wallet!();
     let (mut rcv_wallet, rcv_online) = get_empty_wallet!();
 
@@ -57,7 +57,7 @@ fn success() {
             .any(|t| t.confirmation_time.is_none())
     );
     // sync wallet when online is provided
-    resume_mining();
+    drop(_guard);
     let transactions = test_list_transactions(&mut wallet, Some(online));
     let rcv_transactions = test_list_transactions(&mut rcv_wallet, Some(rcv_online));
     assert!(transactions.iter().all(|t| t.confirmation_time.is_some()));
@@ -85,7 +85,7 @@ fn success() {
     // settle the transfer so the tx gets broadcasted and receiver sees the new UTXO
     wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
     wait_for_refresh(&mut wallet, online, None, None);
-    mine(false, false);
+    mine(false);
     wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
     wait_for_refresh(&mut wallet, online, None, None);
     let transactions = test_list_transactions(&mut wallet, Some(online));
@@ -110,7 +110,7 @@ fn success() {
     );
 
     drain_wallet(&mut wallet, online);
-    mine(false, false);
+    mine(false);
     let transactions = test_list_transactions(&mut wallet, Some(online));
     assert_eq!(transactions.len(), 4);
     assert!(

@@ -1868,11 +1868,11 @@ pub(super) fn settle_transfer(
     }
     if let Some(psbt) = psbt {
         let txid = Psbt::from_str(psbt).unwrap().get_txid().to_string();
-        mine_tx(false, false, &txid);
+        mine_tx(false, &txid);
     } else if let Some(txid) = txid {
-        mine_tx(false, false, txid);
+        mine_tx(false, txid);
     } else {
-        mine(false, false);
+        mine(false);
     }
     for wallet in &mut *receivers {
         wallet.refresh(asset_id);

@@ -37,7 +37,7 @@ fn success() {
     // - 1 WaitingCounterparty + 1 WaitingConfirmations ountgoing
     // - 1 WaitingCounterparty + 1 WaitingConfirmations incoming
 
-    stop_mining();
+    let _guard = stop_mining();
 
     // wallet 1 > wallet 2 WaitingConfirmations and vice versa
     let receive_data_2a = test_blind_receive(&mut wallet_2);
@@ -223,9 +223,10 @@ fn success() {
         TransferStatus::WaitingCounterparty
     ));
 
-    mine(false, true);
-    mine_tx(false, false, &txid_2a);
-    mine_tx(false, false, &txid_2b);
+    drop(_guard);
+    mine(false);
+    mine_tx(false, &txid_2a);
+    mine_tx(false, &txid_2b);
 
     // refresh incoming WaitingConfirmations only (wallet 2)
     assert!(
@@ -366,7 +367,7 @@ fn nia_with_media() {
     let assets_list = test_list_assets(&wallet_2, &[]);
     assert!(assets_list.nia.unwrap()[0].media.is_some());
     wait_for_refresh(&mut wallet_1, online_1, None, None);
-    mine(false, false);
+    mine(false);
     wait_for_refresh(&mut wallet_2, online_2, None, None);
     wait_for_refresh(&mut wallet_1, online_1, None, None);
 
@@ -387,7 +388,7 @@ fn nia_with_media() {
     let assets_list = test_list_assets(&wallet_3, &[]);
     assert!(assets_list.nia.unwrap()[0].media.is_some());
     wait_for_refresh(&mut wallet_2, online_2, None, None);
-    mine(false, false);
+    mine(false);
     wait_for_refresh(&mut wallet_3, online_3, None, None);
     wait_for_refresh(&mut wallet_2, online_2, None, None);
     let rcv_transfer = get_test_transfer_recipient(&wallet_3, &receive_data.recipient_id);
@@ -439,7 +440,7 @@ fn nia_with_details() {
     // settle transfer
     wait_for_refresh(&mut wallet_2, online_2, None, None);
     wait_for_refresh(&mut wallet_1, online_1, None, None);
-    mine(false, false);
+    mine(false);
     wait_for_refresh(&mut wallet_2, online_2, None, None);
     wait_for_refresh(&mut wallet_1, online_1, None, None);
 
@@ -460,7 +461,7 @@ fn nia_with_details() {
     // settle transfer
     wait_for_refresh(&mut wallet_3, online_3, None, None);
     wait_for_refresh(&mut wallet_2, online_2, None, None);
-    mine(false, false);
+    mine(false);
     wait_for_refresh(&mut wallet_3, online_3, None, None);
     wait_for_refresh(&mut wallet_2, online_2, None, None);
     let rcv_transfer = get_test_transfer_recipient(&wallet_3, &receive_data.recipient_id);
@@ -539,7 +540,7 @@ fn uda_with_media() {
     let assets_list = test_list_assets(&wallet_2, &[]);
     assert!(assets_list.uda.unwrap()[0].media.is_some());
     wait_for_refresh(&mut wallet_1, online_1, None, None);
-    mine(false, false);
+    mine(false);
     wait_for_refresh(&mut wallet_2, online_2, None, None);
     wait_for_refresh(&mut wallet_1, online_1, None, None);
 
@@ -560,7 +561,7 @@ fn uda_with_media() {
     let assets_list = test_list_assets(&wallet_3, &[]);
     assert!(assets_list.uda.unwrap()[0].media.is_some());
     wait_for_refresh(&mut wallet_2, online_2, None, None);
-    mine(false, false);
+    mine(false);
     wait_for_refresh(&mut wallet_3, online_3, None, None);
     wait_for_refresh(&mut wallet_2, online_2, None, None);
     let rcv_transfer = get_test_transfer_recipient(&wallet_3, &receive_data.recipient_id);
@@ -631,7 +632,7 @@ fn uda_with_preview_and_reserves() {
             .is_none()
     );
     wait_for_refresh(&mut wallet_1, online_1, None, None);
-    mine(false, false);
+    mine(false);
     wait_for_refresh(&mut wallet_2, online_2, None, None);
     wait_for_refresh(&mut wallet_1, online_1, None, None);
 
@@ -661,7 +662,7 @@ fn uda_with_preview_and_reserves() {
     assert_eq!(token.attachments, HashMap::new());
     assert!(token.reserves);
     wait_for_refresh(&mut wallet_2, online_2, None, None);
-    mine(false, false);
+    mine(false);
     wait_for_refresh(&mut wallet_3, online_3, None, None);
     wait_for_refresh(&mut wallet_2, online_2, None, None);
     let rcv_transfer = get_test_transfer_recipient(&wallet_3, &receive_data.recipient_id);
@@ -724,7 +725,7 @@ fn skip_sync() {
     // - 1 WaitingCounterparty + 1 WaitingConfirmations ountgoing
     // - 1 WaitingCounterparty + 1 WaitingConfirmations incoming
 
-    stop_mining();
+    let _guard = stop_mining();
 
     // wallet 1 > wallet 2 WaitingConfirmations and vice versa
     let receive_data_2a = test_blind_receive(&mut wallet_2);
@@ -923,7 +924,8 @@ fn skip_sync() {
         TransferStatus::WaitingCounterparty
     ));
 
-    mine(false, true);
+    drop(_guard);
+    mine(false);
 
     // refresh incoming WaitingConfirmations only (wallet 2), skipping sync
     assert!(

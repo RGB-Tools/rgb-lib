@@ -67,7 +67,7 @@ fn success() {
     )]);
     let txid = test_send(&mut wallet, online, &recipient_map);
     assert!(!txid.is_empty());
-    stop_mining();
+    let _guard = stop_mining();
     wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
     show_unspent_colorings(&mut rcv_wallet, "receiver run 1 after refresh 1");
     show_unspent_colorings(&mut wallet, "sender run 1 no refresh");
@@ -107,7 +107,8 @@ fn success() {
 
     // progress transfer to Settled
     wait_for_refresh(&mut wallet, online, None, None);
-    mine(false, true);
+    drop(_guard);
+    mine(false);
     wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
     wait_for_refresh(&mut wallet, online, None, None);
 
@@ -363,7 +364,7 @@ fn fail() {
         TransferStatus::WaitingCounterparty
     ));
 
-    stop_mining();
+    let _guard = stop_mining();
 
     // don't fail unknown idx
     let result = rcv_wallet.fail_transfers(rcv_online, Some(UNKNOWN_IDX), false, false);
@@ -407,7 +408,8 @@ fn fail() {
     ));
 
     // mine and refresh so transfers can settle
-    mine(false, true);
+    drop(_guard);
+    mine(false);
     wait_for_refresh(&mut wallet, online, Some(&asset_id), None);
     wait_for_refresh(&mut rcv_wallet, rcv_online, Some(&asset_id), None);
 
@@ -552,7 +554,7 @@ fn skip_sync() {
     )]);
     let txid = test_send(&mut wallet, online, &recipient_map);
     assert!(!txid.is_empty());
-    stop_mining();
+    let _guard = stop_mining();
     wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
     show_unspent_colorings(&mut rcv_wallet, "receiver run 1 after refresh 1");
     show_unspent_colorings(&mut wallet, "sender run 1 no refresh");
@@ -596,7 +598,8 @@ fn skip_sync() {
 
     // progress transfer to Settled
     wait_for_refresh(&mut wallet, online, None, None);
-    mine(false, true);
+    drop(_guard);
+    mine(false);
     wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
     wait_for_refresh(&mut wallet, online, None, None);
 
