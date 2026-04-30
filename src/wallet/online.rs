@@ -24,7 +24,7 @@ pub trait WalletOnline: WalletOffline {
     fn check_fee_rate(&self, fee_rate: u64) -> Result<FeeRate, Error> {
         #[cfg(test)]
         if skip_check_fee_rate() {
-            return Ok(FeeRate::from_sat_per_vb_unchecked(fee_rate));
+            return Ok(FeeRate::from_sat_per_vb(fee_rate).unwrap());
         };
         if fee_rate < MIN_FEE_RATE {
             return Err(Error::InvalidFeeRate {

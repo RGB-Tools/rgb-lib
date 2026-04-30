@@ -41,7 +41,7 @@ fn success() {
             address.assume_checked().script_pubkey(),
             BdkAmount::from_sat(amt_sat),
         )
-        .fee_rate(FeeRate::from_sat_per_vb_unchecked(FEE_RATE));
+        .fee_rate(FeeRate::from_sat_per_vb_u32(FEE_RATE as u32));
     let mut psbt = tx_builder.finish().unwrap();
     let mut psbt_copy = psbt.clone();
     assert!(
@@ -386,7 +386,7 @@ fn color_psbt_uda() {
     tx_builder
         .drain_wallet()
         .drain_to(p2wpkh_addr.script_pubkey())
-        .fee_rate(FeeRate::from_sat_per_vb_unchecked(FEE_RATE));
+        .fee_rate(FeeRate::from_sat_per_vb_u32(FEE_RATE as u32));
     let mut psbt = tx_builder.finish().unwrap();
     assert!(
         !psbt
@@ -502,7 +502,7 @@ fn color_psbt_fail() {
             address.assume_checked().script_pubkey(),
             BdkAmount::from_sat(amt_sat),
         )
-        .fee_rate(FeeRate::from_sat_per_vb_unchecked(FEE_RATE));
+        .fee_rate(FeeRate::from_sat_per_vb_u32(FEE_RATE as u32));
     let mut psbt = tx_builder.finish().unwrap();
 
     // prepare coloring data
