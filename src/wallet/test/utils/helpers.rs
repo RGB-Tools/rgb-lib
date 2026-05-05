@@ -223,7 +223,9 @@ pub(crate) fn check_test_transfer_status_recipient(
     recipient_id: &str,
     expected_status: TransferStatus,
 ) -> bool {
-    let transfers = wallet.database().iter_transfers().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let transfers = txn.iter_transfers().unwrap();
+    txn.commit().unwrap();
     let mut recipient_transfers = transfers
         .iter()
         .filter(|t| t.recipient_id.as_deref() == Some(recipient_id));
@@ -309,10 +311,10 @@ pub(crate) fn compare_test_directories(src: &Path, dst: &Path, skip: &[&str]) {
 }
 
 pub(crate) fn get_test_batch_transfers(wallet: &Wallet, txid: &str) -> Vec<DbBatchTransfer> {
-    wallet
-        .database()
-        .iter_batch_transfers()
-        .unwrap()
+    let txn = wallet.database().begin_transaction().unwrap();
+    let batch_transfers = txn.iter_batch_transfers().unwrap();
+    txn.commit().unwrap();
+    batch_transfers
         .into_iter()
         .filter(|b| b.txid == Some(txid.to_string()))
         .collect()
@@ -322,10 +324,10 @@ pub(crate) fn get_test_asset_transfers(
     wallet: &Wallet,
     batch_transfer_idx: i32,
 ) -> Vec<DbAssetTransfer> {
-    wallet
-        .database()
-        .iter_asset_transfers()
-        .unwrap()
+    let txn = wallet.database().begin_transaction().unwrap();
+    let asset_transfers = txn.iter_asset_transfers().unwrap();
+    txn.commit().unwrap();
+    asset_transfers
         .into_iter()
         .filter(|at| at.batch_transfer_idx == batch_transfer_idx)
         .collect()
@@ -335,10 +337,10 @@ pub(crate) fn get_test_transfers(
     wallet: &Wallet,
     asset_transfer_idx: i32,
 ) -> impl Iterator<Item = DbTransfer> {
-    wallet
-        .database()
-        .iter_transfers()
-        .unwrap()
+    let txn = wallet.database().begin_transaction().unwrap();
+    let transfers = txn.iter_transfers().unwrap();
+    txn.commit().unwrap();
+    transfers
         .into_iter()
         .filter(move |t| t.asset_transfer_idx == asset_transfer_idx)
 }
@@ -352,20 +354,20 @@ pub(crate) fn get_test_asset_transfer(wallet: &Wallet, batch_transfer_idx: i32) 
 }
 
 pub(crate) fn get_test_colorings(wallet: &Wallet, asset_transfer_idx: i32) -> Vec<DbColoring> {
-    wallet
-        .database()
-        .iter_colorings()
-        .unwrap()
+    let txn = wallet.database().begin_transaction().unwrap();
+    let colorings = txn.iter_colorings().unwrap();
+    txn.commit().unwrap();
+    colorings
         .into_iter()
         .filter(|c| c.asset_transfer_idx == asset_transfer_idx)
         .collect()
 }
 
 pub(crate) fn get_test_transfer_recipient(wallet: &Wallet, recipient_id: &str) -> DbTransfer {
-    let mut transfers = wallet
-        .database()
-        .iter_transfers()
-        .unwrap()
+    let txn = wallet.database().begin_transaction().unwrap();
+    let transfers = txn.iter_transfers().unwrap();
+    txn.commit().unwrap();
+    let mut transfers = transfers
         .into_iter()
         .filter(|t| t.recipient_id == Some(recipient_id.to_string()) && t.incoming);
     let transfer = transfers.next().unwrap();
@@ -412,7 +414,9 @@ pub(crate) fn get_test_transfer_data(
     wallet: &Wallet,
     transfer: &DbTransfer,
 ) -> (TransferData, DbAssetTransfer) {
-    let db_data = wallet.database().get_db_data(false).unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let db_data = txn.get_db_data(false).unwrap();
+    txn.commit().unwrap();
     let (asset_transfer, batch_transfer) = transfer
         .related_transfers(&db_data.asset_transfers, &db_data.batch_transfers)
         .unwrap();
@@ -432,7 +436,9 @@ pub(crate) fn get_test_transfer_related(
     wallet: &Wallet,
     transfer: &DbTransfer,
 ) -> (DbAssetTransfer, DbBatchTransfer) {
-    let db_data = wallet.database().get_db_data(false).unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let db_data = txn.get_db_data(false).unwrap();
+    txn.commit().unwrap();
     transfer
         .related_transfers(&db_data.asset_transfers, &db_data.batch_transfers)
         .unwrap()
@@ -649,18 +655,21 @@ pub(crate) fn extract_opouts_from_transfer(
         .collect::<Vec<_>>();
     assert_eq!(asset_transfers.len(), 1);
     let asset_transfer = asset_transfers.first().unwrap();
-    let colorings: Vec<DbColoring> = wallet
-        .database()
+    let txn = wallet.database().begin_transaction().unwrap();
+    let colorings: Vec<DbColoring> = txn
         .iter_colorings()
         .unwrap()
         .into_iter()
         .filter(|c| c.asset_transfer_idx == asset_transfer.idx)
         .collect();
+    txn.commit().unwrap();
     if colorings.is_empty() {
         panic!("cannot find colorings for this transfer");
     }
     let txo_indices = colorings.iter().map(|c| c.txo_idx).collect::<Vec<_>>();
-    let db_txos = wallet.database().iter_txos().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let db_txos = txn.iter_txos().unwrap();
+    txn.commit().unwrap();
     let relevant_txos = db_txos.into_iter().filter(|t| txo_indices.contains(&t.idx));
     let mut outpoints = relevant_txos
         .map(|txo| OutPoint::from(txo.clone()))
@@ -706,10 +715,12 @@ pub(crate) fn show_unspent_colorings(wallet: &mut impl RgbWalletOpsOnline, msg: 
     let unspents = test_list_unspents(wallet, None, false)
         .into_iter()
         .filter(|u| u.utxo.colorable);
-    let db_txos = wallet.database().iter_txos().unwrap();
-    let db_colorings = wallet.database().iter_colorings().unwrap();
-    let db_asset_transfers = wallet.database().iter_asset_transfers().unwrap();
-    let db_batch_transfers = wallet.database().iter_batch_transfers().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let db_txos = txn.iter_txos().unwrap();
+    let db_colorings = txn.iter_colorings().unwrap();
+    let db_asset_transfers = txn.iter_asset_transfers().unwrap();
+    let db_batch_transfers = txn.iter_batch_transfers().unwrap();
+    txn.commit().unwrap();
     let pending_blind_transfers = get_pending_blind_transfers(wallet);
     for unspent in unspents {
         let outpoint = unspent.utxo.outpoint;

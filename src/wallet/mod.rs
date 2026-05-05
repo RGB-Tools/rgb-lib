@@ -55,9 +55,10 @@ pub use core::{SyncKeychain, SyncOptions, SyncStrategy};
 pub(crate) use indexer::Indexer;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) use objects::{
-    AssetInfo, AssetSpend, BeginOperationData, BtcChange, LocalRecipient, LocalRecipientData,
-    LocalWitnessData, OnlineData, PrepareRgbPsbtResult, PrepareTransferPsbtResult,
-    ReceivedConsignmentMeta, RefreshResultTrait,
+    AssetInfo, AssetSpend, BeginOperationData, BtcChange, FailTransfersOutcome, LocalRecipient,
+    LocalRecipientData, LocalWitnessData, OnlineData, PrepareRgbPsbtResult,
+    PrepareTransferPsbtResult, ReceivedConsignmentMeta, RefreshResultTrait,
+    TryFailBatchTransferOutcome,
 };
 pub(crate) use objects::{
     InfoAssetTransfer, InfoBatchTransfer, IssueData, IssuedAssetDetails, LocalAssetData,

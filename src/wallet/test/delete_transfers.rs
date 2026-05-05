@@ -9,9 +9,13 @@ fn success() {
     let (mut wallet, online) = get_funded_wallet!();
 
     // return false if no transfer has changed
-    let bak_info_before = wallet.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     assert!(!test_delete_transfers(&wallet, None, false));
-    let bak_info_after = wallet.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     assert_eq!(
         bak_info_after.last_operation_timestamp,
         bak_info_before.last_operation_timestamp
@@ -25,13 +29,17 @@ fn success() {
         &receive_data.recipient_id,
         TransferStatus::Failed
     ));
-    let bak_info_before = wallet.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     assert!(test_delete_transfers(
         &wallet,
         Some(receive_data.batch_transfer_idx),
         false
     ));
-    let bak_info_after = wallet.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
 
     // delete all Failed transfers
@@ -53,7 +61,9 @@ fn success() {
     show_unspent_colorings(&mut wallet, "run 1 before delete");
     test_delete_transfers(&wallet, None, false);
     show_unspent_colorings(&mut wallet, "run 1 after delete");
-    let transfers = wallet.database().iter_transfers().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let transfers = txn.iter_transfers().unwrap();
+    txn.commit().unwrap();
     assert_eq!(transfers.len(), 1);
     assert!(check_test_transfer_status_recipient(
         &wallet,
@@ -72,7 +82,9 @@ fn success() {
         Some(receive_data_3.batch_transfer_idx),
         false
     ));
-    let transfers = wallet.database().iter_transfers().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let transfers = txn.iter_transfers().unwrap();
+    txn.commit().unwrap();
     assert_eq!(transfers.len(), 0);
 
     // issue
@@ -112,7 +124,9 @@ fn success() {
     show_unspent_colorings(&mut wallet, "run 2 before delete");
     assert!(test_delete_transfers(&wallet, None, true));
     show_unspent_colorings(&mut wallet, "run 2 after delete");
-    let transfers = wallet.database().iter_transfers().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let transfers = txn.iter_transfers().unwrap();
+    txn.commit().unwrap();
     assert_eq!(transfers.len(), 2);
     assert!(check_test_transfer_status_recipient(
         &wallet,

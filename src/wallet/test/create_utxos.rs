@@ -9,9 +9,13 @@ fn success() {
     // up_to version with 0 allocatable UTXOs
     println!("\n=== up_to true, 0 allocatable");
     let (mut wallet, online) = get_funded_noutxo_wallet!();
-    let bak_info_before = wallet.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     test_create_utxos(&mut wallet, online, true, None, None, FEE_RATE, None);
-    let bak_info_after = wallet.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     let unspents = test_list_unspents(&mut wallet, None, false);
     assert_eq!(unspents.len(), (UTXO_NUM + 1) as usize);
@@ -346,11 +350,12 @@ fn begin_reservation_interactions() {
     assert!(!psbt_inputs.is_empty());
 
     // wallet_transaction(CreateUtxos) row exists with reservations matching inputs
-    let (wt, reservations) = wallet
-        .database()
+    let txn = wallet.database().begin_transaction().unwrap();
+    let (wt, reservations) = txn
         .get_wallet_transaction_with_reserved_txos_by_txid(&psbt_txid)
         .unwrap()
         .expect("wallet_transaction should exist after dry_run=false begin");
+    txn.commit().unwrap();
     assert_eq!(wt.r#type, WalletTransactionType::CreateUtxos);
     assert!(reservations.iter().all(|r| r.reserved_for == Some(wt.idx)));
     let reserved_set: HashSet<(String, u32)> = reservations
@@ -366,7 +371,9 @@ fn begin_reservation_interactions() {
     assert_eq!(pending[0].r#type, WalletTransactionType::CreateUtxos);
     // clear this in-flight create_utxos reservation
     wallet.abort_pending_vanilla_tx(psbt_txid).unwrap();
-    assert!(wallet.database().iter_reserved_txos().unwrap().is_empty());
+    let txn = wallet.database().begin_transaction().unwrap();
+    assert!(txn.iter_reserved_txos().unwrap().is_empty());
+    txn.commit().unwrap();
 
     // reserve (at least) one vanilla UTXO via send_btc_begin(dry_run=false). BDK's
     // coin selection only picks the minimum inputs for amount + fee, so one of the
@@ -381,13 +388,14 @@ fn begin_reservation_interactions() {
             false,
         )
         .unwrap();
-    let reserved_set: HashSet<(String, u32)> = wallet
-        .database()
+    let txn = wallet.database().begin_transaction().unwrap();
+    let reserved_set: HashSet<(String, u32)> = txn
         .iter_reserved_txos()
         .unwrap()
         .iter()
         .map(|r| (r.txid.clone(), r.vout))
         .collect();
+    txn.commit().unwrap();
     assert_eq!(reserved_set.len(), 1);
 
     // create_utxos_begin(dry_run=true) must not select any reserved outpoint

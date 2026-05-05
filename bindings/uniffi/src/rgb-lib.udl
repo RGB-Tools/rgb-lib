@@ -22,6 +22,7 @@ interface RgbLibError {
   CannotFailBatchTransfer();
   CannotFinalizePsbt();
   CannotUseIfaOnMainnet();
+  Database(string details);
   EmptyFile(string file_path);
   FailedBdkSync(string details);
   FailedBroadcast(string details);

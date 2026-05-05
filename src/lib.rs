@@ -220,9 +220,9 @@ use scrypt::{
     password_hash::{PasswordHasher, Salt, SaltString, rand_core::OsRng},
 };
 use sea_orm::{
-    ActiveValue, ColumnTrait, ConnectOptions, Database, DatabaseConnection, DbErr,
-    DeriveActiveEnum, EntityTrait, EnumIter, IntoActiveValue, JsonValue, QueryFilter, QueryOrder,
-    QueryResult, TryGetError, TryGetable, TryIntoModel,
+    ActiveValue, ColumnTrait, ConnectOptions, Database, DatabaseConnection, DatabaseTransaction,
+    DbErr, DeriveActiveEnum, EntityTrait, EnumIter, IntoActiveValue, JsonValue, QueryFilter,
+    QueryOrder, QueryResult, TransactionTrait, TryGetError, TryGetable, TryIntoModel,
 };
 use serde::de::{self, Unexpected, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -276,7 +276,7 @@ use crate::{
 };
 use crate::{
     database::{
-        RgbLibDatabase,
+        DbTxn, RgbLibDatabase,
         entities::{
             asset::{ActiveModel as DbAssetActMod, Model as DbAsset},
             asset_transfer::{ActiveModel as DbAssetTransferActMod, Model as DbAssetTransfer},

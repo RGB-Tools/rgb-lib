@@ -115,8 +115,9 @@ impl WalletOffline for Wallet {}
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 impl WalletOnline for Wallet {
-    fn wallet_specific_consistency_checks(&mut self) -> Result<(), Error> {
+    fn wallet_specific_consistency_checks(&mut self, txn: &DbTxn) -> Result<(), Error> {
         self.sync_wallet(
+            txn,
             SyncOptions {
                 keychain: SyncKeychain::Colored,
                 strategy: SyncStrategy::FullScan,
@@ -124,6 +125,7 @@ impl WalletOnline for Wallet {
             false,
         )?;
         self.sync_wallet(
+            txn,
             SyncOptions {
                 keychain: SyncKeychain::Vanilla {
                     lookback: self.vanilla_sync_lookback(),
@@ -138,8 +140,7 @@ impl WalletOnline for Wallet {
             .map(|u| u.outpoint.to_string())
             .collect();
         let bdk_utxos: HashSet<String> = HashSet::from_iter(bdk_utxos);
-        let db_utxos: Vec<String> = self
-            .database()
+        let db_utxos: Vec<String> = txn
             .iter_txos()?
             .into_iter()
             .filter(|t| !t.spent && t.exists)
@@ -251,11 +252,10 @@ impl Wallet {
     /// Return a new Bitcoin address from the vanilla wallet.
     pub fn get_address(&mut self) -> Result<String, Error> {
         info!(self.logger(), "Getting address...");
-
         let address = self.get_new_addresses(KeychainKind::Internal, 1)?;
-
-        self.update_backup_info(false)?;
-
+        let txn = self.database().begin_transaction()?;
+        self.update_backup_info(&txn, false)?;
+        txn.commit()?;
         info!(self.logger(), "Get address completed");
         Ok(address.to_string())
     }
@@ -268,26 +268,26 @@ impl Wallet {
     /// [`abort_pending_vanilla_tx`](Wallet::abort_pending_vanilla_tx).
     pub fn list_pending_vanilla_txs(&self) -> Result<Vec<PendingVanillaTx>, Error> {
         info!(self.logger(), "Listing pending vanilla TXs...");
-        let reserved_idxs: Vec<i32> = self
-            .database()
+        let txn = self.database().begin_transaction()?;
+        let reserved_idxs: Vec<i32> = txn
             .iter_reserved_txos()?
             .into_iter()
             .filter_map(|r| r.reserved_for)
             .collect::<HashSet<_>>()
             .into_iter()
             .collect();
-        if reserved_idxs.is_empty() {
-            return Ok(vec![]);
-        }
-        let result = self
-            .database()
-            .get_wallet_transactions_by_idxs(&reserved_idxs)?
-            .into_iter()
-            .map(|wt| PendingVanillaTx {
-                txid: wt.txid,
-                r#type: wt.r#type,
-            })
-            .collect();
+        let result = if reserved_idxs.is_empty() {
+            vec![]
+        } else {
+            txn.get_wallet_transactions_by_idxs(&reserved_idxs)?
+                .into_iter()
+                .map(|wt| PendingVanillaTx {
+                    txid: wt.txid,
+                    r#type: wt.r#type,
+                })
+                .collect()
+        };
+        txn.commit()?;
         info!(self.logger(), "List pending vanilla TXs completed");
         Ok(result)
     }
@@ -299,26 +299,29 @@ impl Wallet {
     /// aborted or has been broadcast).
     pub fn abort_pending_vanilla_tx(&self, txid: String) -> Result<(), Error> {
         info!(self.logger(), "Aborting pending vanilla TX {}...", txid);
-        let (wt, reservations) = self
-            .database()
+        let txn = self.database().begin_transaction()?;
+        let (wt, reservations) = txn
             .get_wallet_transaction_with_reserved_txos_by_txid(&txid)?
             .ok_or(Error::CannotAbortPendingVanillaTx)?;
         if reservations.is_empty() {
             return Err(Error::CannotAbortPendingVanillaTx);
         }
-        self.database().del_wallet_transaction(wt.idx)?; // relies on cascade to delete reserved txos
+        txn.del_wallet_transaction(wt.idx)?; // relies on cascade to delete reserved txos
+        self.update_backup_info(&txn, false)?;
+        txn.commit()?;
         info!(self.logger(), "Abort pending vanilla TX completed");
         Ok(())
     }
 
     fn finalize_offline_issuance<T: IssuedAssetDetails>(
         &self,
+        txn: &DbTxn,
         issue_data: &IssueData,
     ) -> Result<T, Error> {
         let mut runtime = self.rgb_runtime()?;
-        let asset = self.import_and_save_contract(issue_data, &mut runtime)?;
-        let result = T::from_issuance(self, &asset, issue_data)?;
-        self.update_backup_info(false)?;
+        let asset = self.import_and_save_contract(txn, issue_data, &mut runtime)?;
+        let result = T::from_issuance(txn, self, &asset, issue_data)?;
+        self.update_backup_info(txn, false)?;
         Ok(result)
     }
 
@@ -337,9 +340,13 @@ impl Wallet {
         precision: u8,
         amounts: Vec<u64>,
     ) -> Result<AssetNIA, Error> {
-        self.issue_asset_nia_with_impl(ticker, name, precision, amounts, |issue_data| {
-            self.finalize_offline_issuance(&issue_data)
-        })
+        let txn = self.database().begin_transaction()?;
+        let res =
+            self.issue_asset_nia_with_impl(&txn, ticker, name, precision, amounts, |issue_data| {
+                self.finalize_offline_issuance(&txn, &issue_data)
+            })?;
+        txn.commit()?;
+        Ok(res)
     }
 
     /// Issue a new RGB UDA asset with the provided `ticker`, `name`, optional `details` and
@@ -359,7 +366,9 @@ impl Wallet {
         media_file_path: Option<String>,
         attachments_file_paths: Vec<String>,
     ) -> Result<AssetUDA, Error> {
-        self.issue_asset_uda_with_impl(
+        let txn = self.database().begin_transaction()?;
+        let res = self.issue_asset_uda_with_impl(
+            &txn,
             ticker,
             name,
             details,
@@ -368,8 +377,9 @@ impl Wallet {
             attachments_file_paths,
             |issue_data| {
                 let mut runtime = self.rgb_runtime()?;
-                let asset = self.import_and_save_contract(&issue_data, &mut runtime)?;
+                let asset = self.import_and_save_contract(&txn, &issue_data, &mut runtime)?;
                 let asset_uda = AssetUDA::get_asset_details(
+                    &txn,
                     self,
                     &asset,
                     issue_data.asset_data.token.map(|t| t.into()),
@@ -380,10 +390,12 @@ impl Wallet {
                     None,
                     None,
                 )?;
-                self.update_backup_info(false)?;
+                self.update_backup_info(&txn, false)?;
                 Ok(asset_uda)
             },
-        )
+        )?;
+        txn.commit()?;
+        Ok(res)
     }
 
     /// Issue a new RGB CFA asset with the provided `name`, optional `details`, `precision` and
@@ -405,9 +417,18 @@ impl Wallet {
         amounts: Vec<u64>,
         file_path: Option<String>,
     ) -> Result<AssetCFA, Error> {
-        self.issue_asset_cfa_with_impl(name, details, precision, amounts, file_path, |issue_data| {
-            self.finalize_offline_issuance(&issue_data)
-        })
+        let txn = self.database().begin_transaction()?;
+        let res = self.issue_asset_cfa_with_impl(
+            &txn,
+            name,
+            details,
+            precision,
+            amounts,
+            file_path,
+            |issue_data| self.finalize_offline_issuance(&txn, &issue_data),
+        )?;
+        txn.commit()?;
+        Ok(res)
     }
 
     /// Issue a new RGB IFA asset with the provided `ticker`, `name`, `precision`, `amounts` and
@@ -430,15 +451,19 @@ impl Wallet {
         inflation_amounts: Vec<u64>,
         reject_list_url: Option<String>,
     ) -> Result<AssetIFA, Error> {
-        self.issue_asset_ifa_with_impl(
+        let txn = self.database().begin_transaction()?;
+        let res = self.issue_asset_ifa_with_impl(
+            &txn,
             ticker,
             name,
             precision,
             amounts,
             inflation_amounts,
             reject_list_url,
-            |issue_data| self.finalize_offline_issuance(&issue_data),
-        )
+            |issue_data| self.finalize_offline_issuance(&txn, &issue_data),
+        )?;
+        txn.commit()?;
+        Ok(res)
     }
 
     /// Blind an UTXO to receive RGB assets and return the resulting [`ReceiveData`].
@@ -477,20 +502,19 @@ impl Wallet {
             asset_id,
             expiration_timestamp,
         );
-
+        let txn = self.database().begin_transaction()?;
         let receive_data_internal = self.create_receive_data(
+            &txn,
             asset_id,
             assignment,
             expiration_timestamp.map(|t| t as i64),
             transport_endpoints,
             RecipientType::Blind,
         )?;
-
         let batch_transfer_idx =
-            self.store_receive_transfer(&receive_data_internal, min_confirmations)?;
-
-        self.update_backup_info(false)?;
-
+            self.store_receive_transfer(&txn, &receive_data_internal, min_confirmations)?;
+        self.update_backup_info(&txn, false)?;
+        txn.commit()?;
         info!(self.logger(), "Blind receive completed");
         Ok(ReceiveData {
             invoice: receive_data_internal.invoice_string,
@@ -536,20 +560,19 @@ impl Wallet {
             asset_id,
             expiration_timestamp,
         );
-
+        let txn = self.database().begin_transaction()?;
         let receive_data_internal = self.create_receive_data(
+            &txn,
             asset_id,
             assignment,
             expiration_timestamp.map(|t| t as i64),
             transport_endpoints,
             RecipientType::Witness,
         )?;
-
         let batch_transfer_idx =
-            self.store_receive_transfer(&receive_data_internal, min_confirmations)?;
-
-        self.update_backup_info(false)?;
-
+            self.store_receive_transfer(&txn, &receive_data_internal, min_confirmations)?;
+        self.update_backup_info(&txn, false)?;
+        txn.commit()?;
         info!(self.logger(), "Witness receive completed");
         Ok(ReceiveData {
             invoice: receive_data_internal.invoice_string,
@@ -593,10 +616,13 @@ impl Wallet {
         info!(self.logger(), "Creating UTXOs...");
         self.check_xprv()?;
         self.check_online(online)?;
-        let mut psbt = self.create_utxos_begin_impl(up_to, num, size, fee_rate, skip_sync, true)?;
+        let txn = self.database().begin_transaction()?;
+        let mut psbt =
+            self.create_utxos_begin_impl(&txn, up_to, num, size, fee_rate, skip_sync, true)?;
         self.sign_psbt_impl(&mut psbt, None)?;
-        let res = self.create_utxos_end_impl(&psbt)?;
-        self.update_backup_info(false)?;
+        let res = self.create_utxos_end_impl(&txn, &psbt)?;
+        self.update_backup_info(&txn, false)?;
+        txn.commit()?;
         info!(self.logger(), "Create UTXOs completed");
         Ok(res)
     }
@@ -640,7 +666,10 @@ impl Wallet {
     ) -> Result<String, Error> {
         info!(self.logger(), "Creating UTXOs (begin)...");
         self.check_online(online)?;
-        let res = self.create_utxos_begin_impl(up_to, num, size, fee_rate, skip_sync, dry_run)?;
+        let txn = self.database().begin_transaction()?;
+        let res =
+            self.create_utxos_begin_impl(&txn, up_to, num, size, fee_rate, skip_sync, dry_run)?;
+        txn.commit()?;
         info!(self.logger(), "Create UTXOs (begin) completed");
         Ok(res.to_string())
     }
@@ -657,7 +686,9 @@ impl Wallet {
         info!(self.logger(), "Creating UTXOs (end)...");
         self.check_online(online)?;
         let psbt = Psbt::from_str(&signed_psbt)?;
-        let res = self.create_utxos_end_impl(&psbt)?;
+        let txn = self.database().begin_transaction()?;
+        let res = self.create_utxos_end_impl(&txn, &psbt)?;
+        txn.commit()?;
         info!(self.logger(), "Create UTXOs (end) completed");
         Ok(res)
     }
@@ -687,10 +718,12 @@ impl Wallet {
         info!(self.logger(), "Draining to '{}'...", address);
         self.check_xprv()?;
         self.check_online(online)?;
-        let mut psbt = self.drain_to_begin_impl(address, fee_rate, true)?;
+        let txn = self.database().begin_transaction()?;
+        let mut psbt = self.drain_to_begin_impl(&txn, address, fee_rate, true)?;
         self.sign_psbt_impl(&mut psbt, None)?;
-        let tx = self.drain_to_end_impl(&psbt)?;
-        self.update_backup_info(false)?;
+        let tx = self.drain_to_end_impl(&txn, &psbt)?;
+        self.update_backup_info(&txn, false)?;
+        txn.commit()?;
         info!(self.logger(), "Drain completed");
         Ok(tx.compute_txid().to_string())
     }
@@ -721,7 +754,9 @@ impl Wallet {
     ) -> Result<String, Error> {
         info!(self.logger(), "Draining (begin) to '{}'...", address);
         self.check_online(online)?;
-        let psbt = self.drain_to_begin_impl(address, fee_rate, dry_run)?;
+        let txn = self.database().begin_transaction()?;
+        let psbt = self.drain_to_begin_impl(&txn, address, fee_rate, dry_run)?;
+        txn.commit()?;
         info!(self.logger(), "Drain (begin) completed");
         Ok(psbt.to_string())
     }
@@ -738,8 +773,10 @@ impl Wallet {
         info!(self.logger(), "Draining (end)...");
         self.check_online(online)?;
         let psbt = Psbt::from_str(&signed_psbt)?;
-        let tx = self.drain_to_end_impl(&psbt)?;
-        self.update_backup_info(false)?;
+        let txn = self.database().begin_transaction()?;
+        let tx = self.drain_to_end_impl(&txn, &psbt)?;
+        self.update_backup_info(&txn, false)?;
+        txn.commit()?;
         info!(self.logger(), "Drain (end) completed");
         Ok(tx.compute_txid().to_string())
     }
@@ -762,7 +799,9 @@ impl Wallet {
         info!(self.logger(), "Sending to: {:?}...", recipient_map);
         self.check_xprv()?;
         self.check_online(online)?;
+        let txn = self.database().begin_transaction()?;
         let mut begin_op_data = self.send_begin_impl(
+            &txn,
             recipient_map,
             donation,
             fee_rate,
@@ -771,8 +810,9 @@ impl Wallet {
             true,
         )?;
         self.sign_psbt_impl(&mut begin_op_data.psbt, None)?;
-        let res = self.send_end_impl(&begin_op_data.psbt)?;
-        self.update_backup_info(false)?;
+        let res = self.send_end_impl(&txn, &begin_op_data.psbt)?;
+        self.update_backup_info(&txn, false)?;
+        txn.commit()?;
         info!(self.logger(), "Send completed");
         Ok(res)
     }
@@ -826,7 +866,9 @@ impl Wallet {
     ) -> Result<SendBeginResult, Error> {
         info!(self.logger(), "Sending (begin) to: {:?}...", recipient_map);
         self.check_online(online)?;
+        let txn = self.database().begin_transaction()?;
         let begin_op_data = self.send_begin_impl(
+            &txn,
             recipient_map,
             donation,
             fee_rate,
@@ -834,7 +876,8 @@ impl Wallet {
             expiration_timestamp.map(|t| t as i64),
             dry_run,
         )?;
-        self.update_backup_info(false)?;
+        self.update_backup_info(&txn, false)?;
+        txn.commit()?;
         info!(self.logger(), "Send (begin) completed");
         Ok(SendBeginResult {
             psbt: begin_op_data.psbt.to_string(),
@@ -869,8 +912,10 @@ impl Wallet {
         info!(self.logger(), "Sending (end)...");
         self.check_online(online)?;
         let psbt = Psbt::from_str(&signed_psbt)?;
-        let res = self.send_end_impl(&psbt)?;
-        self.update_backup_info(false)?;
+        let txn = self.database().begin_transaction()?;
+        let res = self.send_end_impl(&txn, &psbt)?;
+        self.update_backup_info(&txn, false)?;
+        txn.commit()?;
         info!(self.logger(), "Send (end) completed");
         Ok(res)
     }
@@ -892,9 +937,12 @@ impl Wallet {
         info!(self.logger(), "Sending BTC...");
         self.check_xprv()?;
         self.check_online(online)?;
-        let mut psbt = self.send_btc_begin_impl(address, amount, fee_rate, skip_sync, true)?;
+        let txn = self.database().begin_transaction()?;
+        let mut psbt =
+            self.send_btc_begin_impl(&txn, address, amount, fee_rate, skip_sync, true)?;
         self.sign_psbt_impl(&mut psbt, None)?;
-        let res = self.send_btc_end_impl(&psbt)?;
+        let res = self.send_btc_end_impl(&txn, &psbt)?;
+        txn.commit()?;
         info!(self.logger(), "Send BTC completed");
         Ok(res)
     }
@@ -923,7 +971,9 @@ impl Wallet {
     ) -> Result<String, Error> {
         info!(self.logger(), "Sending BTC (begin)...");
         self.check_online(online)?;
-        let res = self.send_btc_begin_impl(address, amount, fee_rate, skip_sync, dry_run)?;
+        let txn = self.database().begin_transaction()?;
+        let res = self.send_btc_begin_impl(&txn, address, amount, fee_rate, skip_sync, dry_run)?;
+        txn.commit()?;
         info!(self.logger(), "Send BTC (begin) completed");
         Ok(res.to_string())
     }
@@ -940,7 +990,9 @@ impl Wallet {
         info!(self.logger(), "Sending BTC (end)...");
         self.check_online(online)?;
         let psbt = Psbt::from_str(&signed_psbt)?;
-        let res = self.send_btc_end_impl(&psbt)?;
+        let txn = self.database().begin_transaction()?;
+        let res = self.send_btc_end_impl(&txn, &psbt)?;
+        txn.commit()?;
         info!(self.logger(), "Send BTC (end) completed");
         Ok(res)
     }
@@ -965,7 +1017,9 @@ impl Wallet {
         );
         self.check_xprv()?;
         self.check_online(online)?;
+        let txn = self.database().begin_transaction()?;
         let mut begin_op_data = self.inflate_begin_impl(
+            &txn,
             asset_id,
             inflation_amounts,
             fee_rate,
@@ -973,8 +1027,9 @@ impl Wallet {
             true,
         )?;
         self.sign_psbt_impl(&mut begin_op_data.psbt, None)?;
-        let res = self.inflate_end_impl(&begin_op_data.psbt)?;
-        self.update_backup_info(false)?;
+        let res = self.inflate_end_impl(&txn, &begin_op_data.psbt)?;
+        self.update_backup_info(&txn, false)?;
+        txn.commit()?;
         info!(self.logger(), "Inflate completed");
         Ok(res)
     }
@@ -1016,14 +1071,17 @@ impl Wallet {
             "Inflating (begin) amounts: {:?}...", inflation_amounts
         );
         self.check_online(online)?;
+        let txn = self.database().begin_transaction()?;
         let begin_operation_data = self.inflate_begin_impl(
+            &txn,
             asset_id,
             inflation_amounts,
             fee_rate,
             min_confirmations,
             dry_run,
         )?;
-        self.update_backup_info(false)?;
+        self.update_backup_info(&txn, false)?;
+        txn.commit()?;
         info!(self.logger(), "Inflate (begin) completed");
         Ok(InflateBeginResult {
             psbt: begin_operation_data.psbt.to_string(),
@@ -1057,8 +1115,10 @@ impl Wallet {
         info!(self.logger(), "Inflating (end)...");
         self.check_online(online)?;
         let psbt = Psbt::from_str(&signed_psbt)?;
-        let res = self.inflate_end_impl(&psbt)?;
-        self.update_backup_info(false)?;
+        let txn = self.database().begin_transaction()?;
+        let res = self.inflate_end_impl(&txn, &psbt)?;
+        self.update_backup_info(&txn, false)?;
+        txn.commit()?;
         info!(self.logger(), "Inflate (end) completed");
         Ok(res)
     }
@@ -1080,11 +1140,13 @@ impl Wallet {
         info!(self.logger(), "Burning amount: {}...", amount);
         self.check_xprv()?;
         self.check_online(online)?;
+        let txn = self.database().begin_transaction()?;
         let mut begin_op_data =
-            self.burn_begin_impl(asset_id, amount, fee_rate, min_confirmations, true)?;
+            self.burn_begin_impl(&txn, asset_id, amount, fee_rate, min_confirmations, true)?;
         self.sign_psbt_impl(&mut begin_op_data.psbt, None)?;
-        let res = self.burn_end_impl(&begin_op_data.psbt)?;
-        self.update_backup_info(false)?;
+        let res = self.burn_end_impl(&txn, &begin_op_data.psbt)?;
+        self.update_backup_info(&txn, false)?;
+        txn.commit()?;
         info!(self.logger(), "Burn completed");
         Ok(res)
     }
@@ -1117,9 +1179,11 @@ impl Wallet {
     ) -> Result<BurnBeginResult, Error> {
         info!(self.logger(), "Burning (begin) amount: {}...", amount);
         self.check_online(online)?;
+        let txn = self.database().begin_transaction()?;
         let begin_operation_data =
-            self.burn_begin_impl(asset_id, amount, fee_rate, min_confirmations, dry_run)?;
-        self.update_backup_info(false)?;
+            self.burn_begin_impl(&txn, asset_id, amount, fee_rate, min_confirmations, dry_run)?;
+        self.update_backup_info(&txn, false)?;
+        txn.commit()?;
         info!(self.logger(), "Burn (begin) completed");
         Ok(BurnBeginResult {
             psbt: begin_operation_data.psbt.to_string(),
@@ -1152,8 +1216,10 @@ impl Wallet {
         info!(self.logger(), "Burning (end)...");
         self.check_online(online)?;
         let psbt = Psbt::from_str(&signed_psbt)?;
-        let res = self.burn_end_impl(&psbt)?;
-        self.update_backup_info(false)?;
+        let txn = self.database().begin_transaction()?;
+        let res = self.burn_end_impl(&txn, &psbt)?;
+        self.update_backup_info(&txn, false)?;
+        txn.commit()?;
         info!(self.logger(), "Burn (end) completed");
         Ok(res)
     }

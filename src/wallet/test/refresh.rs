@@ -51,9 +51,13 @@ fn success() {
         }],
     )]);
     // return false if no transfer has changed
-    let bak_info_before = wallet_2.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet_2.database().begin_transaction().unwrap();
+    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     assert!(!test_refresh_all(&mut wallet_2, online_2));
-    let bak_info_after = wallet_2.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet_2.database().begin_transaction().unwrap();
+    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     assert_eq!(
         bak_info_after.last_operation_timestamp,
         bak_info_before.last_operation_timestamp
@@ -73,9 +77,13 @@ fn success() {
     let txid_2a = test_send(&mut wallet_2, online_2, &recipient_map_2a);
     assert!(!txid_2a.is_empty());
     assert!(test_refresh_all(&mut wallet_1, online_1));
-    let bak_info_before = wallet_2.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet_2.database().begin_transaction().unwrap();
+    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     assert!(test_refresh_all(&mut wallet_2, online_2));
-    let bak_info_after = wallet_2.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet_2.database().begin_transaction().unwrap();
+    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     assert!(
         test_refresh_result(
@@ -335,20 +343,17 @@ fn nia_with_media() {
     let asset = test_issue_asset_nia(&mut wallet_1, online_1, None);
     let media = Media::from_attachment(&attachment, wallet_1.get_media_dir());
     wallet_1.copy_media_file(fp, &media).unwrap();
-    let media_idx = wallet_1
+    let txn = wallet_1.database().begin_transaction().unwrap();
+    let media_idx = txn
         .get_or_insert_media(media.get_digest(), media.mime.clone())
         .unwrap();
-    let db_asset = wallet_1
-        .database()
-        .get_asset(asset.asset_id.clone())
-        .unwrap()
-        .unwrap();
+    let db_asset = txn.get_asset(asset.asset_id.clone()).unwrap().unwrap();
+    txn.commit().unwrap();
     let mut updated_asset: DbAssetActMod = db_asset.into();
     updated_asset.media_idx = ActiveValue::Set(Some(media_idx));
-    wallet_1
-        .database()
-        .update_asset(&mut updated_asset)
-        .unwrap();
+    let txn = wallet_1.database().begin_transaction().unwrap();
+    txn.update_asset(&mut updated_asset).unwrap();
+    txn.commit().unwrap();
 
     let receive_data = test_blind_receive(&mut wallet_2);
     let recipient_map = HashMap::from([(
@@ -508,20 +513,17 @@ fn uda_with_media() {
     let asset = test_issue_asset_uda(&mut wallet_1, online_1, None, Some(FILE_STR), vec![]);
     let media = Media::from_attachment(&attachment, wallet_1.get_media_dir());
     wallet_1.copy_media_file(fp, &media).unwrap();
-    let media_idx = wallet_1
+    let txn = wallet_1.database().begin_transaction().unwrap();
+    let media_idx = txn
         .get_or_insert_media(media.get_digest(), media.mime.clone())
         .unwrap();
-    let db_asset = wallet_1
-        .database()
-        .get_asset(asset.asset_id.clone())
-        .unwrap()
-        .unwrap();
+    let db_asset = txn.get_asset(asset.asset_id.clone()).unwrap().unwrap();
+    txn.commit().unwrap();
     let mut updated_asset: DbAssetActMod = db_asset.into();
     updated_asset.media_idx = ActiveValue::Set(Some(media_idx));
-    wallet_1
-        .database()
-        .update_asset(&mut updated_asset)
-        .unwrap();
+    let txn = wallet_1.database().begin_transaction().unwrap();
+    txn.update_asset(&mut updated_asset).unwrap();
+    txn.commit().unwrap();
 
     let receive_data = test_blind_receive(&mut wallet_2);
     let recipient_map = HashMap::from([(

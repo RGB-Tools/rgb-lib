@@ -30,10 +30,9 @@ use crate::wallet::{
     utils::build_indexer,
 };
 use crate::{
-    database::entities::transfer_transport_endpoint,
     keys::{Keys, generate_keys},
     utils::{
-        KEYCHAIN_BTC, KEYCHAIN_RGB, RGB_RUNTIME_DIR, block_on, get_account_data,
+        KEYCHAIN_BTC, KEYCHAIN_RGB, RGB_RUNTIME_DIR, get_account_data,
         get_account_derivation_children, get_coin_type, get_extended_derivation_path,
         recipient_id_from_script_buf, script_buf_from_recipient_id,
     },
@@ -337,4 +336,5 @@ mod rust_only;
 mod send;
 mod send_btc;
 mod sign_psbt;
+mod sync;
 mod witness_receive;

@@ -26,9 +26,13 @@ fn success() {
     )]);
     test_send(&mut wallet, online, &recipient_map);
     wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
-    let bak_info_before = wallet.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     let nia_metadata = test_get_asset_metadata(&rcv_wallet, &asset_nia.asset_id);
-    let bak_info_after = wallet.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     assert_eq!(
         bak_info_after.last_operation_timestamp,
         bak_info_before.last_operation_timestamp

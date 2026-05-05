@@ -31,14 +31,18 @@ fn success() {
     assert_eq!(test_get_btc_balance(&mut wallet, online), expected_balance);
 
     // balance after send
-    let bak_info_before = wallet.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     let txid = test_send_btc(
         &mut wallet,
         online,
         &test_get_address(&mut rcv_wallet),
         amount,
     );
-    let bak_info_after = wallet.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     assert_eq!(
         bak_info_after.last_operation_timestamp,
         bak_info_before.last_operation_timestamp
@@ -196,15 +200,15 @@ fn begin_reservation_interactions() {
     let (mut rcv_wallet, _rcv_online) = get_empty_wallet!();
 
     // no reservations and no SendBtc wallet_transactions initially
-    assert!(wallet.database().iter_reserved_txos().unwrap().is_empty());
+    let txn = wallet.database().begin_transaction().unwrap();
+    assert!(txn.iter_reserved_txos().unwrap().is_empty());
     assert!(
-        wallet
-            .database()
-            .iter_wallet_transactions()
+        txn.iter_wallet_transactions()
             .unwrap()
             .iter()
             .all(|wt| wt.r#type != WalletTransactionType::SendBtc)
     );
+    txn.commit().unwrap();
 
     // capture vanilla spendable balance before reservation
     let balance_before = test_get_btc_balance(&mut wallet, online);
@@ -230,11 +234,12 @@ fn begin_reservation_interactions() {
     assert!(balance_reserved.vanilla.spendable < balance_before.vanilla.spendable);
 
     // wallet_transaction(SendBtc) row for this txid exists
-    let (wt, reservations) = wallet
-        .database()
+    let txn = wallet.database().begin_transaction().unwrap();
+    let (wt, reservations) = txn
         .get_wallet_transaction_with_reserved_txos_by_txid(&psbt_txid)
         .unwrap()
         .expect("should exist after begin");
+    txn.commit().unwrap();
     assert_eq!(wt.r#type, WalletTransactionType::SendBtc);
     // one reserved_txo per PSBT input, all pointing to that wt row
     assert!(reservations.iter().all(|r| r.reserved_for == Some(wt.idx)));
@@ -260,7 +265,9 @@ fn begin_reservation_interactions() {
     // sign + end releases the reservations but keeps the wallet_transaction row
     let signed_psbt = wallet.sign_psbt(unsigned_psbt_str, None).unwrap();
     let _end_txid = wallet.send_btc_end(online, signed_psbt).unwrap();
-    assert!(wallet.database().iter_reserved_txos().unwrap().is_empty());
+    let txn = wallet.database().begin_transaction().unwrap();
+    assert!(txn.iter_reserved_txos().unwrap().is_empty());
+    txn.commit().unwrap();
     assert!(wallet.list_pending_vanilla_txs().unwrap().is_empty());
 
     // after end, balance is no longer reduced by reservations (the UTXO is now spent,
@@ -268,13 +275,14 @@ fn begin_reservation_interactions() {
     let balance_after_end = test_get_btc_balance(&mut wallet, online);
     assert!(balance_after_end.vanilla.spendable > balance_reserved.vanilla.spendable);
     // the wallet_transaction row is still there (so list_transactions classifies the tx)
-    let wts: Vec<_> = wallet
-        .database()
+    let txn = wallet.database().begin_transaction().unwrap();
+    let wts: Vec<_> = txn
         .iter_wallet_transactions()
         .unwrap()
         .into_iter()
         .filter(|wt| wt.txid == psbt_txid && wt.r#type == WalletTransactionType::SendBtc)
         .collect();
+    txn.commit().unwrap();
     assert_eq!(wts.len(), 1);
 
     // list_transactions sees it as SendBtc
@@ -301,28 +309,29 @@ fn begin_reservation_interactions() {
     let psbt_txid = unsigned_psbt.unsigned_tx.compute_txid().to_string();
 
     // no reservations, no wallet_transaction row yet
-    assert!(wallet.database().iter_reserved_txos().unwrap().is_empty());
+    let txn = wallet.database().begin_transaction().unwrap();
+    assert!(txn.iter_reserved_txos().unwrap().is_empty());
     assert!(
-        wallet
-            .database()
-            .get_wallet_transaction_with_reserved_txos_by_txid(&psbt_txid)
+        txn.get_wallet_transaction_with_reserved_txos_by_txid(&psbt_txid)
             .unwrap()
             .is_none()
     );
+    txn.commit().unwrap();
     assert!(wallet.list_pending_vanilla_txs().unwrap().is_empty());
 
     // end still creates the SendBtc row after broadcast (for list_transactions)
     let signed_psbt = wallet.sign_psbt(unsigned_psbt_str, None).unwrap();
     let end_txid = wallet.send_btc_end(online, signed_psbt).unwrap();
     assert_eq!(end_txid, psbt_txid);
-    assert!(wallet.database().iter_reserved_txos().unwrap().is_empty());
-    let wts: Vec<_> = wallet
-        .database()
+    let txn = wallet.database().begin_transaction().unwrap();
+    assert!(txn.iter_reserved_txos().unwrap().is_empty());
+    let wts: Vec<_> = txn
         .iter_wallet_transactions()
         .unwrap()
         .into_iter()
         .filter(|wt| wt.txid == psbt_txid && wt.r#type == WalletTransactionType::SendBtc)
         .collect();
+    txn.commit().unwrap();
     assert_eq!(wts.len(), 1);
 }
 

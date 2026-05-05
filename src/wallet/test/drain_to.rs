@@ -25,9 +25,13 @@ fn success() {
     };
     wait_for_btc_balance(&mut wallet, online, &expected_balance);
     let address = test_get_address(&mut rcv_wallet); // also updates backup_info
-    let bak_info_before = wallet.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     test_drain_to(&mut wallet, online, &address);
-    let bak_info_after = wallet.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     mine(false);
     wait_for_unspents(&mut wallet, Some(online), false, 0);
@@ -123,13 +127,17 @@ fn drain_to_begin_and_end_success() {
     let mut rcv_wallet = get_test_wallet(true, None);
 
     let address = test_get_address(&mut rcv_wallet);
-    let bak_info_before = wallet.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
 
     // drain_to_begin does not update backup_info
     let unsigned_psbt = wallet
         .drain_to_begin(online, address, FEE_RATE, true)
         .unwrap();
-    let bak_info_after_begin = wallet.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_after_begin = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     assert_eq!(
         bak_info_after_begin.last_operation_timestamp,
         bak_info_before.last_operation_timestamp
@@ -141,7 +149,9 @@ fn drain_to_begin_and_end_success() {
     assert!(!txid.is_empty());
 
     // drain_to_end updates backup_info
-    let bak_info_after_end = wallet.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_after_end = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     assert!(bak_info_after_end.last_operation_timestamp > bak_info_before.last_operation_timestamp);
 
     // verify the drain was effective

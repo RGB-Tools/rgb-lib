@@ -11,7 +11,9 @@ fn success() {
     let (mut wallet, online) = get_funded_wallet!();
 
     // only mandatory fields
-    let bak_info_before = wallet.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     let receive_data = wallet
         .blind_receive(
             None,
@@ -21,7 +23,9 @@ fn success() {
             MIN_CONFIRMATIONS,
         )
         .unwrap();
-    let bak_info_after = wallet.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     assert!(receive_data.expiration_timestamp.is_none());
     let decoded_invoice = Invoice::new(receive_data.invoice).unwrap();
@@ -297,10 +301,11 @@ fn success() {
     );
     assert!(result.is_ok());
     let transfer = get_test_transfer_recipient(&wallet, &result.unwrap().recipient_id);
-    let tte_data = wallet
-        .database()
+    let txn = wallet.database().begin_transaction().unwrap();
+    let tte_data = txn
         .get_transfer_transport_endpoints_data(transfer.idx)
         .unwrap();
+    txn.commit().unwrap();
     assert_eq!(tte_data.len(), transport_endpoints.len());
 }
 
@@ -510,17 +515,14 @@ fn fail() {
     let receive_data = blind_receive_withte(&mut wallet, transport_endpoints).unwrap();
     let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
     let (transfer_data, _) = get_test_transfer_data(&wallet, &transfer);
-    let tte_data = wallet
-        .database()
+    let txn = wallet.database().begin_transaction().unwrap();
+    let tte_data = txn
         .get_transfer_transport_endpoints_data(transfer.idx)
         .unwrap();
     for (tte, _) in tte_data {
-        block_on(
-            transfer_transport_endpoint::Entity::delete_by_id(tte.idx)
-                .exec(wallet.database().get_connection()),
-        )
-        .unwrap();
+        txn.del_transfer_transport_endpoint(tte.idx).unwrap();
     }
+    txn.commit().unwrap();
     assert_eq!(transfer_data.status, TransferStatus::WaitingCounterparty);
     wait_for_refresh(&mut wallet, online, None, None);
     let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);

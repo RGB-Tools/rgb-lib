@@ -24,7 +24,9 @@ fn success() {
     // required fields only
     println!("\nasset 1");
     let before_timestamp = now().unix_timestamp();
-    let bak_info_before = wallet.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     let asset_1 = wallet
         .issue_asset_cfa(
             NAME.to_string(),
@@ -34,7 +36,9 @@ fn success() {
             None,
         )
         .unwrap();
-    let bak_info_after = wallet.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
 
     // check the asset has been saved with the correct schema

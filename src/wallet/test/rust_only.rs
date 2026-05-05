@@ -173,10 +173,14 @@ fn list_unspents_vanilla_success() {
     let (mut wallet, online) = get_empty_wallet!();
 
     // no unspents
-    let bak_info_before = wallet.database().get_backup_info().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_before = txn.get_backup_info().unwrap();
+    txn.commit().unwrap();
     assert!(bak_info_before.is_none());
     let unspent_list = test_list_unspents_vanilla(&mut wallet, online, None);
-    let bak_info_after = wallet.database().get_backup_info().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_after = txn.get_backup_info().unwrap();
+    txn.commit().unwrap();
     assert!(bak_info_after.is_none());
     assert_eq!(unspent_list.len(), 0);
 
@@ -261,17 +265,10 @@ fn save_new_asset_success() {
         &nia_asset.asset_id,
         Assignment::Fungible(asset_amount),
     );
-    assert!(
-        &rcv_wallet
-            .database()
-            .check_asset_exists(nia_asset.asset_id.clone())
-            .is_ok()
-    );
-    let asset_model = rcv_wallet
-        .database()
-        .get_asset(nia_asset.asset_id.clone())
-        .unwrap()
-        .unwrap();
+    let txn = rcv_wallet.database().begin_transaction().unwrap();
+    assert!(txn.check_asset_exists(nia_asset.asset_id.clone()).is_ok());
+    let asset_model = txn.get_asset(nia_asset.asset_id.clone()).unwrap().unwrap();
+    txn.commit().unwrap();
     assert_eq!(asset_model.id, nia_asset.asset_id);
     assert_eq!(asset_model.initial_supply, AMOUNT.to_string());
     assert_eq!(asset_model.name, NAME);
@@ -288,17 +285,10 @@ fn save_new_asset_success() {
         &cfa_asset.asset_id,
         Assignment::Fungible(asset_amount),
     );
-    assert!(
-        &rcv_wallet
-            .database()
-            .check_asset_exists(cfa_asset.asset_id.clone())
-            .is_ok()
-    );
-    let asset_model = rcv_wallet
-        .database()
-        .get_asset(cfa_asset.asset_id.clone())
-        .unwrap()
-        .unwrap();
+    let txn = rcv_wallet.database().begin_transaction().unwrap();
+    assert!(txn.check_asset_exists(cfa_asset.asset_id.clone()).is_ok());
+    let asset_model = txn.get_asset(cfa_asset.asset_id.clone()).unwrap().unwrap();
+    txn.commit().unwrap();
     assert_eq!(asset_model.id, cfa_asset.asset_id);
     assert_eq!(asset_model.initial_supply, AMOUNT.to_string());
     assert_eq!(asset_model.name, NAME);
@@ -323,17 +313,10 @@ fn save_new_asset_success() {
         &uda_asset.asset_id,
         Assignment::NonFungible,
     );
-    assert!(
-        &rcv_wallet
-            .database()
-            .check_asset_exists(uda_asset.asset_id.clone())
-            .is_ok()
-    );
-    let asset_model = rcv_wallet
-        .database()
-        .get_asset(uda_asset.asset_id.clone())
-        .unwrap()
-        .unwrap();
+    let txn = rcv_wallet.database().begin_transaction().unwrap();
+    assert!(txn.check_asset_exists(uda_asset.asset_id.clone()).is_ok());
+    let asset_model = txn.get_asset(uda_asset.asset_id.clone()).unwrap().unwrap();
+    txn.commit().unwrap();
     assert_eq!(asset_model.id, uda_asset.asset_id);
     assert_eq!(asset_model.initial_supply, 1.to_string());
     assert_eq!(asset_model.name, NAME);

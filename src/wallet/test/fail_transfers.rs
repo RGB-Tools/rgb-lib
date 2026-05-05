@@ -13,9 +13,13 @@ fn success() {
     let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
 
     // return false if no transfer has changed
-    let bak_info_before = wallet.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     assert!(!test_fail_transfers_all(&mut wallet, online));
-    let bak_info_after = wallet.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     assert_eq!(
         bak_info_after.last_operation_timestamp,
         bak_info_before.last_operation_timestamp
@@ -31,13 +35,17 @@ fn success() {
         &receive_data.recipient_id,
         TransferStatus::WaitingCounterparty
     ));
-    let bak_info_before = rcv_wallet.database().get_backup_info().unwrap().unwrap();
+    let txn = rcv_wallet.database().begin_transaction().unwrap();
+    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     assert!(test_fail_transfers_single(
         &mut rcv_wallet,
         rcv_online,
         receive_data.batch_transfer_idx
     ));
-    let bak_info_after = rcv_wallet.database().get_backup_info().unwrap().unwrap();
+    let txn = rcv_wallet.database().begin_transaction().unwrap();
+    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
 
     // fail all expired WaitingCounterparty transfers

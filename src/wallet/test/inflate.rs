@@ -40,9 +40,13 @@ fn success() {
     // inflate
     test_create_utxos_default(&mut wallet, online);
     let inflation_amounts = [199, 42];
-    let bak_info_before = wallet.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     let res = test_inflate(&mut wallet, online, &asset.asset_id, &inflation_amounts);
-    let bak_info_after = wallet.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     show_unspent_colorings(&mut wallet, "after inflate");
     let total_inflated = inflation_amounts.iter().sum::<u64>();
@@ -155,10 +159,11 @@ fn success() {
     assert!(!txid.is_empty());
     show_unspent_colorings(&mut wallet, "after send");
     let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
-    let tte_data = wallet
-        .database()
+    let txn = wallet.database().begin_transaction().unwrap();
+    let tte_data = txn
         .get_transfer_transport_endpoints_data(transfer.idx)
         .unwrap();
+    txn.commit().unwrap();
     assert_eq!(tte_data.len(), 1);
     let ce = tte_data.first().unwrap();
     assert_eq!(ce.1.endpoint, PROXY_URL);

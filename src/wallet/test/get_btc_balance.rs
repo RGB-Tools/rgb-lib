@@ -9,10 +9,14 @@ fn success() {
     let (mut wallet, online) = get_empty_wallet!();
 
     // empty balance
-    let bak_info_before = wallet.database().get_backup_info().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_before = txn.get_backup_info().unwrap();
+    txn.commit().unwrap();
     assert!(bak_info_before.is_none());
     let balance = test_get_btc_balance(&mut wallet, online);
-    let bak_info_after = wallet.database().get_backup_info().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_after = txn.get_backup_info().unwrap();
+    txn.commit().unwrap();
     assert!(bak_info_after.is_none());
     let expected_balance = BtcBalance {
         vanilla: Balance {

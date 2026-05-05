@@ -13,10 +13,14 @@ fn success() {
     let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
 
     // no unspents
-    let bak_info_before = wallet.database().get_backup_info().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_before = txn.get_backup_info().unwrap();
+    txn.commit().unwrap();
     assert!(bak_info_before.is_none());
     let unspent_list_settled = test_list_unspents(&mut wallet, None, true);
-    let bak_info_after = wallet.database().get_backup_info().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_after = txn.get_backup_info().unwrap();
+    txn.commit().unwrap();
     assert!(bak_info_after.is_none());
     assert_eq!(unspent_list_settled.len(), 0);
     let unspent_list_all = test_list_unspents(&mut wallet, None, false);

@@ -688,3 +688,12 @@ pub(crate) fn test_send_btc_result(
 ) -> Result<String, Error> {
     wallet.send_btc(online, address.to_string(), amount, FEE_RATE, false)
 }
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) fn test_sync_result(
+    wallet: &mut Wallet,
+    online: Online,
+    options: SyncOptions,
+) -> Result<(), Error> {
+    wallet.sync(online, options)
+}

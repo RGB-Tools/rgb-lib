@@ -407,6 +407,7 @@ pub struct AssetNIA {
 
 impl AssetNIA {
     pub(crate) fn get_asset_details(
+        txn: &DbTxn,
         wallet: &(impl WalletOffline + ?Sized),
         asset: &DbAsset,
         transfers: Option<Vec<DbTransfer>>,
@@ -420,14 +421,14 @@ impl AssetNIA {
             let medias = if let Some(m) = medias {
                 m
             } else {
-                wallet.database().iter_media()?
+                txn.iter_media()?
             };
             medias
                 .iter()
                 .find(|m| Some(m.idx) == asset.media_idx)
                 .map(|m| Media::from_db_media(m, wallet.media_dir()))
         };
-        let balance = wallet.database().get_asset_balance(
+        let balance = txn.get_asset_balance(
             asset.id.clone(),
             transfers,
             asset_transfers,
@@ -479,6 +480,7 @@ pub struct AssetUDA {
 
 impl AssetUDA {
     pub(crate) fn get_asset_details(
+        txn: &DbTxn,
         wallet: &(impl WalletOffline + ?Sized),
         asset: &DbAsset,
         token: Option<TokenLight>,
@@ -493,14 +495,14 @@ impl AssetUDA {
             let medias = if let Some(m) = medias {
                 m
             } else {
-                wallet.database().iter_media()?
+                txn.iter_media()?
             };
             medias
                 .iter()
                 .find(|m| Some(m.idx) == asset.media_idx)
                 .map(|m| Media::from_db_media(m, wallet.media_dir()))
         };
-        let balance = wallet.database().get_asset_balance(
+        let balance = txn.get_asset_balance(
             asset.id.clone(),
             transfers,
             asset_transfers,
@@ -549,6 +551,7 @@ pub struct AssetCFA {
 
 impl AssetCFA {
     pub(crate) fn get_asset_details(
+        txn: &DbTxn,
         wallet: &(impl WalletOffline + ?Sized),
         asset: &DbAsset,
         transfers: Option<Vec<DbTransfer>>,
@@ -562,14 +565,14 @@ impl AssetCFA {
             let medias = if let Some(m) = medias {
                 m
             } else {
-                wallet.database().iter_media()?
+                txn.iter_media()?
             };
             medias
                 .iter()
                 .find(|m| Some(m.idx) == asset.media_idx)
                 .map(|m| Media::from_db_media(m, wallet.media_dir()))
         };
-        let balance = wallet.database().get_asset_balance(
+        let balance = txn.get_asset_balance(
             asset.id.clone(),
             transfers,
             asset_transfers,
@@ -626,6 +629,7 @@ pub struct AssetIFA {
 
 impl AssetIFA {
     pub(crate) fn get_asset_details(
+        txn: &DbTxn,
         wallet: &(impl WalletOffline + ?Sized),
         asset: &DbAsset,
         transfers: Option<Vec<DbTransfer>>,
@@ -639,14 +643,14 @@ impl AssetIFA {
             let medias = if let Some(m) = medias {
                 m
             } else {
-                wallet.database().iter_media()?
+                txn.iter_media()?
             };
             medias
                 .iter()
                 .find(|m| Some(m.idx) == asset.media_idx)
                 .map(|m| Media::from_db_media(m, wallet.media_dir()))
         };
-        let balance = wallet.database().get_asset_balance(
+        let balance = txn.get_asset_balance(
             asset.id.clone(),
             transfers,
             asset_transfers,
@@ -696,6 +700,7 @@ pub struct Assets {
 
 pub(crate) trait IssuedAssetDetails: Sized {
     fn from_issuance(
+        txn: &DbTxn,
         wallet: &(impl WalletOffline + ?Sized),
         asset: &DbAsset,
         issue_data: &IssueData,
@@ -704,21 +709,24 @@ pub(crate) trait IssuedAssetDetails: Sized {
 
 impl IssuedAssetDetails for AssetNIA {
     fn from_issuance(
+        txn: &DbTxn,
         wallet: &(impl WalletOffline + ?Sized),
         asset: &DbAsset,
         _issue_data: &IssueData,
     ) -> Result<Self, Error> {
-        Self::get_asset_details(wallet, asset, None, None, None, None, None, None)
+        Self::get_asset_details(txn, wallet, asset, None, None, None, None, None, None)
     }
 }
 
 impl IssuedAssetDetails for AssetUDA {
     fn from_issuance(
+        txn: &DbTxn,
         wallet: &(impl WalletOffline + ?Sized),
         asset: &DbAsset,
         issue_data: &IssueData,
     ) -> Result<Self, Error> {
         Self::get_asset_details(
+            txn,
             wallet,
             asset,
             issue_data.asset_data.token.clone().map(|t| t.into()),
@@ -734,21 +742,23 @@ impl IssuedAssetDetails for AssetUDA {
 
 impl IssuedAssetDetails for AssetCFA {
     fn from_issuance(
+        txn: &DbTxn,
         wallet: &(impl WalletOffline + ?Sized),
         asset: &DbAsset,
         _issue_data: &IssueData,
     ) -> Result<Self, Error> {
-        Self::get_asset_details(wallet, asset, None, None, None, None, None, None)
+        Self::get_asset_details(txn, wallet, asset, None, None, None, None, None, None)
     }
 }
 
 impl IssuedAssetDetails for AssetIFA {
     fn from_issuance(
+        txn: &DbTxn,
         wallet: &(impl WalletOffline + ?Sized),
         asset: &DbAsset,
         _issue_data: &IssueData,
     ) -> Result<Self, Error> {
-        Self::get_asset_details(wallet, asset, None, None, None, None, None, None)
+        Self::get_asset_details(txn, wallet, asset, None, None, None, None, None, None)
     }
 }
 
@@ -1899,4 +1909,16 @@ pub enum PrepareTransferPsbtResult {
 pub struct ReceivedConsignmentMeta {
     pub txid: String,
     pub vout: Option<u32>,
+}
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub enum TryFailBatchTransferOutcome {
+    Failed,
+    Refreshed,
+}
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub struct FailTransfersOutcome {
+    pub transfers_changed: bool,
+    pub cannot_fail: bool,
 }

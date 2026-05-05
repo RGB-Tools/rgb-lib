@@ -37,7 +37,7 @@ impl DbBatchTransfer {
     pub(crate) fn get_asset_transfers(
         &self,
         asset_transfers: &[DbAssetTransfer],
-    ) -> Result<Vec<DbAssetTransfer>, InternalError> {
+    ) -> Result<Vec<DbAssetTransfer>, Error> {
         Ok(asset_transfers
             .iter()
             .filter(|&t| t.batch_transfer_idx == self.idx)
@@ -50,7 +50,7 @@ impl DbBatchTransfer {
         &self,
         asset_transfers: &[DbAssetTransfer],
         transfers: &[DbTransfer],
-    ) -> Result<DbBatchTransferData, InternalError> {
+    ) -> Result<DbBatchTransferData, Error> {
         let asset_transfers = self.get_asset_transfers(asset_transfers)?;
         let mut asset_transfers_data = vec![];
         for asset_transfer in asset_transfers {
@@ -136,7 +136,7 @@ impl DbTransfer {
         &self,
         asset_transfers: &[DbAssetTransfer],
         batch_transfers: &[DbBatchTransfer],
-    ) -> Result<(DbAssetTransfer, DbBatchTransfer), InternalError> {
+    ) -> Result<(DbAssetTransfer, DbBatchTransfer), Error> {
         let asset_transfer = asset_transfers
             .iter()
             .find(|t| t.idx == self.asset_transfer_idx)
@@ -196,58 +196,81 @@ impl RgbLibDatabase {
         Self { connection }
     }
 
-    pub(crate) fn get_connection(&self) -> &DatabaseConnection {
-        &self.connection
+    pub(crate) fn begin_transaction(&self) -> Result<DbTxn, Error> {
+        Ok(DbTxn {
+            txn: Some(block_on(self.connection.begin())?),
+        })
+    }
+}
+
+pub struct DbTxn {
+    txn: Option<DatabaseTransaction>,
+}
+
+impl Drop for DbTxn {
+    fn drop(&mut self) {
+        if let Some(txn) = self.txn.take() {
+            // run the rollback inside our runtime so the async
+            // release has a tokio context (panics otherwise)
+            let _ = block_on(txn.rollback());
+        }
+    }
+}
+
+impl DbTxn {
+    fn inner(&self) -> &DatabaseTransaction {
+        self.txn.as_ref().expect("txn already consumed")
     }
 
-    pub(crate) fn set_asset(&self, asset: DbAssetActMod) -> Result<i32, InternalError> {
-        let res = block_on(Asset::insert(asset).exec(self.get_connection()))?;
+    pub(crate) fn commit(mut self) -> Result<(), Error> {
+        let txn = self.txn.take().expect("txn already consumed");
+        Ok(block_on(txn.commit())?)
+    }
+
+    pub(crate) fn set_asset(&self, asset: DbAssetActMod) -> Result<i32, Error> {
+        let res = block_on(Asset::insert(asset).exec(self.inner()))?;
         Ok(res.last_insert_id)
     }
 
     pub(crate) fn set_asset_transfer(
         &self,
         asset_transfer: DbAssetTransferActMod,
-    ) -> Result<i32, InternalError> {
-        let res = block_on(AssetTransfer::insert(asset_transfer).exec(self.get_connection()))?;
+    ) -> Result<i32, Error> {
+        let res = block_on(AssetTransfer::insert(asset_transfer).exec(self.inner()))?;
         Ok(res.last_insert_id)
     }
 
-    pub(crate) fn set_backup_info(
-        &self,
-        backup_info: DbBackupInfoActMod,
-    ) -> Result<i32, InternalError> {
-        let res = block_on(BackupInfo::insert(backup_info).exec(self.get_connection()))?;
+    pub(crate) fn set_backup_info(&self, backup_info: DbBackupInfoActMod) -> Result<i32, Error> {
+        let res = block_on(BackupInfo::insert(backup_info).exec(self.inner()))?;
         Ok(res.last_insert_id)
     }
 
     pub(crate) fn set_batch_transfer(
         &self,
         batch_transfer: DbBatchTransferActMod,
-    ) -> Result<i32, InternalError> {
+    ) -> Result<i32, Error> {
         let mut batch_transfer = batch_transfer;
         batch_transfer.updated_at = batch_transfer.created_at.clone();
-        let res = block_on(BatchTransfer::insert(batch_transfer).exec(self.get_connection()))?;
+        let res = block_on(BatchTransfer::insert(batch_transfer).exec(self.inner()))?;
         Ok(res.last_insert_id)
     }
 
-    pub(crate) fn set_coloring(&self, coloring: DbColoringActMod) -> Result<i32, InternalError> {
-        let res = block_on(Coloring::insert(coloring).exec(self.get_connection()))?;
+    pub(crate) fn set_coloring(&self, coloring: DbColoringActMod) -> Result<i32, Error> {
+        let res = block_on(Coloring::insert(coloring).exec(self.inner()))?;
         Ok(res.last_insert_id)
     }
 
-    pub(crate) fn set_media(&self, media: DbMediaActMod) -> Result<i32, InternalError> {
-        let res = block_on(Media::insert(media).exec(self.get_connection()))?;
+    pub(crate) fn set_media(&self, media: DbMediaActMod) -> Result<i32, Error> {
+        let res = block_on(Media::insert(media).exec(self.inner()))?;
         Ok(res.last_insert_id)
     }
 
     pub(crate) fn set_pending_witness_script(
         &self,
         pending_witness_script: DbPendingWitnessScriptActMod,
-    ) -> Result<i32, InternalError> {
-        let res = block_on(
-            PendingWitnessScript::insert(pending_witness_script).exec(self.get_connection()),
-        )?;
+    ) -> Result<i32, Error> {
+        let res =
+            block_on(PendingWitnessScript::insert(pending_witness_script).exec(self.inner()))?;
         Ok(res.last_insert_id)
     }
 
@@ -255,51 +278,46 @@ impl RgbLibDatabase {
     pub(crate) fn set_reserved_txos(
         &self,
         reserved_txos: Vec<DbReservedTxoActMod>,
-    ) -> Result<(), InternalError> {
-        block_on(ReservedTxo::insert_many(reserved_txos).exec(self.get_connection()))?;
+    ) -> Result<(), Error> {
+        block_on(ReservedTxo::insert_many(reserved_txos).exec(self.inner()))?;
         Ok(())
     }
 
-    pub(crate) fn set_token(&self, token: DbTokenActMod) -> Result<i32, InternalError> {
-        let res = block_on(Token::insert(token).exec(self.get_connection()))?;
+    pub(crate) fn set_token(&self, token: DbTokenActMod) -> Result<i32, Error> {
+        let res = block_on(Token::insert(token).exec(self.inner()))?;
         Ok(res.last_insert_id)
     }
 
-    pub(crate) fn set_token_media(
-        &self,
-        token_media: DbTokenMediaActMod,
-    ) -> Result<i32, InternalError> {
-        let res = block_on(TokenMedia::insert(token_media).exec(self.get_connection()))?;
+    pub(crate) fn set_token_media(&self, token_media: DbTokenMediaActMod) -> Result<i32, Error> {
+        let res = block_on(TokenMedia::insert(token_media).exec(self.inner()))?;
         Ok(res.last_insert_id)
     }
 
     pub(crate) fn set_transport_endpoint(
         &self,
         transport_endpoint: DbTransportEndpointActMod,
-    ) -> Result<i32, InternalError> {
-        let res =
-            block_on(TransportEndpoint::insert(transport_endpoint).exec(self.get_connection()))?;
+    ) -> Result<i32, Error> {
+        let res = block_on(TransportEndpoint::insert(transport_endpoint).exec(self.inner()))?;
         Ok(res.last_insert_id)
     }
 
-    pub(crate) fn set_transfer(&self, transfer: DbTransferActMod) -> Result<i32, InternalError> {
-        let res = block_on(Transfer::insert(transfer).exec(self.get_connection()))?;
+    pub(crate) fn set_transfer(&self, transfer: DbTransferActMod) -> Result<i32, Error> {
+        let res = block_on(Transfer::insert(transfer).exec(self.inner()))?;
         Ok(res.last_insert_id)
     }
 
     pub(crate) fn set_transfer_transport_endpoint(
         &self,
         transfer_transport_endpoint: DbTransferTransportEndpointActMod,
-    ) -> Result<i32, InternalError> {
+    ) -> Result<i32, Error> {
         let res = block_on(
-            TransferTransportEndpoint::insert(transfer_transport_endpoint)
-                .exec(self.get_connection()),
+            TransferTransportEndpoint::insert(transfer_transport_endpoint).exec(self.inner()),
         )?;
         Ok(res.last_insert_id)
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
-    pub(crate) fn set_txo(&self, txo: DbTxoActMod) -> Result<i32, InternalError> {
+    pub(crate) fn set_txo(&self, txo: DbTxoActMod) -> Result<i32, Error> {
         let mut on_conflict =
             sea_query::OnConflict::columns([txo::Column::Txid, txo::Column::Vout]);
         let mut update = false;
@@ -317,7 +335,7 @@ impl RgbLibDatabase {
             on_conflict.do_nothing();
         }
         // this returns RecordNotInserted if the TXO already exists and on_conflict is do_nothing
-        let conn = self.get_connection();
+        let conn = self.inner();
         let res = block_on(
             Txo::insert(txo.clone())
                 .on_conflict(on_conflict.to_owned())
@@ -347,9 +365,8 @@ impl RgbLibDatabase {
     pub(crate) fn set_wallet_transaction(
         &self,
         wallet_transaction: DbWalletTransactionActMod,
-    ) -> Result<i32, InternalError> {
-        let res =
-            block_on(WalletTransaction::insert(wallet_transaction).exec(self.get_connection()))?;
+    ) -> Result<i32, Error> {
+        let res = block_on(WalletTransaction::insert(wallet_transaction).exec(self.inner()))?;
         Ok(res.last_insert_id)
     }
 
@@ -357,35 +374,33 @@ impl RgbLibDatabase {
     pub(crate) fn update_transfer(
         &self,
         transfer: &mut DbTransferActMod,
-    ) -> Result<DbTransfer, InternalError> {
+    ) -> Result<DbTransfer, Error> {
         Ok(block_on(
-            Transfer::update(transfer.clone()).exec(self.get_connection()),
+            Transfer::update(transfer.clone()).exec(self.inner()),
         )?)
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
-    pub(crate) fn update_asset(&self, asset: &mut DbAssetActMod) -> Result<DbAsset, InternalError> {
-        Ok(block_on(
-            Asset::update(asset.clone()).exec(self.get_connection()),
-        )?)
+    pub(crate) fn update_asset(&self, asset: &mut DbAssetActMod) -> Result<DbAsset, Error> {
+        Ok(block_on(Asset::update(asset.clone()).exec(self.inner()))?)
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
     pub(crate) fn update_asset_transfer(
         &self,
         asset_transfer: &mut DbAssetTransferActMod,
-    ) -> Result<DbAssetTransfer, InternalError> {
+    ) -> Result<DbAssetTransfer, Error> {
         Ok(block_on(
-            AssetTransfer::update(asset_transfer.clone()).exec(self.get_connection()),
+            AssetTransfer::update(asset_transfer.clone()).exec(self.inner()),
         )?)
     }
 
     pub(crate) fn update_backup_info(
         &self,
         backup_info: &mut DbBackupInfoActMod,
-    ) -> Result<DbBackupInfo, InternalError> {
+    ) -> Result<DbBackupInfo, Error> {
         Ok(block_on(
-            BackupInfo::update(backup_info.clone()).exec(self.get_connection()),
+            BackupInfo::update(backup_info.clone()).exec(self.inner()),
         )?)
     }
 
@@ -393,11 +408,11 @@ impl RgbLibDatabase {
     pub(crate) fn update_batch_transfer(
         &self,
         batch_transfer: &mut DbBatchTransferActMod,
-    ) -> Result<DbBatchTransfer, InternalError> {
+    ) -> Result<DbBatchTransfer, Error> {
         let now = now().unix_timestamp();
         batch_transfer.updated_at = ActiveValue::Set(now);
         Ok(block_on(
-            BatchTransfer::update(batch_transfer.clone()).exec(self.get_connection()),
+            BatchTransfer::update(batch_transfer.clone()).exec(self.inner()),
         )?)
     }
 
@@ -405,238 +420,229 @@ impl RgbLibDatabase {
     pub(crate) fn update_transfer_transport_endpoint(
         &self,
         transfer_transport_endpoint: &mut DbTransferTransportEndpointActMod,
-    ) -> Result<DbTransferTransportEndpoint, InternalError> {
+    ) -> Result<DbTransferTransportEndpoint, Error> {
         Ok(block_on(
             TransferTransportEndpoint::update(transfer_transport_endpoint.clone())
-                .exec(self.get_connection()),
+                .exec(self.inner()),
         )?)
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
-    pub(crate) fn update_txo(&self, txo: DbTxoActMod) -> Result<(), InternalError> {
-        block_on(Txo::update(txo).exec(self.get_connection()))?;
+    pub(crate) fn update_txo(&self, txo: DbTxoActMod) -> Result<(), Error> {
+        block_on(Txo::update(txo).exec(self.inner()))?;
         Ok(())
     }
 
-    pub(crate) fn del_backup_info(&self) -> Result<(), InternalError> {
-        block_on(BackupInfo::delete_many().exec(self.get_connection()))?;
+    pub(crate) fn del_backup_info(&self) -> Result<(), Error> {
+        block_on(BackupInfo::delete_many().exec(self.inner()))?;
         Ok(())
     }
 
-    pub(crate) fn del_batch_transfer(
-        &self,
-        batch_transfer: &DbBatchTransfer,
-    ) -> Result<(), InternalError> {
-        block_on(Transfer::delete_by_id(batch_transfer.idx).exec(self.get_connection()))?;
+    pub(crate) fn del_batch_transfer(&self, batch_transfer: &DbBatchTransfer) -> Result<(), Error> {
+        block_on(Transfer::delete_by_id(batch_transfer.idx).exec(self.inner()))?;
         Ok(())
     }
 
-    pub(crate) fn del_coloring(&self, asset_transfer_idx: i32) -> Result<(), InternalError> {
+    pub(crate) fn del_coloring(&self, asset_transfer_idx: i32) -> Result<(), Error> {
         block_on(
             Coloring::delete_many()
                 .filter(coloring::Column::AssetTransferIdx.eq(asset_transfer_idx))
-                .exec(self.get_connection()),
+                .exec(self.inner()),
         )?;
         Ok(())
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
-    pub(crate) fn del_pending_witness_script(&self, script: String) -> Result<(), InternalError> {
+    pub(crate) fn del_pending_witness_script(&self, script: String) -> Result<(), Error> {
         block_on(
             PendingWitnessScript::delete_many()
                 .filter(pending_witness_script::Column::Script.eq(script))
-                .exec(self.get_connection()),
+                .exec(self.inner()),
         )?;
         Ok(())
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
-    pub(crate) fn del_reserved_txos(
-        &self,
-        reserved_txos: &[DbReservedTxo],
-    ) -> Result<(), InternalError> {
+    pub(crate) fn del_reserved_txos(&self, reserved_txos: &[DbReservedTxo]) -> Result<(), Error> {
         let idxs = reserved_txos.iter().map(|r| r.idx).collect::<Vec<_>>();
         block_on(
             ReservedTxo::delete_many()
                 .filter(reserved_txo::Column::Idx.is_in(idxs))
-                .exec(self.get_connection()),
+                .exec(self.inner()),
         )?;
         Ok(())
     }
 
-    pub(crate) fn del_txo(&self, idx: i32) -> Result<(), InternalError> {
-        block_on(Coloring::delete_by_id(idx).exec(self.get_connection()))?;
+    #[cfg(test)]
+    pub(crate) fn del_transfer_transport_endpoint(&self, idx: i32) -> Result<(), Error> {
+        block_on(transfer_transport_endpoint::Entity::delete_by_id(idx).exec(self.inner()))?;
         Ok(())
     }
 
-    pub(crate) fn del_wallet_transaction(&self, idx: i32) -> Result<(), InternalError> {
-        block_on(WalletTransaction::delete_by_id(idx).exec(self.get_connection()))?;
+    pub(crate) fn del_txo(&self, idx: i32) -> Result<(), Error> {
+        block_on(Coloring::delete_by_id(idx).exec(self.inner()))?;
         Ok(())
     }
 
-    pub(crate) fn get_asset(&self, asset_id: String) -> Result<Option<DbAsset>, InternalError> {
+    pub(crate) fn del_wallet_transaction(&self, idx: i32) -> Result<(), Error> {
+        block_on(WalletTransaction::delete_by_id(idx).exec(self.inner()))?;
+        Ok(())
+    }
+
+    pub(crate) fn get_asset(&self, asset_id: String) -> Result<Option<DbAsset>, Error> {
         Ok(block_on(
             Asset::find()
                 .filter(asset::Column::Id.eq(asset_id.clone()))
-                .one(self.get_connection()),
+                .one(self.inner()),
         )?)
     }
 
-    pub(crate) fn get_backup_info(&self) -> Result<Option<DbBackupInfo>, InternalError> {
-        Ok(block_on(BackupInfo::find().one(self.get_connection()))?)
+    pub(crate) fn get_backup_info(&self) -> Result<Option<DbBackupInfo>, Error> {
+        Ok(block_on(BackupInfo::find().one(self.inner()))?)
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
     pub(crate) fn get_batch_transfer_by_txid(
         &self,
         txid: &str,
-    ) -> Result<Option<DbBatchTransfer>, InternalError> {
+    ) -> Result<Option<DbBatchTransfer>, Error> {
         Ok(block_on(
             BatchTransfer::find()
                 .filter(batch_transfer::Column::Txid.eq(txid))
-                .one(self.get_connection()),
+                .one(self.inner()),
         )?)
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
-    pub(crate) fn get_media(&self, media_idx: i32) -> Result<Option<DbMedia>, InternalError> {
+    pub(crate) fn get_media(&self, media_idx: i32) -> Result<Option<DbMedia>, Error> {
         Ok(block_on(
             Media::find()
                 .filter(media::Column::Idx.eq(media_idx))
-                .one(self.get_connection()),
+                .one(self.inner()),
         )?)
     }
 
-    pub(crate) fn get_media_by_digest(
-        &self,
-        digest: String,
-    ) -> Result<Option<DbMedia>, InternalError> {
+    pub(crate) fn get_media_by_digest(&self, digest: String) -> Result<Option<DbMedia>, Error> {
         Ok(block_on(
             Media::find()
                 .filter(media::Column::Digest.eq(digest))
-                .one(self.get_connection()),
+                .one(self.inner()),
         )?)
     }
 
     pub(crate) fn get_transport_endpoint(
         &self,
         endpoint: String,
-    ) -> Result<Option<DbTransportEndpoint>, InternalError> {
+    ) -> Result<Option<DbTransportEndpoint>, Error> {
         Ok(block_on(
             TransportEndpoint::find()
                 .filter(transport_endpoint::Column::Endpoint.eq(endpoint))
-                .one(self.get_connection()),
+                .one(self.inner()),
         )?)
     }
 
-    pub(crate) fn get_txo(&self, outpoint: &Outpoint) -> Result<Option<DbTxo>, InternalError> {
+    pub(crate) fn get_txo(&self, outpoint: &Outpoint) -> Result<Option<DbTxo>, Error> {
         Ok(block_on(
             Txo::find()
                 .filter(txo::Column::Txid.eq(outpoint.txid.clone()))
                 .filter(txo::Column::Vout.eq(outpoint.vout))
-                .one(self.get_connection()),
+                .one(self.inner()),
         )?)
     }
 
     pub(crate) fn get_wallet_transactions_by_idxs(
         &self,
         idxs: &[i32],
-    ) -> Result<Vec<DbWalletTransaction>, InternalError> {
+    ) -> Result<Vec<DbWalletTransaction>, Error> {
         Ok(block_on(
             WalletTransaction::find()
                 .filter(wallet_transaction::Column::Idx.is_in(idxs.to_vec()))
-                .all(self.get_connection()),
+                .all(self.inner()),
         )?)
     }
 
     pub(crate) fn get_wallet_transaction_with_reserved_txos_by_txid(
         &self,
         txid: &str,
-    ) -> Result<Option<(DbWalletTransaction, Vec<DbReservedTxo>)>, InternalError> {
+    ) -> Result<Option<(DbWalletTransaction, Vec<DbReservedTxo>)>, Error> {
         Ok(block_on(
             WalletTransaction::find()
                 .filter(wallet_transaction::Column::Txid.eq(txid))
                 .find_with_related(ReservedTxo)
-                .all(self.get_connection()),
+                .all(self.inner()),
         )?
         .into_iter()
         .next())
     }
 
-    pub(crate) fn iter_assets(&self) -> Result<Vec<DbAsset>, InternalError> {
-        Ok(block_on(Asset::find().all(self.get_connection()))?)
+    pub(crate) fn iter_assets(&self) -> Result<Vec<DbAsset>, Error> {
+        Ok(block_on(Asset::find().all(self.inner()))?)
     }
 
-    pub(crate) fn iter_asset_transfers(&self) -> Result<Vec<DbAssetTransfer>, InternalError> {
-        Ok(block_on(AssetTransfer::find().all(self.get_connection()))?)
+    pub(crate) fn iter_asset_transfers(&self) -> Result<Vec<DbAssetTransfer>, Error> {
+        Ok(block_on(AssetTransfer::find().all(self.inner()))?)
     }
 
-    pub(crate) fn iter_batch_transfers(&self) -> Result<Vec<DbBatchTransfer>, InternalError> {
-        Ok(block_on(BatchTransfer::find().all(self.get_connection()))?)
+    pub(crate) fn iter_batch_transfers(&self) -> Result<Vec<DbBatchTransfer>, Error> {
+        Ok(block_on(BatchTransfer::find().all(self.inner()))?)
     }
 
-    pub(crate) fn iter_colorings(&self) -> Result<Vec<DbColoring>, InternalError> {
-        Ok(block_on(Coloring::find().all(self.get_connection()))?)
+    pub(crate) fn iter_colorings(&self) -> Result<Vec<DbColoring>, Error> {
+        Ok(block_on(Coloring::find().all(self.inner()))?)
     }
 
-    pub(crate) fn iter_media(&self) -> Result<Vec<DbMedia>, InternalError> {
-        Ok(block_on(Media::find().all(self.get_connection()))?)
+    pub(crate) fn iter_media(&self) -> Result<Vec<DbMedia>, Error> {
+        Ok(block_on(Media::find().all(self.inner()))?)
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
     pub(crate) fn iter_pending_witness_scripts(
         &self,
-    ) -> Result<Vec<DbPendingWitnessScript>, InternalError> {
-        Ok(block_on(
-            PendingWitnessScript::find().all(self.get_connection()),
-        )?)
+    ) -> Result<Vec<DbPendingWitnessScript>, Error> {
+        Ok(block_on(PendingWitnessScript::find().all(self.inner()))?)
     }
 
-    pub(crate) fn iter_reserved_txos(&self) -> Result<Vec<DbReservedTxo>, InternalError> {
-        Ok(block_on(ReservedTxo::find().all(self.get_connection()))?)
+    pub(crate) fn iter_reserved_txos(&self) -> Result<Vec<DbReservedTxo>, Error> {
+        Ok(block_on(ReservedTxo::find().all(self.inner()))?)
     }
 
-    pub(crate) fn iter_token_medias(&self) -> Result<Vec<DbTokenMedia>, InternalError> {
-        Ok(block_on(TokenMedia::find().all(self.get_connection()))?)
+    pub(crate) fn iter_token_medias(&self) -> Result<Vec<DbTokenMedia>, Error> {
+        Ok(block_on(TokenMedia::find().all(self.inner()))?)
     }
 
-    pub(crate) fn iter_tokens(&self) -> Result<Vec<DbToken>, InternalError> {
-        Ok(block_on(Token::find().all(self.get_connection()))?)
+    pub(crate) fn iter_tokens(&self) -> Result<Vec<DbToken>, Error> {
+        Ok(block_on(Token::find().all(self.inner()))?)
     }
 
-    pub(crate) fn iter_transfers(&self) -> Result<Vec<DbTransfer>, InternalError> {
-        Ok(block_on(Transfer::find().all(self.get_connection()))?)
+    pub(crate) fn iter_transfers(&self) -> Result<Vec<DbTransfer>, Error> {
+        Ok(block_on(Transfer::find().all(self.inner()))?)
     }
 
-    pub(crate) fn iter_txos(&self) -> Result<Vec<DbTxo>, InternalError> {
-        Ok(block_on(Txo::find().all(self.get_connection()))?)
+    pub(crate) fn iter_txos(&self) -> Result<Vec<DbTxo>, Error> {
+        Ok(block_on(Txo::find().all(self.inner()))?)
     }
 
-    pub(crate) fn iter_wallet_transactions(
-        &self,
-    ) -> Result<Vec<DbWalletTransaction>, InternalError> {
-        Ok(block_on(
-            WalletTransaction::find().all(self.get_connection()),
-        )?)
+    pub(crate) fn iter_wallet_transactions(&self) -> Result<Vec<DbWalletTransaction>, Error> {
+        Ok(block_on(WalletTransaction::find().all(self.inner()))?)
     }
 
     pub(crate) fn get_transfer_transport_endpoints_data(
         &self,
         transfer_idx: i32,
-    ) -> Result<Vec<(DbTransferTransportEndpoint, DbTransportEndpoint)>, InternalError> {
+    ) -> Result<Vec<(DbTransferTransportEndpoint, DbTransportEndpoint)>, Error> {
         Ok(block_on(
             TransferTransportEndpoint::find()
                 .filter(transfer_transport_endpoint::Column::TransferIdx.eq(transfer_idx))
                 .find_also_related(TransportEndpoint)
                 .order_by_asc(transfer_transport_endpoint::Column::Idx)
-                .all(self.get_connection()),
+                .all(self.inner()),
         )?
         .into_iter()
         .map(|(tte, ce)| (tte, ce.expect("should be connected")))
         .collect())
     }
 
-    pub(crate) fn get_db_data(&self, empty_transfers: bool) -> Result<DbData, InternalError> {
+    pub(crate) fn get_db_data(&self, empty_transfers: bool) -> Result<DbData, Error> {
         let batch_transfers = self.iter_batch_transfers()?;
         let asset_transfers = self.iter_asset_transfers()?;
         let colorings = self.iter_colorings()?;
@@ -655,7 +661,7 @@ impl RgbLibDatabase {
         })
     }
 
-    pub(crate) fn get_unspent_txos(&self, txos: Vec<DbTxo>) -> Result<Vec<DbTxo>, InternalError> {
+    pub(crate) fn get_unspent_txos(&self, txos: Vec<DbTxo>) -> Result<Vec<DbTxo>, Error> {
         let txos = if txos.is_empty() {
             self.iter_txos()?
         } else {
@@ -752,7 +758,7 @@ impl RgbLibDatabase {
                     Err(e) => Some(Err(e)),
                 },
             )
-            .collect::<Result<Vec<u64>, InternalError>>()?
+            .collect::<Result<Vec<u64>, Error>>()?
             .iter()
             .sum();
         ass_pending_incoming += witness_pending;
@@ -805,7 +811,7 @@ impl RgbLibDatabase {
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
-    pub(crate) fn get_asset_ids(&self) -> Result<Vec<String>, InternalError> {
+    pub(crate) fn get_asset_ids(&self) -> Result<Vec<String>, Error> {
         Ok(self.iter_assets()?.iter().map(|a| a.id.clone()).collect())
     }
 
@@ -826,6 +832,17 @@ impl RgbLibDatabase {
         } else {
             Err(Error::BatchTransferNotFound { idx })
         }
+    }
+
+    pub(crate) fn get_or_insert_media(&self, digest: String, mime: String) -> Result<i32, Error> {
+        Ok(match self.get_media_by_digest(digest.clone())? {
+            Some(media) => media.idx,
+            None => self.set_media(DbMediaActMod {
+                digest: ActiveValue::Set(digest),
+                mime: ActiveValue::Set(mime),
+                ..Default::default()
+            })?,
+        })
     }
 
     fn get_utxo_allocations(

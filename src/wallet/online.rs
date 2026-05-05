@@ -40,10 +40,8 @@ pub trait WalletOnline: WalletOffline {
         Ok(fee_rate)
     }
 
-    fn sync_impl(&mut self, online: Online, options: SyncOptions) -> Result<(), Error> {
-        self.check_online(online)?;
-        self.sync_bdk_and_db_txos(options, false)?;
-        Ok(())
+    fn sync_impl(&mut self, txn: &DbTxn, options: SyncOptions) -> Result<(), Error> {
+        self.sync_bdk_and_db_txos(txn, options, false)
     }
 
     fn broadcast_tx(&self, tx: BdkTransaction) -> Result<BdkTransaction, Error> {
@@ -88,7 +86,7 @@ pub trait WalletOnline: WalletOffline {
         }
     }
 
-    fn broadcast_psbt(&mut self, signed_psbt: &Psbt) -> Result<BdkTransaction, Error> {
+    fn broadcast_psbt(&mut self, txn: &DbTxn, signed_psbt: &Psbt) -> Result<BdkTransaction, Error> {
         let tx = self.broadcast_tx(
             signed_psbt
                 .clone()
@@ -105,15 +103,15 @@ pub trait WalletOnline: WalletOffline {
 
         // promote any newly-known colored UTXOs (e.g. the change output) from
         // exists=false to exists=true in the rgb_lib DB
-        self.update_db_colored_txos_from_bdk(false)?;
+        self.update_db_colored_txos_from_bdk(txn, false)?;
 
         for input in tx.clone().input {
             let txid = input.previous_output.txid.to_string();
             let vout = input.previous_output.vout;
-            if let Some(db_txo) = self.database().get_txo(&Outpoint { txid, vout })? {
+            if let Some(db_txo) = txn.get_txo(&Outpoint { txid, vout })? {
                 let mut db_txo: DbTxoActMod = db_txo.into();
                 db_txo.spent = ActiveValue::Set(true);
-                self.database().update_txo(db_txo)?;
+                txn.update_txo(db_txo)?;
             }
         }
 
@@ -122,17 +120,16 @@ pub trait WalletOnline: WalletOffline {
 
     fn reserve_vanilla_txos(
         &self,
+        txn: &DbTxn,
         psbt: &Psbt,
         r#type: WalletTransactionType,
     ) -> Result<(), Error> {
         let txid = psbt.unsigned_tx.compute_txid().to_string();
-        let wt_idx = self
-            .database()
-            .set_wallet_transaction(DbWalletTransactionActMod {
-                txid: ActiveValue::Set(txid),
-                r#type: ActiveValue::Set(r#type),
-                ..Default::default()
-            })?;
+        let wt_idx = txn.set_wallet_transaction(DbWalletTransactionActMod {
+            txid: ActiveValue::Set(txid),
+            r#type: ActiveValue::Set(r#type),
+            ..Default::default()
+        })?;
         let reservations: Vec<DbReservedTxoActMod> = psbt
             .unsigned_tx
             .input
@@ -144,30 +141,27 @@ pub trait WalletOnline: WalletOffline {
                 ..Default::default()
             })
             .collect();
-        self.database().set_reserved_txos(reservations)?;
+        txn.set_reserved_txos(reservations)?;
         Ok(())
     }
 
     fn finalize_vanilla_wallet_transaction(
         &self,
+        txn: &DbTxn,
         psbt: &Psbt,
         r#type: WalletTransactionType,
     ) -> Result<(), Error> {
         let txid = psbt.unsigned_tx.compute_txid().to_string();
-        match self
-            .database()
-            .get_wallet_transaction_with_reserved_txos_by_txid(&txid)?
-        {
+        match txn.get_wallet_transaction_with_reserved_txos_by_txid(&txid)? {
             Some((_wt, reservations)) => {
-                self.database().del_reserved_txos(&reservations)?;
+                txn.del_reserved_txos(&reservations)?;
             }
             None => {
-                self.database()
-                    .set_wallet_transaction(DbWalletTransactionActMod {
-                        txid: ActiveValue::Set(txid),
-                        r#type: ActiveValue::Set(r#type),
-                        ..Default::default()
-                    })?;
+                txn.set_wallet_transaction(DbWalletTransactionActMod {
+                    txid: ActiveValue::Set(txid),
+                    r#type: ActiveValue::Set(r#type),
+                    ..Default::default()
+                })?;
             }
         }
         Ok(())
@@ -175,11 +169,12 @@ pub trait WalletOnline: WalletOffline {
 
     fn broadcast_and_update_rgb(
         &mut self,
+        txn: &DbTxn,
         runtime: &mut RgbRuntime,
         signed_psbt: &Psbt,
         fascia: Fascia,
     ) -> Result<BdkTransaction, Error> {
-        let tx = self.broadcast_psbt(signed_psbt)?;
+        let tx = self.broadcast_psbt(txn, signed_psbt)?;
         runtime.consume_fascia(fascia, None)?;
         Ok(tx)
     }
@@ -205,6 +200,7 @@ pub trait WalletOnline: WalletOffline {
 
     fn create_utxos_begin_impl(
         &mut self,
+        txn: &DbTxn,
         up_to: bool,
         num: Option<u8>,
         size: Option<u32>,
@@ -216,6 +212,7 @@ pub trait WalletOnline: WalletOffline {
 
         if !skip_sync {
             self.sync_wallet(
+                txn,
                 SyncOptions {
                     keychain: SyncKeychain::Vanilla {
                         lookback: self.vanilla_sync_lookback(),
@@ -226,10 +223,8 @@ pub trait WalletOnline: WalletOffline {
             )?;
         }
 
-        let unspent_txos = self.database().get_unspent_txos(vec![])?;
-        let unspents = self
-            .database()
-            .get_rgb_allocations(unspent_txos, None, None, None, None)?;
+        let unspent_txos = txn.get_unspent_txos(vec![])?;
+        let unspents = txn.get_rgb_allocations(unspent_txos, None, None, None, None)?;
 
         let mut utxos_to_create = num.unwrap_or(UTXO_NUM);
         if up_to {
@@ -244,8 +239,10 @@ pub trait WalletOnline: WalletOffline {
             "Will try to create {} UTXOs", utxos_to_create
         );
 
-        let reserved: HashSet<BdkOutPoint> =
-            self.get_reserved_vanilla_outpoints()?.into_iter().collect();
+        let reserved: HashSet<BdkOutPoint> = self
+            .get_reserved_vanilla_outpoints(txn)?
+            .into_iter()
+            .collect();
         let (inputs, usable_btc_amount) = self.internal_unspents().fold(
             (Vec::new(), 0u64),
             |(mut inputs, usable_btc_amount), u| {
@@ -280,7 +277,7 @@ pub trait WalletOnline: WalletOffline {
             match self.create_split_tx(&inputs, &addresses, utxo_size, fee_rate_checked) {
                 Ok(psbt) => {
                     if !dry_run {
-                        self.reserve_vanilla_txos(&psbt, WalletTransactionType::CreateUtxos)?;
+                        self.reserve_vanilla_txos(txn, &psbt, WalletTransactionType::CreateUtxos)?;
                     }
                     return Ok(psbt);
                 }
@@ -309,10 +306,14 @@ pub trait WalletOnline: WalletOffline {
         })
     }
 
-    fn create_utxos_end_impl(&mut self, signed_psbt: &Psbt) -> Result<u8, Error> {
-        let tx = self.broadcast_psbt(signed_psbt)?;
+    fn create_utxos_end_impl(&mut self, txn: &DbTxn, signed_psbt: &Psbt) -> Result<u8, Error> {
+        self.finalize_vanilla_wallet_transaction(
+            txn,
+            signed_psbt,
+            WalletTransactionType::CreateUtxos,
+        )?;
 
-        self.finalize_vanilla_wallet_transaction(signed_psbt, WalletTransactionType::CreateUtxos)?;
+        let tx = self.broadcast_psbt(txn, signed_psbt)?;
 
         let mut num_utxos_created = 0;
         let bdk_utxos: Vec<LocalOutput> = self.bdk_wallet().list_unspent().collect();
@@ -328,6 +329,7 @@ pub trait WalletOnline: WalletOffline {
 
     fn drain_to_begin_impl(
         &mut self,
+        txn: &DbTxn,
         address: String,
         fee_rate: u64,
         dry_run: bool,
@@ -335,6 +337,7 @@ pub trait WalletOnline: WalletOffline {
         let fee_rate_checked = self.check_fee_rate(fee_rate)?;
 
         self.sync_wallet(
+            txn,
             SyncOptions {
                 keychain: SyncKeychain::Colored,
                 strategy: SyncStrategy::FastSync,
@@ -342,6 +345,7 @@ pub trait WalletOnline: WalletOffline {
             false,
         )?;
         self.sync_wallet(
+            txn,
             SyncOptions {
                 keychain: SyncKeychain::Vanilla {
                     lookback: self.vanilla_sync_lookback(),
@@ -376,15 +380,19 @@ pub trait WalletOnline: WalletOffline {
         })?;
 
         if !dry_run {
-            self.reserve_vanilla_txos(&psbt, WalletTransactionType::Drain)?;
+            self.reserve_vanilla_txos(txn, &psbt, WalletTransactionType::Drain)?;
         }
 
         Ok(psbt)
     }
 
-    fn drain_to_end_impl(&mut self, signed_psbt: &Psbt) -> Result<BdkTransaction, Error> {
-        let tx = self.broadcast_psbt(signed_psbt)?;
-        self.finalize_vanilla_wallet_transaction(signed_psbt, WalletTransactionType::Drain)?;
+    fn drain_to_end_impl(
+        &mut self,
+        txn: &DbTxn,
+        signed_psbt: &Psbt,
+    ) -> Result<BdkTransaction, Error> {
+        self.finalize_vanilla_wallet_transaction(txn, signed_psbt, WalletTransactionType::Drain)?;
+        let tx = self.broadcast_psbt(txn, signed_psbt)?;
         Ok(tx)
     }
 
@@ -402,48 +410,48 @@ pub trait WalletOnline: WalletOffline {
 
     fn fail_batch_transfer(
         &self,
+        txn: &DbTxn,
         batch_transfer: &DbBatchTransfer,
     ) -> Result<DbBatchTransfer, Error> {
         self.set_hub_fail_status(batch_transfer.idx)?;
         let mut updated_batch_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
         updated_batch_transfer.status = ActiveValue::Set(TransferStatus::Failed);
-        Ok(self
-            .database()
-            .update_batch_transfer(&mut updated_batch_transfer)?)
+        txn.update_batch_transfer(&mut updated_batch_transfer)
     }
 
     fn try_fail_batch_transfer(
         &mut self,
+        txn: &DbTxn,
         batch_transfer: &DbBatchTransfer,
-        throw_err: bool,
         db_data: &mut DbData,
-    ) -> Result<(), Error> {
-        let updated_batch_transfer = match self.refresh_transfer(batch_transfer, db_data, &[], true)
-        {
-            Err(Error::MinFeeNotMet { txid: _ }) | Err(Error::MaxFeeExceeded { txid: _ }) => {
-                Ok(None)
-            }
-            Err(e) => Err(e),
-            Ok(v) => Ok(v),
-        }?;
+    ) -> Result<TryFailBatchTransferOutcome, Error> {
+        let updated_batch_transfer =
+            match self.refresh_transfer(txn, batch_transfer, db_data, &[], true) {
+                Err(Error::MinFeeNotMet { txid: _ }) | Err(Error::MaxFeeExceeded { txid: _ }) => {
+                    Ok(None)
+                }
+                Err(e) => Err(e),
+                Ok(v) => Ok(v),
+            }?;
         // fail transfer if the status didn't change after a refresh
         if updated_batch_transfer.is_none() {
-            self.fail_batch_transfer(batch_transfer)?;
-        } else if throw_err {
-            return Err(Error::CannotFailBatchTransfer);
+            self.fail_batch_transfer(txn, batch_transfer)?;
+            Ok(TryFailBatchTransferOutcome::Failed)
+        } else {
+            Ok(TryFailBatchTransferOutcome::Refreshed)
         }
-
-        Ok(())
     }
 
     fn fail_transfers_impl(
         &mut self,
+        txn: &DbTxn,
         batch_transfer_idx: Option<i32>,
         no_asset_only: bool,
         skip_sync: bool,
-    ) -> Result<bool, Error> {
+    ) -> Result<FailTransfersOutcome, Error> {
         if !skip_sync {
             self.sync_wallet(
+                txn,
                 SyncOptions {
                     keychain: SyncKeychain::Colored,
                     strategy: SyncStrategy::FastSync,
@@ -452,16 +460,19 @@ pub trait WalletOnline: WalletOffline {
             )?;
         }
 
-        let mut db_data = self.database().get_db_data(false)?;
+        let mut db_data = txn.get_db_data(false)?;
         let mut transfers_changed = false;
+        let mut cannot_fail = false;
 
         if let Some(batch_transfer_idx) = batch_transfer_idx {
-            let batch_transfer = &self
-                .database()
-                .get_batch_transfer_or_fail(batch_transfer_idx, &db_data.batch_transfers)?;
+            let batch_transfer =
+                txn.get_batch_transfer_or_fail(batch_transfer_idx, &db_data.batch_transfers)?;
 
             if !batch_transfer.is_fallible() {
-                return Err(Error::CannotFailBatchTransfer);
+                return Ok(FailTransfersOutcome {
+                    transfers_changed: false,
+                    cannot_fail: true,
+                });
             }
 
             if no_asset_only {
@@ -469,12 +480,19 @@ pub trait WalletOnline: WalletOffline {
                     batch_transfer.get_asset_transfers(&db_data.asset_transfers)?;
                 let connected_assets = asset_transfers.iter().any(|t| t.asset_id.is_some());
                 if connected_assets {
-                    return Err(Error::CannotFailBatchTransfer);
+                    return Ok(FailTransfersOutcome {
+                        transfers_changed: false,
+                        cannot_fail: true,
+                    });
                 }
             }
 
             transfers_changed = true;
-            self.try_fail_batch_transfer(batch_transfer, true, &mut db_data)?
+            if let TryFailBatchTransferOutcome::Refreshed =
+                self.try_fail_batch_transfer(txn, &batch_transfer, &mut db_data)?
+            {
+                cannot_fail = true;
+            }
         } else {
             // fail all expired transfers that are in a fallible status
             let now = now().unix_timestamp();
@@ -493,37 +511,36 @@ pub trait WalletOnline: WalletOffline {
                     }
                 }
                 transfers_changed = true;
-                self.try_fail_batch_transfer(&batch_transfer, false, &mut db_data)?
+                self.try_fail_batch_transfer(txn, &batch_transfer, &mut db_data)?;
             }
         }
 
-        if transfers_changed {
-            self.update_backup_info(false)?;
-        }
-
-        Ok(transfers_changed)
+        Ok(FailTransfersOutcome {
+            transfers_changed,
+            cannot_fail,
+        })
     }
 
-    fn wallet_specific_consistency_checks(&mut self) -> Result<(), Error>;
+    fn wallet_specific_consistency_checks(&mut self, _txn: &DbTxn) -> Result<(), Error>;
 
-    fn check_consistency(&mut self, runtime: &RgbRuntime) -> Result<(), Error> {
+    fn check_consistency(&mut self, txn: &DbTxn, runtime: &RgbRuntime) -> Result<(), Error> {
         info!(self.logger(), "Doing a consistency check...");
 
-        self.wallet_specific_consistency_checks()?;
+        self.wallet_specific_consistency_checks(txn)?;
 
         let asset_ids: Vec<String> = runtime
             .contracts()?
             .iter()
             .map(|c| c.id.to_string())
             .collect();
-        let db_asset_ids: Vec<String> = self.database().get_asset_ids()?;
+        let db_asset_ids: Vec<String> = txn.get_asset_ids()?;
         if !db_asset_ids.iter().all(|i| asset_ids.contains(i)) {
             return Err(Error::Inconsistency {
                 details: s!("DB assets do not match with ones stored in RGB"),
             });
         }
 
-        let medias = self.database().iter_media()?;
+        let medias = txn.iter_media()?;
         let media_dir = self.media_dir();
         for media in medias {
             if !media_dir.join(media.digest).exists() {
@@ -588,8 +605,10 @@ pub trait WalletOnline: WalletOffline {
         };
 
         if !online_options.skip_consistency_check {
+            let txn = self.database().begin_transaction()?;
             let runtime = self.rgb_runtime()?;
-            self.check_consistency(&runtime)?;
+            self.check_consistency(&txn, &runtime)?;
+            txn.commit()?;
         }
 
         Ok(online)
@@ -597,6 +616,7 @@ pub trait WalletOnline: WalletOffline {
 
     fn get_asset_medias(
         &self,
+        txn: &DbTxn,
         media_idx: Option<i32>,
         token: Option<TokenLight>,
     ) -> Result<Vec<Media>, Error> {
@@ -609,7 +629,7 @@ pub trait WalletOnline: WalletOffline {
                 asset_medias.push(attachment_media);
             }
         } else if let Some(media_idx) = media_idx {
-            let db_media = self.database().get_media(media_idx)?.unwrap();
+            let db_media = txn.get_media(media_idx)?.unwrap();
             asset_medias.push(Media::from_db_media(&db_media, self.media_dir()))
         }
         Ok(asset_medias)
@@ -623,11 +643,12 @@ pub trait WalletOnline: WalletOffline {
 
     fn fail_batch_transfer_if_no_endpoints(
         &self,
+        txn: &DbTxn,
         batch_transfer: &DbBatchTransfer,
         transfer_transport_endpoints_data: &[(DbTransferTransportEndpoint, DbTransportEndpoint)],
     ) -> Result<Option<DbBatchTransfer>, Error> {
         if transfer_transport_endpoints_data.is_empty() {
-            Ok(Some(self.fail_batch_transfer(batch_transfer)?))
+            Ok(Some(self.fail_batch_transfer(txn, batch_transfer)?))
         } else {
             Ok(None)
         }
@@ -635,6 +656,7 @@ pub trait WalletOnline: WalletOffline {
 
     fn refuse_consignment(
         &self,
+        txn: &DbTxn,
         proxy_url: String,
         recipient_id: String,
         updated_batch_transfer: &mut DbBatchTransferActMod,
@@ -657,10 +679,7 @@ pub trait WalletOnline: WalletOffline {
             }
         };
         updated_batch_transfer.status = ActiveValue::Set(TransferStatus::Failed);
-        Ok(Some(
-            self.database()
-                .update_batch_transfer(updated_batch_transfer)?,
-        ))
+        Ok(Some(txn.update_batch_transfer(updated_batch_transfer)?))
     }
 
     fn get_consignment(
@@ -871,6 +890,7 @@ pub trait WalletOnline: WalletOffline {
 
     fn ack_consignment(
         &self,
+        txn: &DbTxn,
         batch_transfer: &DbBatchTransfer,
         recipient_id: String,
         updated_batch_transfer: &mut DbBatchTransferActMod,
@@ -880,7 +900,7 @@ pub trait WalletOnline: WalletOffline {
 
         match self.set_hub_accept_status(batch_transfer.idx)? {
             Some(true) => {}
-            Some(false) => return Ok(Some(self.fail_batch_transfer(batch_transfer)?)),
+            Some(false) => return Ok(Some(self.fail_batch_transfer(txn, batch_transfer)?)),
             None => return Ok(None),
         }
 
@@ -900,14 +920,12 @@ pub trait WalletOnline: WalletOffline {
 
         updated_batch_transfer.status = ActiveValue::Set(TransferStatus::WaitingConfirmations);
 
-        Ok(Some(
-            self.database()
-                .update_batch_transfer(updated_batch_transfer)?,
-        ))
+        Ok(Some(txn.update_batch_transfer(updated_batch_transfer)?))
     }
 
     fn wait_consignment(
         &self,
+        txn: &DbTxn,
         batch_transfer: &DbBatchTransfer,
         db_data: &DbData,
     ) -> Result<Option<DbBatchTransfer>, Error> {
@@ -921,11 +939,9 @@ pub trait WalletOnline: WalletOffline {
             .expect("transfer should have a recipient ID");
         debug!(self.logger(), "Recipient ID: {recipient_id}");
 
-        let tte_data = self
-            .database()
-            .get_transfer_transport_endpoints_data(transfer.idx)?;
+        let tte_data = txn.get_transfer_transport_endpoints_data(transfer.idx)?;
         if let Some(updated_transfer) =
-            self.fail_batch_transfer_if_no_endpoints(batch_transfer, &tte_data)?
+            self.fail_batch_transfer_if_no_endpoints(txn, batch_transfer, &tte_data)?
         {
             return Ok(Some(updated_transfer));
         }
@@ -980,8 +996,7 @@ pub trait WalletOnline: WalletOffline {
                 let mut updated_transfer_transport_endpoint: DbTransferTransportEndpointActMod =
                     transfer_transport_endpoint.into();
                 updated_transfer_transport_endpoint.used = ActiveValue::Set(true);
-                self.database()
-                    .update_transfer_transport_endpoint(&mut updated_transfer_transport_endpoint)?;
+                txn.update_transfer_transport_endpoint(&mut updated_transfer_transport_endpoint)?;
                 break;
             }
             let (consignment_b64, proxy_url, txid, vout) = if let Some(res) = proxy_res {
@@ -998,6 +1013,7 @@ pub trait WalletOnline: WalletOffline {
                 Err(e) => {
                     error!(self.logger(), "Failed to decode consignment bytes: {e}");
                     return self.refuse_consignment(
+                        txn,
                         proxy_url,
                         recipient_id,
                         &mut updated_batch_transfer,
@@ -1023,6 +1039,7 @@ pub trait WalletOnline: WalletOffline {
             Err(e) => {
                 error!(self.logger(), "Failed to load consignment file: {e}");
                 return self.refuse_consignment(
+                    txn,
                     proxy_url,
                     recipient_id,
                     &mut updated_batch_transfer,
@@ -1039,7 +1056,12 @@ pub trait WalletOnline: WalletOffline {
                 self.logger(),
                 "The wallet doesn't support the provided schema: {}", asset_schema
             );
-            return self.refuse_consignment(proxy_url, recipient_id, &mut updated_batch_transfer);
+            return self.refuse_consignment(
+                txn,
+                proxy_url,
+                recipient_id,
+                &mut updated_batch_transfer,
+            );
         }
 
         // check if DB transfer is connected to an asset
@@ -1051,6 +1073,7 @@ pub trait WalletOnline: WalletOffline {
                     "Received a different asset than the expected one"
                 );
                 return self.refuse_consignment(
+                    txn,
                     proxy_url,
                     recipient_id,
                     &mut updated_batch_transfer,
@@ -1064,6 +1087,7 @@ pub trait WalletOnline: WalletOffline {
             Err(_) => {
                 error!(self.logger(), "Received an invalid TXID from the proxy");
                 return self.refuse_consignment(
+                    txn,
                     proxy_url,
                     recipient_id,
                     &mut updated_batch_transfer,
@@ -1090,6 +1114,7 @@ pub trait WalletOnline: WalletOffline {
             Err(ValidationError::InvalidConsignment(e)) => {
                 error!(self.logger(), "Consignment is invalid: {}", e);
                 return self.refuse_consignment(
+                    txn,
                     proxy_url,
                     recipient_id,
                     &mut updated_batch_transfer,
@@ -1116,7 +1141,12 @@ pub trait WalletOnline: WalletOffline {
                 self.logger(),
                 "Cannot find the provided TXID in the consignment"
             );
-            return self.refuse_consignment(proxy_url, recipient_id, &mut updated_batch_transfer);
+            return self.refuse_consignment(
+                txn,
+                proxy_url,
+                recipient_id,
+                &mut updated_batch_transfer,
+            );
         };
 
         // check the info provided via the proxy is correct
@@ -1132,6 +1162,7 @@ pub trait WalletOnline: WalletOffline {
                                 "The provided vout pays an incorrect script pubkey"
                             );
                             return self.refuse_consignment(
+                                txn,
                                 proxy_url,
                                 recipient_id,
                                 &mut updated_batch_transfer,
@@ -1140,6 +1171,7 @@ pub trait WalletOnline: WalletOffline {
                     } else {
                         error!(self.logger(), "Cannot find the expected outpoint");
                         return self.refuse_consignment(
+                            txn,
                             proxy_url,
                             recipient_id,
                             &mut updated_batch_transfer,
@@ -1148,6 +1180,7 @@ pub trait WalletOnline: WalletOffline {
                 } else {
                     error!(self.logger(), "Consignment is missing the witness TX");
                     return self.refuse_consignment(
+                        txn,
                         proxy_url,
                         recipient_id,
                         &mut updated_batch_transfer,
@@ -1159,6 +1192,7 @@ pub trait WalletOnline: WalletOffline {
                     "The vout should be provided when receiving via witness"
                 );
                 return self.refuse_consignment(
+                    txn,
                     proxy_url,
                     recipient_id,
                     &mut updated_batch_transfer,
@@ -1181,11 +1215,16 @@ pub trait WalletOnline: WalletOffline {
             self.extract_received_assignments(&consignment, witness_id, vout, known_concealed);
         if receiving.is_empty() {
             error!(self.logger(), "Cannot find any receiving assignment");
-            return self.refuse_consignment(proxy_url, recipient_id, &mut updated_batch_transfer);
+            return self.refuse_consignment(
+                txn,
+                proxy_url,
+                recipient_id,
+                &mut updated_batch_transfer,
+            );
         };
 
         if asset_schema == AssetSchema::Ifa {
-            let url = if let Ok(ass) = self.database().check_asset_exists(asset_id.clone()) {
+            let url = if let Ok(ass) = txn.check_asset_exists(asset_id.clone()) {
                 ass.reject_list_url
             } else {
                 let contract = IfaWrapper::with(valid_consignment.contract_data());
@@ -1211,6 +1250,7 @@ pub trait WalletOnline: WalletOffline {
                         to_reject.len()
                     );
                     return self.refuse_consignment(
+                        txn,
                         proxy_url,
                         recipient_id,
                         &mut updated_batch_transfer,
@@ -1225,11 +1265,7 @@ pub trait WalletOnline: WalletOffline {
         }
 
         if asset_transfer.asset_id.is_none() {
-            if self
-                .database()
-                .check_asset_exists(asset_id.clone())
-                .is_err()
-            {
+            if txn.check_asset_exists(asset_id.clone()).is_err() {
                 // unknown asset
                 debug!(self.logger(), "Receiving unknown contract...");
                 let valid_contract = valid_consignment.clone().into_valid_contract();
@@ -1256,6 +1292,7 @@ pub trait WalletOnline: WalletOffline {
                                     "Attached file has a different hash than the one in the contract"
                                 );
                                 return self.refuse_consignment(
+                                    txn,
                                     proxy_url,
                                     recipient_id,
                                     &mut updated_batch_transfer,
@@ -1272,6 +1309,7 @@ pub trait WalletOnline: WalletOffline {
                                 fs::remove_file(path)?;
                             }
                             return self.refuse_consignment(
+                                txn,
                                 proxy_url,
                                 recipient_id,
                                 &mut updated_batch_transfer,
@@ -1285,6 +1323,7 @@ pub trait WalletOnline: WalletOffline {
                     .expect("failure importing received contract");
                 debug!(self.logger(), "Contract registered");
                 self.save_new_asset_internal(
+                    txn,
                     &runtime,
                     contract_id,
                     asset_schema,
@@ -1296,8 +1335,7 @@ pub trait WalletOnline: WalletOffline {
             // add asset info to transfer if missing
             let mut updated_asset_transfer: DbAssetTransferActMod = asset_transfer.clone().into();
             updated_asset_transfer.asset_id = ActiveValue::Set(Some(asset_id.clone()));
-            self.database()
-                .update_asset_transfer(&mut updated_asset_transfer)?;
+            txn.update_asset_transfer(&mut updated_asset_transfer)?;
         }
 
         // save validated consignment
@@ -1313,16 +1351,13 @@ pub trait WalletOnline: WalletOffline {
 
         let utxo_idx = match transfer.recipient_type {
             Some(RecipientTypeFull::Blind { ref unblinded_utxo }) => {
-                self.database()
-                    .get_txo(unblinded_utxo)?
-                    .expect("utxo must exist")
-                    .idx
+                txn.get_txo(unblinded_utxo)?.expect("utxo must exist").idx
             }
             Some(RecipientTypeFull::Witness { .. }) => {
                 let mut updated_transfer: DbTransferActMod = transfer.clone().into();
                 updated_transfer.recipient_type =
                     ActiveValue::Set(Some(RecipientTypeFull::Witness { vout }));
-                self.database().update_transfer(&mut updated_transfer)?;
+                txn.update_transfer(&mut updated_transfer)?;
                 let db_utxo = DbTxoActMod {
                     txid: ActiveValue::Set(txid.clone()),
                     vout: ActiveValue::Set(vout.unwrap()),
@@ -1332,7 +1367,7 @@ pub trait WalletOnline: WalletOffline {
                     pending_witness: ActiveValue::Set(true),
                     ..Default::default()
                 };
-                self.database().set_txo(db_utxo)?
+                txn.set_txo(db_utxo)?
             }
             _ => return Err(InternalError::Unexpected.into()),
         };
@@ -1344,7 +1379,7 @@ pub trait WalletOnline: WalletOffline {
                 assignment: ActiveValue::Set(assignment),
                 ..Default::default()
             };
-            self.database().set_coloring(db_coloring)?;
+            txn.set_coloring(db_coloring)?;
         }
 
         // if the consignment contains unsafe history set status to WaitingSafeHeight and stop here
@@ -1358,13 +1393,13 @@ pub trait WalletOnline: WalletOffline {
                 );
                 updated_batch_transfer.status = ActiveValue::Set(TransferStatus::WaitingSafeHeight);
                 return Ok(Some(
-                    self.database()
-                        .update_batch_transfer(&mut updated_batch_transfer)?,
+                    txn.update_batch_transfer(&mut updated_batch_transfer)?,
                 ));
             }
         }
 
         self.ack_consignment(
+            txn,
             batch_transfer,
             recipient_id,
             &mut updated_batch_transfer,
@@ -1374,6 +1409,7 @@ pub trait WalletOnline: WalletOffline {
 
     fn wait_safe_height(
         &mut self,
+        txn: &DbTxn,
         batch_transfer: &DbBatchTransfer,
         db_data: &mut DbData,
     ) -> Result<Option<DbBatchTransfer>, Error> {
@@ -1409,14 +1445,13 @@ pub trait WalletOnline: WalletOffline {
         }
 
         let mut updated_batch_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
-        let tte_data = self
-            .database()
-            .get_transfer_transport_endpoints_data(transfer.idx)?;
+        let tte_data = txn.get_transfer_transport_endpoints_data(transfer.idx)?;
         let (_, transport_endpoint) = tte_data
             .into_iter()
             .find(|(tte, _)| tte.used)
             .expect("there should be 1 used TTE");
         self.ack_consignment(
+            txn,
             batch_transfer,
             recipient_id,
             &mut updated_batch_transfer,
@@ -1426,6 +1461,7 @@ pub trait WalletOnline: WalletOffline {
 
     fn wait_ack(
         &mut self,
+        txn: &DbTxn,
         batch_transfer: &DbBatchTransfer,
         db_data: &mut DbData,
     ) -> Result<Option<DbBatchTransfer>, Error> {
@@ -1438,11 +1474,9 @@ pub trait WalletOnline: WalletOffline {
                 if transfer.ack.is_some() {
                     continue;
                 }
-                let tte_data = self
-                    .database()
-                    .get_transfer_transport_endpoints_data(transfer.idx)?;
+                let tte_data = txn.get_transfer_transport_endpoints_data(transfer.idx)?;
                 if let Some(updated_transfer) =
-                    self.fail_batch_transfer_if_no_endpoints(batch_transfer, &tte_data)?
+                    self.fail_batch_transfer_if_no_endpoints(txn, batch_transfer, &tte_data)?
                 {
                     return Ok(Some(updated_transfer));
                 }
@@ -1467,7 +1501,7 @@ pub trait WalletOnline: WalletOffline {
                 if ack_res.result.is_some() {
                     let mut updated_transfer: DbTransferActMod = transfer.clone().into();
                     updated_transfer.ack = ActiveValue::Set(ack_res.result);
-                    self.database().update_transfer(&mut updated_transfer)?;
+                    txn.update_transfer(&mut updated_transfer)?;
                     transfer.ack = ack_res.result;
                 }
             }
@@ -1483,18 +1517,19 @@ pub trait WalletOnline: WalletOffline {
             .iter()
             .any(|t| t.ack == Some(false))
         {
-            return Ok(Some(self.fail_batch_transfer(batch_transfer).map_err(
-                |e| match e {
-                    Error::MultisigTransferStatusMismatch => Error::MultisigUnexpectedData {
-                        details: s!("hub reports accepted=true but recipient sent a NACK"),
-                    },
-                    other => other,
-                },
-            )?));
+            return Ok(Some(
+                self.fail_batch_transfer(txn, batch_transfer)
+                    .map_err(|e| match e {
+                        Error::MultisigTransferStatusMismatch => Error::MultisigUnexpectedData {
+                            details: s!("hub reports accepted=true but recipient sent a NACK"),
+                        },
+                        other => other,
+                    })?,
+            ));
         } else if batch_transfer_transfers.iter().all(|t| t.ack == Some(true)) {
             match self.set_hub_accept_status(batch_transfer.idx)? {
                 Some(true) => {}
-                Some(false) => return Ok(Some(self.fail_batch_transfer(batch_transfer)?)),
+                Some(false) => return Ok(Some(self.fail_batch_transfer(txn, batch_transfer)?)),
                 None => return Ok(None),
             }
             let txid = batch_transfer
@@ -1507,15 +1542,14 @@ pub trait WalletOnline: WalletOffline {
             let fascia_path = transfer_dir.join(FASCIA_FILE);
             let fascia_str = fs::read_to_string(fascia_path)?;
             let fascia: Fascia = serde_json::from_str(&fascia_str).map_err(InternalError::from)?;
-            self.broadcast_and_update_rgb(&mut runtime, &signed_psbt, fascia)?;
+            self.broadcast_and_update_rgb(txn, &mut runtime, &signed_psbt, fascia)?;
             updated_batch_transfer.status = ActiveValue::Set(TransferStatus::WaitingConfirmations);
         } else {
             return Ok(None);
         }
 
         Ok(Some(
-            self.database()
-                .update_batch_transfer(&mut updated_batch_transfer)?,
+            txn.update_batch_transfer(&mut updated_batch_transfer)?,
         ))
     }
 
@@ -1538,6 +1572,7 @@ pub trait WalletOnline: WalletOffline {
 
     fn wait_confirmations(
         &mut self,
+        txn: &DbTxn,
         batch_transfer: &DbBatchTransfer,
         db_data: &DbData,
         incoming: bool,
@@ -1575,6 +1610,7 @@ pub trait WalletOnline: WalletOffline {
             if let Some(RecipientTypeFull::Witness { vout }) = transfer.recipient_type {
                 if !skip_sync {
                     self.sync_wallet(
+                        txn,
                         SyncOptions {
                             keychain: SyncKeychain::Colored,
                             strategy: SyncStrategy::FastSync,
@@ -1586,10 +1622,10 @@ pub trait WalletOnline: WalletOffline {
                     txid: txid.clone(),
                     vout: vout.unwrap(),
                 };
-                let txo = self.database().get_txo(&outpoint)?.expect("txo must exist");
+                let txo = txn.get_txo(&outpoint)?.expect("txo must exist");
                 let mut txo: DbTxoActMod = txo.into();
                 txo.pending_witness = ActiveValue::Set(false);
-                self.database().update_txo(txo)?;
+                txn.update_txo(txo)?;
             }
 
             // accept consignment
@@ -1606,7 +1642,7 @@ pub trait WalletOnline: WalletOffline {
                     runtime.contract_wrapper::<InflatableFungibleAsset>(contract_id)?;
                 let known_circulating_supply = contract_wrapper.total_issued_supply().into();
                 let asset_id = asset_transfer.asset_id.unwrap();
-                let db_asset = self.database().get_asset(asset_id).unwrap().unwrap();
+                let db_asset = txn.get_asset(asset_id).unwrap().unwrap();
                 let db_known_circulating_supply = db_asset
                     .known_circulating_supply
                     .as_ref()
@@ -1617,7 +1653,7 @@ pub trait WalletOnline: WalletOffline {
                     let mut updated_asset: DbAssetActMod = db_asset.into();
                     updated_asset.known_circulating_supply =
                         ActiveValue::Set(Some(known_circulating_supply.to_string()));
-                    self.database().update_asset(&mut updated_asset)?;
+                    txn.update_asset(&mut updated_asset)?;
                 }
             }
         }
@@ -1625,26 +1661,27 @@ pub trait WalletOnline: WalletOffline {
         let mut updated_batch_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
         updated_batch_transfer.status = ActiveValue::Set(TransferStatus::Settled);
         Ok(Some(
-            self.database()
-                .update_batch_transfer(&mut updated_batch_transfer)?,
+            txn.update_batch_transfer(&mut updated_batch_transfer)?,
         ))
     }
 
     fn wait_counterparty(
         &mut self,
+        txn: &DbTxn,
         transfer: &DbBatchTransfer,
         db_data: &mut DbData,
         incoming: bool,
     ) -> Result<Option<DbBatchTransfer>, Error> {
         if incoming {
-            self.wait_consignment(transfer, db_data)
+            self.wait_consignment(txn, transfer, db_data)
         } else {
-            self.wait_ack(transfer, db_data)
+            self.wait_ack(txn, transfer, db_data)
         }
     }
 
     fn refresh_transfer(
         &mut self,
+        txn: &DbTxn,
         transfer: &DbBatchTransfer,
         db_data: &mut DbData,
         filter: &[RefreshFilter],
@@ -1664,13 +1701,13 @@ pub trait WalletOnline: WalletOffline {
         match transfer.status {
             TransferStatus::WaitingCounterparty => {
                 if self.get_hub_fail_status(transfer.idx)? {
-                    return Ok(Some(self.fail_batch_transfer(transfer)?));
+                    return Ok(Some(self.fail_batch_transfer(txn, transfer)?));
                 }
-                self.wait_counterparty(transfer, db_data, incoming)
+                self.wait_counterparty(txn, transfer, db_data, incoming)
             }
-            TransferStatus::WaitingSafeHeight => self.wait_safe_height(transfer, db_data),
+            TransferStatus::WaitingSafeHeight => self.wait_safe_height(txn, transfer, db_data),
             TransferStatus::WaitingConfirmations => {
-                self.wait_confirmations(transfer, db_data, incoming, skip_sync)
+                self.wait_confirmations(txn, transfer, db_data, incoming, skip_sync)
             }
             _ => Ok(None),
         }
@@ -1678,11 +1715,12 @@ pub trait WalletOnline: WalletOffline {
 
     fn refresh_impl(
         &mut self,
+        txn: &DbTxn,
         asset_id: Option<String>,
         filter: Vec<RefreshFilter>,
         skip_sync: bool,
     ) -> Result<RefreshResult, Error> {
-        let mut db_data = self.database().get_db_data(false)?;
+        let mut db_data = txn.get_db_data(false)?;
 
         if asset_id.is_some() {
             let batch_transfers_ids: Vec<i32> = db_data
@@ -1701,7 +1739,7 @@ pub trait WalletOnline: WalletOffline {
         for transfer in db_data.batch_transfers.clone() {
             let mut failure = None;
             let mut updated_status = None;
-            match self.refresh_transfer(&transfer, &mut db_data, &filter, skip_sync) {
+            match self.refresh_transfer(txn, &transfer, &mut db_data, &filter, skip_sync) {
                 Ok(Some(updated_transfer)) => updated_status = Some(updated_transfer.status),
                 Err(e) => failure = Some(e),
                 _ => {}
@@ -1713,10 +1751,6 @@ pub trait WalletOnline: WalletOffline {
                     failure,
                 },
             );
-        }
-
-        if refresh_result.transfers_changed() {
-            self.update_backup_info(false)?;
         }
 
         Ok(refresh_result)
@@ -1958,6 +1992,7 @@ pub trait WalletOnline: WalletOffline {
 
     fn get_change_seal(
         &self,
+        txn: &DbTxn,
         btc_change: &Option<BtcChange>,
         change_utxo_option: &mut Option<DbTxo>,
         input_outpoints: &[Outpoint],
@@ -1967,7 +2002,8 @@ pub trait WalletOnline: WalletOffline {
             GraphSeal::new_random_vout(btc_change.vout)
         } else {
             if change_utxo_option.is_none() {
-                let change_utxo = self.get_utxo(input_outpoints, Some(unspents), true, None)?;
+                let change_utxo =
+                    self.get_utxo(txn, input_outpoints, Some(unspents), true, None)?;
                 debug!(
                     self.logger(),
                     "Change outpoint '{}'",
@@ -2024,6 +2060,7 @@ pub trait WalletOnline: WalletOffline {
 
     fn prepare_rgb_psbt(
         &self,
+        txn: &DbTxn,
         psbt: &mut Psbt,
         transfer_info_map: &mut BTreeMap<String, InfoAssetTransfer>,
         transfer_dir: PathBuf,
@@ -2157,6 +2194,7 @@ pub trait WalletOnline: WalletOffline {
             if change != AssignmentsCollection::default() {
                 transfer_info.change = change.clone();
                 let seal = self.get_change_seal(
+                    txn,
                     &btc_change,
                     &mut change_utxo_option,
                     &input_outpoints,
@@ -2236,6 +2274,7 @@ pub trait WalletOnline: WalletOffline {
                 let mut extra_builder = runtime.transition_builder_raw(cid, transition_type)?;
                 let assignment = Assignment::from_opout_and_state(opout, &state);
                 let seal = self.get_change_seal(
+                    txn,
                     &btc_change,
                     &mut change_utxo_option,
                     &input_outpoints,
@@ -2492,6 +2531,7 @@ pub trait WalletOnline: WalletOffline {
 
     fn save_transfers(
         &mut self,
+        txn: &DbTxn,
         txid: String,
         info_contents: &InfoBatchTransfer,
         status: TransferStatus,
@@ -2504,11 +2544,11 @@ pub trait WalletOnline: WalletOffline {
             min_confirmations: ActiveValue::Set(info_contents.min_confirmations),
             ..Default::default()
         };
-        let batch_transfer_idx = self.database().set_batch_transfer(batch_transfer)?;
+        let batch_transfer_idx = txn.set_batch_transfer(batch_transfer)?;
 
         let change_utxo_idx = if let Some(btc_change) = &info_contents.btc_change {
             Some(
-                match self.database().get_txo(&Outpoint {
+                match txn.get_txo(&Outpoint {
                     txid: txid.clone(),
                     vout: btc_change.vout,
                 })? {
@@ -2523,17 +2563,12 @@ pub trait WalletOnline: WalletOffline {
                             pending_witness: ActiveValue::Set(false),
                             ..Default::default()
                         };
-                        self.database().set_txo(db_utxo)?
+                        txn.set_txo(db_utxo)?
                     }
                 },
             )
         } else if let Some(outpoint) = &info_contents.change_utxo_outpoint {
-            Some(
-                self.database()
-                    .get_txo(outpoint)?
-                    .expect("should exist")
-                    .idx,
-            )
+            Some(txn.get_txo(outpoint)?.expect("should exist").idx)
         } else {
             None
         };
@@ -2545,23 +2580,24 @@ pub trait WalletOnline: WalletOffline {
                 asset_id: ActiveValue::Set(Some(asset_id.clone())),
                 ..Default::default()
             };
-            let asset_transfer_idx = self.database().set_asset_transfer(asset_transfer)?;
+            let asset_transfer_idx = txn.set_asset_transfer(asset_transfer)?;
 
             for (outpoint, assignments) in &transfer_info.assignments_spent {
                 let outpoint: Outpoint = (*outpoint).into();
-                let txo_idx = match self.database().get_txo(&outpoint)? {
+                let txo_idx = match txn.get_txo(&outpoint)? {
                     Some(txo) => txo.idx,
                     None => {
                         self.sync_wallet(
+                            txn,
                             SyncOptions {
                                 keychain: SyncKeychain::Colored,
                                 strategy: SyncStrategy::FastSync,
                             },
                             true,
                         )?;
-                        let bdk_utxo = self.database().get_txo(&outpoint)?.expect("should exist");
+                        let bdk_utxo = txn.get_txo(&outpoint)?.expect("should exist");
                         let new_db_utxo: DbTxoActMod = bdk_utxo.clone().into();
-                        self.database().set_txo(new_db_utxo)?
+                        txn.set_txo(new_db_utxo)?
                     }
                 };
 
@@ -2573,7 +2609,7 @@ pub trait WalletOnline: WalletOffline {
                         assignment: ActiveValue::Set(assignment.clone()),
                         ..Default::default()
                     };
-                    self.database().set_coloring(db_coloring)?;
+                    txn.set_coloring(db_coloring)?;
                 }
             }
             if transfer_info.change.fungible > 0 {
@@ -2586,7 +2622,7 @@ pub trait WalletOnline: WalletOffline {
                     )),
                     ..Default::default()
                 };
-                self.database().set_coloring(db_coloring)?;
+                txn.set_coloring(db_coloring)?;
             }
             if transfer_info.change.inflation > 0 {
                 let db_coloring = DbColoringActMod {
@@ -2598,7 +2634,7 @@ pub trait WalletOnline: WalletOffline {
                     )),
                     ..Default::default()
                 };
-                self.database().set_coloring(db_coloring)?;
+                txn.set_coloring(db_coloring)?;
             }
 
             for recipient in transfer_info.recipients.clone() {
@@ -2612,7 +2648,7 @@ pub trait WalletOnline: WalletOffline {
                             unreachable!("inflation uses witness recipients")
                         };
                         let vout = local_witness_data.vout;
-                        let txo_idx = match self.database().get_txo(&Outpoint {
+                        let txo_idx = match txn.get_txo(&Outpoint {
                             txid: txid.clone(),
                             vout,
                         })? {
@@ -2629,7 +2665,7 @@ pub trait WalletOnline: WalletOffline {
                                     pending_witness: ActiveValue::Set(false),
                                     ..Default::default()
                                 };
-                                self.database().set_txo(db_utxo)?
+                                txn.set_txo(db_utxo)?
                             }
                         };
                         let db_coloring = DbColoringActMod {
@@ -2639,7 +2675,7 @@ pub trait WalletOnline: WalletOffline {
                             assignment: ActiveValue::Set(recipient.assignment.clone()),
                             ..Default::default()
                         };
-                        self.database().set_coloring(db_coloring)?;
+                        txn.set_coloring(db_coloring)?;
                         (
                             Some(recipient.recipient_id.clone()),
                             Some(RecipientTypeFull::Witness { vout: Some(vout) }),
@@ -2666,9 +2702,9 @@ pub trait WalletOnline: WalletOffline {
                     recipient_type: ActiveValue::Set(rcpt_type),
                     ..Default::default()
                 };
-                let transfer_idx = self.database().set_transfer(transfer)?;
+                let transfer_idx = txn.set_transfer(transfer)?;
                 for transport_endpoint in recipient.transport_endpoints {
-                    self.save_transfer_transport_endpoint(transfer_idx, &transport_endpoint)?;
+                    self.save_transfer_transport_endpoint(txn, transfer_idx, &transport_endpoint)?;
                 }
             }
         }
@@ -2680,22 +2716,23 @@ pub trait WalletOnline: WalletOffline {
                 asset_id: ActiveValue::Set(Some(asset_id.clone())),
                 ..Default::default()
             };
-            let asset_transfer_idx = self.database().set_asset_transfer(asset_transfer)?;
+            let asset_transfer_idx = txn.set_asset_transfer(asset_transfer)?;
             for (outpoint, assignments) in txo_assignments {
                 let outpoint: Outpoint = (*outpoint).into();
-                let input_idx = match self.database().get_txo(&outpoint)? {
+                let input_idx = match txn.get_txo(&outpoint)? {
                     Some(txo) => txo.idx,
                     None => {
                         self.sync_wallet(
+                            txn,
                             SyncOptions {
                                 keychain: SyncKeychain::Colored,
                                 strategy: SyncStrategy::FastSync,
                             },
                             true,
                         )?;
-                        let bdk_utxo = self.database().get_txo(&outpoint)?.expect("should exist");
+                        let bdk_utxo = txn.get_txo(&outpoint)?.expect("should exist");
                         let new_db_utxo: DbTxoActMod = bdk_utxo.clone().into();
-                        self.database().set_txo(new_db_utxo)?
+                        txn.set_txo(new_db_utxo)?
                     }
                 };
                 for assignment in assignments {
@@ -2706,7 +2743,7 @@ pub trait WalletOnline: WalletOffline {
                         assignment: ActiveValue::Set(assignment.clone()),
                         ..Default::default()
                     };
-                    self.database().set_coloring(db_coloring)?;
+                    txn.set_coloring(db_coloring)?;
                     let db_coloring = DbColoringActMod {
                         txo_idx: ActiveValue::Set(change_utxo_idx.unwrap()),
                         asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
@@ -2714,7 +2751,7 @@ pub trait WalletOnline: WalletOffline {
                         assignment: ActiveValue::Set(assignment.clone()),
                         ..Default::default()
                     };
-                    self.database().set_coloring(db_coloring)?;
+                    txn.set_coloring(db_coloring)?;
                 }
             }
         }
@@ -2724,18 +2761,19 @@ pub trait WalletOnline: WalletOffline {
 
     fn update_or_save_transfers(
         &mut self,
+        txn: &DbTxn,
         txid: String,
         info_contents: &InfoBatchTransfer,
         status: TransferStatus,
         sync_tte_used: bool,
     ) -> Result<i32, Error> {
-        if let Some(existing) = self.database().get_batch_transfer_by_txid(&txid)? {
+        if let Some(existing) = txn.get_batch_transfer_by_txid(&txid)? {
             let mut updated: DbBatchTransferActMod = existing.clone().into();
             updated.status = ActiveValue::Set(status);
-            self.database().update_batch_transfer(&mut updated)?;
+            txn.update_batch_transfer(&mut updated)?;
             if sync_tte_used {
-                let asset_transfers = self.database().iter_asset_transfers()?;
-                let transfers = self.database().iter_transfers()?;
+                let asset_transfers = txn.iter_asset_transfers()?;
+                let transfers = txn.iter_transfers()?;
                 let batch_data = existing.get_transfers(&asset_transfers, &transfers)?;
                 for asset_transfer_data in &batch_data.asset_transfers_data {
                     let asset_id = asset_transfer_data
@@ -2755,9 +2793,8 @@ pub trait WalletOnline: WalletOffline {
                                 db_transfer.recipient_id.as_deref() == Some(r.recipient_id.as_str())
                             })
                             .expect("recipient should be set");
-                        let tte_data = self
-                            .database()
-                            .get_transfer_transport_endpoints_data(db_transfer.idx)?;
+                        let tte_data =
+                            txn.get_transfer_transport_endpoints_data(db_transfer.idx)?;
                         for (tte, te) in tte_data {
                             let local_used = recipient
                                 .transport_endpoints
@@ -2767,8 +2804,7 @@ pub trait WalletOnline: WalletOffline {
                             if tte.used != local_used {
                                 let mut updated_tte: DbTransferTransportEndpointActMod = tte.into();
                                 updated_tte.used = ActiveValue::Set(local_used);
-                                self.database()
-                                    .update_transfer_transport_endpoint(&mut updated_tte)?;
+                                txn.update_transfer_transport_endpoint(&mut updated_tte)?;
                             }
                         }
                     }
@@ -2776,7 +2812,7 @@ pub trait WalletOnline: WalletOffline {
             }
             Ok(existing.idx)
         } else {
-            self.save_transfers(txid, info_contents, status)
+            self.save_transfers(txn, txid, info_contents, status)
         }
     }
 
@@ -2804,15 +2840,16 @@ pub trait WalletOnline: WalletOffline {
 
     fn get_transfer_begin_data(
         &mut self,
+        txn: &DbTxn,
         fee_rate: u64,
     ) -> Result<(FeeRate, Vec<LocalUnspent>, Vec<LocalUnspent>, RgbRuntime), Error> {
         let fee_rate_checked = self.check_fee_rate(fee_rate)?;
 
-        let db_data = self.database().get_db_data(false)?;
+        let db_data = txn.get_db_data(false)?;
 
-        let utxos = self.database().get_unspent_txos(db_data.txos.clone())?;
+        let utxos = txn.get_unspent_txos(db_data.txos.clone())?;
 
-        let unspents = self.database().get_rgb_allocations(
+        let unspents = txn.get_rgb_allocations(
             utxos,
             Some(db_data.colorings.clone()),
             Some(db_data.batch_transfers.clone()),
@@ -2848,6 +2885,7 @@ pub trait WalletOnline: WalletOffline {
 
     fn prepare_transfer_psbt(
         &mut self,
+        txn: &DbTxn,
         transfer_info_map: &mut BTreeMap<String, InfoAssetTransfer>,
         transfer_dir: PathBuf,
         donation: bool,
@@ -2881,6 +2919,7 @@ pub trait WalletOnline: WalletOffline {
 
         // prepare RGB PSBT
         let begin_operation_data = match self.prepare_rgb_psbt(
+            txn,
             &mut psbt,
             transfer_info_map,
             transfer_dir.clone(),
@@ -2913,6 +2952,7 @@ pub trait WalletOnline: WalletOffline {
         if !dry_run {
             // save transfer to DB with Initiated status to reserve the UTXOs
             let batch_transfer_idx = self.save_transfers(
+                txn,
                 txid,
                 &begin_operation_data.info_batch_transfer,
                 TransferStatus::Initiated,
@@ -2925,6 +2965,7 @@ pub trait WalletOnline: WalletOffline {
 
     fn finalize_transfer_end(
         &mut self,
+        txn: &DbTxn,
         txid: String,
         psbt: &Psbt,
         info_contents: &InfoBatchTransfer,
@@ -2933,12 +2974,13 @@ pub trait WalletOnline: WalletOffline {
         sync_tte_used: bool,
     ) -> Result<i32, Error> {
         let mut runtime = self.rgb_runtime()?;
-        self.broadcast_and_update_rgb(&mut runtime, psbt, fascia)?;
-        self.update_or_save_transfers(txid, info_contents, status, sync_tte_used)
+        self.broadcast_and_update_rgb(txn, &mut runtime, psbt, fascia)?;
+        self.update_or_save_transfers(txn, txid, info_contents, status, sync_tte_used)
     }
 
     fn send_begin_impl(
         &mut self,
+        txn: &DbTxn,
         recipient_map: HashMap<String, Vec<Recipient>>,
         donation: bool,
         fee_rate: u64,
@@ -2951,7 +2993,7 @@ pub trait WalletOnline: WalletOffline {
         }
 
         let (fee_rate_checked, unspents, input_unspents, mut runtime) =
-            self.get_transfer_begin_data(fee_rate)?;
+            self.get_transfer_begin_data(txn, fee_rate)?;
 
         let chainnet: ChainNet = self.bitcoin_network().into();
         let mut witness_recipients: Vec<(ScriptBuf, u64)> = vec![];
@@ -2960,7 +3002,7 @@ pub trait WalletOnline: WalletOffline {
         let mut assets_data: BTreeMap<String, (AssetInfo, AssignmentsCollection)> = BTreeMap::new();
         let mut local_recipients: BTreeMap<String, Vec<LocalRecipient>> = BTreeMap::new();
         for (asset_id, recipients) in &recipient_map {
-            let asset = self.database().check_asset_exists(asset_id.clone())?;
+            let asset = txn.check_asset_exists(asset_id.clone())?;
             let schema = asset.schema;
             self.check_schema_support(&schema)?;
 
@@ -3116,6 +3158,7 @@ pub trait WalletOnline: WalletOffline {
             }
 
             match self.prepare_transfer_psbt(
+                txn,
                 &mut transfer_info_map,
                 transfer_dir.clone(),
                 donation,
@@ -3137,7 +3180,7 @@ pub trait WalletOnline: WalletOffline {
         })
     }
 
-    fn send_end_impl(&mut self, signed_psbt: &Psbt) -> Result<OperationResult, Error> {
+    fn send_end_impl(&mut self, txn: &DbTxn, signed_psbt: &Psbt) -> Result<OperationResult, Error> {
         let (txid, transfer_dir, mut info_contents, fascia) =
             self.get_transfer_end_data(signed_psbt)?;
 
@@ -3150,13 +3193,13 @@ pub trait WalletOnline: WalletOffline {
         let mut tokens = None;
         let mut token_medias = None;
         for (asset_id, info_contents_asset) in info_contents.transfers.iter_mut() {
-            let asset = self.database().get_asset(asset_id.clone())?.unwrap();
+            let asset = txn.get_asset(asset_id.clone())?.unwrap();
             let token = match asset.schema {
                 AssetSchema::Uda => {
                     if medias.clone().is_none() {
-                        medias = Some(self.database().iter_media()?);
-                        tokens = Some(self.database().iter_tokens()?);
-                        token_medias = Some(self.database().iter_token_medias()?);
+                        medias = Some(txn.iter_media()?);
+                        tokens = Some(txn.iter_tokens()?);
+                        token_medias = Some(txn.iter_token_medias()?);
                     }
                     self.get_asset_token(
                         asset.idx,
@@ -3174,13 +3217,14 @@ pub trait WalletOnline: WalletOffline {
                 &mut info_contents_asset.recipients,
                 asset_transfer_dir,
                 txid.clone(),
-                self.get_asset_medias(asset.media_idx, token)?,
+                self.get_asset_medias(txn, asset.media_idx, token)?,
             )?;
         }
 
         let sync_tte_used = true;
         let batch_transfer_idx = if info_contents.donation {
             self.finalize_transfer_end(
+                txn,
                 txid.clone(),
                 signed_psbt,
                 &info_contents,
@@ -3190,6 +3234,7 @@ pub trait WalletOnline: WalletOffline {
             )?
         } else {
             self.update_or_save_transfers(
+                txn,
                 txid.clone(),
                 &info_contents,
                 TransferStatus::WaitingCounterparty,
@@ -3206,6 +3251,7 @@ pub trait WalletOnline: WalletOffline {
 
     fn send_btc_begin_impl(
         &mut self,
+        txn: &DbTxn,
         address: String,
         amount: u64,
         fee_rate: u64,
@@ -3216,6 +3262,7 @@ pub trait WalletOnline: WalletOffline {
 
         if !skip_sync {
             self.sync_wallet(
+                txn,
                 SyncOptions {
                     keychain: SyncKeychain::Vanilla {
                         lookback: self.vanilla_sync_lookback(),
@@ -3228,7 +3275,7 @@ pub trait WalletOnline: WalletOffline {
 
         let script_pubkey = self.get_script_pubkey(&address)?;
 
-        let unspendable = self.get_unspendable_bdk_outpoints()?;
+        let unspendable = self.get_unspendable_bdk_outpoints(txn)?;
 
         let mut tx_builder = self.bdk_wallet_mut().build_tx();
         tx_builder
@@ -3252,27 +3299,28 @@ pub trait WalletOnline: WalletOffline {
         })?;
 
         if !dry_run {
-            self.reserve_vanilla_txos(&psbt, WalletTransactionType::SendBtc)?;
+            self.reserve_vanilla_txos(txn, &psbt, WalletTransactionType::SendBtc)?;
         }
 
         Ok(psbt)
     }
 
-    fn send_btc_end_impl(&mut self, signed_psbt: &Psbt) -> Result<String, Error> {
-        let tx = self.broadcast_psbt(signed_psbt)?;
-        self.finalize_vanilla_wallet_transaction(signed_psbt, WalletTransactionType::SendBtc)?;
+    fn send_btc_end_impl(&mut self, txn: &DbTxn, signed_psbt: &Psbt) -> Result<String, Error> {
+        let tx = self.broadcast_psbt(txn, signed_psbt)?;
+        self.finalize_vanilla_wallet_transaction(txn, signed_psbt, WalletTransactionType::SendBtc)?;
         Ok(tx.compute_txid().to_string())
     }
 
     fn inflate_begin_impl(
         &mut self,
+        txn: &DbTxn,
         asset_id: String,
         inflation_amounts: Vec<u64>,
         fee_rate: u64,
         min_confirmations: u8,
         dry_run: bool,
     ) -> Result<BeginOperationData, Error> {
-        let asset = self.database().check_asset_exists(asset_id.clone())?;
+        let asset = txn.check_asset_exists(asset_id.clone())?;
         let schema = asset.schema;
         self.check_schema_support(&schema)?;
         if !SCHEMAS_SUPPORTING_INFLATION.contains(&schema) {
@@ -3293,7 +3341,7 @@ pub trait WalletOnline: WalletOffline {
         }
 
         let (fee_rate_checked, unspents, input_unspents, mut runtime) =
-            self.get_transfer_begin_data(fee_rate)?;
+            self.get_transfer_begin_data(txn, fee_rate)?;
 
         let assignments_needed = AssignmentsCollection {
             inflation,
@@ -3365,6 +3413,7 @@ pub trait WalletOnline: WalletOffline {
         let mut rejected = HashSet::new();
         Ok(
             match self.prepare_transfer_psbt(
+                txn,
                 &mut transfer_info_map,
                 transfer_dir.clone(),
                 false,
@@ -3386,11 +3435,16 @@ pub trait WalletOnline: WalletOffline {
         )
     }
 
-    fn inflate_end_impl(&mut self, signed_psbt: &Psbt) -> Result<OperationResult, Error> {
+    fn inflate_end_impl(
+        &mut self,
+        txn: &DbTxn,
+        signed_psbt: &Psbt,
+    ) -> Result<OperationResult, Error> {
         let (txid, _transfer_dir, info_contents, fascia) =
             self.get_transfer_end_data(signed_psbt)?;
 
         let batch_transfer_idx = self.finalize_transfer_end(
+            txn,
             txid.clone(),
             signed_psbt,
             &info_contents,
@@ -3401,7 +3455,7 @@ pub trait WalletOnline: WalletOffline {
 
         let (asset_id, transfer_info) = info_contents.transfers.into_iter().next().unwrap();
         let inflation = transfer_info.original_assignments_needed.inflation;
-        let db_asset = self.database().get_asset(asset_id).unwrap().unwrap();
+        let db_asset = txn.get_asset(asset_id).unwrap().unwrap();
         let updated_known_circulating_supply = db_asset
             .known_circulating_supply
             .as_ref()
@@ -3412,7 +3466,7 @@ pub trait WalletOnline: WalletOffline {
         let mut updated_asset: DbAssetActMod = db_asset.into();
         updated_asset.known_circulating_supply =
             ActiveValue::Set(Some(updated_known_circulating_supply.to_string()));
-        self.database().update_asset(&mut updated_asset)?;
+        txn.update_asset(&mut updated_asset)?;
 
         Ok(OperationResult {
             txid,
@@ -3423,13 +3477,14 @@ pub trait WalletOnline: WalletOffline {
 
     fn burn_begin_impl(
         &mut self,
+        txn: &DbTxn,
         asset_id: String,
         amount: u64,
         fee_rate: u64,
         min_confirmations: u8,
         dry_run: bool,
     ) -> Result<BeginOperationData, Error> {
-        let asset = self.database().check_asset_exists(asset_id.clone())?;
+        let asset = txn.check_asset_exists(asset_id.clone())?;
         let schema = asset.schema;
         self.check_schema_support(&schema)?;
         if !SCHEMAS_SUPPORTING_BURN.contains(&schema) {
@@ -3443,7 +3498,7 @@ pub trait WalletOnline: WalletOffline {
         }
 
         let (fee_rate_checked, unspents, input_unspents, mut runtime) =
-            self.get_transfer_begin_data(fee_rate)?;
+            self.get_transfer_begin_data(txn, fee_rate)?;
 
         let assignments_needed = AssignmentsCollection {
             fungible: amount,
@@ -3508,6 +3563,7 @@ pub trait WalletOnline: WalletOffline {
         let mut rejected = HashSet::new();
         Ok(
             match self.prepare_transfer_psbt(
+                txn,
                 &mut transfer_info_map,
                 transfer_dir.clone(),
                 false,
@@ -3529,11 +3585,12 @@ pub trait WalletOnline: WalletOffline {
         )
     }
 
-    fn burn_end_impl(&mut self, signed_psbt: &Psbt) -> Result<OperationResult, Error> {
+    fn burn_end_impl(&mut self, txn: &DbTxn, signed_psbt: &Psbt) -> Result<OperationResult, Error> {
         let (txid, _transfer_dir, info_contents, fascia) =
             self.get_transfer_end_data(signed_psbt)?;
 
         let batch_transfer_idx = self.finalize_transfer_end(
+            txn,
             txid.clone(),
             signed_psbt,
             &info_contents,
@@ -3578,9 +3635,18 @@ pub trait RgbWalletOpsOnline: RgbWalletOpsOffline + WalletOnline {
             "Failing batch transfer with idx {:?}...", batch_transfer_idx
         );
         self.check_online(online)?;
-        let changed = self.fail_transfers_impl(batch_transfer_idx, no_asset_only, skip_sync)?;
+        let txn = self.database().begin_transaction()?;
+        let outcome =
+            self.fail_transfers_impl(&txn, batch_transfer_idx, no_asset_only, skip_sync)?;
+        if outcome.transfers_changed {
+            self.update_backup_info(&txn, false)?;
+        }
+        txn.commit()?;
         info!(self.logger(), "Fail transfers completed");
-        Ok(changed)
+        if outcome.cannot_fail {
+            return Err(Error::CannotFailBatchTransfer);
+        }
+        Ok(outcome.transfers_changed)
     }
 
     /// Sync the wallet and save new colored UTXOs to the DB.
@@ -3590,7 +3656,10 @@ pub trait RgbWalletOpsOnline: RgbWalletOpsOffline + WalletOnline {
     /// Callers that want both keychains synced must invoke this method once per keychain.
     fn sync(&mut self, online: Online, options: SyncOptions) -> Result<(), Error> {
         info!(self.logger(), "Syncing...");
-        self.sync_impl(online, options)?;
+        self.check_online(online)?;
+        let txn = self.database().begin_transaction()?;
+        self.sync_impl(&txn, options)?;
+        txn.commit()?;
         info!(self.logger(), "Sync completed");
         Ok(())
     }
@@ -3621,14 +3690,17 @@ pub trait RgbWalletOpsOnline: RgbWalletOpsOffline + WalletOnline {
         filter: Vec<RefreshFilter>,
         skip_sync: bool,
     ) -> Result<RefreshResult, Error> {
-        if let Some(aid) = asset_id.clone() {
-            info!(self.logger(), "Refreshing asset {}...", aid);
-            self.database().check_asset_exists(aid)?;
-        } else {
-            info!(self.logger(), "Refreshing assets...");
-        }
+        info!(self.logger(), "Refreshing asset {:?}...", asset_id);
         self.check_online(online)?;
-        let res = self.refresh_impl(asset_id, filter, skip_sync)?;
+        let txn = self.database().begin_transaction()?;
+        if let Some(aid) = &asset_id {
+            txn.check_asset_exists(aid.clone())?;
+        }
+        let res = self.refresh_impl(&txn, asset_id, filter, skip_sync)?;
+        if res.transfers_changed() {
+            self.update_backup_info(&txn, false)?;
+        }
+        txn.commit()?;
         info!(self.logger(), "Refresh completed");
         Ok(res)
     }

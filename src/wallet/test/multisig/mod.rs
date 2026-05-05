@@ -1222,9 +1222,11 @@ fn fail() {
     let signed_psbt = wlt_2_singlesig
         .sign_psbt(unsigned_psbt.clone(), None)
         .unwrap();
+    let txn = wlt_2.multisig.database().begin_transaction().unwrap();
     wlt_2
         .multisig_mut()
         .sync_wallet(
+            &txn,
             SyncOptions {
                 keychain: SyncKeychain::Colored,
                 strategy: SyncStrategy::FastSync,
@@ -1232,6 +1234,7 @@ fn fail() {
             false,
         )
         .unwrap();
+    txn.commit().unwrap();
     wlt_2.respond_to_operation(op_idx_1, RespondToOperation::Ack(signed_psbt.clone()));
     let err = wlt_3
         .respond_to_operation_res(op_idx_1, RespondToOperation::Nack)

@@ -62,6 +62,13 @@ pub enum Error {
     #[error("Cannot use IFA schema on mainnet")]
     CannotUseIfaOnMainnet,
 
+    /// A database error has been encountered
+    #[error("Database error: {details}")]
+    Database {
+        /// Error details
+        details: String,
+    },
+
     /// The provided file is empty
     #[error("Empty file: {file_path}")]
     EmptyFile {
@@ -661,9 +668,6 @@ pub(crate) enum InternalError {
     #[error("Confinement error: {0}")]
     Confinement(#[from] amplify::confinement::Error),
 
-    #[error("Database error: {0}")]
-    Database(#[from] sea_orm::DbErr),
-
     #[error("Encode error: {0}")]
     Encode(#[from] bitcoin::consensus::encode::Error),
 
@@ -896,6 +900,14 @@ impl From<std::io::Error> for Error {
 impl From<InternalError> for Error {
     fn from(e: InternalError) -> Self {
         Error::Internal {
+            details: e.to_string(),
+        }
+    }
+}
+
+impl From<sea_orm::DbErr> for Error {
+    fn from(e: sea_orm::DbErr) -> Self {
+        Error::Database {
             details: e.to_string(),
         }
     }

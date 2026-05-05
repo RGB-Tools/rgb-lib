@@ -104,6 +104,7 @@ pub trait WalletOffline: WalletBackup {
 
     fn issue_asset_nia_with_impl<F>(
         &self,
+        txn: &DbTxn,
         ticker: String,
         name: String,
         precision: u8,
@@ -119,13 +120,14 @@ pub trait WalletOffline: WalletBackup {
                 "ticker '{}' name '{}' precision '{}' amounts '{:?}'",
                 ticker, name, precision, amounts
             ),
-            || self.create_nia_contract(ticker, name, precision, amounts),
+            || self.create_nia_contract(txn, ticker, name, precision, amounts),
             impl_fn,
         )
     }
 
     fn issue_asset_uda_with_impl<F>(
         &self,
+        txn: &DbTxn,
         ticker: String,
         name: String,
         details: Option<String>,
@@ -145,6 +147,7 @@ pub trait WalletOffline: WalletBackup {
             ),
             || {
                 self.create_uda_contract(
+                    txn,
                     ticker,
                     name,
                     details,
@@ -159,6 +162,7 @@ pub trait WalletOffline: WalletBackup {
 
     fn issue_asset_cfa_with_impl<F>(
         &self,
+        txn: &DbTxn,
         name: String,
         details: Option<String>,
         precision: u8,
@@ -175,13 +179,14 @@ pub trait WalletOffline: WalletBackup {
                 "name '{}' precision '{}' amounts '{:?}'",
                 name, precision, amounts
             ),
-            || self.create_cfa_contract(name, details, precision, amounts, file_path),
+            || self.create_cfa_contract(txn, name, details, precision, amounts, file_path),
             impl_fn,
         )
     }
 
     fn issue_asset_ifa_with_impl<F>(
         &self,
+        txn: &DbTxn,
         ticker: String,
         name: String,
         precision: u8,
@@ -201,6 +206,7 @@ pub trait WalletOffline: WalletBackup {
             ),
             || {
                 self.creata_ifa_contract(
+                    txn,
                     ticker,
                     name,
                     precision,
@@ -271,17 +277,15 @@ pub trait WalletOffline: WalletBackup {
 
     fn get_utxo(
         &self,
+        txn: &DbTxn,
         exclude_utxos: &[Outpoint],
         unspents: Option<&[LocalUnspent]>,
         pending_operation: bool,
         max_allocations: Option<u32>,
     ) -> Result<DbTxo, Error> {
         let rgb_allocations = if unspents.is_none() {
-            let unspent_txos = self.database().get_unspent_txos(vec![])?;
-            Some(
-                self.database()
-                    .get_rgb_allocations(unspent_txos, None, None, None, None)?,
-            )
+            let unspent_txos = txn.get_unspent_txos(vec![])?;
+            Some(txn.get_rgb_allocations(unspent_txos, None, None, None, None)?)
         } else {
             None
         };
@@ -319,30 +323,26 @@ pub trait WalletOffline: WalletBackup {
 
     fn save_transfer_transport_endpoint(
         &self,
+        txn: &DbTxn,
         transfer_idx: i32,
         transport_endpoint: &LocalTransportEndpoint,
     ) -> Result<(), Error> {
-        let transport_endpoint_idx = match self
-            .database()
-            .get_transport_endpoint(transport_endpoint.endpoint.clone())?
-        {
-            Some(ce) => ce.idx,
-            None => self
-                .database()
-                .set_transport_endpoint(DbTransportEndpointActMod {
+        let transport_endpoint_idx =
+            match txn.get_transport_endpoint(transport_endpoint.endpoint.clone())? {
+                Some(ce) => ce.idx,
+                None => txn.set_transport_endpoint(DbTransportEndpointActMod {
                     transport_type: ActiveValue::Set(transport_endpoint.transport_type),
                     endpoint: ActiveValue::Set(transport_endpoint.endpoint.clone()),
                     ..Default::default()
                 })?,
-        };
+            };
 
-        self.database()
-            .set_transfer_transport_endpoint(DbTransferTransportEndpointActMod {
-                transfer_idx: ActiveValue::Set(transfer_idx),
-                transport_endpoint_idx: ActiveValue::Set(transport_endpoint_idx),
-                used: ActiveValue::Set(transport_endpoint.used),
-                ..Default::default()
-            })?;
+        txn.set_transfer_transport_endpoint(DbTransferTransportEndpointActMod {
+            transfer_idx: ActiveValue::Set(transfer_idx),
+            transport_endpoint_idx: ActiveValue::Set(transport_endpoint_idx),
+            used: ActiveValue::Set(transport_endpoint.used),
+            ..Default::default()
+        })?;
 
         Ok(())
     }
@@ -490,6 +490,7 @@ pub trait WalletOffline: WalletBackup {
 
     fn import_and_save_contract(
         &self,
+        txn: &DbTxn,
         issue_data: &IssueData,
         runtime: &mut RgbRuntime,
     ) -> Result<DbAsset, Error> {
@@ -497,27 +498,27 @@ pub trait WalletOffline: WalletBackup {
             .import_contract(issue_data.valid_contract.clone(), &DumbResolver)
             .expect("failure importing issued contract");
 
-        let asset = self.add_asset_to_db(&issue_data.asset_data)?;
+        let asset = self.add_asset_to_db(txn, &issue_data.asset_data)?;
         let batch_transfer = DbBatchTransferActMod {
             status: ActiveValue::Set(TransferStatus::Settled),
             created_at: ActiveValue::Set(issue_data.asset_data.added_at),
             min_confirmations: ActiveValue::Set(0),
             ..Default::default()
         };
-        let batch_transfer_idx = self.database().set_batch_transfer(batch_transfer)?;
+        let batch_transfer_idx = txn.set_batch_transfer(batch_transfer)?;
         let asset_transfer = DbAssetTransferActMod {
             user_driven: ActiveValue::Set(true),
             batch_transfer_idx: ActiveValue::Set(batch_transfer_idx),
             asset_id: ActiveValue::Set(Some(issue_data.asset_data.asset_id.clone())),
             ..Default::default()
         };
-        let asset_transfer_idx = self.database().set_asset_transfer(asset_transfer)?;
+        let asset_transfer_idx = txn.set_asset_transfer(asset_transfer)?;
         let transfer = DbTransferActMod {
             asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
             incoming: ActiveValue::Set(true),
             ..Default::default()
         };
-        self.database().set_transfer(transfer)?;
+        txn.set_transfer(transfer)?;
         for (utxo_idx, assignments) in &issue_data.issue_utxos {
             for assignment in assignments {
                 let db_coloring = DbColoringActMod {
@@ -527,7 +528,7 @@ pub trait WalletOffline: WalletBackup {
                     assignment: ActiveValue::Set(assignment.clone()),
                     ..Default::default()
                 };
-                self.database().set_coloring(db_coloring)?;
+                txn.set_coloring(db_coloring)?;
             }
         }
 
@@ -547,6 +548,7 @@ pub trait WalletOffline: WalletBackup {
 
     fn create_nia_contract(
         &self,
+        txn: &DbTxn,
         ticker: String,
         name: String,
         precision: u8,
@@ -558,10 +560,10 @@ pub trait WalletOffline: WalletBackup {
 
         let settled = self.get_total_issue_amount(&amounts, false)?;
 
-        let db_data = self.database().get_db_data(false)?;
+        let db_data = txn.get_db_data(false)?;
 
-        let mut unspents: Vec<LocalUnspent> = self.database().get_rgb_allocations(
-            self.database().get_unspent_txos(db_data.txos.clone())?,
+        let mut unspents: Vec<LocalUnspent> = txn.get_rgb_allocations(
+            txn.get_unspent_txos(db_data.txos.clone())?,
             None,
             None,
             None,
@@ -607,7 +609,7 @@ pub trait WalletOffline: WalletBackup {
         let mut issue_utxos: HashMap<i32, Vec<Assignment>> = HashMap::new();
         let mut exclude_outpoints = vec![];
         for amount in &amounts {
-            let utxo = self.get_utxo(&exclude_outpoints, Some(&unspents), false, None)?;
+            let utxo = self.get_utxo(txn, &exclude_outpoints, Some(&unspents), false, None)?;
             exclude_outpoints.push(utxo.outpoint());
             issue_utxos
                 .entry(utxo.idx)
@@ -665,6 +667,7 @@ pub trait WalletOffline: WalletBackup {
 
     fn create_uda_contract(
         &self,
+        txn: &DbTxn,
         ticker: String,
         name: String,
         details: Option<String>,
@@ -682,10 +685,10 @@ pub trait WalletOffline: WalletBackup {
             });
         }
 
-        let db_data = self.database().get_db_data(false)?;
+        let db_data = txn.get_db_data(false)?;
 
-        let mut unspents: Vec<LocalUnspent> = self.database().get_rgb_allocations(
-            self.database().get_unspent_txos(db_data.txos.clone())?,
+        let mut unspents: Vec<LocalUnspent> = txn.get_rgb_allocations(
+            txn.get_unspent_txos(db_data.txos.clone())?,
             None,
             None,
             None,
@@ -717,7 +720,7 @@ pub trait WalletOffline: WalletBackup {
             precision: self.check_precision(precision)?,
         };
 
-        let issue_utxo = self.get_utxo(&[], Some(&unspents), false, None)?;
+        let issue_utxo = self.get_utxo(txn, &[], Some(&unspents), false, None)?;
         let issue_utxos: HashMap<i32, Vec<Assignment>> =
             HashMap::from([(issue_utxo.idx, vec![Assignment::NonFungible])]);
 
@@ -799,6 +802,7 @@ pub trait WalletOffline: WalletBackup {
 
     fn create_cfa_contract(
         &self,
+        txn: &DbTxn,
         name: String,
         details: Option<String>,
         precision: u8,
@@ -811,10 +815,10 @@ pub trait WalletOffline: WalletBackup {
 
         let settled = self.get_total_issue_amount(&amounts, false)?;
 
-        let db_data = self.database().get_db_data(false)?;
+        let db_data = txn.get_db_data(false)?;
 
-        let mut unspents: Vec<LocalUnspent> = self.database().get_rgb_allocations(
-            self.database().get_unspent_txos(db_data.txos.clone())?,
+        let mut unspents: Vec<LocalUnspent> = txn.get_rgb_allocations(
+            txn.get_unspent_txos(db_data.txos.clone())?,
             None,
             None,
             None,
@@ -867,7 +871,7 @@ pub trait WalletOffline: WalletBackup {
         let mut issue_utxos: HashMap<i32, Vec<Assignment>> = HashMap::new();
         let mut exclude_outpoints = vec![];
         for amount in &amounts {
-            let utxo = self.get_utxo(&exclude_outpoints, Some(&unspents), false, None)?;
+            let utxo = self.get_utxo(txn, &exclude_outpoints, Some(&unspents), false, None)?;
             exclude_outpoints.push(utxo.outpoint());
             issue_utxos
                 .entry(utxo.idx)
@@ -911,6 +915,7 @@ pub trait WalletOffline: WalletBackup {
 
     fn creata_ifa_contract(
         &self,
+        txn: &DbTxn,
         ticker: String,
         name: String,
         precision: u8,
@@ -929,10 +934,10 @@ pub trait WalletOffline: WalletBackup {
         }
         let max_supply = settled + inflation_amt;
 
-        let db_data = self.database().get_db_data(false)?;
+        let db_data = txn.get_db_data(false)?;
 
-        let mut unspents: Vec<LocalUnspent> = self.database().get_rgb_allocations(
-            self.database().get_unspent_txos(db_data.txos.clone())?,
+        let mut unspents: Vec<LocalUnspent> = txn.get_rgb_allocations(
+            txn.get_unspent_txos(db_data.txos.clone())?,
             None,
             None,
             None,
@@ -988,7 +993,7 @@ pub trait WalletOffline: WalletBackup {
         let mut issue_utxos: HashMap<i32, Vec<Assignment>> = HashMap::new();
         let mut exclude_outpoints: Vec<Outpoint> = vec![];
         for amount in &amounts {
-            let utxo = self.get_utxo(&exclude_outpoints, Some(&unspents), false, None)?;
+            let utxo = self.get_utxo(txn, &exclude_outpoints, Some(&unspents), false, None)?;
             exclude_outpoints.push(utxo.outpoint());
             issue_utxos
                 .entry(utxo.idx)
@@ -1001,7 +1006,7 @@ pub trait WalletOffline: WalletBackup {
         }
 
         for amount in &inflation_amounts {
-            let utxo = self.get_utxo(&exclude_outpoints, Some(&unspents), false, Some(0))?;
+            let utxo = self.get_utxo(txn, &exclude_outpoints, Some(&unspents), false, Some(0))?;
             exclude_outpoints.push(utxo.outpoint());
             issue_utxos
                 .entry(utxo.idx)
@@ -1076,6 +1081,7 @@ pub trait WalletOffline: WalletBackup {
 
     fn create_receive_data(
         &mut self,
+        txn: &DbTxn,
         asset_id: Option<String>,
         assignment: Assignment,
         expiration_timestamp: Option<i64>,
@@ -1084,19 +1090,14 @@ pub trait WalletOffline: WalletBackup {
     ) -> Result<ReceiveDataInternal, Error> {
         let (beneficiary, recipient_type_full, blind_seal, script_pubkey) = match recipient_type {
             RecipientType::Blind => {
-                let mut unspents: Vec<LocalUnspent> = self.database().get_rgb_allocations(
-                    self.database().get_unspent_txos(vec![])?,
-                    None,
-                    None,
-                    None,
-                    None,
-                )?;
+                let mut unspents: Vec<LocalUnspent> =
+                    txn.get_rgb_allocations(txn.get_unspent_txos(vec![])?, None, None, None, None)?;
                 unspents.retain(|u| {
                     !(u.rgb_allocations
                         .iter()
                         .any(|a| !a.incoming && a.status.waiting_counterparty()))
                 });
-                let utxo = self.get_utxo(&[], Some(&unspents), true, None)?;
+                let utxo = self.get_utxo(txn, &[], Some(&unspents), true, None)?;
                 let unblinded_utxo = utxo.outpoint();
                 debug!(
                     self.logger(),
@@ -1125,7 +1126,7 @@ pub trait WalletOffline: WalletBackup {
         let recipient_id = beneficiary.to_string();
         debug!(self.logger(), "Recipient ID: {recipient_id}");
         let (schema, contract_id) = if let Some(aid) = asset_id.clone() {
-            let asset = self.database().check_asset_exists(aid.clone())?;
+            let asset = txn.check_asset_exists(aid.clone())?;
             let contract_id = ContractId::from_str(&aid).expect("invalid contract ID");
             (Some(asset.schema), Some(contract_id))
         } else {
@@ -1207,6 +1208,7 @@ pub trait WalletOffline: WalletBackup {
 
     fn store_receive_transfer(
         &self,
+        txn: &DbTxn,
         receive_data_internal: &ReceiveDataInternal,
         min_confirmations: u8,
     ) -> Result<i32, Error> {
@@ -1217,14 +1219,14 @@ pub trait WalletOffline: WalletBackup {
             min_confirmations: ActiveValue::Set(min_confirmations),
             ..Default::default()
         };
-        let batch_transfer_idx = self.database().set_batch_transfer(batch_transfer)?;
+        let batch_transfer_idx = txn.set_batch_transfer(batch_transfer)?;
         let asset_transfer = DbAssetTransferActMod {
             user_driven: ActiveValue::Set(true),
             batch_transfer_idx: ActiveValue::Set(batch_transfer_idx),
             asset_id: ActiveValue::Set(receive_data_internal.asset_id.clone()),
             ..Default::default()
         };
-        let asset_transfer_idx = self.database().set_asset_transfer(asset_transfer)?;
+        let asset_transfer_idx = txn.set_asset_transfer(asset_transfer)?;
         let transfer = DbTransferActMod {
             asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
             requested_assignment: ActiveValue::Set(Some(
@@ -1238,9 +1240,10 @@ pub trait WalletOffline: WalletBackup {
             invoice_string: ActiveValue::Set(Some(receive_data_internal.invoice_string.clone())),
             ..Default::default()
         };
-        let transfer_idx = self.database().set_transfer(transfer)?;
+        let transfer_idx = txn.set_transfer(transfer)?;
         for endpoint in &receive_data_internal.endpoints {
             self.save_transfer_transport_endpoint(
+                txn,
                 transfer_idx,
                 &LocalTransportEndpoint {
                     endpoint: endpoint.clone(),
@@ -1256,11 +1259,10 @@ pub trait WalletOffline: WalletBackup {
         }
 
         if let Some(script_pubkey) = &receive_data_internal.script_pubkey {
-            self.database()
-                .set_pending_witness_script(DbPendingWitnessScriptActMod {
-                    script: ActiveValue::Set(script_pubkey.to_hex_string()),
-                    ..Default::default()
-                })?;
+            txn.set_pending_witness_script(DbPendingWitnessScriptActMod {
+                script: ActiveValue::Set(script_pubkey.to_hex_string()),
+                ..Default::default()
+            })?;
         }
 
         Ok(batch_transfer_idx)
@@ -1284,6 +1286,7 @@ pub trait WalletOffline: WalletBackup {
 
     fn delete_batch_transfer(
         &self,
+        txn: &DbTxn,
         batch_transfer: &DbBatchTransfer,
         asset_transfers: &Vec<DbAssetTransfer>,
         colorings: &[DbColoring],
@@ -1291,7 +1294,7 @@ pub trait WalletOffline: WalletBackup {
     ) -> Result<(), Error> {
         let mut txos_to_delete = HashSet::new();
         for asset_transfer in asset_transfers {
-            self.database().del_coloring(asset_transfer.idx)?;
+            txn.del_coloring(asset_transfer.idx)?;
             colorings
                 .iter()
                 .filter(|c| c.asset_transfer_idx == asset_transfer.idx)
@@ -1302,23 +1305,23 @@ pub trait WalletOffline: WalletBackup {
                 });
         }
         for txo in txos_to_delete {
-            self.database().del_txo(txo)?;
+            txn.del_txo(txo)?;
         }
-        Ok(self.database().del_batch_transfer(batch_transfer)?)
+        txn.del_batch_transfer(batch_transfer)
     }
 
     fn delete_transfers_impl(
         &self,
+        txn: &DbTxn,
         batch_transfer_idx: Option<i32>,
         no_asset_only: bool,
     ) -> Result<bool, Error> {
-        let db_data = self.database().get_db_data(false)?;
+        let db_data = txn.get_db_data(false)?;
         let mut transfers_changed = false;
 
         if let Some(batch_transfer_idx) = batch_transfer_idx {
-            let batch_transfer = &self
-                .database()
-                .get_batch_transfer_or_fail(batch_transfer_idx, &db_data.batch_transfers)?;
+            let batch_transfer =
+                txn.get_batch_transfer_or_fail(batch_transfer_idx, &db_data.batch_transfers)?;
 
             if !batch_transfer.failed() {
                 return Err(Error::CannotDeleteBatchTransfer);
@@ -1335,7 +1338,8 @@ pub trait WalletOffline: WalletBackup {
 
             transfers_changed = true;
             self.delete_batch_transfer(
-                batch_transfer,
+                txn,
+                &batch_transfer,
                 &asset_transfers,
                 &db_data.colorings,
                 &db_data.txos,
@@ -1359,16 +1363,13 @@ pub trait WalletOffline: WalletBackup {
                 }
                 transfers_changed = true;
                 self.delete_batch_transfer(
+                    txn,
                     batch_transfer,
                     &asset_transfers,
                     &db_data.colorings,
                     &db_data.txos,
                 )?
             }
-        }
-
-        if transfers_changed {
-            self.update_backup_info(false)?;
         }
 
         Ok(transfers_changed)
@@ -1389,14 +1390,13 @@ pub trait WalletOffline: WalletBackup {
         self.get_new_addresses(KeychainKind::External, 1)
     }
 
-    fn get_asset_balance_impl(&self, asset_id: String) -> Result<Balance, Error> {
-        self.database().check_asset_exists(asset_id.clone())?;
-        self.database()
-            .get_asset_balance(asset_id, None, None, None, None, None)
+    fn get_asset_balance_impl(&self, txn: &DbTxn, asset_id: String) -> Result<Balance, Error> {
+        txn.check_asset_exists(asset_id.clone())?;
+        txn.get_asset_balance(asset_id, None, None, None, None, None)
     }
 
-    fn get_asset_metadata_impl(&self, asset_id: String) -> Result<Metadata, Error> {
-        let asset = self.database().check_asset_exists(asset_id.clone())?;
+    fn get_asset_metadata_impl(&self, txn: &DbTxn, asset_id: String) -> Result<Metadata, Error> {
+        let asset = txn.check_asset_exists(asset_id.clone())?;
 
         let initial_supply = asset.initial_supply.parse::<u64>().unwrap();
         let max_supply = if let Some(max_supply) = asset.max_supply {
@@ -1411,9 +1411,9 @@ pub trait WalletOffline: WalletBackup {
                 initial_supply
             };
         let token = if matches!(asset.schema, AssetSchema::Uda) {
-            let medias = self.database().iter_media()?;
-            let tokens = self.database().iter_tokens()?;
-            let token_medias = self.database().iter_token_medias()?;
+            let medias = txn.iter_media()?;
+            let tokens = txn.iter_tokens()?;
+            let token_medias = txn.iter_token_medias()?;
             if let Some(token_light) =
                 self.get_asset_token(asset.idx, &medias, &tokens, &token_medias)
             {
@@ -1459,27 +1459,17 @@ pub trait WalletOffline: WalletBackup {
         })
     }
 
-    fn get_or_insert_media(&self, digest: String, mime: String) -> Result<i32, Error> {
-        Ok(match self.database().get_media_by_digest(digest.clone())? {
-            Some(media) => media.idx,
-            None => self.database().set_media(DbMediaActMod {
-                digest: ActiveValue::Set(digest),
-                mime: ActiveValue::Set(mime),
-                ..Default::default()
-            })?,
-        })
-    }
-
     fn save_token_media(
         &self,
+        txn: &DbTxn,
         token_idx: i32,
         digest: String,
         mime: String,
         attachment_id: Option<u8>,
     ) -> Result<(), Error> {
-        let media_idx = self.get_or_insert_media(digest, mime)?;
+        let media_idx = txn.get_or_insert_media(digest, mime)?;
 
-        self.database().set_token_media(DbTokenMediaActMod {
+        txn.set_token_media(DbTokenMediaActMod {
             token_idx: ActiveValue::Set(token_idx),
             media_idx: ActiveValue::Set(media_idx),
             attachment_id: ActiveValue::Set(attachment_id),
@@ -1489,9 +1479,9 @@ pub trait WalletOffline: WalletBackup {
         Ok(())
     }
 
-    fn add_asset_to_db(&self, asset_data: &LocalAssetData) -> Result<DbAsset, Error> {
+    fn add_asset_to_db(&self, txn: &DbTxn, asset_data: &LocalAssetData) -> Result<DbAsset, Error> {
         let media_idx = if let Some(media) = &asset_data.media {
-            Some(self.get_or_insert_media(media.digest.clone(), media.mime.clone())?)
+            Some(txn.get_or_insert_media(media.digest.clone(), media.mime.clone())?)
         } else {
             None
         };
@@ -1513,7 +1503,7 @@ pub trait WalletOffline: WalletBackup {
             timestamp: ActiveValue::Set(asset_data.timestamp),
             reject_list_url: ActiveValue::Set(asset_data.reject_list_url.clone()),
         };
-        let idx = self.database().set_asset(db_asset.clone())?;
+        let idx = txn.set_asset(db_asset.clone())?;
         db_asset.idx = ActiveValue::Set(idx);
 
         if let Some(ref token) = asset_data.token {
@@ -1527,13 +1517,20 @@ pub trait WalletOffline: WalletBackup {
                 reserves: ActiveValue::Set(token.reserves.is_some()),
                 ..Default::default()
             };
-            let token_idx = self.database().set_token(db_token)?;
+            let token_idx = txn.set_token(db_token)?;
 
             if let Some(media) = &token.media {
-                self.save_token_media(token_idx, media.get_digest(), media.mime.clone(), None)?;
+                self.save_token_media(
+                    txn,
+                    token_idx,
+                    media.get_digest(),
+                    media.mime.clone(),
+                    None,
+                )?;
             }
             for (attachment_id, media) in token.attachments.clone() {
                 self.save_token_media(
+                    txn,
                     token_idx,
                     media.get_digest(),
                     media.mime.clone(),
@@ -1606,16 +1603,16 @@ pub trait WalletOffline: WalletBackup {
 
     fn get_btc_balance_impl(
         &mut self,
+        txn: &DbTxn,
         online: Option<Online>,
         skip_sync: bool,
     ) -> Result<BtcBalance, Error> {
-        self.sync_if_requested(online, skip_sync, KeychainKind::External)?;
-        self.sync_if_requested(online, skip_sync, KeychainKind::Internal)?;
+        self.sync_if_requested(txn, online, skip_sync, KeychainKind::External)?;
+        self.sync_if_requested(txn, online, skip_sync, KeychainKind::Internal)?;
         let mut vanilla = self.get_btc_balance_for_keychain(KeychainKind::Internal)?;
         let colored = self.get_btc_balance_for_keychain(KeychainKind::External)?;
 
-        let reserved: HashSet<BdkOutPoint> = self
-            .database()
+        let reserved: HashSet<BdkOutPoint> = txn
             .iter_reserved_txos()?
             .into_iter()
             .map(BdkOutPoint::from)
@@ -1773,6 +1770,7 @@ pub trait WalletOffline: WalletBackup {
 
     fn save_new_asset_internal(
         &self,
+        txn: &DbTxn,
         runtime: &RgbRuntime,
         contract_id: ContractId,
         asset_schema: AssetSchema,
@@ -1787,28 +1785,26 @@ pub trait WalletOffline: WalletBackup {
             valid_transfer,
         )?;
 
-        let _ = self.add_asset_to_db(&local_asset_data)?;
+        let _ = self.add_asset_to_db(txn, &local_asset_data)?;
 
         Ok(local_asset_data)
     }
 
-    fn get_reserved_vanilla_outpoints(&self) -> Result<Vec<BdkOutPoint>, Error> {
-        Ok(self
-            .database()
+    fn get_reserved_vanilla_outpoints(&self, txn: &DbTxn) -> Result<Vec<BdkOutPoint>, Error> {
+        Ok(txn
             .iter_reserved_txos()?
             .into_iter()
             .map(BdkOutPoint::from)
             .collect())
     }
 
-    fn get_unspendable_bdk_outpoints(&self) -> Result<Vec<BdkOutPoint>, Error> {
-        let mut outpoints: Vec<BdkOutPoint> = self
-            .database()
+    fn get_unspendable_bdk_outpoints(&self, txn: &DbTxn) -> Result<Vec<BdkOutPoint>, Error> {
+        let mut outpoints: Vec<BdkOutPoint> = txn
             .iter_txos()?
             .into_iter()
             .map(BdkOutPoint::from)
             .collect();
-        outpoints.extend(self.get_reserved_vanilla_outpoints()?);
+        outpoints.extend(self.get_reserved_vanilla_outpoints(txn)?);
         Ok(outpoints)
     }
 
@@ -1818,20 +1814,21 @@ pub trait WalletOffline: WalletBackup {
 
     fn list_assets_impl(
         &self,
+        txn: &DbTxn,
         mut filter_asset_schemas: Vec<AssetSchema>,
     ) -> Result<Assets, Error> {
         if filter_asset_schemas.is_empty() {
             filter_asset_schemas = AssetSchema::VALUES.to_vec()
         }
 
-        let batch_transfers = Some(self.database().iter_batch_transfers()?);
-        let colorings = Some(self.database().iter_colorings()?);
-        let txos = Some(self.database().iter_txos()?);
-        let asset_transfers = Some(self.database().iter_asset_transfers()?);
-        let transfers = Some(self.database().iter_transfers()?);
-        let medias = Some(self.database().iter_media()?);
+        let batch_transfers = Some(txn.iter_batch_transfers()?);
+        let colorings = Some(txn.iter_colorings()?);
+        let txos = Some(txn.iter_txos()?);
+        let asset_transfers = Some(txn.iter_asset_transfers()?);
+        let transfers = Some(txn.iter_transfers()?);
+        let medias = Some(txn.iter_media()?);
 
-        let assets = self.database().iter_assets()?;
+        let assets = txn.iter_assets()?;
         let mut nia = None;
         let mut uda = None;
         let mut cfa = None;
@@ -1845,6 +1842,7 @@ pub trait WalletOffline: WalletBackup {
                             .filter(|a| a.schema == schema)
                             .map(|a| {
                                 AssetNIA::get_asset_details(
+                                    txn,
                                     self,
                                     a,
                                     transfers.clone(),
@@ -1859,14 +1857,15 @@ pub trait WalletOffline: WalletBackup {
                     );
                 }
                 AssetSchema::Uda => {
-                    let tokens = self.database().iter_tokens()?;
-                    let token_medias = self.database().iter_token_medias()?;
+                    let tokens = txn.iter_tokens()?;
+                    let token_medias = txn.iter_token_medias()?;
                     uda = Some(
                         assets
                             .iter()
                             .filter(|a| a.schema == schema)
                             .map(|a| {
                                 AssetUDA::get_asset_details(
+                                    txn,
                                     self,
                                     a,
                                     self.get_asset_token(
@@ -1893,6 +1892,7 @@ pub trait WalletOffline: WalletBackup {
                             .filter(|a| a.schema == schema)
                             .map(|a| {
                                 AssetCFA::get_asset_details(
+                                    txn,
                                     self,
                                     a,
                                     transfers.clone(),
@@ -1913,6 +1913,7 @@ pub trait WalletOffline: WalletBackup {
                             .filter(|a| a.schema == schema)
                             .map(|a| {
                                 AssetIFA::get_asset_details(
+                                    txn,
                                     self,
                                     a,
                                     transfers.clone(),
@@ -1934,6 +1935,11 @@ pub trait WalletOffline: WalletBackup {
 
     fn sync_if_requested(
         &mut self,
+        #[cfg_attr(
+            not(any(feature = "electrum", feature = "esplora")),
+            allow(unused_variables)
+        )]
+        txn: &DbTxn,
         #[cfg_attr(
             not(any(feature = "electrum", feature = "esplora")),
             allow(unused_variables)
@@ -1963,6 +1969,7 @@ pub trait WalletOffline: WalletBackup {
                     KeychainKind::External => SyncKeychain::Colored,
                 };
                 self.sync_wallet(
+                    txn,
                     SyncOptions {
                         keychain,
                         strategy: SyncStrategy::FastSync,
@@ -1976,16 +1983,17 @@ pub trait WalletOffline: WalletBackup {
 
     fn list_transactions_impl(
         &mut self,
+        txn: &DbTxn,
         online: Option<Online>,
         skip_sync: bool,
     ) -> Result<Vec<Transaction>, Error> {
-        self.sync_if_requested(online, skip_sync, KeychainKind::External)?;
-        self.sync_if_requested(online, skip_sync, KeychainKind::Internal)?;
+        self.sync_if_requested(txn, online, skip_sync, KeychainKind::External)?;
+        self.sync_if_requested(txn, online, skip_sync, KeychainKind::Internal)?;
 
         let mut create_utxos_txids = vec![];
         let mut drain_txids = vec![];
         let mut send_btc_txids = vec![];
-        let wallet_transactions = self.database().iter_wallet_transactions()?;
+        let wallet_transactions = txn.iter_wallet_transactions()?;
         for tx in wallet_transactions {
             match tx.r#type {
                 WalletTransactionType::CreateUtxos => create_utxos_txids.push(tx.txid),
@@ -1993,8 +2001,7 @@ pub trait WalletOffline: WalletBackup {
                 WalletTransactionType::SendBtc => send_btc_txids.push(tx.txid),
             }
         }
-        let rgb_send_txids: Vec<String> = self
-            .database()
+        let rgb_send_txids: Vec<String> = txn
             .iter_batch_transfers()?
             .into_iter()
             .filter_map(|t| t.txid)
@@ -2187,8 +2194,12 @@ pub trait WalletOffline: WalletBackup {
         })
     }
 
-    fn list_transfers_impl(&self, asset_id: Option<String>) -> Result<Vec<Transfer>, Error> {
-        let db_data = self.database().get_db_data(false)?;
+    fn list_transfers_impl(
+        &self,
+        txn: &DbTxn,
+        asset_id: Option<String>,
+    ) -> Result<Vec<Transfer>, Error> {
+        let db_data = txn.get_db_data(false)?;
         let asset_transfer_ids: Vec<i32> = db_data
             .asset_transfers
             .iter()
@@ -2210,9 +2221,7 @@ pub trait WalletOffline: WalletBackup {
                     &db_data.txos,
                     &db_data.colorings,
                 )?;
-                let tte_data = self
-                    .database()
-                    .get_transfer_transport_endpoints_data(t.idx)?;
+                let tte_data = txn.get_transfer_transport_endpoints_data(t.idx)?;
                 let transport_endpoints = tte_data
                     .iter()
                     .map(|(tte, ce)| ce.to_transfer_transport_endpoint(tte))
@@ -2224,16 +2233,17 @@ pub trait WalletOffline: WalletBackup {
 
     fn list_unspents_impl(
         &mut self,
+        txn: &DbTxn,
         online: Option<Online>,
         settled_only: bool,
         skip_sync: bool,
     ) -> Result<Vec<Unspent>, Error> {
-        self.sync_if_requested(online, skip_sync, KeychainKind::External)?;
-        self.sync_if_requested(online, skip_sync, KeychainKind::Internal)?;
+        self.sync_if_requested(txn, online, skip_sync, KeychainKind::External)?;
+        self.sync_if_requested(txn, online, skip_sync, KeychainKind::Internal)?;
 
-        let db_data = self.database().get_db_data(false)?;
+        let db_data = txn.get_db_data(false)?;
 
-        let mut allocation_txos = self.database().get_unspent_txos(db_data.txos.clone())?;
+        let mut allocation_txos = txn.get_unspent_txos(db_data.txos.clone())?;
         let spent_txos_ids: Vec<i32> = db_data
             .txos
             .clone()
@@ -2272,7 +2282,7 @@ pub trait WalletOffline: WalletBackup {
             .collect();
         allocation_txos.append(&mut spent_txos);
 
-        let mut txos_allocations = self.database().get_rgb_allocations(
+        let mut txos_allocations = txn.get_rgb_allocations(
             allocation_txos,
             Some(db_data.colorings),
             Some(db_data.batch_transfers),
@@ -2391,6 +2401,7 @@ pub trait WalletOffline: WalletBackup {
 
     fn inspect_rgb_transfer_impl(
         &self,
+        txn: &DbTxn,
         psbt: String,
         fascia_path: String,
         entropy: u64,
@@ -2460,7 +2471,7 @@ pub trait WalletOffline: WalletBackup {
                     txid: txid.to_string(),
                     vout,
                 };
-                self.database().get_txo(&outpoint).unwrap_or(None).is_some()
+                txn.get_txo(&outpoint).unwrap_or(None).is_some()
             }
         };
         for (contract_id, bundle) in fascia.bundles() {
@@ -2750,7 +2761,9 @@ pub trait RgbWalletOpsOffline: WalletOffline + WalletBackup {
     /// Return the [`Balance`] for the RGB asset with the provided ID.
     fn get_asset_balance(&self, asset_id: String) -> Result<Balance, Error> {
         info!(self.logger(), "Getting balance for asset '{}'...", asset_id);
-        let balance = self.get_asset_balance_impl(asset_id)?;
+        let txn = self.database().begin_transaction()?;
+        let balance = self.get_asset_balance_impl(&txn, asset_id)?;
+        txn.commit()?;
         info!(self.logger(), "Get asset balance completed");
         Ok(balance)
     }
@@ -2761,7 +2774,9 @@ pub trait RgbWalletOpsOffline: WalletOffline + WalletBackup {
             self.logger(),
             "Getting metadata for asset '{}'...", asset_id
         );
-        let metadata = self.get_asset_metadata_impl(asset_id)?;
+        let txn = self.database().begin_transaction()?;
+        let metadata = self.get_asset_metadata_impl(&txn, asset_id)?;
+        txn.commit()?;
         info!(self.logger(), "Get asset metadata completed");
         Ok(metadata)
     }
@@ -2773,7 +2788,9 @@ pub trait RgbWalletOpsOffline: WalletOffline + WalletBackup {
         skip_sync: bool,
     ) -> Result<BtcBalance, Error> {
         info!(self.logger(), "Getting BTC balance...");
-        let balance = self.get_btc_balance_impl(online, skip_sync)?;
+        let txn = self.database().begin_transaction()?;
+        let balance = self.get_btc_balance_impl(&txn, online, skip_sync)?;
+        txn.commit()?;
         info!(self.logger(), "Get BTC balance completed");
         Ok(balance)
     }
@@ -2787,7 +2804,9 @@ pub trait RgbWalletOpsOffline: WalletOffline + WalletBackup {
     /// requested.
     fn list_assets(&self, filter_asset_schemas: Vec<AssetSchema>) -> Result<Assets, Error> {
         info!(self.logger(), "Listing assets...");
-        let assets = self.list_assets_impl(filter_asset_schemas)?;
+        let txn = self.database().begin_transaction()?;
+        let assets = self.list_assets_impl(&txn, filter_asset_schemas)?;
+        txn.commit()?;
         info!(self.logger(), "List assets completed");
         Ok(assets)
     }
@@ -2799,7 +2818,9 @@ pub trait RgbWalletOpsOffline: WalletOffline + WalletBackup {
         skip_sync: bool,
     ) -> Result<Vec<Transaction>, Error> {
         info!(self.logger(), "Listing transactions...");
-        let transactions = self.list_transactions_impl(online, skip_sync)?;
+        let txn = self.database().begin_transaction()?;
+        let transactions = self.list_transactions_impl(&txn, online, skip_sync)?;
+        txn.commit()?;
         info!(self.logger(), "List transactions completed");
         Ok(transactions)
     }
@@ -2809,16 +2830,16 @@ pub trait RgbWalletOpsOffline: WalletOffline + WalletBackup {
     /// When an `asset_id` is not provided, return transfers that are not connected to a specific
     /// asset.
     fn list_transfers(&self, asset_id: Option<String>) -> Result<Vec<Transfer>, Error> {
+        info!(
+            self.logger(),
+            "Listing transfers for asset '{:?}'...", asset_id
+        );
+        let txn = self.database().begin_transaction()?;
         if let Some(asset_id) = &asset_id {
-            info!(
-                self.logger(),
-                "Listing transfers for asset '{}'...", asset_id
-            );
-            self.database().check_asset_exists(asset_id.clone())?;
-        } else {
-            info!(self.logger(), "Listing transfers...");
+            txn.check_asset_exists(asset_id.clone())?;
         }
-        let transfers = self.list_transfers_impl(asset_id)?;
+        let transfers = self.list_transfers_impl(&txn, asset_id)?;
+        txn.commit()?;
         info!(self.logger(), "List transfers completed");
         Ok(transfers)
     }
@@ -2834,7 +2855,9 @@ pub trait RgbWalletOpsOffline: WalletOffline + WalletBackup {
         skip_sync: bool,
     ) -> Result<Vec<Unspent>, Error> {
         info!(self.logger(), "Listing unspents...");
-        let unspents = self.list_unspents_impl(online, settled_only, skip_sync)?;
+        let txn = self.database().begin_transaction()?;
+        let unspents = self.list_unspents_impl(&txn, online, settled_only, skip_sync)?;
+        txn.commit()?;
         info!(self.logger(), "List unspents completed");
         Ok(unspents)
     }
@@ -2874,7 +2897,12 @@ pub trait RgbWalletOpsOffline: WalletOffline + WalletBackup {
             self.logger(),
             "Deleting batch transfer with idx {:?}...", batch_transfer_idx
         );
-        let changed = self.delete_transfers_impl(batch_transfer_idx, no_asset_only)?;
+        let txn = self.database().begin_transaction()?;
+        let changed = self.delete_transfers_impl(&txn, batch_transfer_idx, no_asset_only)?;
+        if changed {
+            self.update_backup_info(&txn, false)?;
+        }
+        txn.commit()?;
         info!(self.logger(), "Delete transfer completed");
         Ok(changed)
     }
@@ -2895,7 +2923,9 @@ pub trait RgbWalletOpsOffline: WalletOffline + WalletBackup {
     /// Return whether the wallet requires to perform a backup.
     fn backup_info(&self) -> Result<bool, Error> {
         info!(self.logger(), "Getting backup info...");
-        let backup_required = self.get_backup_info()?;
+        let txn = self.database().begin_transaction()?;
+        let backup_required = self.get_backup_info(&txn)?;
+        txn.commit()?;
         info!(self.logger(), "Get backup info completed");
         Ok(backup_required)
     }
@@ -2917,7 +2947,9 @@ pub trait RgbWalletOpsOffline: WalletOffline + WalletBackup {
         entropy: u64,
     ) -> Result<RgbInspection, Error> {
         info!(self.logger(), "Inspecting RGB transfer...");
-        let inspection = self.inspect_rgb_transfer_impl(psbt, fascia_path, entropy)?;
+        let txn = self.database().begin_transaction()?;
+        let inspection = self.inspect_rgb_transfer_impl(&txn, psbt, fascia_path, entropy)?;
+        txn.commit()?;
         info!(self.logger(), "RGB transfer inspection completed");
         Ok(inspection)
     }

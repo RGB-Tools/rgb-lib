@@ -9,7 +9,9 @@ fn success() {
     let (mut wallet, online) = get_funded_wallet!();
 
     let before_timestamp = now().unix_timestamp();
-    let bak_info_before = wallet.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     let asset = test_issue_asset_ifa(
         &mut wallet,
         online,
@@ -17,7 +19,9 @@ fn success() {
         Some(&[AMOUNT, AMOUNT, AMOUNT]),
         None,
     );
-    let bak_info_after = wallet.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
 
     // check the asset has been saved with the correct schema

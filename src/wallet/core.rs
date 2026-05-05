@@ -108,8 +108,8 @@ pub(crate) fn setup_db<P: AsRef<Path>>(wallet_dir: P) -> Result<RgbLibDatabase, 
         .idle_timeout(Duration::from_secs(8))
         .max_lifetime(Duration::from_secs(8));
     let db_cnn = block_on(Database::connect(opt));
-    let connection = db_cnn.map_err(InternalError::from)?;
-    block_on(Migrator::up(&connection, None)).map_err(InternalError::from)?;
+    let connection = db_cnn?;
+    block_on(Migrator::up(&connection, None))?;
     Ok(RgbLibDatabase::new(connection))
 }
 
@@ -249,9 +249,9 @@ pub trait WalletCore {
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
-    fn fast_sync_colored_spks(&self) -> Result<HashSet<ScriptBuf>, Error> {
+    fn fast_sync_colored_spks(&self, txn: &DbTxn) -> Result<HashSet<ScriptBuf>, Error> {
         let mut spks: HashSet<ScriptBuf> = HashSet::new();
-        for pws in self.database().iter_pending_witness_scripts()? {
+        for pws in txn.iter_pending_witness_scripts()? {
             spks.insert(ScriptBuf::from_hex(&pws.script).expect("valid script"));
         }
         Ok(spks)
@@ -299,6 +299,7 @@ pub trait WalletCore {
     #[cfg(any(feature = "electrum", feature = "esplora"))]
     fn sync_bdk_and_db_txos(
         &mut self,
+        txn: &DbTxn,
         options: SyncOptions,
         include_spent: bool,
     ) -> Result<(), Error> {
@@ -331,7 +332,7 @@ pub trait WalletCore {
                 let mut spks: HashSet<ScriptBuf> = HashSet::new();
                 match options.keychain {
                     SyncKeychain::Colored => {
-                        spks.extend(self.fast_sync_colored_spks()?);
+                        spks.extend(self.fast_sync_colored_spks(txn)?);
                         spks.extend(self.unconfirmed_colored_spks());
                     }
                     SyncKeychain::Vanilla { lookback } => {
@@ -353,7 +354,7 @@ pub trait WalletCore {
         bdk_wallet.persist(bdk_db)?;
 
         if matches!(options.keychain, SyncKeychain::Colored) {
-            self.update_db_colored_txos_from_bdk(include_spent)?;
+            self.update_db_colored_txos_from_bdk(txn, include_spent)?;
         }
 
         debug!(self.logger(), "Synced");
@@ -361,8 +362,12 @@ pub trait WalletCore {
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
-    fn update_db_colored_txos_from_bdk(&mut self, include_spent: bool) -> Result<(), Error> {
-        let db_txos = self.database().iter_txos()?;
+    fn update_db_colored_txos_from_bdk(
+        &mut self,
+        txn: &DbTxn,
+        include_spent: bool,
+    ) -> Result<(), Error> {
+        let db_txos = txn.iter_txos()?;
 
         let db_outpoints: HashSet<String> = db_txos
             .into_iter()
@@ -370,8 +375,7 @@ pub trait WalletCore {
             .map(|u| u.outpoint().to_string())
             .collect();
 
-        let pending_witness_scripts: Vec<String> = self
-            .database()
+        let pending_witness_scripts: Vec<String> = txn
             .iter_pending_witness_scripts()?
             .into_iter()
             .map(|s| s.script)
@@ -392,18 +396,22 @@ pub trait WalletCore {
                 let pending_witness_script = new_utxo.txout.script_pubkey.to_hex_string();
                 if pending_witness_scripts.contains(&pending_witness_script) {
                     new_db_utxo.pending_witness = ActiveValue::Set(true);
-                    self.database()
-                        .del_pending_witness_script(pending_witness_script)?;
+                    txn.del_pending_witness_script(pending_witness_script)?;
                 }
             }
-            self.database().set_txo(new_db_utxo.clone())?;
+            txn.set_txo(new_db_utxo.clone())?;
         }
 
         Ok(())
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
-    fn sync_wallet(&mut self, options: SyncOptions, include_spent: bool) -> Result<(), Error> {
-        self.sync_bdk_and_db_txos(options, include_spent)
+    fn sync_wallet(
+        &mut self,
+        txn: &DbTxn,
+        options: SyncOptions,
+        include_spent: bool,
+    ) -> Result<(), Error> {
+        self.sync_bdk_and_db_txos(txn, options, include_spent)
     }
 }

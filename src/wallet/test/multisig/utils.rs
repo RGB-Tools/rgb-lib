@@ -406,7 +406,10 @@ pub(super) trait MultisigOps {
     }
 
     fn bak_info_opt(&mut self) -> Option<Option<DbBackupInfo>> {
-        self.multisig_ref().database().get_backup_info().ok()
+        let txn = self.multisig_ref().database().begin_transaction().ok()?;
+        let bak_info = txn.get_backup_info().ok()?;
+        txn.commit().ok()?;
+        Some(bak_info)
     }
 
     fn bak_ts(&mut self) -> String {
@@ -1044,17 +1047,11 @@ fn check_asset_metadata(
 
         match schema {
             AssetSchema::Cfa => {
-                let asset_db = wallet
-                    .database()
-                    .get_asset(asset_id.to_string())
-                    .unwrap()
-                    .unwrap();
+                let txn = wallet.database().begin_transaction().unwrap();
+                let asset_db = txn.get_asset(asset_id.to_string()).unwrap().unwrap();
                 assert!(asset_db.media_idx.is_some());
-                let media = wallet
-                    .database()
-                    .get_media(asset_db.media_idx.unwrap())
-                    .unwrap()
-                    .unwrap();
+                let media = txn.get_media(asset_db.media_idx.unwrap()).unwrap().unwrap();
+                txn.commit().unwrap();
                 if let Some(ref media_1) = media_1 {
                     assert_eq!(media_1.digest, media.digest);
                 } else {
@@ -1080,11 +1077,6 @@ fn check_asset_metadata(
                 assert!(!meta_token.attachments.is_empty());
                 assert_eq!(meta_token.reserves, None);
 
-                let asset_db = wallet
-                    .database()
-                    .get_asset(asset_id.to_string())
-                    .unwrap()
-                    .unwrap();
                 let assets_uda = wallet
                     .list_assets(vec![AssetSchema::Uda])
                     .unwrap()
@@ -1093,20 +1085,22 @@ fn check_asset_metadata(
                 let asset_uda = assets_uda.iter().find(|a| a.asset_id == asset_id).unwrap();
                 let token = asset_uda.token.clone().unwrap();
                 assert_eq!(token.index, UDA_FIXED_INDEX);
-                let tokens = wallet.database().iter_tokens().unwrap();
+                let txn = wallet.database().begin_transaction().unwrap();
+                let asset_db = txn.get_asset(asset_id.to_string()).unwrap().unwrap();
+                let tokens = txn.iter_tokens().unwrap();
                 let token_db = tokens.iter().find(|t| t.asset_idx == asset_db.idx).unwrap();
                 if let Some(ref token_db_1) = token_db_1 {
                     assert_eq!(token_db, token_db_1);
                 } else {
                     token_db_1 = Some(token_db.clone());
                 }
-                let token_medias = wallet.database().iter_token_medias().unwrap();
+                let token_medias = txn.iter_token_medias().unwrap();
                 let token_media_entries: Vec<_> = token_medias
                     .into_iter()
                     .filter(|tm| tm.token_idx == token_db.idx)
                     .collect();
                 assert_eq!(token_media_entries.len(), 3);
-                let medias = wallet.database().iter_media().unwrap();
+                let medias = txn.iter_media().unwrap();
                 let mut digests: Vec<String> = token_media_entries
                     .iter()
                     .map(|tm| {
@@ -1124,6 +1118,7 @@ fn check_asset_metadata(
                 } else {
                     digests_1 = digests;
                 }
+                txn.commit().unwrap();
                 let attachments = &token.attachments;
                 assert_eq!(attachments.len(), 2);
                 if let Some(ref token_1) = token_1 {
@@ -1172,10 +1167,14 @@ pub(super) fn check_btc_balance(
 }
 
 pub(super) fn check_change_consistency(wlt_a: &mut MultisigParty, wlt_b: &mut MultisigParty) {
-    let wlt_a_txos = wlt_a.multisig.database().iter_txos().unwrap();
-    let wlt_b_txos = wlt_b.multisig.database().iter_txos().unwrap();
-    let wlt_a_colorings = wlt_a.multisig.database().iter_colorings().unwrap();
-    let wlt_b_colorings = wlt_b.multisig.database().iter_colorings().unwrap();
+    let txn = wlt_a.multisig.database().begin_transaction().unwrap();
+    let wlt_a_txos = txn.iter_txos().unwrap();
+    let wlt_a_colorings = txn.iter_colorings().unwrap();
+    txn.commit().unwrap();
+    let txn = wlt_b.multisig.database().begin_transaction().unwrap();
+    let wlt_b_txos = txn.iter_txos().unwrap();
+    let wlt_b_colorings = txn.iter_colorings().unwrap();
+    txn.commit().unwrap();
     let resolve_change_outpoints = |txos: &[DbTxo], colorings: &[DbColoring]| -> Vec<String> {
         colorings
             .iter()

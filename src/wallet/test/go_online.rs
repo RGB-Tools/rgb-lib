@@ -9,10 +9,14 @@ fn success() {
     let mut wallet = get_test_wallet(true, None);
 
     // go online
-    let bak_info_before = wallet.database().get_backup_info().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_before = txn.get_backup_info().unwrap();
+    txn.commit().unwrap();
     assert!(bak_info_before.is_none());
     let result_1 = test_go_online_result(&mut wallet, false, None);
-    let bak_info_after = wallet.database().get_backup_info().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_after = txn.get_backup_info().unwrap();
+    txn.commit().unwrap();
     assert!(bak_info_after.is_none());
     assert!(result_1.is_ok());
 

@@ -31,7 +31,9 @@ fn success() {
         }],
     )]);
     let expiration_timestamp = (now().unix_timestamp() + expiration_secs) as u64;
-    let bak_info_before = wallet.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     let operation_result = wallet
         .send(
             online,
@@ -42,15 +44,18 @@ fn success() {
             Some(expiration_timestamp),
         )
         .unwrap();
-    let bak_info_after = wallet.database().get_backup_info().unwrap().unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
     let txid = operation_result.txid;
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     assert!(!txid.is_empty());
     let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
-    let tte_data = wallet
-        .database()
+    let txn = wallet.database().begin_transaction().unwrap();
+    let tte_data = txn
         .get_transfer_transport_endpoints_data(transfer.idx)
         .unwrap();
+    txn.commit().unwrap();
     assert_eq!(tte_data.len(), 1);
     let ce = tte_data.first().unwrap();
     assert_eq!(ce.1.endpoint, PROXY_URL);
@@ -220,10 +225,11 @@ fn success() {
     let txid = test_send(&mut wallet, online, &recipient_map);
     assert!(!txid.is_empty());
     let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
-    let tte_data = wallet
-        .database()
+    let txn = wallet.database().begin_transaction().unwrap();
+    let tte_data = txn
         .get_transfer_transport_endpoints_data(transfer.idx)
         .unwrap();
+    txn.commit().unwrap();
     assert_eq!(tte_data.len(), 3);
     let mut tte_data_iter = tte_data.iter();
     let (ce_0, ce_1, ce_2) = (
@@ -302,10 +308,11 @@ fn success() {
         .txid;
     assert!(!txid.is_empty());
     let (transfer, _, _) = get_test_transfer_sender(&wallet, &txid);
-    let tte_data = wallet
-        .database()
+    let txn = wallet.database().begin_transaction().unwrap();
+    let tte_data = txn
         .get_transfer_transport_endpoints_data(transfer.idx)
         .unwrap();
+    txn.commit().unwrap();
     assert_eq!(tte_data.len(), 3);
     let mut tte_data_iter = tte_data.iter();
     let (ce_0, ce_1, ce_2) = (
@@ -1397,15 +1404,15 @@ fn send_received_uda_success() {
         Some(FILE_STR),
         vec![&image_str, FILE_STR],
     );
+    let txn = wallet_1.database().begin_transaction().unwrap();
     assert!(
-        wallet_1
-            .database()
-            .get_asset(asset.asset_id.clone())
+        txn.get_asset(asset.asset_id.clone())
             .unwrap()
             .unwrap()
             .media_idx
             .is_none()
     );
+    txn.commit().unwrap();
 
     //
     // 1st transfer: wallet 1 > wallet 2
@@ -1465,15 +1472,15 @@ fn send_received_uda_success() {
 
     // take transfers from WaitingCounterparty to Settled
     wait_for_refresh(&mut wallet_3, online_3, None, None);
+    let txn = wallet_3.database().begin_transaction().unwrap();
     assert!(
-        wallet_3
-            .database()
-            .get_asset(asset.asset_id.clone())
+        txn.get_asset(asset.asset_id.clone())
             .unwrap()
             .unwrap()
             .media_idx
             .is_none()
     );
+    txn.commit().unwrap();
     wait_for_refresh(&mut wallet_2, online_2, Some(&asset.asset_id), None);
     mine(false);
     wait_for_refresh(&mut wallet_3, online_3, None, None);
@@ -4931,13 +4938,10 @@ fn spend_double_receive() {
         }],
     )]);
     // manually set the input unspents to the UTXO of the 1st allocation
-    let db_data = wallet_2.database().get_db_data(false).unwrap();
-    let utxos = wallet_2
-        .database()
-        .get_unspent_txos(db_data.txos.clone())
-        .unwrap();
-    let mut input_unspents = wallet_2
-        .database()
+    let txn = wallet_2.database().begin_transaction().unwrap();
+    let db_data = txn.get_db_data(false).unwrap();
+    let utxos = txn.get_unspent_txos(db_data.txos.clone()).unwrap();
+    let mut input_unspents = txn
         .get_rgb_allocations(
             utxos,
             Some(db_data.colorings.clone()),
@@ -4946,6 +4950,7 @@ fn spend_double_receive() {
             Some(db_data.transfers.clone()),
         )
         .unwrap();
+    txn.commit().unwrap();
     input_unspents.retain(|u| {
         !u.rgb_allocations.is_empty()
             && u.rgb_allocations.iter().all(|a| {
@@ -6629,12 +6634,11 @@ fn pending_witness_txo() {
     );
 
     // check the recipient doesn't see the TXO yet + has one pending witness script
-    let rcv_txos = rcv_wallet.database().iter_txos().unwrap();
+    let txn = rcv_wallet.database().begin_transaction().unwrap();
+    let rcv_txos = txn.iter_txos().unwrap();
     assert!(!rcv_txos.iter().any(|t| t.txid == txid));
-    let rcv_pending_witness_scripts = rcv_wallet
-        .database()
-        .iter_pending_witness_scripts()
-        .unwrap();
+    let rcv_pending_witness_scripts = txn.iter_pending_witness_scripts().unwrap();
+    txn.commit().unwrap();
     assert_eq!(rcv_pending_witness_scripts.len(), 1);
 
     // sync recipient wallet
@@ -6649,12 +6653,11 @@ fn pending_witness_txo() {
         .unwrap();
 
     // check the recipient doesn't see the TXO yet + has one pending witness
-    let rcv_txos = rcv_wallet.database().iter_txos().unwrap();
+    let txn = rcv_wallet.database().begin_transaction().unwrap();
+    let rcv_txos = txn.iter_txos().unwrap();
     assert!(!rcv_txos.iter().any(|t| t.txid == txid));
-    let rcv_pending_witness_scripts = rcv_wallet
-        .database()
-        .iter_pending_witness_scripts()
-        .unwrap();
+    let rcv_pending_witness_scripts = txn.iter_pending_witness_scripts().unwrap();
+    txn.commit().unwrap();
     assert_eq!(rcv_pending_witness_scripts.len(), 1);
 
     // refresh the recipient to move the transfer to WaitingConfirmations
@@ -6667,7 +6670,8 @@ fn pending_witness_txo() {
     );
 
     // check the recipient now sees the TXO yet as inexistent + pending witness
-    let rcv_txos = rcv_wallet.database().iter_txos().unwrap();
+    let txn = rcv_wallet.database().begin_transaction().unwrap();
+    let rcv_txos = txn.iter_txos().unwrap();
     let rcv_witness_txos: Vec<database::entities::txo::Model> =
         rcv_txos.into_iter().filter(|t| t.txid == txid).collect();
     assert_eq!(rcv_witness_txos.len(), 1);
@@ -6680,10 +6684,8 @@ fn pending_witness_txo() {
     };
 
     // check the recipient still has the pending witness script
-    let rcv_pending_witness_scripts = rcv_wallet
-        .database()
-        .iter_pending_witness_scripts()
-        .unwrap();
+    let rcv_pending_witness_scripts = txn.iter_pending_witness_scripts().unwrap();
+    txn.commit().unwrap();
     assert_eq!(rcv_pending_witness_scripts.len(), 1);
 
     // refresh the sender to move the transfer to WaitingConfirmations (broadcast)
@@ -6701,19 +6703,14 @@ fn pending_witness_txo() {
         .unwrap();
 
     // check the recipient TXO now exists and is still pending witness
-    let rcv_txo = rcv_wallet
-        .database()
-        .get_txo(&rcv_outpoint)
-        .unwrap()
-        .unwrap();
+    let txn = rcv_wallet.database().begin_transaction().unwrap();
+    let rcv_txo = txn.get_txo(&rcv_outpoint).unwrap().unwrap();
     assert!(rcv_txo.exists);
     assert!(rcv_txo.pending_witness);
 
     // check the recipient pending witness script has been deleted
-    let rcv_pending_witness_scripts = rcv_wallet
-        .database()
-        .iter_pending_witness_scripts()
-        .unwrap();
+    let rcv_pending_witness_scripts = txn.iter_pending_witness_scripts().unwrap();
+    txn.commit().unwrap();
     assert!(rcv_pending_witness_scripts.is_empty());
 
     // mine + refresh the recipient to move the transfer to Settled
@@ -6726,11 +6723,9 @@ fn pending_witness_txo() {
     assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
 
     // check the recipient TXO still exists and is no more pending witness
-    let rcv_txo = rcv_wallet
-        .database()
-        .get_txo(&rcv_outpoint)
-        .unwrap()
-        .unwrap();
+    let txn = rcv_wallet.database().begin_transaction().unwrap();
+    let rcv_txo = txn.get_txo(&rcv_outpoint).unwrap().unwrap();
+    txn.commit().unwrap();
     assert!(rcv_txo.exists);
     assert!(!rcv_txo.pending_witness);
 
@@ -6775,12 +6770,11 @@ fn pending_witness_txo() {
     );
 
     // check the recipient doesn't see the TXO yet + has one pending witness script
-    let rcv_txos = rcv_wallet.database().iter_txos().unwrap();
+    let txn = rcv_wallet.database().begin_transaction().unwrap();
+    let rcv_txos = txn.iter_txos().unwrap();
     assert!(!rcv_txos.iter().any(|t| t.txid == txid));
-    let rcv_pending_witness_scripts = rcv_wallet
-        .database()
-        .iter_pending_witness_scripts()
-        .unwrap();
+    let rcv_pending_witness_scripts = txn.iter_pending_witness_scripts().unwrap();
+    txn.commit().unwrap();
     assert_eq!(rcv_pending_witness_scripts.len(), 1);
 
     // sync recipient wallet
@@ -6795,7 +6789,8 @@ fn pending_witness_txo() {
         .unwrap();
 
     // check the recipient now sees the TXO, as existent + pending witness
-    let rcv_txos = rcv_wallet.database().iter_txos().unwrap();
+    let txn = rcv_wallet.database().begin_transaction().unwrap();
+    let rcv_txos = txn.iter_txos().unwrap();
     let rcv_witness_txos: Vec<database::entities::txo::Model> =
         rcv_txos.into_iter().filter(|t| t.txid == txid).collect();
     assert_eq!(rcv_witness_txos.len(), 1);
@@ -6808,10 +6803,8 @@ fn pending_witness_txo() {
     };
 
     // check pending witness script has been deleted
-    let rcv_pending_witness_scripts = rcv_wallet
-        .database()
-        .iter_pending_witness_scripts()
-        .unwrap();
+    let rcv_pending_witness_scripts = txn.iter_pending_witness_scripts().unwrap();
+    txn.commit().unwrap();
     assert!(rcv_pending_witness_scripts.is_empty());
 
     // refresh to move the transfer to WaitingConfirmations
@@ -6824,11 +6817,9 @@ fn pending_witness_txo() {
     );
 
     // check the TXO is still existent + pending witness
-    let rcv_txo = rcv_wallet
-        .database()
-        .get_txo(&rcv_outpoint)
-        .unwrap()
-        .unwrap();
+    let txn = rcv_wallet.database().begin_transaction().unwrap();
+    let rcv_txo = txn.get_txo(&rcv_outpoint).unwrap().unwrap();
+    txn.commit().unwrap();
     assert!(rcv_txo.exists);
     assert!(rcv_txo.pending_witness);
 
@@ -6842,11 +6833,9 @@ fn pending_witness_txo() {
     assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
 
     // check the TXO is still existent but not pending witness anymore
-    let rcv_txo = rcv_wallet
-        .database()
-        .get_txo(&rcv_outpoint)
-        .unwrap()
-        .unwrap();
+    let txn = rcv_wallet.database().begin_transaction().unwrap();
+    let rcv_txo = txn.get_txo(&rcv_outpoint).unwrap().unwrap();
+    txn.commit().unwrap();
     assert!(rcv_txo.exists);
     assert!(!rcv_txo.pending_witness);
 }
@@ -7372,8 +7361,9 @@ fn send_end_without_send_begin() {
 fn allocations() {
     fn get_coloring_map(wallet: &Wallet, unspents: &[Unspent]) -> HashMap<DbTxo, Vec<DbColoring>> {
         let mut coloring_map: HashMap<DbTxo, Vec<DbColoring>> = HashMap::new();
-        let db_txos = wallet.database().iter_txos().unwrap();
-        let db_colorings: Vec<DbColoring> = wallet.database().iter_colorings().unwrap();
+        let txn = wallet.database().begin_transaction().unwrap();
+        let db_txos = txn.iter_txos().unwrap();
+        let db_colorings: Vec<DbColoring> = txn.iter_colorings().unwrap();
         for u in unspents {
             let outpoint = &u.utxo.outpoint;
             let db_txo = db_txos
@@ -7386,6 +7376,7 @@ fn allocations() {
                 .collect();
             coloring_map.insert(db_txo.clone(), txo_colorings.into_iter().cloned().collect());
         }
+        txn.commit().unwrap();
         coloring_map
     }
 
@@ -7397,7 +7388,9 @@ fn allocations() {
         pending_xfer: bool,
     ) {
         let coloring_map = get_coloring_map(wallet, unspents_colorable);
-        let db_asset_transfers = wallet.database().iter_asset_transfers().unwrap();
+        let txn = wallet.database().begin_transaction().unwrap();
+        let db_asset_transfers = txn.iter_asset_transfers().unwrap();
+        txn.commit().unwrap();
         let assignments_auto: Vec<_> = amounts_auto
             .iter()
             .map(|a| Assignment::Fungible(*a))
@@ -7743,8 +7736,10 @@ fn allocations() {
         "wallet 2 unspents after 2nd send (WaitingCounterparty)",
     );
     let coloring_map = get_coloring_map(&wallet_2, &unspents_colorable);
-    let db_batch_transfers = wallet_2.database().iter_batch_transfers().unwrap();
-    let db_asset_transfers = wallet_2.database().iter_asset_transfers().unwrap();
+    let txn = wallet_2.database().begin_transaction().unwrap();
+    let db_batch_transfers = txn.iter_batch_transfers().unwrap();
+    let db_asset_transfers = txn.iter_asset_transfers().unwrap();
+    txn.commit().unwrap();
     // check input colorings
     let input_colorings: Vec<_> = coloring_map
         .values()
