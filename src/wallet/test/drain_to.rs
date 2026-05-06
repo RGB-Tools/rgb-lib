@@ -7,10 +7,10 @@ fn success() {
     initialize();
 
     // receiver wallet
-    let mut rcv_wallet = get_test_wallet(true, None);
+    let mut rcv_party = offline_party!(get_test_wallet(true, None));
 
     // drain funded wallet with no allocation UTXOs
-    let (mut wallet, online) = get_funded_noutxo_wallet!();
+    let mut party = get_funded_noutxo_party!();
     let expected_balance = BtcBalance {
         vanilla: Balance {
             settled: 100000000,
@@ -23,24 +23,20 @@ fn success() {
             spendable: 0,
         },
     };
-    wait_for_btc_balance(&mut wallet, online, &expected_balance);
-    let address = test_get_address(&mut rcv_wallet); // also updates backup_info
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
-    test_drain_to(&mut wallet, online, &address);
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
+    party.wait_for_btc_balance(&expected_balance);
+    let address = rcv_party.get_address(); // also updates backup_info
+    let bak_info_before = party.db_backup_info();
+    party.drain_to(&address);
+    let bak_info_after = party.db_backup_info();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     mine(false);
-    wait_for_unspents(&mut wallet, Some(online), false, 0);
+    party.wait_for_unspents(false, 0);
 
     // issue asset (to produce an RGB allocation)
-    fund_wallet(test_get_address(&mut wallet));
-    test_create_utxos_default(&mut wallet, online);
+    fund_wallet(party.get_address());
+    party.create_utxos_default();
     mine(false);
-    test_issue_asset_nia(&mut wallet, online, None);
+    party.issue_asset_nia(None);
 
     // drain funded wallet with RGB allocations
     let expected_balance = BtcBalance {
@@ -55,10 +51,10 @@ fn success() {
             spendable: 5000,
         },
     };
-    wait_for_btc_balance(&mut wallet, online, &expected_balance);
-    test_drain_to(&mut wallet, online, &test_get_address(&mut rcv_wallet));
+    party.wait_for_btc_balance(&expected_balance);
+    party.drain_to(&rcv_party.get_address());
     mine(false);
-    wait_for_unspents(&mut wallet, Some(online), false, 0);
+    party.wait_for_unspents(false, 0);
 }
 
 #[cfg(feature = "electrum")]
@@ -70,15 +66,15 @@ fn pending_witness_receive() {
     let amount: u64 = 66;
 
     // wallets
-    let (mut wallet, online) = get_funded_wallet!();
-    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
-    let (mut drain_wallet, _drain_online) = get_empty_wallet!();
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+    let mut drain_party = get_empty_party!();
 
     // issue
-    let asset = test_issue_asset_nia(&mut wallet, online, None);
+    let asset = party.issue_asset_nia(None);
 
     // send
-    let receive_data = test_witness_receive(&mut rcv_wallet);
+    let receive_data = rcv_party.witness_receive();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -91,28 +87,28 @@ fn pending_witness_receive() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&mut wallet, online, &recipient_map);
+    let txid = party.send_retry(&recipient_map);
     assert!(!txid.is_empty());
 
     // refresh receiver (no UTXOs created) + sender (to broadcast) + mine
-    wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
-    wait_for_refresh(&mut wallet, online, Some(&asset.asset_id), None);
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(Some(&asset.asset_id));
     mine(false);
 
     // receiver sees the new UTXO
-    let unspents = list_test_unspents(&mut rcv_wallet, "before draining");
+    let unspents = rcv_party.list_unspents(false);
     assert_eq!(unspents.len(), 7);
     assert_eq!(unspents.iter().filter(|u| !u.utxo.exists).count(), 1);
 
     // drain receiver, which syncs the wallet, detecting (and draining) the new UTXO as well
-    let address = test_get_address(&mut drain_wallet);
-    test_drain_to(&mut rcv_wallet, rcv_online, &address);
-    let unspents = list_test_unspents(&mut rcv_wallet, "after draining");
+    let address = drain_party.get_address();
+    rcv_party.drain_to(&address);
+    let unspents = rcv_party.list_unspents(false);
     assert_eq!(unspents.len(), 0);
 
     // refresh receiver, if draining hadn't synced (before draining) a new UTXO would appear
-    wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
-    let unspents = list_test_unspents(&mut rcv_wallet, "after receiver refresh 2");
+    rcv_party.wait_for_refresh(None);
+    let unspents = rcv_party.list_unspents(false);
     assert_eq!(unspents.len(), 0);
 }
 
@@ -123,40 +119,38 @@ fn drain_to_begin_and_end_success() {
     initialize();
 
     // wallets
-    let (mut wallet, online) = get_funded_noutxo_wallet!();
-    let mut rcv_wallet = get_test_wallet(true, None);
+    let mut party = get_funded_noutxo_party!();
+    let mut rcv_party = offline_party!(get_test_wallet(true, None));
 
-    let address = test_get_address(&mut rcv_wallet);
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
+    let address = rcv_party.get_address();
+    let bak_info_before = party.db_backup_info();
 
     // drain_to_begin does not update backup_info
-    let unsigned_psbt = wallet
-        .drain_to_begin(online, address, FEE_RATE, true)
+    let unsigned_psbt = party
+        .wallet
+        .drain_to_begin(party.online, address, FEE_RATE, true)
         .unwrap();
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_after_begin = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
+    let bak_info_after_begin = party.db_backup_info();
     assert_eq!(
         bak_info_after_begin.last_operation_timestamp,
         bak_info_before.last_operation_timestamp
     );
 
     // sign and broadcast via drain_to_end
-    let signed_psbt = wallet.sign_psbt(unsigned_psbt, None).unwrap();
-    let txid = wallet.drain_to_end(online, signed_psbt).unwrap();
+    let signed_psbt = party.wallet.sign_psbt(unsigned_psbt, None).unwrap();
+    let txid = party
+        .wallet
+        .drain_to_end(party.online, signed_psbt)
+        .unwrap();
     assert!(!txid.is_empty());
 
     // drain_to_end updates backup_info
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_after_end = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
+    let bak_info_after_end = party.db_backup_info();
     assert!(bak_info_after_end.last_operation_timestamp > bak_info_before.last_operation_timestamp);
 
     // verify the drain was effective
     mine(false);
-    wait_for_unspents(&mut wallet, Some(online), false, 0);
+    party.wait_for_unspents(false, 0);
 }
 
 #[cfg(feature = "electrum")]
@@ -166,11 +160,11 @@ fn fail() {
     initialize();
 
     // wallets
-    let (mut wallet, online) = get_empty_wallet!();
-    let (mut rcv_wallet, rcv_online) = get_empty_wallet!();
+    let mut party = get_empty_party!();
+    let mut rcv_party = get_empty_party!();
 
     // drain empty wallet
-    let result = test_drain_to_result(&mut wallet, online, &test_get_address(&mut rcv_wallet));
+    let result = party.drain_to_result(&rcv_party.get_address());
     assert!(matches!(
         result,
         Err(Error::InsufficientBitcoins {
@@ -180,33 +174,30 @@ fn fail() {
     ));
 
     // bad online object
-    fund_wallet(test_get_address(&mut wallet));
-    let result = test_drain_to_result(&mut wallet, rcv_online, &test_get_address(&mut rcv_wallet));
+    fund_wallet(party.get_address());
+    let good_online = party.online;
+    party.online = rcv_party.online;
+    let result = party.drain_to_result(&rcv_party.get_address());
+    party.online = good_online;
     assert!(matches!(result, Err(Error::CannotChangeOnline)));
 
     // bad address
-    let result = test_drain_to_result(&mut wallet, online, "invalid address");
+    let result = party.drain_to_result("invalid address");
     assert!(matches!(result, Err(Error::InvalidAddress { details: _ })));
 
     // fee min
-    fund_wallet(test_get_address(&mut wallet));
-    let result =
-        test_drain_to_begin_result(&mut wallet, online, &test_get_address(&mut rcv_wallet), 0);
+    fund_wallet(party.get_address());
+    let result = party.drain_to_begin_result(&rcv_party.get_address(), 0);
     assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_LOW));
 
     // fee overflow
-    fund_wallet(test_get_address(&mut wallet));
-    let result = test_drain_to_begin_result(
-        &mut wallet,
-        online,
-        &test_get_address(&mut rcv_wallet),
-        u64::MAX,
-    );
+    fund_wallet(party.get_address());
+    let result = party.drain_to_begin_result(&rcv_party.get_address(), u64::MAX);
     assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_OVER));
 
     // no private keys
-    let (mut wallet, online) = get_funded_noutxo_wallet(false, None);
-    let result = test_drain_to_result(&mut wallet, online, &test_get_address(&mut rcv_wallet));
+    let mut wo_party = get_funded_noutxo_party(false, None);
+    let result = wo_party.drain_to_result(&rcv_party.get_address());
     assert!(matches!(result, Err(Error::WatchOnly)));
 }
 
@@ -217,13 +208,14 @@ fn reservation_interaction() {
     initialize();
 
     // wallet with several vanilla UTXOs so they can be reserved
-    let (mut wallet, online) = get_empty_wallet!();
+    let mut party = get_empty_party!();
     for _ in 0..3 {
-        fund_wallet(test_get_address(&mut wallet));
+        fund_wallet(party.get_address());
     }
-    wallet
+    party
+        .wallet
         .sync(
-            online,
+            party.online,
             SyncOptions {
                 keychain: SyncKeychain::Vanilla {
                     lookback: INDEXER_SYNC_LOOKBACK as u32,
@@ -233,18 +225,19 @@ fn reservation_interaction() {
         )
         .unwrap();
 
-    let (mut rcv_wallet, _rcv_online) = get_empty_wallet!();
-    let (mut drain_wallet, _drain_online) = get_empty_wallet!();
+    let mut rcv_party = get_empty_party!();
+    let mut drain_party = get_empty_party!();
 
     // reserve all vanilla UTXO via drain_to_begin(dry_run=false)
-    let psbt = wallet
-        .drain_to_begin(online, test_get_address(&mut rcv_wallet), FEE_RATE, false)
+    let psbt = party
+        .wallet
+        .drain_to_begin(party.online, rcv_party.get_address(), FEE_RATE, false)
         .unwrap();
 
     // check send_btc cannot spend the reserved UTXOs
-    let res = wallet.send_btc_begin(
-        online,
-        test_get_address(&mut rcv_wallet),
+    let res = party.wallet.send_btc_begin(
+        party.online,
+        rcv_party.get_address(),
         1000,
         FEE_RATE,
         true,
@@ -260,13 +253,14 @@ fn reservation_interaction() {
 
     // cancel pending drain_to to unlock the reserved inputs
     let txid = Psbt::from_str(&psbt).unwrap().get_txid().to_string();
-    wallet.abort_pending_vanilla_tx(txid).unwrap();
+    party.wallet.abort_pending_vanilla_tx(txid).unwrap();
 
     // reserve one (or more) vanilla UTXO via send_btc_begin(dry_run=false)
-    let send_psbt_str = wallet
+    let send_psbt_str = party
+        .wallet
         .send_btc_begin(
-            online,
-            test_get_address(&mut rcv_wallet),
+            party.online,
+            rcv_party.get_address(),
             1000,
             FEE_RATE,
             true,
@@ -284,8 +278,9 @@ fn reservation_interaction() {
 
     // drain always spends all wallet UTXOs, including those reserved by in-flight vanilla
     // transactions
-    let drain_psbt_str = wallet
-        .drain_to_begin(online, test_get_address(&mut drain_wallet), FEE_RATE, true)
+    let drain_psbt_str = party
+        .wallet
+        .drain_to_begin(party.online, drain_party.get_address(), FEE_RATE, true)
         .unwrap();
     let drain_psbt = Psbt::from_str(&drain_psbt_str).unwrap();
     let drain_inputs: HashSet<(String, u32)> = drain_psbt
@@ -308,45 +303,38 @@ fn reservation_interaction() {
 fn begin_end() {
     initialize();
 
-    let (mut wallet, online) = get_funded_noutxo_wallet!();
-    let address = test_get_address(&mut wallet);
+    let mut party = get_funded_noutxo_party!();
+    let address = party.get_address();
 
     // begin does not update backup_info with dry_run=true
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
-    let _psbt = wallet
-        .drain_to_begin(online, address.clone(), FEE_RATE, true)
+    let bak_info_before = party.db_backup_info();
+    let _psbt = party
+        .wallet
+        .drain_to_begin(party.online, address.clone(), FEE_RATE, true)
         .unwrap();
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
+    let bak_info_after = party.db_backup_info();
     assert_eq!(
         bak_info_before.last_operation_timestamp,
         bak_info_after.last_operation_timestamp
     );
 
     // begin does update backup_info with dry_run=false
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
-    let psbt = wallet
-        .drain_to_begin(online, address, FEE_RATE, false)
+    let bak_info_before = party.db_backup_info();
+    let psbt = party
+        .wallet
+        .drain_to_begin(party.online, address, FEE_RATE, false)
         .unwrap();
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
+    let bak_info_after = party.db_backup_info();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
 
-    let signed_psbt = wallet.sign_psbt(psbt, None).unwrap();
+    let signed_psbt = party.wallet.sign_psbt(psbt, None).unwrap();
 
     // end updates backup_info
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
-    wallet.drain_to_end(online, signed_psbt).unwrap();
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
+    let bak_info_before = party.db_backup_info();
+    party
+        .wallet
+        .drain_to_end(party.online, signed_psbt)
+        .unwrap();
+    let bak_info_after = party.db_backup_info();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
 }

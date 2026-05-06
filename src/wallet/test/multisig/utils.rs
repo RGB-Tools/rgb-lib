@@ -201,11 +201,6 @@ fn sanitize_meta(meta: &mut Metadata) {
 // ----------------------------------------
 
 // singlesig party (allows uniform access to some functionality via SigParty trait)
-pub(super) struct SinglesigParty<'a> {
-    pub(super) wallet: &'a mut Wallet,
-    pub(super) online: Online,
-}
-
 // multisig party to be used for cosigners
 pub(super) struct MultisigParty<'a> {
     pub(super) signer: &'a Wallet,
@@ -231,10 +226,7 @@ impl<'a> MultisigParty<'a> {
     }
 
     fn sign_and_ack(&mut self, psbt: &str, op_idx: i32) -> OperationInfo {
-        println!(
-            "sign and ack {op_idx} {}",
-            self.multisig_mut().get_wallet_data().data_dir
-        );
+        println!("sign and ack {op_idx} {}", self.data_dir());
         let signed = self.sign(psbt);
         self.ack(&signed, op_idx)
     }
@@ -259,61 +251,34 @@ macro_rules! ms_party {
 }
 
 // convenience macro to instantiate SinglesigParty
-macro_rules! party {
-    ($wallet:expr, $online:expr) => {
-        SinglesigParty {
-            wallet: $wallet,
-            online: $online,
-        }
-    };
-}
-
 // convenience trait to allow uniform access to common functionality from all parties
-pub(super) trait SigParty {
-    fn get_asset_balance(&self, asset_id: &str) -> Balance;
+impl OfflineSigParty for MultisigParty<'_> {
+    type W = MultisigWallet;
 
-    fn list_transfers(&self, asset_id: Option<&str>) -> Vec<Transfer>;
+    fn wlt(&self) -> &MultisigWallet {
+        self.multisig
+    }
 
-    fn refresh(&mut self, asset_id: Option<&str>);
-
-    fn get_data_dir(&self) -> String;
+    fn wlt_mut(&mut self) -> &mut MultisigWallet {
+        self.multisig
+    }
 }
 
 impl SigParty for MultisigParty<'_> {
-    fn get_asset_balance(&self, asset_id: &str) -> Balance {
-        self.multisig
-            .get_asset_balance(asset_id.to_string())
-            .unwrap()
-    }
-
-    fn list_transfers(&self, asset_id: Option<&str>) -> Vec<Transfer> {
-        test_list_transfers(self.multisig, asset_id)
-    }
-
-    fn refresh(&mut self, asset_id: Option<&str>) {
-        wait_for_refresh(self.multisig, self.online, asset_id, None);
-    }
-
-    fn get_data_dir(&self) -> String {
-        self.multisig.internals.wallet_data.data_dir.clone()
+    fn party_online(&self) -> Online {
+        self.online
     }
 }
 
-impl SigParty for SinglesigParty<'_> {
-    fn get_asset_balance(&self, asset_id: &str) -> Balance {
-        self.wallet.get_asset_balance(asset_id.to_string()).unwrap()
+impl OfflineSigParty for WatchOnlyParty<'_> {
+    type W = MultisigWallet;
+
+    fn wlt(&self) -> &MultisigWallet {
+        self.multisig
     }
 
-    fn list_transfers(&self, asset_id: Option<&str>) -> Vec<Transfer> {
-        test_list_transfers(self.wallet, asset_id)
-    }
-
-    fn refresh(&mut self, asset_id: Option<&str>) {
-        wait_for_refresh(self.wallet, self.online, asset_id, None);
-    }
-
-    fn get_data_dir(&self) -> String {
-        self.wallet.internals.wallet_data.data_dir.clone()
+    fn wlt_mut(&mut self) -> &mut MultisigWallet {
+        self.multisig
     }
 }
 
@@ -334,10 +299,7 @@ pub(super) fn get_test_ms_wallet(keys: &MultisigKeys, dir: String) -> MultisigWa
         keys.clone(),
     )
     .unwrap();
-    println!(
-        "multisig wallet directory: {:?}",
-        test_get_wallet_dir(&wallet)
-    );
+    println!("multisig wallet directory: {:?}", wallet.get_wallet_dir());
     wallet
 }
 
@@ -385,17 +347,14 @@ fn local_rgb_lib_version() -> String {
 static OP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 // convenience trait exposing multisig functionality
-pub(super) trait MultisigOps {
+pub(super) trait MultisigOps: OfflineSigParty {
     fn multisig_mut(&mut self) -> &mut MultisigWallet;
     fn multisig_ref(&self) -> &MultisigWallet;
     fn online(&self) -> Online;
 
     fn assert_up_to_date(&mut self) {
-        if self.sync_opt().is_some() {
-            panic!(
-                "wallet {} is not up to date",
-                self.multisig_ref().internals.wallet_data.data_dir
-            );
+        if self.sync_with_hub_opt().is_some() {
+            panic!("wallet {} is not up to date", self.data_dir());
         }
         let last_processed_op = self
             .multisig_ref()
@@ -405,19 +364,9 @@ pub(super) trait MultisigOps {
         assert_eq!(last_processed_op, current_op);
     }
 
-    fn bak_info_opt(&mut self) -> Option<Option<DbBackupInfo>> {
-        let txn = self.multisig_ref().database().begin_transaction().ok()?;
-        let bak_info = txn.get_backup_info().ok()?;
-        txn.commit().ok()?;
-        Some(bak_info)
-    }
-
     fn bak_ts(&mut self) -> String {
         // using last_operation_timestamp instead of last_backup_timestamp for convenience
-        self.bak_info_opt()
-            .unwrap()
-            .unwrap()
-            .last_operation_timestamp
+        self.db_backup_info().last_operation_timestamp
     }
 
     fn hub_info(&mut self) -> HubInfo {
@@ -426,10 +375,7 @@ pub(super) trait MultisigOps {
     }
 
     fn blind_receive(&mut self) -> ReceiveData {
-        println!(
-            "blind_receive {}",
-            self.multisig_mut().get_wallet_data().data_dir
-        );
+        println!("blind_receive {}", self.data_dir());
         let bt_before = self.bak_ts();
         let res = self.blind_receive_res().unwrap();
         assert!(self.bak_ts() > bt_before);
@@ -457,10 +403,7 @@ pub(super) trait MultisigOps {
         size: Option<u32>,
         fee_rate: u64,
     ) -> InitOperationResult {
-        println!(
-            "create_utxos init {}",
-            self.multisig_mut().get_wallet_data().data_dir
-        );
+        println!("create_utxos init {}", self.data_dir());
         let bt_before = self.bak_ts();
         let res = self
             .create_utxos_init_res(up_to, num, size, fee_rate)
@@ -511,10 +454,7 @@ pub(super) trait MultisigOps {
     }
 
     fn inflate_init(&mut self, asset_id: &str, inflation_amounts: &[u64]) -> InitOperationResult {
-        println!(
-            "inflate init {}",
-            self.multisig_mut().get_wallet_data().data_dir
-        );
+        println!("inflate init {}", self.data_dir());
         let bt_before = self.bak_ts();
         let res = self.inflate_init_res(asset_id, inflation_amounts).unwrap();
         assert_eq!(self.bak_ts(), bt_before);
@@ -539,10 +479,7 @@ pub(super) trait MultisigOps {
     }
 
     fn burn_init(&mut self, asset_id: &str, amount: u64) -> InitOperationResult {
-        println!(
-            "burn init {}",
-            self.multisig_mut().get_wallet_data().data_dir
-        );
+        println!("burn init {}", self.data_dir());
         let bt_before = self.bak_ts();
         let res = self.burn_init_res(asset_id, amount).unwrap();
         assert_eq!(self.bak_ts(), bt_before);
@@ -558,10 +495,7 @@ pub(super) trait MultisigOps {
     }
 
     fn issue_asset_cfa(&mut self, amounts: Option<&[u64]>, file_path: Option<String>) -> AssetCFA {
-        println!(
-            "issue CFA asset {}",
-            self.multisig_mut().get_wallet_data().data_dir
-        );
+        println!("issue CFA asset {}", self.data_dir());
         let bt_before = self.bak_ts();
         let res = self.issue_asset_cfa_res(amounts, file_path).unwrap();
         assert!(self.bak_ts() > bt_before);
@@ -593,10 +527,7 @@ pub(super) trait MultisigOps {
         inflation_amounts: Option<&[u64]>,
         reject_list_url: Option<String>,
     ) -> AssetIFA {
-        println!(
-            "issue IFA asset {}",
-            self.multisig_mut().get_wallet_data().data_dir
-        );
+        println!("issue IFA asset {}", self.data_dir());
         let bt_before = self.bak_ts();
         let res = self
             .issue_asset_ifa_res(amounts, inflation_amounts, reject_list_url)
@@ -629,10 +560,7 @@ pub(super) trait MultisigOps {
     }
 
     fn issue_asset_nia(&mut self, amounts: Option<&[u64]>) -> AssetNIA {
-        println!(
-            "issue NIA asset {}",
-            self.multisig_mut().get_wallet_data().data_dir
-        );
+        println!("issue NIA asset {}", self.data_dir());
         let bt_before = self.bak_ts();
         let res = self.issue_asset_nia_res(amounts).unwrap();
         assert!(self.bak_ts() > bt_before);
@@ -659,10 +587,7 @@ pub(super) trait MultisigOps {
         media_file_path: Option<&str>,
         attachments_file_paths: Vec<&str>,
     ) -> AssetUDA {
-        println!(
-            "issue UDA asset {}",
-            self.multisig_mut().get_wallet_data().data_dir
-        );
+        println!("issue UDA asset {}", self.data_dir());
         let bt_before = self.bak_ts();
         let res = self
             .issue_asset_uda_res(details, media_file_path, attachments_file_paths)
@@ -694,16 +619,8 @@ pub(super) trait MultisigOps {
         )
     }
 
-    fn list_unspents(&mut self, settled_only: bool) -> Vec<Unspent> {
-        let online = self.online();
-        test_list_unspents(self.multisig_mut(), Some(online), settled_only)
-    }
-
     fn nack(&mut self, op_idx: i32) -> OperationInfo {
-        println!(
-            "nack {op_idx} {}",
-            self.multisig_mut().get_wallet_data().data_dir
-        );
+        println!("nack {op_idx} {}", self.data_dir());
         self.respond_to_operation(op_idx, RespondToOperation::Nack)
     }
 
@@ -726,10 +643,7 @@ pub(super) trait MultisigOps {
     }
 
     fn send_btc_init(&mut self, address: &str, amount: u64) -> InitOperationResult {
-        println!(
-            "send_btc init {}",
-            self.multisig_mut().get_wallet_data().data_dir
-        );
+        println!("send_btc init {}", self.data_dir());
         let bt_before = self.bak_ts();
         let res = self.send_btc_init_res(address, amount).unwrap();
         assert_eq!(self.bak_ts(), bt_before);
@@ -750,10 +664,7 @@ pub(super) trait MultisigOps {
     }
 
     fn send_init(&mut self, recipient_map: HashMap<String, Vec<Recipient>>) -> InitOperationResult {
-        println!(
-            "send init {}",
-            self.multisig_mut().get_wallet_data().data_dir
-        );
+        println!("send init {}", self.data_dir());
         let bt_before = self.bak_ts();
         let res = self.send_init_res(recipient_map).unwrap();
         assert_eq!(self.bak_ts(), bt_before);
@@ -772,12 +683,12 @@ pub(super) trait MultisigOps {
             .send_init(online, recipient_map, false, FEE_RATE, 1, None)
     }
 
-    fn sync(&mut self) -> OperationInfo {
-        self.sync_opt().unwrap()
+    fn sync_with_hub(&mut self) -> OperationInfo {
+        self.sync_with_hub_opt().unwrap()
     }
 
-    fn sync_opt(&mut self) -> Option<OperationInfo> {
-        println!("sync {}", self.multisig_mut().get_wallet_data().data_dir);
+    fn sync_with_hub_opt(&mut self) -> Option<OperationInfo> {
+        println!("sync {}", self.data_dir());
         let online = self.online();
         self.multisig_mut().sync_with_hub(online).unwrap()
     }
@@ -797,7 +708,7 @@ pub(super) trait MultisigOps {
         assert!(last_hub_operation > last_processed);
         for i in (last_processed + 1)..=last_hub_operation {
             println!("syncing operation {i}");
-            let op_info = self.sync();
+            let op_info = self.sync_with_hub();
             assert_eq!(op_info.operation_idx, i);
         }
         let final_processed = self
@@ -809,10 +720,7 @@ pub(super) trait MultisigOps {
     }
 
     fn witness_receive(&mut self) -> ReceiveData {
-        println!(
-            "witness_receive {}",
-            self.multisig_mut().get_wallet_data().data_dir
-        );
+        println!("witness_receive {}", self.data_dir());
         let bt_before = self.bak_ts();
         let res = self.witness_receive_res().unwrap();
         assert!(self.bak_ts() > bt_before);
@@ -934,8 +842,8 @@ pub(super) fn issue_asset(
 
     check_issuance(initiator, others, asset.asset_id(), schema);
 
-    let mut all_wallets: Vec<&mut MultisigWallet> = vec![initiator.multisig_mut()];
-    all_wallets.extend(others.iter_mut().map(|w| w.multisig_mut()));
+    let mut all_wallets: Vec<&MultisigParty> = vec![&*initiator];
+    all_wallets.extend(others.iter().map(|w| &**w));
     check_asset_metadata(
         &all_wallets,
         asset.asset_id(),
@@ -985,18 +893,18 @@ pub(super) fn check_asset_balance(
         if balance != expected {
             panic!(
                 "wallet {} balance {balance:?} is not the expected {expected:?}",
-                wallet.get_data_dir()
+                wallet.data_dir()
             )
         }
     }
 }
 
-fn check_bak_ts_opt(wallet: &mut MultisigParty, before: Option<Option<DbBackupInfo>>, same: bool) {
-    if let Some(Some(before)) = before {
+fn check_bak_ts_opt(wallet: &mut MultisigParty, before: Option<DbBackupInfo>, same: bool) {
+    if let Some(before) = before {
         if before.last_operation_timestamp == "0" {
             eprintln!(
                 "wallet {} has last operation timestamp 0",
-                wallet.get_data_dir()
+                wallet.data_dir()
             );
         }
         if same {
@@ -1007,8 +915,8 @@ fn check_bak_ts_opt(wallet: &mut MultisigParty, before: Option<Option<DbBackupIn
     }
 }
 
-fn check_asset_metadata(
-    wallets: &[&mut MultisigWallet],
+fn check_asset_metadata<P: OfflineSigParty<W = MultisigWallet>>(
+    wallets: &[&P],
     asset_id: &str,
     name: &str,
     precision: u8,
@@ -1017,13 +925,13 @@ fn check_asset_metadata(
     schema: AssetSchema,
 ) {
     let mut content_1: Vec<u8> = vec![];
-    let mut media_1: Option<database::entities::media::Model> = None;
+    let mut media_1: Option<DbMedia> = None;
     let mut digests_1: Vec<String> = vec![];
     let mut token_1: Option<TokenLight> = None;
-    let mut token_db_1: Option<database::entities::token::Model> = None;
+    let mut token_db_1: Option<DbToken> = None;
 
     for wallet in wallets {
-        let meta = wallet.get_asset_metadata(asset_id.to_string()).unwrap();
+        let meta = wallet.get_asset_metadata(asset_id);
         assert_eq!(meta.asset_schema, schema);
         assert_eq!(meta.initial_supply, supply);
         assert_eq!(meta.known_circulating_supply, supply);
@@ -1047,17 +955,15 @@ fn check_asset_metadata(
 
         match schema {
             AssetSchema::Cfa => {
-                let txn = wallet.database().begin_transaction().unwrap();
-                let asset_db = txn.get_asset(asset_id.to_string()).unwrap().unwrap();
+                let asset_db = wallet.db_asset(asset_id);
                 assert!(asset_db.media_idx.is_some());
-                let media = txn.get_media(asset_db.media_idx.unwrap()).unwrap().unwrap();
-                txn.commit().unwrap();
+                let media = wallet.db_media(asset_db.media_idx.unwrap());
                 if let Some(ref media_1) = media_1 {
                     assert_eq!(media_1.digest, media.digest);
                 } else {
                     media_1 = Some(media.clone());
                 }
-                let media_file = wallet.media_dir().join(&media.digest);
+                let media_file = wallet.wlt().media_dir().join(&media.digest);
                 assert!(media_file.exists());
                 let content = std::fs::read(&media_file).unwrap();
                 if !content_1.is_empty() {
@@ -1077,30 +983,25 @@ fn check_asset_metadata(
                 assert!(!meta_token.attachments.is_empty());
                 assert_eq!(meta_token.reserves, None);
 
-                let assets_uda = wallet
-                    .list_assets(vec![AssetSchema::Uda])
-                    .unwrap()
-                    .uda
-                    .unwrap();
+                let assets_uda = wallet.list_assets(&[AssetSchema::Uda]).uda.unwrap();
                 let asset_uda = assets_uda.iter().find(|a| a.asset_id == asset_id).unwrap();
                 let token = asset_uda.token.clone().unwrap();
                 assert_eq!(token.index, UDA_FIXED_INDEX);
-                let txn = wallet.database().begin_transaction().unwrap();
-                let asset_db = txn.get_asset(asset_id.to_string()).unwrap().unwrap();
-                let tokens = txn.iter_tokens().unwrap();
+                let asset_db = wallet.db_asset(asset_id);
+                let tokens = wallet.db_tokens();
                 let token_db = tokens.iter().find(|t| t.asset_idx == asset_db.idx).unwrap();
                 if let Some(ref token_db_1) = token_db_1 {
                     assert_eq!(token_db, token_db_1);
                 } else {
                     token_db_1 = Some(token_db.clone());
                 }
-                let token_medias = txn.iter_token_medias().unwrap();
-                let token_media_entries: Vec<_> = token_medias
+                let token_media_entries: Vec<_> = wallet
+                    .db_token_medias()
                     .into_iter()
                     .filter(|tm| tm.token_idx == token_db.idx)
                     .collect();
                 assert_eq!(token_media_entries.len(), 3);
-                let medias = txn.iter_media().unwrap();
+                let medias = wallet.db_medias();
                 let mut digests: Vec<String> = token_media_entries
                     .iter()
                     .map(|tm| {
@@ -1118,7 +1019,6 @@ fn check_asset_metadata(
                 } else {
                     digests_1 = digests;
                 }
-                txn.commit().unwrap();
                 let attachments = &token.attachments;
                 assert_eq!(attachments.len(), 2);
                 if let Some(ref token_1) = token_1 {
@@ -1138,8 +1038,8 @@ fn check_asset_metadata(
     }
 }
 
-pub(super) fn check_btc_balance(
-    wallets: &mut [&mut MultisigWallet],
+pub(super) fn check_btc_balance<P: OfflineSigParty<W = MultisigWallet>>(
+    wallets: &mut [&mut P],
     expected_vanilla: (u64, u64, u64),
     expected_colored: (u64, u64, u64),
 ) {
@@ -1156,25 +1056,21 @@ pub(super) fn check_btc_balance(
         },
     };
     for wallet in wallets.iter_mut() {
-        let balance = wallet.get_btc_balance(None, true).unwrap();
+        let balance = wallet.get_btc_balance();
         if balance != expected {
             panic!(
                 "wallet {} BTC balance {balance:?} is not the expected {expected:?}",
-                wallet.get_wallet_data().data_dir
+                wallet.data_dir()
             )
         }
     }
 }
 
 pub(super) fn check_change_consistency(wlt_a: &mut MultisigParty, wlt_b: &mut MultisigParty) {
-    let txn = wlt_a.multisig.database().begin_transaction().unwrap();
-    let wlt_a_txos = txn.iter_txos().unwrap();
-    let wlt_a_colorings = txn.iter_colorings().unwrap();
-    txn.commit().unwrap();
-    let txn = wlt_b.multisig.database().begin_transaction().unwrap();
-    let wlt_b_txos = txn.iter_txos().unwrap();
-    let wlt_b_colorings = txn.iter_colorings().unwrap();
-    txn.commit().unwrap();
+    let wlt_a_txos = wlt_a.db_txos();
+    let wlt_a_colorings = wlt_a.db_colorings();
+    let wlt_b_txos = wlt_b.db_txos();
+    let wlt_b_colorings = wlt_b.db_colorings();
     let resolve_change_outpoints = |txos: &[DbTxo], colorings: &[DbColoring]| -> Vec<String> {
         colorings
             .iter()
@@ -1253,7 +1149,7 @@ fn check_issuance(
         .unwrap();
     for wallet in others {
         let bt_before = wallet.bak_ts();
-        let op_info = wallet.sync();
+        let op_info = wallet.sync_with_hub();
         assert!(wallet.bak_ts() > bt_before);
         assert_eq!(
             op_info.operation_idx,
@@ -1274,28 +1170,28 @@ fn check_issuance(
     }
 }
 
-pub(super) fn check_last_transaction(
-    wallets: &mut [&mut MultisigWallet],
+pub(super) fn check_last_transaction<P: OfflineSigParty<W = MultisigWallet>>(
+    wallets: &mut [&mut P],
     psbt: &str,
     last_tx_type: &TransactionType,
 ) {
     let txid = Psbt::from_str(psbt).unwrap().get_txid().to_string();
     for wallet in wallets {
-        let transactions = test_list_transactions(*wallet, None);
+        let transactions = wallet.list_transactions();
         let transaction = transactions.first().unwrap();
         assert_eq!(transaction.txid, txid);
         assert_eq!(
             transaction.transaction_type,
             *last_tx_type,
             "wallet {} last transaction type {:?} != expected {last_tx_type:?}",
-            wallet.get_wallet_data().data_dir,
+            wallet.data_dir(),
             transaction.transaction_type
         );
     }
 }
 
 pub(super) fn check_transfer_status(
-    parties: &[&dyn SigParty],
+    parties: &[&impl SigParty],
     asset_ids: &[Option<&str>],
     batch_transfer_idx: Option<i32>,
     status: TransferStatus,
@@ -1315,15 +1211,15 @@ pub(super) fn check_transfer_status(
             eprintln!(
                 "checking xfer {} for asset {asset_id:?} for {}",
                 transfer.batch_transfer_idx,
-                party.get_data_dir()
+                party.data_dir()
             );
             assert_eq!(transfer.status, status);
         }
     }
 }
 
-pub(super) fn check_wallet_state(
-    wallet: &mut MultisigWallet,
+pub(super) fn check_wallet_state<P: OfflineSigParty<W = MultisigWallet>>(
+    wallet: &mut P,
     op_last_successful: &InitOperationResult,
     op_last: &InitOperationResult,
     btc_vanilla: (u64, u64, u64),
@@ -1332,10 +1228,10 @@ pub(super) fn check_wallet_state(
     asset_expectations: &HashMap<&str, (u64, u64, u64, usize, TransferStatus)>,
 ) {
     // check BTC balance
-    check_btc_balance(&mut [wallet], btc_vanilla, btc_colored);
+    check_btc_balance(&mut [&mut *wallet], btc_vanilla, btc_colored);
     // get all assets
     let mut all_assets: Vec<String> = vec![];
-    let assets = wallet.list_assets(vec![]).unwrap();
+    let assets = wallet.list_assets(&[]);
     #[rustfmt::skip]
     all_assets.extend(assets.cfa.unwrap_or_default().into_iter().map(|a| a.asset_id));
     #[rustfmt::skip]
@@ -1345,8 +1241,9 @@ pub(super) fn check_wallet_state(
     #[rustfmt::skip]
     all_assets.extend(assets.ifa.unwrap_or_default().into_iter().map(|a| a.asset_id));
     // check asset state
-    let data_dir = wallet.get_wallet_data().data_dir;
+    let data_dir = wallet.data_dir();
     for (asset_id, (settled, future, spendable, transfer_count, status)) in asset_expectations {
+        let asset_id = *asset_id;
         assert!(
             all_assets.contains(&asset_id.to_string()),
             "asset {asset_id} not found in wallet {data_dir}"
@@ -1357,13 +1254,13 @@ pub(super) fn check_wallet_state(
             future: *future,
             spendable: *spendable,
         };
-        let balance = wallet.get_asset_balance(asset_id.to_string()).unwrap();
+        let balance = wallet.get_asset_balance(asset_id);
         assert_eq!(
             balance, expected,
             "wallet {data_dir} asset {asset_id} balance {balance:?} != expected {expected:?}",
         );
         // asset transfer number and last transfer status
-        let transfers = test_list_transfers(wallet, Some(asset_id));
+        let transfers = wallet.list_transfers(Some(asset_id));
         assert_eq!(
             transfers.len(),
             *transfer_count,
@@ -1378,9 +1275,12 @@ pub(super) fn check_wallet_state(
         );
     }
     // check last TX ID and type
-    check_last_transaction(&mut [wallet], &op_last_successful.psbt, last_tx_type);
+    check_last_transaction(&mut [&mut *wallet], &op_last_successful.psbt, last_tx_type);
     // check last processed op ID
-    let last_processed_op = wallet.get_local_last_processed_operation_idx().unwrap();
+    let last_processed_op = wallet
+        .wlt_mut()
+        .get_local_last_processed_operation_idx()
+        .unwrap();
     assert_eq!(
         last_processed_op, op_last.operation_idx,
         "wallet {data_dir} op idx {last_processed_op} != expected {}",
@@ -1399,7 +1299,7 @@ pub(super) fn check_wallets_up_to_date(wallets: &mut [&mut MultisigParty]) {
 // ----------------------------------------
 
 pub(super) fn backup(multisig: &MultisigParty, label: &str) -> String {
-    println!("backup wallet {}", multisig.get_data_dir());
+    println!("backup wallet {}", multisig.data_dir());
     let bak_fpath = get_test_data_dir_path().join(format!("{label}_backup.rgb-lib_backup"));
     let backup_file = bak_fpath.to_str().unwrap();
     let _ = std::fs::remove_file(backup_file);
@@ -1749,8 +1649,8 @@ pub(super) fn operation_complete<H>(
     if approve {
         // nack with nacker cosigners
         for nacker in nackers.iter_mut() {
-            let bt_before = nacker.bak_info_opt();
-            let mut op_info = nacker.sync();
+            let bt_before = nacker.db_backup_info_opt();
+            let mut op_info = nacker.sync_with_hub();
             check_bak_ts_opt(nacker, bt_before, false);
             op_info.operation.sanitize();
             let status = MultisigVotingStatus {
@@ -1760,7 +1660,7 @@ pub(super) fn operation_complete<H>(
                 my_response: None,
             };
             assert_eq!(op_info.operation, get_op_review(&status));
-            let bt_before = nacker.bak_info_opt();
+            let bt_before = nacker.db_backup_info_opt();
             let mut response = nacker.nack(op_info.operation_idx);
             check_bak_ts_opt(nacker, bt_before, false);
             nacked_by.insert(nacker.xpub.to_string());
@@ -1775,8 +1675,8 @@ pub(super) fn operation_complete<H>(
         }
         // ack with acker cosigners
         for (i, acker) in ackers.iter_mut().enumerate() {
-            let bt_before = acker.bak_info_opt();
-            let mut op_info = acker.sync();
+            let bt_before = acker.db_backup_info_opt();
+            let mut op_info = acker.sync_with_hub();
             check_bak_ts_opt(acker, bt_before, false);
             op_info.operation.sanitize();
             let status = MultisigVotingStatus {
@@ -1786,7 +1686,7 @@ pub(super) fn operation_complete<H>(
                 my_response: None,
             };
             assert_eq!(op_info.operation, get_op_review(&status));
-            let bt_before = acker.bak_info_opt();
+            let bt_before = acker.db_backup_info_opt();
             let mut response = acker.sign_and_ack(&op_psbt.to_string(), op_info.operation_idx);
             check_bak_ts_opt(acker, bt_before, false);
             acked_by.insert(acker.xpub.to_string());
@@ -1806,8 +1706,8 @@ pub(super) fn operation_complete<H>(
     } else {
         // ack with acker cosigners
         for acker in ackers.iter_mut() {
-            let bt_before = acker.bak_info_opt();
-            let mut op_info = acker.sync();
+            let bt_before = acker.db_backup_info_opt();
+            let mut op_info = acker.sync_with_hub();
             check_bak_ts_opt(acker, bt_before, false);
             let status = MultisigVotingStatus {
                 acked_by: acked_by.clone(),
@@ -1817,7 +1717,7 @@ pub(super) fn operation_complete<H>(
             };
             op_info.operation.sanitize();
             assert_eq!(op_info.operation, get_op_review(&status));
-            let bt_before = acker.bak_info_opt();
+            let bt_before = acker.db_backup_info_opt();
             let mut response = acker.sign_and_ack(&op_psbt.to_string(), op_info.operation_idx);
             check_bak_ts_opt(acker, bt_before, false);
             acked_by.insert(acker.xpub.to_string());
@@ -1832,8 +1732,8 @@ pub(super) fn operation_complete<H>(
         }
         // nack with nacker cosigners
         for (i, nacker) in nackers.iter_mut().enumerate() {
-            let bt_before = nacker.bak_info_opt();
-            let mut op_info = nacker.sync();
+            let bt_before = nacker.db_backup_info_opt();
+            let mut op_info = nacker.sync_with_hub();
             check_bak_ts_opt(nacker, bt_before, false);
             op_info.operation.sanitize();
             let status = MultisigVotingStatus {
@@ -1843,7 +1743,7 @@ pub(super) fn operation_complete<H>(
                 my_response: None,
             };
             assert_eq!(op_info.operation, get_op_review(&status));
-            let bt_before = nacker.bak_info_opt();
+            let bt_before = nacker.db_backup_info_opt();
             let mut response = nacker.nack(op_info.operation_idx);
             check_bak_ts_opt(nacker, bt_before, false);
             nacked_by.insert(nacker.xpub.to_string());
@@ -1871,8 +1771,8 @@ pub(super) fn operation_complete<H>(
         my_response: Some(true),
     };
     for (i, acker) in ackers.iter_mut().enumerate() {
-        let bt_before = acker.bak_info_opt();
-        let op_info_opt = acker.sync_opt();
+        let bt_before = acker.db_backup_info_opt();
+        let op_info_opt = acker.sync_with_hub_opt();
         if approve && i == last_acker {
             assert!(op_info_opt.is_none());
             check_bak_ts_opt(acker, bt_before, true);
@@ -1891,8 +1791,8 @@ pub(super) fn operation_complete<H>(
         my_response: Some(false),
     };
     for (i, nacker) in nackers.iter_mut().enumerate() {
-        let bt_before = nacker.bak_info_opt();
-        let op_info_opt = nacker.sync_opt();
+        let bt_before = nacker.db_backup_info_opt();
+        let op_info_opt = nacker.sync_with_hub_opt();
         if !approve && i == last_nacker {
             assert!(op_info_opt.is_none());
             check_bak_ts_opt(nacker, bt_before, true);
@@ -1911,8 +1811,8 @@ pub(super) fn operation_complete<H>(
         my_response: None,
     };
     for other in others.iter_mut() {
-        let bt_before = other.bak_info_opt();
-        let mut op_info = other.sync();
+        let bt_before = other.db_backup_info_opt();
+        let mut op_info = other.sync_with_hub();
         check_bak_ts_opt(other, bt_before, false);
         op_info.operation.sanitize();
         assert_eq!(op_info.operation, get_op_final(&status));
@@ -1929,10 +1829,10 @@ pub(super) fn settle_transfer(
 ) {
     if stage_1 {
         for wallet in &mut *receivers {
-            wallet.refresh(None); // always None as the recipient might not know the asset yet
+            wallet.wait_for_refresh(None); // always None as the recipient might not know the asset yet
         }
         for wallet in &mut *senders {
-            wallet.refresh(asset_id);
+            wallet.wait_for_refresh(asset_id);
         }
     }
     if let Some(psbt) = psbt {
@@ -1944,16 +1844,16 @@ pub(super) fn settle_transfer(
         mine(false);
     }
     for wallet in &mut *receivers {
-        wallet.refresh(asset_id);
+        wallet.wait_for_refresh(asset_id);
     }
     for wallet in &mut *senders {
-        wallet.refresh(asset_id);
+        wallet.wait_for_refresh(asset_id);
     }
 }
 
 pub(super) fn sync_wallets_full(wallets: &mut [&mut MultisigParty]) {
     for wallet in wallets {
-        eprintln!("syncing wallet {}", wallet.get_data_dir());
+        eprintln!("syncing wallet {}", wallet.data_dir());
         let online = wallet.online();
         let last_processed = wallet
             .multisig_mut()
@@ -1971,7 +1871,7 @@ pub(super) fn sync_wallets_full(wallets: &mut [&mut MultisigParty]) {
         );
         for i in (last_processed + 1)..=last_hub_operation {
             println!("syncing operation {i}");
-            let op_info = wallet.sync();
+            let op_info = wallet.sync_with_hub();
             assert_eq!(op_info.operation_idx, i);
         }
         let final_processed = wallet

@@ -12,11 +12,14 @@ fn fail() {
     };
 
     // wallets
-    let (mut wallet, _online) = get_funded_wallet!();
+    let mut party = get_funded_party!();
 
     // sync input params
     // - check online is correct
     let wrong_online = Online { id: 1 };
-    let result = test_sync_result(&mut wallet, wrong_online, sync_options);
+    let good_online = party.online;
+    party.online = wrong_online;
+    let result = party.sync_result(sync_options);
+    party.online = good_online;
     assert!(matches!(result, Err(Error::CannotChangeOnline)));
 }

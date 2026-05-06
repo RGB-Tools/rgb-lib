@@ -6,31 +6,19 @@ use super::*;
 fn success() {
     initialize();
 
-    let (mut wallet, online) = get_funded_noutxo_wallet!();
+    let mut party = get_funded_noutxo_party!();
 
     // prepare UTXOs
-    test_create_utxos(
-        &mut wallet,
-        online,
-        true,
-        Some(2),
-        Some(5000),
-        FEE_RATE,
-        None,
-    );
+    party.create_utxos(true, Some(2), Some(5000), FEE_RATE, None);
 
     let before_timestamp = now().unix_timestamp();
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
-    let asset = test_issue_asset_nia(&mut wallet, online, Some(&[AMOUNT, AMOUNT]));
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
+    let bak_info_before = party.db_backup_info();
+    let asset = party.issue_asset_nia(Some(&[AMOUNT, AMOUNT]));
+    let bak_info_after = party.db_backup_info();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
 
     // check the asset has been saved with the correct schema
-    let nia_asset_list = test_list_assets(&wallet, &[AssetSchema::Nia]).nia.unwrap();
+    let nia_asset_list = party.list_assets(&[AssetSchema::Nia]).nia.unwrap();
     assert!(
         nia_asset_list
             .into_iter()
@@ -38,11 +26,11 @@ fn success() {
     );
 
     // add a pending operation to an UTXO so spendable balance will be != settled / future
-    let _receive_data = test_blind_receive(&mut wallet);
-    show_unspent_colorings(&mut wallet, "after issuance");
+    let _receive_data = party.blind_receive();
+    party.show_unspent_colorings("after issuance");
 
     // checks
-    let balance = test_get_asset_balance(&wallet, &asset.asset_id);
+    let balance = party.get_asset_balance(&asset.asset_id);
     assert_eq!(asset.ticker, TICKER.to_string());
     assert_eq!(asset.name, NAME.to_string());
     assert_eq!(asset.details, None);
@@ -68,15 +56,16 @@ fn multi_success() {
     let amounts: Vec<u64> = vec![111, 222, 333, 444, 555];
     let sum: u64 = amounts.iter().sum();
 
-    let (mut wallet, online) = get_funded_wallet!();
+    let mut party = get_funded_party!();
 
-    let asset = test_issue_asset_nia(&mut wallet, online, Some(&amounts));
+    let asset = party.issue_asset_nia(Some(&amounts));
 
     // check balance is the sum of the amounts
     assert_eq!(asset.balance.settled, sum);
 
     // check each allocation ends up on a different UTXO
-    let unspents: Vec<Unspent> = test_list_unspents(&mut wallet, None, true)
+    let unspents: Vec<Unspent> = party
+        .list_unspents(true)
         .into_iter()
         .filter(|u| !u.rgb_allocations.is_empty())
         .collect();
@@ -108,24 +97,16 @@ fn no_issue_on_pending_send() {
 
     let amount: u64 = 66;
 
-    let (mut wallet, online) = get_funded_noutxo_wallet!();
-    let (mut rcv_wallet, rcv_online) = get_empty_wallet!();
+    let mut party = get_funded_noutxo_party!();
+    let mut rcv_party = get_empty_party!();
 
     // prepare UTXO
-    test_create_utxos(
-        &mut wallet,
-        online,
-        true,
-        Some(1),
-        Some(5000),
-        FEE_RATE,
-        None,
-    );
+    party.create_utxos(true, Some(1), Some(5000), FEE_RATE, None);
 
     // issue 1st asset
-    let asset_1 = test_issue_asset_nia(&mut wallet, online, None);
+    let asset_1 = party.issue_asset_nia(None);
     // get 1st issuance UTXO
-    let unspents = test_list_unspents(&mut wallet, None, false);
+    let unspents = party.list_unspents(false);
     let unspent_1 = unspents
         .iter()
         .find(|u| {
@@ -135,7 +116,7 @@ fn no_issue_on_pending_send() {
         })
         .unwrap();
     // send 1st asset
-    let receive_data = test_witness_receive(&mut rcv_wallet);
+    let receive_data = rcv_party.witness_receive();
     let recipient_map = HashMap::from([(
         asset_1.asset_id.clone(),
         vec![Recipient {
@@ -148,19 +129,19 @@ fn no_issue_on_pending_send() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&mut wallet, online, &recipient_map);
+    let txid = party.send_retry(&recipient_map);
     assert!(!txid.is_empty());
 
     // issuing a 2nd asset fails due to missing free allocation slot
-    let result = test_issue_asset_nia_result(&mut wallet, online, Some(&[AMOUNT * 2]));
+    let result = party.issue_asset_nia_result(Some(&[AMOUNT * 2]));
     assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 
     // create 1 more UTXO issue 2nd asset
-    test_create_utxos(&mut wallet, online, false, Some(1), None, FEE_RATE, None);
-    let asset_2 = test_issue_asset_nia(&mut wallet, online, Some(&[AMOUNT * 2]));
-    show_unspent_colorings(&mut wallet, "after 2nd issuance");
+    party.create_utxos(false, Some(1), None, FEE_RATE, None);
+    let asset_2 = party.issue_asset_nia(Some(&[AMOUNT * 2]));
+    party.show_unspent_colorings("after 2nd issuance");
     // get 2nd issuance UTXO
-    let unspents = test_list_unspents(&mut wallet, None, false);
+    let unspents = party.list_unspents(false);
     let unspent_2 = unspents
         .iter()
         .find(|u| {
@@ -173,14 +154,14 @@ fn no_issue_on_pending_send() {
     assert_ne!(unspent_1.utxo.outpoint, unspent_2.utxo.outpoint);
 
     // progress transfer to WaitingConfirmations
-    wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
-    wait_for_refresh(&mut wallet, online, Some(&asset_1.asset_id), None);
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(Some(&asset_1.asset_id));
 
     // issue 3rd asset
-    let asset_3 = test_issue_asset_nia(&mut wallet, online, Some(&[AMOUNT * 3]));
-    show_unspent_colorings(&mut wallet, "after 3rd issuance");
+    let asset_3 = party.issue_asset_nia(Some(&[AMOUNT * 3]));
+    party.show_unspent_colorings("after 3rd issuance");
     // get 3rd issuance UTXO
-    let unspents = test_list_unspents(&mut wallet, None, false);
+    let unspents = party.list_unspents(false);
     let unspent_3 = unspents
         .iter()
         .find(|u| {
@@ -200,29 +181,37 @@ fn fail() {
     initialize();
 
     // wallet
-    let (mut wallet, online) = get_funded_wallet!();
+    let mut party = get_funded_party!();
 
     // supply overflow
-    let result = test_issue_asset_nia_result(&mut wallet, online, Some(&[u64::MAX, u64::MAX]));
+    let result = party.issue_asset_nia_result(Some(&[u64::MAX, u64::MAX]));
     assert!(matches!(result, Err(Error::TooHighIssuanceAmounts)));
 
     // invalid ticker: empty
-    let result = wallet.issue_asset_nia(s!(""), NAME.to_string(), PRECISION, vec![AMOUNT]);
+    let result = party
+        .wallet
+        .issue_asset_nia(s!(""), NAME.to_string(), PRECISION, vec![AMOUNT]);
     assert!(matches!(result, Err(Error::InvalidTicker { details: m }) if m == EMPTY_MSG));
 
     // invalid ticker: too long
-    let result = wallet.issue_asset_nia(s!("ABCDEFGHI"), NAME.to_string(), PRECISION, vec![AMOUNT]);
+    let result =
+        party
+            .wallet
+            .issue_asset_nia(s!("ABCDEFGHI"), NAME.to_string(), PRECISION, vec![AMOUNT]);
     assert!(matches!(result, Err(Error::InvalidTicker { details: m }) if m == IDENT_TOO_LONG_MSG));
 
     // invalid ticker: lowercase
-    let result = wallet.issue_asset_nia(s!("TiCkEr"), NAME.to_string(), PRECISION, vec![AMOUNT]);
+    let result =
+        party
+            .wallet
+            .issue_asset_nia(s!("TiCkEr"), NAME.to_string(), PRECISION, vec![AMOUNT]);
     assert!(
         matches!(result, Err(Error::InvalidTicker { details: m }) if m == "ticker needs to be all uppercase")
     );
 
     // invalid ticker: with space
     let invalid_ticker = "TICKER WITH SPACE";
-    let result = wallet.issue_asset_nia(
+    let result = party.wallet.issue_asset_nia(
         invalid_ticker.to_string(),
         NAME.to_string(),
         PRECISION,
@@ -235,7 +224,7 @@ fn fail() {
 
     // invalid ticker: unicode characters
     let invalid_ticker = "TICKERWITH℧NICODE";
-    let result = wallet.issue_asset_nia(
+    let result = party.wallet.issue_asset_nia(
         invalid_ticker.to_string(),
         NAME.to_string(),
         PRECISION,
@@ -248,7 +237,7 @@ fn fail() {
 
     // invalid ticker: starting with a number
     let invalid_ticker = "1TICKER";
-    let result = wallet.issue_asset_nia(
+    let result = party.wallet.issue_asset_nia(
         invalid_ticker.to_string(),
         NAME.to_string(),
         PRECISION,
@@ -260,11 +249,13 @@ fn fail() {
     );
 
     // invalid name: empty
-    let result = wallet.issue_asset_nia(TICKER.to_string(), s!(""), PRECISION, vec![AMOUNT]);
+    let result = party
+        .wallet
+        .issue_asset_nia(TICKER.to_string(), s!(""), PRECISION, vec![AMOUNT]);
     assert!(matches!(result, Err(Error::InvalidName { details: m }) if m == EMPTY_MSG));
 
     // invalid name: too long
-    let result = wallet.issue_asset_nia(
+    let result = party.wallet.issue_asset_nia(
         TICKER.to_string(),
         ("a").repeat(257),
         PRECISION,
@@ -274,7 +265,7 @@ fn fail() {
 
     // invalid name: unicode characters
     let invalid_name = "name with ℧nicode characters";
-    let result = wallet.issue_asset_nia(
+    let result = party.wallet.issue_asset_nia(
         TICKER.to_string(),
         invalid_name.to_string(),
         PRECISION,
@@ -286,31 +277,34 @@ fn fail() {
     );
 
     // invalid precision
-    let result = wallet.issue_asset_nia(TICKER.to_string(), NAME.to_string(), 19, vec![AMOUNT]);
+    let result =
+        party
+            .wallet
+            .issue_asset_nia(TICKER.to_string(), NAME.to_string(), 19, vec![AMOUNT]);
     assert!(matches!(
         result,
         Err(Error::InvalidPrecision { details: m }) if m == "precision is too high"
     ));
 
     // invalid amount list (no amounts)
-    let result = test_issue_asset_nia_result(&mut wallet, online, Some(&[]));
+    let result = party.issue_asset_nia_result(Some(&[]));
     assert!(matches!(result, Err(Error::NoIssuanceAmounts)));
 
     // invalid amount list (1+ amounts == 0)
-    let result = test_issue_asset_nia_result(&mut wallet, online, Some(&[1, 0, 2]));
+    let result = party.issue_asset_nia_result(Some(&[1, 0, 2]));
     assert!(matches!(result, Err(Error::InvalidAmountZero)));
 
     // new wallet
-    let (mut wallet, online) = get_empty_wallet!();
+    let mut empty_party = get_empty_party!();
 
     // insufficient funds
-    let result = test_issue_asset_nia_result(&mut wallet, online, None);
+    let result = empty_party.issue_asset_nia_result(None);
     assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 
-    fund_wallet(test_get_address(&mut wallet));
+    fund_wallet(empty_party.get_address());
     mine(false);
 
     // insufficient allocations
-    let result = test_issue_asset_nia_result(&mut wallet, online, None);
+    let result = empty_party.issue_asset_nia_result(None);
     assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 }

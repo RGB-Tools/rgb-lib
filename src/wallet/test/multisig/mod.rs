@@ -222,11 +222,7 @@ fn success() {
         true,
     );
     check_last_transaction(
-        &mut [
-            wlt_1.multisig_mut(),
-            wlt_2.multisig_mut(),
-            wlt_3.multisig_mut(),
-        ],
+        &mut [&mut wlt_1, &mut wlt_2, &mut wlt_3],
         &op_init.psbt,
         &TransactionType::CreateUtxos,
     );
@@ -276,13 +272,12 @@ fn success() {
         unreachable!()
     };
 
-    let (mut singlesig_wlt, singlesig_wlt_online) = get_funded_wallet!();
-    let mut singlesig_wlt = party!(&mut singlesig_wlt, singlesig_wlt_online);
+    let mut singlesig_wlt = get_funded_party!();
 
     println!("\n=== send UDA (wlt_1 → singlesig) ===");
     sync_wallets_full(&mut [&mut wlt_4]);
     check_wallets_up_to_date(&mut [&mut wlt_1, &mut wlt_2, &mut wlt_3, &mut wlt_4]);
-    let rcv_data = test_blind_receive(singlesig_wlt.wallet);
+    let rcv_data = singlesig_wlt.blind_receive();
     let recipient_map = HashMap::from([(
         uda_asset.asset_id.clone(),
         vec![Recipient {
@@ -312,12 +307,13 @@ fn success() {
         true,
     );
     check_transfer_status(
-        &[
-            &wlt_1 as &dyn SigParty,
-            &wlt_2 as &dyn SigParty,
-            &wlt_3 as &dyn SigParty,
-            &singlesig_wlt as &dyn SigParty,
-        ],
+        &[&wlt_1, &wlt_2, &wlt_3],
+        &[Some(&uda_asset.asset_id)],
+        None,
+        TransferStatus::Settled,
+    );
+    check_transfer_status(
+        &[&singlesig_wlt],
         &[Some(&uda_asset.asset_id)],
         None,
         TransferStatus::Settled,
@@ -342,7 +338,7 @@ fn success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(singlesig_wlt.wallet, singlesig_wlt.online, &recipient_map);
+    let txid = singlesig_wlt.send_retry(&recipient_map);
     settle_transfer(
         &mut [&mut singlesig_wlt],
         &mut [&mut wlt_1, &mut wlt_2, &mut wlt_3],
@@ -352,12 +348,13 @@ fn success() {
         true,
     );
     check_transfer_status(
-        &[
-            &wlt_1 as &dyn SigParty,
-            &wlt_2 as &dyn SigParty,
-            &wlt_3 as &dyn SigParty,
-            &singlesig_wlt as &dyn SigParty,
-        ],
+        &[&wlt_1, &wlt_2, &wlt_3],
+        &[Some(&uda_asset.asset_id)],
+        None,
+        TransferStatus::Settled,
+    );
+    check_transfer_status(
+        &[&singlesig_wlt],
         &[Some(&uda_asset.asset_id)],
         None,
         TransferStatus::Settled,
@@ -366,9 +363,9 @@ fn success() {
     check_asset_balance(&[&singlesig_wlt], &uda_asset.asset_id, (0, 0, 0));
 
     println!("\n=== send RGB discarded (wlt_1 → singlesig) ===");
-    let rcv_data_1 = test_witness_receive(singlesig_wlt.wallet);
-    let rcv_data_2 = test_blind_receive(singlesig_wlt.wallet);
-    let rcv_data_3 = test_blind_receive(singlesig_wlt.wallet);
+    let rcv_data_1 = singlesig_wlt.witness_receive();
+    let rcv_data_2 = singlesig_wlt.blind_receive();
+    let rcv_data_3 = singlesig_wlt.blind_receive();
     let cfa_amount_witness = AMOUNT_SMALL;
     let cfa_amount_blind = 20;
     let recipient_map = HashMap::from([
@@ -412,7 +409,7 @@ fn success() {
     );
 
     println!("\n=== blind receive new asset (singlesig → wlt_1) ===");
-    let nia_asset_2 = test_issue_asset_nia(singlesig_wlt.wallet, singlesig_wlt.online, None);
+    let nia_asset_2 = singlesig_wlt.issue_asset_nia(None);
     let receive_data = wlt_1.blind_receive();
     sync_wallets_full(&mut [&mut wlt_2, &mut wlt_3]);
     let recipient_map = HashMap::from([(
@@ -424,7 +421,7 @@ fn success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(singlesig_wlt.wallet, singlesig_wlt.online, &recipient_map);
+    let txid = singlesig_wlt.send_retry(&recipient_map);
     settle_transfer(
         &mut [&mut singlesig_wlt],
         &mut [&mut wlt_1, &mut wlt_2, &mut wlt_3],
@@ -434,12 +431,13 @@ fn success() {
         true,
     );
     check_transfer_status(
-        &[
-            &wlt_1 as &dyn SigParty,
-            &wlt_2 as &dyn SigParty,
-            &wlt_3 as &dyn SigParty,
-            &singlesig_wlt as &dyn SigParty,
-        ],
+        &[&wlt_1, &wlt_2, &wlt_3],
+        &[Some(&uda_asset.asset_id)],
+        None,
+        TransferStatus::Settled,
+    );
+    check_transfer_status(
+        &[&singlesig_wlt],
         &[Some(&uda_asset.asset_id)],
         None,
         TransferStatus::Settled,
@@ -457,10 +455,10 @@ fn success() {
     );
 
     println!("\n=== send RGB (wlt_1 → singlesig) ===");
-    let rcv_data_1 = test_witness_receive(singlesig_wlt.wallet);
-    let rcv_data_2 = test_blind_receive(singlesig_wlt.wallet);
-    let rcv_data_3 = test_blind_receive(singlesig_wlt.wallet);
-    let rcv_data_4 = test_blind_receive(singlesig_wlt.wallet);
+    let rcv_data_1 = singlesig_wlt.witness_receive();
+    let rcv_data_2 = singlesig_wlt.blind_receive();
+    let rcv_data_3 = singlesig_wlt.blind_receive();
+    let rcv_data_4 = singlesig_wlt.blind_receive();
     let cfa_amount_witness = AMOUNT_SMALL;
     let cfa_amount_blind = 20;
     let nia_2_amount = 30;
@@ -531,12 +529,17 @@ fn success() {
         true,
     );
     check_transfer_status(
+        &[&wlt_1, &wlt_2, &wlt_3],
         &[
-            &wlt_1 as &dyn SigParty,
-            &wlt_2 as &dyn SigParty,
-            &wlt_3 as &dyn SigParty,
-            &singlesig_wlt as &dyn SigParty,
+            Some(&cfa_asset.asset_id),
+            Some(&nia_asset_1.asset_id),
+            Some(&nia_asset_2.asset_id),
         ],
+        None,
+        TransferStatus::Settled,
+    );
+    check_transfer_status(
+        &[&singlesig_wlt],
         &[
             Some(&cfa_asset.asset_id),
             Some(&nia_asset_1.asset_id),
@@ -578,7 +581,7 @@ fn success() {
         (uda_asset.asset_id.as_str(), (1, 1, 1, 3, TransferStatus::Settled)),
     ]);
     check_wallet_state(
-        wlt_1.multisig_mut(),
+        &mut wlt_1,
         &op_init_last_before_backup,
         &op_init_last_before_backup,
         btc_pre_backup_vanilla,
@@ -607,7 +610,7 @@ fn success() {
     );
     assert!(unspents_nia_asset_2.next().is_none());
     // send the assets
-    let rcv_data = test_blind_receive(singlesig_wlt.wallet);
+    let rcv_data = singlesig_wlt.blind_receive();
     let recipient_map = HashMap::from([(
         nia_asset_2.asset_id.clone(),
         vec![Recipient {
@@ -634,12 +637,13 @@ fn success() {
         true,
     );
     check_transfer_status(
-        &[
-            &wlt_1 as &dyn SigParty,
-            &wlt_2 as &dyn SigParty,
-            &wlt_3 as &dyn SigParty,
-            &singlesig_wlt as &dyn SigParty,
-        ],
+        &[&wlt_1, &wlt_2, &wlt_3],
+        &[Some(&nia_asset_2.asset_id)],
+        None,
+        TransferStatus::Settled,
+    );
+    check_transfer_status(
+        &[&singlesig_wlt],
         &[Some(&nia_asset_2.asset_id)],
         None,
         TransferStatus::Settled,
@@ -755,7 +759,7 @@ fn success() {
     println!("\n=== send BTC (wlt_1 → singlesig) ===");
     check_wallets_up_to_date(&mut [&mut wlt_1, &mut wlt_2, &mut wlt_3]);
     let amount = 1000;
-    let addr = test_get_address(singlesig_wlt.wallet);
+    let addr = singlesig_wlt.get_address();
     let op_init = wlt_1.send_btc_init(&addr, amount);
     operation_complete::<SendBtcHandler>(
         op_init.operation_idx,
@@ -765,20 +769,12 @@ fn success() {
         true,
     );
     check_last_transaction(
-        &mut [
-            wlt_1.multisig_mut(),
-            wlt_2.multisig_mut(),
-            wlt_3.multisig_mut(),
-        ],
+        &mut [&mut wlt_1, &mut wlt_2, &mut wlt_3],
         &op_init.psbt,
         &TransactionType::SendBtc,
     );
     check_btc_balance(
-        &mut [
-            wlt_1.multisig_mut(),
-            wlt_2.multisig_mut(),
-            wlt_3.multisig_mut(),
-        ],
+        &mut [&mut wlt_1, &mut wlt_2, &mut wlt_3],
         (0, 6442, 6442),
         (15366, 15366, 15366),
     );
@@ -797,18 +793,14 @@ fn success() {
         .unwrap();
     sync_wallets_full(&mut [&mut wlt_2, &mut wlt_3]);
     check_transfer_status(
-        &[
-            &wlt_1 as &dyn SigParty,
-            &wlt_2 as &dyn SigParty,
-            &wlt_3 as &dyn SigParty,
-        ],
+        &[&wlt_1, &wlt_2, &wlt_3],
         &[None],
         Some(receive_data.batch_transfer_idx),
         TransferStatus::Failed,
     );
 
     println!("\n=== send failed (wlt_1) ===");
-    let receive_data = test_blind_receive(singlesig_wlt.wallet);
+    let receive_data = singlesig_wlt.blind_receive();
     let recipient_map = HashMap::from([(
         nia_asset_2.asset_id.clone(),
         vec![Recipient {
@@ -827,11 +819,7 @@ fn success() {
         true,
     );
     check_transfer_status(
-        &[
-            &wlt_1 as &dyn SigParty,
-            &wlt_2 as &dyn SigParty,
-            &wlt_3 as &dyn SigParty,
-        ],
+        &[&wlt_1, &wlt_2, &wlt_3],
         &[Some(&nia_asset_2.asset_id)],
         None,
         TransferStatus::WaitingCounterparty,
@@ -848,14 +836,10 @@ fn success() {
         )
         .unwrap();
     for wallet in [&mut wlt_2, &mut wlt_3] {
-        wallet.refresh(Some(&nia_asset_2.asset_id));
+        wallet.wait_for_refresh(Some(&nia_asset_2.asset_id));
     }
     check_transfer_status(
-        &[
-            &wlt_1 as &dyn SigParty,
-            &wlt_2 as &dyn SigParty,
-            &wlt_3 as &dyn SigParty,
-        ],
+        &[&wlt_1, &wlt_2, &wlt_3],
         &[Some(&nia_asset_2.asset_id)],
         None,
         TransferStatus::Failed,
@@ -888,7 +872,7 @@ fn success() {
     sync_wallets_full(&mut [&mut wlt_4]);
     check_wallets_up_to_date(&mut [&mut wlt_4]);
     check_wallet_state(
-        wlt_4.multisig_mut(),
+        &mut wlt_4,
         &op_init_last_successful,
         &op_init,
         btc_final_vanilla,
@@ -901,7 +885,7 @@ fn success() {
     println!("\n=== watch-only sync ===");
     watch_only_wallet_sync(&mut wlt_wo);
     check_wallet_state(
-        wlt_wo.multisig_mut(),
+        &mut wlt_wo,
         &op_init_last_successful,
         &op_init,
         btc_final_vanilla,
@@ -922,7 +906,7 @@ fn success() {
     );
     // post-restore checks
     check_wallet_state(
-        wlt_restored.multisig_mut(),
+        &mut wlt_restored,
         &op_init_last_before_backup,
         &op_init_last_before_backup,
         btc_pre_backup_vanilla,
@@ -933,7 +917,7 @@ fn success() {
     // sync and check it aligns with other cosigners
     wlt_restored.sync_to_head();
     check_wallet_state(
-        wlt_restored.multisig_mut(),
+        &mut wlt_restored,
         &op_init_last_successful,
         &op_init,
         btc_final_vanilla,
@@ -1222,19 +1206,10 @@ fn fail() {
     let signed_psbt = wlt_2_singlesig
         .sign_psbt(unsigned_psbt.clone(), None)
         .unwrap();
-    let txn = wlt_2.multisig.database().begin_transaction().unwrap();
-    wlt_2
-        .multisig_mut()
-        .sync_wallet(
-            &txn,
-            SyncOptions {
-                keychain: SyncKeychain::Colored,
-                strategy: SyncStrategy::FastSync,
-            },
-            false,
-        )
-        .unwrap();
-    txn.commit().unwrap();
+    wlt_2.sync(SyncOptions {
+        keychain: SyncKeychain::Colored,
+        strategy: SyncStrategy::FastSync,
+    });
     wlt_2.respond_to_operation(op_idx_1, RespondToOperation::Ack(signed_psbt.clone()));
     let err = wlt_3
         .respond_to_operation_res(op_idx_1, RespondToOperation::Nack)
@@ -1245,7 +1220,7 @@ fn fail() {
     );
 
     // respond with PSBT for the wrong operation (wrong TXID)
-    wlt_1.sync();
+    wlt_1.sync_with_hub();
     wlt_2.assert_up_to_date();
     let op_init = wlt_1.create_utxos_init(false, Some(5), None, FEE_RATE);
     let op_idx_2 = op_init.operation_idx;
@@ -1269,7 +1244,7 @@ fn fail() {
 
     // respond to an operation that's not the next one
     wlt_2.respond_to_operation(op_idx_2, RespondToOperation::Nack);
-    wlt_1.sync();
+    wlt_1.sync_with_hub();
     wlt_2.assert_up_to_date();
     let op_init = wlt_1.create_utxos_init(false, Some(3), None, FEE_RATE);
     let op_idx_3 = op_init.operation_idx;

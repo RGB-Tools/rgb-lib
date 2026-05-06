@@ -8,26 +8,17 @@ fn success() {
 
     let image_str = ["tests", "qrcode.png"].join(MAIN_SEPARATOR_STR);
 
-    let (mut wallet, online) = get_funded_noutxo_wallet!();
+    let mut party = get_funded_noutxo_party!();
 
     // prepare UTXOs
-    test_create_utxos(
-        &mut wallet,
-        online,
-        true,
-        Some(2),
-        Some(5000),
-        FEE_RATE,
-        None,
-    );
+    party.create_utxos(true, Some(2), Some(5000), FEE_RATE, None);
 
     // required fields only
     println!("\nasset 1");
     let before_timestamp = now().unix_timestamp();
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
-    let asset_1 = wallet
+    let bak_info_before = party.db_backup_info();
+    let asset_1 = party
+        .wallet
         .issue_asset_cfa(
             NAME.to_string(),
             None,
@@ -36,13 +27,11 @@ fn success() {
             None,
         )
         .unwrap();
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
+    let bak_info_after = party.db_backup_info();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
 
     // check the asset has been saved with the correct schema
-    let cfa_asset_list = test_list_assets(&wallet, &[AssetSchema::Cfa]).cfa.unwrap();
+    let cfa_asset_list = party.list_assets(&[AssetSchema::Cfa]).cfa.unwrap();
     assert!(
         cfa_asset_list
             .into_iter()
@@ -50,11 +39,11 @@ fn success() {
     );
 
     // add a pending operation to an UTXO so spendable balance will be != settled / future
-    let _receive_data = test_blind_receive(&mut wallet);
-    show_unspent_colorings(&mut wallet, "after issuance 1");
+    let _receive_data = party.blind_receive();
+    party.show_unspent_colorings("after issuance 1");
 
     // checks
-    let balance_1 = test_get_asset_balance(&wallet, &asset_1.asset_id);
+    let balance_1 = party.get_asset_balance(&asset_1.asset_id);
     assert_eq!(asset_1.name, NAME.to_string());
     assert_eq!(asset_1.details, None);
     assert_eq!(asset_1.precision, PRECISION);
@@ -72,14 +61,9 @@ fn success() {
 
     // include a text file
     println!("\nasset 2");
-    let asset_2 = test_issue_asset_cfa(
-        &mut wallet,
-        online,
-        Some(&[AMOUNT * 2]),
-        Some(FILE_STR.to_string()),
-    );
-    show_unspent_colorings(&mut wallet, "after issuance 2");
-    let balance_2 = test_get_asset_balance(&wallet, &asset_2.asset_id);
+    let asset_2 = party.issue_asset_cfa(Some(&[AMOUNT * 2]), Some(FILE_STR.to_string()));
+    party.show_unspent_colorings("after issuance 2");
+    let balance_2 = party.get_asset_balance(&asset_2.asset_id);
     assert_eq!(asset_2.name, NAME.to_string());
     assert_eq!(asset_2.details, Some(DETAILS.to_string()));
     assert_eq!(asset_2.precision, PRECISION);
@@ -106,14 +90,9 @@ fn success() {
 
     // include an image file
     println!("\nasset 3");
-    let asset_3 = test_issue_asset_cfa(
-        &mut wallet,
-        online,
-        Some(&[AMOUNT * 3]),
-        Some(image_str.to_string()),
-    );
-    show_unspent_colorings(&mut wallet, "after issuance 3");
-    let balance_3 = test_get_asset_balance(&wallet, &asset_3.asset_id);
+    let asset_3 = party.issue_asset_cfa(Some(&[AMOUNT * 3]), Some(image_str.to_string()));
+    party.show_unspent_colorings("after issuance 3");
+    let balance_3 = party.get_asset_balance(&asset_3.asset_id);
     assert_eq!(
         balance_3,
         Balance {
@@ -145,20 +124,16 @@ fn multi_success() {
     let amounts: Vec<u64> = vec![111, 222, 333, 444, 555];
     let sum: u64 = amounts.iter().sum();
 
-    let (mut wallet, online) = get_funded_wallet!();
+    let mut party = get_funded_party!();
 
-    let asset = test_issue_asset_cfa(
-        &mut wallet,
-        online,
-        Some(&amounts),
-        Some(FILE_STR.to_string()),
-    );
+    let asset = party.issue_asset_cfa(Some(&amounts), Some(FILE_STR.to_string()));
 
     // check balance is the sum of the amounts
     assert_eq!(asset.balance.settled, sum);
 
     // check each allocation ends up on a different UTXO
-    let unspents: Vec<Unspent> = test_list_unspents(&mut wallet, None, true)
+    let unspents: Vec<Unspent> = party
+        .list_unspents(true)
         .into_iter()
         .filter(|u| !u.rgb_allocations.is_empty())
         .collect();
@@ -182,7 +157,7 @@ fn multi_success() {
     );
 
     // check the allocated asset has one media
-    let cfa_asset_list = test_list_assets(&wallet, &[]).cfa.unwrap();
+    let cfa_asset_list = party.list_assets(&[]).cfa.unwrap();
     let cfa_asset = cfa_asset_list
         .into_iter()
         .find(|a| a.asset_id == asset.asset_id)
@@ -198,24 +173,16 @@ fn no_issue_on_pending_send() {
 
     let amount: u64 = 66;
 
-    let (mut wallet, online) = get_funded_noutxo_wallet!();
-    let (mut rcv_wallet, rcv_online) = get_empty_wallet!();
+    let mut party = get_funded_noutxo_party!();
+    let mut rcv_party = get_empty_party!();
 
     // prepare UTXO
-    test_create_utxos(
-        &mut wallet,
-        online,
-        true,
-        Some(1),
-        Some(5000),
-        FEE_RATE,
-        None,
-    );
+    party.create_utxos(true, Some(1), Some(5000), FEE_RATE, None);
 
     // issue 1st asset
-    let asset_1 = test_issue_asset_cfa(&mut wallet, online, None, None);
+    let asset_1 = party.issue_asset_cfa(None, None);
     // get 1st issuance UTXO
-    let unspents = test_list_unspents(&mut wallet, None, false);
+    let unspents = party.list_unspents(false);
     let unspent_1 = unspents
         .iter()
         .find(|u| {
@@ -225,7 +192,7 @@ fn no_issue_on_pending_send() {
         })
         .unwrap();
     // send 1st asset
-    let receive_data = test_witness_receive(&mut rcv_wallet);
+    let receive_data = rcv_party.witness_receive();
     let recipient_map = HashMap::from([(
         asset_1.asset_id.clone(),
         vec![Recipient {
@@ -238,19 +205,19 @@ fn no_issue_on_pending_send() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&mut wallet, online, &recipient_map);
+    let txid = party.send_retry(&recipient_map);
     assert!(!txid.is_empty());
 
     // issuing a 2nd asset fails due to missing free allocation slot
-    let result = test_issue_asset_cfa_result(&mut wallet, online, Some(&[AMOUNT * 2]), None);
+    let result = party.issue_asset_cfa_result(Some(&[AMOUNT * 2]), None);
     assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 
     // create 1 more UTXO issue 2nd asset
-    test_create_utxos(&mut wallet, online, false, Some(1), None, FEE_RATE, None);
-    let asset_2 = test_issue_asset_cfa(&mut wallet, online, Some(&[AMOUNT * 2]), None);
-    show_unspent_colorings(&mut wallet, "after 2nd issuance");
+    party.create_utxos(false, Some(1), None, FEE_RATE, None);
+    let asset_2 = party.issue_asset_cfa(Some(&[AMOUNT * 2]), None);
+    party.show_unspent_colorings("after 2nd issuance");
     // get 2nd issuance UTXO
-    let unspents = test_list_unspents(&mut wallet, None, false);
+    let unspents = party.list_unspents(false);
     let unspent_2 = unspents
         .iter()
         .find(|u| {
@@ -263,14 +230,14 @@ fn no_issue_on_pending_send() {
     assert_ne!(unspent_1.utxo.outpoint, unspent_2.utxo.outpoint);
 
     // progress transfer to WaitingConfirmations
-    wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
-    wait_for_refresh(&mut wallet, online, Some(&asset_1.asset_id), None);
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(Some(&asset_1.asset_id));
 
     // issue 3rd asset
-    let asset_3 = test_issue_asset_cfa(&mut wallet, online, Some(&[AMOUNT * 3]), None);
-    show_unspent_colorings(&mut wallet, "after 3rd issuance");
+    let asset_3 = party.issue_asset_cfa(Some(&[AMOUNT * 3]), None);
+    party.show_unspent_colorings("after 3rd issuance");
     // get 3rd issuance UTXO
-    let unspents = test_list_unspents(&mut wallet, None, false);
+    let unspents = party.list_unspents(false);
     let unspent_3 = unspents
         .iter()
         .find(|u| {
@@ -290,15 +257,14 @@ fn fail() {
     initialize();
 
     // wallet
-    let (mut wallet, online) = get_funded_wallet!();
+    let mut party = get_funded_party!();
 
     // supply overflow
-    let result =
-        test_issue_asset_cfa_result(&mut wallet, online, Some(&[u64::MAX, u64::MAX]), None);
+    let result = party.issue_asset_cfa_result(Some(&[u64::MAX, u64::MAX]), None);
     assert!(matches!(result, Err(Error::TooHighIssuanceAmounts)));
 
     // invalid name: empty
-    let result = wallet.issue_asset_cfa(
+    let result = party.wallet.issue_asset_cfa(
         s!(""),
         Some(DETAILS.to_string()),
         PRECISION,
@@ -308,7 +274,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidName { details: m }) if m == EMPTY_MSG));
 
     // invalid name: too long
-    let result = wallet.issue_asset_cfa(
+    let result = party.wallet.issue_asset_cfa(
         ("a").repeat(257),
         Some(DETAILS.to_string()),
         PRECISION,
@@ -319,7 +285,7 @@ fn fail() {
 
     // invalid name: unicode characters
     let invalid_name = "name with ℧nicode characters";
-    let result = wallet.issue_asset_cfa(
+    let result = party.wallet.issue_asset_cfa(
         invalid_name.to_string(),
         Some(DETAILS.to_string()),
         PRECISION,
@@ -332,7 +298,7 @@ fn fail() {
     );
 
     // invalid details: empty
-    let result = wallet.issue_asset_cfa(
+    let result = party.wallet.issue_asset_cfa(
         NAME.to_string(),
         Some(s!("")),
         PRECISION,
@@ -342,7 +308,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidDetails { details: m }) if m == IDENT_EMPTY_MSG));
 
     // invalid details: too long
-    let result = wallet.issue_asset_cfa(
+    let result = party.wallet.issue_asset_cfa(
         NAME.to_string(),
         Some(("a").repeat(256)),
         PRECISION,
@@ -352,7 +318,7 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidDetails { details: m }) if m == IDENT_TOO_LONG_MSG));
 
     // invalid precision
-    let result = wallet.issue_asset_cfa(
+    let result = party.wallet.issue_asset_cfa(
         NAME.to_string(),
         Some(DETAILS.to_string()),
         19,
@@ -365,17 +331,16 @@ fn fail() {
     ));
 
     // invalid amount list (no amounts)
-    let result = test_issue_asset_cfa_result(&mut wallet, online, Some(&[]), None);
+    let result = party.issue_asset_cfa_result(Some(&[]), None);
     assert!(matches!(result, Err(Error::NoIssuanceAmounts)));
 
     // invalid amount list (1+ amounts == 0)
-    let result = test_issue_asset_cfa_result(&mut wallet, online, Some(&[1, 0, 2]), None);
+    let result = party.issue_asset_cfa_result(Some(&[1, 0, 2]), None);
     assert!(matches!(result, Err(Error::InvalidAmountZero)));
 
     // invalid file_path
     let invalid_file_path = s!("invalid");
-    let result =
-        test_issue_asset_cfa_result(&mut wallet, online, None, Some(invalid_file_path.clone()));
+    let result = party.issue_asset_cfa_result(None, Some(invalid_file_path.clone()));
     assert!(matches!(
         result,
         Err(Error::InvalidFilePath { file_path: t }) if t == invalid_file_path
@@ -385,20 +350,20 @@ fn fail() {
     let empty_path = tempfile::NamedTempFile::with_prefix("issue_asset_cfa::fail_").unwrap();
     fs::File::create(&empty_path).unwrap();
     let empty_str = empty_path.path().to_str().unwrap().to_string();
-    let result = test_issue_asset_cfa_result(&mut wallet, online, None, Some(empty_str.clone()));
+    let result = party.issue_asset_cfa_result(None, Some(empty_str.clone()));
     assert!(matches!(result, Err(Error::EmptyFile { file_path: t }) if t == empty_str));
 
     // new wallet
-    let (mut wallet, online) = get_empty_wallet!();
+    let mut party = get_empty_party!();
 
     // insufficient funds
-    let result = test_issue_asset_cfa_result(&mut wallet, online, None, None);
+    let result = party.issue_asset_cfa_result(None, None);
     assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 
-    fund_wallet(test_get_address(&mut wallet));
+    fund_wallet(party.get_address());
     mine(false);
 
     // insufficient allocations
-    let result = test_issue_asset_cfa_result(&mut wallet, online, None, None);
+    let result = party.issue_asset_cfa_result(None, None);
     assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 }

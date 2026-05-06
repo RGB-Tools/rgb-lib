@@ -12,17 +12,17 @@ fn success() {
     let _ = std::fs::remove_file(backup_file);
 
     // wallets
-    let (mut wallet, online) = get_funded_wallet!();
-    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
-    let mut wallet_data = wallet.get_wallet_data();
-    let keys = wallet.get_keys();
-    let wallet_dir = wallet.get_wallet_dir();
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+    let mut wallet_data = party.get_wallet_data();
+    let keys = party.get_keys();
+    let wallet_dir = party.wallet.get_wallet_dir();
 
     // issue
-    let asset = test_issue_asset_nia(&mut wallet, online, None);
+    let asset = party.issue_asset_nia(None);
 
     // send
-    let receive_data = test_blind_receive(&mut rcv_wallet);
+    let receive_data = rcv_party.blind_receive();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -32,28 +32,28 @@ fn success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&mut wallet, online, &recipient_map);
+    let txid = party.send_retry(&recipient_map);
     assert!(!txid.is_empty());
     // take transfers from WaitingCounterparty to Settled
-    wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
-    wait_for_refresh(&mut wallet, online, Some(&asset.asset_id), None);
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(Some(&asset.asset_id));
     mine(false);
-    wait_for_refresh(&mut rcv_wallet, rcv_online, Some(&asset.asset_id), None);
-    wait_for_refresh(&mut wallet, online, Some(&asset.asset_id), None);
+    rcv_party.wait_for_refresh(Some(&asset.asset_id));
+    party.wait_for_refresh(Some(&asset.asset_id));
 
     // pre-backup wallet data
-    check_test_wallet_data(&mut wallet, &asset, None, 1, amount);
+    party.check_test_wallet_data(&asset, None, 1, amount);
 
     // backup
     println!("\nbacking up...");
-    wallet.backup(backup_file, PASSWORD).unwrap();
+    party.wallet.backup(backup_file, PASSWORD).unwrap();
 
     // backup not required after doing one
-    let backup_required = wallet.backup_info().unwrap();
+    let backup_required = party.wallet.backup_info().unwrap();
     assert!(!backup_required);
 
     // drop wallets
-    drop(wallet);
+    drop(party);
 
     // restore
     println!("\nrestoring...");
@@ -68,16 +68,17 @@ fn success() {
 
     // post-restore wallet data
     wallet_data.data_dir = target_dir.to_string();
-    let mut wallet = Wallet::new(wallet_data, keys.clone()).unwrap();
-    let online = test_go_online(&mut wallet, true, None);
-    check_test_wallet_data(&mut wallet, &asset, None, 1, amount);
+    let mut party = offline_party!(Wallet::new(wallet_data, keys.clone()).unwrap());
+    let online = party.go_online(true, None);
+    let mut party = party!(party.wallet, online);
+    party.check_test_wallet_data(&asset, None, 1, amount);
 
     // backup not required after restoring one
-    let backup_required = wallet.backup_info().unwrap();
+    let backup_required = party.wallet.backup_info().unwrap();
     assert!(!backup_required);
 
     // spend asset once more and check wallet data again
-    let receive_data = test_blind_receive(&mut rcv_wallet);
+    let receive_data = rcv_party.blind_receive();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -87,18 +88,18 @@ fn success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&mut wallet, online, &recipient_map);
+    let txid = party.send_retry(&recipient_map);
     assert!(!txid.is_empty());
     // take transfers from WaitingCounterparty to Settled
-    wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
-    wait_for_refresh(&mut wallet, online, Some(&asset.asset_id), None);
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(Some(&asset.asset_id));
     mine(false);
-    wait_for_refresh(&mut rcv_wallet, rcv_online, Some(&asset.asset_id), None);
-    wait_for_refresh(&mut wallet, online, Some(&asset.asset_id), None);
-    check_test_wallet_data(&mut wallet, &asset, None, 2, amount * 2);
+    rcv_party.wait_for_refresh(Some(&asset.asset_id));
+    party.wait_for_refresh(Some(&asset.asset_id));
+    party.check_test_wallet_data(&asset, None, 2, amount * 2);
 
     // issue a second asset with the restored wallet
-    let _asset = test_issue_asset_nia(&mut wallet, online, None);
+    let _asset = party.issue_asset_nia(None);
 }
 
 #[cfg(feature = "electrum")]
@@ -194,24 +195,24 @@ fn double_restore() {
     let password_2 = "password2";
 
     // wallets
-    let (mut wallet_1, online_1) = get_funded_wallet!();
-    let (mut wallet_2, online_2) = get_funded_wallet!();
-    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
-    let mut wallet_1_data = wallet_1.get_wallet_data();
-    let keys_1 = wallet_1.get_keys();
-    let mut wallet_2_data = wallet_2.get_wallet_data();
-    let keys_2 = wallet_2.get_keys();
-    let wallet_1_dir = wallet_1.get_wallet_dir();
-    let wallet_2_dir = wallet_2.get_wallet_dir();
+    let mut party_1 = get_funded_party!();
+    let mut party_2 = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+    let mut wallet_1_data = party_1.get_wallet_data();
+    let keys_1 = party_1.get_keys();
+    let mut wallet_2_data = party_2.get_wallet_data();
+    let keys_2 = party_2.get_keys();
+    let wallet_1_dir = party_1.wallet.get_wallet_dir();
+    let wallet_2_dir = party_2.wallet.get_wallet_dir();
     let asset_2_supply = AMOUNT * 2;
 
     // issue
-    let asset_1 = test_issue_asset_nia(&mut wallet_1, online_1, None);
-    let asset_2 = test_issue_asset_nia(&mut wallet_2, online_2, Some(&[asset_2_supply]));
+    let asset_1 = party_1.issue_asset_nia(None);
+    let asset_2 = party_2.issue_asset_nia(Some(&[asset_2_supply]));
 
     // send
-    let receive_data_1 = test_blind_receive(&mut rcv_wallet);
-    let receive_data_2 = test_blind_receive(&mut rcv_wallet);
+    let receive_data_1 = rcv_party.blind_receive();
+    let receive_data_2 = rcv_party.blind_receive();
     let recipient_map_1 = HashMap::from([(
         asset_1.asset_id.clone(),
         vec![Recipient {
@@ -230,38 +231,39 @@ fn double_restore() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid_1 = test_send(&mut wallet_1, online_1, &recipient_map_1);
-    let txid_2 = test_send(&mut wallet_2, online_2, &recipient_map_2);
+    let txid_1 = party_1.send_retry(&recipient_map_1);
+    let txid_2 = party_2.send_retry(&recipient_map_2);
     assert!(!txid_1.is_empty());
     assert!(!txid_2.is_empty());
     // take transfers from WaitingCounterparty to Settled
-    wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
-    wait_for_refresh(&mut wallet_1, online_1, Some(&asset_1.asset_id), None);
-    wait_for_refresh(&mut wallet_2, online_2, Some(&asset_2.asset_id), None);
+    rcv_party.wait_for_refresh(None);
+    party_1.wait_for_refresh(Some(&asset_1.asset_id));
+    party_2.wait_for_refresh(Some(&asset_2.asset_id));
     mine(false);
-    wait_for_refresh(&mut rcv_wallet, rcv_online, Some(&asset_1.asset_id), None);
-    wait_for_refresh(&mut wallet_1, online_1, Some(&asset_1.asset_id), None);
-    wait_for_refresh(&mut wallet_2, online_2, Some(&asset_2.asset_id), None);
+    rcv_party.wait_for_refresh(Some(&asset_1.asset_id));
+    party_1.wait_for_refresh(Some(&asset_1.asset_id));
+    party_2.wait_for_refresh(Some(&asset_2.asset_id));
 
     // pre-backup wallet data
-    check_test_wallet_data(&mut wallet_1, &asset_1, None, 1, amount);
-    check_test_wallet_data(&mut wallet_2, &asset_2, Some(asset_2_supply), 1, amount * 2);
+    party_1.check_test_wallet_data(&asset_1, None, 1, amount);
+    party_2.check_test_wallet_data(&asset_2, Some(asset_2_supply), 1, amount * 2);
 
     // backup
     println!("\nbacking up...");
-    wallet_1.backup(backup_file_1, password_1).unwrap();
+    party_1.wallet.backup(backup_file_1, password_1).unwrap();
     let custom_params = ScryptParams::new(
         Some(Params::RECOMMENDED_LOG_N + 1),
         Some(Params::RECOMMENDED_R + 1),
         Some(Params::RECOMMENDED_P + 1),
     );
-    wallet_2
+    party_2
+        .wallet
         .backup_customize(backup_file_2, password_2, Some(custom_params))
         .unwrap();
 
     // drop wallets
-    drop(wallet_1);
-    drop(wallet_2);
+    drop(party_1);
+    drop(party_2);
 
     // restore
     println!("\nrestoring...");
@@ -282,16 +284,18 @@ fn double_restore() {
     // post-restore wallet data
     wallet_1_data.data_dir = target_dir_1.to_string();
     wallet_2_data.data_dir = target_dir_2.to_string();
-    let mut wallet_1 = Wallet::new(wallet_1_data, keys_1.clone()).unwrap();
-    let mut wallet_2 = Wallet::new(wallet_2_data, keys_2.clone()).unwrap();
-    let online_1 = test_go_online(&mut wallet_1, true, None);
-    let online_2 = test_go_online(&mut wallet_2, true, None);
-    check_test_wallet_data(&mut wallet_1, &asset_1, None, 1, amount);
-    check_test_wallet_data(&mut wallet_2, &asset_2, Some(asset_2_supply), 1, amount * 2);
+    let mut party_1 = offline_party!(Wallet::new(wallet_1_data, keys_1.clone()).unwrap());
+    let mut party_2 = offline_party!(Wallet::new(wallet_2_data, keys_2.clone()).unwrap());
+    let online_1 = party_1.go_online(true, None);
+    let online_2 = party_2.go_online(true, None);
+    let mut party_1 = party!(party_1.wallet, online_1);
+    let mut party_2 = party!(party_2.wallet, online_2);
+    party_1.check_test_wallet_data(&asset_1, None, 1, amount);
+    party_2.check_test_wallet_data(&asset_2, Some(asset_2_supply), 1, amount * 2);
 
     // issue a second asset with the restored wallets
-    test_issue_asset_nia(&mut wallet_1, online_1, None);
-    test_issue_asset_nia(&mut wallet_2, online_2, None);
+    party_1.issue_asset_nia(None);
+    party_2.issue_asset_nia(None);
 }
 
 #[cfg(feature = "electrum")]

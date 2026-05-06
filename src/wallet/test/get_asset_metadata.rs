@@ -6,15 +6,15 @@ use super::*;
 fn success() {
     initialize();
 
-    let (mut wallet, online) = get_funded_wallet!();
-    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
 
-    let asset_nia = test_issue_asset_nia(&mut wallet, online, Some(&[AMOUNT, AMOUNT]));
-    let transfers = test_list_transfers(&wallet, Some(&asset_nia.asset_id));
+    let asset_nia = party.issue_asset_nia(Some(&[AMOUNT, AMOUNT]));
+    let transfers = party.list_transfers(Some(&asset_nia.asset_id));
     assert_eq!(transfers.len(), 1);
     let issuance = transfers.first().unwrap();
     let timestamp = issuance.created_at;
-    let receive_data = test_blind_receive(&mut rcv_wallet);
+    let receive_data = rcv_party.blind_receive();
     let recipient_map = HashMap::from([(
         asset_nia.asset_id.clone(),
         vec![Recipient {
@@ -24,15 +24,11 @@ fn success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    test_send(&mut wallet, online, &recipient_map);
-    wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
-    let nia_metadata = test_get_asset_metadata(&rcv_wallet, &asset_nia.asset_id);
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
+    party.send_retry(&recipient_map);
+    rcv_party.wait_for_refresh(None);
+    let bak_info_before = party.db_backup_info();
+    let nia_metadata = rcv_party.get_asset_metadata(&asset_nia.asset_id);
+    let bak_info_after = party.db_backup_info();
     assert_eq!(
         bak_info_after.last_operation_timestamp,
         bak_info_before.last_operation_timestamp
@@ -47,18 +43,13 @@ fn success() {
     assert!((timestamp - nia_metadata.timestamp) < 30);
 
     let image_str = ["tests", "qrcode.png"].join(MAIN_SEPARATOR_STR);
-    let asset_uda = test_issue_asset_uda(
-        &mut wallet,
-        online,
-        Some(DETAILS),
-        Some(FILE_STR),
-        vec![&image_str, FILE_STR],
-    );
-    let transfers = test_list_transfers(&wallet, Some(&asset_uda.asset_id));
+    let asset_uda =
+        party.issue_asset_uda(Some(DETAILS), Some(FILE_STR), vec![&image_str, FILE_STR]);
+    let transfers = party.list_transfers(Some(&asset_uda.asset_id));
     assert_eq!(transfers.len(), 1);
     let issuance = transfers.first().unwrap();
     let timestamp = issuance.created_at;
-    let uda_metadata = test_get_asset_metadata(&wallet, &asset_uda.asset_id);
+    let uda_metadata = party.get_asset_metadata(&asset_uda.asset_id);
 
     assert_eq!(uda_metadata.asset_schema, AssetSchema::Uda);
     assert_eq!(uda_metadata.initial_supply, 1);
@@ -79,7 +70,8 @@ fn success() {
     assert!(token.reserves.is_none());
 
     let details = None;
-    let asset_cfa = wallet
+    let asset_cfa = party
+        .wallet
         .issue_asset_cfa(
             NAME.to_string(),
             details.clone(),
@@ -88,11 +80,11 @@ fn success() {
             Some(FILE_STR.to_string()),
         )
         .unwrap();
-    let transfers = test_list_transfers(&wallet, Some(&asset_cfa.asset_id));
+    let transfers = party.list_transfers(Some(&asset_cfa.asset_id));
     assert_eq!(transfers.len(), 1);
     let issuance = transfers.first().unwrap();
     let timestamp = issuance.created_at;
-    let cfa_metadata = test_get_asset_metadata(&wallet, &asset_cfa.asset_id);
+    let cfa_metadata = party.get_asset_metadata(&asset_cfa.asset_id);
 
     assert_eq!(cfa_metadata.asset_schema, AssetSchema::Cfa);
     assert_eq!(cfa_metadata.initial_supply, AMOUNT * 2);
@@ -109,8 +101,8 @@ fn success() {
 fn fail() {
     initialize();
 
-    let wallet = get_test_wallet(true, None);
+    let party = offline_party!(get_test_wallet(true, None));
 
-    let result = test_get_asset_metadata_result(&wallet, "");
+    let result = party.get_asset_metadata_result("");
     assert!(matches!(result, Err(Error::AssetNotFound { asset_id: _ })));
 }

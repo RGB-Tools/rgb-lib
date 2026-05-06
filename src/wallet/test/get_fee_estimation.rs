@@ -1,15 +1,16 @@
 use super::*;
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-fn success_common(wallet: &mut Wallet, online: Online, esplora: bool) {
-    fn random_send_btc(wallet: &mut Wallet, online: Online) {
+fn success_common(party: &mut SinglesigParty, esplora: bool) {
+    fn random_send_btc(party: &mut SinglesigParty) {
         let fee_rate = rand::rng().random_range(1..10);
         let amount = rand::rng().random_range(1000..5000);
         let mut attempts = 3;
         loop {
-            let addr = test_get_address(wallet).to_string();
-            if wallet
-                .send_btc(online, addr, amount, fee_rate, true)
+            let addr = party.get_address().to_string();
+            if party
+                .wallet
+                .send_btc(party.online, addr, amount, fee_rate, true)
                 .is_err()
             {
                 attempts -= 1;
@@ -22,9 +23,10 @@ fn success_common(wallet: &mut Wallet, online: Online, esplora: bool) {
                 break;
             }
         }
-        wallet
+        party
+            .wallet
             .sync(
-                online,
+                party.online,
                 SyncOptions {
                     keychain: SyncKeychain::Vanilla {
                         lookback: INDEXER_SYNC_LOOKBACK as u32,
@@ -37,11 +39,11 @@ fn success_common(wallet: &mut Wallet, online: Online, esplora: bool) {
 
     for _ in 0..100 {
         for _ in 0..15 {
-            random_send_btc(wallet, online);
+            random_send_btc(party);
         }
         mine(esplora);
         for _ in 0..3 {
-            random_send_btc(wallet, online);
+            random_send_btc(party);
         }
         if estimate_smart_fee(esplora) {
             break;
@@ -50,7 +52,7 @@ fn success_common(wallet: &mut Wallet, online: Online, esplora: bool) {
 
     let mut last_estimate = f64::MAX;
     for i in MIN_BLOCK_ESTIMATION..=MAX_BLOCK_ESTIMATION {
-        let estimate = wallet.get_fee_estimation(online, i).unwrap();
+        let estimate = party.wallet.get_fee_estimation(party.online, i).unwrap();
         assert!(estimate <= last_estimate);
         last_estimate = estimate;
     }
@@ -63,9 +65,9 @@ fn success_common(wallet: &mut Wallet, online: Online, esplora: bool) {
 fn success_electrum() {
     initialize();
 
-    let (mut wallet, online) = get_funded_noutxo_wallet!();
+    let mut party = get_funded_noutxo_party!();
 
-    success_common(&mut wallet, online, false);
+    success_common(&mut party, false);
 }
 
 #[cfg(feature = "esplora")]
@@ -75,16 +77,16 @@ fn success_electrum() {
 fn success_esplora() {
     initialize();
 
-    let (mut wallet, online) = get_funded_noutxo_wallet!(ESPLORA_URL.to_string());
+    let mut party = get_funded_noutxo_party!(ESPLORA_URL.to_string());
 
-    success_common(&mut wallet, online, true);
+    success_common(&mut party, true);
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-fn fail_common(wallet: &Wallet, online: Online, esplora: bool) {
+fn fail_common(party: &SinglesigParty, esplora: bool) {
     for _ in 0..100 {
         mine_blocks(esplora, 100);
-        if let Err(e) = wallet.get_fee_estimation(online, 5) {
+        if let Err(e) = party.wallet.get_fee_estimation(party.online, 5) {
             assert!(matches!(e, Error::CannotEstimateFees));
             return;
         }
@@ -99,9 +101,9 @@ fn fail_common(wallet: &Wallet, online: Online, esplora: bool) {
 fn fail_electrum() {
     initialize();
 
-    let (wallet, online) = get_empty_wallet!();
+    let party = get_empty_party!();
 
-    fail_common(&wallet, online, false)
+    fail_common(&party, false)
 }
 
 #[cfg(feature = "esplora")]
@@ -111,9 +113,9 @@ fn fail_electrum() {
 fn fail_esplora() {
     initialize();
 
-    let (wallet, online) = get_empty_wallet!(ESPLORA_URL.to_string());
+    let party = get_empty_party!(ESPLORA_URL.to_string());
 
-    fail_common(&wallet, online, true)
+    fail_common(&party, true)
 }
 
 #[cfg(feature = "electrum")]
@@ -122,13 +124,17 @@ fn fail_esplora() {
 fn fail() {
     initialize();
 
-    let (wallet, online) = get_empty_wallet!();
+    let party = get_empty_party!();
 
     // requested number of blocks too low
-    let result = wallet.get_fee_estimation(online, MIN_BLOCK_ESTIMATION - 1);
+    let result = party
+        .wallet
+        .get_fee_estimation(party.online, MIN_BLOCK_ESTIMATION - 1);
     assert!(matches!(result, Err(Error::InvalidEstimationBlocks)));
 
     // requested number of blocks too high
-    let result = wallet.get_fee_estimation(online, MAX_BLOCK_ESTIMATION + 1);
+    let result = party
+        .wallet
+        .get_fee_estimation(party.online, MAX_BLOCK_ESTIMATION + 1);
     assert!(matches!(result, Err(Error::InvalidEstimationBlocks)));
 }

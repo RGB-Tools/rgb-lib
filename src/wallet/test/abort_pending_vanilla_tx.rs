@@ -6,13 +6,14 @@ use super::*;
 fn success() {
     initialize();
 
-    let (mut wallet, online) = get_funded_noutxo_wallet!();
-    let (mut rcv_wallet, _rcv_online) = get_empty_wallet!();
+    let mut party = get_funded_noutxo_party!();
+    let mut rcv_party = get_empty_party!();
 
-    let unsigned_psbt_str = wallet
+    let unsigned_psbt_str = party
+        .wallet
         .send_btc_begin(
-            online,
-            test_get_address(&mut rcv_wallet),
+            party.online,
+            rcv_party.get_address(),
             1000,
             FEE_RATE,
             false,
@@ -23,41 +24,30 @@ fn success() {
     let psbt_txid = unsigned_psbt.unsigned_tx.compute_txid().to_string();
 
     // pre-abort: reservation + wallet_transaction exist
-    assert_eq!(wallet.list_pending_vanilla_txs().unwrap().len(), 1);
-    let txn = wallet.database().begin_transaction().unwrap();
-    let reserved_txos = txn.iter_reserved_txos().unwrap();
-    txn.commit().unwrap();
+    assert_eq!(party.wallet.list_pending_vanilla_txs().unwrap().len(), 1);
+    let reserved_txos = party.db_reserved_txos();
     assert!(!reserved_txos.is_empty());
 
     // abort
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
-    wallet.abort_pending_vanilla_tx(psbt_txid.clone()).unwrap();
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
+    let bak_info_before = party.db_backup_info();
+    party.abort_pending_vanilla_tx(&psbt_txid);
+    let bak_info_after = party.db_backup_info();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
 
     // post-abort: reservation + wallet_transaction row both gone
-    assert!(wallet.list_pending_vanilla_txs().unwrap().is_empty());
-    let txn = wallet.database().begin_transaction().unwrap();
-    let reserved_txos = txn.iter_reserved_txos().unwrap();
-    txn.commit().unwrap();
+    assert!(party.wallet.list_pending_vanilla_txs().unwrap().is_empty());
+    let reserved_txos = party.db_reserved_txos();
     assert!(reserved_txos.is_empty());
-    let txn = wallet.database().begin_transaction().unwrap();
-    let maybe_wallet_tx = txn
-        .get_wallet_transaction_with_reserved_txos_by_txid(&psbt_txid)
-        .unwrap();
-    txn.commit().unwrap();
+    let maybe_wallet_tx = party.db_wallet_transaction_with_reserved_txos_by_txid(&psbt_txid);
     assert!(maybe_wallet_tx.is_none());
 
     // the previously-reserved UTXOs are now available again: a fresh send_btc_begin
     // re-selects them
-    let unsigned_psbt_2_str = wallet
+    let unsigned_psbt_2_str = party
+        .wallet
         .send_btc_begin(
-            online,
-            test_get_address(&mut rcv_wallet),
+            party.online,
+            rcv_party.get_address(),
             1000,
             FEE_RATE,
             true,
@@ -77,27 +67,19 @@ fn success() {
 fn fail() {
     initialize();
 
-    let (mut wallet, online) = get_funded_wallet!();
-    let (mut rcv_wallet, _rcv_online) = get_empty_wallet!();
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_empty_party!();
 
     // unknown txid
-    let result = wallet.abort_pending_vanilla_tx(FAKE_TXID.to_string());
+    let result = party.abort_pending_vanilla_tx_result(FAKE_TXID);
     assert!(matches!(result, Err(Error::CannotAbortPendingVanillaTx)));
 
     // a wallet_transaction row exists but has no attached reservations
-    let txid = test_send_btc(
-        &mut wallet,
-        online,
-        &test_get_address(&mut rcv_wallet),
-        1000,
-    );
-    let txn = wallet.database().begin_transaction().unwrap();
-    let (_wt, reservations) = txn
-        .get_wallet_transaction_with_reserved_txos_by_txid(&txid)
-        .unwrap()
+    let txid = party.send_btc(&rcv_party.get_address(), 1000);
+    let (_wt, reservations) = party
+        .db_wallet_transaction_with_reserved_txos_by_txid(&txid)
         .expect("SendBtc wallet_transaction should exist after send_btc");
-    txn.commit().unwrap();
     assert!(reservations.is_empty());
-    let result = wallet.abort_pending_vanilla_tx(txid);
+    let result = party.abort_pending_vanilla_tx_result(&txid);
     assert!(matches!(result, Err(Error::CannotAbortPendingVanillaTx)));
 }

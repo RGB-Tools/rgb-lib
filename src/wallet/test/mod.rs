@@ -123,7 +123,7 @@ pub fn initialize() {
 }
 
 pub fn restart_multisig_hub() {
-    let serivce_name = "rgb-multisig-hub";
+    let service_name = "rgb-multisig-hub";
     let cmd_base = vec![s!("-f"), ["tests", "compose.yaml"].join(MAIN_SEPARATOR_STR)];
     let mut cmd = cmd_base.clone();
     cmd.extend([
@@ -131,7 +131,7 @@ pub fn restart_multisig_hub() {
         s!("-f"),
         s!("-s"),
         s!("-v"),
-        serivce_name.to_string(),
+        service_name.to_string(),
     ]);
     Command::new("docker")
         .stdin(Stdio::null())
@@ -151,7 +151,7 @@ pub fn restart_multisig_hub() {
         .output()
         .expect("failed to remove hub volume");
     let mut cmd = cmd_base.clone();
-    cmd.extend([s!("up"), s!("-d"), serivce_name.to_string()]);
+    cmd.extend([s!("up"), s!("-d"), service_name.to_string()]);
     Command::new("docker")
         .stdin(Stdio::null())
         .stderr(Stdio::null())
@@ -164,32 +164,32 @@ pub fn restart_multisig_hub() {
 
 // the get_*_wallet! macros can be called with no arguments to use defaults
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-macro_rules! get_empty_wallet {
+macro_rules! get_empty_party {
     ($i: expr) => {
-        get_empty_wallet(true, Some($i))
+        get_empty_party(true, Some($i))
     };
     () => {
-        get_empty_wallet(true, None)
+        get_empty_party(true, None)
     };
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-macro_rules! get_funded_noutxo_wallet {
+macro_rules! get_funded_noutxo_party {
     ($i: expr) => {
-        get_funded_noutxo_wallet(true, Some($i))
+        get_funded_noutxo_party(true, Some($i))
     };
     () => {
-        get_funded_noutxo_wallet(true, None)
+        get_funded_noutxo_party(true, None)
     };
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-macro_rules! get_funded_wallet {
+macro_rules! get_funded_party {
     ($i: expr) => {
-        get_funded_wallet(true, Some($i))
+        get_funded_party(true, Some($i))
     };
     () => {
-        get_funded_wallet(true, None)
+        get_funded_party(true, None)
     };
 }
 
@@ -297,6 +297,7 @@ pub fn mock_vout(vout: Option<u32>) -> Option<u32> {
 }
 
 // test utilities
+#[macro_use]
 mod utils;
 pub(crate) use utils::{api::*, chain::*, helpers::*};
 

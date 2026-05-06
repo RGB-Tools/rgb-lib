@@ -6,31 +6,27 @@ use super::*;
 fn success() {
     initialize();
 
-    let mut wallet = get_test_wallet(true, None);
+    let mut party = offline_party!(get_test_wallet(true, None));
 
     // go online
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_before = txn.get_backup_info().unwrap();
-    txn.commit().unwrap();
+    let bak_info_before = party.db_backup_info_opt();
     assert!(bak_info_before.is_none());
-    let result_1 = test_go_online_result(&mut wallet, false, None);
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_after = txn.get_backup_info().unwrap();
-    txn.commit().unwrap();
+    let result_1 = party.go_online_result(false, None);
+    let bak_info_after = party.db_backup_info_opt();
     assert!(bak_info_after.is_none());
     assert!(result_1.is_ok());
 
     // can go online again with the same electrum URL
-    let result_2 = test_go_online_result(&mut wallet, false, None);
+    let result_2 = party.go_online_result(false, None);
     assert!(result_2.is_ok());
     assert_eq!(result_1.unwrap(), result_2.unwrap());
 
     // can go online again with a different electrum URL
-    let result_3 = test_go_online_result(&mut wallet, false, Some(ELECTRUM_2_URL));
+    let result_3 = party.go_online_result(false, Some(ELECTRUM_2_URL));
     assert!(result_3.is_ok());
 
     // can go online again with esplora URL
-    let result_4 = test_go_online_result(&mut wallet, false, Some(ESPLORA_URL));
+    let result_4 = party.go_online_result(false, Some(ESPLORA_URL));
     assert!(result_4.is_ok());
 }
 
@@ -41,11 +37,15 @@ fn fail() {
     initialize();
 
     // wallets
-    let mut wallet = get_test_wallet(true, None);
-    let mut wallet_testnet = get_test_wallet_with_net(true, None, BitcoinNetwork::Testnet);
+    let mut party = offline_party!(get_test_wallet(true, None));
+    let mut party_testnet = offline_party!(get_test_wallet_with_net(
+        true,
+        None,
+        BitcoinNetwork::Testnet
+    ));
 
     // cannot go online with an invalid indexer URL
-    let result = test_go_online_result(&mut wallet, false, Some("other:50001"));
+    let result = party.go_online_result(false, Some("other:50001"));
     let details = "not a valid electrum nor esplora server";
     assert!(matches!(result, Err(Error::InvalidIndexer { details: m }) if m == details ));
 
@@ -55,8 +55,8 @@ fn fail() {
     } else {
         ESPLORA_URL
     };
-    test_go_online(&mut wallet, false, Some(indexer_url));
-    let result = test_go_online_result(&mut wallet, false, Some("other:50001"));
+    party.go_online(false, Some(indexer_url));
+    let result = party.go_online_result(false, Some("other:50001"));
     assert!(matches!(result, Err(Error::InvalidIndexer { details: m }) if m == details ));
 
     let details_another_chain = "resolver is for another chain-network pair";
@@ -64,13 +64,13 @@ fn fail() {
     #[cfg(feature = "electrum")]
     {
         // electrs wrong network
-        let result = test_go_online_result(&mut wallet_testnet, false, None);
+        let result = party_testnet.go_online_result(false, None);
         assert!(
             matches!(result, Err(Error::InvalidIndexer { details: m }) if m == details_another_chain )
         );
 
         // unsupported electrs variant
-        let result = test_go_online_result(&mut wallet, false, Some(ELECTRUM_BLOCKSTREAM_URL));
+        let result = party.go_online_result(false, Some(ELECTRUM_BLOCKSTREAM_URL));
         let details = "verbose transactions are unsupported by the provided electrum service";
         assert!(
             matches!(result, Err(Error::InvalidIndexer { details: m }) if m.contains(details) )
@@ -80,7 +80,7 @@ fn fail() {
     #[cfg(feature = "esplora")]
     {
         // esplora wrong network
-        let result = test_go_online_result(&mut wallet_testnet, false, Some(ESPLORA_URL));
+        let result = party_testnet.go_online_result(false, Some(ESPLORA_URL));
         assert!(
             matches!(result, Err(Error::InvalidIndexer { details: m }) if m == details_another_chain )
         );
@@ -88,7 +88,7 @@ fn fail() {
 
     // bad online object
     let wrong_online = Online { id: 1 };
-    let result = wallet.check_online(wrong_online);
+    let result = party.wallet.check_online(wrong_online);
     assert!(matches!(result, Err(Error::CannotChangeOnline)));
 }
 
@@ -99,8 +99,9 @@ fn invalid_chain_net() {
     initialize();
 
     // URL for custom signet but wallet for default signet
-    let mut wallet_signet = get_test_wallet_with_net(true, None, BitcoinNetwork::Signet);
-    let result = test_go_online_result(&mut wallet_signet, false, Some(ELECTRUM_SIGNET_CUSTOM_URL));
+    let mut party_signet =
+        offline_party!(get_test_wallet_with_net(true, None, BitcoinNetwork::Signet));
+    let result = party_signet.go_online_result(false, Some(ELECTRUM_SIGNET_CUSTOM_URL));
     let details = "resolver is for another chain-network pair";
     assert!(matches!(result, Err(Error::InvalidIndexer { details: m }) if m.contains(details) ));
 }
@@ -112,12 +113,12 @@ fn consistency_check_fail_bitcoins() {
     initialize();
 
     // prepare test wallet with UTXOs + an asset
-    let (mut wallet_orig, online_orig) = get_funded_wallet!();
-    test_issue_asset_nia(&mut wallet_orig, online_orig, None);
+    let mut orig_party = get_funded_party!();
+    orig_party.issue_asset_nia(None);
 
     // get wallet data
-    let wallet_dir_orig = test_get_wallet_dir(&wallet_orig);
-    let keys = wallet_orig.get_keys();
+    let wallet_dir_orig = orig_party.wallet.get_wallet_dir();
+    let keys = orig_party.get_keys();
     let fingerprint = keys.master_fingerprint.clone();
     // prepare directories
     let data_dir_prefill_1 = get_test_data_dir_path().join("test_consistency.bitcoin.prefill_1");
@@ -162,36 +163,38 @@ fn consistency_check_fail_bitcoins() {
     // introduce asset inconsistency by spending UTXOs from other instance of the same wallet,
     // simulating a wallet used on multiple devices (which needs to be avoided to prevent asset
     // loss)
-    let mut wallet_empty = Wallet::new(wallet_data_empty, keys.clone()).unwrap();
-    let online_empty = test_go_online(&mut wallet_empty, false, None);
-    let request = wallet_empty.bdk_wallet().start_full_scan();
-    let update = wallet_empty.indexer().full_scan(request).unwrap();
-    wallet_empty.bdk_wallet_mut().apply_update(update).unwrap();
+    let mut party_empty = offline_party!(Wallet::new(wallet_data_empty, keys.clone()).unwrap());
+    let online_empty = party_empty.go_online(false, None);
+    let mut party_empty = party!(party_empty.wallet, online_empty);
+    let request = party_empty.wallet.bdk_wallet().start_full_scan();
+    let update = party_empty.wallet.indexer().full_scan(request).unwrap();
+    party_empty
+        .wallet
+        .bdk_wallet_mut()
+        .apply_update(update)
+        .unwrap();
     {
-        let (bdk_wallet, bdk_database) = wallet_empty.bdk_wallet_db_mut();
+        let (bdk_wallet, bdk_database) = party_empty.wallet.bdk_wallet_db_mut();
         bdk_wallet.persist(bdk_database).unwrap();
     }
-    let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
-    test_drain_to(
-        &mut wallet_empty,
-        online_empty,
-        &test_get_address(&mut rcv_wallet),
-    );
+    let mut rcv_party = get_funded_party!();
+    party_empty.drain_to(&rcv_party.get_address());
 
     // detect asset inconsistency
     let err = "spent bitcoins with another wallet";
-    let mut wallet_prefill = Wallet::new(wallet_data_prefill, keys.clone()).unwrap();
-    let result = test_go_online_result(&mut wallet_prefill, false, None);
+    let mut party_prefill = offline_party!(Wallet::new(wallet_data_prefill, keys.clone()).unwrap());
+    let result = party_prefill.go_online_result(false, None);
     assert!(matches!(result, Err(Error::Inconsistency { details: e }) if e.contains(err)));
 
     // make sure detection works multiple times (doesn't get reset on first failed check)
-    let mut wallet_prefill_2 = Wallet::new(wallet_data_prefill_2, keys.clone()).unwrap();
+    let mut party_prefill_2 =
+        offline_party!(Wallet::new(wallet_data_prefill_2, keys.clone()).unwrap());
     for file in &db_files {
         let src = PathBuf::from(&wallet_dir_prefill).join(file);
         let dst = PathBuf::from(&wallet_dir_prefill_2).join(file);
         fs::copy(src, dst).unwrap();
     }
-    let result = test_go_online_result(&mut wallet_prefill_2, false, None);
+    let result = party_prefill_2.go_online_result(false, None);
     assert!(matches!(result, Err(Error::Inconsistency { details: e }) if e.contains(err)));
 }
 
@@ -202,12 +205,12 @@ fn consistency_check_fail_utxos() {
     initialize();
 
     // prepare test wallet with UTXOs + an asset
-    let (mut wallet_orig, online_orig) = get_funded_wallet!();
-    test_issue_asset_nia(&mut wallet_orig, online_orig, None);
+    let mut orig_party = get_funded_party!();
+    orig_party.issue_asset_nia(None);
 
     // get wallet data
-    let wallet_dir_orig = test_get_wallet_dir(&wallet_orig);
-    let keys = wallet_orig.get_keys();
+    let wallet_dir_orig = orig_party.wallet.get_wallet_dir();
+    let keys = orig_party.wallet.get_keys();
     let fingerprint = keys.master_fingerprint.clone();
     // prepare directories
     let data_dir_prefill_1 = get_test_data_dir_path().join("test_consistency.utxos.prefill_1");
@@ -252,36 +255,38 @@ fn consistency_check_fail_utxos() {
     // introduce asset inconsistency by spending UTXOs from other instance of the same wallet,
     // simulating a wallet used on multiple devices (which needs to be avoided to prevent asset
     // loss)
-    let mut wallet_empty = Wallet::new(wallet_data_empty, keys.clone()).unwrap();
-    let online_empty = test_go_online(&mut wallet_empty, false, None);
-    let request = wallet_empty.bdk_wallet().start_full_scan();
-    let update = wallet_empty.indexer().full_scan(request).unwrap();
-    wallet_empty.bdk_wallet_mut().apply_update(update).unwrap();
+    let mut party_empty = offline_party!(Wallet::new(wallet_data_empty, keys.clone()).unwrap());
+    let online_empty = party_empty.go_online(false, None);
+    let mut party_empty = party!(party_empty.wallet, online_empty);
+    let request = party_empty.wallet.bdk_wallet().start_full_scan();
+    let update = party_empty.wallet.indexer().full_scan(request).unwrap();
+    party_empty
+        .wallet
+        .bdk_wallet_mut()
+        .apply_update(update)
+        .unwrap();
     {
-        let (bdk_wallet, bdk_database) = wallet_empty.bdk_wallet_db_mut();
+        let (bdk_wallet, bdk_database) = party_empty.wallet.bdk_wallet_db_mut();
         bdk_wallet.persist(bdk_database).unwrap();
     }
-    let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
-    test_drain_to(
-        &mut wallet_empty,
-        online_empty,
-        &test_get_address(&mut rcv_wallet),
-    );
+    let mut rcv_party = get_funded_party!();
+    party_empty.drain_to(&rcv_party.get_address());
 
     // detect asset inconsistency
     let err = "spent bitcoins with another wallet";
-    let mut wallet_prefill = Wallet::new(wallet_data_prefill, keys.clone()).unwrap();
-    let result = test_go_online_result(&mut wallet_prefill, false, None);
+    let mut party_prefill = offline_party!(Wallet::new(wallet_data_prefill, keys.clone()).unwrap());
+    let result = party_prefill.go_online_result(false, None);
     assert!(matches!(result, Err(Error::Inconsistency { details: e }) if e.contains(err)));
 
     // make sure detection works multiple times (doesn't get reset on first failed check)
-    let mut wallet_prefill_2 = Wallet::new(wallet_data_prefill_2, keys.clone()).unwrap();
+    let mut party_prefill_2 =
+        offline_party!(Wallet::new(wallet_data_prefill_2, keys.clone()).unwrap());
     for file in &db_files {
         let src = PathBuf::from(&wallet_dir_prefill).join(file);
         let dst = PathBuf::from(&wallet_dir_prefill_2).join(file);
         fs::copy(src, dst).unwrap();
     }
-    let result = test_go_online_result(&mut wallet_prefill_2, false, None);
+    let result = party_prefill_2.go_online_result(false, None);
     assert!(matches!(result, Err(Error::Inconsistency { details: e }) if e.contains(err)));
 }
 
@@ -292,12 +297,12 @@ fn consistency_check_fail_asset_ids() {
     initialize();
 
     // prepare test wallet with UTXOs + an asset
-    let (mut wallet_orig, online_orig) = get_funded_wallet!();
-    test_issue_asset_nia(&mut wallet_orig, online_orig, None);
+    let mut orig_party = get_funded_party!();
+    orig_party.issue_asset_nia(None);
 
     // get wallet data
-    let wallet_dir_orig = test_get_wallet_dir(&wallet_orig);
-    let keys = wallet_orig.get_keys();
+    let wallet_dir_orig = orig_party.wallet.get_wallet_dir();
+    let keys = orig_party.wallet.get_keys();
     let fingerprint = keys.master_fingerprint.clone();
     // prepare directories
     let data_dir_prefill_1 = get_test_data_dir_path().join("test_consistency.assets.prefill_1");
@@ -327,8 +332,9 @@ fn consistency_check_fail_asset_ids() {
     }
 
     // check the first wallet copy works ok
-    let mut wallet_prefill_1 = Wallet::new(wallet_data_prefill_1, keys.clone()).unwrap();
-    let result = test_go_online_result(&mut wallet_prefill_1, false, None);
+    let mut party_prefill_1 =
+        offline_party!(Wallet::new(wallet_data_prefill_1, keys.clone()).unwrap());
+    let result = party_prefill_1.go_online_result(false, None);
     assert!(result.is_ok());
 
     // introduce asset id inconsistency by removing RGB data from wallet dir
@@ -336,15 +342,17 @@ fn consistency_check_fail_asset_ids() {
 
     // detect inconsistency
     let err = "DB assets do not match with ones stored in RGB";
-    let mut wallet_prefill_2 = Wallet::new(wallet_data_prefill_2, keys.clone()).unwrap();
-    let result = test_go_online_result(&mut wallet_prefill_2, false, None);
+    let mut party_prefill_2 =
+        offline_party!(Wallet::new(wallet_data_prefill_2, keys.clone()).unwrap());
+    let result = party_prefill_2.go_online_result(false, None);
     assert!(matches!(result, Err(Error::Inconsistency { details: e }) if e == err));
 
     // make sure detection works multiple times
     let result = copy_dir::copy_dir(wallet_dir_prefill_2, wallet_dir_prefill_3);
     assert!(result.unwrap().is_empty());
-    let mut wallet_prefill_3 = Wallet::new(wallet_data_prefill_3, keys.clone()).unwrap();
-    let result = test_go_online_result(&mut wallet_prefill_3, false, None);
+    let mut party_prefill_3 =
+        offline_party!(Wallet::new(wallet_data_prefill_3, keys.clone()).unwrap());
+    let result = party_prefill_3.go_online_result(false, None);
     assert!(matches!(result, Err(Error::Inconsistency { details: e }) if e == err));
 }
 
@@ -355,17 +363,12 @@ fn consistency_check_fail_media() {
     initialize();
 
     // prepare test wallet with UTXOs + an asset
-    let (mut wallet_orig, online_orig) = get_funded_wallet!();
-    test_issue_asset_cfa(
-        &mut wallet_orig,
-        online_orig,
-        None,
-        Some(FILE_STR.to_string()),
-    );
+    let mut orig_party = get_funded_party!();
+    orig_party.issue_asset_cfa(None, Some(FILE_STR.to_string()));
 
     // get wallet data
-    let wallet_dir_orig = test_get_wallet_dir(&wallet_orig);
-    let keys = wallet_orig.get_keys();
+    let wallet_dir_orig = orig_party.wallet.get_wallet_dir();
+    let keys = orig_party.wallet.get_keys();
     let fingerprint = keys.master_fingerprint.clone();
     // prepare directories
     let data_dir_prefill_1 = get_test_data_dir_path().join("test_consistency.media.prefill_1");
@@ -395,8 +398,9 @@ fn consistency_check_fail_media() {
     }
 
     // check the first wallet copy works ok
-    let mut wallet_prefill_1 = Wallet::new(wallet_data_prefill_1, keys.clone()).unwrap();
-    let result = test_go_online_result(&mut wallet_prefill_1, false, None);
+    let mut party_prefill_1 =
+        offline_party!(Wallet::new(wallet_data_prefill_1, keys.clone()).unwrap());
+    let result = party_prefill_1.go_online_result(false, None);
     assert!(result.is_ok());
 
     // introduce media inconsistency by removing media dir
@@ -404,15 +408,17 @@ fn consistency_check_fail_media() {
 
     // detect inconsistency
     let err = "DB media do not match with the ones stored in media directory";
-    let mut wallet_prefill_2 = Wallet::new(wallet_data_prefill_2.clone(), keys.clone()).unwrap();
-    let result = test_go_online_result(&mut wallet_prefill_2, false, None);
+    let mut party_prefill_2 =
+        offline_party!(Wallet::new(wallet_data_prefill_2.clone(), keys.clone()).unwrap());
+    let result = party_prefill_2.go_online_result(false, None);
     assert!(matches!(result, Err(Error::Inconsistency { details: e }) if e == err));
 
     // make sure detection works multiple times
     let result = copy_dir::copy_dir(wallet_dir_prefill_2, wallet_dir_prefill_3);
     assert!(result.unwrap().is_empty());
-    let mut wallet_prefill_3 = Wallet::new(wallet_data_prefill_3, keys.clone()).unwrap();
-    let result = test_go_online_result(&mut wallet_prefill_3, false, None);
+    let mut party_prefill_3 =
+        offline_party!(Wallet::new(wallet_data_prefill_3, keys.clone()).unwrap());
+    let result = party_prefill_3.go_online_result(false, None);
     assert!(matches!(result, Err(Error::Inconsistency { details: e }) if e == err));
 }
 
@@ -423,17 +429,17 @@ fn on_off_online() {
     initialize();
 
     // create wallet and go online
-    let mut wallet = get_test_wallet(true, None);
-    let wallet_data = wallet.get_wallet_data();
-    let keys = wallet.get_keys();
-    let _online = test_go_online(&mut wallet, false, None);
+    let mut party = offline_party!(get_test_wallet(true, None));
+    let wallet_data = party.wallet.get_wallet_data();
+    let keys = party.wallet.get_keys();
+    let _online = party.go_online(false, None);
 
     // go offline and close wallet
-    drop(wallet);
+    drop(party);
 
     // re-instantiate wallet and go back online
-    let mut wallet = Wallet::new(wallet_data, keys.clone()).unwrap();
-    test_go_online(&mut wallet, false, None);
+    let mut party = offline_party!(Wallet::new(wallet_data, keys.clone()).unwrap());
+    party.go_online(false, None);
 }
 
 #[cfg(feature = "electrum")]
@@ -443,10 +449,11 @@ fn offline() {
     initialize();
 
     // don't go online and manually craft the Online object
-    let mut wallet = get_test_wallet(true, Some(MAX_ALLOCATIONS_PER_UTXO));
+    let wallet = get_test_wallet(true, Some(MAX_ALLOCATIONS_PER_UTXO));
     let online = Online { id: 0 };
+    let mut party = party!(wallet, online);
 
     // the online check should report that the wallet is offline
-    let result = test_create_utxos_begin_result(&mut wallet, online, true, None, None, FEE_RATE);
+    let result = party.create_utxos_begin_result(true, None, None, FEE_RATE);
     assert!(matches!(result, Err(Error::Offline)));
 }

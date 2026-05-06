@@ -2,8 +2,12 @@ use super::*;
 
 use std::os::unix::fs::PermissionsExt;
 
-fn check_wallet(wallet: &Wallet, network: BitcoinNetwork, keychain_vanilla: Option<u8>) {
-    let keychains: Vec<_> = wallet.bdk_wallet().keychains().collect();
+fn check_wallet(
+    party: &impl OfflineSigParty<W = Wallet>,
+    network: BitcoinNetwork,
+    keychain_vanilla: Option<u8>,
+) {
+    let keychains: Vec<_> = party.wlt().bdk_wallet().keychains().collect();
     assert_eq!(keychains.len(), 2);
     for (keychain_kind, extended_descriptor) in keychains {
         match keychain_kind {
@@ -48,7 +52,7 @@ fn check_wallet(wallet: &Wallet, network: BitcoinNetwork, keychain_vanilla: Opti
             },
         }
     }
-    assert_eq!(wallet.get_wallet_data().bitcoin_network, network);
+    assert_eq!(party.get_wallet_data().bitcoin_network, network);
 }
 
 #[test]
@@ -57,32 +61,32 @@ fn success() {
     create_test_data_dir();
 
     // with private keys
-    let wallet = get_test_wallet(true, None);
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_after = txn.get_backup_info().unwrap();
-    txn.commit().unwrap();
+    let party = offline_party!(get_test_wallet(true, None));
+    let bak_info_after = party.db_backup_info_opt();
     assert!(bak_info_after.is_none());
 
     // without private keys
-    let wallet = get_test_wallet(false, None);
-    check_wallet(&wallet, BitcoinNetwork::Regtest, None);
+    let party = offline_party!(get_test_wallet(false, None));
+    check_wallet(&party, BitcoinNetwork::Regtest, None);
 
     // with custom vanilla keychain
     let bitcoin_network = BitcoinNetwork::Regtest;
     let keys = generate_keys(bitcoin_network, WitnessVersion::Taproot);
     let vanilla_keychain = Some(u8::MAX);
-    let wallet = Wallet::new(
-        WalletData {
-            data_dir: get_test_data_dir_string(),
-            bitcoin_network,
-            database_type: DatabaseType::Sqlite,
-            max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
-            supported_schemas: AssetSchema::VALUES.to_vec(),
-        },
-        SinglesigKeys::from_keys(&keys, vanilla_keychain),
-    )
-    .unwrap();
-    check_wallet(&wallet, bitcoin_network, vanilla_keychain);
+    let party = offline_party!(
+        Wallet::new(
+            WalletData {
+                data_dir: get_test_data_dir_string(),
+                bitcoin_network,
+                database_type: DatabaseType::Sqlite,
+                max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
+                supported_schemas: AssetSchema::VALUES.to_vec(),
+            },
+            SinglesigKeys::from_keys(&keys, vanilla_keychain),
+        )
+        .unwrap()
+    );
+    check_wallet(&party, bitcoin_network, vanilla_keychain);
 }
 
 #[cfg(feature = "electrum")]
@@ -92,12 +96,12 @@ fn signet_success() {
     create_test_data_dir();
 
     let bitcoin_network = BitcoinNetwork::Signet;
-    let mut wallet = get_test_wallet_with_net(true, None, bitcoin_network);
-    check_wallet(&wallet, bitcoin_network, None);
+    let mut party = offline_party!(get_test_wallet_with_net(true, None, bitcoin_network));
+    check_wallet(&party, bitcoin_network, None);
     let indexer_url = "ssl://electrum.iriswallet.com:50033";
-    test_go_online(&mut wallet, false, Some(indexer_url));
-    assert!(!wallet.watch_only());
-    assert_eq!(wallet.get_wallet_data().bitcoin_network, bitcoin_network);
+    party.go_online(false, Some(indexer_url));
+    assert!(!party.wallet.watch_only());
+    assert_eq!(party.get_wallet_data().bitcoin_network, bitcoin_network);
 }
 
 #[cfg(feature = "electrum")]
@@ -107,12 +111,12 @@ fn testnet_success() {
     create_test_data_dir();
 
     let bitcoin_network = BitcoinNetwork::Testnet;
-    let mut wallet = get_test_wallet_with_net(true, None, bitcoin_network);
-    check_wallet(&wallet, bitcoin_network, None);
+    let mut party = offline_party!(get_test_wallet_with_net(true, None, bitcoin_network));
+    check_wallet(&party, bitcoin_network, None);
     let indexer_url = "ssl://electrum.iriswallet.com:50013";
-    test_go_online(&mut wallet, false, Some(indexer_url));
-    assert!(!wallet.watch_only());
-    assert_eq!(wallet.get_wallet_data().bitcoin_network, bitcoin_network);
+    party.go_online(false, Some(indexer_url));
+    assert!(!party.wallet.watch_only());
+    assert_eq!(party.get_wallet_data().bitcoin_network, bitcoin_network);
 }
 
 #[cfg(feature = "electrum")]
@@ -122,12 +126,12 @@ fn testnet4_success() {
     create_test_data_dir();
 
     let bitcoin_network = BitcoinNetwork::Testnet4;
-    let mut wallet = get_test_wallet_with_net(true, None, bitcoin_network);
-    check_wallet(&wallet, bitcoin_network, None);
+    let mut party = offline_party!(get_test_wallet_with_net(true, None, bitcoin_network));
+    check_wallet(&party, bitcoin_network, None);
     let indexer_url = "ssl://electrum.iriswallet.com:50053";
-    test_go_online(&mut wallet, false, Some(indexer_url));
-    assert!(!wallet.watch_only());
-    assert_eq!(wallet.get_wallet_data().bitcoin_network, bitcoin_network);
+    party.go_online(false, Some(indexer_url));
+    assert!(!party.wallet.watch_only());
+    assert_eq!(party.get_wallet_data().bitcoin_network, bitcoin_network);
 }
 
 #[cfg(feature = "electrum")]
@@ -138,24 +142,26 @@ fn mainnet_success_electrum() {
 
     let bitcoin_network = BitcoinNetwork::Mainnet;
     let keys = generate_keys(bitcoin_network, WitnessVersion::Taproot);
-    let mut wallet = Wallet::new(
-        WalletData {
-            data_dir: get_test_data_dir_string(),
-            bitcoin_network,
-            database_type: DatabaseType::Sqlite,
-            max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
-            // IFA not supported on mainnet
-            supported_schemas: vec![AssetSchema::Cfa, AssetSchema::Nia, AssetSchema::Uda],
-        },
-        SinglesigKeys::from_keys(&keys, None),
-    )
-    .unwrap();
+    let mut party = offline_party!(
+        Wallet::new(
+            WalletData {
+                data_dir: get_test_data_dir_string(),
+                bitcoin_network,
+                database_type: DatabaseType::Sqlite,
+                max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
+                // IFA not supported on mainnet
+                supported_schemas: vec![AssetSchema::Cfa, AssetSchema::Nia, AssetSchema::Uda],
+            },
+            SinglesigKeys::from_keys(&keys, None),
+        )
+        .unwrap()
+    );
 
-    check_wallet(&wallet, bitcoin_network, None);
+    check_wallet(&party, bitcoin_network, None);
     let indexer_url = "ssl://electrum.iriswallet.com:50003";
-    test_go_online(&mut wallet, false, Some(indexer_url));
-    assert!(!wallet.watch_only());
-    assert_eq!(wallet.get_wallet_data().bitcoin_network, bitcoin_network);
+    party.go_online(false, Some(indexer_url));
+    assert!(!party.wallet.watch_only());
+    assert_eq!(party.get_wallet_data().bitcoin_network, bitcoin_network);
 }
 
 #[cfg(feature = "esplora")]
@@ -167,31 +173,33 @@ fn mainnet_success_esplora() {
 
     let bitcoin_network = BitcoinNetwork::Mainnet;
     let keys = generate_keys(bitcoin_network, WitnessVersion::Taproot);
-    let mut wallet = Wallet::new(
-        WalletData {
-            data_dir: get_test_data_dir_string(),
-            bitcoin_network,
-            database_type: DatabaseType::Sqlite,
-            max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
-            // IFA not supported on mainnet
-            supported_schemas: vec![AssetSchema::Cfa, AssetSchema::Nia, AssetSchema::Uda],
-        },
-        SinglesigKeys::from_keys(&keys, None),
-    )
-    .unwrap();
+    let mut party = offline_party!(
+        Wallet::new(
+            WalletData {
+                data_dir: get_test_data_dir_string(),
+                bitcoin_network,
+                database_type: DatabaseType::Sqlite,
+                max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
+                // IFA not supported on mainnet
+                supported_schemas: vec![AssetSchema::Cfa, AssetSchema::Nia, AssetSchema::Uda],
+            },
+            SinglesigKeys::from_keys(&keys, None),
+        )
+        .unwrap()
+    );
 
-    check_wallet(&wallet, bitcoin_network, None);
+    check_wallet(&party, bitcoin_network, None);
     let indexer_url = "https://blockstream.info/api";
-    test_go_online(&mut wallet, false, Some(indexer_url));
-    assert!(!wallet.watch_only());
-    assert_eq!(wallet.get_wallet_data().bitcoin_network, bitcoin_network);
+    party.go_online(false, Some(indexer_url));
+    assert!(!party.wallet.watch_only());
+    assert_eq!(party.get_wallet_data().bitcoin_network, bitcoin_network);
 }
 
 #[test]
 #[parallel]
 fn fail() {
     let wallet = get_test_wallet(true, None);
-    let wallet_data = test_get_wallet_data(&wallet);
+    let wallet_data = wallet.get_wallet_data();
     let keys = wallet.get_keys();
 
     // inexistent data dir
@@ -276,16 +284,16 @@ fn re_instantiate_wallet() {
     let amount: u64 = 66;
 
     // create wallets
-    let (mut wallet, online) = get_funded_wallet!();
-    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
-    let wallet_data = wallet.get_wallet_data().clone();
-    let keys = wallet.get_keys();
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+    let wallet_data = party.get_wallet_data().clone();
+    let keys = party.get_keys();
 
     // issue
-    let asset = test_issue_asset_nia(&mut wallet, online, None);
+    let asset = party.issue_asset_nia(None);
 
     // send
-    let receive_data = test_blind_receive(&mut rcv_wallet);
+    let receive_data = rcv_party.blind_receive();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -295,27 +303,28 @@ fn re_instantiate_wallet() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&mut wallet, online, &recipient_map);
+    let txid = party.send_retry(&recipient_map);
     assert!(!txid.is_empty());
     // take transfers from WaitingCounterparty to Settled
-    wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
-    wait_for_refresh(&mut wallet, online, Some(&asset.asset_id), None);
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(Some(&asset.asset_id));
     mine(false);
-    wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
-    wait_for_refresh(&mut wallet, online, Some(&asset.asset_id), None);
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(Some(&asset.asset_id));
 
     // drop wallet
-    drop(wallet);
+    drop(party);
 
     // re-instantiate wallet
     let mut wallet = Wallet::new(wallet_data.clone(), keys.clone()).unwrap();
-    let _online = wallet.go_online(test_go_online_options(None)).unwrap();
+    let online = wallet.go_online(test_go_online_options(None)).unwrap();
+    let mut party = party!(wallet, online);
 
     // check wallet asset
-    check_test_wallet_data(&mut wallet, &asset, None, 1, amount);
+    party.check_test_wallet_data(&asset, None, 1, amount);
 
     // drop wallet
-    drop(wallet);
+    drop(party);
 
     // re-instantiate wallet in watch only mode
     let mut keys_bad = keys.clone();
@@ -348,6 +357,7 @@ fn watch_only_success() {
     let online_watch = wallet_watch
         .go_online(test_go_online_options(None))
         .unwrap();
+    let mut party_watch = party!(wallet_watch, online_watch);
 
     // signer wallet
     let mut wallet_sign = Wallet::new(
@@ -363,31 +373,26 @@ fn watch_only_success() {
     .unwrap();
 
     // check generated addresses are the same
-    let address_watch = wallet_watch.get_address().unwrap();
+    let address_watch = party_watch.get_address();
     let address_signer = wallet_sign.get_address().unwrap();
     assert_eq!(address_watch, address_signer);
 
     // fund wallet
     fund_wallet(address_watch);
     mine(false);
-    let unspents = test_list_unspents(&mut wallet_watch, Some(online_watch), false);
+    let unspents = party_watch.list_unspents_with_sync(false);
     assert_eq!(unspents.len(), 1);
 
     // create UTXOs
-    let unsigned_psbt = test_create_utxos_begin_result(
-        &mut wallet_watch,
-        online_watch,
-        false,
-        None,
-        None,
-        FEE_RATE,
-    )
-    .unwrap();
+    let unsigned_psbt = party_watch
+        .create_utxos_begin_result(false, None, None, FEE_RATE)
+        .unwrap();
     let signed_psbt = wallet_sign.sign_psbt(unsigned_psbt, None).unwrap();
-    wallet_watch
+    party_watch
+        .wallet
         .create_utxos_end(online_watch, signed_psbt)
         .unwrap();
-    let unspents = test_list_unspents(&mut wallet_watch, Some(online_watch), false);
+    let unspents = party_watch.list_unspents_with_sync(false);
     assert_eq!(unspents.len(), UTXO_NUM as usize + 1);
 }
 
@@ -487,19 +492,19 @@ fn supported_schemas() {
     )
     .unwrap();
     let online_nia = wallet_nia.go_online(test_go_online_options(None)).unwrap();
-    fund_wallet(wallet_nia.get_address().unwrap());
-    test_create_utxos_default(&mut wallet_nia, online_nia);
+    let mut party_nia = party!(wallet_nia, online_nia);
+    fund_wallet(party_nia.get_address());
+    party_nia.create_utxos_default();
 
     // issue a NIA asset, should work
-    let asset_nia = test_issue_asset_nia(&mut wallet_nia, online_nia, Some(&[AMOUNT]));
+    let asset_nia = party_nia.issue_asset_nia(Some(&[AMOUNT]));
 
     // issue a different schema asset, should fail
-    let result = test_issue_asset_cfa_result(&mut wallet_nia, online_nia, Some(&[AMOUNT]), None);
+    let result = party_nia.issue_asset_cfa_result(Some(&[AMOUNT]), None);
     assert_matches!(result, Err(Error::UnsupportedSchema { asset_schema: _ }));
-    let result =
-        test_issue_asset_ifa_result(&mut wallet_nia, online_nia, Some(&[AMOUNT]), None, None);
+    let result = party_nia.issue_asset_ifa_result(Some(&[AMOUNT]), None, None);
     assert_matches!(result, Err(Error::UnsupportedSchema { asset_schema: _ }));
-    let result = test_issue_asset_uda_result(&mut wallet_nia, online_nia, None, None, vec![]);
+    let result = party_nia.issue_asset_uda_result(None, None, vec![]);
     assert_matches!(result, Err(Error::UnsupportedSchema { asset_schema: _ }));
 
     // recipient wallet (UDA schema supported)
@@ -518,11 +523,12 @@ fn supported_schemas() {
     let rcv_online_uda = rcv_wallet_uda
         .go_online(test_go_online_options(None))
         .unwrap();
-    fund_wallet(rcv_wallet_uda.get_address().unwrap());
-    test_create_utxos_default(&mut rcv_wallet_uda, rcv_online_uda);
+    let mut rcv_party_uda = party!(rcv_wallet_uda, rcv_online_uda);
+    fund_wallet(rcv_party_uda.get_address());
+    rcv_party_uda.create_utxos_default();
 
     // send asset unsupported by the recipient
-    let receive_data = test_blind_receive(&mut rcv_wallet_uda);
+    let receive_data = rcv_party_uda.blind_receive();
     let recipient_map = HashMap::from([(
         asset_nia.asset_id.clone(),
         vec![Recipient {
@@ -532,19 +538,19 @@ fn supported_schemas() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&mut wallet_nia, online_nia, &recipient_map);
+    let txid = party_nia.send_retry(&recipient_map);
     assert!(!txid.is_empty());
-    let rcv_transfer = get_test_transfer_recipient(&rcv_wallet_uda, &receive_data.recipient_id);
-    let (rcv_transfer_data, _) = get_test_transfer_data(&rcv_wallet_uda, &rcv_transfer);
+    let rcv_transfer = rcv_party_uda.get_test_transfer_recipient(&receive_data.recipient_id);
+    let (rcv_transfer_data, _) = rcv_party_uda.get_test_transfer_data(&rcv_transfer);
     assert_eq!(
         rcv_transfer_data.status,
         TransferStatus::WaitingCounterparty
     );
 
     // refresh the recipient, transfer should fail
-    test_refresh_all(&mut rcv_wallet_uda, rcv_online_uda);
-    let rcv_transfer = get_test_transfer_recipient(&rcv_wallet_uda, &receive_data.recipient_id);
-    let (rcv_transfer_data, _) = get_test_transfer_data(&rcv_wallet_uda, &rcv_transfer);
+    rcv_party_uda.refresh_all();
+    let rcv_transfer = rcv_party_uda.get_test_transfer_recipient(&receive_data.recipient_id);
+    let (rcv_transfer_data, _) = rcv_party_uda.get_test_transfer_data(&rcv_transfer);
     assert_eq!(rcv_transfer_data.status, TransferStatus::Failed);
 
     // wallet (CFA schema supported)
@@ -560,9 +566,10 @@ fn supported_schemas() {
     )
     .unwrap();
     let online_cfa = wallet_cfa.go_online(test_go_online_options(None)).unwrap();
+    let mut party_cfa = party!(wallet_cfa, online_cfa);
 
     // send asset unsupported by the sender
-    let receive_data = test_blind_receive(&mut rcv_wallet_uda);
+    let receive_data = rcv_party_uda.blind_receive();
     let recipient_map = HashMap::from([(
         asset_nia.asset_id.clone(),
         vec![Recipient {
@@ -572,7 +579,7 @@ fn supported_schemas() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let result = test_send_result(&mut wallet_cfa, online_cfa, &recipient_map);
+    let result = party_cfa.send_result(&recipient_map);
     assert_matches!(result, Err(Error::UnsupportedSchema { asset_schema: _ }));
 
     // wallet (no schema supported)

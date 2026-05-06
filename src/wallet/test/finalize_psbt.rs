@@ -5,13 +5,17 @@ use super::*;
 #[parallel]
 fn success() {
     initialize();
-    let (mut wallet, online) = get_funded_wallet!();
-    let address = test_get_address(&mut wallet);
-    let unsigned_psbt_str = wallet
-        .send_btc_begin(online, address, AMOUNT, FEE_RATE, false, true)
+    let mut party = get_funded_party!();
+    let address = party.get_address();
+    let unsigned_psbt_str = party
+        .wallet
+        .send_btc_begin(party.online, address, AMOUNT, FEE_RATE, false, true)
         .unwrap();
-    let signed_psbt = wallet.sign_psbt(unsigned_psbt_str.clone(), None).unwrap();
-    let finalized_psbt = wallet.finalize_psbt(signed_psbt, None);
+    let signed_psbt = party
+        .wallet
+        .sign_psbt(unsigned_psbt_str.clone(), None)
+        .unwrap();
+    let finalized_psbt = party.wallet.finalize_psbt(signed_psbt, None);
     assert!(finalized_psbt.is_ok());
 }
 
@@ -20,13 +24,14 @@ fn success() {
 #[parallel]
 fn fail() {
     initialize();
-    let (mut wallet_1, online) = get_funded_wallet!();
-    let result = wallet_1.finalize_psbt("rgb1invalid".to_string(), None);
+    let mut party = get_funded_party!();
+    let result = party.wallet.finalize_psbt("rgb1invalid".to_string(), None);
     assert_matches!(result, Err(Error::InvalidPsbt { details: _ }));
 
-    let address = test_get_address(&mut wallet_1);
-    let unsigned_psbt_str = wallet_1
-        .send_btc_begin(online, address, AMOUNT, FEE_RATE, false, true)
+    let address = party.get_address();
+    let unsigned_psbt_str = party
+        .wallet
+        .send_btc_begin(party.online, address, AMOUNT, FEE_RATE, false, true)
         .unwrap();
     let wallet_2 = get_test_wallet(true, None);
     let result = wallet_2.finalize_psbt(unsigned_psbt_str, None);

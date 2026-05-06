@@ -158,7 +158,7 @@ pub struct Balance {
 /// balances.
 /// The spendable balances include the settled balance and also the untrusted and trusted pending
 /// balances.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct BtcBalance {
     /// Funds that will never hold RGB assets

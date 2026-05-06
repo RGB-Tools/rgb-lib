@@ -9,29 +9,25 @@ fn success() {
     let amount: u64 = 66;
 
     let _guard = stop_mining_when_alone();
-    let (mut wallet, online) = get_empty_wallet!();
-    let (mut rcv_wallet, rcv_online) = get_empty_wallet!();
+    let mut party = get_empty_party!();
+    let mut rcv_party = get_empty_party!();
 
-    send_to_address(test_get_address(&mut wallet));
-    send_to_address(test_get_address(&mut rcv_wallet));
+    send_to_address(party.get_address());
+    send_to_address(rcv_party.get_address());
     force_mine_no_resume_when_alone(false);
-    test_create_utxos_default(&mut wallet, online);
-    test_create_utxos_default(&mut rcv_wallet, rcv_online);
+    party.create_utxos_default();
+    rcv_party.create_utxos_default();
     force_mine_no_resume_when_alone(false);
 
     // don't sync wallet without online
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
-    let transactions = test_list_transactions(&mut wallet, None);
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
+    let bak_info_before = party.db_backup_info();
+    let transactions = party.list_transactions();
+    let bak_info_after = party.db_backup_info();
     assert_eq!(
         bak_info_after.last_operation_timestamp,
         bak_info_before.last_operation_timestamp
     );
-    let rcv_transactions = test_list_transactions(&mut wallet, None);
+    let rcv_transactions = party.list_transactions();
     assert_eq!(transactions.len(), 2);
     assert_eq!(rcv_transactions.len(), 2);
     assert!(
@@ -62,8 +58,8 @@ fn success() {
     );
     // sync wallet when online is provided
     drop(_guard);
-    let transactions = test_list_transactions(&mut wallet, Some(online));
-    let rcv_transactions = test_list_transactions(&mut rcv_wallet, Some(rcv_online));
+    let transactions = party.list_transactions_with_sync();
+    let rcv_transactions = rcv_party.list_transactions_with_sync();
     assert!(transactions.iter().all(|t| t.confirmation_time.is_some()));
     assert!(
         rcv_transactions
@@ -71,8 +67,8 @@ fn success() {
             .all(|t| t.confirmation_time.is_some())
     );
 
-    let asset = test_issue_asset_nia(&mut wallet, online, None);
-    let receive_data = test_witness_receive(&mut rcv_wallet);
+    let asset = party.issue_asset_nia(None);
+    let receive_data = rcv_party.witness_receive();
     let recipient_map = HashMap::from([(
         asset.asset_id,
         vec![Recipient {
@@ -85,15 +81,15 @@ fn success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    test_send(&mut wallet, online, &recipient_map);
+    party.send_retry(&recipient_map);
     // settle the transfer so the tx gets broadcasted and receiver sees the new UTXO
-    wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
-    wait_for_refresh(&mut wallet, online, None, None);
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(None);
     mine(false);
-    wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
-    wait_for_refresh(&mut wallet, online, None, None);
-    let transactions = test_list_transactions(&mut wallet, Some(online));
-    let rcv_transactions = test_list_transactions(&mut rcv_wallet, Some(rcv_online));
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(None);
+    let transactions = party.list_transactions_with_sync();
+    let rcv_transactions = rcv_party.list_transactions_with_sync();
     assert_eq!(transactions.len(), 3);
     assert_eq!(rcv_transactions.len(), 3);
     assert!(
@@ -113,9 +109,9 @@ fn success() {
             .all(|t| t.confirmation_time.is_some())
     );
 
-    drain_wallet(&mut wallet, online);
+    party.drain_wallet();
     mine(false);
-    let transactions = test_list_transactions(&mut wallet, Some(online));
+    let transactions = party.list_transactions_with_sync();
     assert_eq!(transactions.len(), 4);
     assert!(
         transactions
@@ -134,20 +130,21 @@ fn skip_sync() {
     let check_timeout = 10;
     let check_interval = 1000;
 
-    let (mut wallet, online) = get_empty_wallet!();
+    let mut party = get_empty_party!();
 
-    send_to_address(test_get_address(&mut wallet));
+    send_to_address(party.get_address());
 
     // transaction list doesn't report the TX if sync is skipped
-    let transactions = test_list_transactions(&mut wallet, None);
+    let transactions = party.list_transactions();
     assert_eq!(transactions.len(), 0);
 
     // transaction list reports the TX after manually syncing
     assert!(wait_for_function(
         || {
-            wallet
+            party
+                .wallet
                 .sync(
-                    online,
+                    party.online,
                     SyncOptions {
                         keychain: SyncKeychain::Vanilla {
                             lookback: INDEXER_SYNC_LOOKBACK as u32,
@@ -156,7 +153,7 @@ fn skip_sync() {
                     },
                 )
                 .unwrap();
-            let transactions = test_list_transactions(&mut wallet, None);
+            let transactions = party.list_transactions();
             transactions.len() == 1
         },
         check_timeout,

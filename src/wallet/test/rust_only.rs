@@ -10,32 +10,19 @@ fn success() {
     let blinding = 777;
 
     // wallets
-    let (mut wallet_send, online_send) = get_funded_noutxo_wallet!();
-    let (mut wallet_recv, _online_recv) = get_empty_wallet!();
+    let mut party_send = get_funded_noutxo_party!();
+    let mut recv_party = get_empty_party!();
 
     // create 1 UTXO and send the rest
-    test_create_utxos(
-        &mut wallet_send,
-        online_send,
-        false,
-        Some(1),
-        None,
-        FEE_RATE,
-        None,
-    );
-    test_send_btc(
-        &mut wallet_send,
-        online_send,
-        &test_get_address(&mut wallet_recv),
-        99_998_200,
-    );
+    party_send.create_utxos(false, Some(1), None, FEE_RATE, None);
+    party_send.send_btc(&recv_party.get_address(), 99_998_200);
 
     // issue
-    let asset = test_issue_asset_nia(&mut wallet_send, online_send, Some(&[AMOUNT]));
+    let asset = party_send.issue_asset_nia(Some(&[AMOUNT]));
 
     // prepare PSBT
-    let address = BdkAddress::from_str(&test_get_address(&mut wallet_recv)).unwrap();
-    let mut tx_builder = wallet_send.bdk_wallet_mut().build_tx();
+    let address = BdkAddress::from_str(&recv_party.get_address()).unwrap();
+    let mut tx_builder = party_send.wallet.bdk_wallet_mut().build_tx();
     tx_builder
         .add_recipient(
             address.assume_checked().script_pubkey(),
@@ -78,7 +65,8 @@ fn success() {
         static_blinding: Some(blinding),
         nonce: None,
     };
-    let (fascia, beneficiaries) = wallet_send
+    let (fascia, beneficiaries) = party_send
+        .wallet
         .color_psbt(&mut psbt, coloring_info.clone())
         .unwrap();
 
@@ -125,7 +113,8 @@ fn success() {
     assert_eq!(seal.blinding, blinding);
 
     // color PSBT and consume
-    let transfers = wallet_send
+    let transfers = party_send
+        .wallet
         .color_psbt_and_consume(&mut psbt_copy, coloring_info)
         .unwrap();
 
@@ -134,7 +123,7 @@ fn success() {
 
     // push consignment to proxy
     let txid = psbt_copy.unsigned_tx.compute_txid().to_string();
-    let transfers_dir = wallet_send.get_transfers_dir().join(&txid);
+    let transfers_dir = party_send.wallet.get_transfers_dir().join(&txid);
     let consignment_path = transfers_dir.join(CONSIGNMENT_FILE);
     std::fs::create_dir_all(&transfers_dir).unwrap();
     assert_eq!(transfers.len(), 1);
@@ -143,7 +132,8 @@ fn success() {
         .unwrap()
         .save_file(&consignment_path)
         .unwrap();
-    wallet_send
+    party_send
+        .wallet
         .post_consignment(
             PROXY_URL,
             txid.clone(),
@@ -155,12 +145,13 @@ fn success() {
 
     // accept transfer
     let consignment_endpoint = RgbTransport::from_str(&PROXY_ENDPOINT).unwrap();
-    wallet_recv
+    recv_party
+        .wallet
         .accept_transfer(txid.clone(), vout, consignment_endpoint, blinding)
         .unwrap();
 
     // consume fascia
-    wallet_send.consume_fascia(fascia, None).unwrap();
+    party_send.wallet.consume_fascia(fascia, None).unwrap();
 }
 
 #[cfg(feature = "electrum")]
@@ -170,44 +161,40 @@ fn list_unspents_vanilla_success() {
     initialize();
 
     // wallets
-    let (mut wallet, online) = get_empty_wallet!();
+    let mut party = get_empty_party!();
 
     // no unspents
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_before = txn.get_backup_info().unwrap();
-    txn.commit().unwrap();
+    let bak_info_before = party.db_backup_info_opt();
     assert!(bak_info_before.is_none());
-    let unspent_list = test_list_unspents_vanilla(&mut wallet, online, None);
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_after = txn.get_backup_info().unwrap();
-    txn.commit().unwrap();
+    let unspent_list = party.list_unspents_vanilla(None);
+    let bak_info_after = party.db_backup_info_opt();
     assert!(bak_info_after.is_none());
     assert_eq!(unspent_list.len(), 0);
 
     let _guard = stop_mining();
 
-    send_to_address(test_get_address(&mut wallet));
+    send_to_address(party.get_address());
 
     // one unspent, no confirmations
-    let unspent_list = test_list_unspents_vanilla(&mut wallet, online, None);
+    let unspent_list = party.list_unspents_vanilla(None);
     assert_eq!(unspent_list.len(), 0);
-    let unspent_list = test_list_unspents_vanilla(&mut wallet, online, Some(0));
+    let unspent_list = party.list_unspents_vanilla(Some(0));
     assert_eq!(unspent_list.len(), 1);
 
     drop(_guard);
     mine(false);
 
     // one unspent, 1 confirmation
-    let unspent_list = test_list_unspents_vanilla(&mut wallet, online, None);
+    let unspent_list = party.list_unspents_vanilla(None);
     assert_eq!(unspent_list.len(), 1);
-    let unspent_list = test_list_unspents_vanilla(&mut wallet, online, Some(0));
+    let unspent_list = party.list_unspents_vanilla(Some(0));
     assert_eq!(unspent_list.len(), 1);
 
-    test_create_utxos_default(&mut wallet, online);
+    party.create_utxos_default();
 
     // one unspent (change), colored unspents not listed
     mine(false);
-    let unspent_list = test_list_unspents_vanilla(&mut wallet, online, None);
+    let unspent_list = party.list_unspents_vanilla(None);
     assert_eq!(unspent_list.len(), 1);
 }
 
@@ -217,20 +204,22 @@ fn list_unspents_vanilla_success() {
 fn list_unspents_vanilla_skip_sync() {
     initialize();
 
-    let (mut wallet, online) = get_empty_wallet!();
+    let mut party = get_empty_party!();
 
-    fund_wallet(test_get_address(&mut wallet));
+    fund_wallet(party.get_address());
 
     // no unspents if skipping sync
-    let unspents = wallet
-        .list_unspents_vanilla(online, MIN_CONFIRMATIONS, true)
+    let unspents = party
+        .wallet
+        .list_unspents_vanilla(party.online, MIN_CONFIRMATIONS, true)
         .unwrap();
     assert_eq!(unspents.len(), 0);
 
     // 1 unspent after manually syncing
-    wallet
+    party
+        .wallet
         .sync(
-            online,
+            party.online,
             SyncOptions {
                 keychain: SyncKeychain::Vanilla {
                     lookback: INDEXER_SYNC_LOOKBACK as u32,
@@ -239,8 +228,9 @@ fn list_unspents_vanilla_skip_sync() {
             },
         )
         .unwrap();
-    let unspents = wallet
-        .list_unspents_vanilla(online, MIN_CONFIRMATIONS, true)
+    let unspents = party
+        .wallet
+        .list_unspents_vanilla(party.online, MIN_CONFIRMATIONS, true)
         .unwrap();
     assert_eq!(unspents.len(), 1);
 }
@@ -253,22 +243,18 @@ fn save_new_asset_success() {
     let asset_amount: u64 = 66;
 
     // wallets
-    let (mut wallet, online) = get_funded_wallet!();
-    let (mut rcv_wallet, _rcv_online) = get_empty_wallet!();
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_empty_party!();
 
     // NIA
-    let nia_asset = test_issue_asset_nia(&mut wallet, online, None);
-    test_save_new_asset(
-        &mut wallet,
-        online,
-        &mut rcv_wallet,
+    let nia_asset = party.issue_asset_nia(None);
+    party.check_save_new_asset(
+        &mut rcv_party,
         &nia_asset.asset_id,
         Assignment::Fungible(asset_amount),
     );
-    let txn = rcv_wallet.database().begin_transaction().unwrap();
-    assert!(txn.check_asset_exists(nia_asset.asset_id.clone()).is_ok());
-    let asset_model = txn.get_asset(nia_asset.asset_id.clone()).unwrap().unwrap();
-    txn.commit().unwrap();
+    assert!(rcv_party.db_check_asset_exists(&nia_asset.asset_id).is_ok());
+    let asset_model = rcv_party.db_asset(&nia_asset.asset_id);
     assert_eq!(asset_model.id, nia_asset.asset_id);
     assert_eq!(asset_model.initial_supply, AMOUNT.to_string());
     assert_eq!(asset_model.name, NAME);
@@ -277,18 +263,14 @@ fn save_new_asset_success() {
     assert_eq!(asset_model.schema, AssetSchema::Nia);
 
     // CFA
-    let cfa_asset = test_issue_asset_cfa(&mut wallet, online, None, None);
-    test_save_new_asset(
-        &mut wallet,
-        online,
-        &mut rcv_wallet,
+    let cfa_asset = party.issue_asset_cfa(None, None);
+    party.check_save_new_asset(
+        &mut rcv_party,
         &cfa_asset.asset_id,
         Assignment::Fungible(asset_amount),
     );
-    let txn = rcv_wallet.database().begin_transaction().unwrap();
-    assert!(txn.check_asset_exists(cfa_asset.asset_id.clone()).is_ok());
-    let asset_model = txn.get_asset(cfa_asset.asset_id.clone()).unwrap().unwrap();
-    txn.commit().unwrap();
+    assert!(rcv_party.db_check_asset_exists(&cfa_asset.asset_id).is_ok());
+    let asset_model = rcv_party.db_asset(&cfa_asset.asset_id);
     assert_eq!(asset_model.id, cfa_asset.asset_id);
     assert_eq!(asset_model.initial_supply, AMOUNT.to_string());
     assert_eq!(asset_model.name, NAME);
@@ -298,25 +280,12 @@ fn save_new_asset_success() {
 
     // UDA
     let image_str = ["tests", "qrcode.png"].join(MAIN_SEPARATOR_STR);
-    let uda_asset = test_issue_asset_uda(
-        &mut wallet,
-        online,
-        Some(DETAILS),
-        Some(FILE_STR),
-        vec![&image_str, FILE_STR],
-    );
-    test_create_utxos(&mut wallet, online, false, None, None, FEE_RATE, None);
-    test_save_new_asset(
-        &mut wallet,
-        online,
-        &mut rcv_wallet,
-        &uda_asset.asset_id,
-        Assignment::NonFungible,
-    );
-    let txn = rcv_wallet.database().begin_transaction().unwrap();
-    assert!(txn.check_asset_exists(uda_asset.asset_id.clone()).is_ok());
-    let asset_model = txn.get_asset(uda_asset.asset_id.clone()).unwrap().unwrap();
-    txn.commit().unwrap();
+    let uda_asset =
+        party.issue_asset_uda(Some(DETAILS), Some(FILE_STR), vec![&image_str, FILE_STR]);
+    party.create_utxos(false, None, None, FEE_RATE, None);
+    party.check_save_new_asset(&mut rcv_party, &uda_asset.asset_id, Assignment::NonFungible);
+    assert!(rcv_party.db_check_asset_exists(&uda_asset.asset_id).is_ok());
+    let asset_model = rcv_party.db_asset(&uda_asset.asset_id);
     assert_eq!(asset_model.id, uda_asset.asset_id);
     assert_eq!(asset_model.initial_supply, 1.to_string());
     assert_eq!(asset_model.name, NAME);
@@ -334,28 +303,15 @@ fn color_psbt_uda() {
     let nonce = 42u64;
 
     // wallets
-    let (mut wallet_send, online_send) = get_funded_noutxo_wallet!();
-    let (mut wallet_recv, _online_recv) = get_empty_wallet!();
+    let mut party_send = get_funded_noutxo_party!();
 
     // create 1 UTXO and send the rest
-    test_create_utxos(
-        &mut wallet_send,
-        online_send,
-        false,
-        Some(1),
-        None,
-        FEE_RATE,
-        None,
-    );
-    test_send_btc(
-        &mut wallet_send,
-        online_send,
-        &test_get_address(&mut wallet_recv),
-        99_998_200,
-    );
+    party_send.create_utxos(false, Some(1), None, FEE_RATE, None);
+    let mut recv_party = get_empty_party!();
+    party_send.send_btc(&recv_party.get_address(), 99_998_200);
 
     // issue
-    let asset = test_issue_asset_uda(&mut wallet_send, online_send, None, None, vec![]);
+    let asset = party_send.issue_asset_uda(None, None, vec![]);
 
     // create a custom BDK wallet with p2wpkh descriptor to avoid p2tr outputs,
     // so that the OP_RETURN is appended at the end
@@ -375,7 +331,7 @@ fn color_psbt_uda() {
         .address;
 
     // prepare PSBT: drain all wallet UTXOs to the p2wpkh address (no p2tr outputs, no change)
-    let mut tx_builder = wallet_send.bdk_wallet_mut().build_tx();
+    let mut tx_builder = party_send.wallet.bdk_wallet_mut().build_tx();
     tx_builder
         .drain_wallet()
         .drain_to(p2wpkh_addr.script_pubkey())
@@ -407,7 +363,10 @@ fn color_psbt_uda() {
         static_blinding: None,
         nonce: Some(nonce),
     };
-    let (fascia, beneficiaries) = wallet_send.color_psbt(&mut psbt, coloring_info).unwrap();
+    let (fascia, beneficiaries) = party_send
+        .wallet
+        .color_psbt(&mut psbt, coloring_info)
+        .unwrap();
 
     // check PSBT: OP_RETURN is appended at the end
     assert!(
@@ -464,32 +423,19 @@ fn color_psbt_fail() {
     let blinding = 777;
 
     // wallets
-    let (mut wallet_send, online_send) = get_funded_noutxo_wallet!();
-    let (mut wallet_recv, _online_recv) = get_empty_wallet!();
+    let mut party_send = get_funded_noutxo_party!();
+    let mut recv_party = get_empty_party!();
 
     // create 1 UTXO and send the rest
-    test_create_utxos(
-        &mut wallet_send,
-        online_send,
-        false,
-        Some(1),
-        None,
-        FEE_RATE,
-        None,
-    );
-    test_send_btc(
-        &mut wallet_send,
-        online_send,
-        &test_get_address(&mut wallet_recv),
-        99_998_200,
-    );
+    party_send.create_utxos(false, Some(1), None, FEE_RATE, None);
+    party_send.send_btc(&recv_party.get_address(), 99_998_200);
 
     // issue
-    let asset = test_issue_asset_nia(&mut wallet_send, online_send, Some(&[AMOUNT]));
+    let asset = party_send.issue_asset_nia(Some(&[AMOUNT]));
 
     // prepare PSBT
-    let address = BdkAddress::from_str(&test_get_address(&mut wallet_recv)).unwrap();
-    let mut tx_builder = wallet_send.bdk_wallet_mut().build_tx();
+    let address = BdkAddress::from_str(&recv_party.get_address()).unwrap();
+    let mut tx_builder = party_send.wallet.bdk_wallet_mut().build_tx();
     tx_builder
         .add_recipient(
             address.assume_checked().script_pubkey(),
@@ -523,7 +469,7 @@ fn color_psbt_fail() {
         static_blinding: Some(blinding),
         nonce: None,
     };
-    let result = wallet_send.color_psbt(&mut psbt, coloring_info);
+    let result = party_send.wallet.color_psbt(&mut psbt, coloring_info);
     assert!(
         matches!(result, Err(Error::Internal { details: m }) if m.contains(&format!("contract {fake_cid} is unknown")))
     );
@@ -543,7 +489,7 @@ fn color_psbt_fail() {
         static_blinding: Some(blinding),
         nonce: None,
     };
-    let result = wallet_send.color_psbt(&mut psbt, coloring_info);
+    let result = party_send.wallet.color_psbt(&mut psbt, coloring_info);
     let msg = "invalid vout in output_map, does not exist in the given PSBT";
     assert!(matches!(result, Err(Error::InvalidColoringInfo { details: m }) if m == msg));
 
@@ -562,7 +508,9 @@ fn color_psbt_fail() {
         static_blinding: Some(blinding),
         nonce: None,
     };
-    let result = wallet_send.color_psbt(&mut psbt, coloring_info.clone());
+    let result = party_send
+        .wallet
+        .color_psbt(&mut psbt, coloring_info.clone());
     let msg = "total amount in output_map (999) greater than available (666)";
     assert!(matches!(result, Err(Error::InvalidColoringInfo { details: m }) if m == msg));
 }
@@ -574,18 +522,18 @@ fn post_consignment_fail() {
     initialize();
 
     // wallets
-    let wallet = get_test_wallet(false, None);
+    let party = get_empty_party!();
 
     // fake data
     let fake_txid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-    let transfers_dir = wallet.get_transfers_dir().join(fake_txid);
+    let transfers_dir = party.wallet.get_transfers_dir().join(fake_txid);
     let consignment_path = transfers_dir.join(CONSIGNMENT_FILE);
     std::fs::create_dir_all(&transfers_dir).unwrap();
     std::fs::File::create(&consignment_path).unwrap();
 
     // proxy error
     let invalid_proxy_url = "http://127.6.6.6:7777/json-rpc";
-    let result = wallet.post_consignment(
+    let result = party.wallet.post_consignment(
         invalid_proxy_url,
         fake_txid.to_string(),
         consignment_path.clone(),
@@ -600,7 +548,7 @@ fn post_consignment_fail() {
 
     // invalid transport endpoint
     let invalid_proxy_url = &format!("http://{PROXY_HOST_MOD_API}");
-    let result = wallet.post_consignment(
+    let result = party.wallet.post_consignment(
         invalid_proxy_url,
         fake_txid.to_string(),
         consignment_path.clone(),
@@ -683,11 +631,13 @@ fn check_proxy_url_fail() {
 fn accept_transfer_fail() {
     initialize();
 
-    let (mut wallet, _online) = get_empty_wallet!();
+    let mut party = get_empty_party!();
 
     // invalid txid
     let consignment_endpoint = RgbTransport::from_str(&PROXY_ENDPOINT).unwrap();
-    let result = wallet.accept_transfer(s!("invalidTxid"), 0, consignment_endpoint, 0);
+    let result = party
+        .wallet
+        .accept_transfer(s!("invalidTxid"), 0, consignment_endpoint, 0);
     assert_matches!(result, Err(Error::InvalidTxid));
 }
 
@@ -697,10 +647,10 @@ fn accept_transfer_fail() {
 fn get_tx_height_fail() {
     initialize();
 
-    let (wallet, _online) = get_empty_wallet!();
+    let party = get_empty_party!();
 
     // invalid txid
-    let result = wallet.get_tx_height(s!("invalidTxid"));
+    let result = party.wallet.get_tx_height(s!("invalidTxid"));
     assert_matches!(result, Err(Error::InvalidTxid));
 }
 
@@ -710,9 +660,9 @@ fn get_tx_height_fail() {
 fn update_witnesses_success() {
     initialize();
 
-    let (wallet, _online) = get_empty_wallet!();
+    let party = get_empty_party!();
 
-    let result = wallet.update_witnesses(0, vec![]);
+    let result = party.wallet.update_witnesses(0, vec![]);
     assert!(result.is_ok());
 }
 
@@ -722,10 +672,11 @@ fn update_witnesses_success() {
 fn upsert_witness_success() {
     initialize();
 
-    let (wallet, _online) = get_empty_wallet!();
+    let party = get_empty_party!();
 
-    let result =
-        wallet.upsert_witness(RgbTxid::from_str(FAKE_TXID).unwrap(), WitnessOrd::Tentative);
+    let result = party
+        .wallet
+        .upsert_witness(RgbTxid::from_str(FAKE_TXID).unwrap(), WitnessOrd::Tentative);
     assert!(result.is_ok());
 }
 
@@ -735,19 +686,11 @@ fn upsert_witness_success() {
 fn create_consignments_success() {
     initialize();
 
-    let (mut wallet, online) = get_funded_wallet!();
-    let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
 
-    let asset = test_issue_asset_nia(&mut wallet, online, None);
-    let receive_data = rcv_wallet
-        .blind_receive(
-            None,
-            Assignment::Any,
-            None,
-            TRANSPORT_ENDPOINTS.clone(),
-            MIN_CONFIRMATIONS,
-        )
-        .unwrap();
+    let asset = party.issue_asset_nia(None);
+    let receive_data = rcv_party.blind_receive_asset_expiry(None, None);
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -757,15 +700,14 @@ fn create_consignments_success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let psbt = test_send_begin_result(&mut wallet, online, &recipient_map)
-        .unwrap()
-        .psbt;
-    let result = wallet.create_consignments(psbt.clone());
+    let psbt = party.send_begin_result(&recipient_map).unwrap().psbt;
+    let result = party.wallet.create_consignments(psbt.clone());
     assert!(result.is_ok());
     let psbt = Psbt::from_str(&psbt).unwrap();
     let txid = psbt.extract_tx().unwrap().compute_txid().to_string();
-    let consignment_path = wallet
-        .get_asset_transfer_dir(wallet.get_transfers_dir().join(txid), &asset.asset_id)
+    let consignment_path = party
+        .wallet
+        .get_asset_transfer_dir(party.wallet.get_transfers_dir().join(txid), &asset.asset_id)
         .join(CONSIGNMENT_FILE);
     assert!(consignment_path.is_file());
 }

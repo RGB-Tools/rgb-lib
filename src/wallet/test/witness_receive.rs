@@ -8,13 +8,12 @@ fn success() {
 
     let amount = 69;
     let expiration_secs = 60i64;
-    let (mut wallet, online) = get_funded_wallet!();
+    let mut party = get_funded_party!();
 
     // only mandatory fields
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
-    let receive_data = wallet
+    let bak_info_before = party.db_backup_info();
+    let receive_data = party
+        .wallet
         .witness_receive(
             None,
             Assignment::Any,
@@ -23,26 +22,25 @@ fn success() {
             MIN_CONFIRMATIONS,
         )
         .unwrap();
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
+    let bak_info_after = party.db_backup_info();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     assert!(receive_data.expiration_timestamp.is_none());
     let decoded_invoice = Invoice::new(receive_data.invoice).unwrap();
     assert_eq!(
         decoded_invoice.invoice_data.network,
-        wallet.get_wallet_data().bitcoin_network
+        party.get_wallet_data().bitcoin_network
     );
-    let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
-    let (_, batch_transfer) = get_test_transfer_related(&wallet, &transfer);
+    let transfer = party.get_test_transfer_recipient(&receive_data.recipient_id);
+    let (_, batch_transfer) = party.get_test_transfer_related(&transfer);
     assert_eq!(batch_transfer.min_confirmations, MIN_CONFIRMATIONS);
 
     // asset ID + expiration + 0 min confirmations
-    let asset = test_issue_asset_cfa(&mut wallet, online, None, None);
+    let asset = party.issue_asset_cfa(None, None);
     let asset_id = asset.asset_id;
     let expiration_timestamp = (now().unix_timestamp() + expiration_secs) as u64;
     let min_confirmations = 0;
-    let receive_data = wallet
+    let receive_data = party
+        .wallet
         .witness_receive(
             Some(asset_id.clone()),
             Assignment::Fungible(amount),
@@ -55,8 +53,8 @@ fn success() {
         receive_data.expiration_timestamp,
         Some(expiration_timestamp)
     );
-    let transfer = get_test_transfer_recipient(&wallet, &receive_data.recipient_id);
-    let (_, batch_transfer) = get_test_transfer_related(&wallet, &transfer);
+    let transfer = party.get_test_transfer_recipient(&receive_data.recipient_id);
+    let (_, batch_transfer) = party.get_test_transfer_related(&transfer);
     assert_eq!(batch_transfer.min_confirmations, min_confirmations);
     let invoice = Invoice::new(receive_data.invoice.clone()).unwrap();
     let invoice_data = invoice.invoice_data();
@@ -89,7 +87,7 @@ fn success() {
         format!("rpc://{}", "127.0.0.1:3001/json-rpc"),
         format!("rpc://{}", "127.0.0.1:3002/json-rpc"),
     ];
-    let result = wallet.witness_receive(
+    let result = party.wallet.witness_receive(
         None,
         Assignment::Any,
         None,
@@ -97,12 +95,8 @@ fn success() {
         MIN_CONFIRMATIONS,
     );
     assert!(result.is_ok());
-    let transfer = get_test_transfer_recipient(&wallet, &result.unwrap().recipient_id);
-    let txn = wallet.database().begin_transaction().unwrap();
-    let tte_data = txn
-        .get_transfer_transport_endpoints_data(transfer.idx)
-        .unwrap();
-    txn.commit().unwrap();
+    let transfer = party.get_test_transfer_recipient(&result.unwrap().recipient_id);
+    let tte_data = party.db_transfer_transport_endpoints_data(transfer.idx);
     assert_eq!(tte_data.len(), transport_endpoints.len());
 }
 

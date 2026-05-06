@@ -14,6 +14,6 @@ fn success() {
 
     let expected_dir = fs::canonicalize(test_data_dir.join(keys.master_fingerprint)).unwrap();
 
-    let wallet_dir = test_get_wallet_dir(&wallet);
+    let wallet_dir = wallet.get_wallet_dir();
     assert_eq!(wallet_dir, expected_dir);
 }

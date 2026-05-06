@@ -26,12 +26,12 @@ fn success() {
         incoming: false,
     };
 
-    let (mut wallet_1, online_1) = get_funded_wallet!();
-    let (mut wallet_2, online_2) = get_funded_wallet!();
+    let mut party_1 = get_funded_party!();
+    let mut party_2 = get_funded_party!();
 
     // issue
-    let asset_1 = test_issue_asset_nia(&mut wallet_1, online_1, Some(&[AMOUNT, AMOUNT]));
-    let asset_2 = test_issue_asset_nia(&mut wallet_2, online_2, Some(&[AMOUNT * 2, AMOUNT * 2]));
+    let asset_1 = party_1.issue_asset_nia(Some(&[AMOUNT, AMOUNT]));
+    let asset_2 = party_2.issue_asset_nia(Some(&[AMOUNT * 2, AMOUNT * 2]));
 
     // per each wallet prepare:
     // - 1 WaitingCounterparty + 1 WaitingConfirmations ountgoing
@@ -40,7 +40,7 @@ fn success() {
     let _guard = stop_mining();
 
     // wallet 1 > wallet 2 WaitingConfirmations and vice versa
-    let receive_data_2a = test_blind_receive(&mut wallet_2);
+    let receive_data_2a = party_2.blind_receive();
     let recipient_map_1a = HashMap::from([(
         asset_1.asset_id.clone(),
         vec![Recipient {
@@ -51,20 +51,16 @@ fn success() {
         }],
     )]);
     // return false if no transfer has changed
-    let txn = wallet_2.database().begin_transaction().unwrap();
-    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
-    assert!(!test_refresh_all(&mut wallet_2, online_2));
-    let txn = wallet_2.database().begin_transaction().unwrap();
-    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
+    let bak_info_before = party_2.db_backup_info();
+    assert!(!party_2.refresh_all());
+    let bak_info_after = party_2.db_backup_info();
     assert_eq!(
         bak_info_after.last_operation_timestamp,
         bak_info_before.last_operation_timestamp
     );
-    let txid_1a = test_send(&mut wallet_1, online_1, &recipient_map_1a);
+    let txid_1a = party_1.send_retry(&recipient_map_1a);
     assert!(!txid_1a.is_empty());
-    let receive_data_1a = test_blind_receive(&mut wallet_1);
+    let receive_data_1a = party_1.blind_receive();
     let recipient_map_2a = HashMap::from([(
         asset_2.asset_id.clone(),
         vec![Recipient {
@@ -74,29 +70,24 @@ fn success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid_2a = test_send(&mut wallet_2, online_2, &recipient_map_2a);
+    let txid_2a = party_2.send_retry(&recipient_map_2a);
     assert!(!txid_2a.is_empty());
-    assert!(test_refresh_all(&mut wallet_1, online_1));
-    let txn = wallet_2.database().begin_transaction().unwrap();
-    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
-    assert!(test_refresh_all(&mut wallet_2, online_2));
-    let txn = wallet_2.database().begin_transaction().unwrap();
-    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
+    assert!(party_1.refresh_all());
+    let bak_info_before = party_2.db_backup_info();
+    assert!(party_2.refresh_all());
+    let bak_info_after = party_2.db_backup_info();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     assert!(
-        test_refresh_result(
-            &mut wallet_1,
-            online_1,
-            Some(&asset_1.asset_id),
-            std::slice::from_ref(&filter_counter_out)
-        )
-        .unwrap()
-        .transfers_changed()
+        party_1
+            .refresh_result(
+                Some(&asset_1.asset_id),
+                std::slice::from_ref(&filter_counter_out),
+            )
+            .unwrap()
+            .transfers_changed()
     );
     // wallet 1 > 2, WaitingCounterparty and vice versa
-    let receive_data_2b = test_blind_receive(&mut wallet_2);
+    let receive_data_2b = party_2.blind_receive();
     let recipient_map_1b = HashMap::from([(
         asset_1.asset_id,
         vec![Recipient {
@@ -106,11 +97,11 @@ fn success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid_1b = test_send(&mut wallet_1, online_1, &recipient_map_1b);
+    let txid_1b = party_1.send_retry(&recipient_map_1b);
     assert!(!txid_1b.is_empty());
     // wallet 2 > 1, WaitingCounterparty
-    let receive_data_1b = test_blind_receive(&mut wallet_1);
-    show_unspent_colorings(&mut wallet_1, "wallet 1 after blind 1b");
+    let receive_data_1b = party_1.blind_receive();
+    party_1.show_unspent_colorings("wallet 1 after blind 1b");
     let recipient_map_2b = HashMap::from([(
         asset_2.asset_id,
         vec![Recipient {
@@ -120,113 +111,83 @@ fn success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid_2b = test_send(&mut wallet_2, online_2, &recipient_map_2b);
+    let txid_2b = party_2.send_retry(&recipient_map_2b);
     assert!(!txid_2b.is_empty());
-    show_unspent_colorings(&mut wallet_2, "wallet 2 after send 2b");
-    assert!(check_test_transfer_status_sender(
-        &wallet_1,
-        &txid_1a,
-        TransferStatus::WaitingConfirmations
-    ));
-    assert!(check_test_transfer_status_sender(
-        &wallet_1,
-        &txid_1b,
-        TransferStatus::WaitingCounterparty
-    ));
-    assert!(check_test_transfer_status_recipient(
-        &wallet_1,
+    party_2.show_unspent_colorings("wallet 2 after send 2b");
+    assert!(
+        party_1.check_test_transfer_status_sender(&txid_1a, TransferStatus::WaitingConfirmations)
+    );
+    assert!(
+        party_1.check_test_transfer_status_sender(&txid_1b, TransferStatus::WaitingCounterparty)
+    );
+    assert!(party_1.check_test_transfer_status_recipient(
         &receive_data_1a.recipient_id,
         TransferStatus::WaitingConfirmations
     ));
-    assert!(check_test_transfer_status_recipient(
-        &wallet_1,
+    assert!(party_1.check_test_transfer_status_recipient(
         &receive_data_1b.recipient_id,
         TransferStatus::WaitingCounterparty
     ));
-    assert!(check_test_transfer_status_sender(
-        &wallet_2,
-        &txid_2a,
-        TransferStatus::WaitingConfirmations
-    ));
-    assert!(check_test_transfer_status_sender(
-        &wallet_2,
-        &txid_2b,
-        TransferStatus::WaitingCounterparty
-    ));
-    assert!(check_test_transfer_status_recipient(
-        &wallet_2,
+    assert!(
+        party_2.check_test_transfer_status_sender(&txid_2a, TransferStatus::WaitingConfirmations)
+    );
+    assert!(
+        party_2.check_test_transfer_status_sender(&txid_2b, TransferStatus::WaitingCounterparty)
+    );
+    assert!(party_2.check_test_transfer_status_recipient(
         &receive_data_2a.recipient_id,
         TransferStatus::WaitingConfirmations
     ));
-    assert!(check_test_transfer_status_recipient(
-        &wallet_2,
+    assert!(party_2.check_test_transfer_status_recipient(
         &receive_data_2b.recipient_id,
         TransferStatus::WaitingCounterparty
     ));
 
     // refresh incoming WaitingCounterparty only (wallet 1)
     assert!(
-        test_refresh_result(&mut wallet_1, online_1, None, &[filter_counter_in])
+        party_1
+            .refresh_result(None, &[filter_counter_in])
             .unwrap()
             .transfers_changed()
     );
-    show_unspent_colorings(
-        &mut wallet_1,
-        "wallet 1 after refresh incoming WaitingCounterparty",
+    party_1.show_unspent_colorings("wallet 1 after refresh incoming WaitingCounterparty");
+    assert!(
+        party_1.check_test_transfer_status_sender(&txid_1a, TransferStatus::WaitingConfirmations)
     );
-    assert!(check_test_transfer_status_sender(
-        &wallet_1,
-        &txid_1a,
-        TransferStatus::WaitingConfirmations
-    ));
-    assert!(check_test_transfer_status_sender(
-        &wallet_1,
-        &txid_1b,
-        TransferStatus::WaitingCounterparty
-    ));
-    assert!(check_test_transfer_status_recipient(
-        &wallet_1,
+    assert!(
+        party_1.check_test_transfer_status_sender(&txid_1b, TransferStatus::WaitingCounterparty)
+    );
+    assert!(party_1.check_test_transfer_status_recipient(
         &receive_data_1a.recipient_id,
         TransferStatus::WaitingConfirmations
     ));
-    assert!(check_test_transfer_status_recipient(
-        &wallet_1,
+    assert!(party_1.check_test_transfer_status_recipient(
         &receive_data_1b.recipient_id,
         TransferStatus::WaitingConfirmations
     ));
 
     // refresh outgoing WaitingCounterparty only (wallet 2)
-    assert!(check_test_transfer_status_sender(
-        &wallet_2,
-        &txid_2b,
-        TransferStatus::WaitingCounterparty
-    ));
     assert!(
-        test_refresh_result(&mut wallet_2, online_2, None, &[filter_counter_out])
+        party_2.check_test_transfer_status_sender(&txid_2b, TransferStatus::WaitingCounterparty)
+    );
+    assert!(
+        party_2
+            .refresh_result(None, &[filter_counter_out])
             .unwrap()
             .transfers_changed()
     );
-    show_unspent_colorings(
-        &mut wallet_2,
-        "wallet 2 after refresh outgoing WaitingCounterparty",
+    party_2.show_unspent_colorings("wallet 2 after refresh outgoing WaitingCounterparty");
+    assert!(
+        party_2.check_test_transfer_status_sender(&txid_2a, TransferStatus::WaitingConfirmations)
     );
-    assert!(check_test_transfer_status_sender(
-        &wallet_2,
-        &txid_2a,
-        TransferStatus::WaitingConfirmations
-    ));
-    assert!(check_test_transfer_status_sender(
-        &wallet_2,
-        &txid_2b,
-        TransferStatus::WaitingConfirmations
-    ));
-    assert!(check_test_transfer_status_recipient(
-        &wallet_2,
+    assert!(
+        party_2.check_test_transfer_status_sender(&txid_2b, TransferStatus::WaitingConfirmations)
+    );
+    assert!(party_2.check_test_transfer_status_recipient(
         &receive_data_2a.recipient_id,
         TransferStatus::WaitingConfirmations
     ));
-    assert!(check_test_transfer_status_recipient(
-        &wallet_2,
+    assert!(party_2.check_test_transfer_status_recipient(
         &receive_data_2b.recipient_id,
         TransferStatus::WaitingCounterparty
     ));
@@ -238,62 +199,44 @@ fn success() {
 
     // refresh incoming WaitingConfirmations only (wallet 2)
     assert!(
-        test_refresh_result(&mut wallet_2, online_2, None, &[filter_confirm_in])
+        party_2
+            .refresh_result(None, &[filter_confirm_in])
             .unwrap()
             .transfers_changed()
     );
-    show_unspent_colorings(
-        &mut wallet_2,
-        "wallet 2 after refresh incoming WaitingConfirmations",
+    party_2.show_unspent_colorings("wallet 2 after refresh incoming WaitingConfirmations");
+    assert!(
+        party_2.check_test_transfer_status_sender(&txid_2a, TransferStatus::WaitingConfirmations)
     );
-    assert!(check_test_transfer_status_sender(
-        &wallet_2,
-        &txid_2a,
-        TransferStatus::WaitingConfirmations
-    ));
-    assert!(check_test_transfer_status_sender(
-        &wallet_2,
-        &txid_2b,
-        TransferStatus::WaitingConfirmations
-    ));
-    assert!(check_test_transfer_status_recipient(
-        &wallet_2,
+    assert!(
+        party_2.check_test_transfer_status_sender(&txid_2b, TransferStatus::WaitingConfirmations)
+    );
+    assert!(party_2.check_test_transfer_status_recipient(
         &receive_data_2a.recipient_id,
         TransferStatus::Settled
     ));
-    assert!(check_test_transfer_status_recipient(
-        &wallet_2,
+    assert!(party_2.check_test_transfer_status_recipient(
         &receive_data_2b.recipient_id,
         TransferStatus::WaitingCounterparty
     ));
 
     // refresh outgoing WaitingConfirmations only (wallet 1)
     assert!(
-        test_refresh_result(&mut wallet_1, online_1, None, &[filter_confirm_out])
+        party_1
+            .refresh_result(None, &[filter_confirm_out])
             .unwrap()
             .transfers_changed()
     );
-    show_unspent_colorings(
-        &mut wallet_1,
-        "wallet 1 after refresh outgoing WaitingConfirmations",
+    party_1.show_unspent_colorings("wallet 1 after refresh outgoing WaitingConfirmations");
+    assert!(party_1.check_test_transfer_status_sender(&txid_1a, TransferStatus::Settled));
+    assert!(
+        party_1.check_test_transfer_status_sender(&txid_1b, TransferStatus::WaitingCounterparty)
     );
-    assert!(check_test_transfer_status_sender(
-        &wallet_1,
-        &txid_1a,
-        TransferStatus::Settled
-    ));
-    assert!(check_test_transfer_status_sender(
-        &wallet_1,
-        &txid_1b,
-        TransferStatus::WaitingCounterparty
-    ));
-    assert!(check_test_transfer_status_recipient(
-        &wallet_1,
+    assert!(party_1.check_test_transfer_status_recipient(
         &receive_data_1a.recipient_id,
         TransferStatus::WaitingConfirmations
     ));
-    assert!(check_test_transfer_status_recipient(
-        &wallet_1,
+    assert!(party_1.check_test_transfer_status_recipient(
         &receive_data_1b.recipient_id,
         TransferStatus::WaitingConfirmations
     ));
@@ -305,10 +248,10 @@ fn success() {
 fn fail() {
     initialize();
 
-    let (mut wallet, online) = get_funded_wallet!();
+    let mut party = get_funded_party!();
 
     // asset not found
-    let result = test_refresh_result(&mut wallet, online, Some("rgb1inexistent"), &[]);
+    let result = party.refresh_result(Some("rgb1inexistent"), &[]);
     assert!(matches!(result, Err(Error::AssetNotFound { asset_id: _ })));
 }
 
@@ -320,9 +263,9 @@ fn nia_with_media() {
 
     let amount: u64 = 66;
 
-    let (mut wallet_1, online_1) = get_funded_wallet!();
-    let (mut wallet_2, online_2) = get_funded_wallet!();
-    let (mut wallet_3, online_3) = get_funded_wallet!();
+    let mut party_1 = get_funded_party!();
+    let mut party_2 = get_funded_party!();
+    let mut party_3 = get_funded_party!();
 
     let fp = ["tests", "qrcode.png"].join(MAIN_SEPARATOR_STR);
     let fpath = std::path::Path::new(&fp);
@@ -340,22 +283,16 @@ fn nia_with_media() {
     };
     println!("setting MOCK_CONTRACT_DATA");
     MOCK_CONTRACT_DATA.with_borrow_mut(|v| v.push(attachment.clone()));
-    let asset = test_issue_asset_nia(&mut wallet_1, online_1, None);
-    let media = Media::from_attachment(&attachment, wallet_1.get_media_dir());
-    wallet_1.copy_media_file(fp, &media).unwrap();
-    let txn = wallet_1.database().begin_transaction().unwrap();
-    let media_idx = txn
-        .get_or_insert_media(media.get_digest(), media.mime.clone())
-        .unwrap();
-    let db_asset = txn.get_asset(asset.asset_id.clone()).unwrap().unwrap();
-    txn.commit().unwrap();
+    let asset = party_1.issue_asset_nia(None);
+    let media = Media::from_attachment(&attachment, party_1.wallet.get_media_dir());
+    party_1.wallet.copy_media_file(fp, &media).unwrap();
+    let media_idx = party_1.db_get_or_insert_media(&media.get_digest(), &media.mime);
+    let db_asset = party_1.db_asset(&asset.asset_id);
     let mut updated_asset: DbAssetActMod = db_asset.into();
     updated_asset.media_idx = ActiveValue::Set(Some(media_idx));
-    let txn = wallet_1.database().begin_transaction().unwrap();
-    txn.update_asset(&mut updated_asset).unwrap();
-    txn.commit().unwrap();
+    party_1.db_update_asset(&mut updated_asset);
 
-    let receive_data = test_blind_receive(&mut wallet_2);
+    let receive_data = party_2.blind_receive();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -365,18 +302,18 @@ fn nia_with_media() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&mut wallet_1, online_1, &recipient_map);
+    let txid = party_1.send_retry(&recipient_map);
     assert!(!txid.is_empty());
 
-    wait_for_refresh(&mut wallet_2, online_2, None, None);
-    let assets_list = test_list_assets(&wallet_2, &[]);
+    party_2.wait_for_refresh(None);
+    let assets_list = party_2.list_assets(&[]);
     assert!(assets_list.nia.unwrap()[0].media.is_some());
-    wait_for_refresh(&mut wallet_1, online_1, None, None);
+    party_1.wait_for_refresh(None);
     mine(false);
-    wait_for_refresh(&mut wallet_2, online_2, None, None);
-    wait_for_refresh(&mut wallet_1, online_1, None, None);
+    party_2.wait_for_refresh(None);
+    party_1.wait_for_refresh(None);
 
-    let receive_data = test_blind_receive(&mut wallet_3);
+    let receive_data = party_3.blind_receive();
     let recipient_map = HashMap::from([(
         asset.asset_id,
         vec![Recipient {
@@ -386,20 +323,20 @@ fn nia_with_media() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&mut wallet_2, online_2, &recipient_map);
+    let txid = party_2.send_retry(&recipient_map);
     assert!(!txid.is_empty());
 
-    wait_for_refresh(&mut wallet_3, online_3, None, None);
-    let assets_list = test_list_assets(&wallet_3, &[]);
+    party_3.wait_for_refresh(None);
+    let assets_list = party_3.list_assets(&[]);
     assert!(assets_list.nia.unwrap()[0].media.is_some());
-    wait_for_refresh(&mut wallet_2, online_2, None, None);
+    party_2.wait_for_refresh(None);
     mine(false);
-    wait_for_refresh(&mut wallet_3, online_3, None, None);
-    wait_for_refresh(&mut wallet_2, online_2, None, None);
-    let rcv_transfer = get_test_transfer_recipient(&wallet_3, &receive_data.recipient_id);
-    let (rcv_transfer_data, _) = get_test_transfer_data(&wallet_3, &rcv_transfer);
-    let (transfer, _, _) = get_test_transfer_sender(&wallet_2, &txid);
-    let (transfer_data, _) = get_test_transfer_data(&wallet_2, &transfer);
+    party_3.wait_for_refresh(None);
+    party_2.wait_for_refresh(None);
+    let rcv_transfer = party_3.get_test_transfer_recipient(&receive_data.recipient_id);
+    let (rcv_transfer_data, _) = party_3.get_test_transfer_data(&rcv_transfer);
+    let (transfer, _, _) = party_2.get_test_transfer_sender(&txid);
+    let (transfer_data, _) = party_2.get_test_transfer_data(&transfer);
     assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
     assert_eq!(transfer_data.status, TransferStatus::Settled);
 }
@@ -414,22 +351,22 @@ fn nia_with_details() {
     let details_str = "mocked details";
 
     // wallets
-    let (mut wallet_1, online_1) = get_funded_wallet!();
-    let (mut wallet_2, online_2) = get_funded_wallet!();
-    let (mut wallet_3, online_3) = get_funded_wallet!();
+    let mut party_1 = get_funded_party!();
+    let mut party_2 = get_funded_party!();
+    let mut party_3 = get_funded_party!();
 
     // manually set the asset's details
     println!("setting MOCK_CONTRACT_DETAILS");
     MOCK_CONTRACT_DETAILS.replace(Some(details_str.to_string()));
 
     // issue
-    let asset = test_issue_asset_nia(&mut wallet_1, online_1, None);
+    let asset = party_1.issue_asset_nia(None);
 
     // check asset details have been set
     assert_eq!(asset.details, Some(details_str.to_string()));
 
     // send 1->2
-    let receive_data = test_blind_receive(&mut wallet_2);
+    let receive_data = party_2.blind_receive();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -439,18 +376,18 @@ fn nia_with_details() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&mut wallet_1, online_1, &recipient_map);
+    let txid = party_1.send_retry(&recipient_map);
     assert!(!txid.is_empty());
 
     // settle transfer
-    wait_for_refresh(&mut wallet_2, online_2, None, None);
-    wait_for_refresh(&mut wallet_1, online_1, None, None);
+    party_2.wait_for_refresh(None);
+    party_1.wait_for_refresh(None);
     mine(false);
-    wait_for_refresh(&mut wallet_2, online_2, None, None);
-    wait_for_refresh(&mut wallet_1, online_1, None, None);
+    party_2.wait_for_refresh(None);
+    party_1.wait_for_refresh(None);
 
     // send 2->3
-    let receive_data = test_blind_receive(&mut wallet_3);
+    let receive_data = party_3.blind_receive();
     let recipient_map = HashMap::from([(
         asset.asset_id,
         vec![Recipient {
@@ -460,24 +397,24 @@ fn nia_with_details() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&mut wallet_2, online_2, &recipient_map);
+    let txid = party_2.send_retry(&recipient_map);
     assert!(!txid.is_empty());
 
     // settle transfer
-    wait_for_refresh(&mut wallet_3, online_3, None, None);
-    wait_for_refresh(&mut wallet_2, online_2, None, None);
+    party_3.wait_for_refresh(None);
+    party_2.wait_for_refresh(None);
     mine(false);
-    wait_for_refresh(&mut wallet_3, online_3, None, None);
-    wait_for_refresh(&mut wallet_2, online_2, None, None);
-    let rcv_transfer = get_test_transfer_recipient(&wallet_3, &receive_data.recipient_id);
-    let (rcv_transfer_data, _) = get_test_transfer_data(&wallet_3, &rcv_transfer);
-    let (transfer, _, _) = get_test_transfer_sender(&wallet_2, &txid);
-    let (transfer_data, _) = get_test_transfer_data(&wallet_2, &transfer);
+    party_3.wait_for_refresh(None);
+    party_2.wait_for_refresh(None);
+    let rcv_transfer = party_3.get_test_transfer_recipient(&receive_data.recipient_id);
+    let (rcv_transfer_data, _) = party_3.get_test_transfer_data(&rcv_transfer);
+    let (transfer, _, _) = party_2.get_test_transfer_sender(&txid);
+    let (transfer_data, _) = party_2.get_test_transfer_data(&transfer);
     assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
     assert_eq!(transfer_data.status, TransferStatus::Settled);
 
     // check asset details on the final recipient
-    let asset_list = test_list_assets(&wallet_3, &[]);
+    let asset_list = party_3.list_assets(&[]);
     assert_eq!(
         asset_list.nia.unwrap()[0].details,
         Some(details_str.to_string())
@@ -490,9 +427,9 @@ fn nia_with_details() {
 fn uda_with_media() {
     initialize();
 
-    let (mut wallet_1, online_1) = get_funded_wallet!();
-    let (mut wallet_2, online_2) = get_funded_wallet!();
-    let (mut wallet_3, online_3) = get_funded_wallet!();
+    let mut party_1 = get_funded_party!();
+    let mut party_2 = get_funded_party!();
+    let mut party_3 = get_funded_party!();
 
     let fp = ["tests", "qrcode.png"].join(MAIN_SEPARATOR_STR);
     let fpath = std::path::Path::new(&fp);
@@ -510,22 +447,15 @@ fn uda_with_media() {
     };
     println!("setting MOCK_CONTRACT_DATA");
     MOCK_CONTRACT_DATA.with_borrow_mut(|v| v.push(attachment.clone()));
-    let asset = test_issue_asset_uda(&mut wallet_1, online_1, None, Some(FILE_STR), vec![]);
-    let media = Media::from_attachment(&attachment, wallet_1.get_media_dir());
-    wallet_1.copy_media_file(fp, &media).unwrap();
-    let txn = wallet_1.database().begin_transaction().unwrap();
-    let media_idx = txn
-        .get_or_insert_media(media.get_digest(), media.mime.clone())
-        .unwrap();
-    let db_asset = txn.get_asset(asset.asset_id.clone()).unwrap().unwrap();
-    txn.commit().unwrap();
-    let mut updated_asset: DbAssetActMod = db_asset.into();
+    let asset = party_1.issue_asset_uda(None, Some(FILE_STR), vec![]);
+    let media = Media::from_attachment(&attachment, party_1.wallet.get_media_dir());
+    party_1.wallet.copy_media_file(fp, &media).unwrap();
+    let media_idx = party_1.db_get_or_insert_media(&media.get_digest(), &media.mime);
+    let mut updated_asset: DbAssetActMod = party_1.db_asset(&asset.asset_id).into();
     updated_asset.media_idx = ActiveValue::Set(Some(media_idx));
-    let txn = wallet_1.database().begin_transaction().unwrap();
-    txn.update_asset(&mut updated_asset).unwrap();
-    txn.commit().unwrap();
+    party_1.db_update_asset(&mut updated_asset);
 
-    let receive_data = test_blind_receive(&mut wallet_2);
+    let receive_data = party_2.blind_receive();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -535,18 +465,18 @@ fn uda_with_media() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&mut wallet_1, online_1, &recipient_map);
+    let txid = party_1.send_retry(&recipient_map);
     assert!(!txid.is_empty());
 
-    wait_for_refresh(&mut wallet_2, online_2, None, None);
-    let assets_list = test_list_assets(&wallet_2, &[]);
+    party_2.wait_for_refresh(None);
+    let assets_list = party_2.list_assets(&[]);
     assert!(assets_list.uda.unwrap()[0].media.is_some());
-    wait_for_refresh(&mut wallet_1, online_1, None, None);
+    party_1.wait_for_refresh(None);
     mine(false);
-    wait_for_refresh(&mut wallet_2, online_2, None, None);
-    wait_for_refresh(&mut wallet_1, online_1, None, None);
+    party_2.wait_for_refresh(None);
+    party_1.wait_for_refresh(None);
 
-    let receive_data = test_blind_receive(&mut wallet_3);
+    let receive_data = party_3.blind_receive();
     let recipient_map = HashMap::from([(
         asset.asset_id,
         vec![Recipient {
@@ -556,20 +486,20 @@ fn uda_with_media() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&mut wallet_2, online_2, &recipient_map);
+    let txid = party_2.send_retry(&recipient_map);
     assert!(!txid.is_empty());
 
-    wait_for_refresh(&mut wallet_3, online_3, None, None);
-    let assets_list = test_list_assets(&wallet_3, &[]);
+    party_3.wait_for_refresh(None);
+    let assets_list = party_3.list_assets(&[]);
     assert!(assets_list.uda.unwrap()[0].media.is_some());
-    wait_for_refresh(&mut wallet_2, online_2, None, None);
+    party_2.wait_for_refresh(None);
     mine(false);
-    wait_for_refresh(&mut wallet_3, online_3, None, None);
-    wait_for_refresh(&mut wallet_2, online_2, None, None);
-    let rcv_transfer = get_test_transfer_recipient(&wallet_3, &receive_data.recipient_id);
-    let (rcv_transfer_data, _) = get_test_transfer_data(&wallet_3, &rcv_transfer);
-    let (transfer, _, _) = get_test_transfer_sender(&wallet_2, &txid);
-    let (transfer_data, _) = get_test_transfer_data(&wallet_2, &transfer);
+    party_3.wait_for_refresh(None);
+    party_2.wait_for_refresh(None);
+    let rcv_transfer = party_3.get_test_transfer_recipient(&receive_data.recipient_id);
+    let (rcv_transfer_data, _) = party_3.get_test_transfer_data(&rcv_transfer);
+    let (transfer, _, _) = party_2.get_test_transfer_sender(&txid);
+    let (transfer_data, _) = party_2.get_test_transfer_data(&transfer);
     assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
     assert_eq!(transfer_data.status, TransferStatus::Settled);
 }
@@ -580,9 +510,9 @@ fn uda_with_media() {
 fn uda_with_preview_and_reserves() {
     initialize();
 
-    let (mut wallet_1, online_1) = get_funded_wallet!();
-    let (mut wallet_2, online_2) = get_funded_wallet!();
-    let (mut wallet_3, online_3) = get_funded_wallet!();
+    let mut party_1 = get_funded_party!();
+    let mut party_2 = get_funded_party!();
+    let mut party_3 = get_funded_party!();
 
     let index_int = 7;
     let data = vec![1u8, 3u8, 9u8];
@@ -608,9 +538,9 @@ fn uda_with_preview_and_reserves() {
     };
     println!("setting MOCK_TOKEN_DATA");
     MOCK_TOKEN_DATA.with_borrow_mut(|v| v.push(token_data.clone()));
-    let asset = test_issue_asset_uda(&mut wallet_1, online_1, Some(DETAILS), None, vec![]);
+    let asset = party_1.issue_asset_uda(Some(DETAILS), None, vec![]);
 
-    let receive_data = test_blind_receive(&mut wallet_2);
+    let receive_data = party_2.blind_receive();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -620,11 +550,11 @@ fn uda_with_preview_and_reserves() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&mut wallet_1, online_1, &recipient_map);
+    let txid = party_1.send_retry(&recipient_map);
     assert!(!txid.is_empty());
 
-    wait_for_refresh(&mut wallet_2, online_2, None, None);
-    let assets_list = test_list_assets(&wallet_2, &[]);
+    party_2.wait_for_refresh(None);
+    let assets_list = party_2.list_assets(&[]);
     assert!(
         assets_list.uda.unwrap()[0]
             .token
@@ -633,12 +563,12 @@ fn uda_with_preview_and_reserves() {
             .media
             .is_none()
     );
-    wait_for_refresh(&mut wallet_1, online_1, None, None);
+    party_1.wait_for_refresh(None);
     mine(false);
-    wait_for_refresh(&mut wallet_2, online_2, None, None);
-    wait_for_refresh(&mut wallet_1, online_1, None, None);
+    party_2.wait_for_refresh(None);
+    party_1.wait_for_refresh(None);
 
-    let receive_data = test_blind_receive(&mut wallet_3);
+    let receive_data = party_3.blind_receive();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -648,11 +578,11 @@ fn uda_with_preview_and_reserves() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid = test_send(&mut wallet_2, online_2, &recipient_map);
+    let txid = party_2.send_retry(&recipient_map);
     assert!(!txid.is_empty());
 
-    wait_for_refresh(&mut wallet_3, online_3, None, None);
-    let assets_list = test_list_assets(&wallet_3, &[]);
+    party_3.wait_for_refresh(None);
+    let assets_list = party_3.list_assets(&[]);
     let uda = assets_list.uda.unwrap();
     let token = uda[0].token.as_ref().unwrap();
     assert_eq!(token.index, index_int);
@@ -663,18 +593,18 @@ fn uda_with_preview_and_reserves() {
     assert!(token.media.is_none());
     assert_eq!(token.attachments, HashMap::new());
     assert!(token.reserves);
-    wait_for_refresh(&mut wallet_2, online_2, None, None);
+    party_2.wait_for_refresh(None);
     mine(false);
-    wait_for_refresh(&mut wallet_3, online_3, None, None);
-    wait_for_refresh(&mut wallet_2, online_2, None, None);
-    let rcv_transfer = get_test_transfer_recipient(&wallet_3, &receive_data.recipient_id);
-    let (rcv_transfer_data, _) = get_test_transfer_data(&wallet_3, &rcv_transfer);
-    let (transfer, _, _) = get_test_transfer_sender(&wallet_2, &txid);
-    let (transfer_data, _) = get_test_transfer_data(&wallet_2, &transfer);
+    party_3.wait_for_refresh(None);
+    party_2.wait_for_refresh(None);
+    let rcv_transfer = party_3.get_test_transfer_recipient(&receive_data.recipient_id);
+    let (rcv_transfer_data, _) = party_3.get_test_transfer_data(&rcv_transfer);
+    let (transfer, _, _) = party_2.get_test_transfer_sender(&txid);
+    let (transfer_data, _) = party_2.get_test_transfer_data(&transfer);
     assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
     assert_eq!(transfer_data.status, TransferStatus::Settled);
 
-    let uda_metadata = test_get_asset_metadata(&wallet_3, &asset.asset_id);
+    let uda_metadata = party_3.get_asset_metadata(&asset.asset_id);
     assert_eq!(uda_metadata.asset_schema, AssetSchema::Uda);
     assert_eq!(uda_metadata.initial_supply, 1);
     assert_eq!(uda_metadata.name, NAME.to_string());
@@ -716,12 +646,12 @@ fn skip_sync() {
         incoming: false,
     };
 
-    let (mut wallet_1, online_1) = get_funded_wallet!();
-    let (mut wallet_2, online_2) = get_funded_wallet!();
+    let mut party_1 = get_funded_party!();
+    let mut party_2 = get_funded_party!();
 
     // issue
-    let asset_1 = test_issue_asset_nia(&mut wallet_1, online_1, Some(&[AMOUNT, AMOUNT]));
-    let asset_2 = test_issue_asset_nia(&mut wallet_2, online_2, Some(&[AMOUNT * 2, AMOUNT * 2]));
+    let asset_1 = party_1.issue_asset_nia(Some(&[AMOUNT, AMOUNT]));
+    let asset_2 = party_2.issue_asset_nia(Some(&[AMOUNT * 2, AMOUNT * 2]));
 
     // per each wallet prepare:
     // - 1 WaitingCounterparty + 1 WaitingConfirmations ountgoing
@@ -730,7 +660,7 @@ fn skip_sync() {
     let _guard = stop_mining();
 
     // wallet 1 > wallet 2 WaitingConfirmations and vice versa
-    let receive_data_2a = test_blind_receive(&mut wallet_2);
+    let receive_data_2a = party_2.blind_receive();
     let recipient_map_1a = HashMap::from([(
         asset_1.asset_id.clone(),
         vec![Recipient {
@@ -742,14 +672,16 @@ fn skip_sync() {
     )]);
     // refresh skipping sync > no transfer has changed so return false before and after syncing
     assert!(
-        !wallet_2
-            .refresh(online_2, None, vec![], true)
+        !party_2
+            .wallet
+            .refresh(party_2.online, None, vec![], true)
             .unwrap()
             .transfers_changed()
     );
-    wallet_2
+    party_2
+        .wallet
         .sync(
-            online_2,
+            party_2.online,
             SyncOptions {
                 keychain: SyncKeychain::Colored,
                 strategy: SyncStrategy::FastSync,
@@ -757,14 +689,15 @@ fn skip_sync() {
         )
         .unwrap();
     assert!(
-        !wallet_2
-            .refresh(online_2, None, vec![], true)
+        !party_2
+            .wallet
+            .refresh(party_2.online, None, vec![], true)
             .unwrap()
             .transfers_changed()
     );
-    let txid_1a = test_send(&mut wallet_1, online_1, &recipient_map_1a);
+    let txid_1a = party_1.send_retry(&recipient_map_1a);
     assert!(!txid_1a.is_empty());
-    let receive_data_1a = test_blind_receive(&mut wallet_1);
+    let receive_data_1a = party_1.blind_receive();
     let recipient_map_2a = HashMap::from([(
         asset_2.asset_id.clone(),
         vec![Recipient {
@@ -774,25 +707,28 @@ fn skip_sync() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid_2a = test_send(&mut wallet_2, online_2, &recipient_map_2a);
+    let txid_2a = party_2.send_retry(&recipient_map_2a);
     assert!(!txid_2a.is_empty());
     // refresh skipping sync > transfers have changed so return true
     assert!(
-        wallet_1
-            .refresh(online_1, None, vec![], true)
+        party_1
+            .wallet
+            .refresh(party_1.online, None, vec![], true)
             .unwrap()
             .transfers_changed()
     );
     assert!(
-        wallet_2
-            .refresh(online_2, None, vec![], true)
+        party_2
+            .wallet
+            .refresh(party_2.online, None, vec![], true)
             .unwrap()
             .transfers_changed()
     );
     assert!(
-        wallet_1
+        party_1
+            .wallet
             .refresh(
-                online_1,
+                party_1.online,
                 Some(asset_1.asset_id.to_string()),
                 vec![filter_counter_out.clone()],
                 true,
@@ -802,7 +738,7 @@ fn skip_sync() {
     );
 
     // wallet 1 > 2, WaitingCounterparty and vice versa
-    let receive_data_2b = test_blind_receive(&mut wallet_2);
+    let receive_data_2b = party_2.blind_receive();
     let recipient_map_1b = HashMap::from([(
         asset_1.asset_id,
         vec![Recipient {
@@ -812,11 +748,11 @@ fn skip_sync() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid_1b = test_send(&mut wallet_1, online_1, &recipient_map_1b);
+    let txid_1b = party_1.send_retry(&recipient_map_1b);
     assert!(!txid_1b.is_empty());
     // wallet 2 > 1, WaitingCounterparty
-    let receive_data_1b = test_blind_receive(&mut wallet_1);
-    show_unspent_colorings(&mut wallet_1, "wallet 1 after blind 1b");
+    let receive_data_1b = party_1.blind_receive();
+    party_1.show_unspent_colorings("wallet 1 after blind 1b");
     let recipient_map_2b = HashMap::from([(
         asset_2.asset_id,
         vec![Recipient {
@@ -826,110 +762,82 @@ fn skip_sync() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let txid_2b = test_send(&mut wallet_2, online_2, &recipient_map_2b);
+    let txid_2b = party_2.send_retry(&recipient_map_2b);
     assert!(!txid_2b.is_empty());
-    show_unspent_colorings(&mut wallet_2, "wallet 2 after send 2b");
-    assert!(check_test_transfer_status_sender(
-        &wallet_1,
-        &txid_1a,
-        TransferStatus::WaitingConfirmations
-    ));
-    assert!(check_test_transfer_status_sender(
-        &wallet_1,
-        &txid_1b,
-        TransferStatus::WaitingCounterparty
-    ));
-    assert!(check_test_transfer_status_recipient(
-        &wallet_1,
+    party_2.show_unspent_colorings("wallet 2 after send 2b");
+    assert!(
+        party_1.check_test_transfer_status_sender(&txid_1a, TransferStatus::WaitingConfirmations)
+    );
+    assert!(
+        party_1.check_test_transfer_status_sender(&txid_1b, TransferStatus::WaitingCounterparty)
+    );
+    assert!(party_1.check_test_transfer_status_recipient(
         &receive_data_1a.recipient_id,
         TransferStatus::WaitingConfirmations
     ));
-    assert!(check_test_transfer_status_recipient(
-        &wallet_1,
+    assert!(party_1.check_test_transfer_status_recipient(
         &receive_data_1b.recipient_id,
         TransferStatus::WaitingCounterparty
     ));
-    assert!(check_test_transfer_status_sender(
-        &wallet_2,
-        &txid_2a,
-        TransferStatus::WaitingConfirmations
-    ));
-    assert!(check_test_transfer_status_sender(
-        &wallet_2,
-        &txid_2b,
-        TransferStatus::WaitingCounterparty
-    ));
-    assert!(check_test_transfer_status_recipient(
-        &wallet_2,
+    assert!(
+        party_2.check_test_transfer_status_sender(&txid_2a, TransferStatus::WaitingConfirmations)
+    );
+    assert!(
+        party_2.check_test_transfer_status_sender(&txid_2b, TransferStatus::WaitingCounterparty)
+    );
+    assert!(party_2.check_test_transfer_status_recipient(
         &receive_data_2a.recipient_id,
         TransferStatus::WaitingConfirmations
     ));
-    assert!(check_test_transfer_status_recipient(
-        &wallet_2,
+    assert!(party_2.check_test_transfer_status_recipient(
         &receive_data_2b.recipient_id,
         TransferStatus::WaitingCounterparty
     ));
 
     // refresh incoming WaitingCounterparty only (wallet 1), skipping sync
     assert!(
-        wallet_1
-            .refresh(online_1, None, vec![filter_counter_in], true)
+        party_1
+            .wallet
+            .refresh(party_1.online, None, vec![filter_counter_in], true)
             .unwrap()
             .transfers_changed()
     );
-    show_unspent_colorings(
-        &mut wallet_1,
-        "wallet 1 after refresh incoming WaitingCounterparty",
+    party_1.show_unspent_colorings("wallet 1 after refresh incoming WaitingCounterparty");
+    assert!(
+        party_1.check_test_transfer_status_sender(&txid_1a, TransferStatus::WaitingConfirmations)
     );
-    assert!(check_test_transfer_status_sender(
-        &wallet_1,
-        &txid_1a,
-        TransferStatus::WaitingConfirmations
-    ));
-    assert!(check_test_transfer_status_sender(
-        &wallet_1,
-        &txid_1b,
-        TransferStatus::WaitingCounterparty
-    ));
-    assert!(check_test_transfer_status_recipient(
-        &wallet_1,
+    assert!(
+        party_1.check_test_transfer_status_sender(&txid_1b, TransferStatus::WaitingCounterparty)
+    );
+    assert!(party_1.check_test_transfer_status_recipient(
         &receive_data_1a.recipient_id,
         TransferStatus::WaitingConfirmations
     ));
-    assert!(check_test_transfer_status_recipient(
-        &wallet_1,
+    assert!(party_1.check_test_transfer_status_recipient(
         &receive_data_1b.recipient_id,
         TransferStatus::WaitingConfirmations
     ));
 
     // refresh outgoing WaitingCounterparty only (wallet 2), skipping sync
     assert!(
-        wallet_2
-            .refresh(online_2, None, vec![filter_counter_out], true)
+        party_2
+            .wallet
+            .refresh(party_2.online, None, vec![filter_counter_out], true)
             .unwrap()
             .transfers_changed()
     );
-    show_unspent_colorings(
-        &mut wallet_2,
-        "wallet 2 after refresh outgoing WaitingCounterparty",
+    party_2.show_unspent_colorings("wallet 2 after refresh outgoing WaitingCounterparty");
+    assert!(
+        party_2.check_test_transfer_status_sender(&txid_2a, TransferStatus::WaitingConfirmations)
     );
-    assert!(check_test_transfer_status_sender(
-        &wallet_2,
-        &txid_2a,
-        TransferStatus::WaitingConfirmations
-    ));
-    assert!(check_test_transfer_status_sender(
-        &wallet_2,
-        &txid_2b,
-        TransferStatus::WaitingConfirmations
-    ));
-    assert!(check_test_transfer_status_recipient(
-        &wallet_2,
+    assert!(
+        party_2.check_test_transfer_status_sender(&txid_2b, TransferStatus::WaitingConfirmations)
+    );
+    assert!(party_2.check_test_transfer_status_recipient(
         &receive_data_2a.recipient_id,
         TransferStatus::WaitingConfirmations
     ));
-    assert!(check_test_transfer_status_recipient(
-        &wallet_2,
+    assert!(party_2.check_test_transfer_status_recipient(
         &receive_data_2b.recipient_id,
         TransferStatus::WaitingCounterparty
     ));
@@ -939,64 +847,46 @@ fn skip_sync() {
 
     // refresh incoming WaitingConfirmations only (wallet 2), skipping sync
     assert!(
-        wallet_2
-            .refresh(online_2, None, vec![filter_confirm_in], true)
+        party_2
+            .wallet
+            .refresh(party_2.online, None, vec![filter_confirm_in], true)
             .unwrap()
             .transfers_changed()
     );
-    show_unspent_colorings(
-        &mut wallet_2,
-        "wallet 2 after refresh incoming WaitingConfirmations",
+    party_2.show_unspent_colorings("wallet 2 after refresh incoming WaitingConfirmations");
+    assert!(
+        party_2.check_test_transfer_status_sender(&txid_2a, TransferStatus::WaitingConfirmations)
     );
-    assert!(check_test_transfer_status_sender(
-        &wallet_2,
-        &txid_2a,
-        TransferStatus::WaitingConfirmations
-    ));
-    assert!(check_test_transfer_status_sender(
-        &wallet_2,
-        &txid_2b,
-        TransferStatus::WaitingConfirmations
-    ));
-    assert!(check_test_transfer_status_recipient(
-        &wallet_2,
+    assert!(
+        party_2.check_test_transfer_status_sender(&txid_2b, TransferStatus::WaitingConfirmations)
+    );
+    assert!(party_2.check_test_transfer_status_recipient(
         &receive_data_2a.recipient_id,
         TransferStatus::Settled
     ));
-    assert!(check_test_transfer_status_recipient(
-        &wallet_2,
+    assert!(party_2.check_test_transfer_status_recipient(
         &receive_data_2b.recipient_id,
         TransferStatus::WaitingCounterparty
     ));
 
     // refresh outgoing WaitingConfirmations only (wallet 1), skipping sync
     assert!(
-        wallet_1
-            .refresh(online_1, None, vec![filter_confirm_out], true)
+        party_1
+            .wallet
+            .refresh(party_1.online, None, vec![filter_confirm_out], true)
             .unwrap()
             .transfers_changed()
     );
-    show_unspent_colorings(
-        &mut wallet_1,
-        "wallet 1 after refresh outgoing WaitingConfirmations",
+    party_1.show_unspent_colorings("wallet 1 after refresh outgoing WaitingConfirmations");
+    assert!(party_1.check_test_transfer_status_sender(&txid_1a, TransferStatus::Settled));
+    assert!(
+        party_1.check_test_transfer_status_sender(&txid_1b, TransferStatus::WaitingCounterparty)
     );
-    assert!(check_test_transfer_status_sender(
-        &wallet_1,
-        &txid_1a,
-        TransferStatus::Settled
-    ));
-    assert!(check_test_transfer_status_sender(
-        &wallet_1,
-        &txid_1b,
-        TransferStatus::WaitingCounterparty
-    ));
-    assert!(check_test_transfer_status_recipient(
-        &wallet_1,
+    assert!(party_1.check_test_transfer_status_recipient(
         &receive_data_1a.recipient_id,
         TransferStatus::WaitingConfirmations
     ));
-    assert!(check_test_transfer_status_recipient(
-        &wallet_1,
+    assert!(party_1.check_test_transfer_status_recipient(
         &receive_data_1b.recipient_id,
         TransferStatus::WaitingConfirmations
     ));

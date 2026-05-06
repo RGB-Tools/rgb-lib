@@ -9,20 +9,16 @@ fn success() {
     let amount: u64 = 66;
 
     // wallets
-    let (mut wallet, online) = get_funded_wallet!();
-    let (mut rcv_wallet, rcv_online) = get_funded_wallet!();
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
 
     // issue NIA asset
-    let asset = test_issue_asset_nia(&mut wallet, online, None);
+    let asset = party.issue_asset_nia(None);
 
     // single transfer (issuance)
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
-    let transfer_list = test_list_transfers(&wallet, Some(&asset.asset_id));
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
+    let bak_info_before = party.db_backup_info();
+    let transfer_list = party.list_transfers(Some(&asset.asset_id));
+    let bak_info_after = party.db_backup_info();
     assert_eq!(
         bak_info_after.last_operation_timestamp,
         bak_info_before.last_operation_timestamp
@@ -34,13 +30,13 @@ fn success() {
     assert_eq!(transfer.status, TransferStatus::Settled);
 
     // new wallet
-    let (mut wallet, online) = get_funded_wallet!();
+    let mut party = get_funded_party!();
 
     // issue CFA asset
-    let asset = test_issue_asset_cfa(&mut wallet, online, None, None);
+    let asset = party.issue_asset_cfa(None, None);
 
     // single transfer (issuance)
-    let transfer_list = test_list_transfers(&wallet, Some(&asset.asset_id));
+    let transfer_list = party.list_transfers(Some(&asset.asset_id));
     assert_eq!(transfer_list.len(), 1);
     let transfer = transfer_list.first().unwrap();
     assert_eq!(transfer.requested_assignment, None,);
@@ -48,8 +44,8 @@ fn success() {
     assert_eq!(transfer.status, TransferStatus::Settled);
 
     // send
-    let receive_data_1 = test_blind_receive(&mut rcv_wallet);
-    let receive_data_2 = test_witness_receive(&mut rcv_wallet);
+    let receive_data_1 = rcv_party.blind_receive();
+    let receive_data_2 = rcv_party.witness_receive();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![
@@ -70,11 +66,11 @@ fn success() {
             },
         ],
     )]);
-    let txid = test_send(&mut wallet, online, &recipient_map);
+    let txid = party.send_retry(&recipient_map);
     assert!(!txid.is_empty());
 
     // multiple transfers (sender)
-    let transfer_list = test_list_transfers(&wallet, Some(&asset.asset_id));
+    let transfer_list = party.list_transfers(Some(&asset.asset_id));
     assert_eq!(transfer_list.len(), 3);
     let transfer_send_1 = transfer_list
         .iter()
@@ -112,11 +108,11 @@ fn success() {
     assert_eq!(transfer_send_2.txid, Some(txid.clone()));
 
     // refresh once, so the asset appears on the receiver side
-    wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
-    wait_for_refresh(&mut wallet, online, None, None);
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(None);
 
     // multiple transfers (receiver)
-    let transfer_list_rcv = test_list_transfers(&rcv_wallet, Some(&asset.asset_id));
+    let transfer_list_rcv = rcv_party.list_transfers(Some(&asset.asset_id));
     assert_eq!(transfer_list_rcv.len(), 2);
     let transfer_recv_blind = transfer_list_rcv
         .iter()
@@ -155,12 +151,12 @@ fn success() {
 
     // refresh a second time to settle the transfers
     mine(false);
-    wait_for_refresh(&mut rcv_wallet, rcv_online, None, None);
-    wait_for_refresh(&mut wallet, online, None, None);
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(None);
 
     // check all transfers are now in status Settled
-    let transfer_list = test_list_transfers(&wallet, Some(&asset.asset_id));
-    let transfer_list_rcv = test_list_transfers(&rcv_wallet, Some(&asset.asset_id));
+    let transfer_list = party.list_transfers(Some(&asset.asset_id));
+    let transfer_list_rcv = rcv_party.list_transfers(Some(&asset.asset_id));
     assert!(
         transfer_list
             .iter()
@@ -176,9 +172,9 @@ fn success() {
 #[test]
 #[parallel]
 fn fail() {
-    let wallet = get_test_wallet(false, None);
+    let party = offline_party!(get_test_wallet(false, None));
 
     // asset not found
-    let result = test_list_transfers_result(&wallet, Some("rgb1inexistent"));
+    let result = party.list_transfers_result(Some("rgb1inexistent"));
     assert!(matches!(result, Err(Error::AssetNotFound { asset_id: _ })));
 }

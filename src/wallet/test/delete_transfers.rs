@@ -6,125 +6,83 @@ use super::*;
 fn success() {
     initialize();
 
-    let (mut wallet, online) = get_funded_wallet!();
-    let (mut rcv_wallet, _rcv_online) = get_funded_wallet!();
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
 
     // return false if no transfer has changed
-    let txn = wallet.database().begin_transaction().unwrap();
-    let batch_transfers_before = txn.iter_batch_transfers().unwrap();
-    txn.commit().unwrap();
+    let batch_transfers_before = party.db_batch_transfers();
     assert_eq!(batch_transfers_before.len(), 0);
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
-    assert!(!test_delete_transfers(&wallet, None, false));
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
+    let bak_info_before = party.db_backup_info();
+    assert!(!party.delete_transfers(None, false));
+    let bak_info_after = party.db_backup_info();
     assert_eq!(
         bak_info_after.last_operation_timestamp,
         bak_info_before.last_operation_timestamp
     );
-    let txn = wallet.database().begin_transaction().unwrap();
-    let batch_transfers_after = txn.iter_batch_transfers().unwrap();
-    txn.commit().unwrap();
+    let batch_transfers_after = party.db_batch_transfers();
     assert_eq!(batch_transfers_after.len(), 0);
 
     // delete single transfer
-    let receive_data = test_blind_receive(&mut wallet);
-    test_fail_transfers_single(&mut wallet, online, receive_data.batch_transfer_idx);
-    assert!(check_test_transfer_status_recipient(
-        &wallet,
-        &receive_data.recipient_id,
-        TransferStatus::Failed
-    ));
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
-    let txn = wallet.database().begin_transaction().unwrap();
-    let batch_transfers_before = txn.iter_batch_transfers().unwrap();
-    txn.commit().unwrap();
+    let receive_data = party.blind_receive();
+    party.fail_transfers_single(receive_data.batch_transfer_idx);
+    assert!(
+        party.check_test_transfer_status_recipient(
+            &receive_data.recipient_id,
+            TransferStatus::Failed
+        )
+    );
+    let bak_info_before = party.db_backup_info();
+    let batch_transfers_before = party.db_batch_transfers();
     assert_eq!(batch_transfers_before.len(), 1);
-    assert!(test_delete_transfers(
-        &wallet,
-        Some(receive_data.batch_transfer_idx),
-        false
-    ));
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
+    assert!(party.delete_transfers(Some(receive_data.batch_transfer_idx), false));
+    let bak_info_after = party.db_backup_info();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
-    let txn = wallet.database().begin_transaction().unwrap();
-    let batch_transfers_after = txn.iter_batch_transfers().unwrap();
-    txn.commit().unwrap();
+    let batch_transfers_after = party.db_batch_transfers();
     assert_eq!(batch_transfers_after.len(), 0);
 
     // delete all Failed transfers
-    let receive_data_1 = test_blind_receive(&mut wallet);
-    let receive_data_2 = test_blind_receive(&mut wallet);
-    let receive_data_3 = test_blind_receive(&mut wallet);
-    test_fail_transfers_single(&mut wallet, online, receive_data_1.batch_transfer_idx);
-    test_fail_transfers_single(&mut wallet, online, receive_data_2.batch_transfer_idx);
-    assert!(check_test_transfer_status_recipient(
-        &wallet,
+    let receive_data_1 = party.blind_receive();
+    let receive_data_2 = party.blind_receive();
+    let receive_data_3 = party.blind_receive();
+    party.fail_transfers_single(receive_data_1.batch_transfer_idx);
+    party.fail_transfers_single(receive_data_2.batch_transfer_idx);
+    assert!(party.check_test_transfer_status_recipient(
         &receive_data_1.recipient_id,
         TransferStatus::Failed
     ));
-    assert!(check_test_transfer_status_recipient(
-        &wallet,
+    assert!(party.check_test_transfer_status_recipient(
         &receive_data_2.recipient_id,
         TransferStatus::Failed
     ));
-    show_unspent_colorings(&mut wallet, "run 1 before delete");
-    let txn = wallet.database().begin_transaction().unwrap();
-    let batch_transfers_before = txn.iter_batch_transfers().unwrap();
-    txn.commit().unwrap();
+    party.show_unspent_colorings("run 1 before delete");
+    let batch_transfers_before = party.db_batch_transfers();
     assert_eq!(batch_transfers_before.len(), 3);
-    assert!(test_delete_transfers(&wallet, None, false));
-    show_unspent_colorings(&mut wallet, "run 1 after delete");
-    let txn = wallet.database().begin_transaction().unwrap();
-    let transfers = txn.iter_transfers().unwrap();
-    txn.commit().unwrap();
+    assert!(party.delete_transfers(None, false));
+    party.show_unspent_colorings("run 1 after delete");
+    let transfers = party.db_transfers();
     assert_eq!(transfers.len(), 1);
-    assert!(check_test_transfer_status_recipient(
-        &wallet,
+    assert!(party.check_test_transfer_status_recipient(
         &receive_data_3.recipient_id,
         TransferStatus::WaitingCounterparty
     ));
-    let txn = wallet.database().begin_transaction().unwrap();
-    let batch_transfers_after = txn.iter_batch_transfers().unwrap();
-    txn.commit().unwrap();
+    let batch_transfers_after = party.db_batch_transfers();
     assert_eq!(batch_transfers_after.len(), 1);
 
     // fail and delete remaining pending transfers
-    let txn = wallet.database().begin_transaction().unwrap();
-    let batch_transfers_before = txn.iter_batch_transfers().unwrap();
-    txn.commit().unwrap();
+    let batch_transfers_before = party.db_batch_transfers();
     assert_eq!(batch_transfers_before.len(), 1);
-    assert!(test_fail_transfers_single(
-        &mut wallet,
-        online,
-        receive_data_3.batch_transfer_idx
-    ));
-    assert!(test_delete_transfers(
-        &wallet,
-        Some(receive_data_3.batch_transfer_idx),
-        false
-    ));
-    let txn = wallet.database().begin_transaction().unwrap();
-    let transfers = txn.iter_transfers().unwrap();
-    txn.commit().unwrap();
+    assert!(party.fail_transfers_single(receive_data_3.batch_transfer_idx));
+    assert!(party.delete_transfers(Some(receive_data_3.batch_transfer_idx), false));
+    let transfers = party.db_transfers();
     assert_eq!(transfers.len(), 0);
-    let txn = wallet.database().begin_transaction().unwrap();
-    let batch_transfers_after = txn.iter_batch_transfers().unwrap();
-    txn.commit().unwrap();
+    let batch_transfers_after = party.db_batch_transfers();
     assert_eq!(batch_transfers_after.len(), 0);
 
     // issue
-    let asset = test_issue_asset_nia(&mut wallet, online, None);
+    let asset = party.issue_asset_nia(None);
 
     // delete an initiated transfer with no RGB change
-    let receive_data = test_blind_receive(&mut rcv_wallet);
+    let receive_data = rcv_party.blind_receive();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -134,9 +92,10 @@ fn success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let send_result = wallet
+    let send_result = party
+        .wallet
         .send_begin(
-            online,
+            party.online,
             recipient_map,
             false,
             FEE_RATE,
@@ -146,39 +105,23 @@ fn success() {
         )
         .unwrap();
     let batch_transfer_idx = send_result.batch_transfer_idx.unwrap();
-    test_fail_transfers_single(&mut wallet, online, batch_transfer_idx);
-    let txn = wallet.database().begin_transaction().unwrap();
-    let batch_transfers_before = txn.iter_batch_transfers().unwrap();
-    txn.commit().unwrap();
+    party.fail_transfers_single(batch_transfer_idx);
+    let batch_transfers_before = party.db_batch_transfers();
     assert_eq!(batch_transfers_before.len(), 2);
-    let txn = wallet.database().begin_transaction().unwrap();
-    let txos_before = txn.iter_txos().unwrap();
-    txn.commit().unwrap();
+    let txos_before = party.db_txos();
     assert_eq!(txos_before.len(), 5);
-    let txn = wallet.database().begin_transaction().unwrap();
-    let colorings_before = txn.iter_colorings().unwrap();
-    txn.commit().unwrap();
+    let colorings_before = party.db_colorings();
     assert_eq!(colorings_before.len(), 2);
-    assert!(test_delete_transfers(
-        &wallet,
-        Some(batch_transfer_idx),
-        false
-    ));
-    let txn = wallet.database().begin_transaction().unwrap();
-    let batch_transfers_after = txn.iter_batch_transfers().unwrap();
-    txn.commit().unwrap();
+    assert!(party.delete_transfers(Some(batch_transfer_idx), false));
+    let batch_transfers_after = party.db_batch_transfers();
     assert_eq!(batch_transfers_after.len(), 1);
-    let txn = wallet.database().begin_transaction().unwrap();
-    let txos_after = txn.iter_txos().unwrap();
-    txn.commit().unwrap();
+    let txos_after = party.db_txos();
     assert_eq!(txos_after.len(), 5);
-    let txn = wallet.database().begin_transaction().unwrap();
-    let colorings_after = txn.iter_colorings().unwrap();
-    txn.commit().unwrap();
+    let colorings_after = party.db_colorings();
     assert_eq!(colorings_after.len(), 1);
 
     // delete an initiated transfer with RGB change on bitcoin change UTXO
-    let receive_data = test_blind_receive(&mut rcv_wallet);
+    let receive_data = rcv_party.blind_receive();
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -188,9 +131,10 @@ fn success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
-    let send_result = wallet
+    let send_result = party
+        .wallet
         .send_begin(
-            online,
+            party.online,
             recipient_map,
             false,
             FEE_RATE,
@@ -200,40 +144,25 @@ fn success() {
         )
         .unwrap();
     let batch_transfer_idx = send_result.batch_transfer_idx.unwrap();
-    test_fail_transfers_single(&mut wallet, online, batch_transfer_idx);
-    let txn = wallet.database().begin_transaction().unwrap();
-    let batch_transfers_before = txn.iter_batch_transfers().unwrap();
-    txn.commit().unwrap();
+    party.fail_transfers_single(batch_transfer_idx);
+    let batch_transfers_before = party.db_batch_transfers();
     assert_eq!(batch_transfers_before.len(), 2);
-    let txn = wallet.database().begin_transaction().unwrap();
-    let txos_before = txn.iter_txos().unwrap();
-    txn.commit().unwrap();
+    let txos_before = party.db_txos();
     assert_eq!(txos_before.len(), 6);
-    let txn = wallet.database().begin_transaction().unwrap();
-    let colorings_before = txn.iter_colorings().unwrap();
-    txn.commit().unwrap();
+    let colorings_before = party.db_colorings();
     assert_eq!(colorings_before.len(), 3);
-    assert!(test_delete_transfers(
-        &wallet,
-        Some(batch_transfer_idx),
-        false
-    ));
-    let txn = wallet.database().begin_transaction().unwrap();
-    let batch_transfers_after = txn.iter_batch_transfers().unwrap();
-    txn.commit().unwrap();
+    assert!(party.delete_transfers(Some(batch_transfer_idx), false));
+    let batch_transfers_after = party.db_batch_transfers();
     assert_eq!(batch_transfers_after.len(), 1);
-    let txn = wallet.database().begin_transaction().unwrap();
-    let txos_after = txn.iter_txos().unwrap();
-    txn.commit().unwrap();
+    let txos_after = party.db_txos();
     assert_eq!(txos_after.len(), 5);
-    let txn = wallet.database().begin_transaction().unwrap();
-    let colorings_after = txn.iter_colorings().unwrap();
-    txn.commit().unwrap();
+    let colorings_after = party.db_colorings();
     assert_eq!(colorings_after.len(), 1);
 
     // don't delete failed transfer with asset_id if no_asset_only is true
-    let receive_data_1 = test_blind_receive(&mut wallet);
-    let receive_data_2 = wallet
+    let receive_data_1 = party.blind_receive();
+    let receive_data_2 = party
+        .wallet
         .blind_receive(
             Some(asset.asset_id),
             Assignment::Any,
@@ -242,35 +171,22 @@ fn success() {
             MIN_CONFIRMATIONS,
         )
         .unwrap();
-    assert!(test_fail_transfers_single(
-        &mut wallet,
-        online,
-        receive_data_1.batch_transfer_idx
-    ));
-    assert!(test_fail_transfers_single(
-        &mut wallet,
-        online,
-        receive_data_2.batch_transfer_idx
-    ));
-    assert!(check_test_transfer_status_recipient(
-        &wallet,
+    assert!(party.fail_transfers_single(receive_data_1.batch_transfer_idx));
+    assert!(party.fail_transfers_single(receive_data_2.batch_transfer_idx));
+    assert!(party.check_test_transfer_status_recipient(
         &receive_data_1.recipient_id,
         TransferStatus::Failed
     ));
-    assert!(check_test_transfer_status_recipient(
-        &wallet,
+    assert!(party.check_test_transfer_status_recipient(
         &receive_data_2.recipient_id,
         TransferStatus::Failed
     ));
-    show_unspent_colorings(&mut wallet, "run 2 before delete");
-    assert!(test_delete_transfers(&wallet, None, true));
-    show_unspent_colorings(&mut wallet, "run 2 after delete");
-    let txn = wallet.database().begin_transaction().unwrap();
-    let transfers = txn.iter_transfers().unwrap();
-    txn.commit().unwrap();
+    party.show_unspent_colorings("run 2 before delete");
+    assert!(party.delete_transfers(None, true));
+    party.show_unspent_colorings("run 2 after delete");
+    let transfers = party.db_transfers();
     assert_eq!(transfers.len(), 2);
-    assert!(check_test_transfer_status_recipient(
-        &wallet,
+    assert!(party.check_test_transfer_status_recipient(
         &receive_data_2.recipient_id,
         TransferStatus::Failed
     ));
@@ -284,17 +200,17 @@ fn batch_success() {
 
     let amount = 66;
 
-    let (mut wallet, online) = get_funded_wallet!();
-    let (mut rcv_wallet_1, _rcv_online_1) = get_funded_wallet!();
-    let (mut rcv_wallet_2, _rcv_online_2) = get_funded_wallet!();
+    let mut party = get_funded_party!();
+    let mut rcv_party_1 = get_funded_party!();
+    let mut rcv_party_2 = get_funded_party!();
 
     // issue
-    let asset = test_issue_asset_nia(&mut wallet, online, None);
+    let asset = party.issue_asset_nia(None);
     let asset_id = asset.asset_id;
 
     // failed transfer can be deleted
-    let receive_data_1 = test_blind_receive(&mut rcv_wallet_1);
-    let receive_data_2 = test_blind_receive(&mut rcv_wallet_2);
+    let receive_data_1 = rcv_party_1.blind_receive();
+    let receive_data_2 = rcv_party_2.blind_receive();
     let recipient_map = HashMap::from([(
         asset_id.clone(),
         vec![
@@ -312,21 +228,13 @@ fn batch_success() {
             },
         ],
     )]);
-    let send_result = test_send_result(&mut wallet, online, &recipient_map).unwrap();
+    let send_result = party.send_result(&recipient_map).unwrap();
     assert!(!send_result.txid.is_empty());
-    test_fail_transfers_single(&mut wallet, online, send_result.batch_transfer_idx);
-    let txn = wallet.database().begin_transaction().unwrap();
-    let batch_transfers_before = txn.iter_batch_transfers().unwrap();
-    txn.commit().unwrap();
+    party.fail_transfers_single(send_result.batch_transfer_idx);
+    let batch_transfers_before = party.db_batch_transfers();
     assert_eq!(batch_transfers_before.len(), 2);
-    assert!(test_delete_transfers(
-        &wallet,
-        Some(send_result.batch_transfer_idx),
-        false
-    ));
-    let txn = wallet.database().begin_transaction().unwrap();
-    let batch_transfers_after = txn.iter_batch_transfers().unwrap();
-    txn.commit().unwrap();
+    assert!(party.delete_transfers(Some(send_result.batch_transfer_idx), false));
+    let batch_transfers_after = party.db_batch_transfers();
     assert_eq!(batch_transfers_after.len(), 1);
 }
 
@@ -336,33 +244,34 @@ fn batch_success() {
 fn fail() {
     initialize();
 
-    let (mut wallet, online) = get_funded_wallet!();
+    let mut party = get_funded_party!();
 
-    let receive_data = test_blind_receive(&mut wallet);
+    let receive_data = party.blind_receive();
 
     // don't delete transfer not in Failed status
-    assert!(!check_test_transfer_status_recipient(
-        &wallet,
-        &receive_data.recipient_id,
-        TransferStatus::Failed
-    ));
-    let result =
-        test_delete_transfers_result(&wallet, Some(receive_data.batch_transfer_idx), false);
+    assert!(
+        !party.check_test_transfer_status_recipient(
+            &receive_data.recipient_id,
+            TransferStatus::Failed
+        )
+    );
+    let result = party.delete_transfers_result(Some(receive_data.batch_transfer_idx), false);
     assert!(matches!(result, Err(Error::CannotDeleteBatchTransfer)));
 
     // don't delete unknown transfer
-    let result = test_delete_transfers_result(&wallet, Some(UNKNOWN_IDX), false);
+    let result = party.delete_transfers_result(Some(UNKNOWN_IDX), false);
     assert!(matches!(
         result,
         Err(Error::BatchTransferNotFound { idx }) if idx == UNKNOWN_IDX
     ));
 
     // issue
-    let asset = test_issue_asset_nia(&mut wallet, online, None);
-    show_unspent_colorings(&mut wallet, "after issuance");
+    let asset = party.issue_asset_nia(None);
+    party.show_unspent_colorings("after issuance");
 
     // don't delete failed transfer with asset_id if no_asset_only is true
-    let receive_data = wallet
+    let receive_data = party
+        .wallet
         .blind_receive(
             Some(asset.asset_id),
             Assignment::Any,
@@ -371,7 +280,7 @@ fn fail() {
             MIN_CONFIRMATIONS,
         )
         .unwrap();
-    test_fail_transfers_all(&mut wallet, online);
-    let result = test_delete_transfers_result(&wallet, Some(receive_data.batch_transfer_idx), true);
+    party.fail_transfers_all();
+    let result = party.delete_transfers_result(Some(receive_data.batch_transfer_idx), true);
     assert!(matches!(result, Err(Error::CannotDeleteBatchTransfer)));
 }

@@ -6,16 +6,12 @@ use super::*;
 fn success() {
     initialize();
 
-    let (mut wallet, online) = get_funded_wallet!();
+    let mut party = get_funded_party!();
 
     // no assets
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
-    let assets = test_list_assets(&wallet, &[]);
-    let txn = wallet.database().begin_transaction().unwrap();
-    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
-    txn.commit().unwrap();
+    let bak_info_before = party.db_backup_info();
+    let assets = party.list_assets(&[]);
+    let bak_info_after = party.db_backup_info();
     assert_eq!(
         bak_info_after.last_operation_timestamp,
         bak_info_before.last_operation_timestamp
@@ -23,8 +19,8 @@ fn success() {
     assert_eq!(assets.nia.unwrap().len(), 0);
 
     // one issued NIA asset
-    let asset_1 = test_issue_asset_nia(&mut wallet, online, None);
-    let assets = test_list_assets(&wallet, &[]);
+    let asset_1 = party.issue_asset_nia(None);
+    let assets = party.list_assets(&[]);
     let nia_assets = assets.nia.unwrap();
     let cfa_assets = assets.cfa.unwrap();
     assert_eq!(nia_assets.len(), 1);
@@ -44,10 +40,11 @@ fn success() {
     );
 
     // two issued NIA assets
-    let asset_2 = wallet
+    let asset_2 = party
+        .wallet
         .issue_asset_nia(s!("TICKER2"), s!("NAME2"), PRECISION * 2, vec![AMOUNT * 2])
         .unwrap();
-    let assets = test_list_assets(&wallet, &[]);
+    let assets = party.list_assets(&[]);
     let nia_assets = assets.nia.unwrap();
     let cfa_assets = assets.cfa.unwrap();
     assert_eq!(nia_assets.len(), 2);
@@ -67,8 +64,8 @@ fn success() {
     );
 
     // three issued assets: 2x NIA + 1x CFA
-    let asset_3 = test_issue_asset_cfa(&mut wallet, online, Some(&[AMOUNT * 3]), None);
-    let assets = test_list_assets(&wallet, &[]);
+    let asset_3 = party.issue_asset_cfa(Some(&[AMOUNT * 3]), None);
+    let assets = party.list_assets(&[]);
     let nia_assets = assets.nia.unwrap();
     let cfa_assets = assets.cfa.unwrap();
     assert_eq!(nia_assets.len(), 2);
@@ -89,11 +86,11 @@ fn success() {
     assert_eq!(asset.media, None);
 
     // test filter by asset type
-    let assets = test_list_assets(&wallet, &[AssetSchema::Nia]);
+    let assets = party.list_assets(&[AssetSchema::Nia]);
     assert_eq!(assets.nia.unwrap().len(), 2);
     assert!(assets.cfa.is_none());
 
-    let assets = test_list_assets(&wallet, &[AssetSchema::Cfa]);
+    let assets = party.list_assets(&[AssetSchema::Cfa]);
     assert!(assets.nia.is_none());
     assert_eq!(assets.cfa.unwrap().len(), 1);
 }
