@@ -1215,6 +1215,7 @@ pub struct TransferData {
     pub(crate) updated_at: i64,
     pub(crate) expiration_timestamp: Option<i64>,
     pub(crate) consignment_path: Option<String>,
+    pub(crate) psbt_path: Option<String>,
 }
 
 /// An RGB transfer.
@@ -1253,6 +1254,8 @@ pub struct Transfer {
     pub invoice_string: Option<String>,
     /// Consignment path
     pub consignment_path: Option<String>,
+    /// Path of the unsigned PSBT produced by the `_begin` step, when available
+    pub psbt_path: Option<String>,
 }
 
 impl DbTransfer {
@@ -1278,6 +1281,7 @@ impl DbTransfer {
             transport_endpoints,
             invoice_string: self.invoice_string.clone(),
             consignment_path: td.consignment_path,
+            psbt_path: td.psbt_path,
         }
     }
 }

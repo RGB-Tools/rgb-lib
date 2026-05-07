@@ -2036,6 +2036,18 @@ pub trait WalletOffline: WalletBackup {
         }
         .map(|p| p.to_string_lossy().to_string());
 
+        let psbt_path = match &kind {
+            TransferKind::Send | TransferKind::Inflation | TransferKind::Burn => batch_transfer
+                .txid
+                .as_ref()
+                .map(|txid| self.get_transfer_dir(txid).join(UNSIGNED_PSBT_FILE))
+                .filter(|p| p.exists())
+                .map(|p| p.to_string_lossy().to_string()),
+            TransferKind::ReceiveBlind | TransferKind::ReceiveWitness | TransferKind::Issuance => {
+                None
+            }
+        };
+
         Ok(TransferData {
             kind,
             status: batch_transfer.status,
@@ -2048,6 +2060,7 @@ pub trait WalletOffline: WalletBackup {
             updated_at: batch_transfer.updated_at,
             expiration_timestamp: batch_transfer.expiration,
             consignment_path,
+            psbt_path,
         })
     }
 

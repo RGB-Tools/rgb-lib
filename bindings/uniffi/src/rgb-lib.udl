@@ -550,6 +550,7 @@ dictionary Transfer {
   sequence<TransferTransportEndpoint> transport_endpoints;
   string? invoice_string;
   string? consignment_path;
+  string? psbt_path;
 };
 
 dictionary Unspent {

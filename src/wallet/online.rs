@@ -2944,6 +2944,12 @@ pub trait WalletOnline: WalletOffline {
         let new_transfer_dir = self.get_transfer_dir(&txid);
         fs::rename(transfer_dir, &new_transfer_dir)?;
 
+        // persist the unsigned PSBT
+        fs::write(
+            new_transfer_dir.join(UNSIGNED_PSBT_FILE),
+            begin_operation_data.psbt.to_string(),
+        )?;
+
         // update transfer_dir to the new (renamed) directory
         let mut begin_operation_data = begin_operation_data;
         begin_operation_data.transfer_dir = new_transfer_dir;

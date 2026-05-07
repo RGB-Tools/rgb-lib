@@ -75,6 +75,7 @@ use super::*;
 
 pub(crate) const CONSIGNMENT_FILE: &str = "consignment_out";
 pub(crate) const FASCIA_FILE: &str = "fascia";
+pub(crate) const UNSIGNED_PSBT_FILE: &str = "unsigned.psbt";
 
 pub(crate) const SCHEMA_ID_NIA: &str =
     "rgb:sch:RWhwUfTMpuP2Zfx1~j4nswCANGeJrYOqDcKelaMV4zU#remote-digital-pegasus";
