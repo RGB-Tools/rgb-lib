@@ -2161,7 +2161,6 @@ impl MultisigWallet {
         let psbt =
             self.create_utxos_begin_impl(&txn, up_to, num, size, fee_rate, skip_sync, true)?;
         let res = self.post_operation(OperationType::CreateUtxos, PostData::Psbt(psbt))?;
-        self.update_backup_info(&txn, false)?;
         txn.commit()?;
         info!(self.logger(), "Initiate creating UTXOs completed");
         Ok(res)
@@ -2186,7 +2185,6 @@ impl MultisigWallet {
         let txn = self.database().begin_transaction()?;
         let psbt = self.send_btc_begin_impl(&txn, address, amount, fee_rate, skip_sync, true)?;
         let res = self.post_operation(OperationType::SendBtc, PostData::Psbt(psbt))?;
-        self.update_backup_info(&txn, false)?;
         txn.commit()?;
         info!(self.logger(), "Initiate sending BTC completed");
         Ok(res)
@@ -2241,7 +2239,6 @@ impl MultisigWallet {
             OperationType::SendRgb,
             PostData::BeginOperationData(Box::new(data)),
         )?;
-        self.update_backup_info(&txn, false)?;
         txn.commit()?;
         info!(self.logger(), "Initiate sending completed");
         Ok(res)
@@ -2283,7 +2280,6 @@ impl MultisigWallet {
             OperationType::Inflation,
             PostData::BeginOperationData(Box::new(data)),
         )?;
-        self.update_backup_info(&txn, false)?;
         txn.commit()?;
         info!(self.logger(), "Initiate inflating completed");
         Ok(res)
@@ -2315,7 +2311,6 @@ impl MultisigWallet {
             OperationType::Burn,
             PostData::BeginOperationData(Box::new(data)),
         )?;
-        self.update_backup_info(&txn, false)?;
         txn.commit()?;
         info!(self.logger(), "Initiate burning completed");
         Ok(res)

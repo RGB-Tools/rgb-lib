@@ -529,3 +529,66 @@ fn fail() {
     let result = test_inflate_end_result(&mut wallet_2, online_2, &signed_psbt);
     assert_matches!(result, Err(Error::UnknownTransfer { txid }) if txid == psbt_txid);
 }
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn begin_end() {
+    initialize();
+
+    let (mut wallet, online) = get_funded_wallet!();
+    let asset = test_issue_asset_ifa(&mut wallet, online, None, Some(&[1000]), None);
+
+    // begin does not update backup_info with dry_run=true
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
+    let _res = wallet
+        .inflate_begin(
+            online,
+            asset.asset_id.clone(),
+            vec![1000],
+            FEE_RATE,
+            MIN_CONFIRMATIONS,
+            true,
+        )
+        .unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
+    assert_eq!(
+        bak_info_after.last_operation_timestamp,
+        bak_info_before.last_operation_timestamp
+    );
+
+    // begin does update backup_info with dry_run=false
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
+    let res = wallet
+        .inflate_begin(
+            online,
+            asset.asset_id.clone(),
+            vec![1000],
+            FEE_RATE,
+            MIN_CONFIRMATIONS,
+            false,
+        )
+        .unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
+    assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
+
+    let signed_psbt = wallet.sign_psbt(res.psbt, None).unwrap();
+
+    // end updates backup_info
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
+    wallet.inflate_end(online, signed_psbt).unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
+    assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
+}

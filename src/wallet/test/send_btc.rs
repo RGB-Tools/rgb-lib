@@ -43,10 +43,7 @@ fn success() {
     let txn = wallet.database().begin_transaction().unwrap();
     let bak_info_after = txn.get_backup_info().unwrap().unwrap();
     txn.commit().unwrap();
-    assert_eq!(
-        bak_info_after.last_operation_timestamp,
-        bak_info_before.last_operation_timestamp
-    );
+    assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     assert!(!txid.is_empty());
     mine(false);
     let expected_balance = BtcBalance {
@@ -445,4 +442,53 @@ fn send_btc_end_twice() {
     // call send_btc_end twice with the same PSBT, which should work (idempotent)
     wallet.send_btc_end(online, signed_psbt.clone()).unwrap();
     wallet.send_btc_end(online, signed_psbt).unwrap();
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn begin_end() {
+    initialize();
+
+    let (mut wallet, online) = get_funded_noutxo_wallet!();
+    let address = test_get_address(&mut wallet);
+
+    // begin does not update backup_info with dry_run=true
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
+    let _psbt = wallet
+        .send_btc_begin(online, address.clone(), 1000, FEE_RATE, false, true)
+        .unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
+    assert_eq!(
+        bak_info_before.last_operation_timestamp,
+        bak_info_after.last_operation_timestamp
+    );
+
+    // begin does update backup_info with dry_run=false
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
+    let psbt = wallet
+        .send_btc_begin(online, address, 1000, FEE_RATE, false, false)
+        .unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
+    assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
+
+    let signed_psbt = wallet.sign_psbt(psbt, None).unwrap();
+
+    // end updates backup_info
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
+    wallet.send_btc_end(online, signed_psbt).unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
+    assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
 }

@@ -654,6 +654,9 @@ impl Wallet {
         let txn = self.database().begin_transaction()?;
         let res =
             self.create_utxos_begin_impl(&txn, up_to, num, size, fee_rate, skip_sync, dry_run)?;
+        if !dry_run {
+            self.update_backup_info(&txn, false)?;
+        }
         txn.commit()?;
         info!(self.logger(), "Create UTXOs (begin) completed");
         Ok(res.to_string())
@@ -673,6 +676,7 @@ impl Wallet {
         let psbt = Psbt::from_str(&signed_psbt)?;
         let txn = self.database().begin_transaction()?;
         let res = self.create_utxos_end_impl(&txn, &psbt)?;
+        self.update_backup_info(&txn, false)?;
         txn.commit()?;
         info!(self.logger(), "Create UTXOs (end) completed");
         Ok(res)
@@ -741,6 +745,9 @@ impl Wallet {
         self.check_online(online)?;
         let txn = self.database().begin_transaction()?;
         let psbt = self.drain_to_begin_impl(&txn, address, fee_rate, dry_run)?;
+        if !dry_run {
+            self.update_backup_info(&txn, false)?;
+        }
         txn.commit()?;
         info!(self.logger(), "Drain (begin) completed");
         Ok(psbt.to_string())
@@ -861,7 +868,9 @@ impl Wallet {
             expiration_timestamp.map(|t| t as i64),
             dry_run,
         )?;
-        self.update_backup_info(&txn, false)?;
+        if !dry_run {
+            self.update_backup_info(&txn, false)?;
+        }
         txn.commit()?;
         info!(self.logger(), "Send (begin) completed");
         Ok(SendBeginResult {
@@ -927,6 +936,7 @@ impl Wallet {
             self.send_btc_begin_impl(&txn, address, amount, fee_rate, skip_sync, true)?;
         self.sign_psbt_impl(&mut psbt, None)?;
         let res = self.send_btc_end_impl(&txn, &psbt)?;
+        self.update_backup_info(&txn, false)?;
         txn.commit()?;
         info!(self.logger(), "Send BTC completed");
         Ok(res)
@@ -958,6 +968,9 @@ impl Wallet {
         self.check_online(online)?;
         let txn = self.database().begin_transaction()?;
         let res = self.send_btc_begin_impl(&txn, address, amount, fee_rate, skip_sync, dry_run)?;
+        if !dry_run {
+            self.update_backup_info(&txn, false)?;
+        }
         txn.commit()?;
         info!(self.logger(), "Send BTC (begin) completed");
         Ok(res.to_string())
@@ -977,6 +990,7 @@ impl Wallet {
         let psbt = Psbt::from_str(&signed_psbt)?;
         let txn = self.database().begin_transaction()?;
         let res = self.send_btc_end_impl(&txn, &psbt)?;
+        self.update_backup_info(&txn, false)?;
         txn.commit()?;
         info!(self.logger(), "Send BTC (end) completed");
         Ok(res)
@@ -1065,7 +1079,9 @@ impl Wallet {
             min_confirmations,
             dry_run,
         )?;
-        self.update_backup_info(&txn, false)?;
+        if !dry_run {
+            self.update_backup_info(&txn, false)?;
+        }
         txn.commit()?;
         info!(self.logger(), "Inflate (begin) completed");
         Ok(InflateBeginResult {
@@ -1167,7 +1183,9 @@ impl Wallet {
         let txn = self.database().begin_transaction()?;
         let begin_operation_data =
             self.burn_begin_impl(&txn, asset_id, amount, fee_rate, min_confirmations, dry_run)?;
-        self.update_backup_info(&txn, false)?;
+        if !dry_run {
+            self.update_backup_info(&txn, false)?;
+        }
         txn.commit()?;
         info!(self.logger(), "Burn (begin) completed");
         Ok(BurnBeginResult {

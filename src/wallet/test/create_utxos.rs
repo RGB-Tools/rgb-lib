@@ -427,3 +427,51 @@ fn begin_reservation_interactions() {
         })
     ));
 }
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn begin_end() {
+    initialize();
+
+    let (mut wallet, online) = get_funded_noutxo_wallet!();
+
+    // begin does not update backup_info with dry_run=true
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
+    let _psbt = wallet
+        .create_utxos_begin(online, true, None, None, FEE_RATE, false, true)
+        .unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
+    assert_eq!(
+        bak_info_after.last_operation_timestamp,
+        bak_info_before.last_operation_timestamp
+    );
+
+    // begin does update backup_info with dry_run=false
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
+    let psbt = wallet
+        .create_utxos_begin(online, true, None, None, FEE_RATE, false, false)
+        .unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
+    assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
+
+    let signed_psbt = wallet.sign_psbt(psbt, None).unwrap();
+
+    // end updates backup_info
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_before = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
+    wallet.create_utxos_end(online, signed_psbt).unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let bak_info_after = txn.get_backup_info().unwrap().unwrap();
+    txn.commit().unwrap();
+    assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
+}

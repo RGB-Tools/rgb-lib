@@ -465,7 +465,7 @@ pub(super) trait MultisigOps {
         let res = self
             .create_utxos_init_res(up_to, num, size, fee_rate)
             .unwrap();
-        assert!(self.bak_ts() > bt_before);
+        assert_eq!(self.bak_ts(), bt_before);
         let op_idx = op_counter_bump();
         assert_eq!(res.operation_idx, op_idx);
         println!(
@@ -517,7 +517,7 @@ pub(super) trait MultisigOps {
         );
         let bt_before = self.bak_ts();
         let res = self.inflate_init_res(asset_id, inflation_amounts).unwrap();
-        assert!(self.bak_ts() > bt_before);
+        assert_eq!(self.bak_ts(), bt_before);
         op_counter_bump();
         println!("initiated inflate with operation ID {}", res.operation_idx);
         res
@@ -545,7 +545,7 @@ pub(super) trait MultisigOps {
         );
         let bt_before = self.bak_ts();
         let res = self.burn_init_res(asset_id, amount).unwrap();
-        assert!(self.bak_ts() > bt_before);
+        assert_eq!(self.bak_ts(), bt_before);
         op_counter_bump();
         println!("initiated burn with operation ID {}", res.operation_idx);
         res
@@ -732,7 +732,7 @@ pub(super) trait MultisigOps {
         );
         let bt_before = self.bak_ts();
         let res = self.send_btc_init_res(address, amount).unwrap();
-        assert!(self.bak_ts() > bt_before);
+        assert_eq!(self.bak_ts(), bt_before);
         let op_idx = op_counter_bump();
         assert_eq!(res.operation_idx, op_idx);
         println!("initiated send_btc with operation ID {}", res.operation_idx);
@@ -756,7 +756,7 @@ pub(super) trait MultisigOps {
         );
         let bt_before = self.bak_ts();
         let res = self.send_init_res(recipient_map).unwrap();
-        assert!(self.bak_ts() > bt_before);
+        assert_eq!(self.bak_ts(), bt_before);
         let op_idx = op_counter_bump();
         assert_eq!(res.operation_idx, op_idx);
         println!("initiated send with operation ID {}", res.operation_idx);
