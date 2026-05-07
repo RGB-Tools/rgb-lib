@@ -1303,14 +1303,14 @@ impl MultisigWallet {
         precision: u8,
         amounts: Vec<u64>,
     ) -> Result<AssetNIA, Error> {
+        info!(self.logger(), "Issuing NIA...");
         self.check_online(online)?;
         self.check_is_cosigner()?;
         let txn = self.database().begin_transaction()?;
-        let res =
-            self.issue_asset_nia_with_impl(&txn, ticker, name, precision, amounts, |issue_data| {
-                self.upload_and_process_issuance(&txn, &issue_data, vec![])
-            })?;
+        let issue_data = self.create_nia_contract(&txn, ticker, name, precision, amounts)?;
+        let res = self.upload_and_process_issuance(&txn, &issue_data, vec![])?;
         txn.commit()?;
+        info!(self.logger(), "Issue asset NIA completed");
         Ok(res)
     }
 
@@ -1332,10 +1332,11 @@ impl MultisigWallet {
         media_file_path: Option<String>,
         attachments_file_paths: Vec<String>,
     ) -> Result<AssetUDA, Error> {
+        info!(self.logger(), "Issuing UDA...");
         self.check_online(online)?;
         self.check_is_cosigner()?;
         let txn = self.database().begin_transaction()?;
-        let res = self.issue_asset_uda_with_impl(
+        let issue_data = self.create_uda_contract(
             &txn,
             ticker,
             name,
@@ -1343,31 +1344,30 @@ impl MultisigWallet {
             precision,
             media_file_path,
             attachments_file_paths,
-            |issue_data| {
-                let mut files = vec![];
-                if let Some(media) = &issue_data.asset_data.token.as_ref().unwrap().media {
-                    files.push((
-                        FileType::Media,
-                        FileSource::Path(media.file_path.clone().into()),
-                    ))
-                }
-                for media in issue_data
-                    .asset_data
-                    .token
-                    .as_ref()
-                    .unwrap()
-                    .attachments
-                    .values()
-                {
-                    files.push((
-                        FileType::Media,
-                        FileSource::Path(media.file_path.clone().into()),
-                    ))
-                }
-                self.upload_and_process_issuance(&txn, &issue_data, files)
-            },
         )?;
+        let mut files = vec![];
+        if let Some(media) = &issue_data.asset_data.token.as_ref().unwrap().media {
+            files.push((
+                FileType::Media,
+                FileSource::Path(media.file_path.clone().into()),
+            ))
+        }
+        for media in issue_data
+            .asset_data
+            .token
+            .as_ref()
+            .unwrap()
+            .attachments
+            .values()
+        {
+            files.push((
+                FileType::Media,
+                FileSource::Path(media.file_path.clone().into()),
+            ))
+        }
+        let res = self.upload_and_process_issuance(&txn, &issue_data, files)?;
         txn.commit()?;
+        info!(self.logger(), "Issue asset UDA completed");
         Ok(res)
     }
 
@@ -1391,28 +1391,22 @@ impl MultisigWallet {
         amounts: Vec<u64>,
         file_path: Option<String>,
     ) -> Result<AssetCFA, Error> {
+        info!(self.logger(), "Issuing CFA...");
         self.check_online(online)?;
         self.check_is_cosigner()?;
         let txn = self.database().begin_transaction()?;
-        let res = self.issue_asset_cfa_with_impl(
-            &txn,
-            name,
-            details,
-            precision,
-            amounts,
-            file_path,
-            |issue_data| {
-                let mut files = vec![];
-                if let Some(media) = &issue_data.asset_data.media {
-                    files.push((
-                        FileType::Media,
-                        FileSource::Path(media.file_path.clone().into()),
-                    ))
-                }
-                self.upload_and_process_issuance(&txn, &issue_data, files)
-            },
-        )?;
+        let issue_data =
+            self.create_cfa_contract(&txn, name, details, precision, amounts, file_path)?;
+        let mut files = vec![];
+        if let Some(media) = &issue_data.asset_data.media {
+            files.push((
+                FileType::Media,
+                FileSource::Path(media.file_path.clone().into()),
+            ))
+        }
+        let res = self.upload_and_process_issuance(&txn, &issue_data, files)?;
         txn.commit()?;
+        info!(self.logger(), "Issue asset CFA completed");
         Ok(res)
     }
 
@@ -1437,10 +1431,11 @@ impl MultisigWallet {
         inflation_amounts: Vec<u64>,
         reject_list_url: Option<String>,
     ) -> Result<AssetIFA, Error> {
+        info!(self.logger(), "Issuing IFA...");
         self.check_online(online)?;
         self.check_is_cosigner()?;
         let txn = self.database().begin_transaction()?;
-        let res = self.issue_asset_ifa_with_impl(
+        let issue_data = self.create_ifa_contract(
             &txn,
             ticker,
             name,
@@ -1448,9 +1443,10 @@ impl MultisigWallet {
             amounts,
             inflation_amounts,
             reject_list_url,
-            |issue_data| self.upload_and_process_issuance(&txn, &issue_data, vec![]),
         )?;
+        let res = self.upload_and_process_issuance(&txn, &issue_data, vec![])?;
         txn.commit()?;
+        info!(self.logger(), "Issue asset IFA completed");
         Ok(res)
     }
 

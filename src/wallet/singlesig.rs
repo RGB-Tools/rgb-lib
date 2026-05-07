@@ -320,9 +320,7 @@ impl Wallet {
     ) -> Result<T, Error> {
         let mut runtime = self.rgb_runtime()?;
         let asset = self.import_and_save_contract(txn, issue_data, &mut runtime)?;
-        let result = T::from_issuance(txn, self, &asset, issue_data)?;
-        self.update_backup_info(txn, false)?;
-        Ok(result)
+        T::from_issuance(txn, self, &asset, issue_data)
     }
 
     /// Issue a new RGB NIA asset with the provided `ticker`, `name`, `precision` and `amounts`,
@@ -340,12 +338,13 @@ impl Wallet {
         precision: u8,
         amounts: Vec<u64>,
     ) -> Result<AssetNIA, Error> {
+        info!(self.logger(), "Issuing NIA...");
         let txn = self.database().begin_transaction()?;
-        let res =
-            self.issue_asset_nia_with_impl(&txn, ticker, name, precision, amounts, |issue_data| {
-                self.finalize_offline_issuance(&txn, &issue_data)
-            })?;
+        let issue_data = self.create_nia_contract(&txn, ticker, name, precision, amounts)?;
+        let res = self.finalize_offline_issuance(&txn, &issue_data)?;
+        self.update_backup_info(&txn, false)?;
         txn.commit()?;
+        info!(self.logger(), "Issue asset NIA completed");
         Ok(res)
     }
 
@@ -366,8 +365,9 @@ impl Wallet {
         media_file_path: Option<String>,
         attachments_file_paths: Vec<String>,
     ) -> Result<AssetUDA, Error> {
+        info!(self.logger(), "Issuing UDA...");
         let txn = self.database().begin_transaction()?;
-        let res = self.issue_asset_uda_with_impl(
+        let issue_data = self.create_uda_contract(
             &txn,
             ticker,
             name,
@@ -375,26 +375,11 @@ impl Wallet {
             precision,
             media_file_path,
             attachments_file_paths,
-            |issue_data| {
-                let mut runtime = self.rgb_runtime()?;
-                let asset = self.import_and_save_contract(&txn, &issue_data, &mut runtime)?;
-                let asset_uda = AssetUDA::get_asset_details(
-                    &txn,
-                    self,
-                    &asset,
-                    issue_data.asset_data.token.map(|t| t.into()),
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                )?;
-                self.update_backup_info(&txn, false)?;
-                Ok(asset_uda)
-            },
         )?;
+        let res = self.finalize_offline_issuance(&txn, &issue_data)?;
+        self.update_backup_info(&txn, false)?;
         txn.commit()?;
+        info!(self.logger(), "Issue asset UDA completed");
         Ok(res)
     }
 
@@ -417,17 +402,14 @@ impl Wallet {
         amounts: Vec<u64>,
         file_path: Option<String>,
     ) -> Result<AssetCFA, Error> {
+        info!(self.logger(), "Issuing CFA...");
         let txn = self.database().begin_transaction()?;
-        let res = self.issue_asset_cfa_with_impl(
-            &txn,
-            name,
-            details,
-            precision,
-            amounts,
-            file_path,
-            |issue_data| self.finalize_offline_issuance(&txn, &issue_data),
-        )?;
+        let issue_data =
+            self.create_cfa_contract(&txn, name, details, precision, amounts, file_path)?;
+        let res = self.finalize_offline_issuance(&txn, &issue_data)?;
+        self.update_backup_info(&txn, false)?;
         txn.commit()?;
+        info!(self.logger(), "Issue asset CFA completed");
         Ok(res)
     }
 
@@ -451,8 +433,9 @@ impl Wallet {
         inflation_amounts: Vec<u64>,
         reject_list_url: Option<String>,
     ) -> Result<AssetIFA, Error> {
+        info!(self.logger(), "Issuing IFA...");
         let txn = self.database().begin_transaction()?;
-        let res = self.issue_asset_ifa_with_impl(
+        let issue_data = self.create_ifa_contract(
             &txn,
             ticker,
             name,
@@ -460,9 +443,11 @@ impl Wallet {
             amounts,
             inflation_amounts,
             reject_list_url,
-            |issue_data| self.finalize_offline_issuance(&txn, &issue_data),
         )?;
+        let res = self.finalize_offline_issuance(&txn, &issue_data)?;
+        self.update_backup_info(&txn, false)?;
         txn.commit()?;
+        info!(self.logger(), "Issue asset IFA completed");
         Ok(res)
     }
 
