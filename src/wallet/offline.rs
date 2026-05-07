@@ -560,10 +560,8 @@ pub trait WalletOffline: WalletBackup {
 
         let settled = self.get_total_issue_amount(&amounts, false)?;
 
-        let db_data = txn.get_db_data(false)?;
-
         let mut unspents: Vec<LocalUnspent> = txn.get_rgb_allocations(
-            txn.get_unspent_txos(db_data.txos.clone())?,
+            txn.get_unspent_txos(txn.iter_txos()?)?,
             None,
             None,
             None,
@@ -685,10 +683,8 @@ pub trait WalletOffline: WalletBackup {
             });
         }
 
-        let db_data = txn.get_db_data(false)?;
-
         let mut unspents: Vec<LocalUnspent> = txn.get_rgb_allocations(
-            txn.get_unspent_txos(db_data.txos.clone())?,
+            txn.get_unspent_txos(txn.iter_txos()?)?,
             None,
             None,
             None,
@@ -815,10 +811,8 @@ pub trait WalletOffline: WalletBackup {
 
         let settled = self.get_total_issue_amount(&amounts, false)?;
 
-        let db_data = txn.get_db_data(false)?;
-
         let mut unspents: Vec<LocalUnspent> = txn.get_rgb_allocations(
-            txn.get_unspent_txos(db_data.txos.clone())?,
+            txn.get_unspent_txos(txn.iter_txos()?)?,
             None,
             None,
             None,
@@ -934,10 +928,8 @@ pub trait WalletOffline: WalletBackup {
         }
         let max_supply = settled + inflation_amt;
 
-        let db_data = txn.get_db_data(false)?;
-
         let mut unspents: Vec<LocalUnspent> = txn.get_rgb_allocations(
-            txn.get_unspent_txos(db_data.txos.clone())?,
+            txn.get_unspent_txos(txn.iter_txos()?)?,
             None,
             None,
             None,
@@ -1316,7 +1308,7 @@ pub trait WalletOffline: WalletBackup {
         batch_transfer_idx: Option<i32>,
         no_asset_only: bool,
     ) -> Result<bool, Error> {
-        let db_data = txn.get_db_data(false)?;
+        let db_data = txn.get_db_data(true)?;
         let mut transfers_changed = false;
 
         if let Some(batch_transfer_idx) = batch_transfer_idx {
@@ -2243,44 +2235,38 @@ pub trait WalletOffline: WalletBackup {
 
         let db_data = txn.get_db_data(false)?;
 
-        let mut allocation_txos = txn.get_unspent_txos(db_data.txos.clone())?;
         let spent_txos_ids: Vec<i32> = db_data
             .txos
-            .clone()
-            .into_iter()
+            .iter()
             .filter(|t| t.spent)
-            .map(|u| u.idx)
+            .map(|t| t.idx)
             .collect();
         let waiting_confs_batch_transfer_ids: Vec<i32> = db_data
             .batch_transfers
-            .clone()
-            .into_iter()
+            .iter()
             .filter(|t| t.waiting_confirmations())
             .map(|t| t.idx)
             .collect();
         let waiting_confs_transfer_ids: Vec<i32> = db_data
             .asset_transfers
-            .clone()
-            .into_iter()
+            .iter()
             .filter(|t| waiting_confs_batch_transfer_ids.contains(&t.batch_transfer_idx))
             .map(|t| t.idx)
             .collect();
         let almost_spent_txos_ids: Vec<i32> = db_data
             .colorings
-            .clone()
-            .into_iter()
+            .iter()
             .filter(|c| {
                 waiting_confs_transfer_ids.contains(&c.asset_transfer_idx)
                     && spent_txos_ids.contains(&c.txo_idx)
             })
             .map(|c| c.txo_idx)
             .collect();
-        let mut spent_txos = db_data
+        let allocation_txos: Vec<DbTxo> = db_data
             .txos
             .into_iter()
-            .filter(|t| almost_spent_txos_ids.contains(&t.idx))
+            .filter(|t| !t.spent || almost_spent_txos_ids.contains(&t.idx))
             .collect();
-        allocation_txos.append(&mut spent_txos);
 
         let mut txos_allocations = txn.get_rgb_allocations(
             allocation_txos,

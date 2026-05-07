@@ -247,9 +247,8 @@ impl DbTxn {
 
     pub(crate) fn set_batch_transfer(
         &self,
-        batch_transfer: DbBatchTransferActMod,
+        mut batch_transfer: DbBatchTransferActMod,
     ) -> Result<i32, Error> {
-        let mut batch_transfer = batch_transfer;
         batch_transfer.updated_at = batch_transfer.created_at.clone();
         let res = block_on(BatchTransfer::insert(batch_transfer).exec(self.inner()))?;
         Ok(res.last_insert_id)
@@ -492,7 +491,7 @@ impl DbTxn {
     pub(crate) fn get_asset(&self, asset_id: String) -> Result<Option<DbAsset>, Error> {
         Ok(block_on(
             Asset::find()
-                .filter(asset::Column::Id.eq(asset_id.clone()))
+                .filter(asset::Column::Id.eq(asset_id))
                 .one(self.inner()),
         )?)
     }
@@ -515,11 +514,7 @@ impl DbTxn {
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
     pub(crate) fn get_media(&self, media_idx: i32) -> Result<Option<DbMedia>, Error> {
-        Ok(block_on(
-            Media::find()
-                .filter(media::Column::Idx.eq(media_idx))
-                .one(self.inner()),
-        )?)
+        Ok(block_on(Media::find_by_id(media_idx).one(self.inner()))?)
     }
 
     pub(crate) fn get_media_by_digest(&self, digest: String) -> Result<Option<DbMedia>, Error> {
@@ -679,31 +674,15 @@ impl DbTxn {
         colorings: Option<Vec<DbColoring>>,
         txos: Option<Vec<DbTxo>>,
     ) -> Result<Balance, Error> {
-        let batch_transfers = if let Some(bt) = batch_transfers {
-            bt
-        } else {
-            self.iter_batch_transfers()?
-        };
-        let asset_transfers = if let Some(at) = asset_transfers {
-            at
-        } else {
-            self.iter_asset_transfers()?
-        };
-        let transfers = if let Some(t) = transfers {
-            t
-        } else {
-            self.iter_transfers()?
-        };
-        let colorings = if let Some(cs) = colorings {
-            cs
-        } else {
-            self.iter_colorings()?
-        };
-        let txos = if let Some(t) = txos {
-            t
-        } else {
-            self.iter_txos()?
-        };
+        let batch_transfers = batch_transfers
+            .map(Ok)
+            .unwrap_or_else(|| self.iter_batch_transfers())?;
+        let asset_transfers = asset_transfers
+            .map(Ok)
+            .unwrap_or_else(|| self.iter_asset_transfers())?;
+        let transfers = transfers.map(Ok).unwrap_or_else(|| self.iter_transfers())?;
+        let colorings = colorings.map(Ok).unwrap_or_else(|| self.iter_colorings())?;
+        let txos = txos.map(Ok).unwrap_or_else(|| self.iter_txos())?;
 
         let txos_allocations = self.get_rgb_allocations(
             txos,
@@ -812,7 +791,7 @@ impl DbTxn {
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
     pub(crate) fn get_asset_ids(&self) -> Result<Vec<String>, Error> {
-        Ok(self.iter_assets()?.iter().map(|a| a.id.clone()).collect())
+        Ok(self.iter_assets()?.into_iter().map(|a| a.id).collect())
     }
 
     pub(crate) fn check_asset_exists(&self, asset_id: String) -> Result<DbAsset, Error> {
@@ -848,9 +827,9 @@ impl DbTxn {
     fn get_utxo_allocations(
         &self,
         utxo: &DbTxo,
-        colorings: Vec<DbColoring>,
-        asset_transfers: Vec<DbAssetTransfer>,
-        batch_transfers: Vec<DbBatchTransfer>,
+        colorings: &[DbColoring],
+        asset_transfers: &[DbAssetTransfer],
+        batch_transfers: &[DbBatchTransfer],
     ) -> Result<Vec<LocalRgbAllocation>, Error> {
         let utxo_colorings: Vec<&DbColoring> =
             colorings.iter().filter(|c| c.txo_idx == utxo.idx).collect();
@@ -886,26 +865,14 @@ impl DbTxn {
         asset_transfers: Option<Vec<DbAssetTransfer>>,
         transfers: Option<Vec<DbTransfer>>,
     ) -> Result<Vec<LocalUnspent>, Error> {
-        let batch_transfers = if let Some(bt) = batch_transfers {
-            bt
-        } else {
-            self.iter_batch_transfers()?
-        };
-        let asset_transfers = if let Some(at) = asset_transfers {
-            at
-        } else {
-            self.iter_asset_transfers()?
-        };
-        let colorings = if let Some(cs) = colorings {
-            cs
-        } else {
-            self.iter_colorings()?
-        };
-        let transfers = if let Some(ts) = transfers {
-            ts
-        } else {
-            self.iter_transfers()?
-        };
+        let batch_transfers = batch_transfers
+            .map(Ok)
+            .unwrap_or_else(|| self.iter_batch_transfers())?;
+        let asset_transfers = asset_transfers
+            .map(Ok)
+            .unwrap_or_else(|| self.iter_asset_transfers())?;
+        let colorings = colorings.map(Ok).unwrap_or_else(|| self.iter_colorings())?;
+        let transfers = transfers.map(Ok).unwrap_or_else(|| self.iter_transfers())?;
 
         let pending_blinded_utxos = transfers
             .iter()
@@ -929,9 +896,9 @@ impl DbTxn {
                     utxo: t.clone(),
                     rgb_allocations: self.get_utxo_allocations(
                         t,
-                        colorings.clone(),
-                        asset_transfers.clone(),
-                        batch_transfers.clone(),
+                        &colorings,
+                        &asset_transfers,
+                        &batch_transfers,
                     )?,
                     pending_blinded: *pending_blinded_utxos.get(&t.outpoint()).unwrap_or(&0),
                 })

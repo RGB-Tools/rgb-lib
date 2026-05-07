@@ -423,7 +423,7 @@ pub trait WalletOnline: WalletOffline {
         &mut self,
         txn: &DbTxn,
         batch_transfer: &DbBatchTransfer,
-        db_data: &mut DbData,
+        db_data: &DbData,
     ) -> Result<TryFailBatchTransferOutcome, Error> {
         let updated_batch_transfer =
             match self.refresh_transfer(txn, batch_transfer, db_data, &[], true) {
@@ -460,7 +460,7 @@ pub trait WalletOnline: WalletOffline {
             )?;
         }
 
-        let mut db_data = txn.get_db_data(false)?;
+        let db_data = txn.get_db_data(false)?;
         let mut transfers_changed = false;
         let mut cannot_fail = false;
 
@@ -489,18 +489,17 @@ pub trait WalletOnline: WalletOffline {
 
             transfers_changed = true;
             if let TryFailBatchTransferOutcome::Refreshed =
-                self.try_fail_batch_transfer(txn, &batch_transfer, &mut db_data)?
+                self.try_fail_batch_transfer(txn, &batch_transfer, &db_data)?
             {
                 cannot_fail = true;
             }
         } else {
             // fail all expired transfers that are in a fallible status
             let now = now().unix_timestamp();
-            let expired_batch_transfers = db_data.batch_transfers.clone().into_iter().filter(|t| {
+            for batch_transfer in db_data.batch_transfers.iter().filter(|t| {
                 let expired = t.expiration.unwrap_or(now) < now;
                 expired && t.is_fallible()
-            });
-            for batch_transfer in expired_batch_transfers {
+            }) {
                 if no_asset_only {
                     let connected_assets = batch_transfer
                         .get_asset_transfers(&db_data.asset_transfers)?
@@ -511,7 +510,7 @@ pub trait WalletOnline: WalletOffline {
                     }
                 }
                 transfers_changed = true;
-                self.try_fail_batch_transfer(txn, &batch_transfer, &mut db_data)?;
+                self.try_fail_batch_transfer(txn, batch_transfer, &db_data)?;
             }
         }
 
@@ -1411,7 +1410,7 @@ pub trait WalletOnline: WalletOffline {
         &mut self,
         txn: &DbTxn,
         batch_transfer: &DbBatchTransfer,
-        db_data: &mut DbData,
+        db_data: &DbData,
     ) -> Result<Option<DbBatchTransfer>, Error> {
         debug!(self.logger(), "Waiting safe height...");
 
@@ -1463,7 +1462,7 @@ pub trait WalletOnline: WalletOffline {
         &mut self,
         txn: &DbTxn,
         batch_transfer: &DbBatchTransfer,
-        db_data: &mut DbData,
+        db_data: &DbData,
     ) -> Result<Option<DbBatchTransfer>, Error> {
         debug!(self.logger(), "Waiting ACK...");
 
@@ -1669,7 +1668,7 @@ pub trait WalletOnline: WalletOffline {
         &mut self,
         txn: &DbTxn,
         transfer: &DbBatchTransfer,
-        db_data: &mut DbData,
+        db_data: &DbData,
         incoming: bool,
     ) -> Result<Option<DbBatchTransfer>, Error> {
         if incoming {
@@ -1683,7 +1682,7 @@ pub trait WalletOnline: WalletOffline {
         &mut self,
         txn: &DbTxn,
         transfer: &DbBatchTransfer,
-        db_data: &mut DbData,
+        db_data: &DbData,
         filter: &[RefreshFilter],
         skip_sync: bool,
     ) -> Result<Option<DbBatchTransfer>, Error> {
@@ -1736,10 +1735,10 @@ pub trait WalletOnline: WalletOffline {
         db_data.batch_transfers.retain(|t| t.waiting());
 
         let mut refresh_result = HashMap::new();
-        for transfer in db_data.batch_transfers.clone() {
+        for transfer in &db_data.batch_transfers {
             let mut failure = None;
             let mut updated_status = None;
-            match self.refresh_transfer(txn, &transfer, &mut db_data, &filter, skip_sync) {
+            match self.refresh_transfer(txn, transfer, &db_data, &filter, skip_sync) {
                 Ok(Some(updated_transfer)) => updated_status = Some(updated_transfer.status),
                 Err(e) => failure = Some(e),
                 _ => {}
@@ -2847,14 +2846,14 @@ pub trait WalletOnline: WalletOffline {
 
         let db_data = txn.get_db_data(false)?;
 
-        let utxos = txn.get_unspent_txos(db_data.txos.clone())?;
+        let utxos = txn.get_unspent_txos(db_data.txos)?;
 
         let unspents = txn.get_rgb_allocations(
             utxos,
-            Some(db_data.colorings.clone()),
-            Some(db_data.batch_transfers.clone()),
-            Some(db_data.asset_transfers.clone()),
-            Some(db_data.transfers.clone()),
+            Some(db_data.colorings),
+            Some(db_data.batch_transfers),
+            Some(db_data.asset_transfers),
+            Some(db_data.transfers),
         )?;
 
         #[cfg(test)]
