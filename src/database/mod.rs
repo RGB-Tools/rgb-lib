@@ -157,6 +157,38 @@ impl DbTxo {
             vout: self.vout,
         }
     }
+
+    fn get_utxo_allocations(
+        &self,
+        colorings: &[DbColoring],
+        asset_transfers: &[DbAssetTransfer],
+        batch_transfers: &[DbBatchTransfer],
+    ) -> Result<Vec<LocalRgbAllocation>, Error> {
+        let utxo_colorings: Vec<&DbColoring> =
+            colorings.iter().filter(|c| c.txo_idx == self.idx).collect();
+
+        let mut allocations: Vec<LocalRgbAllocation> = vec![];
+        utxo_colorings.iter().for_each(|c| {
+            let asset_transfer: &DbAssetTransfer = asset_transfers
+                .iter()
+                .find(|t| t.idx == c.asset_transfer_idx)
+                .expect("coloring should be connected to an asset transfer");
+            let batch_transfer: &DbBatchTransfer = batch_transfers
+                .iter()
+                .find(|t| asset_transfer.batch_transfer_idx == t.idx)
+                .expect("asset transfer should be connected to a batch transfer");
+
+            allocations.push(LocalRgbAllocation {
+                asset_id: asset_transfer.asset_id.clone(),
+                assignment: c.assignment.clone(),
+                status: batch_transfer.status,
+                incoming: c.incoming(),
+                txo_spent: self.spent,
+            });
+        });
+
+        Ok(allocations)
+    }
 }
 
 impl From<DbReservedTxo> for BdkOutPoint {
@@ -819,39 +851,6 @@ impl DbTxn {
         })
     }
 
-    fn get_utxo_allocations(
-        &self,
-        utxo: &DbTxo,
-        colorings: &[DbColoring],
-        asset_transfers: &[DbAssetTransfer],
-        batch_transfers: &[DbBatchTransfer],
-    ) -> Result<Vec<LocalRgbAllocation>, Error> {
-        let utxo_colorings: Vec<&DbColoring> =
-            colorings.iter().filter(|c| c.txo_idx == utxo.idx).collect();
-
-        let mut allocations: Vec<LocalRgbAllocation> = vec![];
-        utxo_colorings.iter().for_each(|c| {
-            let asset_transfer: &DbAssetTransfer = asset_transfers
-                .iter()
-                .find(|t| t.idx == c.asset_transfer_idx)
-                .expect("coloring should be connected to an asset transfer");
-            let batch_transfer: &DbBatchTransfer = batch_transfers
-                .iter()
-                .find(|t| asset_transfer.batch_transfer_idx == t.idx)
-                .expect("asset transfer should be connected to a batch transfer");
-
-            allocations.push(LocalRgbAllocation {
-                asset_id: asset_transfer.asset_id.clone(),
-                assignment: c.assignment.clone(),
-                status: batch_transfer.status,
-                incoming: c.incoming(),
-                txo_spent: utxo.spent,
-            });
-        });
-
-        Ok(allocations)
-    }
-
     pub(crate) fn get_rgb_allocations(
         &self,
         utxos: Vec<DbTxo>,
@@ -888,8 +887,7 @@ impl DbTxn {
             .map(|t| {
                 Ok(LocalUnspent {
                     utxo: t.clone(),
-                    rgb_allocations: self.get_utxo_allocations(
-                        t,
+                    rgb_allocations: t.get_utxo_allocations(
                         &colorings,
                         &asset_transfers,
                         &batch_transfers,
