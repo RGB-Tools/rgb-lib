@@ -438,7 +438,7 @@ impl DbTxn {
     }
 
     pub(crate) fn del_batch_transfer(&self, batch_transfer: &DbBatchTransfer) -> Result<(), Error> {
-        block_on(Transfer::delete_by_id(batch_transfer.idx).exec(self.inner()))?;
+        block_on(BatchTransfer::delete_by_id(batch_transfer.idx).exec(self.inner()))?;
         Ok(())
     }
 
@@ -479,7 +479,7 @@ impl DbTxn {
     }
 
     pub(crate) fn del_txo(&self, idx: i32) -> Result<(), Error> {
-        block_on(Coloring::delete_by_id(idx).exec(self.inner()))?;
+        block_on(Txo::delete_by_id(idx).exec(self.inner()))?;
         Ok(())
     }
 
