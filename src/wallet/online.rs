@@ -476,8 +476,7 @@ pub trait WalletOnline: WalletOffline {
             }
 
             if no_asset_only {
-                let asset_transfers =
-                    batch_transfer.get_asset_transfers(&db_data.asset_transfers)?;
+                let asset_transfers = batch_transfer.get_asset_transfers(&db_data.asset_transfers);
                 let connected_assets = asset_transfers.iter().any(|t| t.asset_id.is_some());
                 if connected_assets {
                     return Ok(FailTransfersOutcome {
@@ -502,7 +501,7 @@ pub trait WalletOnline: WalletOffline {
             }) {
                 if no_asset_only {
                     let connected_assets = batch_transfer
-                        .get_asset_transfers(&db_data.asset_transfers)?
+                        .get_asset_transfers(&db_data.asset_transfers)
                         .iter()
                         .any(|t| t.asset_id.is_some());
                     if connected_assets {
@@ -1687,7 +1686,7 @@ pub trait WalletOnline: WalletOffline {
         skip_sync: bool,
     ) -> Result<Option<DbBatchTransfer>, Error> {
         debug!(self.logger(), "Refreshing transfer: {:?}", transfer);
-        let incoming = transfer.incoming(&db_data.asset_transfers, &db_data.transfers)?;
+        let incoming = transfer.incoming(&db_data.asset_transfers, &db_data.transfers);
         if !filter.is_empty() {
             let requested = RefreshFilter {
                 status: RefreshTransferStatus::try_from(transfer.status).expect("pending status"),

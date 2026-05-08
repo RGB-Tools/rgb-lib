@@ -417,9 +417,8 @@ pub(crate) fn get_test_transfer_data(
     let txn = wallet.database().begin_transaction().unwrap();
     let db_data = txn.get_db_data(false).unwrap();
     txn.commit().unwrap();
-    let (asset_transfer, batch_transfer) = transfer
-        .related_transfers(&db_data.asset_transfers, &db_data.batch_transfers)
-        .unwrap();
+    let (asset_transfer, batch_transfer) =
+        transfer.related_transfers(&db_data.asset_transfers, &db_data.batch_transfers);
     let transfer_data = wallet
         .get_transfer_data(
             transfer,
@@ -439,9 +438,7 @@ pub(crate) fn get_test_transfer_related(
     let txn = wallet.database().begin_transaction().unwrap();
     let db_data = txn.get_db_data(false).unwrap();
     txn.commit().unwrap();
-    transfer
-        .related_transfers(&db_data.asset_transfers, &db_data.batch_transfers)
-        .unwrap()
+    transfer.related_transfers(&db_data.asset_transfers, &db_data.batch_transfers)
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]

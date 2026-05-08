@@ -22,27 +22,27 @@ impl DbBatchTransfer {
         &self,
         asset_transfers: &[DbAssetTransfer],
         transfers: &[DbTransfer],
-    ) -> Result<bool, Error> {
+    ) -> bool {
         let asset_transfer_ids: Vec<i32> = asset_transfers
             .iter()
             .filter(|t| t.batch_transfer_idx == self.idx)
             .map(|t| t.idx)
             .collect();
-        Ok(transfers
+        transfers
             .iter()
             .filter(|t| asset_transfer_ids.contains(&t.asset_transfer_idx))
-            .all(|t| t.incoming))
+            .all(|t| t.incoming)
     }
 
     pub(crate) fn get_asset_transfers(
         &self,
         asset_transfers: &[DbAssetTransfer],
-    ) -> Result<Vec<DbAssetTransfer>, Error> {
-        Ok(asset_transfers
+    ) -> Vec<DbAssetTransfer> {
+        asset_transfers
             .iter()
             .filter(|&t| t.batch_transfer_idx == self.idx)
             .cloned()
-            .collect())
+            .collect()
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -51,7 +51,7 @@ impl DbBatchTransfer {
         asset_transfers: &[DbAssetTransfer],
         transfers: &[DbTransfer],
     ) -> Result<DbBatchTransferData, Error> {
-        let asset_transfers = self.get_asset_transfers(asset_transfers)?;
+        let asset_transfers = self.get_asset_transfers(asset_transfers);
         let mut asset_transfers_data = vec![];
         for asset_transfer in asset_transfers {
             let transfers: Vec<DbTransfer> = transfers
@@ -136,7 +136,7 @@ impl DbTransfer {
         &self,
         asset_transfers: &[DbAssetTransfer],
         batch_transfers: &[DbBatchTransfer],
-    ) -> Result<(DbAssetTransfer, DbBatchTransfer), Error> {
+    ) -> (DbAssetTransfer, DbBatchTransfer) {
         let asset_transfer = asset_transfers
             .iter()
             .find(|t| t.idx == self.asset_transfer_idx)
@@ -146,7 +146,7 @@ impl DbTransfer {
             .find(|t| t.idx == asset_transfer.batch_transfer_idx)
             .expect("asset transfer should be connected to a batch transfer");
 
-        Ok((asset_transfer.clone(), batch_transfer.clone()))
+        (asset_transfer.clone(), batch_transfer.clone())
     }
 }
 
@@ -717,28 +717,23 @@ impl DbTxn {
             .filter(|t| {
                 t.incoming && matches!(t.recipient_type, Some(RecipientTypeFull::Witness { .. }))
             })
-            .filter_map(
-                |t| match t.related_transfers(&asset_transfers, &batch_transfers) {
-                    Ok((at, bt)) => {
-                        if bt.status.waiting_confirmations() {
-                            // filter for asset ID (always present in WaitingConfirmations status)
-                            if at.asset_id.unwrap() != asset_id {
-                                return None;
-                            }
-                            Some(Ok(t
-                                .requested_assignment
-                                .as_ref()
-                                .map(|a| a.main_amount())
-                                .unwrap_or(0)))
-                        } else {
-                            None
-                        }
+            .filter_map(|t| {
+                let (at, bt) = t.related_transfers(&asset_transfers, &batch_transfers);
+                if bt.status.waiting_confirmations() {
+                    // filter for asset ID (always present in WaitingConfirmations status)
+                    if at.asset_id.unwrap() != asset_id {
+                        return None;
                     }
-                    Err(e) => Some(Err(e)),
-                },
-            )
-            .collect::<Result<Vec<u64>, Error>>()?
-            .iter()
+                    Some(
+                        t.requested_assignment
+                            .as_ref()
+                            .map(|a| a.main_amount())
+                            .unwrap_or(0),
+                    )
+                } else {
+                    None
+                }
+            })
             .sum();
         ass_pending_incoming += witness_pending;
         let ass_pending_outgoing: u64 = ass_allocations
@@ -877,11 +872,10 @@ impl DbTxn {
         let pending_blinded_utxos = transfers
             .iter()
             .filter_map(|t| match (&t.recipient_type, t.incoming) {
-                (Some(RecipientTypeFull::Blind { unblinded_utxo }), true) => t
-                    .related_transfers(&asset_transfers, &batch_transfers)
-                    .ok()
-                    .filter(|(_, bt)| bt.status.waiting_counterparty())
-                    .map(|_| unblinded_utxo),
+                (Some(RecipientTypeFull::Blind { unblinded_utxo }), true) => {
+                    let (_, bt) = t.related_transfers(&asset_transfers, &batch_transfers);
+                    bt.status.waiting_counterparty().then_some(unblinded_utxo)
+                }
                 _ => None,
             })
             .fold(HashMap::new(), |mut acc, utxo| {

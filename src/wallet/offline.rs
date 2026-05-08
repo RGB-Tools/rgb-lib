@@ -1184,7 +1184,7 @@ pub trait WalletOffline: WalletBackup {
                 return Err(Error::CannotDeleteBatchTransfer);
             }
 
-            let asset_transfers = batch_transfer.get_asset_transfers(&db_data.asset_transfers)?;
+            let asset_transfers = batch_transfer.get_asset_transfers(&db_data.asset_transfers);
 
             if no_asset_only {
                 let connected_assets = asset_transfers.iter().any(|t| t.asset_id.is_some());
@@ -1210,8 +1210,7 @@ pub trait WalletOffline: WalletBackup {
                 .filter(|t| t.failed())
                 .collect();
             for batch_transfer in batch_transfers.iter_mut() {
-                let asset_transfers =
-                    batch_transfer.get_asset_transfers(&db_data.asset_transfers)?;
+                let asset_transfers = batch_transfer.get_asset_transfers(&db_data.asset_transfers);
                 if no_asset_only {
                     let connected_assets = asset_transfers.iter().any(|t| t.asset_id.is_some());
                     if connected_assets {
@@ -2083,7 +2082,7 @@ pub trait WalletOffline: WalletBackup {
             .filter(|t| asset_transfer_ids.contains(&t.asset_transfer_idx))
             .map(|t| {
                 let (asset_transfer, batch_transfer) =
-                    t.related_transfers(&db_data.asset_transfers, &db_data.batch_transfers)?;
+                    t.related_transfers(&db_data.asset_transfers, &db_data.batch_transfers);
                 let td = self.get_transfer_data(
                     &t,
                     &asset_transfer,
