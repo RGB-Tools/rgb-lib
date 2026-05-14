@@ -2528,6 +2528,46 @@ pub trait WalletOnline: WalletOffline {
         Ok(())
     }
 
+    fn get_change_utxo_idx(
+        &self,
+        txn: &DbTxn,
+        txid: &str,
+        info_contents: &InfoBatchTransfer,
+        change_utxo_idx: &mut Option<i32>,
+    ) -> Result<i32, Error> {
+        if let Some(idx) = *change_utxo_idx {
+            return Ok(idx);
+        }
+        let idx = if let Some(btc_change) = &info_contents.btc_change {
+            match txn.get_txo(&Outpoint {
+                txid: txid.to_string(),
+                vout: btc_change.vout,
+            })? {
+                Some(txo) => txo.idx,
+                None => {
+                    let db_utxo = DbTxoActMod {
+                        txid: ActiveValue::Set(txid.to_string()),
+                        vout: ActiveValue::Set(btc_change.vout),
+                        btc_amount: ActiveValue::Set(btc_change.amount.to_string()),
+                        spent: ActiveValue::Set(false),
+                        exists: ActiveValue::Set(false),
+                        pending_witness: ActiveValue::Set(false),
+                        ..Default::default()
+                    };
+                    txn.set_txo(db_utxo)?
+                }
+            }
+        } else {
+            let outpoint = info_contents
+                .change_utxo_outpoint
+                .as_ref()
+                .expect("change utxo source");
+            txn.get_txo(outpoint)?.expect("should exist").idx
+        };
+        *change_utxo_idx = Some(idx);
+        Ok(idx)
+    }
+
     fn save_transfers(
         &mut self,
         txn: &DbTxn,
@@ -2545,32 +2585,7 @@ pub trait WalletOnline: WalletOffline {
         };
         let batch_transfer_idx = txn.set_batch_transfer(batch_transfer)?;
 
-        let change_utxo_idx = if let Some(btc_change) = &info_contents.btc_change {
-            Some(
-                match txn.get_txo(&Outpoint {
-                    txid: txid.clone(),
-                    vout: btc_change.vout,
-                })? {
-                    Some(txo) => txo.idx,
-                    None => {
-                        let db_utxo = DbTxoActMod {
-                            txid: ActiveValue::Set(txid.clone()),
-                            vout: ActiveValue::Set(btc_change.vout),
-                            btc_amount: ActiveValue::Set(btc_change.amount.to_string()),
-                            spent: ActiveValue::Set(false),
-                            exists: ActiveValue::Set(false),
-                            pending_witness: ActiveValue::Set(false),
-                            ..Default::default()
-                        };
-                        txn.set_txo(db_utxo)?
-                    }
-                },
-            )
-        } else if let Some(outpoint) = &info_contents.change_utxo_outpoint {
-            Some(txn.get_txo(outpoint)?.expect("should exist").idx)
-        } else {
-            None
-        };
+        let mut change_utxo_idx: Option<i32> = None;
 
         for (asset_id, transfer_info) in info_contents.transfers.iter() {
             let asset_transfer = DbAssetTransferActMod {
@@ -2613,7 +2628,12 @@ pub trait WalletOnline: WalletOffline {
             }
             if transfer_info.change.fungible > 0 {
                 let db_coloring = DbColoringActMod {
-                    txo_idx: ActiveValue::Set(change_utxo_idx.unwrap()),
+                    txo_idx: ActiveValue::Set(self.get_change_utxo_idx(
+                        txn,
+                        &txid,
+                        info_contents,
+                        &mut change_utxo_idx,
+                    )?),
                     asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
                     r#type: ActiveValue::Set(ColoringType::Change),
                     assignment: ActiveValue::Set(Assignment::Fungible(
@@ -2625,7 +2645,12 @@ pub trait WalletOnline: WalletOffline {
             }
             if transfer_info.change.inflation > 0 {
                 let db_coloring = DbColoringActMod {
-                    txo_idx: ActiveValue::Set(change_utxo_idx.unwrap()),
+                    txo_idx: ActiveValue::Set(self.get_change_utxo_idx(
+                        txn,
+                        &txid,
+                        info_contents,
+                        &mut change_utxo_idx,
+                    )?),
                     asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
                     r#type: ActiveValue::Set(ColoringType::Change),
                     assignment: ActiveValue::Set(Assignment::InflationRight(
@@ -2744,7 +2769,12 @@ pub trait WalletOnline: WalletOffline {
                     };
                     txn.set_coloring(db_coloring)?;
                     let db_coloring = DbColoringActMod {
-                        txo_idx: ActiveValue::Set(change_utxo_idx.unwrap()),
+                        txo_idx: ActiveValue::Set(self.get_change_utxo_idx(
+                            txn,
+                            &txid,
+                            info_contents,
+                            &mut change_utxo_idx,
+                        )?),
                         asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
                         r#type: ActiveValue::Set(ColoringType::Change),
                         assignment: ActiveValue::Set(assignment.clone()),
