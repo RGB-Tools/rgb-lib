@@ -311,13 +311,17 @@ impl TransferStatus {
     }
 }
 
+/// The type of a pending vanilla wallet transaction.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, Deserialize, Serialize)]
 #[sea_orm(rs_type = "u8", db_type = "TinyUnsigned")]
 pub enum WalletTransactionType {
+    /// Transaction used to create UTXOs
     #[sea_orm(num_value = 1)]
     CreateUtxos = 1,
+    /// Transaction used to drain the RGB wallet
     #[sea_orm(num_value = 2)]
     Drain = 2,
+    /// Transaction used to perform a BTC send
     #[sea_orm(num_value = 3)]
     SendBtc = 3,
 }

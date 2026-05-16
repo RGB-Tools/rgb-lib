@@ -81,7 +81,9 @@ pub use rgbstd::{
 };
 
 pub use crate::{
-    database::enums::{AssetSchema, Assignment, TransferStatus, TransportType},
+    database::enums::{
+        AssetSchema, Assignment, TransferStatus, TransportType, WalletTransactionType,
+    },
     error::Error,
     utils::{BitcoinNetwork, block_on},
 };
@@ -297,7 +299,7 @@ use crate::{
             txo::{ActiveModel as DbTxoActMod, Model as DbTxo},
             wallet_transaction::Model as DbWalletTransaction,
         },
-        enums::{ColoringType, RecipientTypeFull, WalletTransactionType},
+        enums::{ColoringType, RecipientTypeFull},
     },
     error::InternalError,
     keys::{Keys, WitnessVersion},

@@ -514,6 +514,19 @@ enum TransactionType {
 };
 
 [Remote]
+enum WalletTransactionType {
+  "CreateUtxos",
+  "Drain",
+  "SendBtc",
+};
+
+[Remote]
+dictionary PendingVanillaTx {
+  string txid;
+  WalletTransactionType type;
+};
+
+[Remote]
 dictionary BlockTime {
   u32 height;
   u64 timestamp;
@@ -965,6 +978,12 @@ interface Wallet {
 
   [Throws=RgbLibError]
   void sync(Online online, SyncOptions options);
+
+  [Throws=RgbLibError]
+  sequence<PendingVanillaTx> list_pending_vanilla_txs();
+
+  [Throws=RgbLibError]
+  void abort_pending_vanilla_tx(string txid);
 };
 
 interface MultisigWallet {
@@ -976,6 +995,9 @@ interface MultisigWallet {
   MultisigKeys get_keys();
 
   WalletDescriptors get_descriptors();
+
+  [Throws=RgbLibError]
+  i32 get_local_last_processed_operation_idx();
 
   string get_wallet_dir();
 
@@ -1014,6 +1036,11 @@ interface MultisigWallet {
 
   [Throws=RgbLibError]
   boolean delete_transfers(i32? batch_transfer_idx, boolean no_asset_only);
+
+  [Throws=RgbLibError]
+  boolean fail_transfers(
+    Online online, i32? batch_transfer_idx, boolean no_asset_only,
+    boolean skip_sync);
 
   [Throws=RgbLibError]
   Balance get_asset_balance(string asset_id);

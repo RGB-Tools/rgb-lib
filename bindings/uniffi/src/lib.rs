@@ -8,7 +8,7 @@ use std::{
 
 use rgb_lib::{
     AssetSchema, Assignment as RgbLibAssignment, CloseMethod, Error as RgbLibError, TransferStatus,
-    TransportType,
+    TransportType, WalletTransactionType,
     keys::{Keys, WitnessVersion},
     utils::BitcoinNetwork,
     wallet::{
@@ -19,18 +19,19 @@ use rgb_lib::{
         InvoiceData as RgbLibInvoiceData, Media, Metadata, MultisigKeys, MultisigOnlineOptions,
         MultisigVotingStatus as RgbLibMultisigVotingStatus, MultisigWallet as RgbLibMultisigWallet,
         Online, OnlineOptions, Operation as RgbLibOperation, OperationInfo as RgbLibOperationInfo,
-        OperationResult, Outpoint, ProofOfReserves, PsbtInputInfo, PsbtInspection, PsbtOutputInfo,
-        ReceiveData, Recipient as RgbLibRecipient, RecipientInfo as RgbLibRecipientInfo,
-        RecipientType, RefreshFilter, RefreshTransferStatus, RefreshedTransfer,
-        RespondToOperation as RgbLibRespondToOperation, RgbAllocation as RgbLibRgbAllocation,
-        RgbInputInfo as RgbLibRgbInputInfo, RgbInspection as RgbLibRgbInspection,
-        RgbOperationInfo as RgbLibRgbOperationInfo, RgbOutputInfo as RgbLibRgbOutputInfo,
-        RgbTransitionInfo as RgbLibRgbTransitionInfo, RgbWalletOpsOffline, RgbWalletOpsOnline,
-        SendBeginResult, SendDetails, SinglesigKeys, SyncKeychain as RgbLibSyncKeychain,
-        SyncOptions as RgbLibSyncOptions, SyncStrategy, Token, TokenLight, Transaction,
-        TransactionType, Transfer as RgbLibTransfer, TransferKind, TransferTransportEndpoint,
-        TransportEndpoint as RgbLibTransportEndpoint, TypeOfTransition, Unspent as RgbLibUnspent,
-        UserRole, Utxo, Wallet as RgbLibWallet, WalletData, WalletDescriptors, WitnessData,
+        OperationResult, Outpoint, PendingVanillaTx, ProofOfReserves, PsbtInputInfo,
+        PsbtInspection, PsbtOutputInfo, ReceiveData, Recipient as RgbLibRecipient,
+        RecipientInfo as RgbLibRecipientInfo, RecipientType, RefreshFilter, RefreshTransferStatus,
+        RefreshedTransfer, RespondToOperation as RgbLibRespondToOperation,
+        RgbAllocation as RgbLibRgbAllocation, RgbInputInfo as RgbLibRgbInputInfo,
+        RgbInspection as RgbLibRgbInspection, RgbOperationInfo as RgbLibRgbOperationInfo,
+        RgbOutputInfo as RgbLibRgbOutputInfo, RgbTransitionInfo as RgbLibRgbTransitionInfo,
+        RgbWalletOpsOffline, RgbWalletOpsOnline, SendBeginResult, SendDetails, SinglesigKeys,
+        SyncKeychain as RgbLibSyncKeychain, SyncOptions as RgbLibSyncOptions, SyncStrategy, Token,
+        TokenLight, Transaction, TransactionType, Transfer as RgbLibTransfer, TransferKind,
+        TransferTransportEndpoint, TransportEndpoint as RgbLibTransportEndpoint, TypeOfTransition,
+        Unspent as RgbLibUnspent, UserRole, Utxo, Wallet as RgbLibWallet, WalletData,
+        WalletDescriptors, WitnessData,
     },
 };
 
@@ -1405,6 +1406,14 @@ impl Wallet {
             .inspect_rgb_transfer(psbt, fascia_path, entropy)?
             .into())
     }
+
+    fn list_pending_vanilla_txs(&self) -> Result<Vec<PendingVanillaTx>, RgbLibError> {
+        self._get_wallet().list_pending_vanilla_txs()
+    }
+
+    fn abort_pending_vanilla_tx(&self, txid: String) -> Result<(), RgbLibError> {
+        self._get_wallet().abort_pending_vanilla_tx(txid)
+    }
 }
 
 fn _convert_recipient_map(
@@ -1446,6 +1455,10 @@ impl MultisigWallet {
 
     fn get_descriptors(&self) -> WalletDescriptors {
         self._get_wallet().get_descriptors()
+    }
+
+    fn get_local_last_processed_operation_idx(&self) -> Result<i32, RgbLibError> {
+        self._get_wallet().get_local_last_processed_operation_idx()
     }
 
     fn get_wallet_dir(&self) -> String {
@@ -1532,6 +1545,17 @@ impl MultisigWallet {
     ) -> Result<bool, RgbLibError> {
         self._get_wallet()
             .delete_transfers(batch_transfer_idx, no_asset_only)
+    }
+
+    fn fail_transfers(
+        &self,
+        online: Online,
+        batch_transfer_idx: Option<i32>,
+        no_asset_only: bool,
+        skip_sync: bool,
+    ) -> Result<bool, RgbLibError> {
+        self._get_wallet()
+            .fail_transfers(online, batch_transfer_idx, no_asset_only, skip_sync)
     }
 
     fn get_asset_balance(&self, asset_id: String) -> Result<Balance, RgbLibError> {
