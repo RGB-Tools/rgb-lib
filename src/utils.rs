@@ -292,7 +292,7 @@ pub(crate) fn get_account_derivation_children(
     ]
 }
 
-fn derive_account_xprv_from_mnemonic(
+pub(crate) fn derive_account_xprv_from_mnemonic(
     bitcoin_network: &BitcoinNetwork,
     mnemonic: &str,
     rgb: bool,
