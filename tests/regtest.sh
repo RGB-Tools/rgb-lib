@@ -3,7 +3,7 @@ set -e
 
 CWD=$(dirname "${0}")
 
-_die () {
+_die() {
     echo "ERR: $*" >&2
     exit 1
 }
@@ -44,7 +44,7 @@ LISTS_DIR="${CWD}/lists"
 HUB_DIR="${CWD}/hub"
 COMPOSE_FPATH="${CWD}/compose.yaml"
 COMPOSE="$COMPOSE -f ${COMPOSE_FPATH}"
-EXPOSED_PORTS=(3000 50001)  # see compose.yaml for the exposed ports
+EXPOSED_PORTS=(3000 50001) # see compose.yaml for the exposed ports
 TIMEOUT=100
 
 BCLI="$COMPOSE exec -T -u blits bitcoind bitcoin-cli -regtest"
@@ -68,7 +68,7 @@ _wait_for_bitcoind() {
     # wait for bitcoind to be up
     bitcoind_service_name="$1"
     start_time=$(date +%s)
-    until $COMPOSE logs $bitcoind_service_name |grep -q 'Bound to'; do
+    until $COMPOSE logs $bitcoind_service_name | grep -q 'Bound to'; do
         current_time=$(date +%s)
         if [ $((current_time - start_time)) -gt $TIMEOUT ]; then
             echo "Timeout waiting for $bitcoind_service_name to start"
@@ -83,7 +83,7 @@ _wait_for_electrs() {
     # wait for electrs to have completed startup
     electrs_service_name="$1"
     start_time=$(date +%s)
-    until $COMPOSE logs $electrs_service_name |grep -q 'finished full compaction'; do
+    until $COMPOSE logs $electrs_service_name | grep -q 'finished full compaction'; do
         current_time=$(date +%s)
         if [ $((current_time - start_time)) -gt $TIMEOUT ]; then
             echo "Timeout waiting for $electrs_service_name to start"
@@ -98,7 +98,7 @@ _wait_for_esplora() {
     # wait for esplora to have completed startup
     esplora_service_name="$1"
     start_time=$(date +%s)
-    until $COMPOSE logs $esplora_service_name |grep -q 'run: nginx:'; do
+    until $COMPOSE logs $esplora_service_name | grep -q 'run: nginx:'; do
         current_time=$(date +%s)
         if [ $((current_time - start_time)) -gt $TIMEOUT ]; then
             echo "Timeout waiting for $esplora_service_name to start"
@@ -113,7 +113,7 @@ _wait_for_proxy() {
     # wait for proxy to have completed startup
     proxy_service_name="$1"
     start_time=$(date +%s)
-    until $COMPOSE logs $proxy_service_name |grep -q 'App is running at http://localhost:3000'; do
+    until $COMPOSE logs $proxy_service_name | grep -q 'App is running at http://localhost:3000'; do
         current_time=$(date +%s)
         if [ $((current_time - start_time)) -gt $TIMEOUT ]; then
             echo "Timeout waiting for $proxy_service_name to start"
@@ -142,7 +142,8 @@ _start_services() {
         mkdir -p $TMP_DIR $LISTS_DIR
     fi
     for port in "${EXPOSED_PORTS[@]}"; do
-        if [ -n "$(ss -HOlnt "sport = :$port")" ];then
+        if [ -n "$(ss -HOant "sport = :$port")" ]; then
+            ss -Oant "sport = :$port"
             _die "port $port is already bound, services can't be started"
         fi
     done
@@ -215,7 +216,7 @@ sendtoaddress() {
 }
 
 case $1 in
-    -h|--help)
+    -h | --help)
         _help
         ;;
     prepare_tests_environment | prepare_bindings_examples_environment | stop_services | mine | sendtoaddress)
