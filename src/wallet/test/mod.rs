@@ -332,6 +332,8 @@ mod list_unspents;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 mod multisig;
 mod new;
+#[cfg(feature = "electrum")]
+mod onchain_swap;
 mod refresh;
 mod rust_only;
 mod send;

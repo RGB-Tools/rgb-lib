@@ -753,6 +753,93 @@ dictionary RgbInspection {
 };
 
 [Remote]
+enum OnchainSwapRole {
+  "Maker",
+  "Taker",
+};
+
+[Remote]
+enum OnchainSwapLegKind {
+  "Btc",
+  "Rgb",
+};
+
+[Remote]
+dictionary OnchainSwapLeg {
+  OnchainSwapLegKind kind;
+  string? asset_id;
+  u64 amount;
+};
+
+[Remote]
+dictionary OnchainSwapInput {
+  Outpoint outpoint;
+  u64 amount_sat;
+  string script_pubkey_hex;
+};
+
+[Remote]
+dictionary OnchainSwapConsignment {
+  string asset_id;
+  string schema_id;
+  string path;
+  string? endpoint;
+  string txid;
+  u32 vout;
+  u64 blinding;
+};
+
+[Remote]
+dictionary OnchainSwapOffer {
+  string swap_id;
+  OnchainSwapLeg maker_gives;
+  OnchainSwapLeg maker_receives;
+  BitcoinNetwork bitcoin_network;
+  u64 network_fee_sat;
+  u64 rgb_output_sat;
+  u64? expiration_timestamp;
+  string? maker_btc_address;
+  string? maker_rgb_recipient_id;
+  string? maker_rgb_script_pubkey_hex;
+  u64? maker_rgb_blinding;
+  string? proxy_url;
+};
+
+[Remote]
+dictionary OnchainSwapRequest {
+  OnchainSwapOffer offer;
+  sequence<OnchainSwapInput> taker_inputs;
+  string? taker_btc_address;
+  string? taker_rgb_recipient_id;
+  string? taker_rgb_script_pubkey_hex;
+  u64? taker_rgb_blinding;
+  string taker_change_script_pubkey_hex;
+};
+
+[Remote]
+dictionary OnchainSwapProposal {
+  OnchainSwapRequest request;
+  sequence<OnchainSwapInput> maker_inputs;
+  string maker_change_script_pubkey_hex;
+  string psbt;
+  string txid;
+  sequence<OnchainSwapConsignment> consignments;
+};
+
+[Remote]
+dictionary OnchainSwapCompletion {
+  OnchainSwapProposal proposal;
+  string psbt;
+  string? finalized_psbt;
+  string txid;
+  sequence<OnchainSwapConsignment> consignments;
+};
+
+dictionary OnchainSwapReceiveResult {
+  sequence<Assignment> assignments;
+};
+
+[Remote]
 dictionary InitOperationResult {
   string psbt;
   i32 operation_idx;
@@ -962,6 +1049,31 @@ interface Wallet {
 
   [Throws=RgbLibError]
   string send_btc_end(Online online, string signed_psbt);
+
+  [Throws=RgbLibError]
+  OnchainSwapOffer create_swap_offer(
+    OnchainSwapLeg maker_gives, OnchainSwapLeg maker_receives,
+    u64 network_fee_sat, u64? expiration_timestamp, string? proxy_url);
+
+  [Throws=RgbLibError]
+  OnchainSwapRequest accept_swap_offer(
+    Online online, OnchainSwapOffer offer, u8 min_confirmations,
+    boolean skip_sync);
+
+  [Throws=RgbLibError]
+  OnchainSwapProposal accept_swap_request(
+    Online online, OnchainSwapRequest request, u8 min_confirmations,
+    boolean skip_sync);
+
+  [Throws=RgbLibError]
+  OnchainSwapCompletion complete_swap_proposal(
+    Online online, OnchainSwapProposal proposal, u8 min_confirmations,
+    boolean skip_sync);
+
+  [Throws=RgbLibError]
+  OnchainSwapReceiveResult accept_swap_transfers(
+    Online online, OnchainSwapCompletion completion, OnchainSwapRole role,
+    boolean skip_sync);
 
   [Throws=RgbLibError]
   void sync(Online online, SyncOptions options);

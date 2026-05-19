@@ -10,6 +10,8 @@ pub(crate) mod multisig;
 pub(crate) mod objects;
 pub(crate) mod offline;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) mod onchain_swap;
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) mod online;
 pub mod rust_only;
 pub(crate) mod singlesig;
@@ -35,9 +37,11 @@ pub use objects::{
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub use objects::{
-    BurnBeginResult, BurnDetails, InflateBeginResult, InflateDetails, OnlineOptions,
-    OperationResult, RefreshFilter, RefreshResult, RefreshTransferStatus, RefreshedTransfer,
-    SendBeginResult, SendDetails,
+    BurnBeginResult, BurnDetails, InflateBeginResult, InflateDetails, OnchainSwapCompletion,
+    OnchainSwapConsignment, OnchainSwapInput, OnchainSwapLeg, OnchainSwapLegKind, OnchainSwapOffer,
+    OnchainSwapProposal, OnchainSwapReceiveResult, OnchainSwapRequest, OnchainSwapRole,
+    OnlineOptions, OperationResult, RefreshFilter, RefreshResult, RefreshTransferStatus,
+    RefreshedTransfer, SendBeginResult, SendDetails,
 };
 pub use offline::RgbWalletOpsOffline;
 #[cfg(any(feature = "electrum", feature = "esplora"))]

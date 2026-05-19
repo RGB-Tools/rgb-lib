@@ -223,7 +223,7 @@ impl Wallet {
             .0
     }
 
-    fn sign_psbt_impl(
+    pub(crate) fn sign_psbt_impl(
         &self,
         psbt: &mut Psbt,
         sign_options: Option<SignOptions>,

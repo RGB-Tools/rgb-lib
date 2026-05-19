@@ -1673,6 +1673,175 @@ pub struct SendDetails {
     pub is_donation: bool,
 }
 
+/// The role of the wallet for an on-chain swap step.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub enum OnchainSwapRole {
+    /// The party creating the offer
+    Maker,
+    /// The party accepting the offer
+    Taker,
+}
+
+/// The type of an on-chain swap leg.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub enum OnchainSwapLegKind {
+    /// A bitcoin amount in satoshis
+    Btc,
+    /// An RGB asset amount
+    Rgb,
+}
+
+/// A single side of an on-chain swap.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct OnchainSwapLeg {
+    /// Leg kind
+    pub kind: OnchainSwapLegKind,
+    /// RGB asset ID, required when `kind` is `Rgb`
+    pub asset_id: Option<String>,
+    /// Amount in satoshis for BTC legs, or asset units for RGB legs
+    #[serde(deserialize_with = "from_str_or_number_mandatory")]
+    pub amount: u64,
+}
+
+/// A consignment produced or consumed by an on-chain swap.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct OnchainSwapConsignment {
+    /// RGB asset ID
+    pub asset_id: String,
+    /// RGB schema ID
+    pub schema_id: String,
+    /// Local consignment file path
+    pub path: String,
+    /// Proxy transport endpoint used to retrieve the consignment
+    pub endpoint: Option<String>,
+    /// Witness transaction ID
+    pub txid: String,
+    /// Witness vout receiving the RGB assignment
+    pub vout: u32,
+    /// Seal blinding needed by the receiver
+    #[serde(deserialize_with = "from_str_or_number_mandatory")]
+    pub blinding: u64,
+}
+
+/// A Bitcoin input selected for an on-chain swap.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct OnchainSwapInput {
+    /// The selected outpoint
+    pub outpoint: Outpoint,
+    /// Previous output value in satoshis
+    #[serde(deserialize_with = "from_str_or_number_mandatory")]
+    pub amount_sat: u64,
+    /// Previous output script pubkey
+    pub script_pubkey_hex: String,
+}
+
+/// A maker-created on-chain swap offer.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct OnchainSwapOffer {
+    /// Swap ID
+    pub swap_id: String,
+    /// Maker gives this leg
+    pub maker_gives: OnchainSwapLeg,
+    /// Maker receives this leg
+    pub maker_receives: OnchainSwapLeg,
+    /// Bitcoin network
+    pub bitcoin_network: BitcoinNetwork,
+    /// Network fee to reserve for the swap transaction
+    #[serde(deserialize_with = "from_str_or_number_mandatory")]
+    pub network_fee_sat: u64,
+    /// Sat value used for each RGB witness output
+    #[serde(deserialize_with = "from_str_or_number_mandatory")]
+    pub rgb_output_sat: u64,
+    /// Optional expiration timestamp
+    pub expiration_timestamp: Option<u64>,
+    /// Maker BTC receive address, present if maker receives BTC
+    pub maker_btc_address: Option<String>,
+    /// Maker RGB receive recipient ID, present if maker receives RGB
+    pub maker_rgb_recipient_id: Option<String>,
+    /// Maker RGB receive script pubkey, present if maker receives RGB
+    pub maker_rgb_script_pubkey_hex: Option<String>,
+    /// Maker RGB receive blinding, present if maker receives RGB
+    pub maker_rgb_blinding: Option<u64>,
+    /// Preferred proxy URL
+    pub proxy_url: Option<String>,
+}
+
+/// A taker response to an on-chain swap offer.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct OnchainSwapRequest {
+    /// Swap offer
+    pub offer: OnchainSwapOffer,
+    /// Taker inputs serialized for coordinated PSBT construction
+    pub taker_inputs: Vec<OnchainSwapInput>,
+    /// Taker BTC receive address, present if taker receives BTC
+    pub taker_btc_address: Option<String>,
+    /// Taker RGB receive recipient ID, present if taker receives RGB
+    pub taker_rgb_recipient_id: Option<String>,
+    /// Taker RGB receive script pubkey, present if taker receives RGB
+    pub taker_rgb_script_pubkey_hex: Option<String>,
+    /// Taker RGB receive blinding, present if taker receives RGB
+    pub taker_rgb_blinding: Option<u64>,
+    /// Taker BTC/RGB change script pubkey
+    pub taker_change_script_pubkey_hex: String,
+}
+
+/// A maker-created proposal containing the coordinated PSBT.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct OnchainSwapProposal {
+    /// Swap request
+    pub request: OnchainSwapRequest,
+    /// Maker inputs serialized for coordinated PSBT construction
+    pub maker_inputs: Vec<OnchainSwapInput>,
+    /// Maker BTC/RGB change script pubkey
+    pub maker_change_script_pubkey_hex: String,
+    /// PSBT after maker-side processing
+    pub psbt: String,
+    /// Witness transaction ID after any maker coloring
+    pub txid: String,
+    /// Consignments produced by the maker
+    pub consignments: Vec<OnchainSwapConsignment>,
+}
+
+/// A taker-completed swap ready for maker verification/broadcast.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct OnchainSwapCompletion {
+    /// Swap proposal
+    pub proposal: OnchainSwapProposal,
+    /// Fully or partially signed PSBT after taker-side processing
+    pub psbt: String,
+    /// Finalized PSBT when finalization succeeds
+    pub finalized_psbt: Option<String>,
+    /// Witness transaction ID
+    pub txid: String,
+    /// Consignments produced by both parties
+    pub consignments: Vec<OnchainSwapConsignment>,
+}
+
+/// Result of accepting swap RGB transfers.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct OnchainSwapReceiveResult {
+    /// Assignments accepted from received consignments
+    pub assignments: Vec<Assignment>,
+}
+
 /// The result of an operation.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg(any(feature = "electrum", feature = "esplora"))]
