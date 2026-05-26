@@ -258,3 +258,19 @@ fn skip_sync() {
         check_interval,
     ));
 }
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn fail() {
+    initialize();
+
+    let mut offline_party = {
+        let wallet = get_test_wallet(true, None);
+        party!(wallet, Online { id: 0 })
+    };
+    let result = offline_party
+        .wallet
+        .get_btc_balance(Some(Online { id: 0 }), false);
+    assert_matches!(result, Err(Error::Offline));
+}

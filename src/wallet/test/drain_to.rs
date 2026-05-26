@@ -159,6 +159,25 @@ fn drain_to_begin_and_end_success() {
 fn fail() {
     initialize();
 
+    // === offline tests
+
+    let mut offline_party = {
+        let wallet = get_test_wallet(true, None);
+        party!(wallet, Online { id: 0 })
+    };
+    let result = offline_party
+        .wallet
+        .drain_to(Online { id: 0 }, s!(""), FEE_RATE);
+    assert_matches!(result, Err(Error::Offline));
+    let result = offline_party
+        .wallet
+        .drain_to_begin(Online { id: 0 }, s!(""), FEE_RATE, false);
+    assert_matches!(result, Err(Error::Offline));
+    let result = offline_party.wallet.drain_to_end(Online { id: 0 }, s!(""));
+    assert_matches!(result, Err(Error::Offline));
+
+    // === online tests
+
     // wallets
     let mut party = get_empty_party!();
     let mut rcv_party = get_empty_party!();

@@ -415,3 +415,19 @@ fn skip_sync() {
     let unspents = party.list_unspents(false);
     assert_eq!(unspents.len(), 1);
 }
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn fail() {
+    initialize();
+
+    let mut offline_party = {
+        let wallet = get_test_wallet(true, None);
+        party!(wallet, Online { id: 0 })
+    };
+    let result = offline_party
+        .wallet
+        .list_unspents(Some(Online { id: 0 }), true, false);
+    assert_matches!(result, Err(Error::Offline));
+}

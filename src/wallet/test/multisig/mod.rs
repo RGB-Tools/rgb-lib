@@ -1287,3 +1287,114 @@ fn fail() {
     let err = wlt_wo.inflate_init_res("asset_id", &[]).unwrap_err();
     assert_eq!(err, Error::MultisigUserNotCosigner);
 }
+
+#[cfg(feature = "electrum")]
+#[test]
+#[serial]
+fn offline() {
+    initialize();
+
+    let bitcoin_network = BitcoinNetwork::Regtest;
+    let random_str: String = rand::rng()
+        .sample_iter(&Alphanumeric)
+        .take(6)
+        .map(char::from)
+        .collect();
+
+    // multisig wallet keys
+    let wlt_1_keys = generate_keys(bitcoin_network, WitnessVersion::Taproot);
+    let wlt_2_keys = generate_keys(bitcoin_network, WitnessVersion::Taproot);
+
+    // cosigners
+    let cosigners = vec![
+        Cosigner::from_keys(&wlt_1_keys, None),
+        Cosigner::from_keys(&wlt_2_keys, None),
+    ];
+    let multisig_wlt_keys = MultisigKeys::new(cosigners, 2, 2);
+
+    // create wallet without going online
+    let data_dir = get_test_data_dir_path()
+        .join(format!("{random_str}_offline"))
+        .to_string_lossy()
+        .to_string();
+    let _ = fs::create_dir_all(&data_dir);
+    let mut wallet =
+        MultisigWallet::new(get_test_wallet_data(&data_dir), multisig_wlt_keys).unwrap();
+
+    // === perform online operations with a fake Online object
+
+    let fake_online = Online { id: 0 };
+
+    // hub operations
+    let result = wallet.hub_info(fake_online);
+    assert_matches!(result, Err(Error::Offline));
+
+    let result = wallet.sync_with_hub(fake_online);
+    assert_matches!(result, Err(Error::Offline));
+
+    let result = wallet.respond_to_operation(fake_online, 0, RespondToOperation::Nack);
+    assert_matches!(result, Err(Error::Offline));
+
+    // wallet APIs
+    let result = wallet.blind_receive(fake_online, None, Assignment::Any, None, vec![], 0);
+    assert_matches!(result, Err(Error::Offline));
+
+    let result = wallet.burn_init(fake_online, "aid".into(), 0, 0, 0);
+    assert_matches!(result, Err(Error::Offline));
+
+    let result = wallet.create_utxos_init(fake_online, false, None, None, 0, false);
+    assert_matches!(result, Err(Error::Offline));
+
+    let result = wallet.fail_transfers(fake_online, None, false, false);
+    assert_matches!(result, Err(Error::Offline));
+
+    let result = wallet.get_address(fake_online);
+    assert_matches!(result, Err(Error::Offline));
+
+    let result = wallet.get_fee_estimation(fake_online, 1);
+    assert_matches!(result, Err(Error::Offline));
+
+    let result = wallet.inflate_init(fake_online, "aid".into(), vec![1], 0, 0);
+    assert_matches!(result, Err(Error::Offline));
+
+    let result = wallet.issue_asset_cfa(fake_online, "n".into(), None, 0, vec![1], None);
+    assert_matches!(result, Err(Error::Offline));
+
+    let result = wallet.issue_asset_ifa(
+        fake_online,
+        "T".into(),
+        "n".into(),
+        0,
+        vec![1],
+        vec![1],
+        None,
+    );
+    assert_matches!(result, Err(Error::Offline));
+
+    let result = wallet.issue_asset_nia(fake_online, "T".into(), "n".into(), 0, vec![1]);
+    assert_matches!(result, Err(Error::Offline));
+
+    let result = wallet.issue_asset_uda(fake_online, "T".into(), "n".into(), None, 0, None, vec![]);
+    assert_matches!(result, Err(Error::Offline));
+
+    let result = wallet.refresh(fake_online, None, vec![], false);
+    assert_matches!(result, Err(Error::Offline));
+
+    let result = wallet.send_btc_init(fake_online, "addr".into(), 0, 0, false);
+    assert_matches!(result, Err(Error::Offline));
+
+    let result = wallet.send_init(fake_online, HashMap::new(), false, 0, 0, None);
+    assert_matches!(result, Err(Error::Offline));
+
+    let result = wallet.sync(
+        fake_online,
+        SyncOptions {
+            keychain: SyncKeychain::Colored,
+            strategy: SyncStrategy::FastSync,
+        },
+    );
+    assert_matches!(result, Err(Error::Offline));
+
+    let result = wallet.witness_receive(fake_online, None, Assignment::Any, None, vec![], 0);
+    assert_matches!(result, Err(Error::Offline));
+}

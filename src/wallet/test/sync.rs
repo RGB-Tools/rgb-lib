@@ -6,6 +6,23 @@ use super::*;
 fn fail() {
     initialize();
 
+    // === offline tests
+
+    let mut offline_party = {
+        let wallet = get_test_wallet(true, None);
+        party!(wallet, Online { id: 0 })
+    };
+    let result = offline_party.wallet.sync(
+        Online { id: 0 },
+        SyncOptions {
+            keychain: SyncKeychain::Colored,
+            strategy: SyncStrategy::FastSync,
+        },
+    );
+    assert_matches!(result, Err(Error::Offline));
+
+    // === online tests
+
     let sync_options = SyncOptions {
         keychain: SyncKeychain::Colored,
         strategy: SyncStrategy::FastSync,

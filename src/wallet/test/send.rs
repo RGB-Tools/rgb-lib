@@ -2552,6 +2552,36 @@ fn no_change_on_pending_send() {
 fn fail() {
     initialize();
 
+    // === offline tests
+
+    let mut offline_party = {
+        let wallet = get_test_wallet(true, None);
+        party!(wallet, Online { id: 0 })
+    };
+    let result = offline_party.wallet.send(
+        Online { id: 0 },
+        HashMap::new(),
+        false,
+        FEE_RATE,
+        MIN_CONFIRMATIONS,
+        None,
+    );
+    assert_matches!(result, Err(Error::Offline));
+    let result = offline_party.wallet.send_begin(
+        Online { id: 0 },
+        HashMap::new(),
+        false,
+        FEE_RATE,
+        MIN_CONFIRMATIONS,
+        None,
+        false,
+    );
+    assert_matches!(result, Err(Error::Offline));
+    let result = offline_party.wallet.send_end(Online { id: 0 }, s!(""));
+    assert_matches!(result, Err(Error::Offline));
+
+    // === online tests
+
     // wallets
     let mut party = get_funded_party!();
     let mut rcv_party = get_funded_party!();

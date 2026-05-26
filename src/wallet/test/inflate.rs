@@ -330,6 +330,34 @@ fn success() {
 fn fail() {
     initialize();
 
+    // === offline tests
+
+    let mut offline_party = {
+        let wallet = get_test_wallet(true, None);
+        party!(wallet, Online { id: 0 })
+    };
+    let result = offline_party.wallet.inflate(
+        Online { id: 0 },
+        s!(""),
+        vec![],
+        FEE_RATE,
+        MIN_CONFIRMATIONS,
+    );
+    assert_matches!(result, Err(Error::Offline));
+    let result = offline_party.wallet.inflate_begin(
+        Online { id: 0 },
+        s!(""),
+        vec![],
+        FEE_RATE,
+        MIN_CONFIRMATIONS,
+        false,
+    );
+    assert_matches!(result, Err(Error::Offline));
+    let result = offline_party.wallet.inflate_end(Online { id: 0 }, s!(""));
+    assert_matches!(result, Err(Error::Offline));
+
+    // === online tests
+
     let max_inflation = 1000;
 
     let mut party = get_funded_party!();

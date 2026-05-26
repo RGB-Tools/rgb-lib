@@ -429,6 +429,31 @@ fn success() {
 fn fail() {
     initialize();
 
+    // === offline tests
+
+    let mut offline_party = {
+        let wallet = get_test_wallet(true, None);
+        party!(wallet, Online { id: 0 })
+    };
+    let result =
+        offline_party
+            .wallet
+            .burn(Online { id: 0 }, s!(""), 0, FEE_RATE, MIN_CONFIRMATIONS);
+    assert_matches!(result, Err(Error::Offline));
+    let result = offline_party.wallet.burn_begin(
+        Online { id: 0 },
+        s!(""),
+        0,
+        FEE_RATE,
+        MIN_CONFIRMATIONS,
+        false,
+    );
+    assert_matches!(result, Err(Error::Offline));
+    let result = offline_party.wallet.burn_end(Online { id: 0 }, s!(""));
+    assert_matches!(result, Err(Error::Offline));
+
+    // === online tests
+
     let mut party = get_funded_party!();
 
     let asset_ifa = party.issue_asset_ifa(None, None, None);

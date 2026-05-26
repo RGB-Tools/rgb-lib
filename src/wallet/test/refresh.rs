@@ -248,6 +248,19 @@ fn success() {
 fn fail() {
     initialize();
 
+    // === offline tests
+
+    let mut offline_party = {
+        let wallet = get_test_wallet(true, None);
+        party!(wallet, Online { id: 0 })
+    };
+    let result = offline_party
+        .wallet
+        .refresh(Online { id: 0 }, None, vec![], false);
+    assert_matches!(result, Err(Error::Offline));
+
+    // === online tests
+
     let mut party = get_funded_party!();
 
     // asset not found

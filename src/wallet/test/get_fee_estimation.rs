@@ -124,6 +124,19 @@ fn fail_esplora() {
 fn fail() {
     initialize();
 
+    // === offline tests
+
+    let offline_party = {
+        let wallet = get_test_wallet(true, None);
+        party!(wallet, Online { id: 0 })
+    };
+    let result = offline_party
+        .wallet
+        .get_fee_estimation(Online { id: 0 }, MIN_BLOCK_ESTIMATION);
+    assert_matches!(result, Err(Error::Offline));
+
+    // === online tests
+
     let party = get_empty_party!();
 
     // requested number of blocks too low

@@ -260,6 +260,19 @@ fn batch_success() {
 fn fail() {
     initialize();
 
+    // === offline tests
+
+    let mut offline_party = {
+        let wallet = get_test_wallet(true, None);
+        party!(wallet, Online { id: 0 })
+    };
+    let result = offline_party
+        .wallet
+        .fail_transfers(Online { id: 0 }, None, false, false);
+    assert_matches!(result, Err(Error::Offline));
+
+    // === online tests
+
     // wallets
     let mut party = get_funded_party!();
     let mut rcv_party = get_funded_party!();

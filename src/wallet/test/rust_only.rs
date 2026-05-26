@@ -711,3 +711,14 @@ fn create_consignments_success() {
         .join(CONSIGNMENT_FILE);
     assert!(consignment_path.is_file());
 }
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn offline() {
+    initialize();
+
+    let mut wallet = get_test_wallet(true, None);
+    let result = wallet.list_unspents_vanilla(Online { id: 0 }, MIN_CONFIRMATIONS, false);
+    assert_matches!(result, Err(Error::Offline));
+}
