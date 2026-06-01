@@ -983,4 +983,22 @@ fn filter_with_waiting_safe_height() {
     };
     let refresh_res = party_2.refresh_result(None, &[filter]);
     assert!(!refresh_res.unwrap().transfers_changed());
+
+    // refreshing with a non-empty filter that includes WaitingSafeHeight must not panic;
+    // the transfer matches the filter, so it's refreshed but status remains the same because we didn't mine
+    let filter = RefreshFilter {
+        status: RefreshTransferStatus::WaitingSafeHeight,
+        incoming: true,
+    };
+    let refresh_res = party_2.refresh_result(None, std::slice::from_ref(&filter));
+    assert!(!refresh_res.unwrap().transfers_changed());
+
+    // mine a block so the transfer reaches safe height
+    force_mine_no_resume_when_alone(false);
+    let refresh_res = party_2.refresh_result(None, &[filter]);
+    assert!(refresh_res.unwrap().transfers_changed());
+    assert!(party_2.check_test_transfer_status_recipient(
+        &receive_data_2.recipient_id,
+        TransferStatus::WaitingConfirmations
+    ));
 }

@@ -459,6 +459,7 @@ dictionary RefreshedTransfer {
 [Remote]
 enum RefreshTransferStatus {
   "WaitingCounterparty",
+  "WaitingSafeHeight",
   "WaitingConfirmations",
 };
 

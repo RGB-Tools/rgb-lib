@@ -1705,9 +1705,11 @@ pub struct OperationResult {
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub enum RefreshTransferStatus {
     /// Waiting for the counterparty to take action
-    WaitingCounterparty = 1,
+    WaitingCounterparty,
+    /// Waiting for the safe height to be reached
+    WaitingSafeHeight,
     /// Waiting for the transfer transaction to reach the minimum number of confirmations
-    WaitingConfirmations = 2,
+    WaitingConfirmations,
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -1717,8 +1719,9 @@ impl TryFrom<TransferStatus> for RefreshTransferStatus {
     fn try_from(x: TransferStatus) -> Result<Self, Self::Error> {
         match x {
             TransferStatus::WaitingCounterparty => Ok(RefreshTransferStatus::WaitingCounterparty),
+            TransferStatus::WaitingSafeHeight => Ok(RefreshTransferStatus::WaitingSafeHeight),
             TransferStatus::WaitingConfirmations => Ok(RefreshTransferStatus::WaitingConfirmations),
-            _ => Err("ResfreshStatus only accepts pending statuses"),
+            _ => Err("RefreshTransferStatus only accepts pending statuses"),
         }
     }
 }
