@@ -904,3 +904,83 @@ fn skip_sync() {
         TransferStatus::WaitingConfirmations
     ));
 }
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn filter_with_waiting_safe_height() {
+    initialize();
+
+    let amount: u64 = 66;
+
+    // wallets
+    let mut party_1 = get_funded_party!();
+    let mut party_2 = get_funded_party!();
+
+    // issue
+    let asset = party_1.issue_asset_nia(None);
+
+    // 1st transfer: wallet 1 > wallet 2 (settle it to give txid_1 a single confirmation)
+    let receive_data_1 = party_2.blind_receive();
+    let recipient_map_1 = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(amount),
+            recipient_id: receive_data_1.recipient_id.clone(),
+            witness_data: None,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid_1 = party_1.send_retry(&recipient_map_1);
+    assert!(!txid_1.is_empty());
+    let _guard = stop_mining_when_alone();
+    party_2.wait_for_refresh(None);
+    party_1.wait_for_refresh(Some(&asset.asset_id));
+    force_mine_no_resume_when_alone(false);
+    party_2.wait_for_refresh(None);
+    party_1.wait_for_refresh(Some(&asset.asset_id));
+    assert!(party_2.check_test_transfer_status_recipient(
+        &receive_data_1.recipient_id,
+        TransferStatus::Settled
+    ));
+
+    // 2nd transfer: wallet 1 > wallet 2 with min_confirmations = 2
+    // txid_1 has only one confirmation, so the transfer parks in WaitingSafeHeight
+    let receive_data_2 = party_2
+        .wallet
+        .blind_receive(
+            None,
+            Assignment::Any,
+            Some((now().unix_timestamp() + DURATION_RCV_TRANSFER as i64) as u64),
+            TRANSPORT_ENDPOINTS.clone(),
+            2,
+        )
+        .unwrap();
+    let recipient_map_2 = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(amount),
+            recipient_id: receive_data_2.recipient_id.clone(),
+            witness_data: None,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid_2 = party_1.send_retry(&recipient_map_2);
+    assert!(!txid_2.is_empty());
+
+    // transfer parks in WaitingSafeHeight because it contains unsafe history
+    party_2.wait_for_refresh_raw(None, Some(&[receive_data_2.batch_transfer_idx]));
+    assert!(party_2.check_test_transfer_status_recipient(
+        &receive_data_2.recipient_id,
+        TransferStatus::WaitingSafeHeight
+    ));
+
+    // refreshing with a non-empty filter must not panic on the WaitingSafeHeight transfer;
+    // the transfer doesn't match the filter, so it's skipped and nothing changes
+    let filter = RefreshFilter {
+        status: RefreshTransferStatus::WaitingCounterparty,
+        incoming: true,
+    };
+    let refresh_res = party_2.refresh_result(None, &[filter]);
+    assert!(!refresh_res.unwrap().transfers_changed());
+}
