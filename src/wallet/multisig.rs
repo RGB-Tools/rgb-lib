@@ -324,12 +324,12 @@ impl RgbWalletOpsOnline for MultisigWallet {
         no_asset_only: bool,
         skip_sync: bool,
     ) -> Result<bool, Error> {
+        self.check_online(online)?;
         self.check_is_cosigner()?;
         info!(
             self.logger(),
             "Failing batch transfer with idx {:?}...", batch_transfer_idx
         );
-        self.check_online(online)?;
         let txn = self.database().begin_transaction()?;
         let outcome =
             self.fail_transfers_impl(&txn, batch_transfer_idx, no_asset_only, skip_sync)?;
