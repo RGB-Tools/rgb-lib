@@ -164,7 +164,7 @@ int main() {
     }
 
     CResultString sync_res = rgblib_sync(
-        wlt, online, "{\"keychain\":\"Colored\",\"type\":\"FullSync\"}");
+        wlt, online, "{\"keychain\":\"Colored\",\"strategy\":\"FullSync\"}");
     if (sync_res.result == Ok) {
         printf("Synced\n");
     } else {
