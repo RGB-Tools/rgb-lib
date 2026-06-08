@@ -1193,6 +1193,7 @@ pub(super) fn check_last_transaction<P: OfflineSigParty<W = MultisigWallet>>(
 pub(super) fn check_transfer_status(
     parties: &[&impl SigParty],
     asset_ids: &[Option<&str>],
+    transfer_idx: Option<i32>,
     batch_transfer_idx: Option<i32>,
     status: TransferStatus,
 ) {
@@ -1200,17 +1201,28 @@ pub(super) fn check_transfer_status(
     for asset_id in asset_ids {
         for party in parties {
             let transfers = party.list_transfers(*asset_id);
-            let transfer = if let Some(idx) = batch_transfer_idx {
-                transfers
-                    .iter()
-                    .find(|t| t.batch_transfer_idx == idx)
-                    .unwrap()
+            let transfer = if let Some(idx) = transfer_idx {
+                let Some(transfer) = transfers.iter().find(|t| t.idx == idx) else {
+                    panic!(
+                        "transfer with idx {idx} not found for party {}",
+                        party.data_dir()
+                    )
+                };
+                transfer
+            } else if let Some(idx) = batch_transfer_idx {
+                let Some(transfer) = transfers.iter().find(|t| t.batch_transfer_idx == idx) else {
+                    panic!(
+                        "batch transfer with idx {idx} not found for party {}",
+                        party.data_dir()
+                    )
+                };
+                transfer
             } else {
                 transfers.last().unwrap()
             };
             eprintln!(
                 "checking xfer {} for asset {asset_id:?} for {}",
-                transfer.batch_transfer_idx,
+                transfer.idx,
                 party.data_dir()
             );
             assert_eq!(transfer.status, status);
