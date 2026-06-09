@@ -320,6 +320,6 @@ use crate::{
     keys::generate_keys,
     wallet::test::{
         mock_asset_terms, mock_chain_net, mock_contract_details, mock_local_version,
-        mock_token_data, skip_build_dag, skip_check_fee_rate,
+        mock_send_end_crash, mock_token_data, skip_build_dag, skip_check_fee_rate,
     },
 };

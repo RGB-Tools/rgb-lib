@@ -3294,6 +3294,16 @@ pub trait WalletOnline: WalletOffline {
             )?
         };
 
+        // test-only: simulate a wallet crash after the consignment has been posted to
+        // the proxy and the transfer has been saved, but before the enclosing DB transaction
+        // is committed, so the save is rolled back while the proxy keeps the consignment.
+        #[cfg(test)]
+        if mock_send_end_crash() {
+            return Err(Error::Internal {
+                details: s!("simulated wallet crash in send_end"),
+            });
+        }
+
         Ok(OperationResult {
             txid,
             batch_transfer_idx,

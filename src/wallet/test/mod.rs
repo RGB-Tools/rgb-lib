@@ -99,6 +99,7 @@ thread_local! {
     pub(crate) static MOCK_TOKEN_DATA: RefCell<Vec<TokenData>> = const { RefCell::new(vec![]) };
     pub(crate) static MOCK_VOUT: RefCell<Option<u32>> = const { RefCell::new(None) };
     pub(crate) static MOCK_LOCAL_VERSION: RefCell<Option<String>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_SEND_END_CRASH: RefCell<Option<()>> = const { RefCell::new(None) };
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -281,6 +282,15 @@ pub fn skip_build_dag() -> bool {
         false
     } else {
         println!("skipping check dag (mock)");
+        true
+    }
+}
+
+pub fn mock_send_end_crash() -> bool {
+    if MOCK_SEND_END_CRASH.take().is_none() {
+        false
+    } else {
+        println!("simulating send_end crash (mock)");
         true
     }
 }

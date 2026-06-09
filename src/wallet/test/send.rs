@@ -3534,6 +3534,117 @@ fn send_to_oneself() {
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
+fn send_to_oneself_crash() {
+    initialize();
+
+    let amount_1: u64 = 66;
+    let amount_2: u64 = 33;
+
+    // wallet
+    let mut party = get_funded_party!();
+
+    // issue
+    let asset = party.issue_asset_nia(None);
+
+    // self-send recipients
+    let receive_data_1 = party.blind_receive();
+    let receive_data_2 = party.witness_receive();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![
+            Recipient {
+                assignment: Assignment::Fungible(amount_1),
+                recipient_id: receive_data_1.recipient_id.clone(),
+                witness_data: None,
+                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+            },
+            Recipient {
+                assignment: Assignment::Fungible(amount_2),
+                recipient_id: receive_data_2.recipient_id.clone(),
+                witness_data: Some(WitnessData {
+                    amount_sat: 1000,
+                    blinding: None,
+                }),
+                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+            },
+        ],
+    )]);
+
+    // send_begin with dry_run=true (matches the default send() path) to persists no transfer
+    let begin = party
+        .wallet
+        .send_begin(
+            party.online,
+            recipient_map.clone(),
+            false,
+            FEE_RATE,
+            MIN_CONFIRMATIONS,
+            None,
+            true,
+        )
+        .unwrap();
+    let signed_psbt = party.wallet.sign_psbt(begin.psbt, None).unwrap();
+
+    // first send_end "crashes" after posting the consignment but with no send transfer yet
+    println!("setting MOCK_SEND_END_CRASH");
+    MOCK_SEND_END_CRASH.replace(Some(()));
+    let crashed = party.wallet.send_end(party.online, signed_psbt.clone());
+    assert_matches!(crashed, Err(Error::Internal { .. }));
+
+    // chcek the send transfer was not persisted
+    let transfers = party.list_transfers(Some(&asset.asset_id));
+    assert_eq!(
+        transfers
+            .iter()
+            .filter(|t| t.kind == TransferKind::Send)
+            .count(),
+        0
+    );
+
+    // refreshing the incoming transfers accepts the (already posted) consignment and stamps
+    // the send txid onto them, so the receive transfers now share the send transaction's txid
+    party.wait_for_refresh_raw(None, Some(&[2, 3]));
+
+    // completing the send must still create the send transfers despite the receive transfers
+    // already carrying the same txid
+    let res = party.wallet.send_end(party.online, signed_psbt).unwrap();
+    assert!(!res.txid.is_empty());
+
+    let transfers = party.list_transfers(Some(&asset.asset_id));
+    assert_eq!(transfers.len(), 5);
+    assert_eq!(
+        transfers
+            .iter()
+            .filter(|t| t.kind == TransferKind::Issuance)
+            .count(),
+        1
+    );
+    assert_eq!(
+        transfers
+            .iter()
+            .filter(|t| t.kind == TransferKind::Send)
+            .count(),
+        2
+    );
+    assert_eq!(
+        transfers
+            .iter()
+            .filter(|t| t.kind == TransferKind::ReceiveBlind)
+            .count(),
+        1
+    );
+    assert_eq!(
+        transfers
+            .iter()
+            .filter(|t| t.kind == TransferKind::ReceiveWitness)
+            .count(),
+        1
+    );
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
 fn send_received_back_success() {
     initialize();
 
