@@ -2813,7 +2813,19 @@ pub trait WalletOnline: WalletOffline {
         status: TransferStatus,
         sync_tte_used: bool,
     ) -> Result<i32, Error> {
-        if let Some(existing) = txn.get_batch_transfer_by_txid(&txid)? {
+        // in a send-to-oneself, the txid is shared between send and receive transfers; only the
+        // outgoing batch transfer should be updated here, incoming ones must be ignored so the send
+        // transfers are created
+        let existing = match txn.get_batch_transfer_by_txid(&txid)? {
+            Some(batch_transfer) => {
+                let asset_transfers = txn.iter_asset_transfers()?;
+                let transfers = txn.iter_transfers()?;
+                let outgoing = !batch_transfer.incoming(&asset_transfers, &transfers);
+                outgoing.then_some(batch_transfer)
+            }
+            None => None,
+        };
+        if let Some(existing) = existing {
             let mut updated: DbBatchTransferActMod = existing.clone().into();
             updated.status = ActiveValue::Set(status);
             txn.update_batch_transfer(&mut updated)?;
