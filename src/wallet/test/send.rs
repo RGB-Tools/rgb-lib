@@ -3081,6 +3081,58 @@ fn pending_transfer_input_fail() {
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
+fn change_underflow_fail() {
+    initialize();
+
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+    let asset = party.issue_asset_nia(None);
+
+    // build an input unspents snapshot overstating the allocation amount, so DB-based input
+    // selection passes but the runtime opouts collected in prepare_rgb_psbt come up short
+    let db_data = party.db_data(false);
+    let utxos = party.db_unspent_txos(db_data.txos.clone());
+    let mut input_unspents = party.db_rgb_allocations(
+        utxos,
+        Some(db_data.colorings.clone()),
+        Some(db_data.batch_transfers.clone()),
+        Some(db_data.asset_transfers.clone()),
+        Some(db_data.transfers.clone()),
+    );
+    input_unspents.retain(|u| {
+        u.rgb_allocations
+            .iter()
+            .any(|a| a.asset_id == Some(asset.asset_id.clone()))
+    });
+    assert_eq!(input_unspents.len(), 1);
+    let mut input_unspent = input_unspents.first().unwrap().clone();
+    for allocation in input_unspent
+        .rgb_allocations
+        .iter_mut()
+        .filter(|a| a.asset_id == Some(asset.asset_id.clone()))
+    {
+        allocation.assignment = Assignment::Fungible(AMOUNT * 2);
+    }
+    MOCK_INPUT_UNSPENTS.with_borrow_mut(|v| v.push(input_unspent));
+
+    // send more than the runtime can collect, check it fails with no underflow panic
+    let receive_data = rcv_party.blind_receive();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(AMOUNT * 2),
+            recipient_id: receive_data.recipient_id.clone(),
+            witness_data: None,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let result = party.send_result(&recipient_map);
+    assert_matches!(result, Err(Error::InsufficientAssignments { asset_id: t, available: a }) if t == asset.asset_id && a.fungible == AMOUNT);
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
 fn already_used_fail() {
     initialize();
 

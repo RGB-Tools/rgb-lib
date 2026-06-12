@@ -2187,7 +2187,12 @@ pub trait WalletOnline: WalletOffline {
                 beneficiaries.push((seal, recipient.recipient_id.clone()));
             }
 
-            let change = inputs_added.change(&transfer_info.original_assignments_needed);
+            let change = inputs_added
+                .change(&transfer_info.original_assignments_needed)
+                .ok_or_else(|| Error::InsufficientAssignments {
+                    asset_id: asset_id.clone(),
+                    available: inputs_added,
+                })?;
 
             if change != AssignmentsCollection::default() {
                 transfer_info.change = change.clone();

@@ -852,12 +852,13 @@ impl AssignmentsCollection {
         }
     }
 
-    pub(crate) fn change(&self, needed: &Self) -> Self {
-        Self {
-            fungible: self.fungible - needed.fungible,
+    /// Returns `None` if the collected assignments don't cover the needed ones
+    pub(crate) fn change(&self, needed: &Self) -> Option<Self> {
+        Some(Self {
+            fungible: self.fungible.checked_sub(needed.fungible)?,
             non_fungible: false,
-            inflation: self.inflation - needed.inflation,
-        }
+            inflation: self.inflation.checked_sub(needed.inflation)?,
+        })
     }
 
     pub(crate) fn enough(&self, needed: &Self) -> bool {
@@ -1928,4 +1929,46 @@ pub enum TryFailBatchTransferOutcome {
 pub struct FailTransfersOutcome {
     pub transfers_changed: bool,
     pub cannot_fail: bool,
+}
+
+#[cfg(test)]
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn assignments_collection_change() {
+        let collected = AssignmentsCollection {
+            fungible: 10,
+            non_fungible: false,
+            inflation: 5,
+        };
+
+        // collected covers needed
+        let needed = AssignmentsCollection {
+            fungible: 7,
+            non_fungible: false,
+            inflation: 5,
+        };
+        let change = collected.change(&needed).unwrap();
+        assert_eq!(change.fungible, 3);
+        assert_eq!(change.inflation, 0);
+        assert!(!change.non_fungible);
+
+        // needed fungible exceeds collected
+        let needed = AssignmentsCollection {
+            fungible: 11,
+            non_fungible: false,
+            inflation: 0,
+        };
+        assert!(collected.change(&needed).is_none());
+
+        // needed inflation exceeds collected
+        let needed = AssignmentsCollection {
+            fungible: 0,
+            non_fungible: false,
+            inflation: 6,
+        };
+        assert!(collected.change(&needed).is_none());
+    }
 }
