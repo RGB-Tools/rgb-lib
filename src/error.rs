@@ -479,6 +479,10 @@ pub enum Error {
     #[error("No keys supplied")]
     NoKeysSupplied,
 
+    /// Cannot allocate assets with zero allocations per UTXO
+    #[error("Cannot allocate assets with zero allocations per UTXO")]
+    NoMaxAllocationsPerUtxo,
+
     /// Cannot create a wallet with no supported schemas
     #[error("Cannot create a wallet with no supported schemas")]
     NoSupportedSchemas,

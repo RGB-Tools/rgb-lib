@@ -212,7 +212,7 @@ fn fail() {
     let mut wallet_data_bad = wallet_data.clone();
     wallet_data_bad.max_allocations_per_utxo = 0;
     let result = Wallet::new(wallet_data_bad, keys.clone());
-    assert!(result.is_err());
+    assert!(matches!(result, Err(Error::NoMaxAllocationsPerUtxo)));
 
     // pubkey too short
     let mut keys_bad = keys.clone();

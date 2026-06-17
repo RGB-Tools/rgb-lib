@@ -90,6 +90,7 @@ interface RgbLibError {
   NoInflationAmounts();
   NoIssuanceAmounts();
   NoKeysSupplied();
+  NoMaxAllocationsPerUtxo();
   NoSupportedSchemas();
   NoValidTransportEndpoint();
   Offline();

@@ -150,6 +150,9 @@ pub(crate) fn setup_new_wallet(
     wallet_data: &WalletData,
     fingerprint: &str,
 ) -> Result<(PathBuf, Logger, AsyncGuard), Error> {
+    if wallet_data.max_allocations_per_utxo == 0 {
+        return Err(Error::NoMaxAllocationsPerUtxo);
+    }
     let data_dir_path = Path::new(&wallet_data.data_dir);
     if !data_dir_path.exists() {
         return Err(Error::InexistentDataDir);
