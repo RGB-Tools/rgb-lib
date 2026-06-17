@@ -854,9 +854,15 @@ impl AssignmentsCollection {
 
     pub(crate) fn change(&self, needed: &Self) -> Self {
         Self {
-            fungible: self.fungible - needed.fungible,
+            fungible: self
+                .fungible
+                .checked_sub(needed.fungible)
+                .expect("selected inputs must cover outputs"),
             non_fungible: false,
-            inflation: self.inflation - needed.inflation,
+            inflation: self
+                .inflation
+                .checked_sub(needed.inflation)
+                .expect("selected inputs must cover outputs"),
         }
     }
 
