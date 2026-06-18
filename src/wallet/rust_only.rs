@@ -35,7 +35,7 @@ pub type AssetBeneficiariesMap = BTreeMap<ContractId, Vec<BuilderSeal<GraphSeal>
 /// it only if you know what you're doing</div>
 #[cfg(feature = "_online")]
 pub fn check_proxy_url(proxy_url: &str) -> Result<(), Error> {
-    check_proxy(proxy_url)
+    check_proxy(proxy_url).map(|_| ())
 }
 
 /// Load an RGB fascia from the file at the provided path.
@@ -375,7 +375,7 @@ impl Wallet {
             .map(|a| hex::encode(a.digest))
             .collect::<HashSet<_>>();
         stock
-            .import_contract(valid_contract, self.blockchain_resolver())
+            .import_contract(valid_contract, &self.blockchain_resolver())
             .expect("failure importing validated contract");
 
         let received_rgb_assignments =
@@ -438,7 +438,7 @@ impl Wallet {
         self.check_online(online)?;
         let txn = self.database().begin_transaction()?;
         let update_res = self.rgb_stock(&txn)?.update_witnesses(
-            self.blockchain_resolver(),
+            &self.blockchain_resolver(),
             after_height,
             force_witnesses,
         )?;
@@ -624,7 +624,7 @@ impl Wallet {
         let txn = self.database().begin_transaction()?;
 
         self.check_end_initiated(&txn, &psbt)?;
-        let (txid, _, info_contents, _) = self.get_transfer_end_data(&psbt)?;
+        let (txid, transfer_dir, info_contents, _) = self.get_transfer_end_data(&psbt)?;
         // the data must be of a donation send: another operation (including a non-donation send)
         // would be completed skipping its checks and steps
         if !info_contents.is_operation(&TypeOfTransition::Transfer) || !info_contents.donation {
@@ -634,11 +634,13 @@ impl Wallet {
         // this will also update the DB with the new UTXOs and BDK
         self.broadcast_psbt(&txn, &psbt)?;
 
+        let consignment_hashes = self.consignment_hashes(&transfer_dir, &info_contents)?;
         let batch_transfer_idx = self.update_or_save_transfers(
             &txn,
             txid.clone(),
             &info_contents,
             TransferStatus::WaitingConfirmations,
+            &consignment_hashes,
             true,
             &psbt,
         )?;

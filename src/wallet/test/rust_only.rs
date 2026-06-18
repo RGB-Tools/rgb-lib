@@ -132,6 +132,25 @@ fn success() {
         .save_file(&consignment_path)
         .unwrap();
 
+    // the invoice must be reserved on the proxy before a consignment can be posted
+    let recipient_pk = hex::encode(gen_ed25519().verifying_key().to_bytes());
+    let proxy_client = get_proxy_client(Some(PROXY_URL));
+    proxy_client
+        .prepare_invoice(
+            &invoice_id(&txid, &recipient_pk),
+            &(now().unix_timestamp() + 3600).to_string(),
+            &recipient_pk,
+            None,
+        )
+        .unwrap();
+    post_test_consignment(
+        &proxy_client,
+        &txid,
+        &recipient_pk,
+        &consignment_path,
+        FAKE_HASH,
+    );
+
     // accept transfer
     recv_party
         .wallet
@@ -749,6 +768,9 @@ fn save_new_asset_fail() {
         vec![Recipient {
             assignment: Assignment::Fungible(10),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: Some(WitnessData {
                 amount_sat: 1000,
                 blinding: None,
@@ -800,6 +822,9 @@ fn send_end_db_update_only_success() {
         vec![Recipient {
             assignment: Assignment::Fungible(10),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -813,6 +838,7 @@ fn send_end_db_update_only_success() {
             FEE_RATE,
             MIN_CONFIRMATIONS,
             default_send_expiration(),
+            Some(PROXY_ENDPOINT.clone()),
             false,
         )
         .unwrap();
@@ -856,6 +882,9 @@ fn send_end_db_update_only_wrong_operation() {
         vec![Recipient {
             assignment: Assignment::Fungible(10),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -904,6 +933,9 @@ fn send_end_db_update_only_unknown_transfer() {
         vec![Recipient {
             assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -953,6 +985,9 @@ fn create_consignments_success() {
         vec![Recipient {
             assignment: Assignment::Fungible(10),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
