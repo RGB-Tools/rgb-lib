@@ -173,7 +173,18 @@ impl Indexer {
                 let tx_status = client.get_tx_status(&txid).map_err(IndexerError::from)?;
                 if let Some(tx_height) = tx_status.block_height {
                     let height = self.get_latest_block_height()?;
-                    Some((height - tx_height + 1) as u64)
+                    // a tx height greater than the tip should never happen: it points to
+                    // an inconsistent indexer (e.g. the two values served from different
+                    // sources/replicas, or a reorg between the reads), so surface it as an
+                    // error rather than underflowing
+                    let blocks_since = height.checked_sub(tx_height).ok_or_else(|| {
+                        Error::Indexer {
+                            details: s!(
+                                "indexer reported a transaction height greater than the chain tip"
+                            ),
+                        }
+                    })?;
+                    Some(u64::from(blocks_since) + 1)
                 } else if client.get_tx(&txid).map_err(IndexerError::from)?.is_none() {
                     None
                 } else {
@@ -674,7 +685,6 @@ mod tests {
 
     #[cfg(feature = "esplora")]
     #[test]
-    #[should_panic(expected = "attempt to subtract with overflow")]
     fn test_esplora_get_tx_confirmations_inconsistent_height() {
         let txid = TEST_TXID;
         let mut server = mockito::Server::new();
@@ -693,7 +703,11 @@ mod tests {
 
         let indexer = esplora_indexer(&server.url());
 
-        indexer.get_tx_confirmations(txid).unwrap_err();
+        let res = indexer.get_tx_confirmations(txid).unwrap_err();
+        assert_matches!(
+            res,
+            Error::Indexer { details } if details.contains("indexer reported a transaction height greater than the chain tip")
+        );
         mock_status.assert();
         mock_height.assert();
     }
