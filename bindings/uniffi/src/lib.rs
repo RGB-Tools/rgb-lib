@@ -8,8 +8,8 @@ use std::{
 };
 
 use rgb_lib::{
-    AssetSchema, Assignment as RgbLibAssignment, CloseMethod, Error as RgbLibError, TransferStatus,
-    TransportType, WalletTransactionType,
+    AssetSchema, Assignment as RgbLibAssignment, CloseMethod, Encryption, Error as RgbLibError,
+    TransferStatus, TransportType, WalletTransactionType,
     keys::{Keys, WitnessVersion},
     utils::BitcoinNetwork,
     wallet::{
@@ -78,6 +78,7 @@ pub struct OnlineOptions {
     pub skip_consistency_check: bool,
     pub vanilla_sync_lookback: u32,
     pub failed_witness_receive_grace_secs: u32,
+    pub proxy_auth_keys: HashMap<String, String>,
 }
 impl From<OnlineOptions> for RgbLibOnlineOptions {
     fn from(orig: OnlineOptions) -> Self {
@@ -86,6 +87,7 @@ impl From<OnlineOptions> for RgbLibOnlineOptions {
             skip_consistency_check: orig.skip_consistency_check,
             vanilla_sync_lookback: orig.vanilla_sync_lookback,
             failed_witness_receive_grace_secs: orig.failed_witness_receive_grace_secs,
+            proxy_auth_keys: orig.proxy_auth_keys,
         }
     }
 }
@@ -193,6 +195,8 @@ pub struct InvoiceData {
     pub network: BitcoinNetwork,
     pub expiration_timestamp: Option<u64>,
     pub transport_endpoints: Vec<String>,
+    pub public_key: Option<String>,
+    pub encryption: Encryption,
     pub unknown_query_params: HashMap<String, String>,
 }
 impl From<RgbLibInvoiceData> for InvoiceData {
@@ -206,6 +210,8 @@ impl From<RgbLibInvoiceData> for InvoiceData {
             network: orig.network,
             expiration_timestamp: orig.expiration_timestamp,
             transport_endpoints: orig.transport_endpoints,
+            public_key: orig.public_key,
+            encryption: orig.encryption,
             unknown_query_params: orig.unknown_query_params,
         }
     }
@@ -221,6 +227,8 @@ impl From<InvoiceData> for RgbLibInvoiceData {
             network: orig.network,
             expiration_timestamp: orig.expiration_timestamp,
             transport_endpoints: orig.transport_endpoints,
+            public_key: orig.public_key,
+            encryption: orig.encryption,
             unknown_query_params: orig.unknown_query_params,
         }
     }
@@ -230,6 +238,9 @@ pub struct Recipient {
     pub witness_data: Option<WitnessData>,
     pub assignment: Assignment,
     pub transport_endpoints: Vec<String>,
+    pub public_key: Option<String>,
+    pub encryption: Encryption,
+    pub expiration_timestamp: Option<u64>,
 }
 impl From<RgbLibRecipient> for Recipient {
     fn from(orig: RgbLibRecipient) -> Self {
@@ -238,6 +249,9 @@ impl From<RgbLibRecipient> for Recipient {
             witness_data: orig.witness_data,
             assignment: orig.assignment.into(),
             transport_endpoints: orig.transport_endpoints,
+            public_key: orig.public_key,
+            encryption: orig.encryption,
+            expiration_timestamp: orig.expiration_timestamp,
         }
     }
 }
@@ -248,6 +262,9 @@ impl From<Recipient> for RgbLibRecipient {
             witness_data: orig.witness_data,
             assignment: orig.assignment.into(),
             transport_endpoints: orig.transport_endpoints,
+            public_key: orig.public_key,
+            encryption: orig.encryption,
+            expiration_timestamp: orig.expiration_timestamp,
         }
     }
 }
@@ -289,6 +306,7 @@ pub struct Transfer {
     pub change_utxo: Option<Outpoint>,
     pub expiration_timestamp: Option<u64>,
     pub transport_endpoints: Vec<TransferTransportEndpoint>,
+    pub sender_transport_endpoint: Option<String>,
     pub invoice_string: Option<String>,
     pub consignment_path: Option<String>,
     pub psbt_path: Option<String>,
@@ -310,6 +328,7 @@ impl From<RgbLibTransfer> for Transfer {
             change_utxo: orig.change_utxo,
             expiration_timestamp: orig.expiration_timestamp,
             transport_endpoints: orig.transport_endpoints,
+            sender_transport_endpoint: orig.sender_transport_endpoint,
             invoice_string: orig.invoice_string.clone(),
             consignment_path: orig.consignment_path.clone(),
             psbt_path: orig.psbt_path.clone(),
@@ -333,6 +352,7 @@ impl From<Transfer> for RgbLibTransfer {
             change_utxo: orig.change_utxo,
             expiration_timestamp: orig.expiration_timestamp,
             transport_endpoints: orig.transport_endpoints,
+            sender_transport_endpoint: orig.sender_transport_endpoint,
             invoice_string: orig.invoice_string.clone(),
             consignment_path: orig.consignment_path.clone(),
             psbt_path: orig.psbt_path.clone(),
@@ -1129,35 +1149,43 @@ impl Wallet {
 
     fn blind_receive(
         &self,
+        online: Option<Online>,
         asset_id: Option<String>,
         assignment: Assignment,
         expiration_timestamp: u64,
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
+        encryption: Option<Encryption>,
     ) -> Result<ReceiveData, RgbLibError> {
         self._get_wallet().blind_receive(
+            online,
             asset_id,
             assignment.into(),
             expiration_timestamp,
             transport_endpoints,
             min_confirmations,
+            encryption,
         )
     }
 
     fn witness_receive(
         &self,
+        online: Option<Online>,
         asset_id: Option<String>,
         assignment: Assignment,
         expiration_timestamp: u64,
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
+        encryption: Option<Encryption>,
     ) -> Result<ReceiveData, RgbLibError> {
         self._get_wallet().witness_receive(
+            online,
             asset_id,
             assignment.into(),
             expiration_timestamp,
             transport_endpoints,
             min_confirmations,
+            encryption,
         )
     }
 
@@ -1483,6 +1511,7 @@ impl Wallet {
         fee_rate: u64,
         min_confirmations: u8,
         expiration_timestamp: u64,
+        sender_transport_endpoint: Option<String>,
     ) -> Result<OperationResult, RgbLibError> {
         self._get_wallet().send(
             online,
@@ -1491,6 +1520,7 @@ impl Wallet {
             fee_rate,
             min_confirmations,
             expiration_timestamp,
+            sender_transport_endpoint,
         )
     }
 
@@ -1502,6 +1532,7 @@ impl Wallet {
         fee_rate: u64,
         min_confirmations: u8,
         expiration_timestamp: u64,
+        sender_transport_endpoint: Option<String>,
         dry_run: bool,
     ) -> Result<SendBeginResult, RgbLibError> {
         self._get_wallet().send_begin(
@@ -1511,6 +1542,7 @@ impl Wallet {
             fee_rate,
             min_confirmations,
             expiration_timestamp,
+            sender_transport_endpoint,
             dry_run,
         )
     }
@@ -1678,6 +1710,7 @@ impl MultisigWallet {
         expiration_timestamp: u64,
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
+        encryption: Option<Encryption>,
     ) -> Result<ReceiveData, RgbLibError> {
         self._get_wallet().blind_receive(
             online,
@@ -1686,6 +1719,7 @@ impl MultisigWallet {
             expiration_timestamp,
             transport_endpoints,
             min_confirmations,
+            encryption,
         )
     }
 
@@ -1697,6 +1731,7 @@ impl MultisigWallet {
         expiration_timestamp: u64,
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
+        encryption: Option<Encryption>,
     ) -> Result<ReceiveData, RgbLibError> {
         self._get_wallet().witness_receive(
             online,
@@ -1705,6 +1740,7 @@ impl MultisigWallet {
             expiration_timestamp,
             transport_endpoints,
             min_confirmations,
+            encryption,
         )
     }
 
@@ -1939,6 +1975,7 @@ impl MultisigWallet {
         fee_rate: u64,
         min_confirmations: u8,
         expiration_timestamp: u64,
+        sender_transport_endpoint: String,
     ) -> Result<InitOperationResult, RgbLibError> {
         self._get_wallet().send_init(
             online,
@@ -1947,6 +1984,7 @@ impl MultisigWallet {
             fee_rate,
             min_confirmations,
             expiration_timestamp,
+            sender_transport_endpoint,
         )
     }
 

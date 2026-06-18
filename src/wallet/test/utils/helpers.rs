@@ -426,6 +426,67 @@ pub(crate) fn get_proxy_client(proxy_url: Option<&str>) -> ProxyClient {
     ProxyClient::new(proxy_url.unwrap_or(PROXY_URL)).unwrap()
 }
 
+/// Post a consignment file to the invoice of `recipient_id` (with pubkey `recipient_pk`) acting as
+/// a sender with a fresh key, returning the sender key and the transfer ID.
+#[cfg(feature = "electrum")]
+pub(crate) fn post_test_consignment(
+    proxy_client: &ProxyClient,
+    recipient_id: &str,
+    recipient_pk: &str,
+    consignment_path: &Path,
+    consignment_hash: &str,
+) -> (ed25519_dalek::SigningKey, String) {
+    let sender_sk = gen_ed25519();
+    let sender_pk = hex::encode(sender_sk.verifying_key().to_bytes());
+    let invoice_id = invoice_id(recipient_id, recipient_pk);
+    let transfer_id = transfer_id(&invoice_id, &sender_pk);
+    let blob_hash = hash_file(consignment_path).unwrap();
+    let digest = sha256_digest(
+        post_consignment_message(&transfer_id, consignment_hash, &blob_hash).as_bytes(),
+    );
+    let data = PostConsignmentData {
+        invoice_id,
+        transfer_id: transfer_id.clone(),
+        sender_transport_endpoint: PROXY_ENDPOINT.clone(),
+        sender_pk,
+        consignment_hash: consignment_hash.to_string(),
+        batch: false,
+        signature: hex::encode(sign_ed25519(&sender_sk, &digest)),
+    };
+    let res = proxy_client
+        .post_consignment(
+            &data,
+            consignment_path,
+            &now().unix_timestamp().to_string(),
+            "0",
+        )
+        .unwrap();
+    assert_eq!(res.result, Some(true), "{:?}", res.error);
+    (sender_sk, transfer_id)
+}
+
+/// Post a media file for a transfer created with [`post_test_consignment`].
+#[cfg(feature = "electrum")]
+pub(crate) fn post_test_media(
+    proxy_client: &ProxyClient,
+    sender_sk: &ed25519_dalek::SigningKey,
+    transfer_id: &str,
+    media_id: &str,
+    media_path: &Path,
+) {
+    let blob_hash = hash_file(media_path).unwrap();
+    let digest = sha256_digest(post_media_message(transfer_id, media_id, &blob_hash).as_bytes());
+    let res = proxy_client
+        .post_media(
+            transfer_id,
+            media_id,
+            media_path,
+            &hex::encode(sign_ed25519(sender_sk, &digest)),
+        )
+        .unwrap();
+    assert_eq!(res.result, Some(true), "{:?}", res.error);
+}
+
 #[cfg(feature = "bitcoind")]
 pub(crate) fn bitcoind_pass_auth() -> BitcoindAuth {
     BitcoindAuth::UserPass {
@@ -485,6 +546,7 @@ pub(crate) fn test_go_online_options(indexer_url: Option<&str>) -> OnlineOptions
         skip_consistency_check: true,
         vanilla_sync_lookback: INDEXER_SYNC_LOOKBACK as u32,
         failed_witness_receive_grace_secs: FAILED_WITNESS_RECEIVE_GRACE_SECS,
+        proxy_auth_keys: HashMap::new(),
     }
 }
 
@@ -521,23 +583,106 @@ pub(crate) fn failing_ack_proxy(
             {
                 return b"not valid json".to_vec();
             }
-            let content_type = req.header(CONTENT_TYPE)[0].clone();
-            // the blocking client cannot run inside mockito's async runtime
-            std::thread::spawn(move || {
-                RestClient::new()
-                    .post(PROXY_URL)
-                    .header(CONTENT_TYPE, content_type)
-                    .body(body)
-                    .send()
-                    .unwrap()
-                    .bytes()
-                    .unwrap()
-                    .to_vec()
-            })
-            .join()
-            .unwrap()
+            forward_to_proxy(req, body)
         })
         .expect_at_least(1)
         .create();
     (server, mock, consignment_gets)
+}
+
+// proxy that forwards every call to the real one, except transfer lists that receive an
+// unparsable response while `fail_list` is set
+#[cfg(feature = "electrum")]
+pub(crate) fn failing_list_proxy(
+    fail_list: Arc<AtomicBool>,
+) -> (mockito::ServerGuard, mockito::Mock) {
+    let mut server = mockito::Server::new();
+    let mock = server
+        .mock("POST", "/json-rpc")
+        .with_body_from_request(move |req| {
+            let body = req.body().unwrap().clone();
+            if fail_list.load(Ordering::Relaxed)
+                && String::from_utf8_lossy(&body).contains("\"transfer.list\"")
+            {
+                return b"not valid json".to_vec();
+            }
+            forward_to_proxy(req, body)
+        })
+        .expect_at_least(1)
+        .create();
+    (server, mock)
+}
+
+// proxy that forwards every call to the real one, except the calls starting a new transfer
+// (invoice.prepare, consignment.post and ack.prepare) that are refused as by a draining proxy
+#[cfg(feature = "electrum")]
+pub(crate) fn draining_proxy(draining: Arc<AtomicBool>) -> (mockito::ServerGuard, mockito::Mock) {
+    let mut server = mockito::Server::new();
+    let mock = server
+        .mock("POST", "/json-rpc")
+        .with_body_from_request(move |req| {
+            let body = req.body().unwrap().clone();
+            let body_str = String::from_utf8_lossy(&body);
+            // consignment.post is a multipart call, so its method name is not quoted
+            if draining.load(Ordering::Relaxed)
+                && ["invoice.prepare", "consignment.post", "ack.prepare"]
+                    .iter()
+                    .any(|m| body_str.contains(m))
+            {
+                return br#"{"jsonrpc":"2.0","id":null,"error":{"code":-115,"message":"Server draining"}}"#.to_vec();
+            }
+            forward_to_proxy(req, body)
+        })
+        .expect_at_least(1)
+        .create();
+    (server, mock)
+}
+
+// proxy that forwards every call to the real one, advertising `max_media` in server.info (not
+// advertising any while it's 0, which a proxy cannot set)
+#[cfg(feature = "electrum")]
+pub(crate) fn max_media_proxy(
+    max_media: Arc<AtomicUsize>,
+) -> (mockito::ServerGuard, mockito::Mock) {
+    let mut server = mockito::Server::new();
+    let mock = server
+        .mock("POST", "/json-rpc")
+        .with_body_from_request(move |req| {
+            let body = req.body().unwrap().clone();
+            let is_info = String::from_utf8_lossy(&body).contains("\"server.info\"");
+            let res = forward_to_proxy(req, body);
+            if !is_info {
+                return res;
+            }
+            let mut res: serde_json::Value = serde_json::from_slice(&res).unwrap();
+            let result = res["result"].as_object_mut().unwrap();
+            match max_media.load(Ordering::Relaxed) {
+                0 => result.remove("max_media"),
+                max => result.insert(s!("max_media"), max.to_string().into()),
+            };
+            serde_json::to_vec(&res).unwrap()
+        })
+        .expect_at_least(1)
+        .create();
+    (server, mock)
+}
+
+// forward a request received by a mock proxy to the real one, returning its response body
+#[cfg(feature = "electrum")]
+fn forward_to_proxy(req: &mockito::Request, body: Vec<u8>) -> Vec<u8> {
+    let content_type = req.header(CONTENT_TYPE)[0].clone();
+    // the blocking client cannot run inside mockito's async runtime
+    std::thread::spawn(move || {
+        RestClient::new()
+            .post(PROXY_URL)
+            .header(CONTENT_TYPE, content_type)
+            .body(body)
+            .send()
+            .unwrap()
+            .bytes()
+            .unwrap()
+            .to_vec()
+    })
+    .join()
+    .unwrap()
 }

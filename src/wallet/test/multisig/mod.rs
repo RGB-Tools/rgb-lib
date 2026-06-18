@@ -284,6 +284,9 @@ fn success() {
         vec![Recipient {
             assignment: Assignment::NonFungible,
             recipient_id: rcv_data.recipient_id.clone(),
+            public_key: Some(rcv_data.public_key.clone()),
+            expiration_timestamp: Some(rcv_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: vec![],
         }],
@@ -295,6 +298,9 @@ fn success() {
         vec![Recipient {
             assignment: Assignment::NonFungible,
             recipient_id: rcv_data.recipient_id.clone(),
+            public_key: Some(rcv_data.public_key.clone()),
+            expiration_timestamp: Some(rcv_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -345,6 +351,9 @@ fn success() {
         vec![Recipient {
             assignment: Assignment::NonFungible,
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: Some(WitnessData {
                 amount_sat: 1000,
                 blinding: None,
@@ -391,6 +400,9 @@ fn success() {
                 Recipient {
                     assignment: Assignment::Fungible(cfa_amount_witness),
                     recipient_id: rcv_data_1.recipient_id.clone(),
+                    public_key: Some(rcv_data_1.public_key.clone()),
+                    expiration_timestamp: Some(rcv_data_1.expiration_timestamp),
+                    encryption: Encryption::Optional,
                     witness_data: Some(WitnessData {
                         amount_sat: 1000,
                         blinding: None,
@@ -400,6 +412,9 @@ fn success() {
                 Recipient {
                     assignment: Assignment::Fungible(cfa_amount_blind),
                     recipient_id: rcv_data_3.recipient_id.clone(),
+                    public_key: Some(rcv_data_3.public_key.clone()),
+                    expiration_timestamp: Some(rcv_data_3.expiration_timestamp),
+                    encryption: Encryption::Optional,
                     witness_data: None,
                     transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
                 },
@@ -410,6 +425,9 @@ fn success() {
             vec![Recipient {
                 assignment: Assignment::Fungible(AMOUNT_SMALL),
                 recipient_id: rcv_data_2.recipient_id.clone(),
+                public_key: Some(rcv_data_2.public_key.clone()),
+                expiration_timestamp: Some(rcv_data_2.expiration_timestamp),
+                encryption: Encryption::Optional,
                 witness_data: None,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             }],
@@ -433,6 +451,9 @@ fn success() {
         vec![Recipient {
             assignment: Assignment::Fungible(AMOUNT_SMALL),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -487,6 +508,9 @@ fn success() {
                 Recipient {
                     assignment: Assignment::Fungible(cfa_amount_witness),
                     recipient_id: rcv_data_1.recipient_id.clone(),
+                    public_key: Some(rcv_data_1.public_key.clone()),
+                    expiration_timestamp: Some(rcv_data_1.expiration_timestamp),
+                    encryption: Encryption::Optional,
                     witness_data: Some(WitnessData {
                         amount_sat: 1000,
                         blinding: None,
@@ -496,6 +520,9 @@ fn success() {
                 Recipient {
                     assignment: Assignment::Fungible(cfa_amount_blind),
                     recipient_id: rcv_data_3.recipient_id.clone(),
+                    public_key: Some(rcv_data_3.public_key.clone()),
+                    expiration_timestamp: Some(rcv_data_3.expiration_timestamp),
+                    encryption: Encryption::Optional,
                     witness_data: None,
                     transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
                 },
@@ -506,6 +533,9 @@ fn success() {
             vec![Recipient {
                 assignment: Assignment::Fungible(AMOUNT_SMALL),
                 recipient_id: rcv_data_2.recipient_id.clone(),
+                public_key: Some(rcv_data_2.public_key.clone()),
+                expiration_timestamp: Some(rcv_data_2.expiration_timestamp),
+                encryption: Encryption::Optional,
                 witness_data: None,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             }],
@@ -515,6 +545,9 @@ fn success() {
             vec![Recipient {
                 assignment: Assignment::Fungible(nia_2_amount),
                 recipient_id: rcv_data_4.recipient_id.clone(),
+                public_key: Some(rcv_data_4.public_key.clone()),
+                expiration_timestamp: Some(rcv_data_4.expiration_timestamp),
+                encryption: Encryption::Optional,
                 witness_data: None,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             }],
@@ -636,6 +669,9 @@ fn success() {
         vec![Recipient {
             assignment: Assignment::Fungible(10),
             recipient_id: rcv_data.recipient_id.clone(),
+            public_key: Some(rcv_data.public_key.clone()),
+            expiration_timestamp: Some(rcv_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -839,6 +875,9 @@ fn success() {
         vec![Recipient {
             assignment: Assignment::Fungible(10),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -1079,6 +1118,7 @@ fn fail() {
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
+            None,
         )
         .unwrap_err();
     assert_eq!(err, Error::UnsupportedTransportType);
@@ -1091,6 +1131,7 @@ fn fail() {
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
+            None,
         )
         .unwrap_err();
     assert_eq!(err, Error::UnsupportedTransportType);
@@ -1405,6 +1446,7 @@ fn offline() {
         default_rcv_expiration(),
         vec![],
         0,
+        None,
     );
     assert_matches!(result, Err(Error::Offline));
 
@@ -1459,6 +1501,7 @@ fn offline() {
         0,
         0,
         default_send_expiration(),
+        PROXY_ENDPOINT.clone(),
     );
     assert_matches!(result, Err(Error::Offline));
 
@@ -1478,6 +1521,7 @@ fn offline() {
         default_rcv_expiration(),
         vec![],
         0,
+        None,
     );
     assert_matches!(result, Err(Error::Offline));
 }
@@ -1676,12 +1720,18 @@ fn send_to_oneself() {
             Recipient {
                 assignment: Assignment::Fungible(20),
                 recipient_id: rcv_data_1.recipient_id.clone(),
+                public_key: Some(rcv_data_1.public_key.clone()),
+                expiration_timestamp: Some(rcv_data_1.expiration_timestamp),
+                encryption: Encryption::Optional,
                 witness_data: None,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
             Recipient {
                 assignment: Assignment::Fungible(30),
                 recipient_id: rcv_data_2.recipient_id.clone(),
+                public_key: Some(rcv_data_2.public_key.clone()),
+                expiration_timestamp: Some(rcv_data_2.expiration_timestamp),
+                encryption: Encryption::Optional,
                 witness_data: Some(WitnessData {
                     amount_sat: 1000,
                     blinding: None,

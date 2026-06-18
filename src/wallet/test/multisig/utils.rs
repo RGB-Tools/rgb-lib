@@ -401,6 +401,7 @@ pub(super) trait MultisigOps: OfflineSigParty {
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
+            None,
         )
     }
 
@@ -710,6 +711,7 @@ pub(super) trait MultisigOps: OfflineSigParty {
             FEE_RATE,
             1,
             default_send_expiration(),
+            PROXY_ENDPOINT.clone(),
         )
     }
 
@@ -767,6 +769,7 @@ pub(super) trait MultisigOps: OfflineSigParty {
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
+            None,
         )
     }
 }

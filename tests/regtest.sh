@@ -130,12 +130,6 @@ _wait_for_proxy() {
 }
 
 stop_services() {
-    # cleanly stop the version 0.1.0 RGB proxy server
-    local proxy_mod_proto
-    proxy_mod_proto="$($COMPOSE ps -q proxy-mod-proto)"
-    if [ -n "$proxy_mod_proto" ] && docker ps -q --no-trunc | grep -q "$proxy_mod_proto"; then
-        $COMPOSE exec proxy-mod-proto pkill -f '^node'
-    fi
     # bring all services down
     $COMPOSE --profile '*' down -v --remove-orphans
 }
@@ -159,7 +153,7 @@ prepare_tests_environment() {
     TESTS=1
 
     COMPOSE="$COMPOSE --profile tests"
-    EXPOSED_PORTS+=(3001 3002 18444 18445 50002 50003 50004 50005 8094 8140 8141)
+    EXPOSED_PORTS+=(3001 3002 3003 18444 18445 50002 50003 50004 50005 8094 8140 8141)
 
     PROXY_MOD_PROTO="proxy-mod-proto"
     PROXY_MOD_API="proxy-mod-api"
@@ -199,6 +193,8 @@ prepare_tests_environment() {
     _wait_for_proxy $PROXY_MOD_PROTO
 
     _wait_for_proxy $PROXY_MOD_API
+
+    _wait_for_proxy proxy-auth
 }
 
 prepare_bindings_examples_environment() {

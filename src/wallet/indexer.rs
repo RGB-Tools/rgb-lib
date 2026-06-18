@@ -312,6 +312,11 @@ impl Indexer {
     }
 
     pub(crate) fn get_tx_confirmations(&self, txid: &str) -> Result<Option<u64>, Error> {
+        #[cfg(test)]
+        if let Some((_, height)) = mock_chain_tx(txid) {
+            let tip = self.get_latest_block_height()?;
+            return Ok(Some(u64::from(tip.saturating_sub(height) + 1)));
+        }
         Ok(match self {
             #[cfg(feature = "bitcoind")]
             Indexer::Bitcoind(client) => {

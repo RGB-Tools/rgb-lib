@@ -12,7 +12,7 @@ use std::{
 };
 
 use rgb_lib::{
-    AssetSchema, Assignment, Error as RgbLibError,
+    AssetSchema, Assignment, Encryption, Error as RgbLibError,
     keys::WitnessVersion,
     utils::BitcoinNetwork,
     wallet::{
@@ -136,19 +136,23 @@ pub extern "C" fn rgblib_burn_end(
 #[unsafe(no_mangle)]
 pub extern "C" fn rgblib_blind_receive(
     wallet: &COpaqueStruct,
+    online: *const c_char,
     asset_id: *const c_char,
     assignment: *const c_char,
     expiration_timestamp: *const c_char,
     transport_endpoints: *const c_char,
     min_confirmations: *const c_char,
+    encryption: *const c_char,
 ) -> CResultString {
     blind_receive(
         wallet,
+        online,
         asset_id,
         assignment,
         expiration_timestamp,
         transport_endpoints,
         min_confirmations,
+        encryption,
     )
     .into()
 }
@@ -515,6 +519,7 @@ pub extern "C" fn rgblib_send(
     fee_rate: *const c_char,
     min_confirmations: *const c_char,
     expiration_timestamp: *const c_char,
+    sender_transport_endpoint: *const c_char,
 ) -> CResultString {
     send(
         wallet,
@@ -524,6 +529,7 @@ pub extern "C" fn rgblib_send(
         fee_rate,
         min_confirmations,
         expiration_timestamp,
+        sender_transport_endpoint,
     )
     .into()
 }
@@ -537,6 +543,7 @@ pub extern "C" fn rgblib_send_begin(
     fee_rate: *const c_char,
     min_confirmations: *const c_char,
     expiration_timestamp: *const c_char,
+    sender_transport_endpoint: *const c_char,
     dry_run: bool,
 ) -> CResultString {
     send_begin(
@@ -547,6 +554,7 @@ pub extern "C" fn rgblib_send_begin(
         fee_rate,
         min_confirmations,
         expiration_timestamp,
+        sender_transport_endpoint,
         dry_run,
     )
     .into()
@@ -618,19 +626,23 @@ pub extern "C" fn rgblib_sync(
 #[unsafe(no_mangle)]
 pub extern "C" fn rgblib_witness_receive(
     wallet: &COpaqueStruct,
+    online: *const c_char,
     asset_id: *const c_char,
     assignment: *const c_char,
     expiration_timestamp: *const c_char,
     transport_endpoints: *const c_char,
     min_confirmations: *const c_char,
+    encryption: *const c_char,
 ) -> CResultString {
     witness_receive(
         wallet,
+        online,
         asset_id,
         assignment,
         expiration_timestamp,
         transport_endpoints,
         min_confirmations,
+        encryption,
     )
     .into()
 }
