@@ -518,6 +518,84 @@ fn color_psbt_fail() {
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
+fn color_psbt_overflow_fail() {
+    initialize();
+
+    let amt_sat = 500;
+    let blinding = 777;
+
+    // wallets
+    let mut party_send = get_funded_noutxo_party!();
+    let mut recv_party = get_empty_party!();
+
+    // create 1 UTXO and send the rest
+    party_send.create_utxos(false, Some(1), None, FEE_RATE, None);
+    party_send.send_btc(&recv_party.get_address(), 99_998_200);
+
+    // issue
+    let asset = party_send.issue_asset_nia(Some(&[AMOUNT]));
+
+    // total amount in output_map overflows u64: two valid vouts whose amounts sum to
+    // more than u64::MAX (the checked sum must error before reaching the available check)
+    let address = BdkAddress::from_str(&recv_party.get_address()).unwrap();
+    let mut tx_builder = party_send.wallet.bdk_wallet_mut().build_tx();
+    tx_builder
+        .add_recipient(
+            address.assume_checked().script_pubkey(),
+            BdkAmount::from_sat(amt_sat),
+        )
+        .fee_rate(FeeRate::from_sat_per_vb_u32(FEE_RATE as u32));
+    let mut psbt = tx_builder.finish().unwrap();
+    let output_map: HashMap<u32, u64> = HashMap::from_iter([(0, u64::MAX), (1, 1)]);
+    let asset_coloring_info = AssetColoringInfo {
+        output_map,
+        static_blinding: Some(blinding),
+    };
+    let asset_info_map: HashMap<ContractId, AssetColoringInfo> = HashMap::from_iter([(
+        ContractId::from_str(&asset.asset_id).unwrap(),
+        asset_coloring_info,
+    )]);
+    let coloring_info = ColoringInfo {
+        asset_info_map,
+        static_blinding: Some(blinding),
+        nonce: None,
+    };
+    let result = party_send.wallet.color_psbt(&mut psbt, coloring_info);
+    let msg = "total amount in output_map exceeds u64::MAX";
+    assert!(matches!(result, Err(Error::InvalidColoringInfo { details: m }) if m == msg));
+
+    // vout in output_map overflows u32 when shifted by 1 for the OP_RETURN output
+    let address = BdkAddress::from_str(&recv_party.get_address()).unwrap();
+    let mut tx_builder = party_send.wallet.bdk_wallet_mut().build_tx();
+    tx_builder
+        .add_recipient(
+            address.assume_checked().script_pubkey(),
+            BdkAmount::from_sat(amt_sat),
+        )
+        .fee_rate(FeeRate::from_sat_per_vb_u32(FEE_RATE as u32));
+    let mut psbt = tx_builder.finish().unwrap();
+    let output_map: HashMap<u32, u64> = HashMap::from_iter([(u32::MAX, AMOUNT)]);
+    let asset_coloring_info = AssetColoringInfo {
+        output_map,
+        static_blinding: Some(blinding),
+    };
+    let asset_info_map: HashMap<ContractId, AssetColoringInfo> = HashMap::from_iter([(
+        ContractId::from_str(&asset.asset_id).unwrap(),
+        asset_coloring_info,
+    )]);
+    let coloring_info = ColoringInfo {
+        asset_info_map,
+        static_blinding: Some(blinding),
+        nonce: None,
+    };
+    let result = party_send.wallet.color_psbt(&mut psbt, coloring_info);
+    let msg = "vout in output_map is too large";
+    assert!(matches!(result, Err(Error::InvalidColoringInfo { details: m }) if m == msg));
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
 fn post_consignment_fail() {
     initialize();
 
