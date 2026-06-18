@@ -274,6 +274,33 @@ fn casting() {
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
+fn up_to_allocatable_above_u8_max() {
+    initialize();
+
+    let mut party = get_empty_party!();
+    fund_wallet(party.get_address());
+
+    // create 256 allocatable UTXOs; num is u8 so it takes two calls
+    party.create_utxos(false, Some(255), None, FEE_RATE, Some(255));
+    party.create_utxos(false, Some(1), None, FEE_RATE, Some(1));
+    let colorable = party
+        .list_unspents(false)
+        .iter()
+        .filter(|u| u.utxo.colorable)
+        .count();
+    assert_eq!(colorable, 256);
+
+    // when up_to is true, detect that the required num (u8) of allocations is already available
+    // and reject creation, even with more than u8::MAX already available allocations
+    let result = party
+        .wallet
+        .create_utxos(party.online, true, Some(1), None, FEE_RATE, false);
+    assert_matches!(result, Err(Error::AllocationsAlreadyAvailable));
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
 fn skip_sync() {
     initialize();
 
