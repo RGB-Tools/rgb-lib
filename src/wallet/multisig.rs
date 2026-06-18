@@ -259,7 +259,9 @@ impl WalletOffline for MultisigWallet {
         let is_internal = keychain == KeychainKind::Internal;
         let start_index = self.hub_client().bump_address_indices(count, is_internal)?;
         let local_index = self.bdk_wallet().derivation_index(keychain).unwrap_or(0);
-        let target_index = start_index + count;
+        let target_index = start_index
+            .checked_add(count)
+            .expect("address derivation index cannot exceed u32::MAX");
         let (bdk_wallet, bdk_database) = self.bdk_wallet_db_mut();
         for _ in local_index..target_index {
             bdk_wallet.reveal_next_address(keychain);
@@ -1826,7 +1828,10 @@ impl MultisigWallet {
 
         let op_idx = self.get_local_last_processed_operation_idx_impl(&txn)?;
         txn.commit()?;
-        let Some(op) = self.hub_client().get_operation_by_idx(op_idx + 1)? else {
+        let next_op_idx = op_idx
+            .checked_add(1)
+            .expect("operation index cannot exceed i32::MAX");
+        let Some(op) = self.hub_client().get_operation_by_idx(next_op_idx)? else {
             return Ok(None);
         };
 

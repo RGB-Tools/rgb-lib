@@ -808,7 +808,10 @@ pub struct AssignmentsCollection {
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 impl AssignmentsCollection {
     fn add_fungible(&mut self, amt: u64) {
-        self.fungible += amt;
+        self.fungible = self
+            .fungible
+            .checked_add(amt)
+            .expect("total fungible amount cannot exceed u64::MAX");
     }
 
     fn add_non_fungible(&mut self) {
@@ -816,7 +819,10 @@ impl AssignmentsCollection {
     }
 
     fn add_inflation(&mut self, amt: u64) {
-        self.inflation += amt;
+        self.inflation = self
+            .inflation
+            .checked_add(amt)
+            .expect("total inflation amount cannot exceed u64::MAX");
     }
 
     pub(crate) fn add_opout_state(&mut self, opout: &Opout, state: &AllocatedState) {

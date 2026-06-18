@@ -135,14 +135,16 @@ impl Wallet {
             let mut asset_transition_builder =
                 runtime.transition_builder(contract_id, "transfer")?;
 
-            let mut asset_available_amt = 0;
+            let mut asset_available_amt: u64 = 0;
             let mut uda_state = None;
             for (_, opout_state_map) in
                 runtime.contract_assignments_for(contract_id, prev_outputs.iter().copied())?
             {
                 for (opout, state) in opout_state_map {
                     if let AllocatedState::Amount(amt) = &state {
-                        asset_available_amt += amt.as_u64();
+                        asset_available_amt = asset_available_amt
+                            .checked_add(amt.as_u64())
+                            .expect("total available asset amount cannot exceed u64::MAX");
                     } else if let AllocatedState::Data(_) = &state {
                         asset_available_amt = 1;
                         // there can be only a single state when contract is UDA

@@ -354,9 +354,19 @@ impl Assignment {
     #[cfg(any(feature = "electrum", feature = "esplora"))]
     pub(crate) fn add_to_assignments(&self, assignments: &mut AssignmentsCollection) {
         match self {
-            Self::Fungible(amt) => assignments.fungible += amt,
+            Self::Fungible(amt) => {
+                assignments.fungible = assignments
+                    .fungible
+                    .checked_add(*amt)
+                    .expect("total fungible amount cannot exceed u64::MAX")
+            }
             Self::NonFungible => assignments.non_fungible = true,
-            Self::InflationRight(amt) => assignments.inflation += amt,
+            Self::InflationRight(amt) => {
+                assignments.inflation = assignments
+                    .inflation
+                    .checked_add(*amt)
+                    .expect("total inflation amount cannot exceed u64::MAX")
+            }
             _ => unreachable!("when using this method we should know the assignment type"),
         }
     }
