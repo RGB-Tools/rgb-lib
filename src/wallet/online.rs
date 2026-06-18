@@ -228,11 +228,14 @@ pub trait WalletOnline: WalletOffline {
 
         let mut utxos_to_create = num.unwrap_or(UTXO_NUM);
         if up_to {
-            let allocatable = self.get_available_allocations(unspents, &[], None)?.len() as u8;
-            if allocatable >= utxos_to_create {
+            let allocatable = self.get_available_allocations(unspents, &[], None)?.len();
+            // compare in usize since the count of allocatable UTXOs can exceed u8::MAX
+            if allocatable >= utxos_to_create as usize {
                 return Err(Error::AllocationsAlreadyAvailable);
             }
-            utxos_to_create -= allocatable
+            // allocatable < utxos_to_create <= u8::MAX, so the conversion cannot fail
+            utxos_to_create -=
+                u8::try_from(allocatable).expect("allocatable count cannot exceed u8::MAX");
         }
         debug!(
             self.logger(),
