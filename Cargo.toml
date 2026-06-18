@@ -135,6 +135,10 @@ esplora = [
 ]
 camel_case = ["default"]
 
+[profile.release]
+# make overflow bugs fail loudly instead of producing wrong amounts
+overflow-checks = true
+
 [profile.reldebug]
 inherits = "release"
 debug = 1
