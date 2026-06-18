@@ -153,15 +153,24 @@ impl Wallet {
             }
 
             let mut beneficiaries = vec![];
-            let mut sending_amt = 0;
+            let mut sending_amt: u64 = 0;
             for (mut vout, amount) in asset_coloring_info.output_map {
                 if amount == 0 {
                     continue;
                 }
                 if opreturn_first {
-                    vout += 1;
+                    vout = vout
+                        .checked_add(1)
+                        .ok_or_else(|| Error::InvalidColoringInfo {
+                            details: s!("vout in output_map is too large"),
+                        })?;
                 }
-                sending_amt += amount;
+                sending_amt =
+                    sending_amt
+                        .checked_add(amount)
+                        .ok_or_else(|| Error::InvalidColoringInfo {
+                            details: s!("total amount in output_map exceeds u64::MAX"),
+                        })?;
                 if vout as usize > psbt.outputs.len() {
                     return Err(Error::InvalidColoringInfo {
                         details: s!("invalid vout in output_map, does not exist in the given PSBT"),
