@@ -2,6 +2,8 @@
 
 use sea_orm::entity::prelude::*;
 
+use crate::database::enums::TransportEndpointKind;
+
 #[derive(Copy, Clone, Default, Debug, DeriveEntity)]
 pub struct Entity;
 
@@ -17,6 +19,7 @@ pub struct Model {
     pub transfer_idx: i32,
     pub transport_endpoint_idx: i32,
     pub used: bool,
+    pub kind: TransportEndpointKind,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
@@ -25,6 +28,7 @@ pub enum Column {
     TransferIdx,
     TransportEndpointIdx,
     Used,
+    Kind,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DerivePrimaryKey)]
@@ -53,6 +57,7 @@ impl ColumnTrait for Column {
             Self::TransferIdx => ColumnType::Integer.def(),
             Self::TransportEndpointIdx => ColumnType::Integer.def(),
             Self::Used => ColumnType::Boolean.def(),
+            Self::Kind => ColumnType::SmallInteger.def(),
         }
     }
 }

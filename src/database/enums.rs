@@ -200,6 +200,56 @@ pub enum TransportType {
     JsonRpc = 1,
 }
 
+/// The role of a transport endpoint associated to a transfer.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, Deserialize, Serialize)]
+#[sea_orm(rs_type = "u8", db_type = "TinyUnsigned")]
+pub enum TransportEndpointKind {
+    /// The recipient's proxy (where the consignment and media are exchanged)
+    #[sea_orm(num_value = 1)]
+    RecipientProxy = 1,
+    /// The sender's proxy (where the recipient posts its ACK and retrieves the signed TX)
+    #[sea_orm(num_value = 2)]
+    SenderProxy = 2,
+}
+
+/// The consignment and media encryption preference of a recipient (mirrors
+/// [`rgbinvoice::Encryption`]).
+#[derive(
+    Debug, Copy, Clone, PartialEq, Eq, Hash, EnumIter, DeriveActiveEnum, Deserialize, Serialize,
+)]
+#[sea_orm(rs_type = "u8", db_type = "TinyUnsigned")]
+pub enum Encryption {
+    /// Encryption is mandatory for consignment and media (the recipient refuses cleartext)
+    #[sea_orm(num_value = 1)]
+    Required = 1,
+    /// Encryption must not be used for consignment and media (the recipient refuses encrypted)
+    #[sea_orm(num_value = 2)]
+    Unsupported = 2,
+    /// Encryption may be used for consignment and media (the recipient accepts both)
+    #[sea_orm(num_value = 3)]
+    Optional = 3,
+}
+
+impl From<rgbinvoice::Encryption> for Encryption {
+    fn from(e: rgbinvoice::Encryption) -> Self {
+        match e {
+            rgbinvoice::Encryption::Required => Encryption::Required,
+            rgbinvoice::Encryption::Unsupported => Encryption::Unsupported,
+            rgbinvoice::Encryption::Optional => Encryption::Optional,
+        }
+    }
+}
+
+impl From<Encryption> for rgbinvoice::Encryption {
+    fn from(e: Encryption) -> Self {
+        match e {
+            Encryption::Required => rgbinvoice::Encryption::Required,
+            Encryption::Unsupported => rgbinvoice::Encryption::Unsupported,
+            Encryption::Optional => rgbinvoice::Encryption::Optional,
+        }
+    }
+}
+
 /// The status of a [`crate::wallet::Transfer`].
 #[derive(
     Debug,
@@ -677,6 +727,35 @@ mod tests {
             assert!(!TransferStatus::Initiated.waiting());
             assert!(!TransferStatus::Settled.waiting());
             assert!(!TransferStatus::Failed.waiting());
+        }
+    }
+
+    #[test]
+    fn test_encryption_conversions() {
+        // every variant maps both ways between the DB enum and the rgb-invoicing enum, and keeps a
+        // stable on-disk num_value (the DB persistence contract)
+        for (encryption, num_value) in [
+            (Encryption::Required, 1u8),
+            (Encryption::Unsupported, 2),
+            (Encryption::Optional, 3),
+        ] {
+            // DB -> invoicing maps to the matching concrete variant
+            let to_invoicing: rgbinvoice::Encryption = encryption.into();
+            let invoicing_ok = matches!(
+                (encryption, &to_invoicing),
+                (Encryption::Required, rgbinvoice::Encryption::Required)
+                    | (Encryption::Unsupported, rgbinvoice::Encryption::Unsupported)
+                    | (Encryption::Optional, rgbinvoice::Encryption::Optional)
+            );
+            assert!(
+                invoicing_ok,
+                "{encryption:?} mapped to the wrong invoicing variant"
+            );
+            // invoicing -> DB round-trips back to the original variant
+            let back: Encryption = to_invoicing.into();
+            assert_eq!(back, encryption);
+            // the integer stored in the DB must not change across versions
+            assert_eq!(encryption as u8, num_value);
         }
     }
 }

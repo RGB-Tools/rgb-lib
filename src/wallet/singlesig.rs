@@ -151,8 +151,35 @@ impl WalletOnline for Wallet {
             .map(|u| u.outpoint().to_string())
             .collect();
         let db_utxos: HashSet<String> = HashSet::from_iter(db_utxos);
-        let diff = db_utxos.difference(&bdk_utxos);
-        if diff.clone().count() > 0 {
+        // the TX of an outgoing transfer waiting for the counterparty may have been broadcast by
+        // a recipient, which leaves its inputs unspent in the DB until the next refresh
+        let waiting_counterparty_txids: HashSet<String> = txn
+            .iter_batch_transfers()?
+            .into_iter()
+            .filter(|bt| !bt.incoming && bt.status == TransferStatus::WaitingCounterparty)
+            .filter_map(|bt| bt.txid)
+            .collect();
+        let spent_by_own_transfers: HashSet<String> = self
+            .bdk_wallet()
+            .transactions()
+            .filter(|wallet_tx| {
+                waiting_counterparty_txids.contains(&wallet_tx.tx_node.txid.to_string())
+            })
+            .flat_map(|wallet_tx| {
+                wallet_tx
+                    .tx_node
+                    .tx
+                    .input
+                    .iter()
+                    .map(|i| i.previous_output.to_string())
+                    .collect::<Vec<String>>()
+            })
+            .collect();
+        let diff: Vec<&String> = db_utxos
+            .difference(&bdk_utxos)
+            .filter(|o| !spent_by_own_transfers.contains(*o))
+            .collect();
+        if !diff.is_empty() {
             return Err(Error::Inconsistency {
                 details: format!("spent bitcoins with another wallet: {diff:?}"),
             });
@@ -527,6 +554,9 @@ impl Wallet {
     /// An expiration UTC timestamp must be specified, which will set the expiration of the
     /// invoice and the transfer.
     ///
+    /// The `online` object is required when transport endpoints are provided, since the recipient
+    /// ID is reserved on their proxies, and can be `None` for the out-of-band exchange.
+    ///
     /// Each endpoint in the provided `transport_endpoints` list will be used as RGB data exchange
     /// medium. The list can contain a maximum of 3 endpoints; strings specifying invalid endpoints
     /// and duplicate ones will cause an error to be raised. A valid endpoint string encodes an
@@ -544,11 +574,13 @@ impl Wallet {
     /// refreshing) to the [`TransferStatus::Settled`] status.
     pub fn blind_receive(
         &mut self,
+        online: Option<Online>,
         asset_id: Option<String>,
         assignment: Assignment,
         expiration_timestamp: u64,
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
+        encryption: Option<Encryption>,
     ) -> Result<ReceiveData, Error> {
         info!(
             self.logger(),
@@ -559,11 +591,13 @@ impl Wallet {
         let txn = self.database().begin_transaction()?;
         let receive_data_internal = self.create_receive_data(
             &txn,
+            online,
             asset_id,
             assignment,
             expiration_timestamp as i64,
             transport_endpoints,
             RecipientType::Blind,
+            encryption,
         )?;
         let batch_transfer_idx =
             self.store_receive_transfer(&txn, &receive_data_internal, min_confirmations)?;
@@ -575,6 +609,7 @@ impl Wallet {
             recipient_id: receive_data_internal.recipient_id,
             expiration_timestamp: receive_data_internal.expiration_timestamp as u64,
             batch_transfer_idx,
+            public_key: hex::encode(&receive_data_internal.recipient_pubkey),
         })
     }
 
@@ -588,6 +623,9 @@ impl Wallet {
     ///
     /// An expiration UTC timestamp must be specified, which will set the expiration of the
     /// invoice and the transfer.
+    ///
+    /// The `online` object is required when transport endpoints are provided, since the recipient
+    /// ID is reserved on their proxies, and can be `None` for the out-of-band exchange.
     ///
     /// Each endpoint in the provided `transport_endpoints` list will be used as RGB data exchange
     /// medium. The list can contain a maximum of 3 endpoints; strings specifying invalid endpoints
@@ -606,11 +644,13 @@ impl Wallet {
     /// refreshing) to the [`TransferStatus::Settled`] status.
     pub fn witness_receive(
         &mut self,
+        online: Option<Online>,
         asset_id: Option<String>,
         assignment: Assignment,
         expiration_timestamp: u64,
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
+        encryption: Option<Encryption>,
     ) -> Result<ReceiveData, Error> {
         info!(
             self.logger(),
@@ -621,11 +661,13 @@ impl Wallet {
         let txn = self.database().begin_transaction()?;
         let receive_data_internal = self.create_receive_data(
             &txn,
+            online,
             asset_id,
             assignment,
             expiration_timestamp as i64,
             transport_endpoints,
             RecipientType::Witness,
+            encryption,
         )?;
         let batch_transfer_idx =
             self.store_receive_transfer(&txn, &receive_data_internal, min_confirmations)?;
@@ -637,6 +679,7 @@ impl Wallet {
             recipient_id: receive_data_internal.recipient_id,
             expiration_timestamp: receive_data_internal.expiration_timestamp as u64,
             batch_transfer_idx,
+            public_key: hex::encode(&receive_data_internal.recipient_pubkey),
         })
     }
 }
@@ -860,6 +903,7 @@ impl Wallet {
         fee_rate: u64,
         min_confirmations: u8,
         expiration_timestamp: u64,
+        sender_transport_endpoint: Option<String>,
     ) -> Result<OperationResult, Error> {
         info!(self.logger(), "Sending to: {:?}...", recipient_map);
         self.check_xprv()?;
@@ -872,6 +916,7 @@ impl Wallet {
             fee_rate,
             min_confirmations,
             Some(expiration_timestamp as i64),
+            sender_transport_endpoint,
             true,
         )?;
         self.sign_psbt_impl(&mut begin_op_data.psbt, None)?;
@@ -889,13 +934,18 @@ impl Wallet {
     /// are provided, a batch transfer will be performed, meaning a single Bitcoin transaction will
     /// be used to move all assets to the respective recipients. Each asset being sent will result
     /// in the creation of a single consignment, which will then be posted to the RGB proxy server
-    /// for each of its recipients.
+    /// for each of its recipients. A recipient with no transport endpoints uses the out-of-band
+    /// exchange: its consignment is not posted anywhere and it doesn't need a public key, see
+    /// [`provide_out_of_band_ack`](Wallet::provide_out_of_band_ack).
     ///
     /// If `donation` is true, the resulting transaction will be broadcast (by
     /// [`send_end`](Wallet::send_end)) as soon as it's ready, without the need for recipients to
     /// ACK the transfer.
     /// If `donation` is false, all recipients will need to ACK the transfer before the transaction
-    /// is broadcast.
+    /// is broadcast. A batch mixing proxy and out-of-band recipients therefore waits for the
+    /// out-of-band ACKs, which are exchanged manually and recorded via
+    /// [`provide_out_of_band_ack`](Wallet::provide_out_of_band_ack), so it can take much longer
+    /// than one with proxy recipients only.
     ///
     /// The `min_confirmations` number determines the minimum number of confirmations needed for
     /// the transaction anchoring the transfer for it to be considered final and move (while
@@ -907,6 +957,10 @@ impl Wallet {
     /// allowed to fail the transfer and the sender will avoid broadcasting it even if a late ACK is
     /// received. In case of a batch transfer, set it to the minimum (earliest) expiration across
     /// the recipients' invoices.
+    ///
+    /// The `sender_transport_endpoint` is the sender's own proxy, where recipients post their ACK
+    /// and the signed transaction is released. It is required when at least one recipient has
+    /// transport endpoints and can be `None` when every recipient uses the out-of-band exchange.
     ///
     /// If `dry_run` is true, the wallet does not persist the transfer in
     /// [`TransferStatus::Initiated`]. The returned [`SendBeginResult::batch_transfer_idx`] is None
@@ -931,6 +985,7 @@ impl Wallet {
         fee_rate: u64,
         min_confirmations: u8,
         expiration_timestamp: u64,
+        sender_transport_endpoint: Option<String>,
         dry_run: bool,
     ) -> Result<SendBeginResult, Error> {
         info!(self.logger(), "Sending (begin) to: {:?}...", recipient_map);
@@ -943,6 +998,7 @@ impl Wallet {
             fee_rate,
             min_confirmations,
             Some(expiration_timestamp as i64),
+            sender_transport_endpoint,
             dry_run,
         )?;
         if !dry_run {
@@ -1036,8 +1092,9 @@ impl Wallet {
     /// This is the out-of-band counterpart of the proxy ACK flow driven by [`refresh`](Wallet::refresh).
     /// The batch is broadcast only once *every* recipient has ACKed (via this call for the
     /// out-of-band ones and via `refresh` for the proxy ones), so a batch may freely mix out-of-band
-    /// and proxy recipients. Recipients using the JSON-RPC proxy are rejected here, keeping the
-    /// `refresh` flow authoritative for them.
+    /// and proxy recipients, bearing in mind that such a batch waits for the manual ACKs and can
+    /// take much longer than one with proxy recipients only. Recipients using the JSON-RPC proxy
+    /// are rejected here, keeping the `refresh` flow authoritative for them.
     ///
     /// Returns the broadcast [`OperationResult`] (transfer moved to
     /// [`TransferStatus::WaitingConfirmations`]) when this ACK completed the batch, or `None` when

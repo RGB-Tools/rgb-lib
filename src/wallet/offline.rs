@@ -6,9 +6,8 @@ use super::*;
 
 pub(crate) const TRANSFERS_DIR: &str = "transfers";
 
-const CONSIGNMENT_RCV_FILE: &str = "rcv_compose.rgbc";
-
 const CONSIGNMENT_RCV_META_FILE: &str = "rcv_compose.meta.json";
+pub(crate) const CONSIGNMENT_RCV_FILE: &str = "rcv_compose.rgbc";
 
 const ASSET_ID_PREFIX: &str = "rgb:";
 
@@ -206,6 +205,33 @@ pub trait WalletOffline: WalletBackup {
             ..Default::default()
         })?;
 
+        Ok(())
+    }
+
+    /// Persist the sender's own proxy endpoint for a transfer (the target for the recipient's ACK and
+    /// the signed-TX release), tagged with the [`TransportEndpointKind::SenderProxy`] role.
+    fn save_sender_transport_endpoint(
+        &self,
+        txn: &DbTxn,
+        transfer_idx: i32,
+        endpoint: &str,
+    ) -> Result<(), Error> {
+        let transport_endpoint_idx = match txn.get_transport_endpoint(endpoint.to_string())? {
+            Some(ce) => ce.idx,
+            None => txn.set_transport_endpoint(DbTransportEndpointActMod {
+                transport_type: ActiveValue::Set(TransportType::JsonRpc),
+                endpoint: ActiveValue::Set(endpoint.to_string()),
+                ..Default::default()
+            })?,
+        };
+        // `used` hard-coded to false, so it never pops up in lookups not filtering for kind
+        txn.set_transfer_transport_endpoint(DbTransferTransportEndpointActMod {
+            transfer_idx: ActiveValue::Set(transfer_idx),
+            transport_endpoint_idx: ActiveValue::Set(transport_endpoint_idx),
+            used: ActiveValue::Set(false),
+            kind: ActiveValue::Set(TransportEndpointKind::SenderProxy),
+            ..Default::default()
+        })?;
         Ok(())
     }
 
@@ -914,6 +940,16 @@ pub trait WalletOffline: WalletBackup {
         })
     }
 
+    /// Convert a single `RgbTransport`-format endpoint (e.g. `rpc://host`) to its HTTP(S) URL, as
+    /// needed to build a [`ProxyClient`].
+    fn convert_transport_endpoint_url(&self, endpoint: &str) -> Result<String, Error> {
+        self.convert_transport_endpoints(std::slice::from_ref(&endpoint.to_string()))?
+            .pop()
+            .ok_or_else(|| Error::InvalidTransportEndpoint {
+                details: s!("empty transport endpoint"),
+            })
+    }
+
     // convert from RgbTransport format to TransportEndpoint format
     fn convert_transport_endpoints(
         &self,
@@ -941,15 +977,33 @@ pub trait WalletOffline: WalletBackup {
         Ok(endpoints)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn create_receive_data(
         &mut self,
         txn: &DbTxn,
+        #[cfg_attr(not(feature = "_online"), allow(unused_variables))] online: Option<Online>,
         asset_id: Option<String>,
         assignment: Assignment,
         expiration_timestamp: i64,
         transport_endpoints: Vec<String>,
         recipient_type: RecipientType,
+        encryption: Option<Encryption>,
     ) -> Result<ReceiveDataInternal, Error> {
+        let encryption = encryption.unwrap_or(Encryption::Required);
+
+        // no need to be online if an out-of-band exchange is requested
+        let out_of_band = transport_endpoints.is_empty();
+        #[cfg(not(feature = "_online"))]
+        if !out_of_band {
+            return Err(Error::Offline);
+        }
+        #[cfg(feature = "_online")]
+        if let Some(online) = online {
+            self.check_online(online)?;
+        } else if !out_of_band {
+            return Err(Error::OnlineNeeded);
+        }
+
         let (beneficiary, recipient_type_full, blind_seal, script_pubkey) = match recipient_type {
             RecipientType::Blind => {
                 let mut unspents: Vec<LocalUnspent> =
@@ -995,7 +1049,6 @@ pub trait WalletOffline: WalletBackup {
             (None, None)
         };
 
-        let out_of_band = transport_endpoints.is_empty();
         let endpoints = if out_of_band {
             vec![]
         } else {
@@ -1053,8 +1106,80 @@ pub trait WalletOffline: WalletBackup {
             return Err(Error::InvalidExpiration);
         }
         invoice_builder = invoice_builder.set_expiry_timestamp(expiration_timestamp);
+
+        // generate the per-operation Ed25519 key and embed the public key + encryption preference
+        let recipient_sk = gen_ed25519();
+        let recipient_vk = recipient_sk.verifying_key();
+        // the invoice carries the recipient's public key as a 64-char hex string
+        invoice_builder = invoice_builder.set_public_key(recipient_vk.to_bytes());
+        invoice_builder = invoice_builder.set_encryption(encryption.into());
+
         let invoice = invoice_builder.finish();
         let invoice_string = invoice.to_string();
+
+        // for a blind receive reserved on proxies, the invoice expiration plus the longest retention
+        // grace among them, until which a transfer to the invoice can still be downloaded
+        #[allow(unused_mut)]
+        let mut retention_deadline = None;
+
+        // reserve the invoice on the proxy/proxies; skipped for the out-of-band exchange
+        #[cfg(feature = "_online")]
+        if !out_of_band {
+            let recipient_pk = hex::encode(recipient_vk.to_bytes());
+            let invoice_id = invoice_id(&recipient_id, &recipient_pk);
+            let reservation_expiration = expiration_timestamp.to_string();
+            let mut reserved = false;
+            // whether a proxy refused the reservation as it is draining
+            let mut draining = false;
+            for endpoint in &endpoints {
+                // skip endpoints that are unreachable or run an unsupported protocol version
+                let Ok(info) = check_proxy(endpoint) else {
+                    continue;
+                };
+                let proxy_client = ProxyClient::new(endpoint)?;
+                // only needed by proxies with proxy-level authentication enabled
+                let signature = self.online_data().as_ref().and_then(|online_data| {
+                    online_data.proxy_auth_signature(
+                        endpoint,
+                        &prepare_invoice_auth_message(
+                            &invoice_id,
+                            &reservation_expiration,
+                            &recipient_pk,
+                        ),
+                    )
+                });
+                match proxy_client.prepare_invoice(
+                    &invoice_id,
+                    &reservation_expiration,
+                    &recipient_pk,
+                    signature,
+                ) {
+                    Ok(res) if res.error.is_none() => {
+                        reserved = true;
+                        if matches!(recipient_type_full, RecipientTypeFull::Blind { .. }) {
+                            let deadline =
+                                expiration_timestamp + i64::from(proxy_retention_grace(&info));
+                            retention_deadline =
+                                Some(max(retention_deadline.unwrap_or(deadline), deadline));
+                        }
+                    }
+                    Ok(res) => match map_proxy_error(res.error.unwrap()) {
+                        // a draining proxy, the invoice can be reserved on the other ones
+                        Error::ProxyDraining => draining = true,
+                        // a definite proxy-side rejection (e.g. invoice already reserved) is fatal
+                        e => return Err(e),
+                    },
+                    Err(_) => continue,
+                }
+            }
+            if !reserved {
+                return Err(if draining {
+                    Error::ProxyDraining
+                } else {
+                    Error::NoValidTransportEndpoint
+                });
+            }
+        }
 
         Ok(ReceiveDataInternal {
             asset_id,
@@ -1067,6 +1192,10 @@ pub trait WalletOffline: WalletBackup {
             recipient_type_full,
             blind_seal,
             script_pubkey,
+            operation_secret_key: recipient_sk.to_bytes().to_vec(),
+            recipient_pubkey: recipient_vk.to_bytes().to_vec(),
+            encryption,
+            retention_deadline,
         })
     }
 
@@ -1082,6 +1211,10 @@ pub trait WalletOffline: WalletBackup {
             created_at: ActiveValue::Set(receive_data_internal.created_at),
             min_confirmations: ActiveValue::Set(min_confirmations),
             incoming: ActiveValue::Set(true),
+            operation_secret_key: ActiveValue::Set(Some(
+                receive_data_internal.operation_secret_key.clone(),
+            )),
+            retention_deadline: ActiveValue::Set(receive_data_internal.retention_deadline),
             ..Default::default()
         };
         let batch_transfer_idx = txn.set_batch_transfer(batch_transfer)?;
@@ -1102,6 +1235,10 @@ pub trait WalletOffline: WalletBackup {
                 receive_data_internal.recipient_type_full.clone(),
             )),
             invoice_string: ActiveValue::Set(Some(receive_data_internal.invoice_string.clone())),
+            recipient_pubkey: ActiveValue::Set(Some(
+                receive_data_internal.recipient_pubkey.clone(),
+            )),
+            recipient_encryption: ActiveValue::Set(receive_data_internal.encryption),
             ..Default::default()
         };
         let transfer_idx = txn.set_transfer(transfer)?;
@@ -2137,11 +2274,18 @@ pub trait WalletOffline: WalletBackup {
                     &db_data.colorings,
                 )?;
                 let tte_data = txn.get_transfer_transport_endpoints_data(t.idx)?;
+                // recipient transport endpoints
                 let transport_endpoints = tte_data
                     .iter()
+                    .filter(|(tte, _)| tte.kind == TransportEndpointKind::RecipientProxy)
                     .map(|(tte, ce)| ce.to_transfer_transport_endpoint(tte))
                     .collect();
-                Ok(t.to_transfer(td, transport_endpoints))
+                // sender transport endpoint
+                let sender_transport_endpoint = tte_data
+                    .iter()
+                    .find(|(tte, _)| tte.kind == TransportEndpointKind::SenderProxy)
+                    .map(|(_, ce)| ce.endpoint.clone());
+                Ok(t.to_transfer(td, transport_endpoints, sender_transport_endpoint))
             })
             .collect()
     }

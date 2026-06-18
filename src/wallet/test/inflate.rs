@@ -142,6 +142,9 @@ fn success() {
         vec![Recipient {
             assignment: Assignment::Fungible(total_issued),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -177,15 +180,18 @@ fn success() {
         .sum::<u64>();
     assert_eq!(sum, total_inflatable - total_inflated);
 
-    // after a refresh the receiver waits for the broadcast while the sender progresses to
-    // WaitingConfirmations
+    // transfers progress to status WaitingConfirmations after a refresh (v1.0: the recipient's ACK
+    // releases the TX, which it then decrypts and broadcasts)
     rcv_party.wait_for_refresh(None);
     let rcv_transfer = rcv_party.get_test_transfer_recipient(&receive_data.recipient_id);
     let (rcv_transfer_data, _rcv_asset_transfer) = rcv_party.get_test_transfer_data(&rcv_transfer);
     party.wait_for_refresh(Some(&asset.asset_id));
     let (transfer, _, _) = party.get_test_transfer_sender(&txid);
     let (transfer_data, _) = party.get_test_transfer_data(&transfer);
-    assert_eq!(rcv_transfer_data.status, TransferStatus::WaitingBroadcast);
+    assert_eq!(
+        rcv_transfer_data.status,
+        TransferStatus::WaitingConfirmations
+    );
     assert_eq!(transfer_data.status, TransferStatus::WaitingConfirmations);
 
     // asset has been received correctly
@@ -304,6 +310,9 @@ fn success() {
         vec![Recipient {
             assignment: Assignment::Fungible(remaining_inflatable),
             recipient_id: receive_data_2.recipient_id.clone(),
+            public_key: Some(receive_data_2.public_key.clone()),
+            expiration_timestamp: Some(receive_data_2.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -453,6 +462,9 @@ fn fail() {
         vec![Recipient {
             assignment: Assignment::Fungible(1),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -602,6 +614,60 @@ fn begin_end() {
     party.wallet.inflate_end(party.online, signed_psbt).unwrap();
     let bak_info_after = party.db_backup_info();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
+}
+
+/// when `dry_run` is `false`, `inflate_begin` persists the operation to DB as `Initiated` with
+/// `consignment_hash` set to `None`, which will never change since Inflation doesn't produce a
+/// consignment; `inflate_end` must still complete and settle correctly
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn no_dry_run() {
+    initialize();
+
+    let mut party = get_funded_party!();
+    let asset = party.issue_asset_ifa(None, Some(&[1000]), None);
+
+    let inflation_amount = 500;
+    let res = party
+        .wallet
+        .inflate_begin(
+            party.online,
+            asset.asset_id.clone(),
+            vec![inflation_amount],
+            FEE_RATE,
+            MIN_CONFIRMATIONS,
+            false,
+        )
+        .unwrap();
+    let batch_transfer_idx = res.batch_transfer_idx.unwrap();
+
+    let signed_psbt = party.wallet.sign_psbt(res.psbt, None).unwrap();
+    let end_res = party.wallet.inflate_end(party.online, signed_psbt).unwrap();
+    assert_eq!(end_res.batch_transfer_idx, batch_transfer_idx);
+
+    // settle
+    mine(false);
+    assert!(party.refresh_asset(&asset.asset_id));
+
+    let total_issued = AMOUNT + inflation_amount;
+    let balance = party.get_asset_balance(&asset.asset_id);
+    assert_eq!(
+        balance,
+        Balance {
+            settled: total_issued,
+            future: total_issued,
+            spendable: total_issued,
+        }
+    );
+
+    let transfers = party.list_transfers(Some(&asset.asset_id));
+    let transfer = transfers.last().unwrap();
+    assert_eq!(transfer.status, TransferStatus::Settled);
+    assert_eq!(transfer.kind, TransferKind::Inflation);
+    assert_eq!(transfer.txid.as_ref().unwrap(), &end_res.txid);
+    // inflation never produces a consignment; consignment_hash correctly stays None
+    assert!(transfer.consignment_path.is_none());
 }
 
 /// An inflation ended again (e.g. retried after a crash) is completed only while it's still

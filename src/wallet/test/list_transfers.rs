@@ -52,12 +52,18 @@ fn success() {
             Recipient {
                 assignment: Assignment::Fungible(amount),
                 recipient_id: receive_data_1.recipient_id.clone(),
+                public_key: Some(receive_data_1.public_key.clone()),
+                expiration_timestamp: Some(receive_data_1.expiration_timestamp),
+                encryption: Encryption::Optional,
                 witness_data: None,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             },
             Recipient {
                 assignment: Assignment::Fungible(amount * 2),
                 recipient_id: receive_data_2.recipient_id.clone(),
+                public_key: Some(receive_data_2.public_key.clone()),
+                expiration_timestamp: Some(receive_data_2.expiration_timestamp),
+                encryption: Encryption::Optional,
                 witness_data: Some(WitnessData {
                     amount_sat: 1000,
                     blinding: None,
@@ -138,10 +144,13 @@ fn success() {
         transfer_recv_witness.assignments,
         vec![Assignment::Fungible(amount * 2)]
     );
-    assert_eq!(transfer_recv_blind.status, TransferStatus::WaitingBroadcast);
+    assert_eq!(
+        transfer_recv_blind.status,
+        TransferStatus::WaitingConfirmations
+    );
     assert_eq!(
         transfer_recv_witness.status,
-        TransferStatus::WaitingBroadcast
+        TransferStatus::WaitingConfirmations
     );
     assert_eq!(transfer_recv_blind.txid, Some(txid.clone()));
     assert_eq!(transfer_recv_witness.txid, Some(txid.clone()));
@@ -191,6 +200,9 @@ fn filters() {
                 recipient_id: receive_nia.recipient_id.clone(),
                 witness_data: None,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+                public_key: Some(receive_nia.public_key.clone()),
+                expiration_timestamp: Some(receive_nia.expiration_timestamp),
+                encryption: Encryption::Optional,
             }],
         ),
         (
@@ -200,6 +212,9 @@ fn filters() {
                 recipient_id: receive_cfa.recipient_id.clone(),
                 witness_data: None,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+                public_key: Some(receive_cfa.public_key.clone()),
+                expiration_timestamp: Some(receive_cfa.expiration_timestamp),
+                encryption: Encryption::Optional,
             }],
         ),
     ]);
@@ -259,6 +274,9 @@ fn filters() {
             recipient_id: receive_nia_2.recipient_id.clone(),
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+            public_key: Some(receive_nia_2.public_key.clone()),
+            expiration_timestamp: Some(receive_nia_2.expiration_timestamp),
+            encryption: Encryption::Optional,
         }],
     )]);
     let txid_2 = party.send_retry(&recipient_map);

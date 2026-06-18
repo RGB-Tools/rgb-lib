@@ -25,10 +25,6 @@ fn success() {
         status: RefreshTransferStatus::WaitingConfirmations,
         incoming: false,
     };
-    let filter_broadcast_in = RefreshFilter {
-        status: RefreshTransferStatus::WaitingBroadcast,
-        incoming: true,
-    };
 
     let mut party_1 = get_funded_party!();
     let mut party_2 = get_funded_party!();
@@ -50,6 +46,9 @@ fn success() {
         vec![Recipient {
             assignment: Assignment::Fungible(amount_1),
             recipient_id: receive_data_2a.recipient_id.clone(),
+            public_key: Some(receive_data_2a.public_key.clone()),
+            expiration_timestamp: Some(receive_data_2a.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -70,6 +69,9 @@ fn success() {
         vec![Recipient {
             assignment: Assignment::Fungible(amount_2),
             recipient_id: receive_data_1a.recipient_id.clone(),
+            public_key: Some(receive_data_1a.public_key.clone()),
+            expiration_timestamp: Some(receive_data_1a.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -97,6 +99,9 @@ fn success() {
         vec![Recipient {
             assignment: Assignment::Fungible(amount_1),
             recipient_id: receive_data_2b.recipient_id.clone(),
+            public_key: Some(receive_data_2b.public_key.clone()),
+            expiration_timestamp: Some(receive_data_2b.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -111,6 +116,9 @@ fn success() {
         vec![Recipient {
             assignment: Assignment::Fungible(amount_2),
             recipient_id: receive_data_1b.recipient_id.clone(),
+            public_key: Some(receive_data_1b.public_key.clone()),
+            expiration_timestamp: Some(receive_data_1b.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -126,7 +134,7 @@ fn success() {
     );
     assert!(party_1.check_test_transfer_status_recipient(
         &receive_data_1a.recipient_id,
-        TransferStatus::WaitingBroadcast
+        TransferStatus::WaitingConfirmations
     ));
     assert!(party_1.check_test_transfer_status_recipient(
         &receive_data_1b.recipient_id,
@@ -140,7 +148,7 @@ fn success() {
     );
     assert!(party_2.check_test_transfer_status_recipient(
         &receive_data_2a.recipient_id,
-        TransferStatus::WaitingBroadcast
+        TransferStatus::WaitingConfirmations
     ));
     assert!(party_2.check_test_transfer_status_recipient(
         &receive_data_2b.recipient_id,
@@ -163,11 +171,11 @@ fn success() {
     );
     assert!(party_1.check_test_transfer_status_recipient(
         &receive_data_1a.recipient_id,
-        TransferStatus::WaitingBroadcast
+        TransferStatus::WaitingConfirmations
     ));
     assert!(party_1.check_test_transfer_status_recipient(
         &receive_data_1b.recipient_id,
-        TransferStatus::WaitingBroadcast
+        TransferStatus::WaitingConfirmations
     ));
 
     // refresh outgoing WaitingCounterparty only (wallet 2)
@@ -189,25 +197,11 @@ fn success() {
     );
     assert!(party_2.check_test_transfer_status_recipient(
         &receive_data_2a.recipient_id,
-        TransferStatus::WaitingBroadcast
+        TransferStatus::WaitingConfirmations
     ));
     assert!(party_2.check_test_transfer_status_recipient(
         &receive_data_2b.recipient_id,
         TransferStatus::WaitingCounterparty
-    ));
-
-    // refresh incoming WaitingBroadcast only (wallet 2): the TX is in the mempool so the transfer
-    // moves to WaitingConfirmations
-    assert!(
-        party_2
-            .refresh_result(None, &[filter_broadcast_in])
-            .unwrap()
-            .transfers_changed()
-    );
-    party_2.show_unspent_colorings("wallet 2 after refresh incoming WaitingBroadcast");
-    assert!(party_2.check_test_transfer_status_recipient(
-        &receive_data_2a.recipient_id,
-        TransferStatus::WaitingConfirmations
     ));
 
     drop(_guard);
@@ -215,8 +209,7 @@ fn success() {
     mine_tx(&txid_2a);
     mine_tx(&txid_2b);
 
-    // refresh incoming WaitingConfirmations only (wallet 2): the TX is now mined so the transfer
-    // settles
+    // refresh incoming WaitingConfirmations only (wallet 2)
     assert!(
         party_2
             .refresh_result(None, &[filter_confirm_in])
@@ -253,11 +246,11 @@ fn success() {
     );
     assert!(party_1.check_test_transfer_status_recipient(
         &receive_data_1a.recipient_id,
-        TransferStatus::WaitingBroadcast
+        TransferStatus::WaitingConfirmations
     ));
     assert!(party_1.check_test_transfer_status_recipient(
         &receive_data_1b.recipient_id,
-        TransferStatus::WaitingBroadcast
+        TransferStatus::WaitingConfirmations
     ));
 }
 
@@ -330,6 +323,9 @@ fn nia_with_media() {
         vec![Recipient {
             assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -351,6 +347,9 @@ fn nia_with_media() {
         vec![Recipient {
             assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -404,6 +403,9 @@ fn nia_with_details() {
         vec![Recipient {
             assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -425,6 +427,9 @@ fn nia_with_details() {
         vec![Recipient {
             assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -493,6 +498,9 @@ fn uda_with_media() {
         vec![Recipient {
             assignment: Assignment::NonFungible,
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -513,6 +521,9 @@ fn uda_with_media() {
         vec![Recipient {
             assignment: Assignment::NonFungible,
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -576,6 +587,9 @@ fn uda_with_preview_and_reserves() {
         vec![Recipient {
             assignment: Assignment::NonFungible,
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -604,6 +618,9 @@ fn uda_with_preview_and_reserves() {
         vec![Recipient {
             assignment: Assignment::NonFungible,
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -675,10 +692,6 @@ fn skip_sync() {
         status: RefreshTransferStatus::WaitingConfirmations,
         incoming: false,
     };
-    let filter_broadcast_in = RefreshFilter {
-        status: RefreshTransferStatus::WaitingBroadcast,
-        incoming: true,
-    };
 
     let mut party_1 = get_funded_party!();
     let mut party_2 = get_funded_party!();
@@ -700,6 +713,9 @@ fn skip_sync() {
         vec![Recipient {
             assignment: Assignment::Fungible(amount_1),
             recipient_id: receive_data_2a.recipient_id.clone(),
+            public_key: Some(receive_data_2a.public_key.clone()),
+            expiration_timestamp: Some(receive_data_2a.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -737,6 +753,9 @@ fn skip_sync() {
         vec![Recipient {
             assignment: Assignment::Fungible(amount_2),
             recipient_id: receive_data_1a.recipient_id.clone(),
+            public_key: Some(receive_data_1a.public_key.clone()),
+            expiration_timestamp: Some(receive_data_1a.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -778,6 +797,9 @@ fn skip_sync() {
         vec![Recipient {
             assignment: Assignment::Fungible(amount_1),
             recipient_id: receive_data_2b.recipient_id.clone(),
+            public_key: Some(receive_data_2b.public_key.clone()),
+            expiration_timestamp: Some(receive_data_2b.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -792,6 +814,9 @@ fn skip_sync() {
         vec![Recipient {
             assignment: Assignment::Fungible(amount_2),
             recipient_id: receive_data_1b.recipient_id.clone(),
+            public_key: Some(receive_data_1b.public_key.clone()),
+            expiration_timestamp: Some(receive_data_1b.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -807,7 +832,7 @@ fn skip_sync() {
     );
     assert!(party_1.check_test_transfer_status_recipient(
         &receive_data_1a.recipient_id,
-        TransferStatus::WaitingBroadcast
+        TransferStatus::WaitingConfirmations
     ));
     assert!(party_1.check_test_transfer_status_recipient(
         &receive_data_1b.recipient_id,
@@ -821,7 +846,7 @@ fn skip_sync() {
     );
     assert!(party_2.check_test_transfer_status_recipient(
         &receive_data_2a.recipient_id,
-        TransferStatus::WaitingBroadcast
+        TransferStatus::WaitingConfirmations
     ));
     assert!(party_2.check_test_transfer_status_recipient(
         &receive_data_2b.recipient_id,
@@ -845,11 +870,11 @@ fn skip_sync() {
     );
     assert!(party_1.check_test_transfer_status_recipient(
         &receive_data_1a.recipient_id,
-        TransferStatus::WaitingBroadcast
+        TransferStatus::WaitingConfirmations
     ));
     assert!(party_1.check_test_transfer_status_recipient(
         &receive_data_1b.recipient_id,
-        TransferStatus::WaitingBroadcast
+        TransferStatus::WaitingConfirmations
     ));
 
     // refresh outgoing WaitingCounterparty only (wallet 2), skipping sync
@@ -869,33 +894,17 @@ fn skip_sync() {
     );
     assert!(party_2.check_test_transfer_status_recipient(
         &receive_data_2a.recipient_id,
-        TransferStatus::WaitingBroadcast
+        TransferStatus::WaitingConfirmations
     ));
     assert!(party_2.check_test_transfer_status_recipient(
         &receive_data_2b.recipient_id,
         TransferStatus::WaitingCounterparty
     ));
 
-    // refresh incoming WaitingBroadcast only (wallet 2), skipping sync: the TX is in the mempool
-    // so the transfer moves to WaitingConfirmations
-    assert!(
-        party_2
-            .wallet
-            .refresh(party_2.online, None, vec![filter_broadcast_in], true)
-            .unwrap()
-            .transfers_changed()
-    );
-    party_2.show_unspent_colorings("wallet 2 after refresh incoming WaitingBroadcast");
-    assert!(party_2.check_test_transfer_status_recipient(
-        &receive_data_2a.recipient_id,
-        TransferStatus::WaitingConfirmations
-    ));
-
     drop(_guard);
     mine(false);
 
-    // refresh incoming WaitingConfirmations only (wallet 2), skipping sync: the TX is now mined so
-    // the transfer settles
+    // refresh incoming WaitingConfirmations only (wallet 2), skipping sync
     assert!(
         party_2
             .wallet
@@ -934,11 +943,11 @@ fn skip_sync() {
     );
     assert!(party_1.check_test_transfer_status_recipient(
         &receive_data_1a.recipient_id,
-        TransferStatus::WaitingBroadcast
+        TransferStatus::WaitingConfirmations
     ));
     assert!(party_1.check_test_transfer_status_recipient(
         &receive_data_1b.recipient_id,
-        TransferStatus::WaitingBroadcast
+        TransferStatus::WaitingConfirmations
     ));
 }
 
@@ -964,6 +973,9 @@ fn filter_with_waiting_safe_height() {
         vec![Recipient {
             assignment: Assignment::Fungible(amount),
             recipient_id: receive_data_1.recipient_id.clone(),
+            public_key: Some(receive_data_1.public_key.clone()),
+            expiration_timestamp: Some(receive_data_1.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -986,11 +998,13 @@ fn filter_with_waiting_safe_height() {
     let receive_data_2 = party_2
         .wallet
         .blind_receive(
+            Some(party_2.online),
             None,
             Assignment::Any,
             (now().unix_timestamp() + DURATION_RCV_TRANSFER as i64) as u64,
             TRANSPORT_ENDPOINTS.clone(),
             2,
+            None,
         )
         .unwrap();
     let recipient_map_2 = HashMap::from([(
@@ -998,6 +1012,9 @@ fn filter_with_waiting_safe_height() {
         vec![Recipient {
             assignment: Assignment::Fungible(amount),
             recipient_id: receive_data_2.recipient_id.clone(),
+            public_key: Some(receive_data_2.public_key.clone()),
+            expiration_timestamp: Some(receive_data_2.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -1030,13 +1047,13 @@ fn filter_with_waiting_safe_height() {
     let refresh_res = party_2.refresh_result(None, std::slice::from_ref(&filter));
     assert!(!refresh_res.unwrap().transfers_changed());
 
-    // mine a block so the transfer reaches safe height: receiver ACKs and waits for the broadcast
+    // mine a block so the transfer reaches safe height
     force_mine_no_resume_when_alone(false);
     let refresh_res = party_2.refresh_result(None, &[filter]);
     assert!(refresh_res.unwrap().transfers_changed());
     assert!(party_2.check_test_transfer_status_recipient(
         &receive_data_2.recipient_id,
-        TransferStatus::WaitingBroadcast
+        TransferStatus::WaitingConfirmations
     ));
 }
 
@@ -1066,11 +1083,27 @@ fn ack_failure_no_duplicate_colorings() {
         vec![Recipient {
             assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
-            transport_endpoints: failing_ack_endpoints,
+            transport_endpoints: failing_ack_endpoints.clone(),
         }],
     )]);
-    let txid = party_1.send_retry(&recipient_map);
+    // the ACK is posted to the sender proxy
+    let txid = party_1
+        .wallet
+        .send(
+            party_1.online,
+            recipient_map,
+            false,
+            FEE_RATE,
+            MIN_CONFIRMATIONS,
+            default_send_expiration(),
+            Some(failing_ack_endpoints[0].clone()),
+        )
+        .unwrap()
+        .txid;
     assert!(!txid.is_empty());
 
     // each refresh validates the consignment and then fails to ACK it, rolling back its changes
@@ -1096,14 +1129,15 @@ fn ack_failure_no_duplicate_colorings() {
         Err(Error::AssetNotFound { .. })
     );
 
-    // once the ACK goes through the transfer completes and the amount is counted only once
+    // once the ACK goes through the transfer completes (a single recipient's ACK releases the TX,
+    // which the recipient broadcasts) and the amount is counted only once
     fail_ack.store(false, Ordering::Relaxed);
     let refresh_res = party_2.refresh_result(None, &[]).unwrap();
     let refreshed = refresh_res.get(&receive_data.batch_transfer_idx).unwrap();
     assert!(refreshed.failure.is_none());
     assert_eq!(
         refreshed.updated_status,
-        Some(TransferStatus::WaitingBroadcast)
+        Some(TransferStatus::WaitingConfirmations)
     );
     assert_eq!(consignment_gets.load(Ordering::Relaxed), 1);
     assert_eq!(

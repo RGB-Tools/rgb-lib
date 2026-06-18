@@ -30,12 +30,15 @@ interface RgbLibError {
   CannotProvideOutOfBandConsignment(string details);
   CannotUseIfaOnMainnet();
   Database(string details);
+  DuplicateProxyAuthKey(string details);
   EmptyFile(string file_path);
+  ExpirationInvalid();
   FailedBdkSync(string details);
   FailedBroadcast(string details);
   FailedIssuance(string details);
   FileAlreadyExists(string path);
   FingerprintMismatch();
+  HashMismatch();
   IO(string details);
   Inconsistency(string details);
   Indexer(string details);
@@ -54,9 +57,12 @@ interface RgbLibError {
   InvalidBurnReason(string details);
   InvalidColoringInfo(string details);
   InvalidConsignment();
+  InvalidContentSignature();
   InvalidCosigner(string details);
   InvalidDetails(string details);
   InvalidElectrum(string details);
+  InvalidEncryptedBlob(string details);
+  InvalidEndpointAuthSignature();
   InvalidEstimationBlocks();
   InvalidExpiration();
   InvalidFeeRate(string details);
@@ -68,6 +74,8 @@ interface RgbLibError {
   InvalidMultisigThreshold(u8 required, u8 total);
   InvalidName(string details);
   InvalidPrecision(string details);
+  InvalidProxyAuthKey(string details);
+  InvalidProxyAuthSignature();
   InvalidProxyProtocol(string version);
   InvalidPsbt(string details);
   InvalidPubkey(string details);
@@ -82,11 +90,15 @@ interface RgbLibError {
   InvalidTxid();
   InvalidVanillaKeychain();
   InvalidWitnessVersion(string witness_version);
+  InvoiceExpired();
+  InvoiceNotReserved();
+  InvoiceQuotaExceeded();
   MaxFeeExceeded(string txid);
   MinFeeNotMet(string txid);
   MultisigCannotMarkOperationProcessed(string details);
   MultisigCannotRespondToOperation(string details);
   MultisigHubService(string details);
+  MultisigLegacyOperation(i32 operation_idx);
   MultisigOperationInProgress();
   MultisigOperationNotFound(i32 operation_idx);
   MultisigTransferStatusMismatch();
@@ -100,22 +112,32 @@ interface RgbLibError {
   NoIssuanceAmounts();
   NoKeysSupplied();
   NoMaxAllocationsPerUtxo();
+  NoMedia();
   NoSupportedSchemas();
   NoValidTransportEndpoint();
   Offline();
   OnlineNeeded();
+  OperationExpired();
+  OperationNotFound();
   OutputBelowDustLimit();
   Proxy(string details);
+  ProxyCannotChange(string details);
+  ProxyDraining();
+  ProxyTooManyMedia();
+  ProxyTxAlreadyReleased();
   PsbtInspection(string details);
   RecipientIDAlreadyUsed();
   RecipientIDDuplicated();
   RejectListService(string details);
   RestClientBuild(string details);
   RgbInspection(string details);
+  SignedTxCleared();
   TooHighInflationAmounts();
   TooHighIssuanceAmounts();
   TooManyCosigners();
   TooManySignaturesInPsbt();
+  TransferIDDeleted();
+  TransferIDInUse();
   UnknownRgbSchema(string schema_id);
   UnknownTransfer(string txid);
   UnsupportedBackupVersion(string version);
@@ -254,6 +276,7 @@ dictionary ReceiveData {
   string recipient_id;
   u64 expiration_timestamp;
   i32 batch_transfer_idx;
+  string public_key;
 };
 
 interface RecipientInfo {
@@ -369,6 +392,8 @@ dictionary InvoiceData {
   BitcoinNetwork network;
   u64? expiration_timestamp;
   sequence<string> transport_endpoints;
+  string? public_key;
+  Encryption encryption;
   record<string, string> unknown_query_params;
 };
 
@@ -451,6 +476,7 @@ dictionary OnlineOptions {
   boolean skip_consistency_check;
   u32 vanilla_sync_lookback;
   u32 failed_witness_receive_grace_secs;
+  record<string, string> proxy_auth_keys;
 };
 
 [Remote]
@@ -483,6 +509,9 @@ dictionary Recipient {
   WitnessData? witness_data;
   Assignment assignment;
   sequence<string> transport_endpoints;
+  string? public_key;
+  Encryption encryption;
+  u64? expiration_timestamp;
 };
 
 [Remote]
@@ -540,6 +569,13 @@ enum TransferStatus {
 };
 
 [Remote]
+enum Encryption {
+  "Required",
+  "Unsupported",
+  "Optional",
+};
+
+[Remote]
 dictionary Transaction {
     TransactionType transaction_type;
     string txid;
@@ -592,6 +628,7 @@ dictionary Transfer {
   Outpoint? change_utxo;
   u64? expiration_timestamp;
   sequence<TransferTransportEndpoint> transport_endpoints;
+  string? sender_transport_endpoint;
   string? invoice_string;
   string? consignment_path;
   string? psbt_path;
@@ -881,13 +918,13 @@ interface Wallet {
 
   [Throws=RgbLibError]
   ReceiveData blind_receive(
-    string? asset_id, Assignment assignment, u64 expiration_timestamp,
-    sequence<string> transport_endpoints, u8 min_confirmations);
+    Online? online, string? asset_id, Assignment assignment, u64 expiration_timestamp,
+    sequence<string> transport_endpoints, u8 min_confirmations, Encryption? encryption);
 
   [Throws=RgbLibError]
   ReceiveData witness_receive(
-    string? asset_id, Assignment assignment, u64 expiration_timestamp,
-    sequence<string> transport_endpoints, u8 min_confirmations);
+    Online? online, string? asset_id, Assignment assignment, u64 expiration_timestamp,
+    sequence<string> transport_endpoints, u8 min_confirmations, Encryption? encryption);
 
   [Throws=RgbLibError]
   string finalize_psbt(string signed_psbt);
@@ -1013,13 +1050,13 @@ interface Wallet {
   OperationResult send(
     Online online, record<DOMString, sequence<Recipient>> recipient_map,
     boolean donation, u64 fee_rate, u8 min_confirmations,
-    u64 expiration_timestamp);
+    u64 expiration_timestamp, string? sender_transport_endpoint);
 
   [Throws=RgbLibError]
   SendBeginResult send_begin(
     Online online, record<DOMString, sequence<Recipient>> recipient_map,
     boolean donation, u64 fee_rate, u8 min_confirmations,
-    u64 expiration_timestamp, boolean dry_run);
+    u64 expiration_timestamp, string? sender_transport_endpoint, boolean dry_run);
 
   [Throws=RgbLibError]
   OperationResult send_end(Online online, string signed_psbt);
@@ -1086,12 +1123,12 @@ interface MultisigWallet {
   [Throws=RgbLibError]
   ReceiveData blind_receive(
     Online online, string? asset_id, Assignment assignment, u64 expiration_timestamp,
-    sequence<string> transport_endpoints, u8 min_confirmations);
+    sequence<string> transport_endpoints, u8 min_confirmations, Encryption? encryption);
 
   [Throws=RgbLibError]
   ReceiveData witness_receive(
     Online online, string? asset_id, Assignment assignment, u64 expiration_timestamp,
-    sequence<string> transport_endpoints, u8 min_confirmations);
+    sequence<string> transport_endpoints, u8 min_confirmations, Encryption? encryption);
 
   [Throws=RgbLibError]
   string finalize_psbt(string signed_psbt);
@@ -1178,7 +1215,7 @@ interface MultisigWallet {
   [Throws=RgbLibError]
   InitOperationResult send_init(
     Online online, record<DOMString, sequence<Recipient>> recipient_map,
-    boolean donation, u64 fee_rate, u8 min_confirmations, u64 expiration_timestamp);
+    boolean donation, u64 fee_rate, u8 min_confirmations, u64 expiration_timestamp, string sender_transport_endpoint);
 
   [Throws=RgbLibError]
   InitOperationResult send_btc_init(

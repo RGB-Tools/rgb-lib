@@ -107,6 +107,7 @@ compile_error!(
 #[cfg(feature = "_online")]
 pub(crate) mod api;
 pub(crate) mod database;
+pub(crate) mod encryption;
 pub(crate) mod error;
 pub mod keys;
 pub mod utils;
@@ -126,7 +127,7 @@ pub use rgbstd::{
 
 pub use crate::{
     database::enums::{
-        AssetSchema, Assignment, TransferStatus, TransportType, WalletTransactionType,
+        AssetSchema, Assignment, Encryption, TransferStatus, TransportType, WalletTransactionType,
     },
     error::Error,
     utils::{BitcoinNetwork, block_on},
@@ -192,7 +193,7 @@ use bdk_wallet::{
         OutPoint, OutPoint as BdkOutPoint, ScriptBuf, Transaction as BdkTransaction, TxOut, Txid,
         bip32::{ChildNumber, DerivationPath, Fingerprint, KeySource, Xpriv, Xpub},
         consensus::{Decodable, Encodable},
-        hashes::{Hash as Sha256Hash, sha256},
+        hashes::Hash as Sha256Hash,
         psbt::{ExtractTxError, Psbt},
         secp256k1::Secp256k1,
     },
@@ -211,14 +212,25 @@ use bdk_wallet::{
 };
 #[cfg(feature = "_online")]
 use bdk_wallet::{
-    bitcoin::{block::Header as BlockHeader, blockdata::fee_rate::FeeRate, hashes::HashEngine},
+    bitcoin::{
+        block::Header as BlockHeader,
+        blockdata::fee_rate::FeeRate,
+        hashes::{HashEngine, sha256},
+    },
     chain::DescriptorExt,
     coin_selection::InsufficientFunds,
 };
 use chacha20poly1305::{Key, KeyInit, XChaCha20Poly1305, XNonce, aead::Aead};
+use ed25519_dalek::SigningKey;
+#[cfg(feature = "_online")]
+use ed25519_dalek::{Signature, Signer, Verifier, VerifyingKey};
 use file_format::FileFormat;
+#[cfg(feature = "_online")]
+use hkdf::Hkdf;
+#[cfg(feature = "_online")]
+use hmac::{Mac, SimpleHmac};
 use psrgbt::{RgbOutExt, RgbPsbtExt};
-use rand::{RngExt, distr::Alphanumeric};
+use rand::{RngExt, TryRng, distr::Alphanumeric, rngs::SysRng};
 #[cfg(feature = "_online")]
 use reqwest::{
     blocking::{Client as RestClient, multipart},
@@ -295,6 +307,9 @@ use sea_orm::{
 use serde::de::{self, Unexpected, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 #[cfg(feature = "_online")]
+use sha2::Sha512;
+use sha2::{Digest, Sha256};
+#[cfg(feature = "_online")]
 use slog::warn;
 use slog::{Drain, Logger, debug, error, info, o};
 use slog_async::AsyncGuard;
@@ -308,6 +323,8 @@ use time::OffsetDateTime;
 #[cfg(feature = "_online")]
 use url::Url;
 use walkdir::WalkDir;
+#[cfg(feature = "_online")]
+use x25519_dalek::{PublicKey as X25519Public, StaticSecret as X25519Secret};
 use zip::{ZipArchive, ZipWriter, write::SimpleFileOptions};
 
 #[cfg(feature = "electrum")]
@@ -323,17 +340,25 @@ use crate::wallet::BitcoindClient;
 #[cfg(feature = "_online")]
 #[cfg(test)]
 use crate::wallet::test::{
-    mock_input_unspents, mock_local_version, mock_send_end_crash, mock_vout, skip_build_dag,
-    skip_check_fee_rate, spv_only, strip_terminals,
+    mock_chain_tx, mock_clock_skew_margin, mock_confirmation_margin, mock_input_unspents,
+    mock_local_version, mock_min_retention_grace, mock_retention_grace, mock_send_end_crash,
+    skip_build_dag, skip_check_fee_rate, spv_only, strip_terminals,
 };
 #[cfg(feature = "_online")]
 use crate::{
     api::{
         multisig_hub::{
-            FileMetadata, FileSource, FileType, InfoResponse, MultisigHubClient, OperationResponse,
-            OperationStatus, OperationType, UserRoleResponse,
+            FileMetadata, FileSource, FileType, InfoResponse, MultisigHubClient,
+            OPERATION_TYPES_REQUIRING_SEED, OperationResponse, OperationStatus, OperationType,
+            UserRoleResponse,
         },
-        proxy::{GetConsignmentResponse, ProxyClient},
+        proxy::{
+            AckTransferData, GetAckResponse, GetConsignmentResponse, InvoiceStatus, JsonRpcError,
+            JsonRpcResponse, PostAckResponse, PostConsignmentData, ProxyClient, ProxyTransferState,
+            ServerInfoResponse, get_ack_message, list_transfers_message, map_proxy_error,
+            post_consignment_message, post_media_message, pow_difficulty_required,
+            prepare_ack_auth_message, prepare_invoice_auth_message, transfer_retrieved_message,
+        },
         reject_list::RejectListClient,
     },
     database::{
@@ -344,10 +369,15 @@ use crate::{
             wallet_transaction::ActiveModel as DbWalletTransactionActMod,
         },
     },
+    encryption::{
+        decode_hash_hex, decrypt_blob, decrypt_stream, derive_shared, ed25519_from_seed,
+        encrypt_blob, encrypt_to_tempfile, invoice_id, sign_ed25519, solve_pow, transfer_id,
+        verify_ed25519, verifying_key_from_bytes,
+    },
     error::IndexerError,
     utils::{
-        OffchainResolver, check_proxy, detect_indexer, get_indexer_and_resolver, hash_file,
-        script_buf_from_recipient_id,
+        ChainResolver, OffchainResolver, check_proxy, detect_indexer, get_indexer_and_resolver,
+        hash_file, proxy_max_media, proxy_retention_grace, script_buf_from_recipient_id,
     },
     wallet::{
         AssignmentsCollection, BitcoindAuth, Indexer, IndexerConfig, multisig::RespondToOperation,
@@ -397,8 +427,9 @@ use crate::{
             txo::{ActiveModel as DbTxoActMod, Model as DbTxo},
             wallet_transaction::Model as DbWalletTransaction,
         },
-        enums::{ColoringType, RecipientTypeFull},
+        enums::{ColoringType, RecipientTypeFull, TransportEndpointKind},
     },
+    encryption::{gen_ed25519, sha256_digest},
     error::InternalError,
     keys::{Keys, WitnessVersion},
     utils::{

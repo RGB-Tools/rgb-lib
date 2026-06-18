@@ -39,7 +39,7 @@ pub(crate) const INDEXER_BATCH_SIZE: usize = 5;
 pub(crate) const INDEXER_PARALLEL_REQUESTS: usize = 5;
 
 #[cfg(feature = "_online")]
-const PROXY_PROTOCOL_VERSION: &str = "0.2";
+const PROXY_PROTOCOL_VERSION: &str = "1.0";
 
 // sea-orm with runtime-tokio-rustls needs a tokio runtime for connection pool management
 static TOKIO_RUNTIME: LazyLock<tokio::runtime::Runtime> =
@@ -538,13 +538,36 @@ pub(crate) fn calculate_descriptor_from_xpub(
     Ok(format!("{}({key})", witness_version.descriptor_fn()))
 }
 
+/// The retention grace advertised by a proxy (`retention_grace_secs`), i.e. how long after an
+/// expiration it keeps the data awaiting retrieval. A proxy not advertising it is considered to
+/// grant none.
 #[cfg(feature = "_online")]
-pub(crate) fn check_proxy(proxy_url: &str) -> Result<(), Error> {
+pub(crate) fn proxy_retention_grace(info: &ServerInfoResponse) -> u32 {
+    #[cfg(test)]
+    if let Some(grace) = mock_retention_grace() {
+        return grace;
+    }
+    info.retention_grace_secs
+        .as_ref()
+        .and_then(|grace| grace.parse::<u32>().ok())
+        .unwrap_or(0)
+}
+
+/// The max number of media per transfer advertised by a proxy (`max_media`), `None` if it doesn't
+/// advertise a valid one.
+#[cfg(feature = "_online")]
+pub(crate) fn proxy_max_media(info: &ServerInfoResponse) -> Option<usize> {
+    info.max_media.as_ref().and_then(|max| max.parse().ok())
+}
+
+/// Check that the proxy at `proxy_url` runs the supported protocol version, returning its info.
+#[cfg(feature = "_online")]
+pub(crate) fn check_proxy(proxy_url: &str) -> Result<ServerInfoResponse, Error> {
     let proxy_client = ProxyClient::new(proxy_url)?;
     let server_info = proxy_client.get_info()?;
     if let Some(info) = server_info.result {
         if info.protocol_version == *PROXY_PROTOCOL_VERSION {
-            return Ok(());
+            return Ok(info);
         } else {
             return Err(Error::InvalidProxyProtocol {
                 version: info.protocol_version,
@@ -719,9 +742,7 @@ pub(crate) fn detect_indexer(
 }
 
 pub(crate) fn hash_bytes(data: &[u8]) -> Vec<u8> {
-    <sha256::Hash as Sha256Hash>::hash(data)
-        .to_byte_array()
-        .to_vec()
+    sha256_digest(data).to_vec()
 }
 
 pub(crate) fn hash_bytes_hex(data: &[u8]) -> String {
@@ -746,7 +767,11 @@ where
     let tmp = atomic_tmp_path(path)?;
     // drop any temp file leaked by an earlier crash
     let _ = fs::remove_file(&tmp);
-    write(&tmp)?;
+    if let Err(e) = write(&tmp) {
+        // don't leave a partial temp file behind (best-effort)
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
+    }
     // fsync the temp file contents before making them visible
     fs::File::open(&tmp)?.sync_all()?;
     fs::rename(&tmp, path)?;
@@ -1124,11 +1149,38 @@ impl<'txn> RgbStock<'txn> {
     }
 }
 
+/// The wallet's on-chain witness resolver (the indexer-backed [`AnyResolver`]).
+#[doc(hidden)]
+#[cfg(feature = "_online")]
+pub struct ChainResolver<'a> {
+    pub(crate) inner: &'a AnyResolver,
+}
+
+#[cfg(feature = "_online")]
+impl ResolveWitness for ChainResolver<'_> {
+    fn resolve_witness(&self, witness_id: RgbTxid) -> Result<WitnessStatus, WitnessResolverError> {
+        #[cfg(test)]
+        if let Some((tx, height)) = mock_chain_tx(&witness_id.to_string()) {
+            let height = NonZeroU32::new(height).expect("mock block height cannot be 0");
+            let pos = WitnessPos::bitcoin(height, now().unix_timestamp())
+                .expect("current time is after the genesis block");
+            return Ok(WitnessStatus::Resolved(tx, WitnessOrd::Mined(pos)));
+        }
+        self.inner.resolve_witness(witness_id)
+    }
+    fn get_block_header(&self, height: NonZeroU32) -> Result<BlockHeader, WitnessResolverError> {
+        self.inner.get_block_header(height)
+    }
+    fn check_chain_net(&self, chain_net: ChainNet) -> Result<(), WitnessResolverError> {
+        self.inner.check_chain_net(chain_net)
+    }
+}
+
 #[cfg(feature = "_online")]
 pub(crate) struct OffchainResolver<'a, 'cons, const TRANSFER: bool> {
     pub(crate) witness_id: RgbTxid,
     pub(crate) consignment: &'cons Consignment<TRANSFER>,
-    pub(crate) fallback: &'a AnyResolver,
+    pub(crate) fallback: ChainResolver<'a>,
 }
 
 #[cfg(feature = "_online")]
@@ -1327,7 +1379,18 @@ mod tests {
         atomic_write(&path, b"world!!").unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"world!!");
         // no temp file is left behind
-        assert!(!path.parent().unwrap().join(".f.bin.tmp").exists());
+        let tmp = path.parent().unwrap().join(".f.bin.tmp");
+        assert!(!tmp.exists());
+        // a failing write leaves the previous file intact and no partial temp file behind
+        let res = atomic_write_with(&path, |tmp| {
+            fs::write(tmp, b"partial")?;
+            Err(Error::Internal {
+                details: s!("write failed"),
+            })
+        });
+        assert!(matches!(res, Err(Error::Internal { .. })));
+        assert_eq!(fs::read(&path).unwrap(), b"world!!");
+        assert!(!tmp.exists());
     }
 
     // The None return from detect_indexer is only reachable when electrum is enabled but esplora

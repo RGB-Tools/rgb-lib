@@ -152,7 +152,7 @@ fn success() {
     let valid_consignment = consignment
         .validate(
             &AssetSchema::Ifa.schema_rules(),
-            rcv_party.wallet.blockchain_resolver(),
+            &rcv_party.wallet.blockchain_resolver(),
             &validation_config,
         )
         .unwrap();
@@ -271,6 +271,9 @@ fn success() {
         vec![Recipient {
             assignment: Assignment::Fungible(remaining_amount),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -296,15 +299,18 @@ fn success() {
         }
     );
 
-    // after a refresh the receiver waits for the broadcast while the sender progresses to
-    // WaitingConfirmations
+    // transfers progress to status WaitingConfirmations after a refresh (v1.0: the recipient's ACK
+    // releases the TX, which it then decrypts and broadcasts)
     rcv_party.wait_for_refresh(None);
     let rcv_transfer = rcv_party.get_test_transfer_recipient(&receive_data.recipient_id);
     let (rcv_transfer_data, _rcv_asset_transfer) = rcv_party.get_test_transfer_data(&rcv_transfer);
     party.wait_for_refresh(Some(&asset.asset_id));
     let (transfer, _, _) = party.get_test_transfer_sender(&txid);
     let (transfer_data, _) = party.get_test_transfer_data(&transfer);
-    assert_eq!(rcv_transfer_data.status, TransferStatus::WaitingBroadcast);
+    assert_eq!(
+        rcv_transfer_data.status,
+        TransferStatus::WaitingConfirmations
+    );
     assert_eq!(transfer_data.status, TransferStatus::WaitingConfirmations);
 
     // asset has been received correctly
@@ -587,6 +593,9 @@ fn fail() {
         vec![Recipient {
             assignment: Assignment::Fungible(1),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -737,6 +746,74 @@ fn begin_end() {
     party.wallet.burn_end(party.online, signed_psbt).unwrap();
     let bak_info_after = party.db_backup_info();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
+}
+
+/// when `dry_run` is `false`, `burn_begin` persists the operation to DB as `Initiated` before
+/// `gen_consignments` has run, so `consignment_hash` starts out `None`; `burn_end` must still
+/// complete and settle correctly
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn no_dry_run() {
+    initialize();
+
+    let mut party = get_funded_party!();
+    let asset = party.issue_asset_ifa(None, None, None);
+
+    let burn_amount = 199;
+    let res = party
+        .wallet
+        .burn_begin(
+            party.online,
+            asset.asset_id.clone(),
+            burn_amount,
+            Some(BURN_REASON.to_string()),
+            FEE_RATE,
+            MIN_CONFIRMATIONS,
+            false,
+        )
+        .unwrap();
+    let batch_transfer_idx = res.batch_transfer_idx.unwrap();
+
+    let signed_psbt = party.wallet.sign_psbt(res.psbt, None).unwrap();
+    let end_res = party.wallet.burn_end(party.online, signed_psbt).unwrap();
+    assert_eq!(end_res.batch_transfer_idx, batch_transfer_idx);
+
+    // settle
+    mine(false);
+    assert!(party.refresh_asset(&asset.asset_id));
+
+    let burn_change = AMOUNT - burn_amount;
+    let balance = party.get_asset_balance(&asset.asset_id);
+    assert_eq!(
+        balance,
+        Balance {
+            settled: burn_change,
+            future: burn_change,
+            spendable: burn_change,
+        }
+    );
+
+    let transfers = party.list_transfers(Some(&asset.asset_id));
+    let transfer = transfers.last().unwrap();
+    assert_eq!(transfer.status, TransferStatus::Settled);
+    assert_eq!(transfer.kind, TransferKind::Burn);
+    assert_eq!(transfer.txid.as_ref().unwrap(), &end_res.txid);
+    assert!(transfer.consignment_path.is_some());
+
+    // the consignment_hash backfill in update_or_save_transfers must have populated the DB row
+    // even though the file didn't exist yet when burn_begin (dry_run=false) first persisted it
+    let asset_transfer = party
+        .db_asset_transfers_filtered(batch_transfer_idx)
+        .into_iter()
+        .find(|a| a.asset_id.as_deref() == Some(asset.asset_id.as_str()))
+        .unwrap();
+    let db_transfer = party
+        .db_transfers_filtered(asset_transfer.idx)
+        .into_iter()
+        .next()
+        .unwrap();
+    assert!(db_transfer.consignment_hash.is_some());
 }
 
 /// A burn ended again (e.g. retried after a crash) is completed only while it's still

@@ -16,11 +16,13 @@ fn success() {
     let receive_data = party
         .wallet
         .blind_receive(
+            Some(party.online),
             None,
             Assignment::Any,
             expiration_timestamp,
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
+            None,
         )
         .unwrap();
     let bak_info_after = party.db_backup_info();
@@ -43,11 +45,13 @@ fn success() {
     let receive_data = party
         .wallet
         .blind_receive(
+            Some(party.online),
             Some(asset_nia_id.clone()),
             Assignment::Any,
             expiration_timestamp,
             TRANSPORT_ENDPOINTS.clone(),
             min_confirmations,
+            None,
         )
         .unwrap();
     assert_eq!(receive_data.expiration_timestamp, expiration_timestamp);
@@ -64,11 +68,13 @@ fn success() {
     let receive_data = party
         .wallet
         .blind_receive(
+            Some(party.online),
             Some(asset_uda_id.clone()),
             Assignment::Any,
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
+            None,
         )
         .unwrap();
     let invoice = Invoice::new(receive_data.invoice).unwrap();
@@ -81,11 +87,13 @@ fn success() {
     let receive_data = party
         .wallet
         .blind_receive(
+            Some(party.online),
             Some(asset_cfa_id.clone()),
             Assignment::Any,
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
+            None,
         )
         .unwrap();
     let invoice = Invoice::new(receive_data.invoice).unwrap();
@@ -100,11 +108,13 @@ fn success() {
     let receive_data = party
         .wallet
         .blind_receive(
+            Some(party.online),
             Some(asset_ifa_id.clone()),
             Assignment::Fungible(amount),
             expiration_timestamp,
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
+            None,
         )
         .unwrap();
 
@@ -129,11 +139,13 @@ fn success() {
     let receive_data = party
         .wallet
         .blind_receive(
+            Some(party.online),
             Some(asset_nia_id.clone()),
             Assignment::Fungible(amount),
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
+            None,
         )
         .unwrap();
     let invoice = Invoice::new(receive_data.invoice).unwrap();
@@ -153,11 +165,13 @@ fn success() {
     let receive_data = party
         .wallet
         .blind_receive(
+            Some(party.online),
             None,
             Assignment::Fungible(amount),
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
+            None,
         )
         .unwrap();
     let invoice = Invoice::new(receive_data.invoice).unwrap();
@@ -177,11 +191,13 @@ fn success() {
     let receive_data = party
         .wallet
         .blind_receive(
+            Some(party.online),
             Some(asset_nia_id.clone()),
             Assignment::Any,
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
+            None,
         )
         .unwrap();
     let invoice = Invoice::new(receive_data.invoice).unwrap();
@@ -198,11 +214,13 @@ fn success() {
     let receive_data = party
         .wallet
         .blind_receive(
+            Some(party.online),
             Some(asset_uda_id.clone()),
             Assignment::NonFungible,
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
+            None,
         )
         .unwrap();
     let invoice = Invoice::new(receive_data.invoice).unwrap();
@@ -219,11 +237,13 @@ fn success() {
     let receive_data = party
         .wallet
         .blind_receive(
+            Some(party.online),
             Some(asset_uda_id.clone()),
             Assignment::Any,
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
+            None,
         )
         .unwrap();
     let invoice = Invoice::new(receive_data.invoice).unwrap();
@@ -240,11 +260,13 @@ fn success() {
     let receive_data = party
         .wallet
         .blind_receive(
+            Some(party.online),
             Some(asset_ifa_id.clone()),
             Assignment::InflationRight(amount),
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
+            None,
         )
         .unwrap();
     let invoice = Invoice::new(receive_data.invoice).unwrap();
@@ -264,11 +286,13 @@ fn success() {
     let receive_data = party
         .wallet
         .blind_receive(
+            Some(party.online),
             None,
             Assignment::Any,
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
+            None,
         )
         .unwrap();
     let invoice = Invoice::new(receive_data.invoice).unwrap();
@@ -280,11 +304,13 @@ fn success() {
 
     // invalid assignment: non fungible, IFA schema
     let result = party.wallet.blind_receive(
+        Some(party.online),
         Some(asset_ifa_id.clone()),
         Assignment::NonFungible,
         default_rcv_expiration(),
         TRANSPORT_ENDPOINTS.clone(),
         MIN_CONFIRMATIONS,
+        None,
     );
     assert_matches!(result, Err(Error::InvalidAssignment));
 
@@ -299,11 +325,13 @@ fn success() {
         format!("rpc://{}", "127.0.0.1:3002/json-rpc"),
     ];
     let result = party.wallet.blind_receive(
+        Some(party.online),
         None,
         Assignment::Any,
         default_rcv_expiration(),
         transport_endpoints.clone(),
         MIN_CONFIRMATIONS,
+        None,
     );
     assert!(result.is_ok());
     let transfer = party.get_test_transfer_recipient(&result.unwrap().recipient_id);
@@ -376,6 +404,9 @@ fn pending_outgoing_transfer_fail() {
         asset_id.clone(),
         vec![Recipient {
             recipient_id: receive_data.recipient_id,
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             assignment: Assignment::Fungible(amount),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -413,14 +444,17 @@ fn fail() {
 
     fn blind_receive_withte(
         wallet: &mut Wallet,
+        online: Online,
         transport_endpoints: Vec<String>,
     ) -> Result<ReceiveData, Error> {
         wallet.blind_receive(
+            Some(online),
             None,
             Assignment::Any,
             default_rcv_expiration(),
             transport_endpoints,
             MIN_CONFIRMATIONS,
+            None,
         )
     }
 
@@ -444,22 +478,41 @@ fn fail() {
     let result = party
         .wallet
         .blind_receive(
+            Some(party.online),
             None,
             Assignment::Any,
             (now().unix_timestamp() - 1) as u64,
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
+            None,
         )
         .unwrap_err();
     assert!(matches!(result, Error::InvalidExpiration));
 
+    // expiration beyond the max allowed by the proxy (30 days)
+    let result = party
+        .wallet
+        .blind_receive(
+            Some(party.online),
+            None,
+            Assignment::Any,
+            (now().unix_timestamp() + 60 * 60 * 24 * 31) as u64,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+            None,
+        )
+        .unwrap_err();
+    assert!(matches!(result, Error::ExpirationInvalid));
+
     // bad asset id
     let result = party.wallet.blind_receive(
+        Some(party.online),
         Some(s!("rgb1inexistent")),
         Assignment::Any,
         default_rcv_expiration(),
         TRANSPORT_ENDPOINTS.clone(),
         MIN_CONFIRMATIONS,
+        None,
     );
     assert!(matches!(result, Err(Error::AssetNotFound { asset_id: _ })));
 
@@ -472,7 +525,7 @@ fn fail() {
     fund_wallet(party.get_address());
     party.create_utxos_default();
     let transport_endpoints = vec!["malformed".to_string()];
-    let result = blind_receive_withte(&mut party.wallet, transport_endpoints);
+    let result = blind_receive_withte(&mut party.wallet, party.online, transport_endpoints);
     assert!(matches!(
         result,
         Err(Error::InvalidTransportEndpoint { details: _ })
@@ -480,7 +533,7 @@ fn fail() {
 
     // transport endpoints: unknown transport type
     let transport_endpoints = vec![format!("unknown://{PROXY_HOST}")];
-    let result = blind_receive_withte(&mut party.wallet, transport_endpoints);
+    let result = blind_receive_withte(&mut party.wallet, party.online, transport_endpoints);
     assert!(matches!(
         result,
         Err(Error::InvalidTransportEndpoint { details: _ })
@@ -488,20 +541,21 @@ fn fail() {
 
     // transport endpoints: transport type supported by RgbInvoice but unsupported by rgb-lib
     let transport_endpoints = vec![format!("ws://{PROXY_HOST}")];
-    let result = blind_receive_withte(&mut party.wallet, transport_endpoints);
+    let result = blind_receive_withte(&mut party.wallet, party.online, transport_endpoints);
     assert!(matches!(result, Err(Error::UnsupportedTransportType)));
 
     // transport endpoints: an empty list selects the out-of-band exchange, which stores no
     // transport endpoint at all
     let transport_endpoints = vec![];
-    let receive_data = blind_receive_withte(&mut party.wallet, transport_endpoints).unwrap();
+    let receive_data =
+        blind_receive_withte(&mut party.wallet, party.online, transport_endpoints).unwrap();
     let transfer = party.get_test_transfer_recipient(&receive_data.recipient_id);
     let tte_data = party.db_transfer_transport_endpoints_data(transfer.idx);
     assert!(tte_data.is_empty());
 
     // transport endpoints: empty strings are invalid
     let transport_endpoints = vec![s!("")];
-    let result = blind_receive_withte(&mut party.wallet, transport_endpoints);
+    let result = blind_receive_withte(&mut party.wallet, party.online, transport_endpoints);
     assert!(matches!(
         result,
         Err(Error::InvalidTransportEndpoints { details: m })
@@ -515,7 +569,7 @@ fn fail() {
         "rpc://127.0.0.1:3002/json-rpc".to_string(),
         "rpc://127.0.0.1:3003/json-rpc".to_string(),
     ];
-    let result = blind_receive_withte(&mut party.wallet, transport_endpoints);
+    let result = blind_receive_withte(&mut party.wallet, party.online, transport_endpoints);
     let msg = format!("library supports at max {MAX_TRANSPORT_ENDPOINTS} transport endpoints");
     assert!(matches!(
         result,
@@ -528,7 +582,7 @@ fn fail() {
         format!("rpc://{PROXY_HOST}"),
         format!("rpc://{PROXY_HOST}"),
     ];
-    let result = blind_receive_withte(&mut party.wallet, transport_endpoints);
+    let result = blind_receive_withte(&mut party.wallet, party.online, transport_endpoints);
     let msg = s!("no duplicate transport endpoints allowed");
     assert!(matches!(
         result,
@@ -561,11 +615,13 @@ fn wrong_asset_fail() {
     let receive_data_a = party_1
         .wallet
         .blind_receive(
+            Some(party_1.online),
             Some(asset_a.asset_id),
             Assignment::Any,
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
+            None,
         )
         .unwrap();
 
@@ -574,6 +630,9 @@ fn wrong_asset_fail() {
         vec![Recipient {
             assignment: Assignment::Fungible(amount),
             recipient_id: receive_data_a.recipient_id.clone(),
+            public_key: Some(receive_data_a.public_key.clone()),
+            expiration_timestamp: Some(receive_data_a.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -639,6 +698,58 @@ fn new_transport_endpoint() {
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
+fn proxy_auth() {
+    initialize();
+
+    let mut rcv_party = get_funded_party!();
+    let transport_endpoints = vec![PROXY_ENDPOINT_AUTH.clone()];
+
+    // a proxy with proxy-level authentication rejects an unsigned recipient ID reservation
+    let result = rcv_party.wallet.blind_receive(
+        Some(rcv_party.online),
+        None,
+        Assignment::Any,
+        default_rcv_expiration(),
+        transport_endpoints.clone(),
+        MIN_CONFIRMATIONS,
+        None,
+    );
+    assert!(matches!(result, Err(Error::Proxy { details }) if details == "Missing: signature"));
+
+    // a wrong key is rejected as well
+    let mut wrong_seed = hex::decode(PROXY_AUTH_SEED).unwrap();
+    wrong_seed[0] ^= 1;
+    rcv_party.set_proxy_auth_keys(HashMap::from([(
+        PROXY_ENDPOINT_AUTH.clone(),
+        hex::encode(wrong_seed),
+    )]));
+    let result = rcv_party.wallet.blind_receive(
+        Some(rcv_party.online),
+        None,
+        Assignment::Any,
+        default_rcv_expiration(),
+        transport_endpoints.clone(),
+        MIN_CONFIRMATIONS,
+        None,
+    );
+    assert!(matches!(result, Err(Error::InvalidProxyAuthSignature)));
+
+    // the reservation succeeds once the proxy authentication key is set
+    rcv_party.set_proxy_auth_keys(HashMap::from([(
+        PROXY_ENDPOINT_AUTH.clone(),
+        PROXY_AUTH_SEED.to_string(),
+    )]));
+    let receive_data = rcv_party.blind_receive_with_endpoints(None, transport_endpoints);
+    let invoice = Invoice::new(receive_data.invoice).unwrap();
+    assert_eq!(
+        invoice.invoice_data().transport_endpoints,
+        vec![PROXY_ENDPOINT_AUTH.clone()]
+    );
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
 fn multiple_receive_same_utxo() {
     initialize();
 
@@ -672,6 +783,9 @@ fn multiple_receive_same_utxo() {
         vec![Recipient {
             assignment: Assignment::Fungible(amount),
             recipient_id: receive_data_1.recipient_id,
+            public_key: Some(receive_data_1.public_key.clone()),
+            expiration_timestamp: Some(receive_data_1.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -686,6 +800,9 @@ fn multiple_receive_same_utxo() {
         vec![Recipient {
             assignment: Assignment::Fungible(amount),
             recipient_id: receive_data_2.recipient_id,
+            public_key: Some(receive_data_2.public_key.clone()),
+            expiration_timestamp: Some(receive_data_2.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -732,6 +849,9 @@ fn no_receive_on_pending_send_input() {
         vec![Recipient {
             assignment: Assignment::Fungible(1),
             recipient_id: receive_data.recipient_id,
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: Some(WitnessData {
                 amount_sat: 1000,
                 blinding: None,
@@ -982,4 +1102,36 @@ fn invoice_new() {
             ("baz".to_string(), "qux".to_string()),
         ])
     );
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn proxy_draining() {
+    initialize();
+
+    let mut rcv_party = get_funded_party!();
+
+    let (server, _mock) = draining_proxy(Arc::new(AtomicBool::new(true)));
+    let draining_endpoint = format!("rpc://{}/json-rpc", server.host_with_port());
+
+    // the invoice cannot be reserved on a draining proxy
+    let result = rcv_party.wallet.blind_receive(
+        Some(rcv_party.online),
+        None,
+        Assignment::Any,
+        default_rcv_expiration(),
+        vec![draining_endpoint.clone()],
+        MIN_CONFIRMATIONS,
+        None,
+    );
+    assert_matches!(result, Err(Error::ProxyDraining));
+
+    // a draining proxy is skipped, the invoice is reserved on the other ones
+    let receive_data = rcv_party
+        .blind_receive_with_endpoints(None, vec![draining_endpoint, PROXY_ENDPOINT.clone()]);
+    assert!(rcv_party.check_test_transfer_status_recipient(
+        &receive_data.recipient_id,
+        TransferStatus::WaitingCounterparty
+    ));
 }

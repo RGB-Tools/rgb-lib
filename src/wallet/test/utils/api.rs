@@ -213,6 +213,14 @@ pub(crate) trait OfflineSigParty {
     }
 
     #[cfg(feature = "electrum")]
+    fn db_batch_transfer(&self, batch_transfer_idx: i32) -> DbBatchTransfer {
+        self.db_batch_transfers()
+            .into_iter()
+            .find(|b| b.idx == batch_transfer_idx)
+            .unwrap()
+    }
+
+    #[cfg(feature = "electrum")]
     fn db_batch_transfers_filtered(&self, txid: &str) -> Vec<DbBatchTransfer> {
         self.db_batch_transfers()
             .into_iter()
@@ -341,7 +349,12 @@ pub(crate) trait OfflineSigParty {
         let txn = self.wlt().database().begin_transaction().unwrap();
         let tte_data = txn.get_transfer_transport_endpoints_data(idx).unwrap();
         txn.commit().unwrap();
+        // v1.0 stores the sender's own proxy as an extra endpoint; the existing assertions only care
+        // about the recipient proxies, so filter those in
         tte_data
+            .into_iter()
+            .filter(|(tte, _)| tte.kind == TransportEndpointKind::RecipientProxy)
+            .collect()
     }
 
     #[cfg(feature = "electrum")]
@@ -604,6 +617,50 @@ pub(crate) trait OfflineSigParty {
         let transfer = transfers.next().unwrap();
         assert!(transfers.next().is_none());
         (transfer, asset_transfer, batch_transfer)
+    }
+
+    /// Sender-side: the consignment hash registered for the operation identified by `txid`.
+    #[cfg(feature = "electrum")]
+    fn consignment_hash_sender(&self, txid: &str) -> String {
+        let (transfer, _, _) = self.get_test_transfer_sender(txid);
+        transfer
+            .consignment_hash
+            .expect("consignment hash should be set")
+    }
+
+    /// Sender-side: the ID on the proxies of the (single) transfer of the operation with `txid`.
+    #[cfg(feature = "electrum")]
+    fn transfer_id_sender(&self, txid: &str) -> String {
+        let (transfer, _, _) = self.get_test_transfer_sender(txid);
+        transfer
+            .proxy_transfer_id
+            .expect("transfer ID should be set")
+    }
+
+    /// Recipient-side: sign a proxy ACK/NACK for the transfer with `transfer_id` to the receive
+    /// with `recipient_id` with this wallet's operation key.
+    #[cfg(feature = "electrum")]
+    fn sign_proxy_ack(
+        &self,
+        recipient_id: &str,
+        transfer_id: &str,
+        ack: bool,
+        consignment_hash: &str,
+    ) -> String {
+        let transfer = self.get_test_transfer_recipient(recipient_id);
+        let (_, batch_transfer) = self.get_test_transfer_related(&transfer);
+        let seed: [u8; 32] = batch_transfer
+            .operation_secret_key
+            .expect("operation secret key should be set")
+            .try_into()
+            .expect("32-byte seed");
+        let sk = ed25519_from_seed(&seed);
+        let msg = format!(
+            "{transfer_id}{}{consignment_hash}",
+            if ack { "true" } else { "false" }
+        );
+        let digest = sha256_digest(msg.as_bytes());
+        hex::encode(sign_ed25519(&sk, &digest))
     }
 
     #[cfg(feature = "electrum")]
@@ -912,15 +969,32 @@ pub(crate) trait SigParty: OfflineSigParty<W: RgbWalletOpsOnline> {
                     return false;
                 }
                 if transfer_ids.is_some() {
+                    let has_waiting_broadcast = refresh_res
+                        .iter()
+                        .any(|(_, rt)| rt.updated_status == Some(TransferStatus::WaitingBroadcast));
                     for (id, rt) in refresh_res {
                         if rt.updated_status.is_some() && target_set.contains(&id) {
                             seen.insert(id);
                         }
                     }
                     if seen == target_set {
+                        // a batch recipient that ACKs before the last one moves to WaitingBroadcast;
+                        // one more pass lets it pick up the released TX and reach WaitingConfirmations
+                        if has_waiting_broadcast {
+                            self.refresh_result(asset_id, &[]).unwrap();
+                        }
                         return true;
                     }
                 } else if refresh_res.transfers_changed() {
+                    // a batch recipient that ACKs before the last one moves to WaitingBroadcast; if
+                    // that happened, do one more refresh pass so it can pick up the released TX and
+                    // reach WaitingConfirmations
+                    let has_waiting_broadcast = refresh_res
+                        .iter()
+                        .any(|(_, rt)| rt.updated_status == Some(TransferStatus::WaitingBroadcast));
+                    if has_waiting_broadcast {
+                        self.refresh_result(asset_id, &[]).unwrap();
+                    }
                     return true;
                 }
             } else {
@@ -960,26 +1034,6 @@ pub(crate) trait SinglesigWalletParty {
 
     #[cfg(feature = "electrum")]
     fn abort_pending_vanilla_tx_result(&self, txid: &str) -> Result<(), Error>;
-
-    #[cfg(feature = "_online")]
-    fn blind_receive(&mut self) -> ReceiveData;
-
-    #[cfg(feature = "electrum")]
-    fn blind_receive_asset_expiry(
-        &mut self,
-        asset_id: Option<String>,
-        expiration: Option<u64>,
-    ) -> ReceiveData;
-
-    #[cfg(feature = "_online")]
-    fn blind_receive_result(&mut self) -> Result<ReceiveData, Error>;
-
-    #[cfg(feature = "electrum")]
-    fn blind_receive_with_endpoints(
-        &mut self,
-        expiration: Option<u64>,
-        transport_endpoints: Vec<String>,
-    ) -> ReceiveData;
 
     fn get_address(&mut self) -> String;
 
@@ -1036,8 +1090,6 @@ pub(crate) trait SinglesigWalletParty {
         media_file_path: Option<&str>,
         attachments_file_paths: Vec<&str>,
     ) -> Result<AssetUDA, Error>;
-
-    fn witness_receive(&mut self) -> ReceiveData;
 }
 
 impl OfflineSigParty for OfflineSinglesigParty {
@@ -1082,56 +1134,6 @@ impl<T: OfflineSigParty<W = Wallet>> SinglesigWalletParty for T {
     #[cfg(feature = "electrum")]
     fn abort_pending_vanilla_tx_result(&self, txid: &str) -> Result<(), Error> {
         self.wlt().abort_pending_vanilla_tx(txid.to_string())
-    }
-
-    #[cfg(feature = "_online")]
-    fn blind_receive(&mut self) -> ReceiveData {
-        self.blind_receive_result().unwrap()
-    }
-
-    #[cfg(feature = "electrum")]
-    fn blind_receive_asset_expiry(
-        &mut self,
-        asset_id: Option<String>,
-        expiration: Option<u64>,
-    ) -> ReceiveData {
-        self.wlt_mut()
-            .blind_receive(
-                asset_id,
-                Assignment::Any,
-                expiration.unwrap_or_else(default_rcv_expiration),
-                TRANSPORT_ENDPOINTS.clone(),
-                MIN_CONFIRMATIONS,
-            )
-            .unwrap()
-    }
-
-    #[cfg(feature = "_online")]
-    fn blind_receive_result(&mut self) -> Result<ReceiveData, Error> {
-        self.wlt_mut().blind_receive(
-            None,
-            Assignment::Any,
-            default_rcv_expiration(),
-            TRANSPORT_ENDPOINTS.clone(),
-            MIN_CONFIRMATIONS,
-        )
-    }
-
-    #[cfg(feature = "electrum")]
-    fn blind_receive_with_endpoints(
-        &mut self,
-        expiration: Option<u64>,
-        transport_endpoints: Vec<String>,
-    ) -> ReceiveData {
-        self.wlt_mut()
-            .blind_receive(
-                None,
-                Assignment::Any,
-                expiration.unwrap_or_else(default_rcv_expiration),
-                transport_endpoints,
-                MIN_CONFIRMATIONS,
-            )
-            .unwrap()
     }
 
     fn get_address(&mut self) -> String {
@@ -1260,22 +1262,87 @@ impl<T: OfflineSigParty<W = Wallet>> SinglesigWalletParty for T {
                 .collect(),
         )
     }
+}
 
-    fn witness_receive(&mut self) -> ReceiveData {
-        self.wlt_mut()
+#[cfg(feature = "_online")]
+impl SinglesigParty {
+    /// Go online again with the same indexer, setting the given proxy authentication keys
+    #[cfg(feature = "electrum")]
+    pub(crate) fn set_proxy_auth_keys(&mut self, proxy_auth_keys: HashMap<String, String>) {
+        let mut online_options = test_go_online_options(None);
+        online_options.proxy_auth_keys = proxy_auth_keys;
+        let online = self.wallet.go_online(online_options).unwrap();
+        assert_eq!(online, self.online);
+    }
+
+    pub(crate) fn blind_receive(&mut self) -> ReceiveData {
+        self.blind_receive_result().unwrap()
+    }
+
+    #[cfg(feature = "electrum")]
+    pub(crate) fn blind_receive_asset_expiry(
+        &mut self,
+        asset_id: Option<String>,
+        expiration: Option<u64>,
+    ) -> ReceiveData {
+        self.wallet
+            .blind_receive(
+                Some(self.online),
+                asset_id,
+                Assignment::Any,
+                expiration.unwrap_or_else(default_rcv_expiration),
+                TRANSPORT_ENDPOINTS.clone(),
+                MIN_CONFIRMATIONS,
+                None,
+            )
+            .unwrap()
+    }
+
+    pub(crate) fn blind_receive_result(&mut self) -> Result<ReceiveData, Error> {
+        self.wallet.blind_receive(
+            Some(self.online),
+            None,
+            Assignment::Any,
+            default_rcv_expiration(),
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+            None,
+        )
+    }
+
+    #[cfg(feature = "electrum")]
+    pub(crate) fn blind_receive_with_endpoints(
+        &mut self,
+        expiration: Option<u64>,
+        transport_endpoints: Vec<String>,
+    ) -> ReceiveData {
+        self.wallet
+            .blind_receive(
+                Some(self.online),
+                None,
+                Assignment::Any,
+                expiration.unwrap_or_else(default_rcv_expiration),
+                transport_endpoints,
+                MIN_CONFIRMATIONS,
+                None,
+            )
+            .unwrap()
+    }
+
+    pub(crate) fn witness_receive(&mut self) -> ReceiveData {
+        self.wallet
             .witness_receive(
+                Some(self.online),
                 None,
                 Assignment::Any,
                 default_rcv_expiration(),
                 TRANSPORT_ENDPOINTS.clone(),
                 MIN_CONFIRMATIONS,
+                None,
             )
             .unwrap()
     }
-}
 
-#[cfg(feature = "_online")]
-impl SinglesigParty {
     #[cfg(feature = "electrum")]
     pub(crate) fn get_keys(&self) -> SinglesigKeys {
         self.wallet.get_keys()
@@ -1457,7 +1524,17 @@ impl SinglesigParty {
 
     #[cfg(feature = "_online")]
     pub(crate) fn refresh_all(&mut self) -> bool {
-        self.refresh_result(None, &[]).unwrap().transfers_changed()
+        let res = self.refresh_result(None, &[]).unwrap();
+        let mut changed = res.transfers_changed();
+        // a batch recipient that ACKs before the last one moves to WaitingBroadcast; do one more
+        // pass so it can pick up the released TX and reach WaitingConfirmations
+        if res
+            .iter()
+            .any(|(_, rt)| rt.updated_status == Some(TransferStatus::WaitingBroadcast))
+        {
+            changed |= self.refresh_result(None, &[]).unwrap().transfers_changed();
+        }
+        changed
     }
 
     #[cfg(feature = "electrum")]
@@ -1473,6 +1550,9 @@ impl SinglesigParty {
             vec![Recipient {
                 assignment,
                 recipient_id: receive_data.recipient_id.clone(),
+                public_key: Some(receive_data.public_key.clone()),
+                expiration_timestamp: Some(receive_data.expiration_timestamp),
+                encryption: Encryption::Optional,
                 witness_data: Some(WitnessData {
                     amount_sat: 1000,
                     blinding: None,
@@ -1503,7 +1583,7 @@ impl SinglesigParty {
             )
             .unwrap();
         stock
-            .import_contract(valid_contract, rcv_party.wallet.blockchain_resolver())
+            .import_contract(valid_contract, &rcv_party.wallet.blockchain_resolver())
             .unwrap();
         txn.commit().unwrap();
 
@@ -1552,6 +1632,7 @@ impl SinglesigParty {
             FEE_RATE,
             MIN_CONFIRMATIONS,
             default_send_expiration(),
+            Some(PROXY_ENDPOINT.clone()),
         )
     }
 
@@ -1567,6 +1648,7 @@ impl SinglesigParty {
             FEE_RATE,
             MIN_CONFIRMATIONS,
             default_send_expiration(),
+            Some(PROXY_ENDPOINT.clone()),
             false,
         )
     }
@@ -1618,6 +1700,7 @@ impl SinglesigParty {
                 fee_rate,
                 MIN_CONFIRMATIONS,
                 expiration_timestamp.unwrap_or_else(default_send_expiration),
+                Some(PROXY_ENDPOINT.clone()),
             )
             .unwrap()
     }

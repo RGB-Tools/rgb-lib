@@ -81,11 +81,27 @@ impl DbBatchTransfer {
     }
 
     #[cfg(feature = "_online")]
+    /// Whether the transfer was created before the proxy protocol v1.0 (sender proxy, signed
+    /// ACKs, encryption): such a transfer has no operation key and, since the protocol keeps no
+    /// backward compatibility, can no longer be completed through a proxy.
+    pub(crate) fn is_legacy(&self) -> bool {
+        self.operation_secret_key.is_none()
+    }
+
+    #[cfg(feature = "_online")]
     /// Whether the transfer has expired at `now`. Only operations with a counterparty (sends and
     /// receives) carry an expiration, which the public API requires; the ones without (burn,
     /// inflation) have none and never expire, as they are broadcast right away and wait for nobody.
     pub(crate) fn is_expired(&self, now: i64) -> bool {
         self.expiration.is_some_and(|expiration| expiration < now)
+    }
+
+    #[cfg(feature = "_online")]
+    /// Whether the transfer expiration has passed at `now` by more than `margin` seconds, so it has
+    /// passed for a counterparty whose clock is up to `margin` seconds behind this wallet's too.
+    pub(crate) fn is_expired_with_margin(&self, now: i64, margin: u32) -> bool {
+        self.expiration
+            .is_some_and(|expiration| expiration + i64::from(margin) < now)
     }
 
     #[cfg(feature = "_online")]
@@ -820,6 +836,29 @@ impl DbTxn {
 
     pub(crate) fn iter_wallet_transactions(&self) -> Result<Vec<DbWalletTransaction>, Error> {
         Ok(block_on(WalletTransaction::find().all(self.inner()))?)
+    }
+
+    // helper to retrieve transfers for an asset without scanning the full tables
+    #[cfg(feature = "_online")]
+    pub(crate) fn get_transfers_for_asset(
+        &self,
+        batch_transfer_idx: i32,
+        asset_id: &str,
+    ) -> Result<Vec<DbTransfer>, Error> {
+        let Some(asset_transfer) = block_on(
+            AssetTransfer::find()
+                .filter(asset_transfer::Column::BatchTransferIdx.eq(batch_transfer_idx))
+                .filter(asset_transfer::Column::AssetId.eq(asset_id))
+                .one(self.inner()),
+        )?
+        else {
+            return Ok(vec![]);
+        };
+        Ok(block_on(
+            Transfer::find()
+                .filter(transfer::Column::AssetTransferIdx.eq(asset_transfer.idx))
+                .all(self.inner()),
+        )?)
     }
 
     pub(crate) fn get_transfer_transport_endpoints_data(

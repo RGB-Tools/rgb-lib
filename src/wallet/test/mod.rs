@@ -37,6 +37,8 @@ use time::OffsetDateTime;
 use super::*;
 
 #[cfg(feature = "electrum")]
+use crate::encryption::ENC_VERSION;
+#[cfg(feature = "electrum")]
 use crate::keys::Keys;
 #[cfg(all(feature = "electrum", feature = "rgb_fs_store_migration"))]
 use crate::keys::restore_keys;
@@ -82,6 +84,17 @@ const PROXY_URL: &str = "http://127.0.0.1:3000/json-rpc";
 const PROXY_URL_MOD_API: &str = "http://127.0.0.1:3002/json-rpc";
 #[cfg(feature = "electrum")]
 const PROXY_URL_MOD_PROTO: &str = "http://127.0.0.1:3001/json-rpc";
+#[cfg(feature = "electrum")]
+const PROXY_HOST_AUTH: &str = "127.0.0.1:3003/json-rpc";
+#[cfg(feature = "electrum")]
+const PROXY_URL_AUTH: &str = "http://127.0.0.1:3003/json-rpc";
+#[cfg(feature = "electrum")]
+static PROXY_ENDPOINT_AUTH: Lazy<String> = Lazy::new(|| format!("rpc://{PROXY_HOST_AUTH}"));
+// Ed25519 key pair authenticating calls to the proxy-auth service (see tests/compose.yaml)
+#[cfg(feature = "electrum")]
+const PROXY_AUTH_SEED: &str = "c01959890b0f215ff37637c58762a4eab0a2ec8be09c6a8436034c8f34b1c07e";
+#[cfg(feature = "electrum")]
+const PROXY_AUTH_PUBKEY: &str = "0738ae88b5bfc7f915b809937573aa51d3bf00cce2edb5795b99f682d4065f07";
 static TRANSPORT_ENDPOINTS: Lazy<Vec<String>> = Lazy::new(|| vec![PROXY_ENDPOINT.clone()]);
 #[cfg(feature = "bitcoind")]
 const BITCOIND_URL: &str = "http://127.0.0.1:18443";
@@ -148,6 +161,8 @@ const FAKE_TXID: &str = "e5a3e577309df31bd606f48049049d2e1e02b048206ba232944fcc0
 #[cfg(feature = "electrum")]
 const FAKE_OUTPOINT: &str = "e5a3e577309df31bd606f48049049d2e1e02b048206ba232944fcc053a176ccb:0";
 #[cfg(feature = "electrum")]
+const FAKE_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+#[cfg(feature = "electrum")]
 const UNKNOWN_IDX: i32 = 9999;
 #[cfg(feature = "electrum")]
 const TINY_BTC_AMOUNT: u32 = 330;
@@ -198,10 +213,14 @@ thread_local! {
     pub(crate) static MOCK_INPUT_UNSPENTS: RefCell<Vec<LocalUnspent>> = const { RefCell::new(vec![]) };
     pub(crate) static MOCK_SKIP_BUILD_DAG: RefCell<Option<()>> = const { RefCell::new(None) };
     pub(crate) static MOCK_SPV_ONLY: RefCell<bool> = const { RefCell::new(false) };
-    pub(crate) static MOCK_VOUT: RefCell<Option<u32>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_CHAIN_TXS: RefCell<HashMap<String, (BdkTransaction, u32)>> = RefCell::new(HashMap::new());
     pub(crate) static MOCK_LOCAL_VERSION: RefCell<Option<String>> = const { RefCell::new(None) };
     pub(crate) static MOCK_SEND_END_CRASH: RefCell<Option<()>> = const { RefCell::new(None) };
     pub(crate) static MOCK_STRIP_TERMINALS: RefCell<Option<()>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_CLOCK_SKEW_MARGIN: RefCell<Option<u32>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_RETENTION_GRACE: RefCell<Option<u32>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_MIN_RETENTION_GRACE: RefCell<Option<u32>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_CONFIRMATION_MARGIN: RefCell<Option<u32>> = const { RefCell::new(None) };
 }
 
 #[cfg(feature = "_online")]
@@ -225,9 +244,10 @@ pub fn initialize() {
     });
 }
 
+/// Recreate a test service from scratch, dropping its data: its container and, if any, the named
+/// volumes it persists to.
 #[cfg(feature = "electrum")]
-pub fn restart_multisig_hub() {
-    let service_name = "rgb-multisig-hub";
+fn recreate_service(service_name: &str, volumes: &[&str]) {
     let cmd_base = vec![s!("-f"), ["tests", "compose.yaml"].join(MAIN_SEPARATOR_STR)];
     let mut cmd = cmd_base.clone();
     cmd.extend([
@@ -244,16 +264,18 @@ pub fn restart_multisig_hub() {
         .arg("compose")
         .args(&cmd)
         .output()
-        .expect("failed to remove hub service");
-    Command::new("docker")
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .stdout(Stdio::null())
-        .arg("volume")
-        .arg("rm")
-        .arg("tests_hub")
-        .output()
-        .expect("failed to remove hub volume");
+        .unwrap_or_else(|_| panic!("failed to remove {service_name} service"));
+    for volume in volumes {
+        Command::new("docker")
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .stdout(Stdio::null())
+            .arg("volume")
+            .arg("rm")
+            .arg(volume)
+            .output()
+            .unwrap_or_else(|_| panic!("failed to remove {volume} volume"));
+    }
     let mut cmd = cmd_base.clone();
     cmd.extend([s!("up"), s!("-d"), service_name.to_string()]);
     Command::new("docker")
@@ -263,7 +285,27 @@ pub fn restart_multisig_hub() {
         .arg("compose")
         .args(&cmd)
         .output()
-        .expect("failed to start hub service");
+        .unwrap_or_else(|_| panic!("failed to start {service_name} service"));
+}
+
+#[cfg(feature = "electrum")]
+pub fn restart_multisig_hub() {
+    recreate_service("rgb-multisig-hub", &["tests_hub"]);
+}
+
+/// Reset the proxy, dropping all its data (reservations, consignments and operations), and wait
+/// for it to serve requests again.
+#[cfg(feature = "electrum")]
+pub fn reset_proxy() {
+    recreate_service("proxy", &[]);
+    let start = Instant::now();
+    while check_proxy_url(PROXY_URL).is_err() {
+        assert!(
+            start.elapsed() < Duration::from_secs(60),
+            "timeout waiting for the proxy to restart"
+        );
+        std::thread::sleep(Duration::from_millis(500));
+    }
 }
 
 // the get_*_wallet! macros can be called with no arguments to use defaults
@@ -393,6 +435,11 @@ pub fn skip_build_dag() -> bool {
 }
 
 #[cfg(feature = "_online")]
+pub fn mock_chain_tx(txid: &str) -> Option<(BdkTransaction, u32)> {
+    MOCK_CHAIN_TXS.with_borrow(|m| m.get(txid).cloned())
+}
+
+#[cfg(feature = "_online")]
 pub fn spv_only() -> bool {
     let spv_only = MOCK_SPV_ONLY.with_borrow(|s| *s);
     if spv_only {
@@ -411,6 +458,32 @@ pub fn strip_terminals() -> bool {
     }
 }
 
+/// Clock skew margin (seconds) to use instead of `PROXY_CLOCK_SKEW_MARGIN_SECS`, if set.
+#[cfg(feature = "_online")]
+pub fn mock_clock_skew_margin() -> Option<u32> {
+    MOCK_CLOCK_SKEW_MARGIN.with_borrow(|m| *m)
+}
+
+/// Sender proxy retention grace (seconds) to use instead of the one advertised by the proxy, if
+/// set.
+#[cfg(feature = "_online")]
+pub fn mock_retention_grace() -> Option<u32> {
+    MOCK_RETENTION_GRACE.with_borrow(|m| *m)
+}
+
+/// Minimum sender proxy retention grace (seconds) to use instead of
+/// `MIN_SENDER_RETENTION_GRACE_SECS`, if set.
+#[cfg(feature = "_online")]
+pub fn mock_min_retention_grace() -> Option<u32> {
+    MOCK_MIN_RETENTION_GRACE.with_borrow(|m| *m)
+}
+
+/// Confirmation margin (seconds) to use instead of `CONFIRMATION_MARGIN_SECS`, if set.
+#[cfg(feature = "_online")]
+pub fn mock_confirmation_margin() -> Option<u32> {
+    MOCK_CONFIRMATION_MARGIN.with_borrow(|m| *m)
+}
+
 #[cfg(feature = "_online")]
 pub fn mock_send_end_crash() -> bool {
     if MOCK_SEND_END_CRASH.take().is_none() {
@@ -418,18 +491,6 @@ pub fn mock_send_end_crash() -> bool {
     } else {
         println!("simulating send_end crash (mock)");
         true
-    }
-}
-
-#[cfg(feature = "_online")]
-pub fn mock_vout(vout: Option<u32>) -> Option<u32> {
-    let mock = MOCK_VOUT.take();
-    if mock.is_some() {
-        println!("mocking vout");
-        assert_ne!(mock, vout);
-        mock
-    } else {
-        vout
     }
 }
 

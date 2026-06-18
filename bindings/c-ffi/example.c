@@ -101,7 +101,8 @@ int main(int argc, char *argv[]) {
         "{ \"indexer_config\": { \"Electrum\": { \"url\": "
         "\"tcp://localhost:50001\" } }, "
         "\"skip_consistency_check\": false, \"vanilla_sync_lookback\": 20, "
-        "\"failed_witness_receive_grace_secs\": 604800 }";
+        "\"failed_witness_receive_grace_secs\": 604800, "
+        "\"proxy_auth_keys\": {} }";
     CResultString online_res = rgblib_go_online(wlt, online_options);
     if (online_res.result == Err) {
         printf("ERR: %s\n", online_res.inner);
@@ -180,7 +181,8 @@ int main(int argc, char *argv[]) {
     char expiration_timestamp[32];
     sprintf(expiration_timestamp, "%lld", (long long)time(NULL) + 86400);
     CResultString receive_data_res = rgblib_blind_receive(
-        wlt, NULL, assignment, expiration_timestamp, transport_endpoints, "1");
+        wlt, online, NULL, assignment, expiration_timestamp,
+        transport_endpoints, "1", NULL);
     if (receive_data_res.result == Ok) {
         printf("Receive data: %s\n", receive_data_res.inner);
     } else {

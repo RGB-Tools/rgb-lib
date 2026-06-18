@@ -90,12 +90,23 @@ pub enum Error {
         details: String,
     },
 
+    /// Two proxy authentication key entries resolve to the same proxy URL
+    #[error("Duplicate proxy authentication key: {details}")]
+    DuplicateProxyAuthKey {
+        /// Error details
+        details: String,
+    },
+
     /// The provided file is empty
     #[error("Empty file: {file_path}")]
     EmptyFile {
         /// File path
         file_path: String,
     },
+
+    /// The provided expiration is invalid (in the past or too far in the future)
+    #[error("Invalid expiration")]
+    ExpirationInvalid,
 
     /// Syncing BDK with the blockchain has failed
     #[error("Failed bdk sync: {details}")]
@@ -128,6 +139,10 @@ pub enum Error {
     /// The master fingerprint derived from the mnemonic doesn't match the provided one
     #[error("Fingerprint mismatch")]
     FingerprintMismatch,
+
+    /// A proxy payload, decrypted if it was encrypted, doesn't match its expected hash
+    #[error("Hash mismatch")]
+    HashMismatch,
 
     /// An I/O error has been encountered
     #[error("I/O error: {details}")]
@@ -243,6 +258,10 @@ pub enum Error {
     #[error("Invalid consignment")]
     InvalidConsignment,
 
+    /// The content signature was rejected as invalid
+    #[error("Invalid content signature")]
+    InvalidContentSignature,
+
     /// The provided cosigner is invalid
     #[error("Invalid cosigner: {details}")]
     InvalidCosigner {
@@ -268,6 +287,17 @@ pub enum Error {
         /// Error details
         details: String,
     },
+
+    /// A proxy payload is malformed or cannot be decrypted
+    #[error("Invalid encrypted blob: {details}")]
+    InvalidEncryptedBlob {
+        /// Error details
+        details: String,
+    },
+
+    /// The endpoint signature was rejected as invalid
+    #[error("Invalid endpoint auth signature")]
+    InvalidEndpointAuthSignature,
 
     /// Trying to request fee estimation for an invalid block number, it must be between 1 and 1008
     #[error("Trying to request fee estimation for an invalid block number")]
@@ -338,6 +368,17 @@ pub enum Error {
         /// Error details
         details: String,
     },
+
+    /// The provided proxy authentication key is invalid
+    #[error("Invalid proxy authentication key: {details}")]
+    InvalidProxyAuthKey {
+        /// Error details
+        details: String,
+    },
+
+    /// The proxy auth signature was rejected as invalid
+    #[error("Invalid proxy auth signature")]
+    InvalidProxyAuthSignature,
 
     /// The provided proxy URL points to a proxy running an unsupported protocol version
     #[error("Invalid proxy protocol version: {version}")]
@@ -422,6 +463,19 @@ pub enum Error {
         witness_version: String,
     },
 
+    /// The recipient proxy refused the transfer as the invoice has expired, or the invoice
+    /// expiration has passed before the transfer could be created
+    #[error("Invoice expired")]
+    InvoiceExpired,
+
+    /// The invoice has not been reserved on the recipient proxy
+    #[error("Invoice not reserved")]
+    InvoiceNotReserved,
+
+    /// The invoice cannot accept more transfers on the recipient proxy
+    #[error("Invoice quota exceeded")]
+    InvoiceQuotaExceeded,
+
     /// The maximum fee has been exceeded
     #[error("Max fee exceeded for transfer with TXID: {txid}")]
     MaxFeeExceeded {
@@ -455,6 +509,16 @@ pub enum Error {
     MultisigHubService {
         /// Error details
         details: String,
+    },
+
+    /// The operation was created with the previous proxy protocol and cannot be processed; the
+    /// hub sync does not move past it, as the group must be drained with the previous version
+    #[error(
+        "Operation with idx {operation_idx} was created with the previous proxy protocol, the group must be drained with the previous version"
+    )]
+    MultisigLegacyOperation {
+        /// Operation idx
+        operation_idx: i32,
     },
 
     /// Cannot initiate a new operation while another is in progress
@@ -518,6 +582,10 @@ pub enum Error {
     #[error("Cannot allocate assets with zero allocations per UTXO")]
     NoMaxAllocationsPerUtxo,
 
+    /// No media found
+    #[error("No media found")]
+    NoMedia,
+
     /// Cannot create a wallet with no supported schemas
     #[error("Cannot create a wallet with no supported schemas")]
     NoSupportedSchemas,
@@ -534,6 +602,14 @@ pub enum Error {
     #[error("The Online object is needed to perform this operation")]
     OnlineNeeded,
 
+    /// The proxy operation has expired
+    #[error("Operation expired")]
+    OperationExpired,
+
+    /// The proxy operation was not found
+    #[error("Operation not found")]
+    OperationNotFound,
+
     /// Output created is under the dust limit
     #[error("Output below the dust limit")]
     OutputBelowDustLimit,
@@ -544,6 +620,25 @@ pub enum Error {
         /// Error details
         details: String,
     },
+
+    /// The proxy rejected a change to immutable operation data
+    #[error("Proxy cannot change: {details}")]
+    ProxyCannotChange {
+        /// Error details
+        details: String,
+    },
+
+    /// The proxy is draining and doesn't accept new transfers
+    #[error("Proxy draining")]
+    ProxyDraining,
+
+    /// The proxy doesn't accept any more media for the transfer
+    #[error("Proxy doesn't accept so many media")]
+    ProxyTooManyMedia,
+
+    /// The signed TX was already released to a recipient, so it can no longer be revoked
+    #[error("TX already released")]
+    ProxyTxAlreadyReleased,
 
     /// Error during PSBT inspection
     #[error("Error during PSBT inspection: {details}")]
@@ -581,6 +676,10 @@ pub enum Error {
         details: String,
     },
 
+    /// The proxy's registered signed TX for this operation was previously cleared
+    #[error("Signed TX was cleared")]
+    SignedTxCleared,
+
     /// The inflation amount exceeds the max possible supply
     #[error("The inflation amount exceeds the max possible supply")]
     TooHighInflationAmounts,
@@ -596,6 +695,14 @@ pub enum Error {
     /// PSBT has too many signatures
     #[error("PSBT has too many signatures")]
     TooManySignaturesInPsbt,
+
+    /// The transfer ID has been deleted on the recipient proxy and cannot be reused
+    #[error("Transfer ID deleted")]
+    TransferIDDeleted,
+
+    /// The transfer ID is already in use by a different operation on the sender proxy
+    #[error("Transfer ID in use")]
+    TransferIDInUse,
 
     /// The detected RGB schema is unknown
     #[error("Unknown RGB schema: {schema_id}")]
