@@ -213,3 +213,534 @@ impl Indexer {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    const TEST_TXID: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+
+    #[cfg(feature = "electrum")]
+    const GENESIS_HEADER_HEX: &str = "0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a29ab5f49ffff001d1dac2b7c";
+
+    #[cfg(feature = "electrum")]
+    fn electrum_indexer(url: &str) -> Indexer {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        let opts = ConfigBuilder::new().retry(0).timeout(Some(1)).build();
+        let client = ElectrumClient::from_config(url, opts).expect("electrum client");
+        Indexer::Electrum(Box::new(BdkElectrumClient::new(client)))
+    }
+
+    #[cfg(feature = "esplora")]
+    fn esplora_indexer(url: &str) -> Indexer {
+        let opts = EsploraBuilder::new(url).max_retries(0).timeout(1);
+        Indexer::Esplora(Box::new(EsploraClient::from_builder(opts)))
+    }
+
+    #[cfg(feature = "electrum")]
+    fn electrum_tx_get_result(req: &serde_json::Value, result: &str) -> String {
+        format!(
+            r#"{{"jsonrpc":"2.0","id":{},"result":{result}}}"#,
+            req["id"]
+        )
+    }
+
+    #[cfg(feature = "electrum")]
+    fn electrum_tx_get_error(req: &serde_json::Value, message: &str) -> String {
+        format!(
+            r#"{{"jsonrpc":"2.0","id":{},"error":{{"code":-32603,"message":"{message}"}}}}"#,
+            req["id"]
+        )
+    }
+
+    #[cfg(feature = "electrum")]
+    fn start_electrum_mock(
+        handler: impl Fn(&str, &serde_json::Value) -> String + Send + 'static,
+    ) -> (String, std::thread::JoinHandle<()>) {
+        use std::io::{BufRead, BufReader, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock electrum");
+        let port = listener.local_addr().expect("mock electrum addr").port();
+        let url = format!("tcp://127.0.0.1:{port}");
+
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("mock electrum accept");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone mock stream"));
+            let mut line = String::new();
+            reader
+                .read_line(&mut line)
+                .expect("read mock electrum request");
+            let req: serde_json::Value =
+                serde_json::from_str(line.trim()).expect("parse mock electrum request");
+            let method = req["method"]
+                .as_str()
+                .expect("mock electrum request method");
+            let id = req["id"].clone();
+            let response = handler(method, &req);
+            if response.is_empty() {
+                return;
+            }
+            let body = if response.starts_with('{') {
+                response
+            } else {
+                format!(r#"{{"jsonrpc":"2.0","id":{id},"result":{response}}}"#)
+            };
+            let _ = writeln!(stream, "{body}");
+        });
+
+        (url, handle)
+    }
+
+    #[cfg(feature = "esplora")]
+    fn assert_fee_rate_approx(actual: f64, expected: f64) {
+        assert!(
+            (actual - expected).abs() < 1e-9,
+            "expected {expected}, got {actual}"
+        );
+    }
+
+    #[cfg(feature = "esplora")]
+    fn run_esplora_fee_estimation_case(
+        fee_estimates_body: &str,
+        blocks: u16,
+    ) -> Result<f64, Error> {
+        let mut server = mockito::Server::new();
+        let mock = server
+            .mock("GET", "/fee-estimates")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(fee_estimates_body)
+            .create();
+
+        let result = esplora_indexer(&server.url()).fee_estimation(blocks);
+        mock.assert();
+        result
+    }
+
+    #[cfg(feature = "esplora")]
+    fn minimal_tx_raw_bytes() -> Vec<u8> {
+        use bdk_wallet::bitcoin::{
+            Amount, OutPoint, ScriptBuf, Sequence, TxIn, TxOut, Witness, absolute::LockTime,
+            transaction::Version,
+        };
+
+        let tx = BdkTransaction {
+            version: Version::TWO,
+            lock_time: LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: OutPoint::null(),
+                script_sig: ScriptBuf::new(),
+                sequence: Sequence::MAX,
+                witness: Witness::new(),
+            }],
+            output: vec![TxOut {
+                value: Amount::from_sat(50_000_000_000),
+                script_pubkey: ScriptBuf::new(),
+            }],
+        };
+        bdk_wallet::bitcoin::consensus::encode::serialize(&tx)
+    }
+
+    #[cfg(feature = "esplora")]
+    fn run_esplora_get_tx_confirmations_case(
+        txid: &str,
+        status_body: &str,
+        tip_height: Option<u32>,
+        raw_tx: Option<Option<Vec<u8>>>,
+    ) -> Result<Option<u64>, Error> {
+        let mut server = mockito::Server::new();
+        let mock_status = server
+            .mock("GET", format!("/tx/{txid}/status").as_str())
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(status_body)
+            .create();
+
+        let mock_height = tip_height.map(|height| {
+            server
+                .mock("GET", "/blocks/tip/height")
+                .with_status(200)
+                .with_header("content-type", "text/plain")
+                .with_body(height.to_string())
+                .create()
+        });
+
+        let mock_raw = raw_tx.map(|raw_tx| {
+            let mock = server.mock("GET", format!("/tx/{txid}/raw").as_str());
+            match raw_tx {
+                Some(bytes) => mock
+                    .with_status(200)
+                    .with_header("content-type", "application/octet-stream")
+                    .with_body(bytes)
+                    .create(),
+                None => mock.with_status(404).create(),
+            }
+        });
+
+        let result = esplora_indexer(&server.url()).get_tx_confirmations(txid);
+
+        mock_status.assert();
+        if let Some(mock) = mock_height {
+            mock.assert();
+        }
+        if let Some(mock) = mock_raw {
+            mock.assert();
+        }
+
+        result
+    }
+
+    #[cfg(feature = "electrum")]
+    #[test]
+    fn test_electrum_fee_estimation_unavailable() {
+        let (url, handle) = start_electrum_mock(|method, _| {
+            assert_eq!(method, "blockchain.estimatefee");
+            "-1.0".into()
+        });
+        let indexer = electrum_indexer(&url);
+
+        let res = indexer.fee_estimation(6).unwrap_err();
+        assert_matches!(res, Error::CannotEstimateFees);
+        handle.join().expect("mock electrum thread");
+    }
+
+    #[cfg(feature = "electrum")]
+    #[test]
+    fn test_electrum_fee_estimation_protocol_error() {
+        let (url, handle) = start_electrum_mock(|method, req| {
+            assert_eq!(method, "blockchain.estimatefee");
+            format!(
+                r#"{{"jsonrpc":"2.0","id":{},"error":{{"code":-32603,"message":"internal error"}}}}"#,
+                req["id"]
+            )
+        });
+        let indexer = electrum_indexer(&url);
+
+        let res = indexer.fee_estimation(6).unwrap_err();
+        assert_matches!(res, Error::Indexer { .. });
+        handle.join().expect("mock electrum thread");
+    }
+
+    #[cfg(feature = "electrum")]
+    #[test]
+    fn test_electrum_fee_estimation_success() {
+        let (url, handle) = start_electrum_mock(|method, req| {
+            assert_eq!(method, "blockchain.estimatefee");
+            assert_eq!(req["params"], serde_json::json!([6]));
+            "0.0001".into()
+        });
+        let indexer = electrum_indexer(&url);
+
+        let res = indexer.fee_estimation(6).unwrap();
+        assert_eq!(res, 10.0);
+        handle.join().expect("mock electrum thread");
+    }
+
+    #[cfg(feature = "electrum")]
+    #[test]
+    fn test_electrum_get_tx_confirmations_not_found() {
+        let (url, handle) = start_electrum_mock(|method, req| {
+            assert_eq!(method, "blockchain.transaction.get");
+            assert_eq!(req["params"], serde_json::json!([TEST_TXID, true]));
+            electrum_tx_get_error(req, "No such mempool or blockchain transaction")
+        });
+        let indexer = electrum_indexer(&url);
+
+        let res = indexer.get_tx_confirmations(TEST_TXID).unwrap();
+        assert_eq!(res, None);
+        handle.join().expect("mock electrum thread");
+    }
+
+    #[cfg(feature = "electrum")]
+    #[test]
+    fn test_electrum_get_tx_confirmations_confirmed() {
+        let (url, handle) = start_electrum_mock(|method, req| {
+            assert_eq!(method, "blockchain.transaction.get");
+            electrum_tx_get_result(req, r#"{"confirmations":42,"hex":"00"}"#)
+        });
+        let indexer = electrum_indexer(&url);
+
+        let res = indexer.get_tx_confirmations(TEST_TXID).unwrap();
+        assert_eq!(res, Some(42));
+        handle.join().expect("mock electrum thread");
+    }
+
+    #[cfg(feature = "electrum")]
+    #[test]
+    fn test_electrum_get_tx_confirmations_mempool() {
+        let (url, handle) = start_electrum_mock(|method, req| {
+            assert_eq!(method, "blockchain.transaction.get");
+            electrum_tx_get_result(req, r#"{"hex":"00"}"#)
+        });
+        let indexer = electrum_indexer(&url);
+
+        let res = indexer.get_tx_confirmations(TEST_TXID).unwrap();
+        assert_eq!(res, Some(0));
+        handle.join().expect("mock electrum thread");
+    }
+
+    #[cfg(feature = "electrum")]
+    #[test]
+    fn test_electrum_get_tx_confirmations_genesis_coinbase() {
+        let (url, handle) = start_electrum_mock(|method, req| {
+            assert_eq!(method, "blockchain.transaction.get");
+            electrum_tx_get_error(
+                req,
+                "genesis block coinbase is not considered an ordinary transaction",
+            )
+        });
+        let indexer = electrum_indexer(&url);
+
+        let res = indexer.get_tx_confirmations(TEST_TXID).unwrap();
+        assert_eq!(res, Some(u64::MAX));
+        handle.join().expect("mock electrum thread");
+    }
+
+    #[cfg(feature = "electrum")]
+    #[test]
+    fn test_electrum_get_tx_confirmations_protocol_error() {
+        let (url, handle) = start_electrum_mock(|method, req| {
+            assert_eq!(method, "blockchain.transaction.get");
+            electrum_tx_get_error(req, "internal error")
+        });
+        let indexer = electrum_indexer(&url);
+
+        let res = indexer.get_tx_confirmations(TEST_TXID).unwrap_err();
+        assert_matches!(res, Error::Indexer { .. });
+        handle.join().expect("mock electrum thread");
+    }
+
+    #[cfg(feature = "electrum")]
+    #[test]
+    fn test_electrum_network_error() {
+        let (url, handle) = start_electrum_mock(|_, _| String::new());
+        let indexer = electrum_indexer(&url);
+
+        let res = indexer.get_latest_block_height().unwrap_err();
+        assert_matches!(res, Error::Indexer { .. });
+        handle.join().expect("mock electrum thread");
+    }
+
+    #[cfg(feature = "electrum")]
+    #[test]
+    fn test_electrum_invalid_height_response() {
+        let (url, handle) = start_electrum_mock(|method, req| {
+            assert_eq!(method, "blockchain.headers.subscribe");
+            format!(
+                r#"{{"jsonrpc":"2.0","id":{},"result":{{"height":{},"hex":"{GENESIS_HEADER_HEX}"}}}}"#,
+                req["id"],
+                u64::from(u32::MAX) + 1
+            )
+        });
+        let indexer = electrum_indexer(&url);
+
+        let res = indexer.get_latest_block_height().unwrap_err();
+        assert_matches!(
+            res,
+            Error::Indexer { details } if details.contains("electrs returned invalid height")
+        );
+        handle.join().expect("mock electrum thread");
+    }
+
+    #[cfg(feature = "electrum")]
+    #[test]
+    fn test_electrum_broadcast_failure() {
+        let (url, handle) = start_electrum_mock(|method, req| {
+            assert_eq!(method, "blockchain.transaction.broadcast");
+            format!(
+                r#"{{"jsonrpc":"2.0","id":{},"error":{{"code":-32603,"message":"broadcast failed"}}}}"#,
+                req["id"]
+            )
+        });
+        let indexer = electrum_indexer(&url);
+
+        let tx = BdkTransaction {
+            version: bdk_wallet::bitcoin::transaction::Version::TWO,
+            lock_time: bdk_wallet::bitcoin::locktime::absolute::LockTime::ZERO,
+            input: vec![],
+            output: vec![],
+        };
+        let res = indexer.broadcast(&tx).unwrap_err();
+        assert_matches!(res, IndexerError::Electrum { .. });
+        handle.join().expect("mock electrum thread");
+    }
+
+    #[cfg(feature = "esplora")]
+    #[test]
+    fn test_esplora_fee_estimation_empty_estimates() {
+        let res = run_esplora_fee_estimation_case("{}", 6).unwrap_err();
+        assert_matches!(res, Error::CannotEstimateFees);
+    }
+
+    #[cfg(feature = "esplora")]
+    #[test]
+    fn test_esplora_fee_estimation_exact_match() {
+        let res = run_esplora_fee_estimation_case(r#"{"6": 7.5}"#, 6).unwrap();
+        assert_eq!(res, 7.5);
+    }
+
+    #[cfg(feature = "esplora")]
+    #[test]
+    fn test_esplora_fee_estimation_interpolation() {
+        // no exact fee-estimate key; interpolate between lower and upper bounds
+        // fee decreases between bounds
+        let res = run_esplora_fee_estimation_case(r#"{"1": 10.0, "10": 2.0}"#, 6).unwrap();
+        assert_fee_rate_approx(res, 50.0 / 9.0);
+
+        // fee increases between bounds
+        let res = run_esplora_fee_estimation_case(r#"{"1": 2.0, "10": 10.0}"#, 6).unwrap();
+        assert_fee_rate_approx(res, 58.0 / 9.0);
+
+        // at the lower bound side of the interval
+        let res = run_esplora_fee_estimation_case(r#"{"1": 10.0, "10": 2.0}"#, 2).unwrap();
+        assert_fee_rate_approx(res, 82.0 / 9.0);
+
+        // at the upper bound side of the interval
+        let res = run_esplora_fee_estimation_case(r#"{"1": 10.0, "10": 2.0}"#, 9).unwrap();
+        assert_fee_rate_approx(res, 26.0 / 9.0);
+
+        // blocks above the highest key: lower bound only
+        let res = run_esplora_fee_estimation_case(r#"{"1": 10.0, "3": 5.0}"#, 6).unwrap_err();
+        assert_matches!(
+            res,
+            Error::Internal { details } if details.contains("esplora map doesn't contain the expected keys")
+        );
+
+        // blocks below the lowest key: upper bound only
+        let res = run_esplora_fee_estimation_case(r#"{"3": 5.0, "10": 2.0}"#, 1).unwrap_err();
+        assert_matches!(
+            res,
+            Error::Internal { details } if details.contains("esplora map doesn't contain the expected keys")
+        );
+    }
+
+    #[cfg(feature = "esplora")]
+    #[test]
+    fn test_esplora_fee_estimation_network_error() {
+        let mut server = mockito::Server::new();
+        let mock = server
+            .mock("GET", "/fee-estimates")
+            .with_status(500)
+            .create();
+
+        let indexer = esplora_indexer(&server.url());
+
+        let res = indexer.fee_estimation(6).unwrap_err();
+        assert_matches!(res, Error::Indexer { .. });
+        mock.assert();
+    }
+
+    #[cfg(feature = "esplora")]
+    #[test]
+    fn test_esplora_get_tx_confirmations_confirmed() {
+        let res = run_esplora_get_tx_confirmations_case(
+            TEST_TXID,
+            r#"{"confirmed": true, "block_height": 95, "block_hash": "0000000000000000000000000000000000000000000000000000000000000000", "block_time": 1600000000}"#,
+            Some(100),
+            None,
+        )
+        .unwrap();
+        assert_eq!(res, Some(6));
+    }
+
+    #[cfg(feature = "esplora")]
+    #[test]
+    fn test_esplora_get_tx_confirmations_mempool() {
+        let raw_tx = minimal_tx_raw_bytes();
+        let res = run_esplora_get_tx_confirmations_case(
+            TEST_TXID,
+            r#"{"confirmed": false}"#,
+            None,
+            Some(Some(raw_tx)),
+        )
+        .unwrap();
+        assert_eq!(res, Some(0));
+    }
+
+    #[cfg(feature = "esplora")]
+    #[test]
+    fn test_esplora_get_tx_confirmations_not_found() {
+        let res = run_esplora_get_tx_confirmations_case(
+            TEST_TXID,
+            r#"{"confirmed": false}"#,
+            None,
+            Some(None),
+        )
+        .unwrap();
+        assert_eq!(res, None);
+    }
+
+    #[cfg(feature = "esplora")]
+    #[test]
+    #[should_panic(expected = "attempt to subtract with overflow")]
+    fn test_esplora_get_tx_confirmations_inconsistent_height() {
+        let txid = TEST_TXID;
+        let mut server = mockito::Server::new();
+        let mock_status = server
+            .mock("GET", format!("/tx/{}/status", txid).as_str())
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"confirmed": true, "block_height": 101, "block_hash": "0000000000000000000000000000000000000000000000000000000000000000", "block_time": 1600000000}"#)
+            .create();
+        let mock_height = server
+            .mock("GET", "/blocks/tip/height")
+            .with_status(200)
+            .with_header("content-type", "text/plain")
+            .with_body("100")
+            .create();
+
+        let indexer = esplora_indexer(&server.url());
+
+        indexer.get_tx_confirmations(txid).unwrap_err();
+        mock_status.assert();
+        mock_height.assert();
+    }
+
+    #[cfg(feature = "esplora")]
+    #[test]
+    fn test_esplora_network_error() {
+        let indexer = esplora_indexer("http://127.0.0.1:1");
+
+        let res = indexer.get_latest_block_height().unwrap_err();
+        assert_matches!(res, Error::Indexer { .. });
+    }
+
+    #[cfg(feature = "esplora")]
+    #[test]
+    fn test_esplora_invalid_height_response() {
+        let mut server = mockito::Server::new();
+        let mock = server
+            .mock("GET", "/blocks/tip/height")
+            .with_status(200)
+            .with_header("content-type", "text/plain")
+            .with_body("invalid")
+            .create();
+
+        let indexer = esplora_indexer(&server.url());
+
+        let res = indexer.get_latest_block_height().unwrap_err();
+        assert_matches!(res, Error::Indexer { .. });
+        mock.assert();
+    }
+
+    #[cfg(feature = "esplora")]
+    #[test]
+    fn test_esplora_broadcast_failure() {
+        let mut server = mockito::Server::new();
+        let mock = server.mock("POST", "/tx").with_status(500).create();
+
+        let indexer = esplora_indexer(&server.url());
+
+        let tx = BdkTransaction {
+            version: bdk_wallet::bitcoin::transaction::Version::TWO,
+            lock_time: bdk_wallet::bitcoin::locktime::absolute::LockTime::ZERO,
+            input: vec![],
+            output: vec![],
+        };
+        let res = indexer.broadcast(&tx).unwrap_err();
+        assert_matches!(res, IndexerError::Esplora { .. });
+        mock.assert();
+    }
+}
