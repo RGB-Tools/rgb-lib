@@ -6,7 +6,7 @@
 use super::*;
 
 /// The error variants returned by functions.
-#[derive(Debug, Clone, PartialEq, thiserror::Error, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Deserialize, Serialize)]
 pub enum Error {
     /// No need to create more allocations
     #[error("Allocations already available")]
@@ -766,12 +766,6 @@ pub(crate) enum InternalError {
     #[error("Serde JSON error: {0}")]
     SerdeJSON(#[from] serde_json::Error),
 
-    #[error("Stash error: {0}")]
-    StashError(String),
-
-    #[error("Stock error: {0}")]
-    StockError(String),
-
     #[error("Strip prefix error: {0}")]
     StripPrefix(#[from] std::path::StripPrefixError),
 
@@ -856,59 +850,23 @@ impl From<psrgbt::MpcPsbtError> for InternalError {
     }
 }
 
-impl From<rgbstd::persistence::StashProviderError<std::convert::Infallible>> for InternalError {
-    fn from(e: rgbstd::persistence::StashProviderError<std::convert::Infallible>) -> Self {
-        InternalError::StashError(e.to_string())
-    }
-}
-
-impl From<rgbstd::persistence::StockError> for InternalError {
-    fn from(e: rgbstd::persistence::StockError) -> Self {
-        InternalError::StockError(e.to_string())
-    }
-}
-
-impl
-    From<
-        rgbstd::persistence::StockError<
-            rgbstd::persistence::MemStash,
-            rgbstd::persistence::MemState,
-            rgbstd::persistence::MemIndex,
-            rgbstd::persistence::ConsignError,
-        >,
-    > for InternalError
-{
-    fn from(
-        e: rgbstd::persistence::StockError<
-            rgbstd::persistence::MemStash,
-            rgbstd::persistence::MemState,
-            rgbstd::persistence::MemIndex,
-            rgbstd::persistence::ConsignError,
-        >,
-    ) -> Self {
-        InternalError::StockError(e.to_string())
-    }
-}
-
-impl
-    From<
-        rgbstd::persistence::StockError<
-            rgbstd::persistence::MemStash,
-            rgbstd::persistence::MemState,
-            rgbstd::persistence::MemIndex,
-            rgbstd::persistence::FasciaError,
-        >,
-    > for InternalError
-{
-    fn from(
-        e: rgbstd::persistence::StockError<
-            rgbstd::persistence::MemStash,
-            rgbstd::persistence::MemState,
-            rgbstd::persistence::MemIndex,
-            rgbstd::persistence::FasciaError,
-        >,
-    ) -> Self {
-        InternalError::StockError(e.to_string())
+impl<E: std::error::Error> From<StockError<&DbTxn, E>> for Error {
+    fn from(e: StockError<&DbTxn, E>) -> Self {
+        match e {
+            // the stock store is rgb-lib's own database layer, so its failures
+            // already are `Error`s and get reported as-is
+            StockError::Store(e) => e,
+            // failures reported by the witness resolver, i.e. by the indexer
+            StockError::Resolver(details) => Error::Indexer { details },
+            StockError::WitnessUnresolved(txid, e) => Error::Indexer {
+                details: format!("cannot resolve witness {txid}: {e}"),
+            },
+            // anything else is invalid input or inconsistent RGB data, which
+            // can only happen in case of a bug
+            e => Error::Internal {
+                details: format!("Stock err: {e}"),
+            },
+        }
     }
 }
 
@@ -1107,30 +1065,5 @@ mod tests {
         let err = psrgbt::CommitError::Rgb(psrgbt::RgbPsbtError::NoContracts);
         let err = InternalError::from(err);
         assert_matches!(err, InternalError::Commit(ref e) if !e.is_empty());
-
-        // StockError errors
-        let err: rgbstd::persistence::StockError<
-            rgbstd::persistence::MemStash,
-            rgbstd::persistence::MemState,
-            rgbstd::persistence::MemIndex,
-            rgbstd::persistence::FasciaError,
-        > = rgbstd::persistence::StockError::AbsentValidWitness;
-        let err = InternalError::from(err);
-        assert_matches!(err, InternalError::StockError(ref e) if !e.is_empty());
-        let err: rgbstd::persistence::StockError<
-            rgbstd::persistence::MemStash,
-            rgbstd::persistence::MemState,
-            rgbstd::persistence::MemIndex,
-            rgbstd::persistence::ConsignError,
-        > = rgbstd::persistence::StockError::AbsentValidWitness;
-        let err = InternalError::from(err);
-        assert_matches!(err, InternalError::StockError(ref e) if !e.is_empty());
-        let err: rgbstd::persistence::StockError<
-            rgbstd::persistence::MemStash,
-            rgbstd::persistence::MemState,
-            rgbstd::persistence::MemIndex,
-        > = rgbstd::persistence::StockError::Resolver(s!("test"));
-        let err = InternalError::from(err);
-        assert_matches!(err, InternalError::StockError(ref e) if !e.is_empty());
     }
 }

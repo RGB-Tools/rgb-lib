@@ -874,15 +874,23 @@ fn witness_receive_cleanup() {
     );
     assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
 
-    // refuse the consignment (invalid against its own genesis after a schema swap): the TXO
-    // becomes an ordinary UTXO
+    // refuse the consignment (invalid after tampering with a transition): the TXO becomes an
+    // ordinary UTXO
     let consignment_path = party
         .wallet
         .get_send_consignment_path(&asset.asset_id, &txid)
         .to_string_lossy()
         .to_string();
     let mut consignment = RgbTransfer::load_file(&consignment_path).unwrap();
-    consignment.schema = CollectibleFungibleAsset::schema();
+    let witness_id = consignment.bundled_witnesses().next().unwrap().witness_id();
+    assert!(consignment.modify_bundle(witness_id, |witness_bundle| {
+        let bundle = witness_bundle.bundle_mut();
+        let mut known_transitions = bundle.known_transitions.to_unconfined();
+        known_transitions[0].transition.nonce =
+            known_transitions[0].transition.nonce.wrapping_add(1);
+        bundle.known_transitions =
+            amplify::confinement::NonEmptyVec::from_iter_checked(known_transitions);
+    }));
     let invalid_file = tempfile::NamedTempFile::with_prefix("witness_receive_cleanup::").unwrap();
     consignment.save_file(invalid_file.path()).unwrap();
     let refreshed = rcv_party

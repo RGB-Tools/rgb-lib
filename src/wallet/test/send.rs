@@ -4818,72 +4818,6 @@ fn witness_multiple_inputs_success() {
     assert_eq!(transfer_data.status, TransferStatus::Settled);
 }
 
-#[cfg(feature = "electrum")]
-#[test]
-#[parallel]
-fn witness_fail_wrong_vout() {
-    initialize();
-
-    let amount: u64 = 66;
-
-    // wallets
-    let mut party = get_funded_party!();
-    let mut rcv_party_1 = get_funded_party!();
-    let mut rcv_party_2 = get_funded_party!();
-
-    // issue
-    let asset = party.issue_asset_nia(None);
-
-    // send
-    let receive_data_1 = rcv_party_1.witness_receive();
-    let receive_data_2 = rcv_party_2.witness_receive();
-    let recipient_map = HashMap::from([(
-        asset.asset_id.clone(),
-        vec![
-            Recipient {
-                assignment: Assignment::Fungible(amount),
-                recipient_id: receive_data_1.recipient_id.clone(),
-                witness_data: Some(WitnessData {
-                    amount_sat: 1000,
-                    blinding: None,
-                }),
-                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
-            },
-            Recipient {
-                assignment: Assignment::Fungible(amount * 2),
-                recipient_id: receive_data_2.recipient_id.clone(),
-                witness_data: Some(WitnessData {
-                    amount_sat: 2000,
-                    blinding: None,
-                }),
-                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
-            },
-        ],
-    )]);
-    println!("setting MOCK_VOUT");
-    MOCK_VOUT.replace(Some(2));
-    let txid = party.send_retry(&recipient_map);
-    assert!(!txid.is_empty());
-
-    // transfers progress to status Failed after a refresh
-    rcv_party_2.wait_for_refresh(None);
-    rcv_party_1.wait_for_refresh(None);
-    let rcv_transfer = rcv_party_1.get_test_transfer_recipient(&receive_data_1.recipient_id);
-    let (rcv_transfer_data, _rcv_asset_transfer) =
-        rcv_party_1.get_test_transfer_data(&rcv_transfer);
-    party.wait_for_refresh(Some(&asset.asset_id));
-    let batch_transfers = party.db_batch_transfers_filtered(&txid);
-    let batch_transfer = batch_transfers.first().unwrap();
-    let asset_transfer = party.get_test_asset_transfer(batch_transfer.idx);
-    let transfers = party.db_transfers_filtered(asset_transfer.idx);
-    for transfer in transfers {
-        let (transfer_data, _) = party.get_test_transfer_data(&transfer);
-        assert_eq!(transfer_data.status, TransferStatus::Failed);
-    }
-    assert_eq!(rcv_transfer_data.kind, TransferKind::ReceiveWitness);
-    assert_eq!(rcv_transfer_data.status, TransferStatus::Failed);
-}
-
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 fn min_confirmations_common(
     party: &mut SinglesigParty,
@@ -8657,16 +8591,23 @@ fn out_of_band_fail() {
         }],
     )]);
     let operation_result = party.send(recipient_map, FEE_RATE, None);
-    // swapping in a different schema doesn't change the contract ID (which comes from the
-    // genesis), so the consignment still matches the pending receive, but it no longer validates
-    // against its own genesis
+    // tampering with a transition doesn't change the contract ID (which comes from the genesis),
+    // so the consignment still matches the pending receive, but it no longer validates
     let consignment_path = party
         .wallet
         .get_send_consignment_path(&asset.asset_id, &operation_result.txid)
         .to_string_lossy()
         .to_string();
     let mut consignment = RgbTransfer::load_file(&consignment_path).unwrap();
-    consignment.schema = CollectibleFungibleAsset::schema();
+    let witness_id = consignment.bundled_witnesses().next().unwrap().witness_id();
+    assert!(consignment.modify_bundle(witness_id, |witness_bundle| {
+        let bundle = witness_bundle.bundle_mut();
+        let mut known_transitions = bundle.known_transitions.to_unconfined();
+        known_transitions[0].transition.nonce =
+            known_transitions[0].transition.nonce.wrapping_add(1);
+        bundle.known_transitions =
+            amplify::confinement::NonEmptyVec::from_iter_checked(known_transitions);
+    }));
     assert_eq!(consignment.contract_id().to_string(), asset.asset_id);
     let invalid_file = tempfile::NamedTempFile::with_prefix("out_of_band_fail::").unwrap();
     consignment.save_file(invalid_file.path()).unwrap();
@@ -9440,4 +9381,51 @@ fn send_end_after_fail_or_end() {
     assert!(
         party.check_test_transfer_status_sender(&res.txid, TransferStatus::WaitingConfirmations)
     );
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn fail_no_terminals() {
+    initialize();
+
+    let amount: u64 = 66;
+
+    // wallets
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+
+    // issue
+    let asset = party.issue_asset_nia(None);
+
+    // send, stripping the terminals from the generated consignment
+    let receive_data = rcv_party.blind_receive();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(amount),
+            recipient_id: receive_data.recipient_id.clone(),
+            witness_data: None,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    println!("setting MOCK_STRIP_TERMINALS");
+    MOCK_STRIP_TERMINALS.replace(Some(()));
+    let txid = party.send_retry(&recipient_map);
+    assert!(!txid.is_empty());
+
+    // the receiver refuses the consignment and both sides end up Failed
+    rcv_party.wait_for_refresh(None);
+    let rcv_transfer = rcv_party.get_test_transfer_recipient(&receive_data.recipient_id);
+    let (rcv_transfer_data, _) = rcv_party.get_test_transfer_data(&rcv_transfer);
+    assert_eq!(rcv_transfer_data.status, TransferStatus::Failed);
+
+    party.wait_for_refresh(Some(&asset.asset_id));
+    let batch_transfers = party.db_batch_transfers_filtered(&txid);
+    let batch_transfer = batch_transfers.first().unwrap();
+    let asset_transfer = party.get_test_asset_transfer(batch_transfer.idx);
+    for transfer in party.db_transfers_filtered(asset_transfer.idx) {
+        let (transfer_data, _) = party.get_test_transfer_data(&transfer);
+        assert_eq!(transfer_data.status, TransferStatus::Failed);
+    }
 }

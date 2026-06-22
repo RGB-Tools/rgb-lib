@@ -105,10 +105,8 @@ pub use bdk_wallet;
 pub use bdk_wallet::bitcoin;
 pub use rgbstd::{
     ContractId, Txid as RgbTxid,
-    containers::{
-        ConsignmentExt, Fascia, FileContent, PubWitness, Transfer as RgbTransfer, WitnessBundle,
-    },
-    persistence::UpdateRes,
+    containers::{ConsignmentExt, Fascia, FileContent, Transfer as RgbTransfer, WitnessBundle},
+    persistence::{RetrievedSpvProofs, UpdateRes},
     schema::SchemaId,
     txout::CloseMethod,
     vm::WitnessOrd,
@@ -125,15 +123,15 @@ pub use crate::{
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use std::{
     cmp::{Ordering, max, min},
-    collections::{BTreeSet, hash_map::DefaultHasher},
+    collections::hash_map::DefaultHasher,
     hash::Hasher,
     num::NonZeroU32,
 };
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fmt, fs,
     hash::Hash,
-    io::{self, ErrorKind, Read, Write},
+    io::{self, Read, Write},
     panic,
     path::{Path, PathBuf},
     str::FromStr,
@@ -214,14 +212,24 @@ use rgbinvoice::{
 #[cfg(feature = "electrum")]
 use rgbstd::indexers::electrum_blocking::electrum_client::ConfigBuilder;
 use rgbstd::{
-    Allocation, Amount, Assign, ChainNet, Genesis, GraphSeal, Identity, KnownTransition, Layer1,
-    Operation as _, Opout, OutputSeal, OwnedFraction, Precision, Schema, SecretSeal, TokenIndex,
-    Transition, TypeSystem,
-    containers::{BuilderSeal, Kit, ValidContract, ValidKit, ValidTransfer},
-    contract::{AllocatedState, ContractBuilder, IssuerWrapper, SchemaWrapper, TransitionBuilder},
+    Allocation, Amount, AssignmentType, BundleId, ChainNet, Genesis, GlobalStateType, GraphSeal,
+    Identity, KnownTransition, Layer1, OpId, Operation as _, Opout, OutputSeal, OwnedFraction,
+    Precision, RevealedData, Schema, SecretSeal, TokenIndex, Transition, TransitionBundle,
+    TransitionType, Vout,
+    containers::{
+        BuilderSeal, SealWitness, SpvProof, ValidConsignment, ValidContract, ValidTransfer,
+    },
+    contract::{
+        AllocatedState, ContractBuilder, ContractData, FilteredContractState, IssuerWrapper,
+        SchemaWrapper, TransitionBuilder,
+    },
     info::SchemaInfo,
     invoice::{InvoiceState, Pay2Vout},
-    persistence::{MemContract, MemContractState, StashReadProvider, Stock, fs::FsBinStore},
+    persistence::{
+        AllocKind, AllocSeal, AllocationFilter, AllocationRow, AllocationWrite,
+        ContractAssignments, ContractStateSnapshot, GlobalStateRow, GlobalStateWrite, Lib, LibId,
+        RgbStore, Stock, StockError, TxBegin, TxMode, Visibility, decode, encode,
+    },
     rgbcore::commit_verify::{
         CommitId, Conceal, TryCommitVerify,
         mpc::{Commitment, MerkleTree, Message, MultiSource, ProtocolId},
@@ -233,18 +241,19 @@ use rgbstd::{
     },
     txout::{BlindSeal, ExplicitSeal, TxPtr},
     validation::{
-        ResolveWitness, Scripts, Status, WitnessOrdProvider, WitnessResolverError, WitnessStatus,
+        ResolveWitness, SchemaDefinition, WitnessOrdProvider, WitnessResolverError, WitnessStatus,
     },
+    vm::WitnessPos,
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use rgbstd::{
-    TransitionType,
     containers::Consignment,
     contract::FilterIncludeAll,
     daggy::Walker,
     indexers::AnyResolver,
-    info::ContractInfo,
-    validation::{OpoutsDagData, ValidationConfig, ValidationError, Validity, Warning},
+    validation::{
+        OpoutsDagData, SchemaRules, ValidationConfig, ValidationError, Validity, Warning,
+    },
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use schemata::{CfaWrapper, NiaWrapper, UdaWrapper};
@@ -255,9 +264,9 @@ use schemata::{
 use scrypt::{Params, phc::Salt, scrypt};
 use sea_orm::{
     ActiveValue, ColumnTrait, ConnectOptions, Database, DatabaseConnection, DatabaseTransaction,
-    DbErr, DeriveActiveEnum, EntityTrait, EnumIter, JsonValue, QueryFilter, QueryOrder,
-    QueryResult, TransactionTrait, TryGetError, TryGetable, TryIntoModel,
-    sea_query::{Alias, Expr, ExprTrait, Func, OnConflict, SimpleExpr},
+    DbErr, DeriveActiveEnum, EntityTrait, EnumIter, Iterable, JoinType, JsonValue, QueryFilter,
+    QueryOrder, QueryResult, QuerySelect, TransactionTrait, TryGetError, TryGetable, TryIntoModel,
+    sea_query::{Alias, Condition, Expr, ExprTrait, Func, OnConflict, SimpleExpr},
 };
 use serde::de::{self, Unexpected, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -266,9 +275,14 @@ use slog::warn;
 use slog::{Drain, Logger, debug, error, info, o};
 use slog_async::AsyncGuard;
 use slog_term::{FullFormat, PlainDecorator};
-use strict_encoding::{DecodeError, DeserializeError, FieldName};
-#[cfg(test)]
-use strict_types::StrictDumb;
+#[cfg(any(
+    feature = "electrum",
+    feature = "esplora",
+    feature = "rgb_fs_store_migration"
+))]
+use strict_encoding::StrictSerialize;
+use strict_encoding::{FieldName, StrictDecode, StrictDeserialize, StrictEncode};
+use strict_types::{TypeLib, TypeLibId};
 use tempfile::TempDir;
 use time::OffsetDateTime;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -281,10 +295,12 @@ use crate::utils::INDEXER_BATCH_SIZE;
 #[cfg(feature = "esplora")]
 use crate::utils::INDEXER_PARALLEL_REQUESTS;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
+use crate::utils::write_fascia;
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 #[cfg(test)]
 use crate::wallet::test::{
     mock_input_unspents, mock_local_version, mock_send_end_crash, mock_vout, skip_build_dag,
-    skip_check_fee_rate,
+    skip_check_fee_rate, strip_terminals,
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use crate::{
@@ -312,6 +328,7 @@ use crate::{
     wallet::{AssignmentsCollection, Indexer, multisig::RespondToOperation},
 };
 use crate::{
+    database::rgb::migrate_rgb_fs_to_db,
     database::{
         DbTxn, RgbLibDatabase,
         entities::{
@@ -323,6 +340,24 @@ use crate::{
             media::{ActiveModel as DbMediaActMod, Model as DbMedia},
             pending_witness_script::ActiveModel as DbPendingWitnessScriptActMod,
             reserved_txo::Model as DbReservedTxo,
+            rgb_aluvm_lib::ActiveModel as DbAluvmLibActMod,
+            rgb_assignment::{ActiveModel as DbAssignmentActMod, Model as DbAssignment},
+            rgb_bundle::ActiveModel as DbBundleActMod,
+            rgb_bundle_contract::ActiveModel as DbBundleContractActMod,
+            rgb_bundle_witness::ActiveModel as DbBundleWitnessActMod,
+            rgb_genesis::{ActiveModel as DbGenesisActMod, Model as DbGenesis},
+            rgb_global_state::{ActiveModel as DbGlobalStateActMod, Model as DbGlobalState},
+            rgb_invalid_op::ActiveModel as DbInvalidOpActMod,
+            rgb_op_bundle::ActiveModel as DbOpBundleActMod,
+            rgb_op_input::{ActiveModel as DbOpInputActMod, Model as DbOpInput},
+            rgb_outpoint_opout::ActiveModel as DbOutpointOpoutActMod,
+            rgb_schema::{ActiveModel as DbSchemaActMod, Model as DbSchema},
+            rgb_schema_type_lib::ActiveModel as DbSchemaTypeLibActMod,
+            rgb_secret_seal::ActiveModel as DbSecretSealActMod,
+            rgb_secret_seal_opout::ActiveModel as DbSecretSealOpoutActMod,
+            rgb_type_lib::ActiveModel as DbTypeLibActMod,
+            rgb_witness::{ActiveModel as DbWitnessActMod, Model as DbWitness},
+            rgb_witness_ord::{ActiveModel as DbWitnessOrdActMod, Model as DbWitnessOrd},
             token::{ActiveModel as DbTokenActMod, Model as DbToken},
             token_media::{ActiveModel as DbTokenMediaActMod, Model as DbTokenMedia},
             transfer::{ActiveModel as DbTransferActMod, Model as DbTransfer},
@@ -341,11 +376,12 @@ use crate::{
     error::InternalError,
     keys::{Keys, WitnessVersion},
     utils::{
-        ACCOUNT, DumbResolver, KEYCHAIN_BTC, KEYCHAIN_RGB, LOG_FILE, PURPOSE, RgbRuntime,
-        adjust_canonicalization, atomic_tmp_path, atomic_write, atomic_write_with,
-        beneficiary_from_script_buf, from_str_or_number_mandatory, from_str_or_number_optional,
-        get_account_xpubs, get_coin_type, get_descriptors, get_descriptors_from_xpubs, hash_bytes,
-        hash_bytes_hex, load_rgb_runtime, now, parse_address_str, setup_logger, str_to_xpub,
+        ACCOUNT, DumbResolver, KEYCHAIN_BTC, KEYCHAIN_RGB, LOG_FILE, PURPOSE,
+        RGB_RUNTIME_DELETING_DIR, RgbStock, adjust_canonicalization, atomic_tmp_path, atomic_write,
+        atomic_write_with, beneficiary_from_script_buf, from_str_or_number_mandatory,
+        from_str_or_number_optional, get_account_xpubs, get_coin_type, get_descriptors,
+        get_descriptors_from_xpubs, hash_bytes, hash_bytes_hex, now, parse_address_str,
+        read_fascia, setup_logger, str_to_xpub,
     },
     wallet::{
         Balance, LocalRgbAllocation, LocalUnspent, NUM_KNOWN_SCHEMAS, Outpoint, SCHEMA_ID_CFA,

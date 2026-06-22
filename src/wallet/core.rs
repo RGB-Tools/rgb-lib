@@ -217,8 +217,8 @@ pub struct WalletInternals {
     pub(crate) online_data: Option<OnlineData>,
 }
 
-pub(crate) fn setup_rgb<P: AsRef<Path>>(
-    wallet_dir: P,
+pub(crate) fn setup_rgb(
+    database: &RgbLibDatabase,
     supported_schemas: Vec<AssetSchema>,
     bitcoin_network: BitcoinNetwork,
 ) -> Result<(), Error> {
@@ -228,16 +228,18 @@ pub(crate) fn setup_rgb<P: AsRef<Path>>(
     if bitcoin_network == BitcoinNetwork::Mainnet && supported_schemas.contains(&AssetSchema::Ifa) {
         return Err(Error::CannotUseIfaOnMainnet);
     }
-    let mut runtime = load_rgb_runtime(wallet_dir)?;
-    let known_schemas = runtime.schemata()?;
+    let txn = database.begin_transaction()?;
+    let mut stock = RgbStock::new(&txn);
+    let known_schemas = stock.schemata()?;
     if known_schemas.len() < NUM_KNOWN_SCHEMAS {
         let known: HashSet<_> = known_schemas.iter().map(|s| s.id).collect();
         for schema in supported_schemas {
             if !known.contains(&SchemaId::from(schema)) {
-                schema.import_kit(&mut runtime)?;
+                schema.import_schema_definition(&mut stock)?;
             }
         }
     }
+    txn.commit()?;
     Ok(())
 }
 
@@ -265,16 +267,20 @@ pub(crate) fn setup_db<P: AsRef<Path>>(wallet_dir: P) -> Result<RgbLibDatabase, 
 /// handed out again. The signing and watch-only wallets had a store each, so both are imported;
 /// `last_revealed` is persisted monotonically, so the higher of the two wins regardless of order.
 ///
-/// A store that was read in full is removed once the import is durably committed, so the stale
-/// copy cannot be picked up again by an older rgb-lib. A truncated one is left in place, since the
-/// entries past the truncation were never imported. Keeping it costs nothing at load time: this
-/// runs only while the stored changeset is empty, and by the end of the first setup it no longer
-/// is (either the import filled it or the freshly created wallet wrote its descriptors) so a
-/// left-behind store is never read a second time.
+/// A store that was read in full is added to `migrated`, for the caller to remove once the import
+/// has been durably committed, so the stale copy cannot be picked up again by an older rgb-lib. A
+/// truncated one is left in place, since the entries past the truncation were never imported.
+/// Keeping it costs nothing at load time: this runs only while the stored changeset is empty, and
+/// by the end of the first setup it no longer is (either the import filled it or the freshly
+/// created wallet wrote its descriptors) so a left-behind store is never read a second time.
 ///
 /// Returns whether anything was imported.
 #[cfg(feature = "bdk_file_store_migration")]
-fn import_legacy_bdk_store(txn: &DbTxn, wallet_dir: &Path) -> Result<bool, Error> {
+fn import_legacy_bdk_store(
+    txn: &DbTxn,
+    wallet_dir: &Path,
+    migrated: &mut Vec<PathBuf>,
+) -> Result<bool, Error> {
     let mut imported = false;
     for name in [BDK_DB_NAME.to_string(), format!("{BDK_DB_NAME}_watch_only")] {
         let path = wallet_dir.join(name);
@@ -298,11 +304,9 @@ fn import_legacy_bdk_store(txn: &DbTxn, wallet_dir: &Path) -> Result<bool, Error
             txn.update_bdk_changeset(&changeset)?;
             imported = true;
         }
-        // drop the file only once its contents are durably in the DB
+        // the file is the caller's to drop, once its contents are durably in the DB
         if complete {
-            txn.on_commit(move || {
-                let _ = fs::remove_file(path);
-            });
+            migrated.push(path);
         }
     }
     Ok(imported)
@@ -310,17 +314,27 @@ fn import_legacy_bdk_store(txn: &DbTxn, wallet_dir: &Path) -> Result<bool, Error
 
 /// Without the `bdk_file_store_migration` feature there is nothing to import from.
 #[cfg(not(feature = "bdk_file_store_migration"))]
-fn import_legacy_bdk_store(_txn: &DbTxn, _wallet_dir: &Path) -> Result<bool, Error> {
+fn import_legacy_bdk_store(
+    _txn: &DbTxn,
+    _wallet_dir: &Path,
+    _migrated: &mut Vec<PathBuf>,
+) -> Result<bool, Error> {
     Ok(false)
 }
 
+/// Load (or create) the BDK wallet whose data lives in the rgb-lib DB.
+///
+/// Owns the transaction that the load needs, so that the files whose contents it takes over - a
+/// legacy file store, the crash-recovery copy of the pending changes - are deleted only once that
+/// transaction has committed. Were one deleted first, a rollback would lose the data it held.
 pub(crate) fn setup_bdk<P: AsRef<Path>>(
-    txn: &DbTxn,
+    database: &RgbLibDatabase,
     wallet_dir: P,
     desc_colored: String,
     desc_vanilla: String,
     bitcoin_network: BitcoinNetwork,
 ) -> Result<BdkWallet, Error> {
+    let txn = database.begin_transaction()?;
     let chain_net: ChainNet = bitcoin_network.into();
     let wallet_params = BdkWallet::load()
         .descriptor(KeychainKind::External, Some(desc_colored.clone()))
@@ -330,9 +344,12 @@ pub(crate) fn setup_bdk<P: AsRef<Path>>(
             chain_net.chain_hash().to_bytes(),
         ));
     let mut changeset = txn.get_bdk_changeset()?;
+    // files this transaction takes the contents of, to be dropped once it has committed
+    let mut migrated = Vec::new();
     // an empty changeset means either a brand-new wallet or one whose data still lives in the
     // legacy file store
-    let mut reload = changeset.is_empty() && import_legacy_bdk_store(txn, wallet_dir.as_ref())?;
+    let mut reload =
+        changeset.is_empty() && import_legacy_bdk_store(&txn, wallet_dir.as_ref(), &mut migrated)?;
     // a crash between the temporary write and the rename leaves the newer changeset in the .tmp
     // file, so fold both in; the pending buffer only ever grows, so applying them in this order
     // ends on the newest state
@@ -348,10 +365,7 @@ pub(crate) fn setup_bdk<P: AsRef<Path>>(
             txn.update_bdk_changeset(&pending)?;
             reload = true;
         }
-        // drop the file only once its contents are durably in the DB
-        txn.on_commit(move || {
-            let _ = fs::remove_file(pending_file);
-        });
+        migrated.push(pending_file);
     }
     if reload {
         changeset = txn.get_bdk_changeset()?;
@@ -370,6 +384,11 @@ pub(crate) fn setup_bdk<P: AsRef<Path>>(
             wallet
         }
     };
+    txn.commit()?;
+    // only now that their contents are durably in the DB
+    for path in migrated {
+        let _ = fs::remove_file(path);
+    }
     Ok(bdk_wallet)
 }
 

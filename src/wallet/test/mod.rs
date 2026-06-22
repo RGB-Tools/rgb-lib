@@ -1,5 +1,7 @@
 #[cfg(feature = "electrum")]
 use std::ffi::OsString;
+#[cfg(all(feature = "electrum", feature = "rgb_fs_store_migration"))]
+use std::fs::File;
 #[cfg(feature = "electrum")]
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -36,6 +38,10 @@ use super::*;
 
 #[cfg(feature = "electrum")]
 use crate::keys::Keys;
+#[cfg(all(feature = "electrum", feature = "rgb_fs_store_migration"))]
+use crate::keys::restore_keys;
+#[cfg(all(feature = "electrum", feature = "rgb_fs_store_migration"))]
+use crate::utils::{RGB_RUNTIME_DELETING_DIR, RGB_RUNTIME_DIR};
 #[cfg(feature = "electrum")]
 use crate::wallet::rust_only::check_proxy_url;
 #[cfg(all(feature = "esplora", not(feature = "electrum")))]
@@ -52,10 +58,7 @@ use crate::{
 };
 #[cfg(feature = "electrum")]
 use crate::{
-    utils::{
-        RGB_RUNTIME_DIR, get_account_data, recipient_id_from_script_buf,
-        script_buf_from_recipient_id,
-    },
+    utils::{get_account_data, recipient_id_from_script_buf, script_buf_from_recipient_id},
     wallet::{multisig::*, rust_only::*},
 };
 
@@ -170,6 +173,7 @@ thread_local! {
     pub(crate) static MOCK_VOUT: RefCell<Option<u32>> = const { RefCell::new(None) };
     pub(crate) static MOCK_LOCAL_VERSION: RefCell<Option<String>> = const { RefCell::new(None) };
     pub(crate) static MOCK_SEND_END_CRASH: RefCell<Option<()>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_STRIP_TERMINALS: RefCell<Option<()>> = const { RefCell::new(None) };
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -361,6 +365,16 @@ pub fn skip_build_dag() -> bool {
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
+pub fn strip_terminals() -> bool {
+    if MOCK_STRIP_TERMINALS.take().is_none() {
+        false
+    } else {
+        println!("stripping consignment terminals (mock)");
+        true
+    }
+}
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub fn mock_send_end_crash() -> bool {
     if MOCK_SEND_END_CRASH.take().is_none() {
         false
@@ -438,6 +452,8 @@ mod list_transfers;
 #[cfg(feature = "electrum")]
 mod list_unspents;
 mod load;
+#[cfg(all(feature = "electrum", feature = "rgb_fs_store_migration"))]
+mod migrate;
 #[cfg(feature = "electrum")]
 mod multisig;
 mod new;

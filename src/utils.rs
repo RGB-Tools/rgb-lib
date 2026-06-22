@@ -8,10 +8,17 @@ const TIMESTAMP_FORMAT: &[time::format_description::BorrowedFormatItem] = time::
     "[year]-[month]-[day]T[hour repr:24]:[minute]:[second].[subsecond digits:3]+00"
 );
 
-const RGB_RUNTIME_LOCK_FILE: &str = "rgb_runtime.lock";
-
+#[cfg(feature = "rgb_fs_store_migration")]
 pub(crate) const RGB_RUNTIME_DIR: &str = "rgb";
+
+/// Where the legacy filesystem RGB store is moved to be deleted, once migrated into the DB, so
+/// that retiring it is atomic. Only ever on disk between that rename and the delete: a crash in
+/// between leaves this dir, which the next wallet open sweeps up and every backup skips.
+pub(crate) const RGB_RUNTIME_DELETING_DIR: &str = "rgb.deleting";
 pub(crate) const LOG_FILE: &str = "log";
+
+/// Size cap for a strict-encoded fascia file, matching what rgb-ops uses for its own containers.
+const FASCIA_MAX_LEN: usize = amplify::confinement::U32;
 
 pub(crate) const PURPOSE: u8 = 86;
 pub(crate) const COIN_RGB_MAINNET: u32 = 827166;
@@ -33,11 +40,6 @@ pub(crate) const INDEXER_PARALLEL_REQUESTS: usize = 5;
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 const PROXY_PROTOCOL_VERSION: &str = "0.2";
-
-#[cfg(test)]
-const LOCK_FILE_TIMEOUT_SECS: f32 = 1.0;
-#[cfg(not(test))]
-const LOCK_FILE_TIMEOUT_SECS: f32 = 3600.0;
 
 // sea-orm with runtime-tokio-rustls needs a tokio runtime for connection pool management
 static TOKIO_RUNTIME: LazyLock<tokio::runtime::Runtime> =
@@ -698,6 +700,28 @@ pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), Error> {
     atomic_write_with(path, |tmp| Ok(fs::write(tmp, bytes)?))
 }
 
+/// Read a fascia file, which is strict-encoded like every other RGB container.
+pub(crate) fn read_fascia(path: &Path) -> Result<Fascia, Error> {
+    Fascia::strict_deserialize_from_file::<FASCIA_MAX_LEN>(path).map_err(|e| Error::Internal {
+        details: format!("cannot read fascia {}: {e}", path.display()),
+    })
+}
+
+/// Write a fascia file atomically, so a crash mid-write cannot leave a torn one behind.
+#[cfg(any(
+    feature = "electrum",
+    feature = "esplora",
+    feature = "rgb_fs_store_migration"
+))]
+pub(crate) fn write_fascia(path: &Path, fascia: &Fascia) -> Result<(), Error> {
+    let bytes = fascia
+        .to_strict_serialized::<FASCIA_MAX_LEN>()
+        .map_err(|e| Error::Internal {
+            details: format!("cannot serialize fascia {}: {e}", path.display()),
+        })?;
+    atomic_write(path, &bytes)
+}
+
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn hash_file(path: &Path) -> Result<String, Error> {
     let mut file = fs::File::open(path)?;
@@ -759,33 +783,46 @@ impl ResolveWitness for DumbResolver {
     }
 }
 
-/// Wrapper for the RGB stock and its lockfile.
+/// Wrapper for the RGB stock.
+///
+/// Every read and write goes through the borrowed database transaction, so concurrent access is
+/// serialized by the database itself (a single connection per process, SQLite locking across
+/// processes) and no separate lock is needed.
+// `pub` only because it appears in the signatures of `WalletOffline`/`WalletOnline` methods,
+// supertraits of the public `RgbWalletOps*` traits; not part of the public API
 #[doc(hidden)]
 #[derive(Debug)]
-pub struct RgbRuntime {
-    /// The RGB stock
-    stock: Stock,
-    /// The wallet directory, where the lockfile for the runtime is to be held
-    wallet_dir: PathBuf,
+pub struct RgbStock<'txn> {
+    /// The RGB stock, writing through the shared database transaction borrowed for `'txn`
+    stock: Stock<&'txn DbTxn>,
 }
 
-impl RgbRuntime {
+impl<'txn> RgbStock<'txn> {
+    /// Build an [`RgbStock`] whose `Stock` reads and writes through the shared rgb-lib
+    /// transaction. The store borrows `db_txn` for `'txn`, so the stock cannot outlive the
+    /// transaction's commit.
+    pub(crate) fn new(db_txn: &'txn DbTxn) -> Self {
+        Self {
+            stock: Stock::with(db_txn),
+        }
+    }
+
     #[cfg(any(feature = "electrum", feature = "esplora"))]
     pub(crate) fn accept_transfer<R: ResolveWitness>(
         &mut self,
         contract: ValidTransfer,
         resolver: &R,
-    ) -> Result<(), InternalError> {
+    ) -> Result<(), Error> {
         self.stock
             .accept_transfer(contract, resolver)
-            .map_err(InternalError::from)
+            .map_err(Error::from)
     }
 
     pub(crate) fn consume_fascia(
         &mut self,
         fascia: Fascia,
         witness_ord: Option<WitnessOrd>,
-    ) -> Result<(), InternalError> {
+    ) -> Result<(), Error> {
         struct FasciaResolver {
             witness_id: RgbTxid,
             witness_ord: WitnessOrd,
@@ -804,103 +841,101 @@ impl RgbRuntime {
 
         self.stock
             .consume_fascia(fascia, resolver)
-            .map_err(InternalError::from)
-    }
-
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
-    pub(crate) fn contracts(&self) -> Result<Vec<ContractInfo>, InternalError> {
-        Ok(self
-            .stock
-            .contracts()
-            .map_err(InternalError::from)?
-            .collect())
+            .map_err(Error::from)
     }
 
     pub(crate) fn contract_wrapper<C: IssuerWrapper>(
         &self,
         contract_id: ContractId,
-    ) -> Result<C::Wrapper<MemContract<&MemContractState>>, InternalError> {
+    ) -> Result<C::Wrapper<ContractStateSnapshot>, Error> {
         self.stock
             .contract_wrapper::<C>(contract_id)
-            .map_err(InternalError::from)
+            .map_err(Error::from)
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
-    pub(crate) fn contracts_assigning(
+    pub(crate) fn assignments_by_contract(
         &self,
-        outputs: impl IntoIterator<Item = impl Into<OutPoint>>,
-    ) -> Result<BTreeSet<ContractId>, InternalError> {
-        Ok(FromIterator::from_iter(
-            self.stock
-                .contracts_assigning(outputs)
-                .map_err(InternalError::from)?,
-        ))
+        outpoints: impl IntoIterator<Item = impl Into<OutPoint>>,
+    ) -> Result<BTreeMap<ContractId, ContractAssignments>, Error> {
+        self.stock
+            .assignments_by_contract(outpoints)
+            .map_err(Error::from)
     }
 
-    pub(crate) fn genesis(&self, contract_id: ContractId) -> Result<&Genesis, InternalError> {
+    pub(crate) fn genesis(&self, contract_id: ContractId) -> Result<Genesis, Error> {
         self.stock
-            .as_stash_provider()
-            .genesis(contract_id)
-            .map_err(InternalError::from)
+            .as_store()
+            .genesis(contract_id)?
+            .ok_or_else(|| Error::Internal {
+                details: format!("genesis {contract_id} not found"),
+            })
     }
 
     pub(crate) fn import_contract<R: ResolveWitness>(
         &mut self,
         contract: ValidContract,
         resolver: &R,
-    ) -> Result<(), InternalError> {
+    ) -> Result<(), Error> {
         self.stock
             .import_contract(contract, resolver)
-            .map_err(InternalError::from)
+            .map_err(Error::from)
     }
 
-    pub(crate) fn import_kit(&mut self, kit: ValidKit) -> Result<Status, InternalError> {
-        self.stock.import_kit(kit).map_err(InternalError::from)
+    pub(crate) fn import_schema_definition(
+        &mut self,
+        schema_def: SchemaDefinition,
+    ) -> Result<(), Error> {
+        self.stock
+            .import_schema_definition(schema_def)
+            .map_err(Error::from)
+    }
+
+    pub(crate) fn consignment_data<const TRANSFER: bool>(
+        &self,
+        consignment: &ValidConsignment<TRANSFER>,
+    ) -> Result<ContractData<FilteredContractState>, Error> {
+        self.stock
+            .consignment_data(consignment)
+            .map_err(Error::from)
     }
 
     pub(crate) fn contract_assignments_for(
         &self,
         contract_id: ContractId,
         outpoints: impl IntoIterator<Item = impl Into<OutPoint>>,
-    ) -> Result<HashMap<OutputSeal, HashMap<Opout, AllocatedState>>, InternalError> {
+    ) -> Result<ContractAssignments, Error> {
         self.stock
             .contract_assignments_for(contract_id, outpoints)
-            .map_err(InternalError::from)
+            .map_err(Error::from)
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
-    pub(crate) fn contract_schema(
-        &self,
-        contract_id: ContractId,
-    ) -> Result<&Schema, InternalError> {
+    pub(crate) fn contract_schema(&self, contract_id: ContractId) -> Result<Schema, Error> {
         self.stock
-            .as_stash_provider()
-            .contract_schema(contract_id)
-            .map_err(InternalError::from)
+            .as_store()
+            .contract_schema(contract_id)?
+            .ok_or_else(|| Error::Internal {
+                details: format!("schema for contract {contract_id} not found"),
+            })
     }
 
-    pub(crate) fn schemata(&self) -> Result<Vec<SchemaInfo>, InternalError> {
-        Ok(self
-            .stock
+    pub(crate) fn schemata(&self) -> Result<Vec<SchemaInfo>, Error> {
+        self.stock
             .schemata()
-            .map_err(InternalError::from)?
-            .collect())
+            .map(|r| r.map_err(Error::from))
+            .collect()
     }
 
-    pub(crate) fn seal_secret(
+    pub(crate) fn seal_of_secret(
         &mut self,
         secret: SecretSeal,
-    ) -> Result<Option<GraphSeal>, InternalError> {
-        self.stock
-            .as_stash_provider()
-            .seal_secret(secret)
-            .map_err(InternalError::from)
+    ) -> Result<Option<GraphSeal>, Error> {
+        self.stock.as_store().seal_of_secret(secret)
     }
 
-    pub(crate) fn store_secret_seal(&mut self, seal: GraphSeal) -> Result<bool, InternalError> {
-        self.stock
-            .store_secret_seal(seal)
-            .map_err(InternalError::from)
+    pub(crate) fn store_secret_seal(&mut self, seal: GraphSeal) -> Result<(), Error> {
+        self.stock.store_secret_seal(seal).map_err(Error::from)
     }
 
     pub(crate) fn transfer(
@@ -909,10 +944,12 @@ impl RgbRuntime {
         outputs: impl AsRef<[OutputSeal]>,
         secret_seals: impl AsRef<[SecretSeal]>,
         witness_id: Option<RgbTxid>,
-    ) -> Result<RgbTransfer, InternalError> {
+    ) -> Result<RgbTransfer, Error> {
+        // SPV proofs are not attached to outgoing consignments (yet)
         self.stock
-            .transfer(contract_id, outputs, secret_seals, [], witness_id)
-            .map_err(InternalError::from)
+            .transfer(contract_id, outputs, secret_seals, [], witness_id, None)
+            .map(|(consignment, _)| consignment)
+            .map_err(Error::from)
     }
 
     pub(crate) fn transfer_from_fascia(
@@ -921,10 +958,10 @@ impl RgbRuntime {
         outputs: impl AsRef<[OutputSeal]>,
         secret_seals: impl AsRef<[SecretSeal]>,
         fascia: &Fascia,
-    ) -> Result<RgbTransfer, InternalError> {
+    ) -> Result<(RgbTransfer, RetrievedSpvProofs), Error> {
         self.stock
-            .transfer_from_fascia(contract_id, outputs, secret_seals, [], fascia)
-            .map_err(InternalError::from)
+            .transfer_from_fascia(contract_id, outputs, secret_seals, [], fascia, None)
+            .map_err(Error::from)
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -934,20 +971,20 @@ impl RgbRuntime {
         outputs: impl AsRef<[OutputSeal]>,
         secret_seals: impl AsRef<[SecretSeal]>,
         fascia: &Fascia,
-    ) -> Result<(RgbTransfer, OpoutsDagData), InternalError> {
+    ) -> Result<(RgbTransfer, OpoutsDagData, RetrievedSpvProofs), Error> {
         self.stock
-            .transfer_from_fascia_with_dag(contract_id, outputs, secret_seals, [], fascia)
-            .map_err(InternalError::from)
+            .transfer_from_fascia_with_dag(contract_id, outputs, secret_seals, [], fascia, None)
+            .map_err(Error::from)
     }
 
     pub(crate) fn transition_builder(
         &self,
         contract_id: ContractId,
         transition_name: impl Into<FieldName>,
-    ) -> Result<TransitionBuilder, InternalError> {
+    ) -> Result<TransitionBuilder, Error> {
         self.stock
             .transition_builder(contract_id, transition_name)
-            .map_err(InternalError::from)
+            .map_err(Error::from)
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -955,10 +992,10 @@ impl RgbRuntime {
         &self,
         contract_id: ContractId,
         transition_type: TransitionType,
-    ) -> Result<TransitionBuilder, InternalError> {
+    ) -> Result<TransitionBuilder, Error> {
         self.stock
             .transition_builder_raw(contract_id, transition_type)
-            .map_err(InternalError::from)
+            .map_err(Error::from)
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -967,84 +1004,20 @@ impl RgbRuntime {
         resolver: &R,
         after_height: u32,
         force_witnesses: Vec<RgbTxid>,
-    ) -> Result<UpdateRes, InternalError> {
+    ) -> Result<UpdateRes, Error> {
         self.stock
             .update_witnesses(resolver, after_height, force_witnesses)
-            .map_err(InternalError::from)
+            .map_err(Error::from)
     }
 
     pub(crate) fn upsert_witness(
         &mut self,
         witness_id: RgbTxid,
         witness_ord: WitnessOrd,
-    ) -> Result<(), InternalError> {
+    ) -> Result<(), Error> {
         self.stock.upsert_witness(witness_id, witness_ord)?;
         Ok(())
     }
-}
-
-impl Drop for RgbRuntime {
-    fn drop(&mut self) {
-        self.stock.store().expect("unable to save stock");
-        fs::remove_file(self.wallet_dir.join(RGB_RUNTIME_LOCK_FILE))
-            .expect("should be able to drop lockfile")
-    }
-}
-
-fn write_rgb_runtime_lockfile(wallet_dir: &Path) -> Result<(), Error> {
-    let lock_file_path = wallet_dir.join(RGB_RUNTIME_LOCK_FILE);
-    let t_0 = OffsetDateTime::now_utc();
-    loop {
-        match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(lock_file_path.clone())
-        {
-            Ok(_) => return Ok(()),
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
-                if (OffsetDateTime::now_utc() - t_0).as_seconds_f32() > LOCK_FILE_TIMEOUT_SECS {
-                    return Err(Error::Internal {
-                        details: s!("unreleased lock file"),
-                    });
-                } else {
-                    std::thread::sleep(std::time::Duration::from_millis(400))
-                }
-            }
-            Err(e) => {
-                return Err(Error::IO {
-                    details: e.to_string(),
-                });
-            }
-        }
-    }
-}
-
-pub(crate) fn load_rgb_runtime<P: AsRef<Path>>(wallet_dir: P) -> Result<RgbRuntime, Error> {
-    write_rgb_runtime_lockfile(wallet_dir.as_ref())?;
-
-    let rgb_dir = wallet_dir.as_ref().join(RGB_RUNTIME_DIR);
-    if !rgb_dir.exists() {
-        fs::create_dir_all(&rgb_dir)?;
-    }
-    let provider = FsBinStore::new(rgb_dir.clone())?;
-    let stock = Stock::load(provider.clone(), true).or_else(|err| {
-        if err
-            .0
-            .downcast_ref::<DeserializeError>()
-            .map(|e| matches!(e, DeserializeError::Decode(DecodeError::Io(e)) if e.kind() == ErrorKind::NotFound))
-            .unwrap_or_default()
-        {
-            let mut stock = Stock::in_memory();
-            stock.make_persistent(provider, true).expect("unable to save stock");
-            return Ok(stock)
-        }
-        Err(Error::IO { details: err.to_string() })
-    })?;
-
-    Ok(RgbRuntime {
-        stock,
-        wallet_dir: wallet_dir.as_ref().to_path_buf(),
-    })
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -1063,7 +1036,7 @@ impl<const TRANSFER: bool> ResolveWitness for OffchainResolver<'_, '_, TRANSFER>
         self.consignment
             .bundled_witnesses()
             .find(|bw| bw.witness_id() == witness_id)
-            .and_then(|p| p.pub_witness.tx().cloned())
+            .map(|p| p.tx.clone())
             .map_or_else(
                 || self.fallback.resolve_witness(witness_id),
                 |tx| Ok(WitnessStatus::Resolved(tx, WitnessOrd::Tentative)),
@@ -1226,28 +1199,6 @@ mod tests {
         let result = check_proxy(&format!("http://127.0.0.1:{port}"));
         let expected = format!("error sending request for url (http://127.0.0.1:{port}/)");
         assert_matches!(result, Err(Error::Proxy { details }) if details == expected);
-    }
-
-    #[test]
-    fn test_load_rgb_runtime_corrupt_stock() {
-        let dir = tempfile::tempdir().unwrap();
-        let rgb_dir = dir.path().join(RGB_RUNTIME_DIR);
-        fs::create_dir_all(&rgb_dir).unwrap();
-        // write garbage to stash.dat: Stock::load fails with a decode error
-        fs::write(rgb_dir.join("stash.dat"), b"not valid binary data").unwrap();
-        let result = load_rgb_runtime(dir.path());
-        assert_matches!(result, Err(Error::IO { .. }));
-    }
-
-    #[test]
-    fn test_write_rgb_runtime_lockfile_timeout() {
-        let dir = tempfile::tempdir().unwrap();
-        let lock_path = dir.path().join(RGB_RUNTIME_LOCK_FILE);
-        // pre-create the lock file so every open attempt sees AlreadyExists
-        fs::File::create(&lock_path).unwrap();
-        // with a lower LOCK_FILE_TIMEOUT_SECS in test builds the error is returned immediately
-        let result = write_rgb_runtime_lockfile(dir.path());
-        assert_matches!(result, Err(Error::Internal { details }) if details == "unreleased lock file");
     }
 
     #[test]

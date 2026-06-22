@@ -40,8 +40,6 @@ pub(crate) struct ServerInfoResponse {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct GetConsignmentResponse {
     pub(crate) consignment: String,
-    pub(crate) txid: String,
-    pub(crate) vout: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

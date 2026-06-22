@@ -462,10 +462,12 @@ pub(crate) trait OfflineSigParty {
             panic!("cannot find outpoints for this transfer");
         }
         let contract_id = ContractId::from_str(asset_id).unwrap();
-        let runtime = self.wlt().rgb_runtime().unwrap();
-        let assignments = runtime
+        let txn = self.wlt().database().begin_transaction().unwrap();
+        let stock = self.wlt().rgb_stock(&txn).unwrap();
+        let assignments = stock
             .contract_assignments_for(contract_id, outpoints)
             .unwrap();
+        txn.commit().unwrap();
         let mut opouts = Vec::new();
         for (_explicit_seal, opout_state_map) in assignments {
             for (opout, _state) in opout_state_map {
@@ -1472,18 +1474,22 @@ impl SinglesigParty {
         let asset_schema: AssetSchema = consignment.schema_id().try_into().unwrap();
         let validation_config = ValidationConfig {
             chain_net: rcv_party.wallet.chain_net(),
-            trusted_typesystem: asset_schema.types(),
             ..Default::default()
         };
-        let mut runtime = rcv_party.wallet.rgb_runtime().unwrap();
+        let txn = rcv_party.wallet.database().begin_transaction().unwrap();
+        let mut stock = rcv_party.wallet.rgb_stock(&txn).unwrap();
         let valid_contract = contract
             .clone()
-            .validate(&DumbResolver, &validation_config)
+            .validate(
+                &asset_schema.schema_rules(),
+                &DumbResolver,
+                &validation_config,
+            )
             .unwrap();
-        runtime
+        stock
             .import_contract(valid_contract, rcv_party.wallet.blockchain_resolver())
             .unwrap();
-        drop(runtime);
+        txn.commit().unwrap();
 
         rcv_party
             .wallet

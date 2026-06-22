@@ -94,8 +94,7 @@ fn success() {
     let fungible = fungible.as_fungible();
     assert_eq!(fungible.len(), 1);
     let fungible = fungible.first().unwrap();
-    let seal = fungible.revealed_seal().unwrap();
-    let state = fungible.as_revealed_state();
+    let (seal, state) = fungible.as_revealed().unwrap();
     assert_eq!(seal.txid, TxPtr::WitnessTx);
     assert_eq!(seal.vout.into_u32(), vout);
     assert_eq!(seal.blinding, blinding);

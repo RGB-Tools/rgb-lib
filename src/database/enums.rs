@@ -69,50 +69,33 @@ impl AssetSchema {
 
     pub(crate) fn get_from_contract_id(
         contract_id: ContractId,
-        runtime: &RgbRuntime,
+        stock: &RgbStock<'_>,
     ) -> Result<Self, Error> {
-        let schema_id = runtime.genesis(contract_id)?.schema_id;
+        let schema_id = stock.genesis(contract_id)?.schema_id;
         Self::from_schema_id(schema_id)
     }
 
-    fn schema(&self) -> Schema {
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub(crate) fn schema_rules(&self) -> SchemaRules {
         match self {
-            Self::Nia => NonInflatableAsset::schema(),
-            Self::Uda => UniqueDigitalAsset::schema(),
-            Self::Cfa => CollectibleFungibleAsset::schema(),
-            Self::Ifa => InflatableFungibleAsset::schema(),
+            Self::Nia => NonInflatableAsset::schema_rules(),
+            Self::Uda => UniqueDigitalAsset::schema_rules(),
+            Self::Cfa => CollectibleFungibleAsset::schema_rules(),
+            Self::Ifa => InflatableFungibleAsset::schema_rules(),
         }
     }
 
-    fn scripts(&self) -> Scripts {
+    pub(crate) fn schema_definition(&self) -> SchemaDefinition {
         match self {
-            Self::Nia => NonInflatableAsset::scripts(),
-            Self::Uda => UniqueDigitalAsset::scripts(),
-            Self::Cfa => CollectibleFungibleAsset::scripts(),
-            Self::Ifa => InflatableFungibleAsset::scripts(),
+            Self::Nia => NonInflatableAsset::schema_definition(),
+            Self::Uda => UniqueDigitalAsset::schema_definition(),
+            Self::Cfa => CollectibleFungibleAsset::schema_definition(),
+            Self::Ifa => InflatableFungibleAsset::schema_definition(),
         }
     }
 
-    pub(crate) fn types(&self) -> TypeSystem {
-        match self {
-            Self::Nia => NonInflatableAsset::types(),
-            Self::Uda => UniqueDigitalAsset::types(),
-            Self::Cfa => CollectibleFungibleAsset::types(),
-            Self::Ifa => InflatableFungibleAsset::types(),
-        }
-    }
-
-    pub(crate) fn import_kit(&self, runtime: &mut RgbRuntime) -> Result<(), Error> {
-        let schema = self.schema();
-        let lib = self.scripts();
-        let types = self.types();
-        let mut kit = Kit::default();
-        kit.schemata.push(schema).unwrap();
-        kit.scripts.extend(lib.into_values()).unwrap();
-        kit.types = types;
-        let valid_kit = kit.validate().map_err(|_| InternalError::Unexpected)?;
-        runtime.import_kit(valid_kit)?;
-        Ok(())
+    pub(crate) fn import_schema_definition(&self, stock: &mut RgbStock<'_>) -> Result<(), Error> {
+        stock.import_schema_definition(self.schema_definition())
     }
 }
 
@@ -453,6 +436,8 @@ mod tests {
     use sea_orm::IntoActiveValue;
 
     use super::*;
+
+    use strict_encoding::StrictDumb;
 
     #[test]
     fn test_schema_id() {

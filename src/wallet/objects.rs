@@ -1678,7 +1678,7 @@ pub struct BurnBeginResult {
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct BurnDetails {
-    /// Path to fascia file for inspection
+    /// Path to the strict-encoded fascia file, for inspection
     pub fascia_path: String,
     /// Minimum confirmations for the operation
     pub min_confirmations: u8,
@@ -1704,7 +1704,7 @@ pub struct InflateBeginResult {
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct InflateDetails {
-    /// Path to fascia file for inspection
+    /// Path to the strict-encoded fascia file, for inspection
     pub fascia_path: String,
     /// Minimum confirmations for the operation
     pub min_confirmations: u8,
@@ -1730,7 +1730,7 @@ pub struct SendBeginResult {
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct SendDetails {
-    /// Path to fascia file for inspection
+    /// Path to the strict-encoded fascia file, for inspection
     pub fascia_path: String,
     /// Minimum confirmations for the operation
     pub min_confirmations: u8,
@@ -1983,8 +1983,6 @@ pub enum PrepareTransferPsbtResult {
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ReceivedConsignmentMeta {
-    pub txid: String,
-    pub vout: Option<u32>,
     #[serde(default)]
     pub proxy_url: Option<String>,
 }
@@ -2008,7 +2006,7 @@ pub enum ReceiveMode {
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) enum ReceiveMatcher {
+pub enum ReceiveMatcher {
     Blind(SecretSeal),
     Witness(ScriptBuf),
 }

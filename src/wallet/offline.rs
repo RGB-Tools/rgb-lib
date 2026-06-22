@@ -4,7 +4,7 @@
 
 use super::*;
 
-const TRANSFERS_DIR: &str = "transfers";
+pub(crate) const TRANSFERS_DIR: &str = "transfers";
 
 const CONSIGNMENT_RCV_FILE: &str = "rcv_compose.rgbc";
 
@@ -29,8 +29,8 @@ pub trait WalletOffline: WalletBackup {
         self.bitcoin_network().into()
     }
 
-    fn rgb_runtime(&self) -> Result<RgbRuntime, Error> {
-        load_rgb_runtime(self.wallet_dir().clone())
+    fn rgb_stock<'txn>(&self, db_txn: &'txn DbTxn) -> Result<RgbStock<'txn>, Error> {
+        Ok(RgbStock::new(db_txn))
     }
 
     fn media_dir(&self) -> PathBuf {
@@ -357,9 +357,9 @@ pub trait WalletOffline: WalletBackup {
         &self,
         txn: &DbTxn,
         issue_data: &IssueData,
-        runtime: &mut RgbRuntime,
+        stock: &mut RgbStock<'_>,
     ) -> Result<DbAsset, Error> {
-        runtime
+        stock
             .import_contract(issue_data.valid_contract.clone(), &DumbResolver)
             .expect("failure importing issued contract");
 
@@ -457,9 +457,7 @@ pub trait WalletOffline: WalletBackup {
 
         let mut builder = ContractBuilder::with(
             Identity::default(),
-            NonInflatableAsset::schema(),
-            NonInflatableAsset::types(),
-            NonInflatableAsset::scripts(),
+            NonInflatableAsset::schema_rules(),
             self.chain_net(),
         )
         .add_global_state("spec", spec.clone())
@@ -613,9 +611,7 @@ pub trait WalletOffline: WalletBackup {
 
         let builder = ContractBuilder::with(
             Identity::default(),
-            UniqueDigitalAsset::schema(),
-            UniqueDigitalAsset::types(),
-            UniqueDigitalAsset::scripts(),
+            UniqueDigitalAsset::schema_rules(),
             self.chain_net(),
         )
         .add_global_state("spec", spec)
@@ -707,9 +703,7 @@ pub trait WalletOffline: WalletBackup {
 
         let mut builder = ContractBuilder::with(
             Identity::default(),
-            CollectibleFungibleAsset::schema(),
-            CollectibleFungibleAsset::types(),
-            CollectibleFungibleAsset::scripts(),
+            CollectibleFungibleAsset::schema_rules(),
             self.chain_net(),
         )
         .add_global_state("name", name_state)
@@ -825,9 +819,7 @@ pub trait WalletOffline: WalletBackup {
 
         let mut builder = ContractBuilder::with(
             Identity::default(),
-            InflatableFungibleAsset::schema(),
-            InflatableFungibleAsset::types(),
-            InflatableFungibleAsset::scripts(),
+            InflatableFungibleAsset::schema_rules(),
             self.chain_net(),
         )
         .add_global_state("spec", spec.clone())
@@ -1114,7 +1106,7 @@ pub trait WalletOffline: WalletBackup {
         }
 
         if let Some(secret_seal) = receive_data_internal.blind_seal {
-            self.rgb_runtime()?.store_secret_seal(secret_seal)?;
+            self.rgb_stock(txn)?.store_secret_seal(secret_seal)?;
         }
 
         if let Some(script_pubkey) = &receive_data_internal.script_pubkey {
@@ -1283,9 +1275,9 @@ pub trait WalletOffline: WalletBackup {
                     reserves: None,
                 };
                 if token_light.embedded_media || token_light.reserves {
-                    let runtime = self.rgb_runtime()?;
+                    let stock = self.rgb_stock(txn)?;
                     let contract_id = ContractId::from_str(&asset_id).expect("invalid contract ID");
-                    let contract = runtime.contract_wrapper::<UniqueDigitalAsset>(contract_id)?;
+                    let contract = stock.contract_wrapper::<UniqueDigitalAsset>(contract_id)?;
                     let uda_token =
                         Token::from_token_data(&contract.token_data(), self.media_dir());
                     token.embedded_media = uda_token.embedded_media;
@@ -1510,7 +1502,7 @@ pub trait WalletOffline: WalletBackup {
 
     fn extract_asset_data(
         &self,
-        runtime: &RgbRuntime,
+        stock: &RgbStock<'_>,
         contract_id: ContractId,
         asset_schema: AssetSchema,
         valid_contract: ValidContract,
@@ -1521,7 +1513,7 @@ pub trait WalletOffline: WalletBackup {
         let media_dir = self.media_dir();
         Ok(match &asset_schema {
             AssetSchema::Nia => {
-                let contract = runtime.contract_wrapper::<NonInflatableAsset>(contract_id)?;
+                let contract = stock.contract_wrapper::<NonInflatableAsset>(contract_id)?;
                 let spec = contract.spec();
                 let ticker = spec.ticker().to_string();
                 let name = spec.name().to_string();
@@ -1550,7 +1542,7 @@ pub trait WalletOffline: WalletBackup {
                 }
             }
             AssetSchema::Uda => {
-                let contract = runtime.contract_wrapper::<UniqueDigitalAsset>(contract_id)?;
+                let contract = stock.contract_wrapper::<UniqueDigitalAsset>(contract_id)?;
                 let spec = contract.spec();
                 let ticker = spec.ticker().to_string();
                 let name = spec.name().to_string();
@@ -1580,7 +1572,7 @@ pub trait WalletOffline: WalletBackup {
                 }
             }
             AssetSchema::Cfa => {
-                let contract = runtime.contract_wrapper::<CollectibleFungibleAsset>(contract_id)?;
+                let contract = stock.contract_wrapper::<CollectibleFungibleAsset>(contract_id)?;
                 let name = contract.name().to_string();
                 let details = contract.details().map(|d| d.to_string());
                 let precision = contract.precision().into();
@@ -1607,7 +1599,7 @@ pub trait WalletOffline: WalletBackup {
                 }
             }
             AssetSchema::Ifa => {
-                let contract = runtime.contract_wrapper::<InflatableFungibleAsset>(contract_id)?;
+                let contract = stock.contract_wrapper::<InflatableFungibleAsset>(contract_id)?;
                 let spec = contract.spec();
                 let ticker = spec.ticker().to_string();
                 let name = spec.name().to_string();
@@ -1620,7 +1612,7 @@ pub trait WalletOffline: WalletBackup {
                     .map(|a| Media::from_attachment(&a, media_dir));
                 let max_supply = contract.max_supply().into();
                 let known_circulating_supply = if let Some(valid_transfer) = valid_transfer {
-                    IfaWrapper::with(valid_transfer.contract_data())
+                    IfaWrapper::with(stock.consignment_data(&valid_transfer)?)
                         .total_issued_supply()
                         .into()
                 } else {
@@ -1650,14 +1642,14 @@ pub trait WalletOffline: WalletBackup {
     fn save_new_asset_internal(
         &self,
         txn: &DbTxn,
-        runtime: &RgbRuntime,
+        stock: &RgbStock<'_>,
         contract_id: ContractId,
         asset_schema: AssetSchema,
         valid_contract: ValidContract,
         valid_transfer: Option<ValidTransfer>,
     ) -> Result<LocalAssetData, Error> {
         let local_asset_data = self.extract_asset_data(
-            runtime,
+            stock,
             contract_id,
             asset_schema,
             valid_contract,
@@ -1949,6 +1941,8 @@ pub trait WalletOffline: WalletBackup {
             .join(CONSIGNMENT_RCV_META_FILE)
     }
 
+    /// Path of the validated copy of a received consignment, kept only while the transfer is
+    /// pending
     fn get_receive_valid_consignment_path(&self, consignment_path: &Path) -> PathBuf {
         consignment_path.with_extension("valid.rgbc")
     }
@@ -2335,14 +2329,13 @@ pub trait WalletOffline: WalletBackup {
                 file_path: fascia_path,
             });
         }
-        let fascia_str = fs::read_to_string(&fascia_path)?;
-        let fascia: Fascia =
-            serde_json::from_str(&fascia_str).map_err(|_| Error::InvalidFilePath {
+        let fascia =
+            read_fascia(&PathBuf::from(&fascia_path)).map_err(|_| Error::InvalidFilePath {
                 file_path: fascia_path,
             })?;
 
         // verify the fascia's witness ID matches our PSBT's transaction ID
-        let fascia_witness_id = fascia.seal_witness().public.txid();
+        let fascia_witness_id = fascia.witness_id();
         let witness_id =
             RgbTxid::from_str(&psbt.unsigned_tx.compute_txid().to_string()).expect("valid TXID");
         if fascia_witness_id != witness_id {
@@ -2374,7 +2367,7 @@ pub trait WalletOffline: WalletBackup {
         // inspect fascia bundles and collect operations and commitment messages
         let mut messages = BTreeMap::new();
         let mut operations = Vec::new();
-        let mut runtime = self.rgb_runtime()?;
+        let mut stock = self.rgb_stock(txn)?;
         let prev_outputs: Vec<_> = psbt
             .unsigned_tx
             .input
@@ -2397,11 +2390,11 @@ pub trait WalletOffline: WalletBackup {
             }
         };
         for (contract_id, bundle) in fascia.bundles() {
-            // collect RGB inputs from stash
+            // collect RGB inputs from stock
             let mut opout_to_input_info: HashMap<Opout, RgbInputInfo> = HashMap::new();
-            let mut stash_input_opouts = HashSet::new();
+            let mut stock_input_opouts = HashSet::new();
             if let Ok(ass_map) =
-                runtime.contract_assignments_for(*contract_id, prev_outputs.iter().copied())
+                stock.contract_assignments_for(*contract_id, prev_outputs.iter().copied())
             {
                 for (explicit_seal, opout_state_map) in ass_map {
                     let outpoint = explicit_seal.to_outpoint();
@@ -2416,7 +2409,7 @@ pub trait WalletOffline: WalletBackup {
                             })
                     {
                         for (opout, state) in opout_state_map {
-                            stash_input_opouts.insert(opout);
+                            stock_input_opouts.insert(opout);
                             let assignment = Assignment::from_opout_and_state(opout, &state);
                             opout_to_input_info.insert(
                                 opout,
@@ -2437,33 +2430,33 @@ pub trait WalletOffline: WalletBackup {
                 .flat_map(|KnownTransition { transition, .. }| transition.inputs())
                 .collect();
 
-            // safety check: ensure the stash opouts match the bundle inputs exactly
-            // catches inconsistencies that could indicate an outdated stash or malformed transfer
-            if stash_input_opouts != bundle_input_opouts {
-                let missing_in_stash: Vec<_> = bundle_input_opouts
-                    .difference(&stash_input_opouts)
+            // safety check: ensure the stock opouts match the bundle inputs exactly
+            // catches inconsistencies that could indicate an outdated stock or malformed transfer
+            if stock_input_opouts != bundle_input_opouts {
+                let missing_in_stock: Vec<_> = bundle_input_opouts
+                    .difference(&stock_input_opouts)
                     .collect();
-                let extra_in_stash: Vec<_> = stash_input_opouts
+                let extra_in_stock: Vec<_> = stock_input_opouts
                     .difference(&bundle_input_opouts)
                     .collect();
                 let mut error_details = String::new();
-                if !missing_in_stash.is_empty() {
+                if !missing_in_stock.is_empty() {
                     error_details.push_str(&format!(
-                        "bundle declares {} input(s) not found in stash (outdated stash?): {:?}. ",
-                        missing_in_stash.len(),
-                        missing_in_stash
+                        "bundle declares {} input(s) not found in stock (outdated stock?): {:?}. ",
+                        missing_in_stock.len(),
+                        missing_in_stock
                     ));
                 }
-                if !extra_in_stash.is_empty() {
+                if !extra_in_stock.is_empty() {
                     error_details.push_str(&format!(
-                        "stash contains {} input(s) not declared in bundle (malformed transfer?): {:?}",
-                        extra_in_stash.len(),
-                        extra_in_stash
+                        "stock contains {} input(s) not declared in bundle (malformed transfer?): {:?}",
+                        extra_in_stock.len(),
+                        extra_in_stock
                     ));
                 }
                 return Err(Error::RgbInspection {
                     details: format!(
-                        "bundle for contract {}: input mismatch between stash and bundle. {}",
+                        "bundle for contract {}: input mismatch between stock and bundle. {}",
                         contract_id, error_details
                     ),
                 });
@@ -2499,16 +2492,16 @@ pub trait WalletOffline: WalletBackup {
                 let mut transition_outputs = Vec::new();
                 for (ass_type, typed_assigns) in transition.assignments.iter() {
                     for fungible_assignment in typed_assigns.as_fungible().iter() {
-                        let (vout, amount, is_concealed, is_ours) = match fungible_assignment {
-                            Assign::Revealed { seal, state, .. } => {
+                        let (vout, amount, is_concealed, is_ours) = match fungible_assignment.seal {
+                            BuilderSeal::Revealed(seal) => {
                                 let vout = seal.vout.into_u32();
                                 let is_ours = is_revealed_seal_ours(seal.txid, vout);
-                                let amount = state.as_u64();
+                                let amount = fungible_assignment.state.as_u64();
                                 (Some(vout), amount, false, is_ours)
                             }
-                            Assign::ConfidentialSeal { seal, state, .. } => {
-                                let is_ours = runtime.seal_secret(*seal).unwrap_or(None).is_some();
-                                let amount = state.as_u64();
+                            BuilderSeal::Concealed(seal) => {
+                                let is_ours = stock.seal_of_secret(seal).unwrap_or(None).is_some();
+                                let amount = fungible_assignment.state.as_u64();
                                 (None, amount, true, is_ours)
                             }
                         };
@@ -2525,14 +2518,14 @@ pub trait WalletOffline: WalletBackup {
                         });
                     }
                     for structured_assignment in typed_assigns.as_structured().iter() {
-                        let (vout, is_concealed, is_ours) = match structured_assignment {
-                            Assign::Revealed { seal, .. } => {
+                        let (vout, is_concealed, is_ours) = match structured_assignment.seal {
+                            BuilderSeal::Revealed(seal) => {
                                 let vout = seal.vout.into_u32();
                                 let is_ours = is_revealed_seal_ours(seal.txid, vout);
                                 (Some(vout), false, is_ours)
                             }
-                            Assign::ConfidentialSeal { seal, .. } => {
-                                let is_ours = runtime.seal_secret(*seal).unwrap_or(None).is_some();
+                            BuilderSeal::Concealed(seal) => {
+                                let is_ours = stock.seal_of_secret(seal).unwrap_or(None).is_some();
                                 (None, true, is_ours)
                             }
                         };
@@ -2629,9 +2622,7 @@ pub trait WalletOffline: WalletBackup {
         let info_contents: InfoBatchTransfer =
             serde_json::from_str(&serialized_info).map_err(InternalError::from)?;
 
-        let fascia_path = transfer_dir.join(FASCIA_FILE);
-        let fascia_str = fs::read_to_string(fascia_path)?;
-        let fascia: Fascia = serde_json::from_str(&fascia_str).map_err(InternalError::from)?;
+        let fascia = read_fascia(&transfer_dir.join(FASCIA_FILE))?;
 
         Ok((txid, transfer_dir, info_contents, fascia))
     }
@@ -2642,18 +2633,24 @@ pub trait WalletOffline: WalletBackup {
 
     fn gen_consignments(
         &self,
+        txn: &DbTxn,
         fascia: &Fascia,
         transfer_info_map: &BTreeMap<String, InfoAssetTransfer>,
         transfer_dir: &PathBuf,
     ) -> Result<(), Error> {
-        let runtime = self.rgb_runtime()?;
+        let stock = self.rgb_stock(txn)?;
         for (asset_id, transfer_info) in transfer_info_map {
-            let consignment = runtime.transfer_from_fascia(
+            #[allow(unused_mut)]
+            let (mut consignment, _) = stock.transfer_from_fascia(
                 transfer_info.asset_info.contract_id,
                 transfer_info.beneficiaries_witness.clone(),
                 transfer_info.beneficiaries_blinded.clone(),
                 fascia,
             )?;
+            #[cfg(all(test, any(feature = "electrum", feature = "esplora")))]
+            if strip_terminals() {
+                consignment.terminals = Default::default();
+            }
             let asset_transfer_dir = self.get_asset_transfer_dir(transfer_dir, asset_id);
             fs::create_dir_all(&asset_transfer_dir)?;
             let consignment_path = self.get_send_consignment_path_impl(asset_transfer_dir);

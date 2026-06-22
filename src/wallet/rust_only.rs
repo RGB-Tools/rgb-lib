@@ -77,6 +77,14 @@ pub fn check_proxy_url(proxy_url: &str) -> Result<(), Error> {
     check_proxy(proxy_url)
 }
 
+/// Load an RGB fascia from the file at the provided path.
+///
+/// <div class="warning">This method is meant for special usage and is normally not needed, use
+/// it only if you know what you're doing</div>
+pub fn load_fascia(path: &Path) -> Result<Fascia, Error> {
+    read_fascia(path)
+}
+
 /// Rust-only APIs of the wallet.
 impl Wallet {
     /// Color a PSBT.
@@ -116,7 +124,8 @@ impl Wallet {
             *psbt = Psbt::from_unsigned_tx(transaction).unwrap();
         }
 
-        let runtime = self.rgb_runtime()?;
+        let txn = self.database().begin_transaction()?;
+        let stock = self.rgb_stock(&txn)?;
 
         let prev_outputs = psbt
             .unsigned_tx
@@ -130,20 +139,18 @@ impl Wallet {
         let assignment_name = FieldName::from(RGB_STATE_ASSET_OWNER);
 
         for (contract_id, asset_coloring_info) in coloring_info.asset_info_map.clone() {
-            let schema =
-                AssetSchema::get_from_contract_id(contract_id, &runtime).map_err(|_| {
-                    Error::AssetNotFound {
-                        asset_id: contract_id.to_string(),
-                    }
-                })?;
+            let schema = AssetSchema::get_from_contract_id(contract_id, &stock).map_err(|_| {
+                Error::AssetNotFound {
+                    asset_id: contract_id.to_string(),
+                }
+            })?;
 
-            let mut asset_transition_builder =
-                runtime.transition_builder(contract_id, "transfer")?;
+            let mut asset_transition_builder = stock.transition_builder(contract_id, "transfer")?;
 
             let mut asset_available_amt: u64 = 0;
             let mut uda_state = None;
             for (_, opout_state_map) in
-                runtime.contract_assignments_for(contract_id, prev_outputs.iter().copied())?
+                stock.contract_assignments_for(contract_id, prev_outputs.iter().copied())?
             {
                 for (opout, state) in opout_state_map {
                     if let AllocatedState::Amount(amt) = &state {
@@ -254,6 +261,7 @@ impl Wallet {
         psbt.set_as_unmodifiable();
         let fascia = psbt.rgb_commit().map_err(InternalError::from)?;
 
+        txn.commit()?;
         info!(self.logger(), "Color PSBT completed");
         Ok((fascia, asset_beneficiaries))
     }
@@ -272,8 +280,9 @@ impl Wallet {
 
         let witness_txid = psbt.get_txid();
 
-        let mut runtime = self.rgb_runtime()?;
-        runtime.consume_fascia(fascia, None)?;
+        let txn = self.database().begin_transaction()?;
+        let mut stock = self.rgb_stock(&txn)?;
+        stock.consume_fascia(fascia, None)?;
 
         let mut transfers = vec![];
         for (contract_id, beneficiaries) in asset_beneficiaries {
@@ -290,7 +299,7 @@ impl Wallet {
                     }
                 };
             }
-            transfers.push(runtime.transfer(
+            transfers.push(stock.transfer(
                 contract_id,
                 beneficiaries_witness,
                 beneficiaries_blinded,
@@ -298,6 +307,7 @@ impl Wallet {
             )?);
         }
 
+        txn.commit()?;
         info!(self.logger(), "Color PSBT and consume completed");
         Ok(transfers)
     }
@@ -311,7 +321,9 @@ impl Wallet {
 
         let psbt = Psbt::from_str(&psbt)?;
         let (_, transfer_dir, info_contents, fascia) = self.get_transfer_end_data(&psbt)?;
-        self.gen_consignments(&fascia, &info_contents.transfers, &transfer_dir)?;
+        let txn = self.database().begin_transaction()?;
+        self.gen_consignments(&txn, &fascia, &info_contents.transfers, &transfer_dir)?;
+        txn.commit()?;
 
         info!(self.logger(), "Create consignments completed");
         Ok(())
@@ -349,10 +361,11 @@ impl Wallet {
             "Got consignment for asset with {} schema", asset_schema
         );
 
-        let mut runtime = self.rgb_runtime()?;
+        let txn = self.database().begin_transaction()?;
+        let mut stock = self.rgb_stock(&txn)?;
 
         let graph_seal = GraphSeal::with_blinded_vout(vout, blinding);
-        runtime.store_secret_seal(graph_seal)?;
+        stock.store_secret_seal(graph_seal)?;
 
         let resolver = OffchainResolver {
             witness_id,
@@ -362,13 +375,15 @@ impl Wallet {
 
         debug!(self.logger(), "Validating consignment...");
         let asset_schema: AssetSchema = consignment.schema_id().try_into()?;
-        let trusted_typesystem = asset_schema.types();
         let validation_config = ValidationConfig {
             chain_net: self.chain_net(),
-            trusted_typesystem,
             ..Default::default()
         };
-        let valid_consignment = match consignment.clone().validate(&resolver, &validation_config) {
+        let valid_consignment = match consignment.clone().validate(
+            &asset_schema.schema_rules(),
+            &resolver,
+            &validation_config,
+        ) {
             Ok(consignment) => consignment,
             Err(ValidationError::InvalidConsignment(e)) => {
                 error!(self.logger(), "Consignment is invalid: {}", e);
@@ -380,25 +395,31 @@ impl Wallet {
                     details: e.to_string(),
                 });
             }
+            Err(e) => {
+                return Err(Error::Internal {
+                    details: format!("unexpected consignment validation error: {e}"),
+                });
+            }
         };
         let validity = valid_consignment.validation_status().validity();
         debug!(self.logger(), "Consignment validity: {:?}", validity);
 
         let valid_contract = valid_consignment.clone().into_valid_contract();
         let media_digests = self
-            .extract_attachments(&valid_contract, asset_schema)
+            .extract_attachments(&stock, &valid_contract, asset_schema)?
             .iter()
             .map(|a| hex::encode(a.digest))
             .collect::<HashSet<_>>();
-        runtime
+        stock
             .import_contract(valid_contract, self.blockchain_resolver())
             .expect("failure importing validated contract");
 
         let received_rgb_assignments =
             self.extract_received_assignments(&consignment, witness_id, Some(vout), None);
 
-        runtime.accept_transfer(valid_consignment, &resolver)?;
+        stock.accept_transfer(valid_consignment, &resolver)?;
 
+        txn.commit()?;
         info!(self.logger(), "Accept transfer completed");
         Ok((
             consignment,
@@ -417,8 +438,10 @@ impl Wallet {
         witness_ord: Option<WitnessOrd>,
     ) -> Result<(), Error> {
         info!(self.logger(), "Consuming fascia...");
-        self.rgb_runtime()?
+        let txn = self.database().begin_transaction()?;
+        self.rgb_stock(&txn)?
             .consume_fascia(fascia.clone(), witness_ord)?;
+        txn.commit()?;
         info!(self.logger(), "Consume fascia completed");
         Ok(())
     }
@@ -449,11 +472,13 @@ impl Wallet {
     ) -> Result<UpdateRes, Error> {
         info!(self.logger(), "Updating witnesses...");
         self.check_online(online)?;
-        let update_res = self.rgb_runtime()?.update_witnesses(
+        let txn = self.database().begin_transaction()?;
+        let update_res = self.rgb_stock(&txn)?.update_witnesses(
             self.blockchain_resolver(),
             after_height,
             force_witnesses,
         )?;
+        txn.commit()?;
         info!(self.logger(), "Update witnesses completed");
         Ok(update_res)
     }
@@ -467,8 +492,10 @@ impl Wallet {
         witness_id: RgbTxid,
         witness_ord: WitnessOrd,
     ) -> Result<(), Error> {
-        let mut runtime = self.rgb_runtime()?;
-        runtime.upsert_witness(witness_id, witness_ord)?;
+        let txn = self.database().begin_transaction()?;
+        let mut stock = self.rgb_stock(&txn)?;
+        stock.upsert_witness(witness_id, witness_ord)?;
+        txn.commit()?;
         Ok(())
     }
 
@@ -485,7 +512,8 @@ impl Wallet {
     ) -> Result<(), Error> {
         info!(self.logger(), "Saving new asset...");
         self.check_online(online)?;
-        let runtime = self.rgb_runtime()?;
+        let txn = self.database().begin_transaction()?;
+        let stock = self.rgb_stock(&txn)?;
 
         let contract_id = consignment.contract_id();
 
@@ -496,22 +524,19 @@ impl Wallet {
             fallback: self.blockchain_resolver(),
         };
         let asset_schema: AssetSchema = consignment.schema_id().try_into()?;
-        let trusted_typesystem = asset_schema.types();
         let validation_config = ValidationConfig {
             chain_net: self.chain_net(),
-            trusted_typesystem,
             ..Default::default()
         };
         let valid_transfer = consignment
             .clone()
-            .validate(&resolver, &validation_config)
+            .validate(&asset_schema.schema_rules(), &resolver, &validation_config)
             .expect("valid consignment");
         let valid_contract = valid_transfer.clone().into_valid_contract();
 
-        let txn = self.database().begin_transaction()?;
         self.save_new_asset_internal(
             &txn,
-            &runtime,
+            &stock,
             contract_id,
             asset_schema,
             valid_contract,

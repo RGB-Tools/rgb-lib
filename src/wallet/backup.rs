@@ -338,7 +338,12 @@ pub(crate) fn zip_dir(
     } else {
         path_in
     };
-    for entry in WalkDir::new(path_in) {
+    // a legacy RGB store migration that crashed between retiring the legacy store and deleting it
+    // can leave the retired copy behind: skip its whole subtree, the DB holds its data
+    let entry_iterator = WalkDir::new(path_in)
+        .into_iter()
+        .filter_entry(|e| !e.path().ends_with(RGB_RUNTIME_DELETING_DIR));
+    for entry in entry_iterator {
         let entry = entry.map_err(std::io::Error::from)?;
         let path = entry.path();
         let name = path.strip_prefix(prefix).map_err(InternalError::from)?;
