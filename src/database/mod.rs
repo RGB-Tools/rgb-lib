@@ -1,5 +1,6 @@
 mod bdk;
 pub(crate) mod entities;
+pub(crate) mod rgb;
 
 use super::*;
 
@@ -10,7 +11,7 @@ use crate::database::entities::{
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use crate::database::entities::{pending_witness_script, reserved_txo};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-use sea_orm::{Condition, Iterable, JoinType, QuerySelect, RelationTrait};
+use sea_orm::RelationTrait;
 
 /// Max number of values bound in a single `IN (...)` clause, well below SQLite's variable limit.
 const SQL_IN_CHUNK_SIZE: usize = 500;
@@ -280,6 +281,14 @@ pub struct DbTxn {
     /// Callbacks run only if the transaction commits, to discard the crash-recovery copies of
     /// data the commit has just made durable.
     on_commit: Mutex<Vec<Box<dyn FnOnce() + Send>>>,
+}
+
+// required by the rgb-ops `RgbStore` trait (implemented on `&DbTxn`); the inner
+// transaction is not `Debug`
+impl std::fmt::Debug for DbTxn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DbTxn").finish_non_exhaustive()
+    }
 }
 
 impl Drop for DbTxn {
@@ -1123,11 +1132,6 @@ impl DbTxn {
                 .expect("pending outgoing cannot exceed available balance"),
             spendable,
         })
-    }
-
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
-    pub(crate) fn get_asset_ids(&self) -> Result<Vec<String>, Error> {
-        Ok(self.iter_assets()?.into_iter().map(|a| a.id).collect())
     }
 
     pub(crate) fn check_asset_exists(&self, asset_id: String) -> Result<DbAsset, Error> {

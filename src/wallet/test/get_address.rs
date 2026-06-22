@@ -54,16 +54,14 @@ fn reveal_survives_rolled_back_txn() {
     assert!(!changeset.indexer.last_revealed.is_empty());
 
     // reloading the BDK wallet from the DB gives back the same address
-    let txn = wallet.database().begin_transaction().unwrap();
     let reloaded = setup_bdk(
-        &txn,
+        wallet.database(),
         wallet.get_wallet_dir(),
         wallet.get_descriptors().colored,
         wallet.get_descriptors().vanilla,
         BitcoinNetwork::Regtest,
     )
     .unwrap();
-    txn.commit().unwrap();
     assert_eq!(
         reloaded
             .spk_index()
@@ -116,16 +114,14 @@ fn bdk_pending_file_survives_a_crash() {
     txn.commit().unwrap();
 
     // reloading the BDK wallet (as a restart would) recovers the reveal from the file
-    let txn = wallet.database().begin_transaction().unwrap();
     let reloaded = setup_bdk(
-        &txn,
+        wallet.database(),
         &wallet_dir,
         descriptors.colored,
         descriptors.vanilla,
         BitcoinNetwork::Regtest,
     )
     .unwrap();
-    txn.commit().unwrap();
 
     let index = reloaded
         .spk_index()

@@ -599,9 +599,7 @@ fn extract_fascia_from_files(files: &[FileResponse]) -> Result<Fascia, Error> {
         .ok_or(Error::MultisigUnexpectedData {
             details: s!("fascia not found"),
         })?;
-    let file = fs::File::open(&fascia_file.filepath)?;
-    let reader = io::BufReader::new(file);
-    serde_json::from_reader(reader).map_err(|_| Error::MultisigUnexpectedData {
+    read_fascia(&fascia_file.filepath).map_err(|_| Error::MultisigUnexpectedData {
         details: s!("invalid fascia"),
     })
 }
@@ -1058,18 +1056,19 @@ impl MultisigWallet {
         let database = setup_db(&wallet_dir)?;
 
         // setup the BDK wallet, persisting its data inside the rgb-lib DB
-        let txn = database.begin_transaction()?;
         let bdk_wallet = setup_bdk(
-            &txn,
+            &database,
             &wallet_dir,
             descs.colored,
             descs.vanilla,
             wdata.bitcoin_network,
         )?;
-        txn.commit()?;
+
+        // migrate any legacy filesystem RGB data into the DB (one-time, no-op otherwise)
+        migrate_rgb_fs_to_db(&wallet_dir, &database)?;
 
         // setup RGB
-        setup_rgb(&wallet_dir, wdata.supported_schemas, wdata.bitcoin_network)?;
+        setup_rgb(&database, wdata.supported_schemas, wdata.bitcoin_network)?;
 
         info!(logger, "New multisig wallet completed");
         Ok(Self {
@@ -1208,9 +1207,7 @@ impl MultisigWallet {
             batch_data_str.as_bytes(),
         )?;
         let fascia = extract_fascia_from_files(files)?;
-        let fascia_str = serde_json::to_string(&fascia).expect("serializable");
-        let fascia_path = transfer_dir.join(FASCIA_FILE);
-        atomic_write(&fascia_path, fascia_str.as_bytes())?;
+        write_fascia(&transfer_dir.join(FASCIA_FILE), &fascia)?;
         Ok(())
     }
 
@@ -1322,8 +1319,8 @@ impl MultisigWallet {
         let response = self
             .hub_client()
             .post_operation(files, OperationType::Issuance)?;
-        let mut runtime = self.rgb_runtime()?;
-        let asset = self.import_and_save_contract(txn, issue_data, &mut runtime)?;
+        let mut stock = self.rgb_stock(txn)?;
+        let asset = self.import_and_save_contract(txn, issue_data, &mut stock)?;
         self.mark_operation_as_processed(txn, response.operation_idx)?;
         T::from_issuance(txn, self, &asset, issue_data)
     }
@@ -1672,8 +1669,8 @@ impl MultisigWallet {
         let asset_schema: AssetSchema = valid_contract.schema_id().try_into()?;
 
         // import and move contract file to the issue consignment path
-        let mut runtime = self.rgb_runtime()?;
-        runtime
+        let mut stock = self.rgb_stock(txn)?;
+        stock
             .import_contract(valid_contract.clone(), &DumbResolver)
             .expect("importing issued contract should work");
         let contract_id = valid_contract.contract_id();
@@ -1686,7 +1683,7 @@ impl MultisigWallet {
             .iter()
             .filter(|f| matches!(f.r#type, FileType::Media))
             .collect::<Vec<_>>();
-        let attachments = self.extract_attachments(&valid_contract, asset_schema);
+        let attachments = self.extract_attachments(&stock, &valid_contract, asset_schema)?;
         if media_files.len() != attachments.len() {
             return Err(Error::MultisigUnexpectedData {
                 details: format!(
@@ -1715,7 +1712,7 @@ impl MultisigWallet {
         }
 
         let asset_data = self.extract_asset_data(
-            &runtime,
+            &stock,
             contract_id,
             asset_schema,
             valid_contract.clone(),
@@ -1723,10 +1720,13 @@ impl MultisigWallet {
         )?;
 
         let mut issue_utxos: HashMap<i32, Vec<Assignment>> = HashMap::new();
-        for a in valid_contract
-            .contract_data()
+        for a in stock
+            .consignment_data(&valid_contract)?
             .allocations(&FilterIncludeAll)
         {
+            let a = a.map_err(|e| Error::Internal {
+                details: format!("cannot read contract allocations: {e}"),
+            })?;
             let outpoint = a.seal.to_outpoint().into();
             let txo = match txn.get_txo(&outpoint)? {
                 Some(txo) => txo,
@@ -1755,7 +1755,7 @@ impl MultisigWallet {
             issue_utxos,
         };
 
-        self.import_and_save_contract(txn, &issue_data, &mut runtime)?;
+        self.import_and_save_contract(txn, &issue_data, &mut stock)?;
         self.update_backup_info(txn, false)?;
 
         Ok(asset_id)

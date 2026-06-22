@@ -267,10 +267,6 @@ fn fail() {
     // set the permissions to read and execute only (no write permissions)
     let permissions = fs::Permissions::from_mode(0o555);
     fs::set_permissions(non_writable_path, permissions).unwrap();
-    // try to load runtime, expecting it to receive a permission denied error
-    let result = load_rgb_runtime(PathBuf::from_str(non_writable_path).unwrap());
-    let err = result.err().unwrap();
-    assert!(matches!(err, Error::IO { details: m } if m.starts_with("Permission denied")));
     // try to setup logger, expecting it to receive a permission denied error
     let result = std::panic::catch_unwind(|| setup_logger(non_writable_path, Some("log")));
     assert!(result.is_ok());
@@ -654,16 +650,14 @@ fn legacy_bdk_store_is_imported() {
     drop(store);
 
     let database = setup_db(dir.path()).unwrap();
-    let txn = database.begin_transaction().unwrap();
     let bdk_wallet = setup_bdk(
-        &txn,
+        &database,
         dir.path(),
         descriptors.colored.clone(),
         descriptors.vanilla.clone(),
         BitcoinNetwork::Regtest,
     )
     .unwrap();
-    txn.commit().unwrap();
 
     // the revealed indices survived the upgrade
     assert_eq!(

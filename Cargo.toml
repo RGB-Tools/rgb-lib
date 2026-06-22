@@ -78,16 +78,16 @@ zip = { version = "8.6.0", default-features = false, features = [
 
 # RGB-related deps
 amplify = { version = "=4.8.1", default-features = false }
-rgb-invoicing = { version = "=0.11.1-rc.11", default-features = false }
-rgb-psbt-utils = { version = "=0.11.1-rc.11", default-features = false }
-rgb-schemas = { version = "=0.11.1-rc.11", default-features = false }
-rgb-ops = { version = "=0.11.1-rc.11", default-features = false, features = [
+rgb-invoicing = { version = "0.11.2-rc.1", default-features = false }
+rgb-psbt-utils = { version = "0.11.2-rc.1", default-features = false }
+rgb-schemas = { version = "0.11.2-rc.1", default-features = false }
+rgb-ops = { version = "0.11.2-rc.1", default-features = false, features = [
     "serde",
 ] }
-rgb-strict-encoding = { version = "=1.0.2", default-features = false, features = [
+rgb-strict-encoding = { version = "1.0.5", default-features = false, features = [
     "bitcoin",
 ] }
-rgb-strict-types = { version = "=1.0.2", default-features = false }
+rgb-strict-types = { version = "1.0.5", default-features = false }
 
 [dev-dependencies]
 biscuit-auth = { version = "6.0.0", default-features = false, features = [
@@ -114,11 +114,15 @@ version = "0.13"
 features = ["rustls"]
 
 [features]
-default = ["electrum", "bdk_file_store_migration"]
-all = ["electrum", "esplora", "bdk_file_store_migration"]
+default = ["electrum", "bdk_file_store_migration", "rgb_fs_store_migration"]
+all = ["electrum", "esplora", "bdk_file_store_migration", "rgb_fs_store_migration"]
 # import the BDK data of wallets created before the changeset moved into the rgb-lib DB; only
 # needed to upgrade such wallets, so it can be turned off to drop the bdk_file_store dependency
 bdk_file_store_migration = ["bdk_wallet/file_store"]
+# import the RGB data (and convert the consignment/fascia files) of wallets created before the RGB
+# data moved into the rgb-lib DB; only needed to upgrade such wallets, so it can be turned off to
+# drop the legacy formats support of rgb-ops
+rgb_fs_store_migration = ["rgb-ops/legacy"]
 electrum = [
     "bdk_electrum",
     "reqwest",

@@ -189,15 +189,16 @@ impl Wallet {
         let database = setup_db(&wallet_dir)?;
 
         // setup the BDK wallet, persisting its data inside the rgb-lib DB
-        let txn = database.begin_transaction()?;
         let bdk_wallet = setup_bdk(
-            &txn,
+            &database,
             &wallet_dir,
             descs.colored.clone(),
             descs.vanilla.clone(),
             wdata.bitcoin_network,
         )?;
-        txn.commit()?;
+
+        // migrate any legacy filesystem RGB data into the DB (one-time, no-op otherwise)
+        migrate_rgb_fs_to_db(&wallet_dir, &database)?;
 
         // keep the signing keys outside the BDK wallet
         let signers = if watch_only {
@@ -222,7 +223,7 @@ impl Wallet {
         };
 
         // setup RGB
-        setup_rgb(&wallet_dir, wdata.supported_schemas, wdata.bitcoin_network)?;
+        setup_rgb(&database, wdata.supported_schemas, wdata.bitcoin_network)?;
 
         // persist the settings needed to load the wallet back
         WalletManifest::new(&wallet_data, &keys).write(&wallet_dir)?;
@@ -382,8 +383,8 @@ impl Wallet {
         txn: &DbTxn,
         issue_data: &IssueData,
     ) -> Result<T, Error> {
-        let mut runtime = self.rgb_runtime()?;
-        let asset = self.import_and_save_contract(txn, issue_data, &mut runtime)?;
+        let mut stock = self.rgb_stock(txn)?;
+        let asset = self.import_and_save_contract(txn, issue_data, &mut stock)?;
         T::from_issuance(txn, self, &asset, issue_data)
     }
 

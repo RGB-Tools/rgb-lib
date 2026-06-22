@@ -4,9 +4,6 @@
 
 use super::*;
 
-const SCHEMAS_SUPPORTING_BURN: [database::enums::AssetSchema; 1] = [AssetSchema::Ifa];
-const SCHEMAS_SUPPORTING_INFLATION: [database::enums::AssetSchema; 1] = [AssetSchema::Ifa];
-
 const SIGNED_PSBT_FILE: &str = "signed.psbt";
 
 const MIN_FEE_RATE: u64 = 1;
@@ -221,12 +218,12 @@ pub trait WalletOnline: WalletOffline {
     fn broadcast_and_update_rgb(
         &mut self,
         txn: &DbTxn,
-        runtime: &mut RgbRuntime,
+        stock: &mut RgbStock<'_>,
         signed_psbt: &Psbt,
         fascia: Fascia,
     ) -> Result<BdkTransaction, Error> {
         let tx = self.broadcast_psbt(txn, signed_psbt)?;
-        runtime.consume_fascia(fascia, None)?;
+        stock.consume_fascia(fascia, None)?;
         Ok(tx)
     }
 
@@ -683,22 +680,10 @@ pub trait WalletOnline: WalletOffline {
 
     fn wallet_specific_consistency_checks(&mut self, _txn: &DbTxn) -> Result<(), Error>;
 
-    fn check_consistency(&mut self, txn: &DbTxn, runtime: &RgbRuntime) -> Result<(), Error> {
+    fn check_consistency(&mut self, txn: &DbTxn) -> Result<(), Error> {
         info!(self.logger(), "Doing a consistency check...");
 
         self.wallet_specific_consistency_checks(txn)?;
-
-        let asset_ids: Vec<String> = runtime
-            .contracts()?
-            .iter()
-            .map(|c| c.id.to_string())
-            .collect();
-        let db_asset_ids: Vec<String> = txn.get_asset_ids()?;
-        if !db_asset_ids.iter().all(|i| asset_ids.contains(i)) {
-            return Err(Error::Inconsistency {
-                details: s!("DB assets do not match with ones stored in RGB"),
-            });
-        }
 
         let medias = txn.iter_media()?;
         let media_dir = self.media_dir();
@@ -778,8 +763,7 @@ pub trait WalletOnline: WalletOffline {
 
         if !online_options.skip_consistency_check {
             let txn = self.database().begin_transaction()?;
-            let runtime = self.rgb_runtime()?;
-            self.check_consistency(&txn, &runtime)?;
+            self.check_consistency(&txn)?;
             self.persist_and_commit(txn)?;
         }
 
@@ -826,6 +810,7 @@ pub trait WalletOnline: WalletOffline {
             .into_iter()
             .collect();
         self.unflag_pending_witness_txos(txn, &HashSet::new(), &scripts)?;
+        self.delete_valid_consignment(&recipient_id)?;
         updated_batch_transfer.status = ActiveValue::Set(TransferStatus::Failed);
         Ok(Some(txn.update_batch_transfer(updated_batch_transfer)?))
     }
@@ -945,13 +930,108 @@ pub trait WalletOnline: WalletOffline {
         vout: Option<u32>,
         known_concealed: Option<SecretSeal>,
     ) -> HashMap<Opout, Assignment> {
-        // the terminal (paying) bundle is guaranteed to be the last one in the consignment
-        match consignment.bundles.last() {
-            Some(bundle) if bundle.witness_id() == witness_id => {
-                self.assignments_for_bundle(bundle, vout, known_concealed)
-            }
-            _ => HashMap::new(),
+        match consignment
+            .bundles
+            .iter()
+            .find(|bundle| bundle.witness_id() == witness_id)
+        {
+            Some(bundle) => self.assignments_for_bundle(bundle, vout, known_concealed),
+            None => HashMap::new(),
         }
+    }
+
+    /// Locate the consignment terminal paying this recipient.
+    ///
+    /// Returns the terminal witness bundle and, for witness receives, the vout being paid.
+    ///
+    /// The bundle and vout returned here together identify the one payment destination the transfer
+    /// waits on and credits from. A consignment declaring more than one such destination for this
+    /// recipient - a different witness TXID (so a different bundle), or a different vout of the
+    /// same TXID - is refused instead of resolved arbitrarily: `terminals` is counterparty-supplied
+    /// data, it is read before validation, and its iteration order (by bundle ID) carries no
+    /// meaning, so picking one of several genuinely different destinations would credit an
+    /// unpredictable one of them. Several terminal seals defined on the same vout of the same
+    /// bundle are a different matter (see the dedup in `push_match` below): that is one
+    /// destination described more than once, not several to choose between.
+    fn find_terminal_bundle<'c>(
+        &self,
+        consignment: &'c RgbTransfer,
+        matcher: &ReceiveMatcher,
+    ) -> Option<(&'c WitnessBundle, Option<u32>)> {
+        let mut matches: Vec<(&'c WitnessBundle, Option<u32>)> = vec![];
+        let mut push_match = |witness_bundle: &'c WitnessBundle, vout: Option<u32>| {
+            // several revealed seals of one bundle can be defined on the same witness output - one
+            // per assignment, e.g. two assignment types paying this recipient, differing only by
+            // blinding - so keying on bundle + vout counts them as the single payment they are,
+            // instead of tripping the ambiguity check below
+            //
+            // a no-op for concealed seals, which are matched on presence alone and push `None` once
+            // per bundle
+            if !matches.iter().any(|(wb, v)| {
+                wb.bundle.bundle_id() == witness_bundle.bundle.bundle_id() && *v == vout
+            }) {
+                matches.push((witness_bundle, vout));
+            }
+        };
+
+        for (bundle_id, seals) in consignment.terminals.iter() {
+            // this lookup happens before validation, so a bundle a terminal references is not
+            // yet guaranteed to be present and is simply skipped here: validation later refuses
+            // the consignment over it
+            let Some(witness_bundle) = consignment
+                .bundles
+                .iter()
+                .find(|wb| wb.bundle.bundle_id() == *bundle_id)
+            else {
+                continue;
+            };
+            match matcher {
+                ReceiveMatcher::Blind(secret_seal) => {
+                    if seals
+                        .into_iter()
+                        .any(|seal| seal == BuilderSeal::Concealed(*secret_seal))
+                    {
+                        push_match(witness_bundle, None);
+                    }
+                }
+                ReceiveMatcher::Witness(script_pubkey) => {
+                    let tx = &witness_bundle.tx;
+                    for seal in seals {
+                        // a witness receive is matched by the scriptPubKey at the vout the seal
+                        // names, which a concealed seal does not expose - it belongs to the blind
+                        // arm above
+                        let BuilderSeal::Revealed(seal) = seal else {
+                            continue;
+                        };
+                        // only a seal closed by this bundle's own witness TX is a payment made by
+                        // it: one naming an explicit TXID points at another transaction, so its
+                        // vout would be looked up against the wrong `tx` below
+                        if seal.txid != TxPtr::WitnessTx {
+                            continue;
+                        }
+                        let vout = seal.vout.into_u32();
+                        if tx
+                            .output
+                            .get(vout as usize)
+                            .is_some_and(|out| out.script_pubkey == *script_pubkey)
+                        {
+                            push_match(witness_bundle, Some(vout));
+                        }
+                    }
+                }
+            }
+        }
+
+        if matches.len() > 1 {
+            error!(
+                self.logger(),
+                "Consignment declares {} terminal payments to this recipient, refusing it as \
+                 ambiguous",
+                matches.len()
+            );
+            return None;
+        }
+        matches.into_iter().next()
     }
 
     // extract the assignments in a single bundle that pay the recipient identified by
@@ -967,29 +1047,41 @@ pub trait WalletOnline: WalletOffline {
             for (ass_type, typed_assigns) in transition.assignments.iter() {
                 for (no, fungible_assignment) in typed_assigns.as_fungible().iter().enumerate() {
                     let opout = Opout::new(*opid, *ass_type, no as u16);
-                    if let Assign::ConfidentialSeal { seal, state, .. } = fungible_assignment
-                        && Some(*seal) == known_concealed
+                    if let BuilderSeal::Concealed(seal) = fungible_assignment.seal
+                        && Some(seal) == known_concealed
                     {
                         match *ass_type {
                             OS_ASSET => {
-                                received.insert(opout, Assignment::Fungible(state.as_u64()));
+                                received.insert(
+                                    opout,
+                                    Assignment::Fungible(fungible_assignment.state.as_u64()),
+                                );
                             }
                             OS_INFLATION => {
-                                received.insert(opout, Assignment::InflationRight(state.as_u64()));
+                                received.insert(
+                                    opout,
+                                    Assignment::InflationRight(fungible_assignment.state.as_u64()),
+                                );
                             }
                             _ => {}
                         }
                     };
-                    if let Assign::Revealed { seal, state, .. } = fungible_assignment
+                    if let BuilderSeal::Revealed(seal) = fungible_assignment.seal
                         && seal.txid == TxPtr::WitnessTx
                         && Some(seal.vout.into_u32()) == vout
                     {
                         match *ass_type {
                             OS_ASSET => {
-                                received.insert(opout, Assignment::Fungible(state.as_u64()));
+                                received.insert(
+                                    opout,
+                                    Assignment::Fungible(fungible_assignment.state.as_u64()),
+                                );
                             }
                             OS_INFLATION => {
-                                received.insert(opout, Assignment::InflationRight(state.as_u64()));
+                                received.insert(
+                                    opout,
+                                    Assignment::InflationRight(fungible_assignment.state.as_u64()),
+                                );
                             }
                             _ => {}
                         }
@@ -998,12 +1090,12 @@ pub trait WalletOnline: WalletOffline {
                 for (no, structured_assignment) in typed_assigns.as_structured().iter().enumerate()
                 {
                     let opout = Opout::new(*opid, *ass_type, no as u16);
-                    if let Assign::ConfidentialSeal { seal, .. } = structured_assignment
-                        && Some(*seal) == known_concealed
+                    if let BuilderSeal::Concealed(seal) = structured_assignment.seal
+                        && Some(seal) == known_concealed
                     {
                         received.insert(opout, Assignment::NonFungible);
                     }
-                    if let Assign::Revealed { seal, .. } = structured_assignment
+                    if let BuilderSeal::Revealed(seal) = structured_assignment.seal
                         && seal.txid == TxPtr::WitnessTx
                         && Some(seal.vout.into_u32()) == vout
                     {
@@ -1055,20 +1147,20 @@ pub trait WalletOnline: WalletOffline {
 
     fn extract_attachments(
         &self,
+        stock: &RgbStock<'_>,
         valid_contract: &ValidContract,
         asset_schema: AssetSchema,
-    ) -> Vec<Attachment> {
+    ) -> Result<Vec<Attachment>, Error> {
         let mut attachments = vec![];
+        let contract_data = stock.consignment_data(valid_contract)?;
         match asset_schema {
             AssetSchema::Nia => {
-                let contract_data = valid_contract.contract_data();
                 let contract = NiaWrapper::with(contract_data);
                 if let Some(attachment) = contract.contract_terms().media {
                     attachments.push(attachment)
                 }
             }
             AssetSchema::Uda => {
-                let contract_data = valid_contract.contract_data();
                 let contract = UdaWrapper::with(contract_data);
                 if let Some(attachment) = contract.contract_terms().media {
                     attachments.push(attachment)
@@ -1087,21 +1179,19 @@ pub trait WalletOnline: WalletOffline {
                 )
             }
             AssetSchema::Cfa => {
-                let contract_data = valid_contract.contract_data();
                 let contract = CfaWrapper::with(contract_data);
                 if let Some(attachment) = contract.contract_terms().media {
                     attachments.push(attachment)
                 }
             }
             AssetSchema::Ifa => {
-                let contract_data = valid_contract.contract_data();
                 let contract = IfaWrapper::with(contract_data);
                 if let Some(attachment) = contract.contract_terms().media {
                     attachments.push(attachment)
                 }
             }
         };
-        attachments
+        Ok(attachments)
     }
 
     fn safe_height(&self, min_confirmations: u8) -> Result<u32, Error> {
@@ -1110,6 +1200,75 @@ pub trait WalletOnline: WalletOffline {
             .get_latest_block_height()?
             .saturating_sub(min_confirmations as u32)
             + 1)
+    }
+
+    /// Load the validated consignment of a received transfer.
+    ///
+    /// The validated copy is kept while the transfer is pending, to avoid validating again on
+    /// every refresh. When missing (e.g. a transfer migrated from the legacy format, whose
+    /// validated copy cannot be carried over), the consignment is validated again and the copy
+    /// saved.
+    fn load_received_valid_transfer(
+        &self,
+        batch_transfer: &DbBatchTransfer,
+        recipient_id: &str,
+    ) -> Result<ValidTransfer, Error> {
+        let consignment_path = self.get_receive_consignment_path(recipient_id);
+        let valid_consignment_path = self.get_receive_valid_consignment_path(&consignment_path);
+        if valid_consignment_path.exists() {
+            return ValidTransfer::load_file(&valid_consignment_path)
+                .map_err(|e| InternalError::from(e).into());
+        }
+
+        debug!(
+            self.logger(),
+            "No validated consignment for {recipient_id}, validating consignment"
+        );
+        let consignment = RgbTransfer::load_file(&consignment_path).map_err(InternalError::from)?;
+        let txid = batch_transfer
+            .txid
+            .as_deref()
+            .expect("received batch_transfer with a consignment must have a txid");
+        let witness_id = RgbTxid::from_str(txid).map_err(InternalError::from)?;
+        let asset_schema: AssetSchema = consignment.schema_id().try_into()?;
+        let safe_height = NonZeroU32::new(self.safe_height(batch_transfer.min_confirmations)?);
+        let validation_config = ValidationConfig {
+            chain_net: self.chain_net(),
+            // the reject list has already been checked when the consignment was received, so no
+            // caller of this method needs the opouts DAG, which would only bloat the saved file
+            build_opouts_dag: false,
+            safe_height,
+        };
+        let resolver = OffchainResolver {
+            witness_id,
+            consignment: &consignment,
+            fallback: self.blockchain_resolver(),
+        };
+        let valid_consignment = consignment
+            .clone()
+            .validate(&asset_schema.schema_rules(), &resolver, &validation_config)
+            .map_err(|e| match e {
+                ValidationError::ResolverError(e) => Error::Network {
+                    details: e.to_string(),
+                },
+                e => Error::Internal {
+                    details: format!("received consignment failed re-validation: {e}"),
+                },
+            })?;
+        atomic_write_with(&valid_consignment_path, |tmp| {
+            Ok(valid_consignment.save_file(tmp)?)
+        })?;
+        Ok(valid_consignment)
+    }
+
+    /// Delete the validated copy of a received consignment
+    fn delete_valid_consignment(&self, recipient_id: &str) -> Result<(), Error> {
+        let consignment_path = self.get_receive_consignment_path(recipient_id);
+        match fs::remove_file(self.get_receive_valid_consignment_path(&consignment_path)) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e.into()),
+        }
     }
 
     fn collect_unsafe_history_txids(warnings: &[Warning], exclude_txid: &str) -> HashSet<String> {
@@ -1130,9 +1289,8 @@ pub trait WalletOnline: WalletOffline {
     }
 
     // return the signed witness tx embedded in the consignment, if present
-    fn donation_signed_tx(pub_witness: &PubWitness) -> Option<BdkTransaction> {
-        pub_witness
-            .tx()
+    fn donation_signed_tx(tx: &BdkTransaction) -> Option<BdkTransaction> {
+        Some(tx)
             .filter(|tx| {
                 !tx.input.is_empty()
                     && tx
@@ -1227,7 +1385,7 @@ pub trait WalletOnline: WalletOffline {
         // written by older versions lacks it, fall back to the flag then)
         let consignment_path = self.get_receive_consignment_path(&recipient_id);
         let consignment_meta_path = self.get_receive_consignment_meta_path(&recipient_id);
-        let (proxy_url, txid, vout) = if consignment_path.exists()
+        let proxy_url = if consignment_path.exists()
             && consignment_meta_path.exists()
             && let Ok(meta_str) = fs::read_to_string(&consignment_meta_path)
             && let Ok(meta) = serde_json::from_str::<ReceivedConsignmentMeta>(&meta_str)
@@ -1246,9 +1404,9 @@ pub trait WalletOnline: WalletOffline {
                 updated_transfer_transport_endpoint.used = ActiveValue::Set(true);
                 txn.update_transfer_transport_endpoint(&mut updated_transfer_transport_endpoint)?;
             }
-            (cached_te.endpoint.clone(), meta.txid, meta.vout)
+            cached_te.endpoint.clone()
         } else {
-            // download consignment and its metadata
+            // download consignment
             let mut proxy_res = None;
             for (transfer_transport_endpoint, transport_endpoint) in tte_data {
                 let result = match self
@@ -1265,21 +1423,14 @@ pub trait WalletOnline: WalletOffline {
                     Ok(r) => r,
                 };
 
-                proxy_res = Some((
-                    result.consignment,
-                    transport_endpoint.endpoint,
-                    result.txid,
-                    result.vout,
-                ));
+                proxy_res = Some((result.consignment, transport_endpoint.endpoint));
                 let mut updated_transfer_transport_endpoint: DbTransferTransportEndpointActMod =
                     transfer_transport_endpoint.into();
                 updated_transfer_transport_endpoint.used = ActiveValue::Set(true);
                 txn.update_transfer_transport_endpoint(&mut updated_transfer_transport_endpoint)?;
                 break;
             }
-            let (consignment_b64, proxy_url, txid, vout) = if let Some(res) = proxy_res {
-                (res.0, res.1, res.2, res.3)
-            } else {
+            let Some((consignment_b64, proxy_url)) = proxy_res else {
                 return Ok(None);
             };
 
@@ -1302,14 +1453,12 @@ pub trait WalletOnline: WalletOffline {
 
             // write consignment metadata
             let meta = ReceivedConsignmentMeta {
-                txid: txid.clone(),
-                vout,
                 proxy_url: Some(proxy_url.clone()),
             };
             let meta_str = serde_json::to_string(&meta).map_err(InternalError::from)?;
             atomic_write(&consignment_meta_path, meta_str.as_bytes())?;
 
-            (proxy_url, txid, vout)
+            proxy_url
         };
 
         let mode = ReceiveMode::Proxy { proxy_url };
@@ -1320,11 +1469,34 @@ pub trait WalletOnline: WalletOffline {
             &transfer,
             recipient_id,
             &consignment_path,
-            txid,
-            vout,
             mode,
             &mut updated_batch_transfer,
         )
+    }
+
+    /// Whether a `schema` can carry a reject list.
+    fn schema_supports_reject_list(schema: AssetSchema) -> bool {
+        match schema {
+            AssetSchema::Ifa => true,
+            AssetSchema::Nia | AssetSchema::Uda | AssetSchema::Cfa => false,
+        }
+    }
+
+    /// The reject list URL a contract declares, read off it the way its `schema` requires.
+    ///
+    /// Only for the schemas `schema_supports_reject_list` accepts.
+    fn reject_list_url_for_schema(
+        schema: AssetSchema,
+        contract_data: ContractData<FilteredContractState>,
+    ) -> Option<String> {
+        match schema {
+            AssetSchema::Ifa => IfaWrapper::with(contract_data)
+                .reject_list_url()
+                .map(|u| u.to_string()),
+            AssetSchema::Nia | AssetSchema::Uda | AssetSchema::Cfa => {
+                unreachable!("{schema} does not support a reject list")
+            }
+        }
     }
 
     // validate a received consignment, if valid import any unknown asset (and its media), persist
@@ -1337,12 +1509,10 @@ pub trait WalletOnline: WalletOffline {
         transfer: &DbTransfer,
         recipient_id: String,
         consignment_path: &Path,
-        txid: String,
-        vout: Option<u32>,
         mode: ReceiveMode,
         updated_batch_transfer: &mut DbBatchTransferActMod,
     ) -> Result<Option<DbBatchTransfer>, Error> {
-        let mut runtime = self.rgb_runtime()?;
+        let mut stock = self.rgb_stock(txn)?;
         let consignment = match RgbTransfer::load_file(consignment_path) {
             Ok(c) => c,
             Err(e) => {
@@ -1375,13 +1545,27 @@ pub trait WalletOnline: WalletOffline {
             }
         }
 
-        // check if the provided TXID is valid
-        let witness_id = match RgbTxid::from_str(&txid) {
-            Ok(txid) => txid,
-            Err(_) => {
-                error!(self.logger(), "Received an invalid TXID");
-                return self.refuse_consignment(txn, &mode, recipient_id, updated_batch_transfer);
-            }
+        // a transfer consignment must declare the terminals it pays
+        if consignment.terminals.is_empty() {
+            error!(self.logger(), "Consignment declares no terminals");
+            return self.refuse_consignment(txn, &mode, recipient_id, updated_batch_transfer);
+        }
+
+        // locate the terminal paying us
+        let matcher = transfer.receive_matcher()?;
+        let Some((terminal_bundle, vout)) = self.find_terminal_bundle(&consignment, &matcher)
+        else {
+            error!(
+                self.logger(),
+                "Cannot find a consignment terminal paying this recipient"
+            );
+            return self.refuse_consignment(txn, &mode, recipient_id, updated_batch_transfer);
+        };
+        let witness_id = terminal_bundle.witness_id();
+        let txid = witness_id.to_string();
+        let known_concealed = match matcher {
+            ReceiveMatcher::Blind(secret_seal) => Some(secret_seal),
+            ReceiveMatcher::Witness(_) => None,
         };
 
         // validate consignment
@@ -1389,8 +1573,7 @@ pub trait WalletOnline: WalletOffline {
         let safe_height = NonZeroU32::new(self.safe_height(batch_transfer.min_confirmations)?);
         let validation_config = ValidationConfig {
             chain_net: self.chain_net(),
-            trusted_typesystem: asset_schema.types(),
-            build_opouts_dag: true,
+            build_opouts_dag: Self::schema_supports_reject_list(asset_schema),
             safe_height,
         };
         let resolver = OffchainResolver {
@@ -1398,7 +1581,11 @@ pub trait WalletOnline: WalletOffline {
             consignment: &consignment,
             fallback: self.blockchain_resolver(),
         };
-        let valid_consignment = match consignment.clone().validate(&resolver, &validation_config) {
+        let valid_consignment = match consignment.clone().validate(
+            &asset_schema.schema_rules(),
+            &resolver,
+            &validation_config,
+        ) {
             Ok(consignment) => consignment,
             Err(ValidationError::InvalidConsignment(e)) => {
                 error!(self.logger(), "Consignment is invalid: {}", e);
@@ -1410,87 +1597,30 @@ pub trait WalletOnline: WalletOffline {
                     details: e.to_string(),
                 });
             }
+            Err(e) => {
+                return Err(Error::Internal {
+                    details: format!("unexpected consignment validation error: {e}"),
+                });
+            }
         };
         let validation_status = valid_consignment.validation_status();
         let validity = validation_status.validity();
         debug!(self.logger(), "Consignment validity: {:?}", validity);
 
-        // the terminal (paying) bundle should be the last one in the consignment
-        let anchored_bundle = consignment.bundles.last();
-        let anchored_bundle = match anchored_bundle {
-            Some(ab) if ab.witness_id() == witness_id => ab,
-            _ => {
-                error!(
-                    self.logger(),
-                    "Cannot find the provided TXID in the consignment"
-                );
-                return self.refuse_consignment(txn, &mode, recipient_id, updated_batch_transfer);
-            }
-        };
-
-        let known_concealed = match transfer.receive_matcher()? {
-            ReceiveMatcher::Blind(secret_seal) => Some(secret_seal),
-            ReceiveMatcher::Witness(script_pubkey) => {
-                if let Some(vout) = vout {
-                    if let PubWitness::Tx(tx) = &anchored_bundle.pub_witness {
-                        if let Some(output) = tx.output.get(vout as usize) {
-                            if output.script_pubkey != script_pubkey {
-                                error!(
-                                    self.logger(),
-                                    "The provided vout pays an incorrect script pubkey"
-                                );
-                                return self.refuse_consignment(
-                                    txn,
-                                    &mode,
-                                    recipient_id,
-                                    updated_batch_transfer,
-                                );
-                            }
-                        } else {
-                            error!(self.logger(), "Cannot find the expected outpoint");
-                            return self.refuse_consignment(
-                                txn,
-                                &mode,
-                                recipient_id,
-                                updated_batch_transfer,
-                            );
-                        }
-                    } else {
-                        error!(self.logger(), "Consignment is missing the witness TX");
-                        return self.refuse_consignment(
-                            txn,
-                            &mode,
-                            recipient_id,
-                            updated_batch_transfer,
-                        );
-                    }
-                } else {
-                    error!(
-                        self.logger(),
-                        "The vout should be provided when receiving via witness"
-                    );
-                    return self.refuse_consignment(
-                        txn,
-                        &mode,
-                        recipient_id,
-                        updated_batch_transfer,
-                    );
-                }
-                None
-            }
-        };
-        let receiving = self.assignments_for_bundle(anchored_bundle, vout, known_concealed);
+        let receiving = self.assignments_for_bundle(terminal_bundle, vout, known_concealed);
         if receiving.is_empty() {
             error!(self.logger(), "Cannot find any receiving assignment");
             return self.refuse_consignment(txn, &mode, recipient_id, updated_batch_transfer);
         };
 
-        if asset_schema == AssetSchema::Ifa {
+        if Self::schema_supports_reject_list(asset_schema) {
             let url = if let Ok(ass) = txn.check_asset_exists(asset_id.clone()) {
                 ass.reject_list_url
             } else {
-                let contract = IfaWrapper::with(valid_consignment.contract_data());
-                contract.reject_list_url().map(|u| u.to_string())
+                Self::reject_list_url_for_schema(
+                    asset_schema,
+                    stock.consignment_data(&valid_consignment)?,
+                )
             };
             if let Some(url) = &url {
                 let (reject_opouts, allow_opouts) = self.get_reject_list(url)?;
@@ -1499,7 +1629,7 @@ pub trait WalletOnline: WalletOffline {
                     validation_status
                         .dag_data_opt
                         .as_ref()
-                        .expect("build_opouts_dag is true"),
+                        .expect("build_opouts_dag is set for schemas supporting a reject list"),
                     &reject_opouts,
                     &allow_opouts,
                     &receiving.clone().into_keys().collect(),
@@ -1532,7 +1662,8 @@ pub trait WalletOnline: WalletOffline {
                 debug!(self.logger(), "Receiving unknown contract...");
                 let valid_contract = valid_consignment.clone().into_valid_contract();
 
-                let attachments = self.extract_attachments(&valid_contract, asset_schema);
+                let attachments =
+                    self.extract_attachments(&stock, &valid_contract, asset_schema)?;
                 if !self.fetch_and_save_attachments(attachments, &mode)? {
                     return self.refuse_consignment(
                         txn,
@@ -1542,13 +1673,13 @@ pub trait WalletOnline: WalletOffline {
                     );
                 }
 
-                runtime
+                stock
                     .import_contract(valid_contract.clone(), self.blockchain_resolver())
                     .expect("failure importing received contract");
                 debug!(self.logger(), "Contract registered");
                 self.save_new_asset_internal(
                     txn,
-                    &runtime,
+                    &stock,
                     contract_id,
                     asset_schema,
                     valid_contract,
@@ -1562,7 +1693,7 @@ pub trait WalletOnline: WalletOffline {
             txn.update_asset_transfer(&mut updated_asset_transfer)?;
         }
 
-        // save validated consignment
+        // keep the validated consignment while the transfer is pending, to avoid validating again
         let valid_consignment_path = self.get_receive_valid_consignment_path(consignment_path);
         atomic_write_with(&valid_consignment_path, |tmp| {
             Ok(valid_consignment.save_file(tmp)?)
@@ -1622,7 +1753,7 @@ pub trait WalletOnline: WalletOffline {
             }
         }
 
-        let signed_tx = Self::donation_signed_tx(&anchored_bundle.pub_witness);
+        let signed_tx = Self::donation_signed_tx(&terminal_bundle.tx);
 
         self.ack_consignment(
             txn,
@@ -1649,11 +1780,11 @@ pub trait WalletOnline: WalletOffline {
 
         let asset_id = consignment.contract_id().to_string();
 
-        let Some(ab) = consignment.bundles.last() else {
+        if consignment.terminals.is_empty() {
             return Err(Error::CannotProvideOutOfBandConsignment {
-                details: s!("no pending receive transfer matches the provided consignment"),
+                details: s!("the provided consignment declares no terminals"),
             });
-        };
+        }
 
         let mut matches = vec![];
         for batch_transfer in &db_data.batch_transfers {
@@ -1678,42 +1809,13 @@ pub trait WalletOnline: WalletOffline {
                 continue;
             }
 
-            // check if the provided consignment matches the transfer
-            let matched = match transfer.receive_matcher()? {
-                ReceiveMatcher::Blind(secret_seal) => {
-                    if self
-                        .assignments_for_bundle(ab, None, Some(secret_seal))
-                        .is_empty()
-                    {
-                        None
-                    } else {
-                        Some((ab.witness_id().to_string(), None))
-                    }
-                }
-                ReceiveMatcher::Witness(script_pubkey) => {
-                    let mut found = None;
-                    if let PubWitness::Tx(tx) = &ab.pub_witness {
-                        for (idx, output) in tx.output.iter().enumerate() {
-                            if output.script_pubkey != script_pubkey {
-                                continue;
-                            }
-                            let vout = idx as u32;
-                            if !self.assignments_for_bundle(ab, Some(vout), None).is_empty() {
-                                found = Some((ab.witness_id().to_string(), Some(vout)));
-                                break;
-                            }
-                        }
-                    }
-                    found
-                }
-            };
-            if let Some((txid, vout)) = matched {
+            // check if a consignment terminal pays this transfer
+            let matcher = transfer.receive_matcher()?;
+            if self.find_terminal_bundle(&consignment, &matcher).is_some() {
                 matches.push((
                     batch_transfer.clone(),
                     asset_transfer.clone(),
                     transfer.clone(),
-                    txid,
-                    vout,
                 ));
             }
         }
@@ -1726,7 +1828,7 @@ pub trait WalletOnline: WalletOffline {
         // a single consignment (for one asset) can pay more than one of this wallet's pending
         // invoices (e.g. a sender batched a send to two of them), so process every matched receive
         let mut results: RefreshResult = HashMap::new();
-        for (batch_transfer, asset_transfer, transfer, txid, vout) in matches {
+        for (batch_transfer, asset_transfer, transfer) in matches {
             let recipient_id = transfer
                 .recipient_id
                 .clone()
@@ -1755,8 +1857,6 @@ pub trait WalletOnline: WalletOffline {
                 &transfer,
                 recipient_id,
                 &consignment_path,
-                txid,
-                vout,
                 mode,
                 &mut updated_batch_transfer,
             )?;
@@ -1787,10 +1887,7 @@ pub trait WalletOnline: WalletOffline {
             .recipient_id
             .clone()
             .expect("transfer should have a recipient ID");
-        let consignment_path = self.get_receive_consignment_path(&recipient_id);
-        let valid_consignment_path = self.get_receive_valid_consignment_path(&consignment_path);
-        let valid_consignment =
-            ValidTransfer::load_file(&valid_consignment_path).map_err(InternalError::from)?;
+        let valid_consignment = self.load_received_valid_transfer(batch_transfer, &recipient_id)?;
         let validation_status = valid_consignment.validation_status();
         let txid = batch_transfer
             .txid
@@ -1810,13 +1907,10 @@ pub trait WalletOnline: WalletOffline {
             }
         }
 
-        let witness_id = RgbTxid::from_str(txid).expect("batch transfer txid should be valid");
-        // the terminal (paying) bundle should be the last one in the consignment
-        let signed_tx = valid_consignment
-            .bundles
-            .last()
-            .filter(|ab| ab.witness_id() == witness_id)
-            .and_then(|ab| Self::donation_signed_tx(&ab.pub_witness));
+        let matcher = transfer.receive_matcher()?;
+        let signed_tx = self
+            .find_terminal_bundle(&valid_consignment, &matcher)
+            .and_then(|(terminal_bundle, _)| Self::donation_signed_tx(&terminal_bundle.tx));
 
         let mut updated_batch_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
         let tte_data = txn.get_transfer_transport_endpoints_data(transfer.idx)?;
@@ -1944,11 +2038,9 @@ pub trait WalletOnline: WalletOffline {
             .expect("batch transfer should have a TXID");
         let transfer_dir = self.get_transfers_dir().join(txid);
         let signed_psbt = self.get_signed_psbt(&transfer_dir)?;
-        let mut runtime = self.rgb_runtime()?;
-        let fascia_path = transfer_dir.join(FASCIA_FILE);
-        let fascia_str = fs::read_to_string(fascia_path)?;
-        let fascia: Fascia = serde_json::from_str(&fascia_str).map_err(InternalError::from)?;
-        self.broadcast_and_update_rgb(txn, &mut runtime, &signed_psbt, fascia)?;
+        let mut stock = self.rgb_stock(txn)?;
+        let fascia = read_fascia(&transfer_dir.join(FASCIA_FILE))?;
+        self.broadcast_and_update_rgb(txn, &mut stock, &signed_psbt, fascia)?;
         let mut updated_batch_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
         updated_batch_transfer.status = ActiveValue::Set(TransferStatus::WaitingConfirmations);
 
@@ -2146,17 +2238,16 @@ pub trait WalletOnline: WalletOffline {
             }
 
             // accept consignment
-            let consignment_path = self.get_receive_consignment_path(&recipient_id);
-            let valid_consignment_path = self.get_receive_valid_consignment_path(&consignment_path);
             let valid_consignment =
-                ValidTransfer::load_file(&valid_consignment_path).map_err(InternalError::from)?;
-            let mut runtime = self.rgb_runtime()?;
-            runtime.accept_transfer(valid_consignment.clone(), self.blockchain_resolver())?;
+                self.load_received_valid_transfer(batch_transfer, &recipient_id)?;
+            let mut stock = self.rgb_stock(txn)?;
+            stock.accept_transfer(valid_consignment.clone(), self.blockchain_resolver())?;
+            self.delete_valid_consignment(&recipient_id)?;
             let asset_schema: AssetSchema = valid_consignment.schema_id().try_into()?;
             if asset_schema == AssetSchema::Ifa {
                 let contract_id = valid_consignment.contract_id();
                 let contract_wrapper =
-                    runtime.contract_wrapper::<InflatableFungibleAsset>(contract_id)?;
+                    stock.contract_wrapper::<InflatableFungibleAsset>(contract_id)?;
                 let known_circulating_supply = contract_wrapper.total_issued_supply().into();
                 let asset_id = asset_transfer.asset_id.unwrap();
                 let db_asset = txn.get_asset(asset_id).unwrap().unwrap();
@@ -2600,7 +2691,7 @@ pub trait WalletOnline: WalletOffline {
         transfer_dir: PathBuf,
         donation: bool,
         unspents: Vec<LocalUnspent>,
-        runtime: &mut RgbRuntime,
+        stock: &mut RgbStock<'_>,
         min_confirmations: u8,
         expiration_timestamp: Option<i64>,
         btc_change: Option<BtcChange>,
@@ -2625,7 +2716,7 @@ pub trait WalletOnline: WalletOffline {
         for (asset_id, transfer_info) in transfer_info_map.iter_mut() {
             let asset_utxos = transfer_info.asset_spend.input_outpoints.iter().cloned();
             let mut all_opout_state_vec = Vec::new();
-            for (explicit_seal, opout_state_map) in runtime.contract_assignments_for(
+            for (explicit_seal, opout_state_map) in stock.contract_assignments_for(
                 transfer_info.asset_info.contract_id,
                 asset_utxos.clone(),
             )? {
@@ -2644,7 +2735,7 @@ pub trait WalletOnline: WalletOffline {
 
             let mut inputs_added = AssignmentsCollection::default();
             let mut uda_state = None;
-            let mut asset_transition_builder = runtime.transition_builder(
+            let mut asset_transition_builder = stock.transition_builder(
                 transfer_info.asset_info.contract_id,
                 transfer_info.main_transition.clone().type_name(),
             )?;
@@ -2766,9 +2857,7 @@ pub trait WalletOnline: WalletOffline {
                 TypeOfTransition::Burn => {
                     let burn = transfer_info.original_assignments_needed.fungible;
                     asset_transition_builder = asset_transition_builder
-                        .add_metadata(RGB_METADATA_BURNED_ASSET, Amount::from(burn))
-                        .unwrap()
-                        .add_metadata(RGB_METADATA_BURNED_INFLATION, Amount::from(0u64))
+                        .add_global_state(RGB_GLOBAL_BURNED_ASSET, Amount::from(burn))
                         .unwrap();
                 }
                 _ => {}
@@ -2784,11 +2873,10 @@ pub trait WalletOnline: WalletOffline {
             asset_beneficiaries.insert(asset_id.clone(), beneficiaries);
         }
 
-        for id in runtime.contracts_assigning(prev_outputs.clone())? {
+        for (id, state) in stock.assignments_by_contract(prev_outputs.clone())? {
             if transfer_info_map.contains_key(&id.to_string()) {
                 continue;
             }
-            let state = runtime.contract_assignments_for(id, prev_outputs.clone())?;
             let entry = extra_state.entry(id).or_default();
             for (explicit_seal, opout_state_map) in state {
                 entry.extend(
@@ -2802,10 +2890,10 @@ pub trait WalletOnline: WalletOffline {
         let mut extra_allocations: HashMap<String, HashMap<OutPoint, Vec<Assignment>>> =
             HashMap::new();
         for (cid, opout_state_map) in extra_state {
-            let schema = runtime.contract_schema(cid)?;
+            let schema = stock.contract_schema(cid)?;
             for (outpoint, opout, state) in opout_state_map {
                 let transition_type = schema.default_transition_for_assignment(&opout.ty);
-                let mut extra_builder = runtime.transition_builder_raw(cid, transition_type)?;
+                let mut extra_builder = stock.transition_builder_raw(cid, transition_type)?;
                 let assignment = Assignment::from_opout_and_state(opout, &state);
                 let seal = self.get_change_seal(
                     txn,
@@ -2861,9 +2949,7 @@ pub trait WalletOnline: WalletOffline {
         psbt.set_rgb_close_method(CloseMethod::OpretFirst);
         let fascia = psbt.rgb_commit().map_err(InternalError::from)?;
         fs::create_dir_all(&transfer_dir)?;
-        let fascia_path = transfer_dir.join(FASCIA_FILE);
-        let serialized_fascia = serde_json::to_string(&fascia).map_err(InternalError::from)?;
-        atomic_write(&fascia_path, serialized_fascia.as_bytes())?;
+        write_fascia(&transfer_dir.join(FASCIA_FILE), &fascia)?;
 
         let witness_txid = psbt.get_txid();
         for (asset_id, transfer_info) in transfer_info_map.iter_mut() {
@@ -2897,7 +2983,7 @@ pub trait WalletOnline: WalletOffline {
             };
 
             if should_build_dag {
-                let (_, dag_data) = runtime.transfer_from_fascia_with_dag(
+                let (_, dag_data, _) = stock.transfer_from_fascia_with_dag(
                     transfer_info.asset_info.contract_id,
                     transfer_info.beneficiaries_witness.clone(),
                     transfer_info.beneficiaries_blinded.clone(),
@@ -3422,11 +3508,19 @@ pub trait WalletOnline: WalletOffline {
         Ok(input_unspents)
     }
 
-    fn get_transfer_begin_data(
+    fn get_transfer_begin_data<'txn>(
         &mut self,
-        txn: &DbTxn,
+        txn: &'txn DbTxn,
         fee_rate: u64,
-    ) -> Result<(FeeRate, Vec<LocalUnspent>, Vec<LocalUnspent>, RgbRuntime), Error> {
+    ) -> Result<
+        (
+            FeeRate,
+            Vec<LocalUnspent>,
+            Vec<LocalUnspent>,
+            RgbStock<'txn>,
+        ),
+        Error,
+    > {
         let fee_rate_checked = self.check_fee_rate(fee_rate)?;
 
         let db_data = txn.get_db_data(false)?;
@@ -3452,9 +3546,9 @@ pub trait WalletOnline: WalletOffline {
         #[cfg(not(test))]
         let input_unspents = self.get_input_unspents(&unspents)?;
 
-        let runtime = self.rgb_runtime()?;
+        let stock = self.rgb_stock(txn)?;
 
-        Ok((fee_rate_checked, unspents, input_unspents, runtime))
+        Ok((fee_rate_checked, unspents, input_unspents, stock))
     }
 
     fn setup_transfer_directory(&self, receive_ids: Vec<String>) -> Result<PathBuf, Error> {
@@ -3485,7 +3579,7 @@ pub trait WalletOnline: WalletOffline {
         fee_rate_checked: FeeRate,
         min_confirmations: u8,
         expiration_timestamp: Option<i64>,
-        runtime: &mut RgbRuntime,
+        stock: &mut RgbStock<'_>,
         rejected: &mut HashSet<Opout>,
         dry_run: bool,
     ) -> Result<PrepareTransferPsbtResult, Error> {
@@ -3515,7 +3609,7 @@ pub trait WalletOnline: WalletOffline {
             transfer_dir.clone(),
             donation,
             unspents,
-            runtime,
+            stock,
             min_confirmations,
             expiration_timestamp,
             btc_change,
@@ -3570,8 +3664,8 @@ pub trait WalletOnline: WalletOffline {
         fascia: Fascia,
         sync_tte_used: bool,
     ) -> Result<i32, Error> {
-        let mut runtime = self.rgb_runtime()?;
-        self.broadcast_and_update_rgb(txn, &mut runtime, psbt, fascia)?;
+        let mut stock = self.rgb_stock(txn)?;
+        self.broadcast_and_update_rgb(txn, &mut stock, psbt, fascia)?;
         self.update_or_save_transfers(txn, txid, info_contents, status, sync_tte_used, psbt)
     }
 
@@ -3589,7 +3683,7 @@ pub trait WalletOnline: WalletOffline {
             return Err(Error::InvalidRecipientMap);
         }
 
-        let (fee_rate_checked, unspents, input_unspents, mut runtime) =
+        let (fee_rate_checked, unspents, input_unspents, mut stock) =
             self.get_transfer_begin_data(txn, fee_rate)?;
 
         let chainnet: ChainNet = self.bitcoin_network().into();
@@ -3777,7 +3871,7 @@ pub trait WalletOnline: WalletOffline {
                 fee_rate_checked,
                 min_confirmations,
                 expiration_timestamp,
-                &mut runtime,
+                &mut stock,
                 &mut rejected,
                 dry_run,
             )? {
@@ -3822,10 +3916,10 @@ pub trait WalletOnline: WalletOffline {
                 .clone()
                 .extract_tx()
                 .map_err(InternalError::from)?;
-            fascia.update_pub_witness(PubWitness::with(tx));
+            fascia.update_witness_tx(tx);
         }
 
-        self.gen_consignments(&fascia, &info_contents.transfers, &transfer_dir)?;
+        self.gen_consignments(txn, &fascia, &info_contents.transfers, &transfer_dir)?;
 
         let psbt_out = transfer_dir.join(SIGNED_PSBT_FILE);
         atomic_write(&psbt_out, signed_psbt.to_string().as_bytes())?;
@@ -3965,6 +4059,14 @@ pub trait WalletOnline: WalletOffline {
         Ok(tx.compute_txid().to_string())
     }
 
+    /// Whether a `schema` supports inflation.
+    fn schema_supports_inflation(schema: AssetSchema) -> bool {
+        match schema {
+            AssetSchema::Ifa => true,
+            AssetSchema::Nia | AssetSchema::Uda | AssetSchema::Cfa => false,
+        }
+    }
+
     fn inflate_begin_impl(
         &mut self,
         txn: &DbTxn,
@@ -3977,7 +4079,7 @@ pub trait WalletOnline: WalletOffline {
         let asset = txn.check_asset_exists(asset_id.clone())?;
         let schema = asset.schema;
         self.check_schema_support(&schema)?;
-        if !SCHEMAS_SUPPORTING_INFLATION.contains(&schema) {
+        if !Self::schema_supports_inflation(schema) {
             return Err(Error::UnsupportedInflation {
                 asset_schema: schema,
             });
@@ -3994,7 +4096,7 @@ pub trait WalletOnline: WalletOffline {
             return Err(Error::NoInflationAmounts);
         }
 
-        let (fee_rate_checked, unspents, input_unspents, mut runtime) =
+        let (fee_rate_checked, unspents, input_unspents, mut stock) =
             self.get_transfer_begin_data(txn, fee_rate)?;
 
         let assignments_needed = AssignmentsCollection {
@@ -4077,7 +4179,7 @@ pub trait WalletOnline: WalletOffline {
                 fee_rate_checked,
                 min_confirmations,
                 None,
-                &mut runtime,
+                &mut stock,
                 &mut rejected,
                 dry_run,
             )? {
@@ -4155,6 +4257,14 @@ pub trait WalletOnline: WalletOffline {
         })
     }
 
+    /// Whether a `schema` supports burning.
+    fn schema_supports_burn(schema: AssetSchema) -> bool {
+        match schema {
+            AssetSchema::Ifa => true,
+            AssetSchema::Nia | AssetSchema::Uda | AssetSchema::Cfa => false,
+        }
+    }
+
     fn burn_begin_impl(
         &mut self,
         txn: &DbTxn,
@@ -4167,7 +4277,7 @@ pub trait WalletOnline: WalletOffline {
         let asset = txn.check_asset_exists(asset_id.clone())?;
         let schema = asset.schema;
         self.check_schema_support(&schema)?;
-        if !SCHEMAS_SUPPORTING_BURN.contains(&schema) {
+        if !Self::schema_supports_burn(schema) {
             return Err(Error::UnsupportedBurn {
                 asset_schema: schema,
             });
@@ -4177,7 +4287,7 @@ pub trait WalletOnline: WalletOffline {
             return Err(Error::NoBurnAmount);
         }
 
-        let (fee_rate_checked, unspents, input_unspents, mut runtime) =
+        let (fee_rate_checked, unspents, input_unspents, mut stock) =
             self.get_transfer_begin_data(txn, fee_rate)?;
 
         let assignments_needed = AssignmentsCollection {
@@ -4253,7 +4363,7 @@ pub trait WalletOnline: WalletOffline {
                 fee_rate_checked,
                 min_confirmations,
                 None,
-                &mut runtime,
+                &mut stock,
                 &mut rejected,
                 dry_run,
             )? {

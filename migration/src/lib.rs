@@ -10,6 +10,7 @@ mod m20260727_115821_add_bdk_tables;
 mod m20261019_120000_add_transfer_indexes;
 mod m20261020_093003_add_pending_witness_indexes;
 mod m20261020_111428_reserved_txo_colored;
+mod m20261020_141856_add_rgb_storage_tables;
 
 pub struct Migrator;
 
@@ -27,6 +28,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261019_120000_add_transfer_indexes::Migration),
             Box::new(m20261020_093003_add_pending_witness_indexes::Migration),
             Box::new(m20261020_111428_reserved_txo_colored::Migration),
+            Box::new(m20261020_141856_add_rgb_storage_tables::Migration),
         ]
     }
 }
