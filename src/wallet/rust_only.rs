@@ -584,6 +584,46 @@ impl Wallet {
     pub fn get_send_consignment_path(&self, asset_id: &str, transfer_id: &str) -> PathBuf {
         self.send_consignment_path(asset_id, transfer_id)
     }
+
+    /// Complete the donation send operation by updating the DB only. This will also broadcast the
+    /// transaction to update the DB with the new UTXOs and BDK.
+    ///
+    /// <div class="warning">This method is meant for special usage and is normally not needed, use
+    /// it only if you know what you're doing</div>
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub fn send_end_db_update_only(
+        &mut self,
+        online: Online,
+        signed_psbt: String,
+    ) -> Result<OperationResult, Error> {
+        info!(self.logger(), "Sending (end) db update only...");
+        self.check_online(online)?;
+        let psbt = Psbt::from_str(&signed_psbt)?;
+        let txn = self.database().begin_transaction()?;
+
+        // this will also update the DB with the new UTXOs and BDK
+        self.broadcast_psbt(&txn, &psbt)?;
+
+        let (txid, _, info_contents, _) = self.get_transfer_end_data(&psbt)?;
+
+        let batch_transfer_idx = self.update_or_save_transfers(
+            &txn,
+            txid.clone(),
+            &info_contents,
+            TransferStatus::WaitingConfirmations,
+            true,
+        )?;
+
+        self.update_backup_info(&txn, false)?;
+        txn.commit()?;
+
+        info!(self.logger(), "Send (end) db update only completed");
+        Ok(OperationResult {
+            txid,
+            batch_transfer_idx,
+            entropy: info_contents.entropy,
+        })
+    }
 }
 
 #[cfg(test)]
