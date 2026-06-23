@@ -137,17 +137,22 @@ fn success() {
         .post_consignment(
             PROXY_URL,
             txid.clone(),
-            consignment_path,
+            consignment_path.clone(),
             txid.clone(),
             Some(vout),
         )
         .unwrap();
 
     // accept transfer
-    let consignment_endpoint = RgbTransport::from_str(&PROXY_ENDPOINT).unwrap();
     recv_party
         .wallet
-        .accept_transfer(txid.clone(), vout, consignment_endpoint, blinding)
+        .accept_transfer_consignment(
+            recv_party.online,
+            consignment_path,
+            txid.clone(),
+            vout,
+            blinding,
+        )
         .unwrap();
 
     // consume fascia
@@ -704,17 +709,31 @@ fn check_proxy_url_fail() {
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
-fn accept_transfer_fail() {
+fn accept_transfer_consignment_fail() {
     initialize();
 
     let mut party = get_empty_party!();
 
     // invalid txid
-    let consignment_endpoint = RgbTransport::from_str(&PROXY_ENDPOINT).unwrap();
-    let result = party
-        .wallet
-        .accept_transfer(s!("invalidTxid"), 0, consignment_endpoint, 0);
+    let consignment_path = party.wallet.get_transfers_dir().join(CONSIGNMENT_FILE);
+    let result = party.wallet.accept_transfer_consignment(
+        party.online,
+        consignment_path,
+        s!("invalidTxid"),
+        0,
+        0,
+    );
     assert_matches!(result, Err(Error::InvalidTxid));
+
+    // invalid consignment path
+    let result = party.wallet.accept_transfer_consignment(
+        party.online,
+        PathBuf::from(s!("invalidConsignmentPath")),
+        FAKE_TXID.to_string(),
+        0,
+        0,
+    );
+    assert_matches!(result, Err(Error::InvalidFilePath { file_path: m }) if m == "invalidConsignmentPath");
 }
 
 #[cfg(feature = "electrum")]

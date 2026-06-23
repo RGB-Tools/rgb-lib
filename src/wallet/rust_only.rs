@@ -317,27 +317,26 @@ impl Wallet {
         Ok(())
     }
 
-    /// Accept an RGB transfer using a TXID to retrieve its consignment.
+    /// Accept an RGB transfer using a consignment received out-of-band.
     ///
     /// <div class="warning">This method is meant for special usage and is normally not needed, use
     /// it only if you know what you're doing</div>
     #[cfg(any(feature = "electrum", feature = "esplora"))]
-    pub fn accept_transfer(
+    pub fn accept_transfer_consignment(
         &mut self,
+        online: Online,
+        consignment_path: PathBuf,
         txid: String,
         vout: u32,
-        consignment_endpoint: RgbTransport,
         blinding: u64,
     ) -> Result<(RgbTransfer, Vec<Assignment>), Error> {
-        info!(self.logger(), "Accepting transfer...");
+        info!(self.logger(), "Accepting transfer consignment...");
+        self.check_online(online)?;
         let witness_id = RgbTxid::from_str(&txid).map_err(|_| Error::InvalidTxid)?;
-        let proxy_url = TransportEndpoint::try_from(consignment_endpoint)?.endpoint;
-
-        let consignment_res = self.get_consignment(&proxy_url, txid.clone())?;
-        let consignment_bytes = general_purpose::STANDARD
-            .decode(consignment_res.consignment)
-            .map_err(InternalError::from)?;
-        let consignment = RgbTransfer::load(&consignment_bytes[..]).map_err(InternalError::from)?;
+        let consignment =
+            RgbTransfer::load_file(&consignment_path).map_err(|_| Error::InvalidFilePath {
+                file_path: consignment_path.to_string_lossy().to_string(),
+            })?;
 
         let schema_id = consignment.schema_id().to_string();
         let asset_schema: AssetSchema = schema_id.try_into()?;
