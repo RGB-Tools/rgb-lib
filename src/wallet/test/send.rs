@@ -105,7 +105,8 @@ fn success() {
     assert!(rcv_asset_transfer.user_driven);
     assert!(asset_transfer.user_driven);
 
-    // transfers progress to status WaitingConfirmations after a refresh
+    // after a refresh the receiver waits for the broadcast while the sender, once it sees the ACK,
+    // broadcasts and progresses to WaitingConfirmations
     std::thread::sleep(Duration::from_millis(1000)); // make sure updated_at will be at least +1s
     rcv_party.wait_for_refresh(None);
     let rcv_transfer = rcv_party.get_test_transfer_recipient(&receive_data.recipient_id);
@@ -114,10 +115,7 @@ fn success() {
     let (transfer, _, _) = party.get_test_transfer_sender(&txid);
     let (transfer_data, _) = party.get_test_transfer_data(&transfer);
 
-    assert_eq!(
-        rcv_transfer_data.status,
-        TransferStatus::WaitingConfirmations
-    );
+    assert_eq!(rcv_transfer_data.status, TransferStatus::WaitingBroadcast);
     assert_eq!(transfer_data.status, TransferStatus::WaitingConfirmations);
     // ack is now true on the sender side
     assert_eq!(transfer.ack, Some(true));
@@ -398,10 +396,7 @@ fn spend_all() {
     assert_eq!(transfers_for_asset.len(), 1);
     let transfer = transfers_for_asset.first().unwrap();
     let (transfer_data, _) = party.get_test_transfer_data(transfer);
-    assert_eq!(
-        rcv_transfer_data.status,
-        TransferStatus::WaitingConfirmations
-    );
+    assert_eq!(rcv_transfer_data.status, TransferStatus::WaitingBroadcast);
     assert_eq!(transfer_data.status, TransferStatus::WaitingConfirmations);
 
     // transfers progress to status Settled after tx mining + refresh
@@ -1786,14 +1781,8 @@ fn receive_multiple_same_asset_success() {
     let (transfer_data_1, _) = party.get_test_transfer_data(transfer_1);
     let (transfer_data_2, _) = party.get_test_transfer_data(transfer_2);
 
-    assert_eq!(
-        rcv_transfer_data_1.status,
-        TransferStatus::WaitingConfirmations
-    );
-    assert_eq!(
-        rcv_transfer_data_2.status,
-        TransferStatus::WaitingConfirmations
-    );
+    assert_eq!(rcv_transfer_data_1.status, TransferStatus::WaitingBroadcast);
+    assert_eq!(rcv_transfer_data_2.status, TransferStatus::WaitingBroadcast);
     assert_eq!(transfer_data_1.status, TransferStatus::WaitingConfirmations);
     assert_eq!(transfer_data_2.status, TransferStatus::WaitingConfirmations);
     // ack is now true on the sender side
@@ -2053,14 +2042,8 @@ fn receive_multiple_different_assets_success() {
     let (transfer_data_1, _) = party.get_test_transfer_data(transfer_1);
     let (transfer_data_2, _) = party.get_test_transfer_data(transfer_2);
 
-    assert_eq!(
-        rcv_transfer_data_1.status,
-        TransferStatus::WaitingConfirmations
-    );
-    assert_eq!(
-        rcv_transfer_data_2.status,
-        TransferStatus::WaitingConfirmations
-    );
+    assert_eq!(rcv_transfer_data_1.status, TransferStatus::WaitingBroadcast);
+    assert_eq!(rcv_transfer_data_2.status, TransferStatus::WaitingBroadcast);
     assert_eq!(transfer_data_1.status, TransferStatus::WaitingConfirmations);
     assert_eq!(transfer_data_2.status, TransferStatus::WaitingConfirmations);
     // ack is now true on the sender side
@@ -2282,21 +2265,67 @@ fn batch_donation_success() {
         Assignment::Fungible(AMOUNT - amount_b1 - amount_b2)
     );
 
-    // take receiver transfers from WaitingCounterparty to Settled
-    // (send_batch doesn't wait for recipient ACKs and proceeds to broadcast)
+    // receivers start in WaitingCounterparty; sender already broadcast (donation)
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::WaitingConfirmations));
+    assert!(rcv_party_1.check_test_transfer_status_recipient(
+        &receive_data_a1.recipient_id,
+        TransferStatus::WaitingCounterparty
+    ));
+    assert!(rcv_party_1.check_test_transfer_status_recipient(
+        &receive_data_b1.recipient_id,
+        TransferStatus::WaitingCounterparty
+    ));
+    assert!(rcv_party_2.check_test_transfer_status_recipient(
+        &receive_data_a2.recipient_id,
+        TransferStatus::WaitingCounterparty
+    ));
+    assert!(rcv_party_2.check_test_transfer_status_recipient(
+        &receive_data_b2.recipient_id,
+        TransferStatus::WaitingCounterparty
+    ));
+
+    // donation: receivers skip WaitingBroadcast and go directly to WaitingConfirmations
     rcv_party_1.wait_for_refresh(None);
     rcv_party_2.wait_for_refresh(None);
-    rcv_party_1.list_transfers(Some(&asset_a.asset_id));
-    rcv_party_1.list_transfers(Some(&asset_b.asset_id));
-    rcv_party_2.list_transfers(Some(&asset_a.asset_id));
-    rcv_party_2.list_transfers(Some(&asset_b.asset_id));
+    assert!(rcv_party_1.check_test_transfer_status_recipient(
+        &receive_data_a1.recipient_id,
+        TransferStatus::WaitingConfirmations
+    ));
+    assert!(rcv_party_1.check_test_transfer_status_recipient(
+        &receive_data_b1.recipient_id,
+        TransferStatus::WaitingConfirmations
+    ));
+    assert!(rcv_party_2.check_test_transfer_status_recipient(
+        &receive_data_a2.recipient_id,
+        TransferStatus::WaitingConfirmations
+    ));
+    assert!(rcv_party_2.check_test_transfer_status_recipient(
+        &receive_data_b2.recipient_id,
+        TransferStatus::WaitingConfirmations
+    ));
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::WaitingConfirmations));
+
     mine(false);
     rcv_party_1.wait_for_refresh(None);
     rcv_party_2.wait_for_refresh(None);
-    rcv_party_1.list_transfers(Some(&asset_a.asset_id));
-    rcv_party_1.list_transfers(Some(&asset_b.asset_id));
-    rcv_party_2.list_transfers(Some(&asset_a.asset_id));
-    rcv_party_2.list_transfers(Some(&asset_b.asset_id));
+    party.wait_for_refresh(None);
+    assert!(rcv_party_1.check_test_transfer_status_recipient(
+        &receive_data_a1.recipient_id,
+        TransferStatus::Settled
+    ));
+    assert!(rcv_party_1.check_test_transfer_status_recipient(
+        &receive_data_b1.recipient_id,
+        TransferStatus::Settled
+    ));
+    assert!(rcv_party_2.check_test_transfer_status_recipient(
+        &receive_data_a2.recipient_id,
+        TransferStatus::Settled
+    ));
+    assert!(rcv_party_2.check_test_transfer_status_recipient(
+        &receive_data_b2.recipient_id,
+        TransferStatus::Settled
+    ));
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
 
     party.show_unspent_colorings("after send, settled");
 }
@@ -2393,19 +2422,19 @@ fn ack() {
     ));
     assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::WaitingCounterparty));
 
-    // ack from recipient 1 > its transfer status changes to WaitingConfirmations
+    // ack from recipient 1 > its transfer status changes to WaitingBroadcast
     rcv_party_1.wait_for_refresh(None);
     assert!(rcv_party_1.check_test_transfer_status_recipient(
         &receive_data_1.recipient_id,
-        TransferStatus::WaitingConfirmations
+        TransferStatus::WaitingBroadcast
     ));
     assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::WaitingCounterparty));
 
-    // ack from recipient 2 > its transfer status changes to WaitingConfirmations
+    // ack from recipient 2 > its transfer status changes to WaitingBroadcast
     rcv_party_2.wait_for_refresh(None);
     assert!(rcv_party_2.check_test_transfer_status_recipient(
         &receive_data_2.recipient_id,
-        TransferStatus::WaitingConfirmations
+        TransferStatus::WaitingBroadcast
     ));
 
     // now sender can broadcast and move on to WaitingConfirmations
@@ -3897,10 +3926,7 @@ fn witness_success() {
     }
 
     assert_eq!(rcv_transfer_data.kind, TransferKind::ReceiveWitness);
-    assert_eq!(
-        rcv_transfer_data.status,
-        TransferStatus::WaitingConfirmations
-    );
+    assert_eq!(rcv_transfer_data.status, TransferStatus::WaitingBroadcast);
     assert_eq!(
         rcv_transfer_data.assignments,
         vec![Assignment::Fungible(amount)]
@@ -4057,22 +4083,10 @@ fn witness_multiple_assets_success() {
     assert_eq!(rcv_xfer_data_1b.kind, TransferKind::ReceiveWitness);
     assert_eq!(rcv_xfer_data_2a.kind, TransferKind::ReceiveWitness);
     assert_eq!(rcv_xfer_data_2b.kind, TransferKind::ReceiveWitness);
-    assert_eq!(
-        rcv_xfer_data_1a.status,
-        TransferStatus::WaitingConfirmations
-    );
-    assert_eq!(
-        rcv_xfer_data_1b.status,
-        TransferStatus::WaitingConfirmations
-    );
-    assert_eq!(
-        rcv_xfer_data_2a.status,
-        TransferStatus::WaitingConfirmations
-    );
-    assert_eq!(
-        rcv_xfer_data_2b.status,
-        TransferStatus::WaitingConfirmations
-    );
+    assert_eq!(rcv_xfer_data_1a.status, TransferStatus::WaitingBroadcast);
+    assert_eq!(rcv_xfer_data_1b.status, TransferStatus::WaitingBroadcast);
+    assert_eq!(rcv_xfer_data_2a.status, TransferStatus::WaitingBroadcast);
+    assert_eq!(rcv_xfer_data_2b.status, TransferStatus::WaitingBroadcast);
     assert_eq!(
         rcv_xfer_data_1a.assignments,
         vec![Assignment::Fungible(amount)]
@@ -4279,7 +4293,7 @@ fn witness_multiple_assets_success() {
     // check receiver transfer
     let rcv_xfer = rcv_party.get_test_transfer_recipient(&receive_data.recipient_id);
     let (rcv_xfer_data, rcv_asset_xfer) = rcv_party.get_test_transfer_data(&rcv_xfer);
-    assert_eq!(rcv_xfer_data.status, TransferStatus::WaitingConfirmations);
+    assert_eq!(rcv_xfer_data.status, TransferStatus::WaitingBroadcast);
     assert_eq!(
         rcv_xfer_data.assignments,
         vec![Assignment::Fungible(amount * 5)]
@@ -4559,9 +4573,11 @@ fn min_confirmations_common(
     );
     assert_eq!(transfer_data.status, TransferStatus::WaitingCounterparty);
 
-    // transfers progress to status WaitingConfirmations after a refresh
+    // transfers progress to status WaitingConfirmations after a refresh (the receiver needs an
+    // extra refresh to see the broadcast and leave WaitingBroadcast)
     rcv_party.wait_for_refresh(None);
     party.wait_for_refresh(Some(&asset.asset_id));
+    rcv_party.wait_for_refresh(None);
 
     let (rcv_transfer_data, _) = rcv_party.get_test_transfer_data(&rcv_transfer);
     let (transfer_data, _) = party.get_test_transfer_data(&transfer);
@@ -4646,16 +4662,14 @@ fn min_confirmations_common(
     );
     assert_eq!(transfer_data.status, TransferStatus::WaitingCounterparty);
 
-    // transfers progress to status WaitingConfirmations after a refresh
+    // after a refresh the receiver waits for the broadcast while the sender progresses to
+    // WaitingConfirmations
     rcv_party.wait_for_refresh(None);
     party.wait_for_refresh(Some(&asset.asset_id));
 
     let (rcv_transfer_data, _) = rcv_party.get_test_transfer_data(&rcv_transfer);
     let (transfer_data, _) = party.get_test_transfer_data(&transfer);
-    assert_eq!(
-        rcv_transfer_data.status,
-        TransferStatus::WaitingConfirmations
-    );
+    assert_eq!(rcv_transfer_data.status, TransferStatus::WaitingBroadcast);
     assert_eq!(transfer_data.status, TransferStatus::WaitingConfirmations);
 
     // transfers progress to status Settled before a block is mined
@@ -5043,14 +5057,14 @@ fn spend_witness_receive_utxo() {
     let (transfer_1_send_data, _) = party_1.get_test_transfer_data(&transfer_1_send);
     assert_eq!(
         transfer_1_recv_data.status,
-        TransferStatus::WaitingConfirmations
+        TransferStatus::WaitingBroadcast
     );
     assert_eq!(
         transfer_1_send_data.status,
         TransferStatus::WaitingConfirmations
     );
 
-    // mine and refresh the sender wallet only (receiver transfer still WaitingConfirmations)
+    // mine and refresh the sender wallet only (receiver transfer still WaitingBroadcast)
     mine(false);
     party_1.wait_for_refresh(Some(&asset_a.asset_id));
 
@@ -5128,10 +5142,7 @@ fn rgb_change_on_btc_change() {
     let (transfer, _, _) = party.get_test_transfer_sender(&txid);
     let (transfer_data, _) = party.get_test_transfer_data(&transfer);
 
-    assert_eq!(
-        rcv_transfer_data.status,
-        TransferStatus::WaitingConfirmations
-    );
+    assert_eq!(rcv_transfer_data.status, TransferStatus::WaitingBroadcast);
     assert_eq!(transfer_data.status, TransferStatus::WaitingConfirmations);
 
     // transfers progress to status Settled after tx mining + refresh
@@ -5734,10 +5745,7 @@ fn skip_sync() {
         transfer_data.assignments,
         vec![Assignment::Fungible(asset.issued_supply - amount * 3)]
     );
-    assert_eq!(
-        rcv_transfer_data.status,
-        TransferStatus::WaitingConfirmations,
-    );
+    assert_eq!(rcv_transfer_data.status, TransferStatus::WaitingBroadcast);
     assert_eq!(transfer_data.status, TransferStatus::WaitingConfirmations);
 
     // mine and refresh skipping sync > cannot refresh ReceiveWitness transfer as a sync is needed
@@ -6555,14 +6563,11 @@ fn pending_witness_txo() {
     let rcv_pending_witness_scripts = rcv_party.db_pending_witness_scripts();
     assert_eq!(rcv_pending_witness_scripts.len(), 1);
 
-    // refresh the recipient to move the transfer to WaitingConfirmations
+    // refresh the recipient: it ACKs and waits for the sender's broadcast
     rcv_party.refresh_all();
     let rcv_transfer = rcv_party.get_test_transfer_recipient(&receive_data.recipient_id);
     let (rcv_transfer_data, _) = rcv_party.get_test_transfer_data(&rcv_transfer);
-    assert_eq!(
-        rcv_transfer_data.status,
-        TransferStatus::WaitingConfirmations
-    );
+    assert_eq!(rcv_transfer_data.status, TransferStatus::WaitingBroadcast);
 
     // check the recipient now sees the TXO yet as inexistent + pending witness
     let rcv_txos = rcv_party.db_txos();
@@ -7853,12 +7858,13 @@ fn unsafe_history_waits_for_safe_height() {
         TransferStatus::WaitingSafeHeight
     ));
 
-    // mine another block so txid_1 reaches 2 confirmations, then refresh to ACK
+    // mine another block so txid_1 reaches 2 confirmations, then refresh to ACK: the recipient
+    // ACKs and waits for the sender's broadcast
     force_mine_no_resume_when_alone(false);
     party_2.wait_for_refresh_raw(None, Some(&[receive_data_2.batch_transfer_idx]));
     assert!(party_2.check_test_transfer_status_recipient(
         &receive_data_2.recipient_id,
-        TransferStatus::WaitingConfirmations
+        TransferStatus::WaitingBroadcast
     ));
 
     // sender sees the ACK and broadcasts txid_2
@@ -7866,6 +7872,13 @@ fn unsafe_history_waits_for_safe_height() {
     assert!(
         party_1.check_test_transfer_status_sender(&txid_2, TransferStatus::WaitingConfirmations)
     );
+
+    // recipient sees the broadcast and moves to WaitingConfirmations
+    party_2.wait_for_refresh_raw(None, Some(&[receive_data_2.batch_transfer_idx]));
+    assert!(party_2.check_test_transfer_status_recipient(
+        &receive_data_2.recipient_id,
+        TransferStatus::WaitingConfirmations
+    ));
 
     // mine, sender (min_confirmations = 1) settles, recipient (min_confirmations = 2) still in WaitingConfirmations
     force_mine_no_resume_when_alone(false);

@@ -177,17 +177,15 @@ fn success() {
         .sum::<u64>();
     assert_eq!(sum, total_inflatable - total_inflated);
 
-    // transfers progress to status WaitingConfirmations after a refresh
+    // after a refresh the receiver waits for the broadcast while the sender progresses to
+    // WaitingConfirmations
     rcv_party.wait_for_refresh(None);
     let rcv_transfer = rcv_party.get_test_transfer_recipient(&receive_data.recipient_id);
     let (rcv_transfer_data, _rcv_asset_transfer) = rcv_party.get_test_transfer_data(&rcv_transfer);
     party.wait_for_refresh(Some(&asset.asset_id));
     let (transfer, _, _) = party.get_test_transfer_sender(&txid);
     let (transfer_data, _) = party.get_test_transfer_data(&transfer);
-    assert_eq!(
-        rcv_transfer_data.status,
-        TransferStatus::WaitingConfirmations
-    );
+    assert_eq!(rcv_transfer_data.status, TransferStatus::WaitingBroadcast);
     assert_eq!(transfer_data.status, TransferStatus::WaitingConfirmations);
 
     // asset has been received correctly

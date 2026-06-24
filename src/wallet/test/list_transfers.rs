@@ -138,13 +138,10 @@ fn success() {
         transfer_recv_witness.assignments,
         vec![Assignment::Fungible(amount * 2)]
     );
-    assert_eq!(
-        transfer_recv_blind.status,
-        TransferStatus::WaitingConfirmations
-    );
+    assert_eq!(transfer_recv_blind.status, TransferStatus::WaitingBroadcast);
     assert_eq!(
         transfer_recv_witness.status,
-        TransferStatus::WaitingConfirmations
+        TransferStatus::WaitingBroadcast
     );
     assert_eq!(transfer_recv_blind.txid, Some(txid.clone()));
     assert_eq!(transfer_recv_witness.txid, Some(txid.clone()));

@@ -71,7 +71,7 @@ fn success() {
     ));
     assert!(rcv_party.check_test_transfer_status_recipient(
         &receive_data_3.recipient_id,
-        TransferStatus::WaitingConfirmations
+        TransferStatus::WaitingBroadcast
     ));
     assert!(rcv_party.fail_transfers_all());
     rcv_party.show_unspent_colorings("receiver run 1 after fail");
@@ -86,7 +86,7 @@ fn success() {
     ));
     assert!(rcv_party.check_test_transfer_status_recipient(
         &receive_data_3.recipient_id,
-        TransferStatus::WaitingConfirmations
+        TransferStatus::WaitingBroadcast
     ));
 
     // progress transfer to Settled
@@ -137,7 +137,7 @@ fn success() {
     ));
     assert!(rcv_party.check_test_transfer_status_recipient(
         &receive_data_3.recipient_id,
-        TransferStatus::WaitingConfirmations
+        TransferStatus::WaitingBroadcast
     ));
     assert!(rcv_party.check_test_transfer_status_recipient(
         &receive_data_4.recipient_id,
@@ -156,7 +156,7 @@ fn success() {
     ));
     assert!(rcv_party.check_test_transfer_status_recipient(
         &receive_data_3.recipient_id,
-        TransferStatus::WaitingConfirmations
+        TransferStatus::WaitingBroadcast
     ));
     assert!(rcv_party.check_test_transfer_status_recipient(
         &receive_data_4.recipient_id,
@@ -242,7 +242,7 @@ fn batch_success() {
     rcv_party_1.wait_for_refresh(None);
     assert!(rcv_party_1.check_test_transfer_status_recipient(
         &receive_data_1.recipient_id,
-        TransferStatus::WaitingConfirmations
+        TransferStatus::WaitingBroadcast
     ));
     assert!(rcv_party_2.check_test_transfer_status_recipient(
         &receive_data_2.recipient_id,
@@ -340,14 +340,12 @@ fn fail() {
         Err(Error::BatchTransferNotFound { idx }) if idx == UNKNOWN_IDX
     ));
 
-    // don't fail incoming transfer: waiting counterparty -> confirmations
+    // don't fail incoming transfer: waiting counterparty -> broadcast
     let result = rcv_party.fail_transfers(Some(batch_transfer_idx), false, false);
     assert!(matches!(result, Err(Error::CannotFailBatchTransfer)));
     assert!(
-        rcv_party.check_test_transfer_status_recipient(
-            &recipient_id,
-            TransferStatus::WaitingConfirmations
-        )
+        rcv_party
+            .check_test_transfer_status_recipient(&recipient_id, TransferStatus::WaitingBroadcast)
     );
     // don't fail outgoing transfer: waiting counterparty -> confirmations
     let result = party.fail_transfers(Some(send_result.batch_transfer_idx), false, false);
@@ -359,14 +357,12 @@ fn fail() {
         )
     );
 
-    // don't fail incoming transfer: waiting confirmations
+    // don't fail incoming transfer: waiting broadcast (fallible only after expiration)
     let result = rcv_party.fail_transfers(Some(batch_transfer_idx), false, false);
     assert!(matches!(result, Err(Error::CannotFailBatchTransfer)));
     assert!(
-        rcv_party.check_test_transfer_status_recipient(
-            &recipient_id,
-            TransferStatus::WaitingConfirmations
-        )
+        rcv_party
+            .check_test_transfer_status_recipient(&recipient_id, TransferStatus::WaitingBroadcast)
     );
     // don't fail outgoing transfer: waiting confirmations
     let result = party.fail_transfers(Some(send_result.batch_transfer_idx), false, false);
@@ -514,7 +510,7 @@ fn skip_sync() {
     ));
     assert!(rcv_party.check_test_transfer_status_recipient(
         &receive_data_3.recipient_id,
-        TransferStatus::WaitingConfirmations
+        TransferStatus::WaitingBroadcast
     ));
     assert!(rcv_party.fail_transfers(None, false, true).unwrap());
     rcv_party.show_unspent_colorings("receiver run 1 after fail");
@@ -529,7 +525,7 @@ fn skip_sync() {
     ));
     assert!(rcv_party.check_test_transfer_status_recipient(
         &receive_data_3.recipient_id,
-        TransferStatus::WaitingConfirmations
+        TransferStatus::WaitingBroadcast
     ));
 
     // progress transfer to Settled
@@ -580,7 +576,7 @@ fn skip_sync() {
     ));
     assert!(rcv_party.check_test_transfer_status_recipient(
         &receive_data_3.recipient_id,
-        TransferStatus::WaitingConfirmations
+        TransferStatus::WaitingBroadcast
     ));
     assert!(rcv_party.check_test_transfer_status_recipient(
         &receive_data_4.recipient_id,
@@ -599,7 +595,7 @@ fn skip_sync() {
     ));
     assert!(rcv_party.check_test_transfer_status_recipient(
         &receive_data_3.recipient_id,
-        TransferStatus::WaitingConfirmations
+        TransferStatus::WaitingBroadcast
     ));
     assert!(rcv_party.check_test_transfer_status_recipient(
         &receive_data_4.recipient_id,

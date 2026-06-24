@@ -829,7 +829,11 @@ impl Wallet {
     /// refreshing) to the [`TransferStatus::Settled`] status.
     ///
     /// An optional expiration UTC timestamp can be specified, which will set the expiration of the
-    /// transfer.
+    /// transfer. This should be set to the same value specified by the recipient's invoice, so
+    /// that sender and recipient enforce the same deadline; once it passes, the recipient is
+    /// allowed to fail the transfer and the sender will avoid broadcasting it even if a late ACK is
+    /// received. In case of a batch transfer, set it to the minimum (earliest) expiration across
+    /// the recipients' invoices.
     ///
     /// If `dry_run` is true, the wallet does not persist the transfer in
     /// [`TransferStatus::Initiated`]. The returned [`SendBeginResult::batch_transfer_idx`] is None

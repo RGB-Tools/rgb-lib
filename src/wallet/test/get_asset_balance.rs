@@ -243,7 +243,7 @@ fn transfer_balances() {
     assert_eq!(transfers_recv.len(), 1);
     assert_eq!(
         transfers_recv.last().unwrap().status,
-        TransferStatus::WaitingConfirmations
+        TransferStatus::WaitingBroadcast
     );
     let expected_balance_1 = Balance {
         settled: 0,
@@ -351,7 +351,7 @@ fn transfer_balances() {
     assert_eq!(transfers_recv.len(), 2);
     assert_eq!(
         transfers_recv.last().unwrap().status,
-        TransferStatus::WaitingConfirmations
+        TransferStatus::WaitingBroadcast
     );
     let expected_balance = Balance {
         settled: amount_1,

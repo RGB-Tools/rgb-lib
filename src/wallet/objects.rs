@@ -1720,6 +1720,8 @@ pub enum RefreshTransferStatus {
     WaitingCounterparty,
     /// Waiting for the safe height to be reached
     WaitingSafeHeight,
+    /// Waiting for the transfer transaction to be broadcasted
+    WaitingBroadcast,
     /// Waiting for the transfer transaction to reach the minimum number of confirmations
     WaitingConfirmations,
 }
@@ -1732,8 +1734,9 @@ impl TryFrom<TransferStatus> for RefreshTransferStatus {
         match x {
             TransferStatus::WaitingCounterparty => Ok(RefreshTransferStatus::WaitingCounterparty),
             TransferStatus::WaitingSafeHeight => Ok(RefreshTransferStatus::WaitingSafeHeight),
+            TransferStatus::WaitingBroadcast => Ok(RefreshTransferStatus::WaitingBroadcast),
             TransferStatus::WaitingConfirmations => Ok(RefreshTransferStatus::WaitingConfirmations),
-            _ => Err("RefreshTransferStatus only accepts pending statuses"),
+            _ => Err("RefreshTransferStatus only accepts waiting statuses"),
         }
     }
 }
@@ -1940,4 +1943,20 @@ pub enum TryFailBatchTransferOutcome {
 pub struct FailTransfersOutcome {
     pub transfers_changed: bool,
     pub cannot_fail: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sea_orm::Iterable;
+
+    #[test]
+    fn refresh_transfer_status_matches_waiting() {
+        for status in TransferStatus::iter() {
+            assert_eq!(
+                status.waiting(),
+                RefreshTransferStatus::try_from(status).is_ok(),
+            );
+        }
+    }
 }

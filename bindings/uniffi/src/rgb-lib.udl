@@ -461,6 +461,7 @@ dictionary RefreshedTransfer {
 enum RefreshTransferStatus {
   "WaitingCounterparty",
   "WaitingSafeHeight",
+  "WaitingBroadcast",
   "WaitingConfirmations",
 };
 
@@ -489,12 +490,13 @@ enum TransferKind {
 
 [Remote]
 enum TransferStatus {
+  "Initiated",
   "WaitingCounterparty",
   "WaitingSafeHeight",
+  "WaitingBroadcast",
   "WaitingConfirmations",
   "Settled",
   "Failed",
-  "Initiated",
 };
 
 [Remote]
