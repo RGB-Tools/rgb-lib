@@ -419,8 +419,9 @@ impl Wallet {
     /// <div class="warning">This method is meant for special usage and is normally not needed, use
     /// it only if you know what you're doing</div>
     #[cfg(any(feature = "electrum", feature = "esplora"))]
-    pub fn get_tx_height(&self, txid: String) -> Result<Option<u32>, Error> {
+    pub fn get_tx_height(&self, online: Online, txid: String) -> Result<Option<u32>, Error> {
         info!(self.logger(), "Getting TX height...");
+        self.check_online(online)?;
         let height = self.tx_height(txid)?;
         info!(self.logger(), "Get TX height completed");
         Ok(height)
@@ -433,10 +434,12 @@ impl Wallet {
     #[cfg(any(feature = "electrum", feature = "esplora"))]
     pub fn update_witnesses(
         &self,
+        online: Online,
         after_height: u32,
         force_witnesses: Vec<RgbTxid>,
     ) -> Result<UpdateRes, Error> {
         info!(self.logger(), "Updating witnesses...");
+        self.check_online(online)?;
         let update_res = self.rgb_runtime()?.update_witnesses(
             self.blockchain_resolver(),
             after_height,
@@ -450,7 +453,6 @@ impl Wallet {
     ///
     /// <div class="warning">This method is meant for special usage and is normally not needed, use
     /// it only if you know what you're doing</div>
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
     pub fn upsert_witness(
         &self,
         witness_id: RgbTxid,
@@ -468,10 +470,12 @@ impl Wallet {
     #[cfg(any(feature = "electrum", feature = "esplora"))]
     pub fn save_new_asset(
         &self,
+        online: Online,
         consignment: RgbTransfer,
         offchain_txid: String,
     ) -> Result<(), Error> {
         info!(self.logger(), "Saving new asset...");
+        self.check_online(online)?;
         let runtime = self.rgb_runtime()?;
 
         let contract_id = consignment.contract_id();

@@ -657,6 +657,23 @@ fn check_proxy_url_fail() {
 fn accept_transfer_consignment_fail() {
     initialize();
 
+    // === offline tests
+
+    let mut offline_party = {
+        let wallet = get_test_wallet(true, None);
+        party!(wallet, Online { id: 0 })
+    };
+    let result = offline_party.wallet.accept_transfer_consignment(
+        Online { id: 0 },
+        PathBuf::from(s!("anyConsignmentPath")),
+        FAKE_TXID.to_string(),
+        0,
+        0,
+    );
+    assert_matches!(result, Err(Error::Offline));
+
+    // === online tests
+
     let mut party = get_empty_party!();
 
     // invalid txid
@@ -687,11 +704,40 @@ fn accept_transfer_consignment_fail() {
 fn get_tx_height_fail() {
     initialize();
 
+    // === offline tests
+
+    let offline_party = {
+        let wallet = get_test_wallet(true, None);
+        party!(wallet, Online { id: 0 })
+    };
+    let result = offline_party
+        .wallet
+        .get_tx_height(Online { id: 0 }, FAKE_TXID.to_string());
+    assert_matches!(result, Err(Error::Offline));
+
+    // === online tests
+
     let party = get_empty_party!();
 
     // invalid txid
-    let result = party.wallet.get_tx_height(s!("invalidTxid"));
+    let result = party.wallet.get_tx_height(party.online, s!("invalidTxid"));
     assert_matches!(result, Err(Error::InvalidTxid));
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn update_witnesses_fail() {
+    initialize();
+
+    let offline_party = {
+        let wallet = get_test_wallet(true, None);
+        party!(wallet, Online { id: 0 })
+    };
+    let result = offline_party
+        .wallet
+        .update_witnesses(Online { id: 0 }, 0, vec![]);
+    assert_matches!(result, Err(Error::Offline));
 }
 
 #[cfg(feature = "electrum")]
@@ -702,8 +748,63 @@ fn update_witnesses_success() {
 
     let party = get_empty_party!();
 
-    let result = party.wallet.update_witnesses(0, vec![]);
+    let result = party.wallet.update_witnesses(party.online, 0, vec![]);
     assert!(result.is_ok());
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn save_new_asset_fail() {
+    initialize();
+
+    let offline_party = {
+        let wallet = get_test_wallet(true, None);
+        party!(wallet, Online { id: 0 })
+    };
+
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_empty_party!();
+    let asset = party.issue_asset_nia(None);
+    let receive_data = rcv_party.witness_receive();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(10),
+            recipient_id: receive_data.recipient_id.clone(),
+            witness_data: Some(WitnessData {
+                amount_sat: 1000,
+                blinding: None,
+            }),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid = party.send_retry(&recipient_map);
+    let consignment_path = party
+        .wallet
+        .get_send_consignment_path(&asset.asset_id, &txid);
+    let consignment = RgbTransfer::load_file(consignment_path).unwrap();
+
+    let result = offline_party
+        .wallet
+        .save_new_asset(Online { id: 0 }, consignment, txid);
+    assert_matches!(result, Err(Error::Offline));
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn send_end_db_update_only_fail() {
+    initialize();
+
+    let mut offline_party = {
+        let wallet = get_test_wallet(true, None);
+        party!(wallet, Online { id: 0 })
+    };
+    let result = offline_party
+        .wallet
+        .send_end_db_update_only(Online { id: 0 }, s!(""));
+    assert_matches!(result, Err(Error::Offline));
 }
 
 #[cfg(feature = "electrum")]
