@@ -990,7 +990,7 @@ fn filter_with_waiting_safe_height() {
         .blind_receive(
             None,
             Assignment::Any,
-            Some((now().unix_timestamp() + DURATION_RCV_TRANSFER as i64) as u64),
+            (now().unix_timestamp() + DURATION_RCV_TRANSFER as i64) as u64,
             TRANSPORT_ENDPOINTS.clone(),
             2,
         )

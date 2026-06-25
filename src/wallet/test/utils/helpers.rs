@@ -288,3 +288,11 @@ pub(crate) fn test_go_online_options(indexer_url: Option<&str>) -> OnlineOptions
         vanilla_sync_lookback: INDEXER_SYNC_LOOKBACK as u32,
     }
 }
+
+pub(crate) fn default_rcv_expiration() -> u64 {
+    (now().unix_timestamp() + DURATION_RCV_TRANSFER as i64) as u64
+}
+
+pub(crate) fn default_send_expiration() -> u64 {
+    (now().unix_timestamp() + DURATION_SEND_TRANSFER as i64) as u64
+}

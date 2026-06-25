@@ -2231,7 +2231,7 @@ fn batch_donation_success() {
             true,
             FEE_RATE,
             MIN_CONFIRMATIONS,
-            None,
+            default_send_expiration(),
         )
         .unwrap()
         .txid;
@@ -2594,7 +2594,7 @@ fn fail() {
         false,
         FEE_RATE,
         MIN_CONFIRMATIONS,
-        None,
+        default_send_expiration(),
     );
     assert_matches!(result, Err(Error::Offline));
     let result = offline_party.wallet.send_begin(
@@ -2603,7 +2603,7 @@ fn fail() {
         false,
         FEE_RATE,
         MIN_CONFIRMATIONS,
-        None,
+        default_send_expiration(),
         false,
     );
     assert_matches!(result, Err(Error::Offline));
@@ -2774,7 +2774,7 @@ fn fail() {
         false,
         0,
         MIN_CONFIRMATIONS,
-        None,
+        default_send_expiration(),
         false,
     );
     assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_LOW));
@@ -2786,7 +2786,7 @@ fn fail() {
         false,
         u64::MAX,
         MIN_CONFIRMATIONS,
-        None,
+        default_send_expiration(),
         false,
     );
     assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_OVER));
@@ -3609,7 +3609,7 @@ fn send_to_oneself_crash() {
             false,
             FEE_RATE,
             MIN_CONFIRMATIONS,
-            None,
+            default_send_expiration(),
             true,
         )
         .unwrap();
@@ -4531,7 +4531,7 @@ fn min_confirmations_common(
         .blind_receive(
             None,
             Assignment::Any,
-            None,
+            default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             min_confirmations,
         )
@@ -4553,7 +4553,7 @@ fn min_confirmations_common(
             false,
             FEE_RATE,
             min_confirmations,
-            None,
+            default_send_expiration(),
         )
         .unwrap()
         .txid;
@@ -4620,7 +4620,7 @@ fn min_confirmations_common(
         .blind_receive(
             None,
             Assignment::Any,
-            None,
+            default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             min_confirmations,
         )
@@ -4642,7 +4642,7 @@ fn min_confirmations_common(
             false,
             FEE_RATE,
             min_confirmations,
-            None,
+            default_send_expiration(),
         )
         .unwrap()
         .txid;
@@ -4777,7 +4777,7 @@ fn spend_double_receive() {
             true,
             FEE_RATE,
             MIN_CONFIRMATIONS,
-            None,
+            default_send_expiration(),
         )
         .unwrap()
         .txid;
@@ -4818,7 +4818,7 @@ fn spend_double_receive() {
             true,
             FEE_RATE,
             MIN_CONFIRMATIONS,
-            None,
+            default_send_expiration(),
         )
         .unwrap()
         .txid;
@@ -5280,7 +5280,7 @@ fn min_fee_rate() {
             false,
             fee_rate,
             MIN_CONFIRMATIONS,
-            None,
+            default_send_expiration(),
             false,
         )
         .unwrap();
@@ -5298,7 +5298,7 @@ fn min_fee_rate() {
             false,
             fee_rate,
             MIN_CONFIRMATIONS,
-            None,
+            default_send_expiration(),
         )
         .unwrap()
         .txid;
@@ -5349,7 +5349,7 @@ fn max_fee_exceeded_common(
             false,
             fee_rate,
             MIN_CONFIRMATIONS,
-            None,
+            default_send_expiration(),
         )
         .unwrap();
     assert!(!send_result.txid.is_empty());
@@ -5444,7 +5444,7 @@ fn min_relay_fee_common(
             false,
             fee_rate,
             MIN_CONFIRMATIONS,
-            None,
+            default_send_expiration(),
             false,
         )
         .unwrap();
@@ -5464,7 +5464,7 @@ fn min_relay_fee_common(
             false,
             fee_rate,
             MIN_CONFIRMATIONS,
-            None,
+            default_send_expiration(),
         )
         .unwrap();
     assert!(!send_result.txid.is_empty());
@@ -5589,7 +5589,7 @@ fn skip_sync() {
             false,
             FEE_RATE,
             MIN_CONFIRMATIONS,
-            None,
+            default_send_expiration(),
         )
         .unwrap()
         .txid;
@@ -5640,7 +5640,7 @@ fn skip_sync() {
             false,
             FEE_RATE,
             MIN_CONFIRMATIONS,
-            None,
+            default_send_expiration(),
         )
         .unwrap()
         .txid;
@@ -5699,7 +5699,7 @@ fn skip_sync() {
             false,
             FEE_RATE,
             MIN_CONFIRMATIONS,
-            None,
+            default_send_expiration(),
         )
         .unwrap()
         .txid;
@@ -6465,7 +6465,7 @@ fn pending_witness_ma1_blind_receive_fail() {
             true, // donation, so TX gets broadcast right away
             FEE_RATE,
             MIN_CONFIRMATIONS,
-            None,
+            default_send_expiration(),
         )
         .unwrap();
     assert!(!txid.is_empty());
@@ -6654,7 +6654,7 @@ fn pending_witness_txo() {
             true,
             FEE_RATE,
             MIN_CONFIRMATIONS,
-            None,
+            default_send_expiration(),
         )
         .unwrap();
     assert!(!txid.is_empty());
@@ -6757,7 +6757,7 @@ fn blinded_change_failed_xfer() {
         .blind_receive(
             None,
             Assignment::Any,
-            Some((now().unix_timestamp() + 1) as u64), // expire early so can fail
+            (now().unix_timestamp() + 1) as u64, // expire early so can fail
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
         )
@@ -6899,7 +6899,7 @@ fn blinded_change_send_begin_only() {
         .blind_receive(
             None,
             Assignment::Any,
-            Some((now().unix_timestamp() + 1) as u64), // expire early so can fail
+            (now().unix_timestamp() + 1) as u64, // expire early so can fail
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
         )
@@ -7043,7 +7043,7 @@ fn donation_recipient_nack() {
         .blind_receive(
             None,
             Assignment::Any,
-            Some((now().unix_timestamp() + 1) as u64), // expire early so can fail
+            (now().unix_timestamp() + 1) as u64, // expire early so can fail
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
         )
@@ -7069,7 +7069,7 @@ fn donation_recipient_nack() {
             true,
             FEE_RATE,
             MIN_CONFIRMATIONS,
-            None,
+            default_send_expiration(),
         )
         .unwrap()
         .txid;
@@ -7834,7 +7834,7 @@ fn unsafe_history_waits_for_safe_height() {
         .blind_receive(
             None,
             Assignment::Any,
-            Some((now().unix_timestamp() + DURATION_RCV_TRANSFER as i64) as u64),
+            (now().unix_timestamp() + DURATION_RCV_TRANSFER as i64) as u64,
             TRANSPORT_ENDPOINTS.clone(),
             2,
         )
@@ -7928,7 +7928,7 @@ fn begin_end() {
             false,
             FEE_RATE,
             MIN_CONFIRMATIONS,
-            None,
+            default_send_expiration(),
             true,
         )
         .unwrap();
@@ -7948,7 +7948,7 @@ fn begin_end() {
             false,
             FEE_RATE,
             MIN_CONFIRMATIONS,
-            None,
+            default_send_expiration(),
             false,
         )
         .unwrap();

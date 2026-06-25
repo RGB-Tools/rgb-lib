@@ -1332,7 +1332,7 @@ pub struct ReceiveData {
     /// ID of the receive operation (blinded UTXO or Bitcoin script)
     pub recipient_id: String,
     /// Expiration of the receive operation
-    pub expiration_timestamp: Option<u64>,
+    pub expiration_timestamp: u64,
     /// Batch transfer idx
     pub batch_transfer_idx: i32,
 }
@@ -1345,7 +1345,7 @@ pub struct ReceiveDataInternal {
     pub(crate) recipient_id: String,
     pub(crate) endpoints: Vec<String>,
     pub(crate) created_at: i64,
-    pub(crate) expiration_timestamp: Option<i64>,
+    pub(crate) expiration_timestamp: i64,
     pub(crate) recipient_type_full: RecipientTypeFull,
     pub(crate) blind_seal: Option<GraphSeal>,
     pub(crate) script_pubkey: Option<ScriptBuf>,

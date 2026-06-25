@@ -969,7 +969,7 @@ impl<T: OfflineSigParty<W = Wallet>> SinglesigWalletParty for T {
             .blind_receive(
                 asset_id,
                 Assignment::Any,
-                expiration,
+                expiration.unwrap_or_else(default_rcv_expiration),
                 TRANSPORT_ENDPOINTS.clone(),
                 MIN_CONFIRMATIONS,
             )
@@ -980,7 +980,7 @@ impl<T: OfflineSigParty<W = Wallet>> SinglesigWalletParty for T {
         self.wlt_mut().blind_receive(
             None,
             Assignment::Any,
-            Some((now().unix_timestamp() + DURATION_RCV_TRANSFER as i64) as u64),
+            default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
         )
@@ -995,7 +995,7 @@ impl<T: OfflineSigParty<W = Wallet>> SinglesigWalletParty for T {
             .blind_receive(
                 None,
                 Assignment::Any,
-                expiration,
+                expiration.unwrap_or_else(default_rcv_expiration),
                 transport_endpoints,
                 MIN_CONFIRMATIONS,
             )
@@ -1130,7 +1130,7 @@ impl<T: OfflineSigParty<W = Wallet>> SinglesigWalletParty for T {
             .witness_receive(
                 None,
                 Assignment::Any,
-                Some((now().unix_timestamp() + DURATION_RCV_TRANSFER as i64) as u64),
+                default_rcv_expiration(),
                 TRANSPORT_ENDPOINTS.clone(),
                 MIN_CONFIRMATIONS,
             )
@@ -1390,7 +1390,7 @@ impl SinglesigParty {
             false,
             FEE_RATE,
             MIN_CONFIRMATIONS,
-            Some((now().unix_timestamp() + DURATION_SEND_TRANSFER as i64) as u64),
+            default_send_expiration(),
         )
     }
 
@@ -1405,7 +1405,7 @@ impl SinglesigParty {
             false,
             FEE_RATE,
             MIN_CONFIRMATIONS,
-            None,
+            default_send_expiration(),
             false,
         )
     }
@@ -1456,7 +1456,7 @@ impl SinglesigParty {
                 false,
                 fee_rate,
                 MIN_CONFIRMATIONS,
-                expiration_timestamp,
+                expiration_timestamp.unwrap_or_else(default_send_expiration),
             )
             .unwrap()
     }

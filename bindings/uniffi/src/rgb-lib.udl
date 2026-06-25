@@ -240,7 +240,7 @@ enum BitcoinNetwork {
 dictionary ReceiveData {
   string invoice;
   string recipient_id;
-  u64? expiration_timestamp;
+  u64 expiration_timestamp;
   i32 batch_transfer_idx;
 };
 
@@ -827,12 +827,12 @@ interface Wallet {
 
   [Throws=RgbLibError]
   ReceiveData blind_receive(
-    string? asset_id, Assignment assignment, u64? expiration_timestamp,
+    string? asset_id, Assignment assignment, u64 expiration_timestamp,
     sequence<string> transport_endpoints, u8 min_confirmations);
 
   [Throws=RgbLibError]
   ReceiveData witness_receive(
-    string? asset_id, Assignment assignment, u64? expiration_timestamp,
+    string? asset_id, Assignment assignment, u64 expiration_timestamp,
     sequence<string> transport_endpoints, u8 min_confirmations);
 
   [Throws=RgbLibError]
@@ -959,13 +959,13 @@ interface Wallet {
   OperationResult send(
     Online online, record<DOMString, sequence<Recipient>> recipient_map,
     boolean donation, u64 fee_rate, u8 min_confirmations,
-    u64? expiration_timestamp);
+    u64 expiration_timestamp);
 
   [Throws=RgbLibError]
   SendBeginResult send_begin(
     Online online, record<DOMString, sequence<Recipient>> recipient_map,
     boolean donation, u64 fee_rate, u8 min_confirmations,
-    u64? expiration_timestamp, boolean dry_run);
+    u64 expiration_timestamp, boolean dry_run);
 
   [Throws=RgbLibError]
   OperationResult send_end(Online online, string signed_psbt);
@@ -1024,12 +1024,12 @@ interface MultisigWallet {
 
   [Throws=RgbLibError]
   ReceiveData blind_receive(
-    Online online, string? asset_id, Assignment assignment, u64? expiration_timestamp,
+    Online online, string? asset_id, Assignment assignment, u64 expiration_timestamp,
     sequence<string> transport_endpoints, u8 min_confirmations);
 
   [Throws=RgbLibError]
   ReceiveData witness_receive(
-    Online online, string? asset_id, Assignment assignment, u64? expiration_timestamp,
+    Online online, string? asset_id, Assignment assignment, u64 expiration_timestamp,
     sequence<string> transport_endpoints, u8 min_confirmations);
 
   [Throws=RgbLibError]
@@ -1117,7 +1117,7 @@ interface MultisigWallet {
   [Throws=RgbLibError]
   InitOperationResult send_init(
     Online online, record<DOMString, sequence<Recipient>> recipient_map,
-    boolean donation, u64 fee_rate, u8 min_confirmations, u64? expiration_timestamp);
+    boolean donation, u64 fee_rate, u8 min_confirmations, u64 expiration_timestamp);
 
   [Throws=RgbLibError]
   InitOperationResult send_btc_init(

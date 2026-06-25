@@ -287,7 +287,7 @@ fn fail() {
         .blind_receive(
             Some(asset.asset_id),
             Assignment::Any,
-            None,
+            default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
         )
@@ -434,7 +434,7 @@ fn batch_fail() {
             true,
             FEE_RATE,
             MIN_CONFIRMATIONS,
-            None,
+            default_send_expiration(),
         )
         .unwrap();
 
@@ -650,7 +650,7 @@ fn waiting_safe_height() {
         .blind_receive(
             None,
             Assignment::Any,
-            Some((now().unix_timestamp() + DURATION_RCV_TRANSFER as i64) as u64),
+            (now().unix_timestamp() + DURATION_RCV_TRANSFER as i64) as u64,
             TRANSPORT_ENDPOINTS.clone(),
             2,
         )

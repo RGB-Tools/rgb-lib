@@ -1,6 +1,7 @@
 #include "rgblib.h"
 #include <json-c/json.h>
 #include <stdio.h>
+#include <time.h>
 
 int main() {
     const char *bitcoin_network = "Regtest";
@@ -156,8 +157,10 @@ int main() {
 
     const char *assignment = "{\"Fungible\":77}";
     const char *transport_endpoints = "[\"rpc://127.0.0.1:3000/json-rpc\"]";
+    char expiration_timestamp[32];
+    sprintf(expiration_timestamp, "%lld", (long long)time(NULL) + 86400);
     CResultString receive_data_res = rgblib_blind_receive(
-        wlt, NULL, assignment, NULL, transport_endpoints, "1");
+        wlt, NULL, assignment, expiration_timestamp, transport_endpoints, "1");
     if (receive_data_res.result == Ok) {
         printf("Receive data: %s\n", receive_data_res.inner);
     } else {

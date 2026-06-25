@@ -12,19 +12,20 @@ fn success() {
 
     // only mandatory fields
     let bak_info_before = party.db_backup_info();
+    let expiration_timestamp = default_rcv_expiration();
     let receive_data = party
         .wallet
         .blind_receive(
             None,
             Assignment::Any,
-            None,
+            expiration_timestamp,
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
         )
         .unwrap();
     let bak_info_after = party.db_backup_info();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
-    assert!(receive_data.expiration_timestamp.is_none());
+    assert_eq!(receive_data.expiration_timestamp, expiration_timestamp);
     let decoded_invoice = Invoice::new(receive_data.invoice).unwrap();
     assert_eq!(
         decoded_invoice.invoice_data.network,
@@ -44,15 +45,12 @@ fn success() {
         .blind_receive(
             Some(asset_nia_id.clone()),
             Assignment::Any,
-            Some(expiration_timestamp),
+            expiration_timestamp,
             TRANSPORT_ENDPOINTS.clone(),
             min_confirmations,
         )
         .unwrap();
-    assert_eq!(
-        receive_data.expiration_timestamp,
-        Some(expiration_timestamp)
-    );
+    assert_eq!(receive_data.expiration_timestamp, expiration_timestamp);
     let transfer = party.get_test_transfer_recipient(&receive_data.recipient_id);
     let (_, batch_transfer) = party.get_test_transfer_related(&transfer);
     assert_eq!(batch_transfer.min_confirmations, min_confirmations);
@@ -68,7 +66,7 @@ fn success() {
         .blind_receive(
             Some(asset_uda_id.clone()),
             Assignment::Any,
-            None,
+            default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
         )
@@ -85,7 +83,7 @@ fn success() {
         .blind_receive(
             Some(asset_cfa_id.clone()),
             Assignment::Any,
-            None,
+            default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
         )
@@ -104,7 +102,7 @@ fn success() {
         .blind_receive(
             Some(asset_ifa_id.clone()),
             Assignment::Fungible(amount),
-            Some(expiration_timestamp),
+            expiration_timestamp,
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
         )
@@ -133,7 +131,7 @@ fn success() {
         .blind_receive(
             Some(asset_nia_id.clone()),
             Assignment::Fungible(amount),
-            None,
+            default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
         )
@@ -157,7 +155,7 @@ fn success() {
         .blind_receive(
             None,
             Assignment::Fungible(amount),
-            None,
+            default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
         )
@@ -181,7 +179,7 @@ fn success() {
         .blind_receive(
             Some(asset_nia_id.clone()),
             Assignment::Any,
-            None,
+            default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
         )
@@ -202,7 +200,7 @@ fn success() {
         .blind_receive(
             Some(asset_uda_id.clone()),
             Assignment::NonFungible,
-            None,
+            default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
         )
@@ -223,7 +221,7 @@ fn success() {
         .blind_receive(
             Some(asset_uda_id.clone()),
             Assignment::Any,
-            None,
+            default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
         )
@@ -244,7 +242,7 @@ fn success() {
         .blind_receive(
             Some(asset_ifa_id.clone()),
             Assignment::InflationRight(amount),
-            None,
+            default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
         )
@@ -268,7 +266,7 @@ fn success() {
         .blind_receive(
             None,
             Assignment::Any,
-            None,
+            default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
         )
@@ -284,7 +282,7 @@ fn success() {
     let result = party.wallet.blind_receive(
         Some(asset_ifa_id.clone()),
         Assignment::NonFungible,
-        None,
+        default_rcv_expiration(),
         TRANSPORT_ENDPOINTS.clone(),
         MIN_CONFIRMATIONS,
     );
@@ -303,7 +301,7 @@ fn success() {
     let result = party.wallet.blind_receive(
         None,
         Assignment::Any,
-        None,
+        default_rcv_expiration(),
         transport_endpoints.clone(),
         MIN_CONFIRMATIONS,
     );
@@ -420,7 +418,7 @@ fn fail() {
         wallet.blind_receive(
             None,
             Assignment::Any,
-            None,
+            default_rcv_expiration(),
             transport_endpoints,
             MIN_CONFIRMATIONS,
         )
@@ -448,7 +446,7 @@ fn fail() {
         .blind_receive(
             None,
             Assignment::Any,
-            Some((now().unix_timestamp() - 1) as u64),
+            (now().unix_timestamp() - 1) as u64,
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
         )
@@ -459,7 +457,7 @@ fn fail() {
     let result = party.wallet.blind_receive(
         Some(s!("rgb1inexistent")),
         Assignment::Any,
-        None,
+        default_rcv_expiration(),
         TRANSPORT_ENDPOINTS.clone(),
         MIN_CONFIRMATIONS,
     );
@@ -572,7 +570,7 @@ fn wrong_asset_fail() {
         .blind_receive(
             Some(asset_a.asset_id),
             Assignment::Any,
-            None,
+            default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
         )

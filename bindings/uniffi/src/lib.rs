@@ -982,7 +982,7 @@ impl Wallet {
         &self,
         asset_id: Option<String>,
         assignment: Assignment,
-        expiration_timestamp: Option<u64>,
+        expiration_timestamp: u64,
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
     ) -> Result<ReceiveData, RgbLibError> {
@@ -999,7 +999,7 @@ impl Wallet {
         &self,
         asset_id: Option<String>,
         assignment: Assignment,
-        expiration_timestamp: Option<u64>,
+        expiration_timestamp: u64,
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
     ) -> Result<ReceiveData, RgbLibError> {
@@ -1320,7 +1320,7 @@ impl Wallet {
         donation: bool,
         fee_rate: u64,
         min_confirmations: u8,
-        expiration_timestamp: Option<u64>,
+        expiration_timestamp: u64,
     ) -> Result<OperationResult, RgbLibError> {
         self._get_wallet().send(
             online,
@@ -1339,7 +1339,7 @@ impl Wallet {
         donation: bool,
         fee_rate: u64,
         min_confirmations: u8,
-        expiration_timestamp: Option<u64>,
+        expiration_timestamp: u64,
         dry_run: bool,
     ) -> Result<SendBeginResult, RgbLibError> {
         self._get_wallet().send_begin(
@@ -1491,7 +1491,7 @@ impl MultisigWallet {
         online: Online,
         asset_id: Option<String>,
         assignment: Assignment,
-        expiration_timestamp: Option<u64>,
+        expiration_timestamp: u64,
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
     ) -> Result<ReceiveData, RgbLibError> {
@@ -1510,7 +1510,7 @@ impl MultisigWallet {
         online: Online,
         asset_id: Option<String>,
         assignment: Assignment,
-        expiration_timestamp: Option<u64>,
+        expiration_timestamp: u64,
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
     ) -> Result<ReceiveData, RgbLibError> {
@@ -1743,7 +1743,7 @@ impl MultisigWallet {
         donation: bool,
         fee_rate: u64,
         min_confirmations: u8,
-        expiration_timestamp: Option<u64>,
+        expiration_timestamp: u64,
     ) -> Result<InitOperationResult, RgbLibError> {
         self._get_wallet().send_init(
             online,

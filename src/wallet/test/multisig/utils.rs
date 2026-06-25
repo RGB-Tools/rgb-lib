@@ -390,7 +390,7 @@ pub(super) trait MultisigOps: OfflineSigParty {
             online,
             None,
             Assignment::Any,
-            None,
+            default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
         )
@@ -679,8 +679,14 @@ pub(super) trait MultisigOps: OfflineSigParty {
         recipient_map: HashMap<String, Vec<Recipient>>,
     ) -> Result<InitOperationResult, Error> {
         let online = self.online();
-        self.multisig_mut()
-            .send_init(online, recipient_map, false, FEE_RATE, 1, None)
+        self.multisig_mut().send_init(
+            online,
+            recipient_map,
+            false,
+            FEE_RATE,
+            1,
+            default_send_expiration(),
+        )
     }
 
     fn sync_with_hub(&mut self) -> OperationInfo {
@@ -734,7 +740,7 @@ pub(super) trait MultisigOps: OfflineSigParty {
             online,
             None,
             Assignment::Any,
-            None,
+            default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
         )

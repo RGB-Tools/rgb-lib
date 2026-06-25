@@ -254,7 +254,7 @@ pub(crate) fn blind_receive(
         serde_json::from_str(&ptr_to_string(transport_endpoints))?;
     let asset_id = convert_optional_string(asset_id_opt);
     let assignment: Assignment = serde_json::from_str(&ptr_to_string(assignment))?;
-    let expiration_timestamp = convert_optional_number(expiration_timestamp_opt)?;
+    let expiration_timestamp = ptr_to_num(expiration_timestamp_opt)?;
     let min_confirmations = ptr_to_num(min_confirmations)?;
     let res = wallet.blind_receive(
         asset_id,
@@ -643,7 +643,7 @@ pub(crate) fn send(
         serde_json::from_str(&ptr_to_string(recipient_map))?;
     let fee_rate = ptr_to_num(fee_rate)?;
     let min_confirmations = ptr_to_num(min_confirmations)?;
-    let expiration_timestamp = convert_optional_number(expiration_timestamp_opt)?;
+    let expiration_timestamp = ptr_to_num(expiration_timestamp_opt)?;
     let res = wallet.send(
         online,
         recipient_map,
@@ -672,7 +672,7 @@ pub(crate) fn send_begin(
         serde_json::from_str(&ptr_to_string(recipient_map))?;
     let fee_rate = ptr_to_num(fee_rate)?;
     let min_confirmations = ptr_to_num(min_confirmations)?;
-    let expiration_timestamp = convert_optional_number(expiration_timestamp_opt)?;
+    let expiration_timestamp = ptr_to_num(expiration_timestamp_opt)?;
     let res = wallet.send_begin(
         online,
         recipient_map,
@@ -748,7 +748,7 @@ pub(crate) fn witness_receive(
         serde_json::from_str(&ptr_to_string(transport_endpoints))?;
     let asset_id = convert_optional_string(asset_id_opt);
     let assignment: Assignment = serde_json::from_str(&ptr_to_string(assignment))?;
-    let expiration_timestamp = convert_optional_number(expiration_timestamp_opt)?;
+    let expiration_timestamp = ptr_to_num(expiration_timestamp_opt)?;
     let min_confirmations = ptr_to_num(min_confirmations)?;
     let res = wallet.witness_receive(
         asset_id,

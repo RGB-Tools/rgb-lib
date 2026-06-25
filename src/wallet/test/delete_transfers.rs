@@ -100,7 +100,7 @@ fn success() {
             false,
             FEE_RATE,
             MIN_CONFIRMATIONS,
-            None,
+            default_send_expiration(),
             false,
         )
         .unwrap();
@@ -139,7 +139,7 @@ fn success() {
             false,
             FEE_RATE,
             MIN_CONFIRMATIONS,
-            None,
+            default_send_expiration(),
             false,
         )
         .unwrap();
@@ -166,7 +166,7 @@ fn success() {
         .blind_receive(
             Some(asset.asset_id),
             Assignment::Any,
-            None,
+            default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
         )
@@ -275,7 +275,7 @@ fn fail() {
         .blind_receive(
             Some(asset.asset_id),
             Assignment::Any,
-            None,
+            default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
         )
