@@ -196,9 +196,7 @@ impl Indexer {
 
     pub(crate) fn populate_tx_cache(
         &self,
-        #[cfg_attr(feature = "esplora", allow(unused))] bdk_wallet: &PersistedWallet<
-            Store<ChangeSet>,
-        >,
+        #[cfg_attr(feature = "esplora", allow(unused))] bdk_wallet: &PersistedWallet<BdkStore>,
     ) {
         match self {
             #[cfg(feature = "electrum")]

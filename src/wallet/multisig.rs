@@ -240,7 +240,7 @@ impl WalletCore for MultisigWallet {
         reveal(KeychainKind::Internal, response.internal);
         reveal(KeychainKind::External, response.external);
         if persist {
-            bdk_wallet.persist(bdk_database)?;
+            block_on(bdk_wallet.persist_async(bdk_database))?;
         }
         // sync UTXOs
         self.sync_bdk_and_db_txos(txn, options, include_spent)
@@ -267,7 +267,7 @@ impl WalletOffline for MultisigWallet {
             bdk_wallet.reveal_next_address(keychain);
         }
         let first_address = bdk_wallet.peek_address(keychain, start_index).address;
-        bdk_wallet.persist(bdk_database)?;
+        block_on(bdk_wallet.persist_async(bdk_database))?;
         Ok(first_address)
     }
 }

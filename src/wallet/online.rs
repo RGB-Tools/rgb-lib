@@ -99,7 +99,7 @@ pub trait WalletOnline: WalletOffline {
         let seen_at = now().unix_timestamp() as u64;
         let (bdk_wallet, bdk_db) = self.bdk_wallet_db_mut();
         bdk_wallet.apply_unconfirmed_txs([(tx.clone(), seen_at)]);
-        bdk_wallet.persist(bdk_db)?;
+        block_on(bdk_wallet.persist_async(bdk_db))?;
 
         // promote any newly-known colored UTXOs (e.g. the change output) from
         // exists=false to exists=true in the rgb_lib DB

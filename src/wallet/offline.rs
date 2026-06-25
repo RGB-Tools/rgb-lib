@@ -1234,7 +1234,7 @@ pub trait WalletOffline: WalletBackup {
     ) -> Result<BdkAddress, Error> {
         let (bdk_wallet, bdk_db) = self.bdk_wallet_db_mut();
         let address = bdk_wallet.reveal_next_address(keychain).address;
-        bdk_wallet.persist(bdk_db)?;
+        block_on(bdk_wallet.persist_async(bdk_db))?;
         Ok(address)
     }
 

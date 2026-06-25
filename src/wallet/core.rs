@@ -4,7 +4,7 @@
 
 use super::*;
 
-const BDK_DB_NAME: &str = "bdk_db";
+const BDK_DB_NAME: &str = "bdk_db_sqlite";
 
 pub(crate) const NUM_KNOWN_SCHEMAS: usize = 4;
 
@@ -207,8 +207,8 @@ pub struct WalletInternals {
     pub(crate) _logger_guard: AsyncGuard,
     pub(crate) database: Arc<RgbLibDatabase>,
     pub(crate) wallet_dir: PathBuf,
-    pub(crate) bdk_wallet: PersistedWallet<Store<ChangeSet>>,
-    pub(crate) bdk_database: Store<ChangeSet>,
+    pub(crate) bdk_wallet: PersistedWallet<BdkStore>,
+    pub(crate) bdk_database: BdkStore,
     #[cfg(any(feature = "electrum", feature = "esplora"))]
     pub(crate) online_data: Option<OnlineData>,
 }
@@ -260,7 +260,7 @@ pub(crate) fn setup_bdk<P: AsRef<Path>>(
     desc_vanilla: String,
     watch_only: bool,
     bdk_network: BdkNetwork,
-) -> Result<(PersistedWallet<Store<ChangeSet>>, Store<ChangeSet>), Error> {
+) -> Result<(PersistedWallet<BdkStore>, BdkStore), Error> {
     let chain_net: ChainNet = wallet_data.bitcoin_network.into();
     let mut wallet_params = BdkWallet::load()
         .descriptor(KeychainKind::External, Some(desc_colored.clone()))
@@ -275,13 +275,16 @@ pub(crate) fn setup_bdk<P: AsRef<Path>>(
         BDK_DB_NAME.to_string()
     };
     let bdk_db_path = wallet_dir.as_ref().join(bdk_db_name);
-    let (mut bdk_database, _) =
-        Store::<ChangeSet>::load_or_create(BDK_DB_NAME.as_bytes(), bdk_db_path)?;
-    let bdk_wallet = match wallet_params.load_wallet(&mut bdk_database)? {
+    let bdk_db_url = format!("sqlite:{}", adjust_canonicalization(bdk_db_path));
+    let mut bdk_database = block_on(BdkStore::new(&bdk_db_url))?;
+    // schema migrations are applied automatically when the wallet is loaded
+    let bdk_wallet = match block_on(wallet_params.load_wallet_async(&mut bdk_database))? {
         Some(wallet) => wallet,
-        None => BdkWallet::create(desc_colored, desc_vanilla)
-            .network(bdk_network)
-            .create_wallet(&mut bdk_database)?,
+        None => block_on(
+            BdkWallet::create(desc_colored, desc_vanilla)
+                .network(bdk_network)
+                .create_wallet_async(&mut bdk_database),
+        )?,
     };
     Ok((bdk_wallet, bdk_database))
 }
@@ -320,20 +323,15 @@ pub trait WalletCore {
 
     fn internals_mut(&mut self) -> &mut WalletInternals;
 
-    fn bdk_wallet(&self) -> &PersistedWallet<Store<ChangeSet>> {
+    fn bdk_wallet(&self) -> &PersistedWallet<BdkStore> {
         &self.internals().bdk_wallet
     }
 
-    fn bdk_wallet_mut(&mut self) -> &mut PersistedWallet<Store<ChangeSet>> {
+    fn bdk_wallet_mut(&mut self) -> &mut PersistedWallet<BdkStore> {
         &mut self.internals_mut().bdk_wallet
     }
 
-    fn bdk_wallet_db_mut(
-        &mut self,
-    ) -> (
-        &mut PersistedWallet<Store<ChangeSet>>,
-        &mut Store<ChangeSet>,
-    ) {
+    fn bdk_wallet_db_mut(&mut self) -> (&mut PersistedWallet<BdkStore>, &mut BdkStore) {
         let internals_mut = self.internals_mut();
         (
             &mut internals_mut.bdk_wallet,
@@ -494,7 +492,7 @@ pub trait WalletCore {
             .map_err(|e| Error::FailedBdkSync {
                 details: e.to_string(),
             })?;
-        bdk_wallet.persist(bdk_db)?;
+        block_on(bdk_wallet.persist_async(bdk_db))?;
 
         if matches!(options.keychain, SyncKeychain::Colored) {
             self.update_db_colored_txos_from_bdk(txn, include_spent)?;
