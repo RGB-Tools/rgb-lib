@@ -856,32 +856,24 @@ impl From<rgbinvoice::TransportParseError> for Error {
     }
 }
 
-impl From<bdk_wallet::file_store::StoreErrorWithDump<ChangeSet>> for Error {
-    fn from(e: bdk_wallet::file_store::StoreErrorWithDump<ChangeSet>) -> Self {
+impl From<bdk_sqlite::Error> for Error {
+    fn from(e: bdk_sqlite::Error) -> Self {
         Error::IO {
             details: e.to_string(),
         }
     }
 }
 
-impl From<bdk_wallet::FileStoreError> for Error {
-    fn from(e: bdk_wallet::FileStoreError) -> Self {
+impl From<bdk_wallet::CreateWithPersistError<bdk_sqlite::Error>> for Error {
+    fn from(e: bdk_wallet::CreateWithPersistError<bdk_sqlite::Error>) -> Self {
         Error::IO {
             details: e.to_string(),
         }
     }
 }
 
-impl From<bdk_wallet::CreateWithPersistError<bdk_wallet::FileStoreError>> for Error {
-    fn from(e: bdk_wallet::CreateWithPersistError<bdk_wallet::FileStoreError>) -> Self {
-        Error::IO {
-            details: e.to_string(),
-        }
-    }
-}
-
-impl From<bdk_wallet::LoadWithPersistError<bdk_wallet::FileStoreError>> for Error {
-    fn from(e: bdk_wallet::LoadWithPersistError<bdk_wallet::FileStoreError>) -> Self {
+impl From<bdk_wallet::LoadWithPersistError<bdk_sqlite::Error>> for Error {
+    fn from(e: bdk_wallet::LoadWithPersistError<bdk_sqlite::Error>) -> Self {
         match e {
             bdk_wallet::LoadWithPersistError::InvalidChangeSet(
                 bdk_wallet::LoadError::Mismatch(bdk_wallet::LoadMismatch::Genesis { .. }),
@@ -959,31 +951,21 @@ mod tests {
         assert_matches!(err, Error::Internal { details } if !details.is_empty());
 
         // LoadWithPersistError error
-        let err = bdk_wallet::LoadWithPersistError::Persist(bdk_wallet::FileStoreError::Write(
-            std::io::Error::new(std::io::ErrorKind::PermissionDenied, "no access"),
+        let err = bdk_wallet::LoadWithPersistError::Persist(bdk_sqlite::Error::FromInt(
+            u8::try_from(300u32).unwrap_err(),
         ));
         let err = Error::from(err);
         assert_matches!(err, Error::IO { details } if !details.is_empty());
 
         // CreateWithPersistError error
-        let err = bdk_wallet::CreateWithPersistError::Persist(bdk_wallet::FileStoreError::Write(
-            std::io::Error::new(std::io::ErrorKind::PermissionDenied, "no access"),
+        let err = bdk_wallet::CreateWithPersistError::Persist(bdk_sqlite::Error::FromInt(
+            u8::try_from(300u32).unwrap_err(),
         ));
         let err = Error::from(err);
         assert_matches!(err, Error::IO { details } if !details.is_empty());
 
-        // FileStoreError error
-        let err = bdk_wallet::FileStoreError::Write(std::io::Error::new(
-            std::io::ErrorKind::PermissionDenied,
-            "no access",
-        ));
-        let err = Error::from(err);
-        assert_matches!(err, Error::IO { details } if !details.is_empty());
-
-        // StoreErrorWithDump error
-        let err = bdk_wallet::file_store::StoreErrorWithDump::<ChangeSet>::from(
-            std::io::Error::new(std::io::ErrorKind::PermissionDenied, "no access"),
-        );
+        // bdk_sqlite::Error error
+        let err = bdk_sqlite::Error::FromInt(u8::try_from(300u32).unwrap_err());
         let err = Error::from(err);
         assert_matches!(err, Error::IO { details } if !details.is_empty());
 

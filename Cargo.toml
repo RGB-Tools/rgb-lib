@@ -20,8 +20,10 @@ members = [".", "migration"]
 base64 = { version = "0.22.1", default-features = false, features = [
     "std",
 ] }
+bdk_sqlite = { version = "0.6.0", default-features = false, features = [
+    "wallet",
+] }
 bdk_wallet = { version = "=3.0.0", default-features = false, features = [
-    "file_store",
     "keys-bip39",
     "std",
 ] }
