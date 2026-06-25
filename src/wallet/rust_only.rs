@@ -3,6 +3,15 @@
 //! This module defines additional utility methods that are not exposed via FFI.
 
 use super::*;
+use amplify::num::u5;
+use rgbstd::{
+    containers::SealWitness,
+    opret::OpretProof,
+    rgbcore::commit_verify::{
+        TryCommitVerify,
+        mpc::{self, MPC_MINIMAL_DEPTH},
+    },
+};
 
 /// RGB asset-specific information to color a transaction
 #[derive(Debug, Clone)]
@@ -89,6 +98,26 @@ impl Wallet {
         coloring_info: ColoringInfo,
     ) -> Result<(Fascia, AssetBeneficiariesMap), Error> {
         info!(self.logger(), "Coloring PSBT...");
+        let beneficiaries = self.color_psbt_stage(psbt, coloring_info.clone())?;
+        let fascia = self.color_psbt_finalize(psbt, coloring_info.static_blinding)?;
+        info!(self.logger(), "Color PSBT completed");
+        Ok((fascia, beneficiaries))
+    }
+
+    /// Stage RGB coloring information onto a PSBT without finalizing the MPC commitment.
+    ///
+    /// Multiple parties may each call this method on the same PSBT (each for their own contracts),
+    /// in which case [`Wallet::color_psbt_finalize`] must be invoked once after all staging is
+    /// complete to produce the [`Fascia`].
+    ///
+    /// <div class="warning">This method is meant for special usage and is normally not needed, use
+    /// it only if you know what you're doing</div>
+    pub fn color_psbt_stage(
+        &self,
+        psbt: &mut Psbt,
+        coloring_info: ColoringInfo,
+    ) -> Result<AssetBeneficiariesMap, Error> {
+        info!(self.logger(), "Staging RGB coloring onto PSBT...");
         let mut transaction = match psbt.clone().extract_tx() {
             Ok(tx) => tx,
             Err(ExtractTxError::MissingInputValue { tx }) => tx, // required for non-standard TXs
@@ -220,22 +249,6 @@ impl Wallet {
             asset_beneficiaries.insert(contract_id, beneficiaries);
         }
 
-        let opreturn_index = psbt
-            .unsigned_tx
-            .output
-            .iter()
-            .enumerate()
-            .find(|(_, o)| o.script_pubkey.is_op_return())
-            .expect("psbt should have an op_return output")
-            .0;
-        let opreturn_output = psbt.outputs.get_mut(opreturn_index).unwrap();
-        opreturn_output.set_opret_host();
-        if let Some(blinding) = coloring_info.static_blinding {
-            opreturn_output
-                .set_mpc_entropy(blinding)
-                .map_err(InternalError::from)?;
-        }
-
         for (contract_id, transition) in all_transitions {
             for opout in transition.inputs() {
                 psbt.set_rgb_contract_consumer(contract_id, opout, transition.id())
@@ -245,12 +258,86 @@ impl Wallet {
                 .map_err(InternalError::from)?;
         }
 
+        info!(self.logger(), "Stage RGB coloring completed");
+        Ok(asset_beneficiaries)
+    }
+
+    /// Finalize the RGB commitment on a PSBT that has had one or more contracts staged via
+    /// [`Wallet::color_psbt_stage`]. Must be called exactly once per swap PSBT, after all staging
+    /// is complete.
+    ///
+    /// <div class="warning">This method is meant for special usage and is normally not needed, use
+    /// it only if you know what you're doing</div>
+    pub fn color_psbt_finalize(
+        &self,
+        psbt: &mut Psbt,
+        static_blinding: Option<u64>,
+    ) -> Result<Fascia, Error> {
+        info!(self.logger(), "Finalizing RGB commitment on PSBT...");
+        let opreturn_index = psbt
+            .unsigned_tx
+            .output
+            .iter()
+            .enumerate()
+            .find(|(_, o)| o.script_pubkey.is_op_return())
+            .ok_or_else(|| Error::InvalidColoringInfo {
+                details: s!("PSBT has no OP_RETURN output to host the RGB commitment"),
+            })?
+            .0;
+        let opreturn_output = psbt.outputs.get_mut(opreturn_index).unwrap();
+        opreturn_output.set_opret_host();
+        if let Some(blinding) = static_blinding {
+            opreturn_output
+                .set_mpc_entropy(blinding)
+                .map_err(InternalError::from)?;
+        }
+
         psbt.set_rgb_close_method(CloseMethod::OpretFirst);
         psbt.set_as_unmodifiable();
         let fascia = psbt.rgb_commit().map_err(InternalError::from)?;
 
-        info!(self.logger(), "Color PSBT completed");
-        Ok((fascia, asset_beneficiaries))
+        info!(self.logger(), "Finalize RGB commitment completed");
+        Ok(fascia)
+    }
+
+    /// Reconstruct an RGB fascia from a PSBT whose RGB commitment has already been finalized.
+    ///
+    /// This is used by high-level interactive flows where one party receives a PSBT after the
+    /// counterparty has finalized the MPC commitment. It keeps the raw fascia internal to Rust while
+    /// still allowing the wallet to consume the RGB transition data.
+    pub(crate) fn fascia_from_finalized_psbt(&self, psbt: &Psbt) -> Result<Fascia, Error> {
+        let bundles = psbt.rgb_bundles().map_err(InternalError::from)?;
+        let output = psbt
+            .outputs
+            .iter()
+            .find(|output| output.mpc_message_map().is_ok())
+            .ok_or_else(|| Error::InvalidColoringInfo {
+                details: s!("PSBT has no RGB MPC message host"),
+            })?;
+        let messages = output.mpc_message_map().map_err(InternalError::from)?;
+        let min_depth = output
+            .mpc_min_tree_depth()
+            .map(u5::with)
+            .unwrap_or(MPC_MINIMAL_DEPTH);
+        let source = mpc::MultiSource {
+            min_depth,
+            messages,
+            static_entropy: output.mpc_entropy(),
+        };
+        let merkle_tree =
+            mpc::MerkleTree::try_commit(&source).map_err(|e| Error::InvalidColoringInfo {
+                details: format!("failed to reconstruct RGB MPC proof: {e}"),
+            })?;
+        let merkle_block = mpc::MerkleBlock::from(merkle_tree);
+        let bundles = Confined::try_from(bundles).map_err(|_| Error::InvalidColoringInfo {
+            details: s!("PSBT has no RGB bundles"),
+        })?;
+        let seal_witness = SealWitness::new(
+            PubWitness::with(psbt.unsigned_tx.clone()),
+            merkle_block,
+            OpretProof::default().into(),
+        );
+        Ok(Fascia::new(seal_witness, bundles))
     }
 
     /// Color a PSBT, consume the RGB fascia and return the related consignment.
@@ -267,34 +354,53 @@ impl Wallet {
 
         let witness_txid = psbt.get_txid();
 
-        let mut runtime = self.rgb_runtime()?;
-        runtime.consume_fascia(fascia, None)?;
+        {
+            let mut runtime = self.rgb_runtime()?;
+            runtime.consume_fascia(fascia, None)?;
+        } // drop the runtime here so `generate_transfer` can reacquire the stash lock
 
         let mut transfers = vec![];
         for (contract_id, beneficiaries) in asset_beneficiaries {
-            let mut beneficiaries_witness = vec![];
-            let mut beneficiaries_blinded = vec![];
-            for builder_seal in beneficiaries {
-                match builder_seal {
-                    BuilderSeal::Revealed(seal) => {
-                        let explicit_seal = ExplicitSeal::with(witness_txid, seal.vout);
-                        beneficiaries_witness.push(explicit_seal);
-                    }
-                    BuilderSeal::Concealed(secret_seal) => {
-                        beneficiaries_blinded.push(secret_seal);
-                    }
-                };
-            }
-            transfers.push(runtime.transfer(
-                contract_id,
-                beneficiaries_witness,
-                beneficiaries_blinded,
-                Some(witness_txid),
-            )?);
+            transfers.push(self.generate_transfer(contract_id, beneficiaries, witness_txid)?);
         }
 
         info!(self.logger(), "Color PSBT and consume completed");
         Ok(transfers)
+    }
+
+    /// Produce an [`RgbTransfer`] consignment for a single contract given its beneficiaries
+    /// (typically obtained from a prior [`Wallet::color_psbt_stage`] call) and the witness
+    /// transaction ID of the PSBT being colored. Must be called after the fascia has been
+    /// consumed via [`Wallet::consume_fascia`].
+    ///
+    /// <div class="warning">This method is meant for special usage and is normally not needed, use
+    /// it only if you know what you're doing</div>
+    pub fn generate_transfer(
+        &self,
+        contract_id: ContractId,
+        beneficiaries: Vec<BuilderSeal<GraphSeal>>,
+        witness_txid: RgbTxid,
+    ) -> Result<RgbTransfer, Error> {
+        let runtime = self.rgb_runtime()?;
+        let mut beneficiaries_witness = vec![];
+        let mut beneficiaries_blinded = vec![];
+        for builder_seal in beneficiaries {
+            match builder_seal {
+                BuilderSeal::Revealed(seal) => {
+                    let explicit_seal = ExplicitSeal::with(witness_txid, seal.vout);
+                    beneficiaries_witness.push(explicit_seal);
+                }
+                BuilderSeal::Concealed(secret_seal) => {
+                    beneficiaries_blinded.push(secret_seal);
+                }
+            };
+        }
+        Ok(runtime.transfer(
+            contract_id,
+            beneficiaries_witness,
+            beneficiaries_blinded,
+            Some(witness_txid),
+        )?)
     }
 
     /// Create consignments for a PSBT created with the [`send_begin`](Wallet::send_begin) method.
@@ -379,13 +485,27 @@ impl Wallet {
 
         let valid_contract = valid_consignment.clone().into_valid_contract();
         runtime
-            .import_contract(valid_contract, self.blockchain_resolver())
+            .import_contract(valid_contract.clone(), self.blockchain_resolver())
             .expect("failure importing validated contract");
+        let contract_id = consignment.contract_id();
+        let asset_id = contract_id.to_string();
+        let txn = self.database().begin_transaction()?;
+        if txn.get_asset(asset_id)?.is_none() {
+            self.save_new_asset_internal(
+                &txn,
+                &runtime,
+                contract_id,
+                asset_schema,
+                valid_contract.clone(),
+                Some(valid_consignment.clone()),
+            )?;
+        }
 
         let received_rgb_assignments =
             self.extract_received_assignments(&consignment, witness_id, Some(vout), None);
 
         runtime.accept_transfer(valid_consignment, &resolver)?;
+        txn.commit()?;
 
         info!(self.logger(), "Accept transfer completed");
         Ok((
