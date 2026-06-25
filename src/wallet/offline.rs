@@ -373,6 +373,7 @@ pub trait WalletOffline: WalletBackup {
             status: ActiveValue::Set(TransferStatus::Settled),
             created_at: ActiveValue::Set(issue_data.asset_data.added_at),
             min_confirmations: ActiveValue::Set(0),
+            incoming: ActiveValue::Set(true),
             ..Default::default()
         };
         let batch_transfer_idx = txn.set_batch_transfer(batch_transfer)?;
@@ -385,7 +386,6 @@ pub trait WalletOffline: WalletBackup {
         let asset_transfer_idx = txn.set_asset_transfer(asset_transfer)?;
         let transfer = DbTransferActMod {
             asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
-            incoming: ActiveValue::Set(true),
             ..Default::default()
         };
         txn.set_transfer(transfer)?;
@@ -1079,6 +1079,7 @@ pub trait WalletOffline: WalletBackup {
             expiration: ActiveValue::Set(receive_data_internal.expiration_timestamp),
             created_at: ActiveValue::Set(receive_data_internal.created_at),
             min_confirmations: ActiveValue::Set(min_confirmations),
+            incoming: ActiveValue::Set(true),
             ..Default::default()
         };
         let batch_transfer_idx = txn.set_batch_transfer(batch_transfer)?;
@@ -1094,7 +1095,6 @@ pub trait WalletOffline: WalletBackup {
             requested_assignment: ActiveValue::Set(Some(
                 receive_data_internal.detected_assignment.clone(),
             )),
-            incoming: ActiveValue::Set(true),
             recipient_id: ActiveValue::Set(Some(receive_data_internal.recipient_id.clone())),
             recipient_type: ActiveValue::Set(Some(
                 receive_data_internal.recipient_type_full.clone(),
@@ -1953,7 +1953,7 @@ pub trait WalletOffline: WalletBackup {
             .map(|c| c.assignment)
             .collect();
 
-        let kind = if transfer.incoming {
+        let kind = if batch_transfer.incoming {
             if filtered_coloring.clone().count() > 0
                 && filtered_coloring
                     .clone()

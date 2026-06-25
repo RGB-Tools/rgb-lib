@@ -1692,7 +1692,7 @@ pub trait WalletOnline: WalletOffline {
         skip_sync: bool,
     ) -> Result<Option<DbBatchTransfer>, Error> {
         debug!(self.logger(), "Refreshing transfer: {:?}", transfer);
-        let incoming = transfer.incoming(&db_data.asset_transfers, &db_data.transfers);
+        let incoming = transfer.incoming;
         if !filter.is_empty() {
             let requested = RefreshFilter {
                 status: RefreshTransferStatus::try_from(transfer.status).expect("pending status"),
@@ -2598,6 +2598,7 @@ pub trait WalletOnline: WalletOffline {
             expiration: ActiveValue::Set(info_contents.expiration_timestamp),
             created_at: ActiveValue::Set(info_contents.created_at),
             min_confirmations: ActiveValue::Set(info_contents.min_confirmations),
+            incoming: ActiveValue::Set(false),
             ..Default::default()
         };
         let batch_transfer_idx = txn.set_batch_transfer(batch_transfer)?;
@@ -2738,7 +2739,6 @@ pub trait WalletOnline: WalletOffline {
                 let transfer = DbTransferActMod {
                     asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
                     requested_assignment: ActiveValue::Set(Some(req_ass)),
-                    incoming: ActiveValue::Set(false),
                     recipient_id: ActiveValue::Set(rcpt_id),
                     recipient_type: ActiveValue::Set(rcpt_type),
                     ..Default::default()
@@ -2816,16 +2816,10 @@ pub trait WalletOnline: WalletOffline {
         // in a send-to-oneself, the txid is shared between send and receive transfers; only the
         // outgoing batch transfer should be updated here, incoming ones must be ignored so the send
         // transfers are created
-        let existing = match txn.get_batch_transfer_by_txid(&txid)? {
-            Some(batch_transfer) => {
-                let asset_transfers = txn.iter_asset_transfers()?;
-                let transfers = txn.iter_transfers()?;
-                let outgoing = !batch_transfer.incoming(&asset_transfers, &transfers);
-                outgoing.then_some(batch_transfer)
-            }
-            None => None,
-        };
-        if let Some(existing) = existing {
+        if let Some(existing) = txn
+            .get_batch_transfer_by_txid(&txid)?
+            .filter(|batch_transfer| !batch_transfer.incoming)
+        {
             let mut updated: DbBatchTransferActMod = existing.clone().into();
             updated.status = ActiveValue::Set(status);
             txn.update_batch_transfer(&mut updated)?;

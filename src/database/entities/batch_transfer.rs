@@ -22,6 +22,7 @@ pub struct Model {
     pub updated_at: i64,
     pub expiration: Option<i64>,
     pub min_confirmations: u8,
+    pub incoming: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
@@ -33,6 +34,7 @@ pub enum Column {
     UpdatedAt,
     Expiration,
     MinConfirmations,
+    Incoming,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DerivePrimaryKey)]
@@ -63,6 +65,7 @@ impl ColumnTrait for Column {
             Self::UpdatedAt => ColumnType::BigInteger.def(),
             Self::Expiration => ColumnType::BigInteger.def().null(),
             Self::MinConfirmations => ColumnType::SmallInteger.def(),
+            Self::Incoming => ColumnType::Boolean.def(),
         }
     }
 }

@@ -51,8 +51,9 @@ fn success() {
 
     let rcv_transfer = rcv_party.get_test_transfer_recipient(&receive_data.recipient_id);
     let (rcv_transfer_data, rcv_asset_transfer) = rcv_party.get_test_transfer_data(&rcv_transfer);
-    let (transfer, _, _) = party.get_test_transfer_sender(&txid);
+    let (transfer, _, send_batch_transfer) = party.get_test_transfer_sender(&txid);
     let (transfer_data, asset_transfer) = party.get_test_transfer_data(&transfer);
+    let (_, rcv_batch_transfer) = rcv_party.get_test_transfer_related(&rcv_transfer);
 
     // ack is None
     assert_eq!(rcv_transfer.ack, None);
@@ -73,8 +74,8 @@ fn success() {
         Some(receive_data.recipient_id.clone())
     );
     // incoming
-    assert!(rcv_transfer.incoming);
-    assert!(!transfer.incoming);
+    assert!(rcv_batch_transfer.incoming);
+    assert!(!send_batch_transfer.incoming);
 
     // change_utxo is set only for the sender
     assert!(rcv_transfer_data.change_utxo.is_none());

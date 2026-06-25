@@ -487,10 +487,14 @@ pub(crate) trait OfflineSigParty {
     }
 
     fn get_test_transfer_recipient(&self, recipient_id: &str) -> DbTransfer {
-        let mut transfers = self
-            .db_transfers()
-            .into_iter()
-            .filter(|t| t.recipient_id == Some(recipient_id.to_string()) && t.incoming);
+        let asset_transfers = self.db_asset_transfers();
+        let batch_transfers = self.db_batch_transfers();
+        let mut transfers = self.db_transfers().into_iter().filter(|t| {
+            t.recipient_id == Some(recipient_id.to_string())
+                && t.related_transfers(&asset_transfers, &batch_transfers)
+                    .1
+                    .incoming
+        });
         let transfer = transfers.next().unwrap();
         assert!(transfers.next().is_none());
         transfer

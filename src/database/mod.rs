@@ -17,23 +17,6 @@ pub(crate) struct DbAssetTransferData {
 }
 
 impl DbBatchTransfer {
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
-    pub(crate) fn incoming(
-        &self,
-        asset_transfers: &[DbAssetTransfer],
-        transfers: &[DbTransfer],
-    ) -> bool {
-        let asset_transfer_ids: Vec<i32> = asset_transfers
-            .iter()
-            .filter(|t| t.batch_transfer_idx == self.idx)
-            .map(|t| t.idx)
-            .collect();
-        transfers
-            .iter()
-            .filter(|t| asset_transfer_ids.contains(&t.asset_transfer_idx))
-            .all(|t| t.incoming)
-    }
-
     pub(crate) fn get_asset_transfers(
         &self,
         asset_transfers: &[DbAssetTransfer],
@@ -746,12 +729,10 @@ impl DbTxn {
             .sum();
         let witness_pending: u64 = transfers
             .iter()
-            .filter(|t| {
-                t.incoming && matches!(t.recipient_type, Some(RecipientTypeFull::Witness { .. }))
-            })
+            .filter(|t| matches!(t.recipient_type, Some(RecipientTypeFull::Witness { .. })))
             .filter_map(|t| {
                 let (at, bt) = t.related_transfers(&asset_transfers, &batch_transfers);
-                if bt.status.waiting_confirmations() {
+                if bt.incoming && bt.status.waiting_confirmations() {
                     // filter for asset ID (always present in WaitingConfirmations status)
                     if at.asset_id.unwrap() != asset_id {
                         return None;
@@ -875,10 +856,10 @@ impl DbTxn {
 
         let pending_blinded_utxos = transfers
             .iter()
-            .filter_map(|t| match (&t.recipient_type, t.incoming) {
-                (Some(RecipientTypeFull::Blind { unblinded_utxo }), true) => {
+            .filter_map(|t| match &t.recipient_type {
+                Some(RecipientTypeFull::Blind { unblinded_utxo }) => {
                     let (_, bt) = t.related_transfers(&asset_transfers, &batch_transfers);
-                    bt.status.waiting_counterparty().then_some(unblinded_utxo)
+                    (bt.incoming && bt.status.waiting_counterparty()).then_some(unblinded_utxo)
                 }
                 _ => None,
             })
