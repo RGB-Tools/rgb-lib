@@ -278,6 +278,10 @@ impl WalletOnline for MultisigWallet {
         Ok(())
     }
 
+    fn supports_out_of_band_exchange(&self) -> bool {
+        false
+    }
+
     fn get_hub_fail_status(&self, batch_transfer_idx: i32) -> Result<bool, Error> {
         Ok(self
             .hub_client()
@@ -1462,6 +1466,10 @@ impl MultisigWallet {
         recipient_type: RecipientType,
         operation_type: OperationType,
     ) -> Result<ReceiveData, Error> {
+        if transport_endpoints.is_empty() {
+            return Err(Error::UnsupportedTransportType);
+        }
+
         let txn = self.database().begin_transaction()?;
 
         // shared receive data creation logic
@@ -1522,7 +1530,8 @@ impl MultisigWallet {
     /// endpoint string encodes an
     /// [`RgbTransport`](https://docs.rs/rgb-invoicing/latest/rgbinvoice/enum.RgbTransport.html).
     /// At the moment the only supported variant is JsonRpc (e.g. `rpc://127.0.0.1` or
-    /// `rpcs://example.com`).
+    /// `rpcs://example.com`). The out-of-band exchange (requested with an empty list) is not
+    /// supported for multisig wallets and results in an error.
     ///
     /// The `min_confirmations` number determines the minimum number of confirmations needed for
     /// the transaction anchoring the transfer for it to be considered final and move (while
@@ -1575,7 +1584,8 @@ impl MultisigWallet {
     /// endpoint string encodes an
     /// [`RgbTransport`](https://docs.rs/rgb-invoicing/latest/rgbinvoice/enum.RgbTransport.html).
     /// At the moment the only supported variant is JsonRpc (e.g. `rpc://127.0.0.1` or
-    /// `rpcs://example.com`).
+    /// `rpcs://example.com`). The out-of-band exchange (requested with an empty list) is not
+    /// supported for multisig wallets and results in an error.
     ///
     /// The `min_confirmations` number determines the minimum number of confirmations needed for
     /// the transaction anchoring the transfer for it to be considered final and move (while

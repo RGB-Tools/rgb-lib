@@ -491,13 +491,21 @@ fn fail() {
     let result = blind_receive_withte(&mut party.wallet, transport_endpoints);
     assert!(matches!(result, Err(Error::UnsupportedTransportType)));
 
-    // transport endpoints: not enough endpoints
+    // transport endpoints: an empty list selects the out-of-band exchange, which stores no
+    // transport endpoint at all
     let transport_endpoints = vec![];
+    let receive_data = blind_receive_withte(&mut party.wallet, transport_endpoints).unwrap();
+    let transfer = party.get_test_transfer_recipient(&receive_data.recipient_id);
+    let tte_data = party.db_transfer_transport_endpoints_data(transfer.idx);
+    assert!(tte_data.is_empty());
+
+    // transport endpoints: empty strings are invalid
+    let transport_endpoints = vec![s!("")];
     let result = blind_receive_withte(&mut party.wallet, transport_endpoints);
-    let msg = s!("must provide at least a transport endpoint");
     assert!(matches!(
         result,
-        Err(Error::InvalidTransportEndpoints { details: m }) if m == msg
+        Err(Error::InvalidTransportEndpoints { details: m })
+            if m == "transport endpoints cannot be empty strings"
     ));
 
     // transport endpoints: too many endpoints
@@ -513,21 +521,6 @@ fn fail() {
         result,
         Err(Error::InvalidTransportEndpoints { details: m }) if m == msg
     ));
-
-    // transport endpoints: no endpoints for transfer > Failed
-    let transport_endpoints = vec![format!("rpc://{PROXY_HOST}")];
-    let receive_data = blind_receive_withte(&mut party.wallet, transport_endpoints).unwrap();
-    let transfer = party.get_test_transfer_recipient(&receive_data.recipient_id);
-    let (transfer_data, _) = party.get_test_transfer_data(&transfer);
-    let tte_data = party.db_transfer_transport_endpoints_data(transfer.idx);
-    for (tte, _) in tte_data {
-        party.db_del_transfer_transport_endpoint(tte.idx);
-    }
-    assert_eq!(transfer_data.status, TransferStatus::WaitingCounterparty);
-    party.wait_for_refresh(None);
-    let transfer = party.get_test_transfer_recipient(&receive_data.recipient_id);
-    let (transfer_data, _) = party.get_test_transfer_data(&transfer);
-    assert_eq!(transfer_data.status, TransferStatus::Failed);
 
     // transport endpoints: same endpoint repeated
     let transport_endpoints = vec![

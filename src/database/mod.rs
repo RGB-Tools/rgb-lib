@@ -131,6 +131,15 @@ impl DbTransfer {
 
         (asset_transfer.clone(), batch_transfer.clone())
     }
+
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub(crate) fn uses_out_of_band_exchange(&self) -> bool {
+        self.invoice_string
+            .as_deref()
+            .and_then(|s| RgbInvoice::from_str(s).ok())
+            .map(|invoice| invoice.transports == vec![])
+            .unwrap_or(false)
+    }
 }
 
 impl DbTxo {
@@ -484,12 +493,6 @@ impl DbTxn {
                 .filter(reserved_txo::Column::Idx.is_in(idxs))
                 .exec(self.inner()),
         )?;
-        Ok(())
-    }
-
-    #[cfg(test)]
-    pub(crate) fn del_transfer_transport_endpoint(&self, idx: i32) -> Result<(), Error> {
-        block_on(transfer_transport_endpoint::Entity::delete_by_id(idx).exec(self.inner()))?;
         Ok(())
     }
 

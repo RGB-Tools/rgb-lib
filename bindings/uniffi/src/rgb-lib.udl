@@ -15,8 +15,10 @@ interface RgbLibError {
   BatchTransferNotFound(i32 idx);
   BitcoinNetworkMismatch();
   CannotAbortPendingVanillaTx();
+  CannotProvideOutOfBandAck(string details);
   CannotChangeOnline();
   CannotCombinePsbts();
+  CannotProvideOutOfBandConsignment(string details);
   CannotDeleteBatchTransfer();
   CannotEstimateFees();
   CannotFailBatchTransfer();
@@ -970,6 +972,13 @@ interface Wallet {
 
   [Throws=RgbLibError]
   OperationResult send_end(Online online, string signed_psbt);
+
+  [Throws=RgbLibError]
+  record<i32, RefreshedTransfer> provide_out_of_band_consignment(
+    Online online, string consignment_path, sequence<string> media_file_paths);
+
+  [Throws=RgbLibError]
+  OperationResult? provide_out_of_band_ack(Online online, string recipient_id);
 
   [Throws=RgbLibError]
   string send_btc(

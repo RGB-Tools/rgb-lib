@@ -278,6 +278,18 @@ fn success() {
     sync_wallets_full(&mut [&mut wlt_4]);
     check_wallets_up_to_date(&mut [&mut wlt_1, &mut wlt_2, &mut wlt_3, &mut wlt_4]);
     let rcv_data = singlesig_wlt.blind_receive();
+    // the out-of-band exchange is unsupported for multisig send
+    let out_of_band_recipient_map = HashMap::from([(
+        uda_asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::NonFungible,
+            recipient_id: rcv_data.recipient_id.clone(),
+            witness_data: None,
+            transport_endpoints: vec![],
+        }],
+    )]);
+    let err = wlt_1.send_init_res(out_of_band_recipient_map).unwrap_err();
+    assert_eq!(err, Error::UnsupportedTransportType);
     let recipient_map = HashMap::from([(
         uda_asset.asset_id.clone(),
         vec![Recipient {
@@ -1045,6 +1057,33 @@ fn fail() {
 
     // watch-only party
     let mut wlt_wo = ms_party!(&mut wlt_wo_multisig, wlt_wo_multisig_online);
+
+    // the out-of-band exchange (requested with an empty endpoint list) is unsupported for multisig
+    // receive
+    let err = wlt_1
+        .multisig
+        .blind_receive(
+            wlt_1.online,
+            None,
+            Assignment::Any,
+            default_rcv_expiration(),
+            vec![],
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap_err();
+    assert_eq!(err, Error::UnsupportedTransportType);
+    let err = wlt_1
+        .multisig
+        .witness_receive(
+            wlt_1.online,
+            None,
+            Assignment::Any,
+            default_rcv_expiration(),
+            vec![],
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap_err();
+    assert_eq!(err, Error::UnsupportedTransportType);
 
     // no cosigners supplied
     let invalid_multisig_wlt_keys = MultisigKeys::new(vec![], threshold_colored, threshold_vanilla);

@@ -402,6 +402,10 @@ pub trait WalletOnline: WalletOffline {
         Ok(tx)
     }
 
+    fn supports_out_of_band_exchange(&self) -> bool {
+        true
+    }
+
     fn get_hub_fail_status(&self, _batch_transfer_idx: i32) -> Result<bool, Error> {
         Ok(false)
     }
@@ -658,23 +662,10 @@ pub trait WalletOnline: WalletOffline {
         Ok(Psbt::from_str(&psbt_str)?)
     }
 
-    fn fail_batch_transfer_if_no_endpoints(
-        &self,
-        txn: &DbTxn,
-        batch_transfer: &DbBatchTransfer,
-        transfer_transport_endpoints_data: &[(DbTransferTransportEndpoint, DbTransportEndpoint)],
-    ) -> Result<Option<DbBatchTransfer>, Error> {
-        if transfer_transport_endpoints_data.is_empty() {
-            Ok(Some(self.fail_batch_transfer(txn, batch_transfer)?))
-        } else {
-            Ok(None)
-        }
-    }
-
     fn refuse_consignment(
         &self,
         txn: &DbTxn,
-        proxy_url: String,
+        mode: &ReceiveMode,
         recipient_id: String,
         updated_batch_transfer: &mut DbBatchTransferActMod,
     ) -> Result<Option<DbBatchTransfer>, Error> {
@@ -682,21 +673,108 @@ pub trait WalletOnline: WalletOffline {
             self.logger(),
             "Refusing invalid consignment for {recipient_id}"
         );
-        let proxy_client = ProxyClient::new(&proxy_url)?;
-        match proxy_client.post_ack(&recipient_id, false) {
-            Ok(r) => {
-                debug!(self.logger(), "Consignment NACK response: {:?}", r);
-            }
-            Err(e) if e.to_string().contains("Cannot change ACK") => {
-                warn!(self.logger(), "Found an ACK when trying NACK");
-            }
-            Err(e) => {
-                error!(self.logger(), "Failed to post NACK: {e}");
-                return Err(e);
-            }
-        };
+
+        if let ReceiveMode::Proxy { proxy_url } = mode {
+            let proxy_client = ProxyClient::new(proxy_url)?;
+            match proxy_client.post_ack(&recipient_id, false) {
+                Ok(r) => {
+                    debug!(self.logger(), "Consignment NACK response: {:?}", r);
+                }
+                Err(e) if e.to_string().contains("Cannot change ACK") => {
+                    warn!(self.logger(), "Found an ACK when trying NACK");
+                }
+                Err(e) => {
+                    error!(self.logger(), "Failed to post NACK: {e}");
+                    return Err(e);
+                }
+            };
+        }
+
         updated_batch_transfer.status = ActiveValue::Set(TransferStatus::Failed);
         Ok(Some(txn.update_batch_transfer(updated_batch_transfer)?))
+    }
+
+    fn fetch_and_save_attachments(
+        &self,
+        attachments: Vec<Attachment>,
+        mode: &ReceiveMode,
+    ) -> Result<bool, Error> {
+        let provided_map: HashMap<String, String> = match mode {
+            ReceiveMode::OutOfBand { media_file_paths } => {
+                let mut map = HashMap::new();
+                for path in media_file_paths {
+                    let bytes = fs::read(path)?;
+                    map.insert(hash_bytes_hex(&bytes), path.clone());
+                }
+                map
+            }
+            ReceiveMode::Proxy { .. } => HashMap::new(),
+        };
+
+        let mut saved_media_paths = vec![];
+        for attachment in attachments {
+            let digest = hex::encode(attachment.digest);
+            let media_path = self.media_dir().join(&digest);
+            // resolve media only if the file is not already present
+            if media_path.exists() {
+                continue;
+            }
+            let file_bytes = match mode {
+                ReceiveMode::Proxy { proxy_url } => {
+                    let proxy_client = ProxyClient::new(proxy_url)?;
+                    let media_res = proxy_client.get_media(&digest)?;
+                    #[cfg(test)]
+                    debug!(self.logger(), "Media GET response: {:?}", media_res);
+                    match media_res.result {
+                        Some(media_res) => {
+                            let file_bytes = general_purpose::STANDARD
+                                .decode(media_res)
+                                .map_err(InternalError::from)?;
+                            let actual_digest = hash_bytes_hex(&file_bytes);
+                            if digest != actual_digest {
+                                error!(
+                                    self.logger(),
+                                    "Attached file has a different hash than the one in the contract"
+                                );
+                                Self::cleanup_media_files(&saved_media_paths)?;
+                                return Ok(false);
+                            }
+                            file_bytes
+                        }
+                        None => {
+                            error!(
+                                self.logger(),
+                                "Cannot find the media file but the contract defines one"
+                            );
+                            Self::cleanup_media_files(&saved_media_paths)?;
+                            return Ok(false);
+                        }
+                    }
+                }
+                ReceiveMode::OutOfBand { .. } => match provided_map.get(&digest) {
+                    Some(path) => fs::read(path)?,
+                    None => {
+                        error!(
+                            self.logger(),
+                            "Media for digest {digest} was not provided for the out-of-band receive"
+                        );
+                        Self::cleanup_media_files(&saved_media_paths)?;
+                        return Ok(false);
+                    }
+                },
+            };
+            fs::write(&media_path, file_bytes)?;
+            saved_media_paths.push(media_path);
+        }
+
+        Ok(true)
+    }
+
+    fn cleanup_media_files(paths: &[PathBuf]) -> Result<(), Error> {
+        for path in paths {
+            fs::remove_file(path)?;
+        }
+        Ok(())
     }
 
     fn get_consignment(
@@ -731,63 +809,70 @@ pub trait WalletOnline: WalletOffline {
         vout: Option<u32>,
         known_concealed: Option<SecretSeal>,
     ) -> HashMap<Opout, Assignment> {
+        // the terminal (paying) bundle is guaranteed to be the last one in the consignment
+        match consignment.bundles.last() {
+            Some(bundle) if bundle.witness_id() == witness_id => {
+                self.assignments_for_bundle(bundle, vout, known_concealed)
+            }
+            _ => HashMap::new(),
+        }
+    }
+
+    // extract the assignments in a single bundle that pay the recipient identified by
+    // `known_concealed` (blind receives) or by the witness `vout` (witness receives)
+    fn assignments_for_bundle(
+        &self,
+        bundle: &WitnessBundle,
+        vout: Option<u32>,
+        known_concealed: Option<SecretSeal>,
+    ) -> HashMap<Opout, Assignment> {
         let mut received = HashMap::new();
-        if let Some(bundle) = consignment
-            .bundles
-            .iter()
-            .find(|ab| ab.witness_id() == witness_id)
-        {
-            for KnownTransition { transition, opid } in bundle.bundle.known_transitions.iter() {
-                for (ass_type, typed_assigns) in transition.assignments.iter() {
-                    for (no, fungible_assignment) in typed_assigns.as_fungible().iter().enumerate()
+        for KnownTransition { transition, opid } in bundle.bundle.known_transitions.iter() {
+            for (ass_type, typed_assigns) in transition.assignments.iter() {
+                for (no, fungible_assignment) in typed_assigns.as_fungible().iter().enumerate() {
+                    let opout = Opout::new(*opid, *ass_type, no as u16);
+                    if let Assign::ConfidentialSeal { seal, state, .. } = fungible_assignment
+                        && Some(*seal) == known_concealed
                     {
-                        let opout = Opout::new(*opid, *ass_type, no as u16);
-                        if let Assign::ConfidentialSeal { seal, state, .. } = fungible_assignment
-                            && Some(*seal) == known_concealed
-                        {
-                            match *ass_type {
-                                OS_ASSET => {
-                                    received.insert(opout, Assignment::Fungible(state.as_u64()));
-                                }
-                                OS_INFLATION => {
-                                    received
-                                        .insert(opout, Assignment::InflationRight(state.as_u64()));
-                                }
-                                _ => {}
+                        match *ass_type {
+                            OS_ASSET => {
+                                received.insert(opout, Assignment::Fungible(state.as_u64()));
                             }
-                        };
-                        if let Assign::Revealed { seal, state, .. } = fungible_assignment
-                            && seal.txid == TxPtr::WitnessTx
-                            && Some(seal.vout.into_u32()) == vout
-                        {
-                            match *ass_type {
-                                OS_ASSET => {
-                                    received.insert(opout, Assignment::Fungible(state.as_u64()));
-                                }
-                                OS_INFLATION => {
-                                    received
-                                        .insert(opout, Assignment::InflationRight(state.as_u64()));
-                                }
-                                _ => {}
+                            OS_INFLATION => {
+                                received.insert(opout, Assignment::InflationRight(state.as_u64()));
                             }
-                        };
-                    }
-                    for (no, structured_assignment) in
-                        typed_assigns.as_structured().iter().enumerate()
-                    {
-                        let opout = Opout::new(*opid, *ass_type, no as u16);
-                        if let Assign::ConfidentialSeal { seal, .. } = structured_assignment
-                            && Some(*seal) == known_concealed
-                        {
-                            received.insert(opout, Assignment::NonFungible);
+                            _ => {}
                         }
-                        if let Assign::Revealed { seal, .. } = structured_assignment
-                            && seal.txid == TxPtr::WitnessTx
-                            && Some(seal.vout.into_u32()) == vout
-                        {
-                            received.insert(opout, Assignment::NonFungible);
-                        };
+                    };
+                    if let Assign::Revealed { seal, state, .. } = fungible_assignment
+                        && seal.txid == TxPtr::WitnessTx
+                        && Some(seal.vout.into_u32()) == vout
+                    {
+                        match *ass_type {
+                            OS_ASSET => {
+                                received.insert(opout, Assignment::Fungible(state.as_u64()));
+                            }
+                            OS_INFLATION => {
+                                received.insert(opout, Assignment::InflationRight(state.as_u64()));
+                            }
+                            _ => {}
+                        }
+                    };
+                }
+                for (no, structured_assignment) in typed_assigns.as_structured().iter().enumerate()
+                {
+                    let opout = Opout::new(*opid, *ass_type, no as u16);
+                    if let Assign::ConfidentialSeal { seal, .. } = structured_assignment
+                        && Some(*seal) == known_concealed
+                    {
+                        received.insert(opout, Assignment::NonFungible);
                     }
+                    if let Assign::Revealed { seal, .. } = structured_assignment
+                        && seal.txid == TxPtr::WitnessTx
+                        && Some(seal.vout.into_u32()) == vout
+                    {
+                        received.insert(opout, Assignment::NonFungible);
+                    };
                 }
             }
         }
@@ -925,7 +1010,7 @@ pub trait WalletOnline: WalletOffline {
         batch_transfer: &DbBatchTransfer,
         recipient_id: String,
         updated_batch_transfer: &mut DbBatchTransferActMod,
-        proxy_url: String,
+        mode: &ReceiveMode,
         signed_tx: Option<BdkTransaction>,
     ) -> Result<Option<DbBatchTransfer>, Error> {
         debug!(self.logger(), "ACKing consignment...");
@@ -936,19 +1021,21 @@ pub trait WalletOnline: WalletOffline {
             None => return Ok(None),
         }
 
-        let proxy_client = ProxyClient::new(&proxy_url)?;
-        match proxy_client.post_ack(&recipient_id, true) {
-            Ok(r) => {
-                debug!(self.logger(), "Consignment ACK response: {:?}", r);
-            }
-            Err(e) if e.to_string().contains("Cannot change ACK") => {
-                warn!(self.logger(), "Found an NACK when trying ACK");
-            }
-            Err(e) => {
-                error!(self.logger(), "Failed to post ACK: {e}");
-                return Err(e);
-            }
-        };
+        if let ReceiveMode::Proxy { proxy_url } = mode {
+            let proxy_client = ProxyClient::new(proxy_url)?;
+            match proxy_client.post_ack(&recipient_id, true) {
+                Ok(r) => {
+                    debug!(self.logger(), "Consignment ACK response: {:?}", r);
+                }
+                Err(e) if e.to_string().contains("Cannot change ACK") => {
+                    warn!(self.logger(), "Found an NACK when trying ACK");
+                }
+                Err(e) => {
+                    error!(self.logger(), "Failed to post ACK: {e}");
+                    return Err(e);
+                }
+            };
+        }
 
         updated_batch_transfer.status = if let Some(tx) = signed_tx {
             debug!(
@@ -984,12 +1071,12 @@ pub trait WalletOnline: WalletOffline {
             .expect("transfer should have a recipient ID");
         debug!(self.logger(), "Recipient ID: {recipient_id}");
 
-        let tte_data = txn.get_transfer_transport_endpoints_data(transfer.idx)?;
-        if let Some(updated_transfer) =
-            self.fail_batch_transfer_if_no_endpoints(txn, batch_transfer, &tte_data)?
-        {
-            return Ok(Some(updated_transfer));
+        if transfer.uses_out_of_band_exchange() {
+            debug!(self.logger(), "Skipping consignment exchange out-of-band");
+            return Ok(None);
         }
+
+        let tte_data = txn.get_transfer_transport_endpoints_data(transfer.idx)?;
 
         let mut updated_batch_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
 
@@ -1059,7 +1146,7 @@ pub trait WalletOnline: WalletOffline {
                     error!(self.logger(), "Failed to decode consignment bytes: {e}");
                     return self.refuse_consignment(
                         txn,
-                        proxy_url,
+                        &ReceiveMode::Proxy { proxy_url },
                         recipient_id,
                         &mut updated_batch_transfer,
                     );
@@ -1078,17 +1165,42 @@ pub trait WalletOnline: WalletOffline {
             (proxy_url, txid, vout)
         };
 
+        let mode = ReceiveMode::Proxy { proxy_url };
+        self.validate_received_consignment(
+            txn,
+            batch_transfer,
+            &asset_transfer,
+            &transfer,
+            recipient_id,
+            &consignment_path,
+            txid,
+            vout,
+            mode,
+            &mut updated_batch_transfer,
+        )
+    }
+
+    // validate a received consignment, if valid import any unknown asset (and its media), persist
+    // the receive colorings and update the transfer status
+    fn validate_received_consignment(
+        &self,
+        txn: &DbTxn,
+        batch_transfer: &DbBatchTransfer,
+        asset_transfer: &DbAssetTransfer,
+        transfer: &DbTransfer,
+        recipient_id: String,
+        consignment_path: &Path,
+        txid: String,
+        vout: Option<u32>,
+        mode: ReceiveMode,
+        updated_batch_transfer: &mut DbBatchTransferActMod,
+    ) -> Result<Option<DbBatchTransfer>, Error> {
         let mut runtime = self.rgb_runtime()?;
-        let consignment = match RgbTransfer::load_file(&consignment_path) {
+        let consignment = match RgbTransfer::load_file(consignment_path) {
             Ok(c) => c,
             Err(e) => {
                 error!(self.logger(), "Failed to load consignment file: {e}");
-                return self.refuse_consignment(
-                    txn,
-                    proxy_url,
-                    recipient_id,
-                    &mut updated_batch_transfer,
-                );
+                return self.refuse_consignment(txn, &mode, recipient_id, updated_batch_transfer);
             }
         };
         let contract_id = consignment.contract_id();
@@ -1101,12 +1213,7 @@ pub trait WalletOnline: WalletOffline {
                 self.logger(),
                 "The wallet doesn't support the provided schema: {}", asset_schema
             );
-            return self.refuse_consignment(
-                txn,
-                proxy_url,
-                recipient_id,
-                &mut updated_batch_transfer,
-            );
+            return self.refuse_consignment(txn, &mode, recipient_id, updated_batch_transfer);
         }
 
         // check if DB transfer is connected to an asset
@@ -1117,26 +1224,16 @@ pub trait WalletOnline: WalletOffline {
                     self.logger(),
                     "Received a different asset than the expected one"
                 );
-                return self.refuse_consignment(
-                    txn,
-                    proxy_url,
-                    recipient_id,
-                    &mut updated_batch_transfer,
-                );
+                return self.refuse_consignment(txn, &mode, recipient_id, updated_batch_transfer);
             }
         }
 
-        // check if the TXID posted to the proxy is valid
+        // check if the provided TXID is valid
         let witness_id = match RgbTxid::from_str(&txid) {
             Ok(txid) => txid,
             Err(_) => {
-                error!(self.logger(), "Received an invalid TXID from the proxy");
-                return self.refuse_consignment(
-                    txn,
-                    proxy_url,
-                    recipient_id,
-                    &mut updated_batch_transfer,
-                );
+                error!(self.logger(), "Received an invalid TXID");
+                return self.refuse_consignment(txn, &mode, recipient_id, updated_batch_transfer);
             }
         };
 
@@ -1158,12 +1255,7 @@ pub trait WalletOnline: WalletOffline {
             Ok(consignment) => consignment,
             Err(ValidationError::InvalidConsignment(e)) => {
                 error!(self.logger(), "Consignment is invalid: {}", e);
-                return self.refuse_consignment(
-                    txn,
-                    proxy_url,
-                    recipient_id,
-                    &mut updated_batch_transfer,
-                );
+                return self.refuse_consignment(txn, &mode, recipient_id, updated_batch_transfer);
             }
             Err(ValidationError::ResolverError(e)) => {
                 warn!(self.logger(), "Network error during consignment validation");
@@ -1176,96 +1268,74 @@ pub trait WalletOnline: WalletOffline {
         let validity = validation_status.validity();
         debug!(self.logger(), "Consignment validity: {:?}", validity);
 
-        // find the bundle for the witness ID posted on the proxy
-        let Some(anchored_bundle) = consignment
-            .bundles
-            .iter()
-            .find(|ab| ab.witness_id() == witness_id)
-        else {
-            error!(
-                self.logger(),
-                "Cannot find the provided TXID in the consignment"
-            );
-            return self.refuse_consignment(
-                txn,
-                proxy_url,
-                recipient_id,
-                &mut updated_batch_transfer,
-            );
+        // the terminal (paying) bundle should be the last one in the consignment
+        let anchored_bundle = consignment.bundles.last();
+        let anchored_bundle = match anchored_bundle {
+            Some(ab) if ab.witness_id() == witness_id => ab,
+            _ => {
+                error!(
+                    self.logger(),
+                    "Cannot find the provided TXID in the consignment"
+                );
+                return self.refuse_consignment(txn, &mode, recipient_id, updated_batch_transfer);
+            }
         };
 
-        // check the info provided via the proxy is correct
-        if let Some(RecipientTypeFull::Witness { .. }) = transfer.recipient_type {
-            if let Some(vout) = vout {
-                if let PubWitness::Tx(tx) = &anchored_bundle.pub_witness {
-                    if let Some(output) = tx.output.get(vout as usize) {
-                        let script_pubkey =
-                            script_buf_from_recipient_id(recipient_id.clone())?.unwrap();
-                        if output.script_pubkey != script_pubkey {
-                            error!(
-                                self.logger(),
-                                "The provided vout pays an incorrect script pubkey"
-                            );
+        let known_concealed = match transfer.receive_matcher()? {
+            ReceiveMatcher::Blind(secret_seal) => Some(secret_seal),
+            ReceiveMatcher::Witness(script_pubkey) => {
+                if let Some(vout) = vout {
+                    if let PubWitness::Tx(tx) = &anchored_bundle.pub_witness {
+                        if let Some(output) = tx.output.get(vout as usize) {
+                            if output.script_pubkey != script_pubkey {
+                                error!(
+                                    self.logger(),
+                                    "The provided vout pays an incorrect script pubkey"
+                                );
+                                return self.refuse_consignment(
+                                    txn,
+                                    &mode,
+                                    recipient_id,
+                                    updated_batch_transfer,
+                                );
+                            }
+                        } else {
+                            error!(self.logger(), "Cannot find the expected outpoint");
                             return self.refuse_consignment(
                                 txn,
-                                proxy_url,
+                                &mode,
                                 recipient_id,
-                                &mut updated_batch_transfer,
+                                updated_batch_transfer,
                             );
                         }
                     } else {
-                        error!(self.logger(), "Cannot find the expected outpoint");
+                        error!(self.logger(), "Consignment is missing the witness TX");
                         return self.refuse_consignment(
                             txn,
-                            proxy_url,
+                            &mode,
                             recipient_id,
-                            &mut updated_batch_transfer,
+                            updated_batch_transfer,
                         );
                     }
                 } else {
-                    error!(self.logger(), "Consignment is missing the witness TX");
+                    error!(
+                        self.logger(),
+                        "The vout should be provided when receiving via witness"
+                    );
                     return self.refuse_consignment(
                         txn,
-                        proxy_url,
+                        &mode,
                         recipient_id,
-                        &mut updated_batch_transfer,
+                        updated_batch_transfer,
                     );
                 }
-            } else {
-                error!(
-                    self.logger(),
-                    "The vout should be provided when receiving via witness"
-                );
-                return self.refuse_consignment(
-                    txn,
-                    proxy_url,
-                    recipient_id,
-                    &mut updated_batch_transfer,
-                );
+                None
             }
-        }
-
-        let known_concealed = if let Some(RecipientTypeFull::Blind { .. }) = transfer.recipient_type
-        {
-            let beneficiary = XChainNet::<Beneficiary>::from_str(&recipient_id)
-                .expect("saved recipient ID is invalid");
-            match beneficiary.into_inner() {
-                Beneficiary::BlindedSeal(secret_seal) => Some(secret_seal),
-                _ => unreachable!("beneficiary is blinded"),
-            }
-        } else {
-            None
         };
-        let receiving =
-            self.extract_received_assignments(&consignment, witness_id, vout, known_concealed);
+        let receiving = self.assignments_for_bundle(anchored_bundle, vout, known_concealed);
         if receiving.is_empty() {
             error!(self.logger(), "Cannot find any receiving assignment");
-            return self.refuse_consignment(
-                txn,
-                proxy_url,
-                recipient_id,
-                &mut updated_batch_transfer,
-            );
+            return self.refuse_consignment(txn, &mode, recipient_id, updated_batch_transfer);
         };
 
         if asset_schema == AssetSchema::Ifa {
@@ -1296,9 +1366,9 @@ pub trait WalletOnline: WalletOffline {
                     );
                     return self.refuse_consignment(
                         txn,
-                        proxy_url,
+                        &mode,
                         recipient_id,
-                        &mut updated_batch_transfer,
+                        updated_batch_transfer,
                     );
                 } else {
                     info!(
@@ -1316,51 +1386,13 @@ pub trait WalletOnline: WalletOffline {
                 let valid_contract = valid_consignment.clone().into_valid_contract();
 
                 let attachments = self.extract_attachments(&valid_contract, asset_schema);
-                let mut saved_media_paths = vec![];
-                for attachment in attachments {
-                    let digest = hex::encode(attachment.digest);
-                    let media_path = self.media_dir().join(&digest);
-                    // download media only if file not already present
-                    if !media_path.exists() {
-                        let proxy_client = ProxyClient::new(&proxy_url)?;
-                        let media_res = proxy_client.get_media(&digest)?;
-                        #[cfg(test)]
-                        debug!(self.logger(), "Media GET response: {:?}", media_res);
-                        if let Some(media_res) = media_res.result {
-                            let file_bytes = general_purpose::STANDARD
-                                .decode(media_res)
-                                .map_err(InternalError::from)?;
-                            let actual_digest = hash_bytes_hex(&file_bytes);
-                            if digest != actual_digest {
-                                error!(
-                                    self.logger(),
-                                    "Attached file has a different hash than the one in the contract"
-                                );
-                                return self.refuse_consignment(
-                                    txn,
-                                    proxy_url,
-                                    recipient_id,
-                                    &mut updated_batch_transfer,
-                                );
-                            }
-                            fs::write(&media_path, file_bytes)?;
-                            saved_media_paths.push(media_path);
-                        } else {
-                            error!(
-                                self.logger(),
-                                "Cannot find the media file but the contract defines one"
-                            );
-                            for path in saved_media_paths {
-                                fs::remove_file(path)?;
-                            }
-                            return self.refuse_consignment(
-                                txn,
-                                proxy_url,
-                                recipient_id,
-                                &mut updated_batch_transfer,
-                            );
-                        }
-                    }
+                if !self.fetch_and_save_attachments(attachments, &mode)? {
+                    return self.refuse_consignment(
+                        txn,
+                        &mode,
+                        recipient_id,
+                        updated_batch_transfer,
+                    );
                 }
 
                 runtime
@@ -1384,7 +1416,7 @@ pub trait WalletOnline: WalletOffline {
         }
 
         // save validated consignment
-        let valid_consignment_path = self.get_receive_valid_consignment_path(&consignment_path);
+        let valid_consignment_path = self.get_receive_valid_consignment_path(consignment_path);
         valid_consignment.save_file(&valid_consignment_path)?;
 
         debug!(
@@ -1437,9 +1469,7 @@ pub trait WalletOnline: WalletOffline {
                     "Unsafe history detected in consignment: {unsafe_txids:?}"
                 );
                 updated_batch_transfer.status = ActiveValue::Set(TransferStatus::WaitingSafeHeight);
-                return Ok(Some(
-                    txn.update_batch_transfer(&mut updated_batch_transfer)?,
-                ));
+                return Ok(Some(txn.update_batch_transfer(updated_batch_transfer)?));
             }
         }
 
@@ -1449,10 +1479,148 @@ pub trait WalletOnline: WalletOffline {
             txn,
             batch_transfer,
             recipient_id,
-            &mut updated_batch_transfer,
-            proxy_url,
+            updated_batch_transfer,
+            &mode,
             signed_tx,
         )
+    }
+
+    fn provide_out_of_band_consignment_impl(
+        &self,
+        txn: &DbTxn,
+        consignment_path_in: &str,
+        media_file_paths: Vec<String>,
+    ) -> Result<RefreshResult, Error> {
+        let consignment =
+            RgbTransfer::load_file(consignment_path_in).map_err(|_| Error::InvalidFilePath {
+                file_path: consignment_path_in.to_string(),
+            })?;
+
+        let db_data = txn.get_db_data(false)?;
+
+        let asset_id = consignment.contract_id().to_string();
+
+        let Some(ab) = consignment.bundles.last() else {
+            return Err(Error::CannotProvideOutOfBandConsignment {
+                details: s!("no pending receive transfer matches the provided consignment"),
+            });
+        };
+
+        let mut matches = vec![];
+        for batch_transfer in &db_data.batch_transfers {
+            // skip non-incoming transfers and transfers that are not waiting for a counterparty
+            if !batch_transfer.incoming
+                || batch_transfer.status != TransferStatus::WaitingCounterparty
+            {
+                continue;
+            }
+            let (asset_transfer, transfer) = batch_transfer
+                .get_incoming_transfer(&db_data.asset_transfers, &db_data.transfers)?;
+            // skip transfers bound to a different asset
+            if asset_transfer
+                .asset_id
+                .as_ref()
+                .is_some_and(|aid| aid != &asset_id)
+            {
+                continue;
+            }
+            // skip transfers that are not set up for out-of-band exchange
+            if !transfer.uses_out_of_band_exchange() {
+                continue;
+            }
+
+            // check if the provided consignment matches the transfer
+            let matched = match transfer.receive_matcher()? {
+                ReceiveMatcher::Blind(secret_seal) => {
+                    if self
+                        .assignments_for_bundle(ab, None, Some(secret_seal))
+                        .is_empty()
+                    {
+                        None
+                    } else {
+                        Some((ab.witness_id().to_string(), None))
+                    }
+                }
+                ReceiveMatcher::Witness(script_pubkey) => {
+                    let mut found = None;
+                    if let PubWitness::Tx(tx) = &ab.pub_witness {
+                        for (idx, output) in tx.output.iter().enumerate() {
+                            if output.script_pubkey != script_pubkey {
+                                continue;
+                            }
+                            let vout = idx as u32;
+                            if !self.assignments_for_bundle(ab, Some(vout), None).is_empty() {
+                                found = Some((ab.witness_id().to_string(), Some(vout)));
+                                break;
+                            }
+                        }
+                    }
+                    found
+                }
+            };
+            if let Some((txid, vout)) = matched {
+                matches.push((
+                    batch_transfer.clone(),
+                    asset_transfer.clone(),
+                    transfer.clone(),
+                    txid,
+                    vout,
+                ));
+            }
+        }
+        if matches.is_empty() {
+            return Err(Error::CannotProvideOutOfBandConsignment {
+                details: s!("no pending receive transfer matches the provided consignment"),
+            });
+        }
+
+        // a single consignment (for one asset) can pay more than one of this wallet's pending
+        // invoices (e.g. a sender batched a send to two of them), so process every matched receive
+        let mut results: RefreshResult = HashMap::new();
+        for (batch_transfer, asset_transfer, transfer, txid, vout) in matches {
+            let recipient_id = transfer
+                .recipient_id
+                .clone()
+                .expect("matched transfer should have a recipient ID");
+            debug!(
+                self.logger(),
+                "Providing out-of-band consignment for recipient ID: {recipient_id}"
+            );
+
+            // copy the provided consignment to the canonical receive path, so later refresh stages
+            // (safe height, confirmations) find it where they expect it
+            let consignment_path = self.get_receive_consignment_path(&recipient_id);
+            let transfer_dir = consignment_path.parent().unwrap();
+            fs::create_dir_all(transfer_dir)?;
+            fs::copy(consignment_path_in, &consignment_path)?;
+
+            let mut updated_batch_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
+            let mode = ReceiveMode::OutOfBand {
+                media_file_paths: media_file_paths.clone(),
+            };
+            let updated = self.validate_received_consignment(
+                txn,
+                &batch_transfer,
+                &asset_transfer,
+                &transfer,
+                recipient_id,
+                &consignment_path,
+                txid,
+                vout,
+                mode,
+                &mut updated_batch_transfer,
+            )?;
+
+            results.insert(
+                batch_transfer.idx,
+                RefreshedTransfer {
+                    updated_status: updated.map(|t| t.status),
+                    failure: None,
+                },
+            );
+        }
+
+        Ok(results)
     }
 
     fn wait_safe_height(
@@ -1493,26 +1661,34 @@ pub trait WalletOnline: WalletOffline {
         }
 
         let witness_id = RgbTxid::from_str(txid).expect("batch transfer txid should be valid");
-        // the bundle sending to us is usually the last one, so iterate in reverse
+        // the terminal (paying) bundle should be the last one in the consignment
         let signed_tx = valid_consignment
             .bundles
-            .iter()
-            .rev()
-            .find(|ab| ab.witness_id() == witness_id)
+            .last()
+            .filter(|ab| ab.witness_id() == witness_id)
             .and_then(|ab| Self::donation_signed_tx(&ab.pub_witness));
 
         let mut updated_batch_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
         let tte_data = txn.get_transfer_transport_endpoints_data(transfer.idx)?;
-        let (_, transport_endpoint) = tte_data
-            .into_iter()
-            .find(|(tte, _)| tte.used)
-            .expect("there should be 1 used TTE");
+        let mode = if tte_data.is_empty() {
+            ReceiveMode::OutOfBand {
+                media_file_paths: vec![],
+            }
+        } else {
+            let (_, te) = tte_data
+                .iter()
+                .find(|(tte, _)| tte.used)
+                .expect("there should be 1 used TTE");
+            ReceiveMode::Proxy {
+                proxy_url: te.endpoint.clone(),
+            }
+        };
         self.ack_consignment(
             txn,
             batch_transfer,
             recipient_id,
             &mut updated_batch_transfer,
-            transport_endpoint.endpoint,
+            &mode,
             signed_tx,
         )
     }
@@ -1533,10 +1709,10 @@ pub trait WalletOnline: WalletOffline {
                     continue;
                 }
                 let tte_data = txn.get_transfer_transport_endpoints_data(transfer.idx)?;
-                if let Some(updated_transfer) =
-                    self.fail_batch_transfer_if_no_endpoints(txn, batch_transfer, &tte_data)?
-                {
-                    return Ok(Some(updated_transfer));
+                // out-of-band sends have no transport endpoints: their ACK is recorded
+                // via provide_out_of_band_ack, not by polling a proxy, so skip them here
+                if tte_data.is_empty() {
+                    continue;
                 }
                 let (_, transport_endpoint) = tte_data
                     .clone()
@@ -1565,16 +1741,21 @@ pub trait WalletOnline: WalletOffline {
             }
         }
 
-        let mut updated_batch_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
         let mut batch_transfer_transfers: Vec<DbTransfer> = vec![];
         batch_transfer_data
             .asset_transfers_data
             .iter()
             .for_each(|atd| batch_transfer_transfers.extend(atd.transfers.clone()));
-        if batch_transfer_transfers
-            .iter()
-            .any(|t| t.ack == Some(false))
-        {
+        self.try_complete_batch(txn, batch_transfer, &batch_transfer_transfers)
+    }
+
+    fn try_complete_batch(
+        &mut self,
+        txn: &DbTxn,
+        batch_transfer: &DbBatchTransfer,
+        transfers: &[DbTransfer],
+    ) -> Result<Option<DbBatchTransfer>, Error> {
+        if transfers.iter().any(|t| t.ack == Some(false)) {
             return Ok(Some(
                 self.fail_batch_transfer(txn, batch_transfer)
                     .map_err(|e| match e {
@@ -1584,42 +1765,150 @@ pub trait WalletOnline: WalletOffline {
                         other => other,
                     })?,
             ));
-        } else if batch_transfer_transfers.iter().all(|t| t.ack == Some(true)) {
-            // don't broadcast a transfer that has expired: past its expiration the recipient is
-            // allowed to fail it, so broadcasting now could complete a transfer the recipient has
-            // already given up on
-            let now = now().unix_timestamp();
-            if batch_transfer.expiration.unwrap_or(now) < now {
-                debug!(
-                    self.logger(),
-                    "Transfer expired before the ACK was seen, failing it instead of broadcasting"
-                );
-                return Ok(Some(self.fail_batch_transfer(txn, batch_transfer)?));
-            }
-            match self.set_hub_accept_status(batch_transfer.idx)? {
-                Some(true) => {}
-                Some(false) => return Ok(Some(self.fail_batch_transfer(txn, batch_transfer)?)),
-                None => return Ok(None),
-            }
-            let txid = batch_transfer
-                .txid
-                .as_ref()
-                .expect("batch transfer should have a TXID");
-            let transfer_dir = self.get_transfers_dir().join(txid);
-            let signed_psbt = self.get_signed_psbt(&transfer_dir)?;
-            let mut runtime = self.rgb_runtime()?;
-            let fascia_path = transfer_dir.join(FASCIA_FILE);
-            let fascia_str = fs::read_to_string(fascia_path)?;
-            let fascia: Fascia = serde_json::from_str(&fascia_str).map_err(InternalError::from)?;
-            self.broadcast_and_update_rgb(txn, &mut runtime, &signed_psbt, fascia)?;
-            updated_batch_transfer.status = ActiveValue::Set(TransferStatus::WaitingConfirmations);
-        } else {
+        }
+        if !transfers.iter().all(|t| t.ack == Some(true)) {
             return Ok(None);
         }
+
+        // every recipient has ACKed: broadcast the transaction if transfer hasn't expired
+
+        // don't broadcast a transfer that has expired: past its expiration the recipient is
+        // allowed to fail it, so broadcasting now could complete a transfer the recipient has
+        // already given up on
+        let now = now().unix_timestamp();
+        if batch_transfer.expiration.unwrap_or(now) < now {
+            debug!(
+                self.logger(),
+                "Transfer expired before broadcast, failing it instead of broadcasting"
+            );
+            return Ok(Some(self.fail_batch_transfer(txn, batch_transfer)?));
+        }
+        match self.set_hub_accept_status(batch_transfer.idx)? {
+            Some(true) => {}
+            Some(false) => return Ok(Some(self.fail_batch_transfer(txn, batch_transfer)?)),
+            None => return Ok(None),
+        }
+        let txid = batch_transfer
+            .txid
+            .as_ref()
+            .expect("batch transfer should have a TXID");
+        let transfer_dir = self.get_transfers_dir().join(txid);
+        let signed_psbt = self.get_signed_psbt(&transfer_dir)?;
+        let mut runtime = self.rgb_runtime()?;
+        let fascia_path = transfer_dir.join(FASCIA_FILE);
+        let fascia_str = fs::read_to_string(fascia_path)?;
+        let fascia: Fascia = serde_json::from_str(&fascia_str).map_err(InternalError::from)?;
+        self.broadcast_and_update_rgb(txn, &mut runtime, &signed_psbt, fascia)?;
+        let mut updated_batch_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
+        updated_batch_transfer.status = ActiveValue::Set(TransferStatus::WaitingConfirmations);
 
         Ok(Some(
             txn.update_batch_transfer(&mut updated_batch_transfer)?,
         ))
+    }
+
+    fn provide_out_of_band_ack_impl(
+        &mut self,
+        txn: &DbTxn,
+        recipient_id: String,
+    ) -> Result<Option<OperationResult>, Error> {
+        let db_data = txn.get_db_data(false)?;
+
+        // recipient IDs are unique per transfer, so this identifies a single recipient transfer
+        let transfer = db_data
+            .transfers
+            .iter()
+            .find(|t| t.recipient_id.as_deref() == Some(recipient_id.as_str()))
+            .cloned()
+            .ok_or(Error::CannotProvideOutOfBandAck {
+                details: s!("no transfer found for the provided recipient ID"),
+            })?;
+        let asset_transfer = db_data
+            .asset_transfers
+            .iter()
+            .find(|at| at.idx == transfer.asset_transfer_idx)
+            .cloned()
+            .expect("transfer should have an asset transfer");
+        let batch_transfer = db_data
+            .batch_transfers
+            .iter()
+            .find(|bt| bt.idx == asset_transfer.batch_transfer_idx)
+            .cloned()
+            .expect("asset transfer should have a batch transfer");
+
+        // check if the transfer can receive an out-of-band ACK
+        if batch_transfer.incoming {
+            return Err(Error::CannotProvideOutOfBandAck {
+                details: s!("only outgoing transfers can be ACKed"),
+            });
+        }
+        if batch_transfer.status != TransferStatus::WaitingCounterparty {
+            return Err(Error::CannotProvideOutOfBandAck {
+                details: s!("only WaitingCounterparty transfers can be ACKed"),
+            });
+        }
+        let tte_data = txn.get_transfer_transport_endpoints_data(transfer.idx)?;
+        if !tte_data.is_empty() {
+            return Err(Error::CannotProvideOutOfBandAck {
+                details: s!(
+                    "recipient uses an automated transport; use refresh() to complete it instead"
+                ),
+            });
+        }
+
+        // record the out-of-band ACK (if not there already)
+        if transfer.ack != Some(true) {
+            let mut updated_transfer: DbTransferActMod = transfer.clone().into();
+            updated_transfer.ack = ActiveValue::Set(Some(true));
+            txn.update_transfer(&mut updated_transfer)?;
+        }
+
+        // gather the batch's transfers, reflecting the ACK just recorded, and try to complete the
+        // batch (broadcasting only once every recipient, out-of-band or automated transport, has
+        // ACKed)
+        let batch_transfer_data =
+            batch_transfer.get_transfers(&db_data.asset_transfers, &db_data.transfers)?;
+        let mut transfers: Vec<DbTransfer> = vec![];
+        batch_transfer_data
+            .asset_transfers_data
+            .iter()
+            .for_each(|atd| transfers.extend(atd.transfers.clone()));
+        // reflect the ACK in-memory, since `db_data` was loaded before the ACK was written to the
+        // DB and `get_transfers` thus returns stale copies
+        for t in transfers.iter_mut() {
+            if t.idx == transfer.idx {
+                t.ack = Some(true);
+            }
+        }
+
+        let Some(updated) = self.try_complete_batch(txn, &batch_transfer, &transfers)? else {
+            // other recipients still need to ACK: leave the batch WaitingCounterparty
+            return Ok(None);
+        };
+        if updated.status != TransferStatus::WaitingConfirmations {
+            // the batch was failed instead of broadcast (e.g. it expired)
+            return Err(Error::CannotProvideOutOfBandAck {
+                details: s!("transfer could not be completed"),
+            });
+        }
+
+        let txid = updated
+            .txid
+            .clone()
+            .expect("broadcast batch transfer should have a TXID");
+
+        // recover the entropy used at send time for the operation result
+        let transfer_dir = self.get_transfers_dir().join(&txid);
+        let info_file = transfer_dir.join(TRANSFER_DATA_FILE);
+        let serialized_info = fs::read_to_string(info_file)?;
+        let info_contents: InfoBatchTransfer =
+            serde_json::from_str(&serialized_info).map_err(InternalError::from)?;
+
+        Ok(Some(OperationResult {
+            txid,
+            batch_transfer_idx: updated.idx,
+            entropy: info_contents.entropy,
+        }))
     }
 
     fn tx_height(&self, txid: String) -> Result<Option<u32>, Error> {
@@ -2563,6 +2852,13 @@ pub trait WalletOnline: WalletOffline {
         let consignment_path = self.get_send_consignment_path_impl(&asset_transfer_dir);
         for recipient in recipients {
             let recipient_id = &recipient.recipient_id;
+            if recipient.transport_endpoints.is_empty() {
+                debug!(
+                    self.logger(),
+                    "No transport endpoints (out-of-band exchange), skipping post for recipient ID: {recipient_id}"
+                );
+                continue;
+            }
             let mut found_valid = false;
             for transport_endpoint in recipient.transport_endpoints.iter_mut() {
                 if transport_endpoint.transport_type != TransportType::JsonRpc
@@ -3140,7 +3436,10 @@ pub trait WalletOnline: WalletOffline {
 
             let mut original_assignments_needed = AssignmentsCollection::default();
             for recipient in recipients.clone() {
-                self.check_transport_endpoints(&recipient.transport_endpoints)?;
+                let out_of_band = recipient.transport_endpoints.is_empty();
+                if !out_of_band {
+                    self.check_transport_endpoints(&recipient.transport_endpoints)?;
+                }
                 match (&recipient.assignment, schema) {
                     (
                         Assignment::Fungible(amt),
@@ -3162,19 +3461,28 @@ pub trait WalletOnline: WalletOffline {
                 }
                 let mut transport_endpoints: Vec<LocalTransportEndpoint> = vec![];
                 let mut found_valid = false;
-                for endpoint_str in &recipient.transport_endpoints {
-                    let transport_endpoint = TransportEndpoint::new(endpoint_str.clone())?;
-                    let mut local_transport_endpoint = LocalTransportEndpoint {
-                        transport_type: transport_endpoint.transport_type,
-                        endpoint: transport_endpoint.endpoint.clone(),
-                        used: false,
-                        usable: false,
-                    };
-                    if check_proxy(&transport_endpoint.endpoint).is_ok() {
-                        local_transport_endpoint.usable = true;
-                        found_valid = true;
+                if out_of_band {
+                    if !self.supports_out_of_band_exchange() {
+                        return Err(Error::UnsupportedTransportType);
                     }
-                    transport_endpoints.push(local_transport_endpoint);
+                    // out-of-band exchange: no transport endpoint is stored (its absence marks
+                    // the transfer as out-of-band)
+                    found_valid = true;
+                } else {
+                    for endpoint_str in &recipient.transport_endpoints {
+                        let transport_endpoint = TransportEndpoint::new(endpoint_str.clone())?;
+                        let mut local_transport_endpoint = LocalTransportEndpoint {
+                            transport_type: transport_endpoint.transport_type,
+                            endpoint: transport_endpoint.endpoint.clone(),
+                            used: false,
+                            usable: false,
+                        };
+                        if check_proxy(&transport_endpoint.endpoint).is_ok() {
+                            local_transport_endpoint.usable = true;
+                            found_valid = true;
+                        }
+                        transport_endpoints.push(local_transport_endpoint);
+                    }
                 }
 
                 if !found_valid {

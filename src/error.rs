@@ -34,9 +34,23 @@ pub enum Error {
     #[error("Cannot change online object")]
     CannotChangeOnline,
 
+    /// An out-of-band ACK cannot be provided for this transfer
+    #[error("Cannot provide out-of-band ACK: {details}")]
+    CannotProvideOutOfBandAck {
+        /// Error details
+        details: String,
+    },
+
     /// The given PSBTs cannot be combined
     #[error("The given PSBTs cannot be combined")]
     CannotCombinePsbts,
+
+    /// An out-of-band consignment cannot be provided for this transfer
+    #[error("Cannot provide out-of-band consignment: {details}")]
+    CannotProvideOutOfBandConsignment {
+        /// Error details
+        details: String,
+    },
 
     /// Requested pending vanilla TX cannot be aborted
     #[error("Pending vanilla TX cannot be aborted")]

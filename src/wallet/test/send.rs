@@ -2662,8 +2662,8 @@ fn fail() {
     };
     assert_matches!(result, Err(Error::InsufficientAssignments { asset_id: t, available: a }) if t == asset.asset_id && a == collection);
 
-    // transport endpoints: not enough endpoints
-    let transport_endpoints = vec![];
+    // transport endpoints: empty strings are invalid
+    let transport_endpoints = vec![s!("")];
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
         vec![Recipient {
@@ -2674,7 +2674,7 @@ fn fail() {
         }],
     )]);
     let result = party.send_begin_result(&recipient_map);
-    let msg = s!("must provide at least a transport endpoint");
+    let msg = s!("transport endpoints cannot be empty strings");
     assert!(matches!(
         result,
         Err(Error::InvalidTransportEndpoints { details: m }) if m == msg
@@ -7962,4 +7962,605 @@ fn begin_end() {
     party.wallet.send_end(party.online, signed_psbt).unwrap();
     let bak_info_after = party.db_backup_info();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn out_of_band_success() {
+    initialize();
+
+    let amount: u64 = 66;
+
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+
+    let asset = party.issue_asset_nia(None);
+
+    // receiver creates an invoice with no transport endpoints (out-of-band exchange)
+    let receive_data = rcv_party
+        .wallet
+        .blind_receive(
+            None,
+            Assignment::Any,
+            default_rcv_expiration(),
+            vec![],
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+    let rcv_transfer = rcv_party.get_test_transfer_recipient(&receive_data.recipient_id);
+    // the out-of-band exchange stores no transport endpoint at all
+    let tte_data = rcv_party.db_transfer_transport_endpoints_data(rcv_transfer.idx);
+    assert!(tte_data.is_empty());
+
+    // sender sends using the out-of-band exchange (no transport endpoints from the invoice)
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(amount),
+            recipient_id: receive_data.recipient_id.clone(),
+            witness_data: None,
+            transport_endpoints: vec![],
+        }],
+    )]);
+    let operation_result = party.send(recipient_map, FEE_RATE, None);
+    let txid = operation_result.txid;
+    assert!(!txid.is_empty());
+
+    // the sender's out-of-band transfer stores no transport endpoint either
+    let (send_transfer, _, _) = party.get_test_transfer_sender(&txid);
+    let send_tte_data = party.db_transfer_transport_endpoints_data(send_transfer.idx);
+    assert!(send_tte_data.is_empty());
+
+    // the consignment is delivered out-of-band: locate the file the sender wrote
+    let consignment_path = party
+        .wallet
+        .get_send_consignment_path(&asset.asset_id, &txid);
+    let consignment_path = consignment_path.to_string_lossy().to_string();
+
+    // the receiver validates the out-of-band consignment: with no signed tx, it moves to
+    // WaitingBroadcast and leaves the ACK to be communicated out-of-band
+    let refreshed = rcv_party
+        .wallet
+        .provide_out_of_band_consignment(rcv_party.online, consignment_path, vec![])
+        .unwrap();
+    assert_eq!(refreshed.len(), 1);
+    assert_eq!(
+        refreshed.into_values().next().unwrap().updated_status,
+        Some(TransferStatus::WaitingBroadcast)
+    );
+    let rcv_transfer = rcv_party.get_test_transfer_recipient(&receive_data.recipient_id);
+    let (rcv_transfer_data, rcv_asset_transfer) = rcv_party.get_test_transfer_data(&rcv_transfer);
+    assert_eq!(rcv_transfer_data.status, TransferStatus::WaitingBroadcast);
+    assert_eq!(rcv_asset_transfer.asset_id, Some(asset.asset_id.clone()));
+
+    // the sender, having received the ACK out-of-band, records it: as the only recipient, this
+    // completes the batch and broadcasts the transfer
+    let res = party
+        .wallet
+        .provide_out_of_band_ack(party.online, receive_data.recipient_id.clone())
+        .unwrap()
+        .expect("recording the only recipient's ACK should complete and broadcast the batch");
+    assert_eq!(res.txid, txid);
+    let (send_transfer, _, _) = party.get_test_transfer_sender(&txid);
+    assert_eq!(send_transfer.ack, Some(true));
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::WaitingConfirmations));
+
+    // mine and refresh both sides to settle
+    mine(false);
+    rcv_party.refresh_all();
+    party.refresh_all();
+    assert!(
+        rcv_party.check_test_transfer_status_recipient(
+            &receive_data.recipient_id,
+            TransferStatus::Settled
+        )
+    );
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+
+    // the receiver got the asset
+    let rcv_balance = rcv_party.get_asset_balance(&asset.asset_id);
+    assert_eq!(rcv_balance.settled, amount);
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn out_of_band_fail() {
+    initialize();
+
+    let amount: u64 = 66;
+
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+
+    let asset = party.issue_asset_nia(None);
+
+    // send rejects empty-string transport endpoints
+    let receive_data = rcv_party
+        .wallet
+        .blind_receive(
+            None,
+            Assignment::Any,
+            default_rcv_expiration(),
+            vec![],
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(amount),
+            recipient_id: receive_data.recipient_id.clone(),
+            witness_data: None,
+            transport_endpoints: vec![s!("")],
+        }],
+    )]);
+    let result = party.send_result(&recipient_map);
+    assert!(matches!(
+        result,
+        Err(Error::InvalidTransportEndpoints { details: m })
+            if m == "transport endpoints cannot be empty strings"
+    ));
+
+    // provide_out_of_band_ack rejects a JSON-RPC (automated) transport
+    let receive_data = rcv_party.blind_receive();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(amount),
+            recipient_id: receive_data.recipient_id.clone(),
+            witness_data: None,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let operation_result = party.send(recipient_map, FEE_RATE, None);
+    let result = party
+        .wallet
+        .provide_out_of_band_ack(party.online, receive_data.recipient_id.clone());
+    assert!(matches!(
+        result,
+        Err(Error::CannotProvideOutOfBandAck { details: _ })
+    ));
+
+    // provide_out_of_band_ack rejects an unknown recipient ID
+    let result = party
+        .wallet
+        .provide_out_of_band_ack(party.online, s!("unknown_recipient_id"));
+    assert!(matches!(
+        result,
+        Err(Error::CannotProvideOutOfBandAck { details: _ })
+    ));
+
+    // provide_out_of_band_ack rejects an incoming transfer (the recipient side)
+    let result = rcv_party
+        .wallet
+        .provide_out_of_band_ack(rcv_party.online, receive_data.recipient_id.clone());
+    assert!(matches!(
+        result,
+        Err(Error::CannotProvideOutOfBandAck { details: _ })
+    ));
+
+    // provide_out_of_band_consignment with a consignment matching no pending transfer
+    let consignment_path = party
+        .wallet
+        .get_send_consignment_path(&asset.asset_id, &operation_result.txid)
+        .to_string_lossy()
+        .to_string();
+    let result = party.wallet.provide_out_of_band_consignment(
+        party.online,
+        consignment_path.clone(),
+        vec![],
+    );
+    assert!(matches!(
+        result,
+        Err(Error::CannotProvideOutOfBandConsignment { details: _ })
+    ));
+
+    // provide_out_of_band_consignment with a non-existing consignment file
+    let result = party.wallet.provide_out_of_band_consignment(
+        party.online,
+        s!("/nonexistent/consignment.rgbc"),
+        vec![],
+    );
+    assert!(matches!(
+        result,
+        Err(Error::InvalidFilePath { file_path: _ })
+    ));
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn out_of_band_media() {
+    initialize();
+
+    let amount: u64 = 66;
+
+    // build an out-of-band recipient map for the given asset/recipient
+    fn out_of_band_recipient_map(
+        asset_id: &str,
+        recipient_id: &str,
+        amount: u64,
+    ) -> HashMap<String, Vec<Recipient>> {
+        HashMap::from([(
+            asset_id.to_string(),
+            vec![Recipient {
+                assignment: Assignment::Fungible(amount),
+                recipient_id: recipient_id.to_string(),
+                witness_data: None,
+                transport_endpoints: vec![],
+            }],
+        )])
+    }
+
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+    let asset_a = party.issue_asset_cfa(Some(&[AMOUNT]), Some(FILE_STR.to_string()));
+    let asset_b = party.issue_asset_cfa(Some(&[AMOUNT]), Some(FILE_STR.to_string()));
+
+    // three out-of-band receives, all on the same wallet
+    let receive_data_1 = rcv_party
+        .wallet
+        .blind_receive(
+            None,
+            Assignment::Any,
+            default_rcv_expiration(),
+            vec![],
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+    let receive_data_2 = rcv_party
+        .wallet
+        .blind_receive(
+            None,
+            Assignment::Any,
+            default_rcv_expiration(),
+            vec![],
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+    let receive_data_3 = rcv_party
+        .wallet
+        .blind_receive(
+            None,
+            Assignment::Any,
+            default_rcv_expiration(),
+            vec![],
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+
+    // three separate sends (one per receiver)
+    let (consignment_path_1, batch_transfer_idx_1) = {
+        let recipient_map =
+            out_of_band_recipient_map(&asset_a.asset_id, &receive_data_1.recipient_id, amount);
+        let op_result = party.send(recipient_map, FEE_RATE, None);
+        (
+            party
+                .wallet
+                .get_send_consignment_path(&asset_a.asset_id, &op_result.txid)
+                .to_string_lossy()
+                .to_string(),
+            op_result.batch_transfer_idx,
+        )
+    };
+    party.fail_transfers_single(batch_transfer_idx_1);
+    party.show_unspent_colorings("party after send 1");
+    let (consignment_path_2, batch_transfer_idx_2) = {
+        let recipient_map =
+            out_of_band_recipient_map(&asset_a.asset_id, &receive_data_2.recipient_id, amount);
+        let op_result = party.send(recipient_map, FEE_RATE, None);
+        (
+            party
+                .wallet
+                .get_send_consignment_path(&asset_a.asset_id, &op_result.txid)
+                .to_string_lossy()
+                .to_string(),
+            op_result.batch_transfer_idx,
+        )
+    };
+    party.fail_transfers_single(batch_transfer_idx_2);
+    party.show_unspent_colorings("party after send 2");
+    let consignment_path_3 = {
+        let recipient_map =
+            out_of_band_recipient_map(&asset_b.asset_id, &receive_data_3.recipient_id, amount);
+        let op_result = party.send(recipient_map, FEE_RATE, None);
+        party
+            .wallet
+            .get_send_consignment_path(&asset_b.asset_id, &op_result.txid)
+            .to_string_lossy()
+            .to_string()
+    };
+
+    // A) failure: unknown asset, no media provided
+    let refreshed_1 = rcv_party
+        .wallet
+        .provide_out_of_band_consignment(rcv_party.online, consignment_path_1, vec![])
+        .unwrap();
+    assert_eq!(refreshed_1.len(), 1);
+    assert_eq!(
+        refreshed_1.into_values().next().unwrap().updated_status,
+        Some(TransferStatus::Failed)
+    );
+    let cfa_assets = rcv_party.list_assets(&[]).cfa.unwrap();
+    assert!(cfa_assets.is_empty());
+
+    // B) success: media provided out-of-band, asset imported, media saved to disk
+    let refreshed_2 = rcv_party
+        .wallet
+        .provide_out_of_band_consignment(
+            rcv_party.online,
+            consignment_path_2,
+            vec![FILE_STR.to_string()],
+        )
+        .unwrap();
+    assert_eq!(refreshed_2.len(), 1);
+    assert_eq!(
+        refreshed_2.into_values().next().unwrap().updated_status,
+        Some(TransferStatus::WaitingBroadcast)
+    );
+    let cfa_assets = rcv_party.list_assets(&[]).cfa.unwrap();
+    assert_eq!(cfa_assets.len(), 1);
+    let media = cfa_assets[0].media.clone().unwrap();
+    let dst_bytes = std::fs::read(std::path::PathBuf::from(&media.file_path)).unwrap();
+    let src_bytes = std::fs::read(std::path::PathBuf::from(FILE_STR)).unwrap();
+    assert_eq!(dst_bytes, src_bytes);
+
+    // C) success: different asset but same media (already on disk), no media provided out-of-band
+    let refreshed_3 = rcv_party
+        .wallet
+        .provide_out_of_band_consignment(rcv_party.online, consignment_path_3, vec![])
+        .unwrap();
+    assert_eq!(refreshed_3.len(), 1);
+    assert_eq!(
+        refreshed_3.into_values().next().unwrap().updated_status,
+        Some(TransferStatus::WaitingBroadcast)
+    );
+    let cfa_assets = rcv_party.list_assets(&[]).cfa.unwrap();
+    assert_eq!(cfa_assets.len(), 2);
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn out_of_band_mixed_batch() {
+    initialize();
+
+    let amount_proxy: u64 = 66;
+    let amount_out_of_band: u64 = 77;
+
+    let mut party = get_funded_party!();
+    let mut rcv_proxy = get_funded_party!();
+    let mut rcv_out_of_band = get_funded_party!();
+
+    let asset = party.issue_asset_nia(None);
+
+    // one recipient receives via the JSON-RPC proxy, the other via out-of-band exchange
+    let receive_proxy = rcv_proxy.blind_receive();
+    let receive_out_of_band = rcv_out_of_band
+        .wallet
+        .blind_receive(
+            None,
+            Assignment::Any,
+            default_rcv_expiration(),
+            vec![],
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+
+    // a single batch pays both recipients
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![
+            Recipient {
+                assignment: Assignment::Fungible(amount_proxy),
+                recipient_id: receive_proxy.recipient_id.clone(),
+                witness_data: None,
+                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+            },
+            Recipient {
+                assignment: Assignment::Fungible(amount_out_of_band),
+                recipient_id: receive_out_of_band.recipient_id.clone(),
+                witness_data: None,
+                transport_endpoints: vec![],
+            },
+        ],
+    )]);
+    let operation_result = party.send(recipient_map, FEE_RATE, None);
+    let txid = operation_result.txid;
+    assert!(!txid.is_empty());
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::WaitingCounterparty));
+
+    // the out-of-band recipient validates its consignment (delivered out-of-band)
+    let consignment_path = party
+        .wallet
+        .get_send_consignment_path(&asset.asset_id, &txid)
+        .to_string_lossy()
+        .to_string();
+    let refreshed = rcv_out_of_band
+        .wallet
+        .provide_out_of_band_consignment(rcv_out_of_band.online, consignment_path, vec![])
+        .unwrap();
+    assert_eq!(refreshed.len(), 1);
+    assert_eq!(
+        refreshed.into_values().next().unwrap().updated_status,
+        Some(TransferStatus::WaitingBroadcast)
+    );
+
+    // recording the out-of-band recipient's ACK is not enough on its own: the proxy
+    // recipient hasn't ACKed yet, so the batch stays WaitingCounterparty and nothing is broadcast
+    let res = party
+        .wallet
+        .provide_out_of_band_ack(party.online, receive_out_of_band.recipient_id.clone())
+        .unwrap();
+    assert!(res.is_none());
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::WaitingCounterparty));
+
+    // the proxy recipient validates its consignment and posts its ACK to the proxy
+    assert!(rcv_proxy.refresh_all());
+
+    // the sender now polls the proxy ACK: with the out-of-band ACK already recorded, every recipient has
+    // ACKed, so this completes the batch and broadcasts the transfer
+    assert!(party.refresh_all());
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::WaitingConfirmations));
+
+    // both recipient transfers on the sender side are ACKed
+    let acks: Vec<Option<bool>> = party
+        .db_transfers()
+        .into_iter()
+        .filter(|t| {
+            t.recipient_id == Some(receive_proxy.recipient_id.clone())
+                || t.recipient_id == Some(receive_out_of_band.recipient_id.clone())
+        })
+        .map(|t| t.ack)
+        .collect();
+    assert_eq!(acks.len(), 2);
+    assert!(acks.iter().all(|a| *a == Some(true)));
+
+    // mine and settle all parties
+    mine(false);
+    rcv_proxy.refresh_all();
+    rcv_out_of_band.refresh_all();
+    party.refresh_all();
+    assert!(rcv_proxy.check_test_transfer_status_recipient(
+        &receive_proxy.recipient_id,
+        TransferStatus::Settled
+    ));
+    assert!(rcv_out_of_band.check_test_transfer_status_recipient(
+        &receive_out_of_band.recipient_id,
+        TransferStatus::Settled
+    ));
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+
+    // each recipient got its amount
+    assert_eq!(
+        rcv_proxy.get_asset_balance(&asset.asset_id).settled,
+        amount_proxy
+    );
+    assert_eq!(
+        rcv_out_of_band.get_asset_balance(&asset.asset_id).settled,
+        amount_out_of_band
+    );
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn out_of_band_consignment_multiple_receives() {
+    initialize();
+
+    let amount_1: u64 = 66;
+    let amount_2: u64 = 77;
+
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+
+    let asset = party.issue_asset_nia(None);
+
+    // the same wallet creates two out-of-band invoices
+    let receive_1 = rcv_party
+        .wallet
+        .blind_receive(
+            None,
+            Assignment::Any,
+            default_rcv_expiration(),
+            vec![],
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+    let receive_2 = rcv_party
+        .wallet
+        .blind_receive(
+            None,
+            Assignment::Any,
+            default_rcv_expiration(),
+            vec![],
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+
+    // a single batch pays both invoices (with the same asset), producing one consignment that
+    // satisfies both
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![
+            Recipient {
+                assignment: Assignment::Fungible(amount_1),
+                recipient_id: receive_1.recipient_id.clone(),
+                witness_data: None,
+                transport_endpoints: vec![],
+            },
+            Recipient {
+                assignment: Assignment::Fungible(amount_2),
+                recipient_id: receive_2.recipient_id.clone(),
+                witness_data: None,
+                transport_endpoints: vec![],
+            },
+        ],
+    )]);
+    let operation_result = party.send(recipient_map, FEE_RATE, None);
+    let txid = operation_result.txid;
+
+    // providing the single out-of-band consignment processes both receives
+    let consignment_path = party
+        .wallet
+        .get_send_consignment_path(&asset.asset_id, &txid)
+        .to_string_lossy()
+        .to_string();
+    let refreshed = rcv_party
+        .wallet
+        .provide_out_of_band_consignment(rcv_party.online, consignment_path, vec![])
+        .unwrap();
+    assert_eq!(refreshed.len(), 2);
+    assert!(
+        refreshed
+            .values()
+            .all(|t| t.updated_status == Some(TransferStatus::WaitingBroadcast))
+    );
+    assert!(rcv_party.check_test_transfer_status_recipient(
+        &receive_1.recipient_id,
+        TransferStatus::WaitingBroadcast
+    ));
+    assert!(rcv_party.check_test_transfer_status_recipient(
+        &receive_2.recipient_id,
+        TransferStatus::WaitingBroadcast
+    ));
+
+    // the sender records both out-of-band ACKs; the second completes the (single) outgoing batch
+    assert!(
+        party
+            .wallet
+            .provide_out_of_band_ack(party.online, receive_1.recipient_id.clone())
+            .unwrap()
+            .is_none()
+    );
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::WaitingCounterparty));
+    let res = party
+        .wallet
+        .provide_out_of_band_ack(party.online, receive_2.recipient_id.clone())
+        .unwrap()
+        .expect("second ACK should complete and broadcast the batch");
+    assert_eq!(res.txid, txid);
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::WaitingConfirmations));
+
+    // mine and settle
+    mine(false);
+    rcv_party.refresh_all();
+    party.refresh_all();
+    assert!(
+        rcv_party
+            .check_test_transfer_status_recipient(&receive_1.recipient_id, TransferStatus::Settled)
+    );
+    assert!(
+        rcv_party
+            .check_test_transfer_status_recipient(&receive_2.recipient_id, TransferStatus::Settled)
+    );
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+
+    // the wallet received both amounts
+    assert_eq!(
+        rcv_party.get_asset_balance(&asset.asset_id).settled,
+        amount_1 + amount_2
+    );
 }

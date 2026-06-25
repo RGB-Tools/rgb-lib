@@ -1948,6 +1948,47 @@ pub struct FailTransfersOutcome {
     pub cannot_fail: bool,
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub enum ReceiveMode {
+    Proxy { proxy_url: String },
+    OutOfBand { media_file_paths: Vec<String> },
+}
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) enum ReceiveMatcher {
+    Blind(SecretSeal),
+    Witness(ScriptBuf),
+}
+
+impl DbTransfer {
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub(crate) fn receive_matcher(&self) -> Result<ReceiveMatcher, Error> {
+        let recipient_id = self
+            .recipient_id
+            .clone()
+            .expect("transfer should have a recipient ID");
+        match self
+            .recipient_type
+            .as_ref()
+            .expect("transfer should have a recipient type")
+        {
+            RecipientTypeFull::Blind { .. } => {
+                let beneficiary = XChainNet::<Beneficiary>::from_str(&recipient_id)
+                    .expect("saved recipient ID is invalid");
+                match beneficiary.into_inner() {
+                    Beneficiary::BlindedSeal(secret_seal) => Ok(ReceiveMatcher::Blind(secret_seal)),
+                    _ => unreachable!("beneficiary is blinded"),
+                }
+            }
+            RecipientTypeFull::Witness { .. } => {
+                let script_pubkey = script_buf_from_recipient_id(recipient_id)?
+                    .expect("witness recipient ID should yield a script");
+                Ok(ReceiveMatcher::Witness(script_pubkey))
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1364,6 +1364,28 @@ impl Wallet {
         self._get_wallet().send_end(online, signed_psbt)
     }
 
+    fn provide_out_of_band_consignment(
+        &self,
+        online: Online,
+        consignment_path: String,
+        media_file_paths: Vec<String>,
+    ) -> Result<HashMap<i32, RefreshedTransfer>, RgbLibError> {
+        self._get_wallet().provide_out_of_band_consignment(
+            online,
+            consignment_path,
+            media_file_paths,
+        )
+    }
+
+    fn provide_out_of_band_ack(
+        &self,
+        online: Online,
+        recipient_id: String,
+    ) -> Result<Option<OperationResult>, RgbLibError> {
+        self._get_wallet()
+            .provide_out_of_band_ack(online, recipient_id)
+    }
+
     fn send_btc(
         &self,
         online: Online,

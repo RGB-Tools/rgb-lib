@@ -463,12 +463,16 @@ impl Wallet {
     /// invoice and the transfer.
     ///
     /// Each endpoint in the provided `transport_endpoints` list will be used as RGB data exchange
-    /// medium. The list needs to contain at least 1 endpoint and a maximum of 3. Strings
-    /// specifying invalid endpoints and duplicate ones will cause an error to be raised. A valid
-    /// endpoint string encodes an
+    /// medium. The list can contain a maximum of 3 endpoints; strings specifying invalid endpoints
+    /// and duplicate ones will cause an error to be raised. A valid endpoint string encodes an
     /// [`RgbTransport`](https://docs.rs/rgb-invoicing/latest/rgbinvoice/enum.RgbTransport.html).
     /// At the moment the only supported variant is JsonRpc (e.g. `rpc://127.0.0.1` or
     /// `rpcs://example.com`).
+    /// Providing an empty list selects the out-of-band exchange: the invoice carries no transport
+    /// endpoints and the consignment and ACK are exchanged out-of-band (see
+    /// [`provide_out_of_band_consignment`](Wallet::provide_out_of_band_consignment) and
+    /// [`provide_out_of_band_ack`](Wallet::provide_out_of_band_ack)), without using automated
+    /// transport endpoints.
     ///
     /// The `min_confirmations` number determines the minimum number of confirmations needed for
     /// the transaction anchoring the transfer for it to be considered final and move (while
@@ -521,12 +525,16 @@ impl Wallet {
     /// invoice and the transfer.
     ///
     /// Each endpoint in the provided `transport_endpoints` list will be used as RGB data exchange
-    /// medium. The list needs to contain at least 1 endpoint and a maximum of 3. Strings
-    /// specifying invalid endpoints and duplicate ones will cause an error to be raised. A valid
-    /// endpoint string encodes an
+    /// medium. The list can contain a maximum of 3 endpoints; strings specifying invalid endpoints
+    /// and duplicate ones will cause an error to be raised. A valid endpoint string encodes an
     /// [`RgbTransport`](https://docs.rs/rgb-invoicing/latest/rgbinvoice/enum.RgbTransport.html).
     /// At the moment the only supported variant is JsonRpc (e.g. `rpc://127.0.0.1` or
     /// `rpcs://example.com`).
+    /// Providing an empty list selects the out-of-band exchange: the invoice carries no transport
+    /// endpoints and the consignment and ACK are exchanged out-of-band (see
+    /// [`provide_out_of_band_consignment`](Wallet::provide_out_of_band_consignment) and
+    /// [`provide_out_of_band_ack`](Wallet::provide_out_of_band_ack)), without using automated
+    /// transport endpoints.
     ///
     /// The `min_confirmations` number determines the minimum number of confirmations needed for
     /// the transaction anchoring the transfer for it to be considered final and move (while
@@ -915,6 +923,75 @@ impl Wallet {
         self.update_backup_info(&txn, false)?;
         txn.commit()?;
         info!(self.logger(), "Send (end) completed");
+        Ok(res)
+    }
+
+    /// Receive an RGB transfer whose consignment was exchanged out-of-band, without using automated
+    /// transport endpoints.
+    ///
+    /// This is the out-of-band counterpart of [`refresh`](Wallet::refresh) for transfers created
+    /// with an empty transport endpoint list. The consignment at `consignment_path` (received
+    /// through any external channel) is matched against the pending incoming out-of-band transfers,
+    /// validated and if it carries an unknown asset this is imported.
+    ///
+    /// A single consignment transfers a single asset but can satisfy more than one pending invoice
+    /// of this wallet (e.g. a sender batched a send to several of them); every matched receive is
+    /// processed and the result is keyed by batch transfer idx, mirroring
+    /// [`refresh`](Wallet::refresh).
+    ///
+    /// Media of an unknown asset is taken from the files already present in the wallet media
+    /// directory, falling back to the out-of-band `media_file_paths` (matched by content hash). A
+    /// consignment defining media that is neither already present nor provided fails locally.
+    ///
+    /// On success, if a signed witness transaction is found it is broadcast and the transfer moves
+    /// to [`TransferStatus::WaitingConfirmations`], otherwise it moves to
+    /// [`TransferStatus::WaitingBroadcast`], leaving the ACK to be communicated to the sender
+    /// out-of-band. An invalid consignment fails the transfer locally, without any proxy NACK.
+    pub fn provide_out_of_band_consignment(
+        &mut self,
+        online: Online,
+        consignment_path: String,
+        media_file_paths: Vec<String>,
+    ) -> Result<RefreshResult, Error> {
+        info!(self.logger(), "Providing out-of-band consignment...");
+        self.check_online(online)?;
+        let txn = self.database().begin_transaction()?;
+        let res =
+            self.provide_out_of_band_consignment_impl(&txn, &consignment_path, media_file_paths)?;
+        self.update_backup_info(&txn, false)?;
+        txn.commit()?;
+        info!(self.logger(), "Provide out-of-band consignment completed");
+        Ok(res)
+    }
+
+    /// Record the out-of-band ACK for an out-of-band recipient of an outgoing
+    /// [`TransferStatus::WaitingCounterparty`] batch transfer, identified by its `recipient_id`,
+    /// after the ACK has been received out-of-band.
+    ///
+    /// This is the out-of-band counterpart of the proxy ACK flow driven by [`refresh`](Wallet::refresh).
+    /// The batch is broadcast only once *every* recipient has ACKed (via this call for the
+    /// out-of-band ones and via `refresh` for the proxy ones), so a batch may freely mix out-of-band
+    /// and proxy recipients. Recipients using the JSON-RPC proxy are rejected here, keeping the
+    /// `refresh` flow authoritative for them.
+    ///
+    /// Returns the broadcast [`OperationResult`] (transfer moved to
+    /// [`TransferStatus::WaitingConfirmations`]) when this ACK completed the batch, or `None` when
+    /// the batch still has recipients waiting to ACK.
+    pub fn provide_out_of_band_ack(
+        &mut self,
+        online: Online,
+        recipient_id: String,
+    ) -> Result<Option<OperationResult>, Error> {
+        info!(
+            self.logger(),
+            "Providing out-of-band ACK for recipient {recipient_id}..."
+        );
+        self.check_online(online)?;
+        let txn = self.database().begin_transaction()?;
+        let res = self.provide_out_of_band_ack_impl(&txn, recipient_id)?;
+        self.update_backup_info(&txn, false)?;
+        txn.commit()?;
+        info!(self.logger(), "Provide out-of-band ACK completed");
         Ok(res)
     }
 
