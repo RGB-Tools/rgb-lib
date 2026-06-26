@@ -126,10 +126,11 @@ use bdk_esplora::{
         BlockingClient as EsploraClient, Builder as EsploraBuilder, Error as EsploraError,
     },
 };
+use bdk_sqlite::Store as BdkStore;
 #[cfg(feature = "esplora")]
 use bdk_wallet::bitcoin::Txid;
 use bdk_wallet::{
-    ChangeSet, KeychainKind, LocalOutput, PersistedWallet, SignOptions, Wallet as BdkWallet,
+    KeychainKind, LocalOutput, PersistedWallet, SignOptions, Wallet as BdkWallet,
     bitcoin::{
         Address as BdkAddress, Amount as BdkAmount, BlockHash, Network as BdkNetwork, NetworkKind,
         OutPoint, OutPoint as BdkOutPoint, ScriptBuf, TxOut,
@@ -140,7 +141,6 @@ use bdk_wallet::{
     },
     chain::{CanonicalizationParams, ChainPosition},
     descriptor::Segwitv0,
-    file_store::Store,
     keys::{
         DerivableKey, DescriptorKey,
         DescriptorKey::{Public, Secret},

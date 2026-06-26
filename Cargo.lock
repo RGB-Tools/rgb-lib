@@ -383,14 +383,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "bdk_file_store"
-version = "0.22.0"
+name = "bdk_sqlite"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7b9a98edb58d02b601239832674a9ca9f1465e08e1dd1fac3a0e34004372406"
+checksum = "8f2f05ffd2ec7af55c049fc4f2b5d55fdfc51f0e04a0f445f08409b0a3f4efcd"
 dependencies = [
- "bdk_core",
- "bincode",
- "serde",
+ "bdk_chain",
+ "bdk_wallet",
+ "sqlx",
 ]
 
 [[package]]
@@ -400,7 +400,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67f3c4f9526d22374fca5b7ff1d6bf8d921ab56db2dac8df66a2c5561b31d4ef"
 dependencies = [
  "bdk_chain",
- "bdk_file_store",
  "bip39",
  "bitcoin",
  "miniscript",
@@ -426,15 +425,6 @@ dependencies = [
  "num-bigint",
  "num-integer",
  "num-traits",
- "serde",
-]
-
-[[package]]
-name = "bincode"
-version = "1.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
-dependencies = [
  "serde",
 ]
 
@@ -3162,6 +3152,7 @@ dependencies = [
  "base64 0.22.1",
  "bdk_electrum",
  "bdk_esplora",
+ "bdk_sqlite",
  "bdk_wallet",
  "biscuit-auth",
  "chacha20poly1305",
