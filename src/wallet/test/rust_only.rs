@@ -121,7 +121,7 @@ fn success() {
     // check that the two color_psbt* methods produce matching PSBTs (no additional changes)
     assert_eq!(psbt, psbt_copy);
 
-    // push consignment to proxy
+    // save consignment to file
     let txid = psbt_copy.unsigned_tx.compute_txid().to_string();
     let transfers_dir = party_send.wallet.get_transfers_dir().join(&txid);
     let consignment_path = transfers_dir.join(CONSIGNMENT_FILE);
@@ -131,16 +131,6 @@ fn success() {
         .first()
         .unwrap()
         .save_file(&consignment_path)
-        .unwrap();
-    party_send
-        .wallet
-        .post_consignment(
-            PROXY_URL,
-            txid.clone(),
-            consignment_path.clone(),
-            txid.clone(),
-            Some(vout),
-        )
         .unwrap();
 
     // accept transfer
@@ -594,51 +584,6 @@ fn color_psbt_overflow_fail() {
     let result = party_send.wallet.color_psbt(&mut psbt, coloring_info);
     let msg = "vout in output_map is too large";
     assert!(matches!(result, Err(Error::InvalidColoringInfo { details: m }) if m == msg));
-}
-
-#[cfg(feature = "electrum")]
-#[test]
-#[parallel]
-fn post_consignment_fail() {
-    initialize();
-
-    // wallets
-    let party = get_empty_party!();
-
-    // fake data
-    let fake_txid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-    let transfers_dir = party.wallet.get_transfers_dir().join(fake_txid);
-    let consignment_path = transfers_dir.join(CONSIGNMENT_FILE);
-    std::fs::create_dir_all(&transfers_dir).unwrap();
-    std::fs::File::create(&consignment_path).unwrap();
-
-    // proxy error
-    let invalid_proxy_url = "http://127.6.6.6:7777/json-rpc";
-    let result = party.wallet.post_consignment(
-        invalid_proxy_url,
-        fake_txid.to_string(),
-        consignment_path.clone(),
-        fake_txid.to_string(),
-        Some(0),
-    );
-    assert_matches!(
-        result,
-        Err(Error::Proxy { details: m })
-        if m.contains("error sending request for url")
-            || m.contains("request or response body error for url"));
-
-    // invalid transport endpoint
-    let invalid_proxy_url = &format!("http://{PROXY_HOST_MOD_API}");
-    let result = party.wallet.post_consignment(
-        invalid_proxy_url,
-        fake_txid.to_string(),
-        consignment_path.clone(),
-        fake_txid.to_string(),
-        Some(0),
-    );
-    assert!(
-        matches!(result, Err(Error::InvalidTransportEndpoint { details: m }) if m == "invalid result")
-    );
 }
 
 #[cfg(feature = "electrum")]

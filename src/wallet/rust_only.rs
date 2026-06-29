@@ -461,26 +461,6 @@ impl Wallet {
         Ok(())
     }
 
-    /// Post a consignment to the proxy server.
-    ///
-    /// <div class="warning">This method is meant for special usage and is normally not needed, use
-    /// it only if you know what you're doing</div>
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
-    pub fn post_consignment<P: AsRef<Path>>(
-        &self,
-        proxy_url: &str,
-        recipient_id: String,
-        consignment_path: P,
-        txid: String,
-        vout: Option<u32>,
-    ) -> Result<(), Error> {
-        info!(self.logger(), "Posting consignment...");
-        let proxy_client = ProxyClient::new(proxy_url)?;
-        self.post_consignment_to_proxy(&proxy_client, recipient_id, consignment_path, txid, vout)?;
-        info!(self.logger(), "Post consignment completed");
-        Ok(())
-    }
-
     /// Extract the metadata of a new RGB asset and save the asset into the DB.
     ///
     /// <div class="warning">This method is meant for special usage and is normally not needed, use
