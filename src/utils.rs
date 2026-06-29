@@ -697,8 +697,9 @@ impl ResolveWitness for DumbResolver {
 pub struct RgbRuntime {
     /// The RGB stock
     stock: Stock,
-    /// The wallet directory, where the lockfile for the runtime is to be held
-    wallet_dir: PathBuf,
+    /// File holding the advisory lock for the runtime's lifetime; the OS releases it when the file
+    /// is closed, including on process death, so no stale lock survives a crash.
+    _lock_file: fs::File,
 }
 
 impl RgbRuntime {
@@ -919,31 +920,34 @@ impl RgbRuntime {
 impl Drop for RgbRuntime {
     fn drop(&mut self) {
         self.stock.store().expect("unable to save stock");
-        fs::remove_file(self.wallet_dir.join(RGB_RUNTIME_LOCK_FILE))
-            .expect("should be able to drop lockfile")
+        // dropping `_lock_file` releases the advisory lock; the lockfile is left on disk on purpose
     }
 }
 
-fn write_rgb_runtime_lockfile(wallet_dir: &Path) -> Result<(), Error> {
+fn acquire_rgb_runtime_lock(wallet_dir: &Path) -> Result<fs::File, Error> {
     let lock_file_path = wallet_dir.join(RGB_RUNTIME_LOCK_FILE);
+    let lock_file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&lock_file_path)
+        .map_err(|e| Error::IO {
+            details: e.to_string(),
+        })?;
     let t_0 = OffsetDateTime::now_utc();
     loop {
-        match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(lock_file_path.clone())
-        {
-            Ok(_) => return Ok(()),
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+        match lock_file.try_lock() {
+            Ok(()) => return Ok(lock_file),
+            Err(fs::TryLockError::WouldBlock) => {
                 if (OffsetDateTime::now_utc() - t_0).as_seconds_f32() > LOCK_FILE_TIMEOUT_SECS {
                     return Err(Error::Internal {
                         details: s!("unreleased lock file"),
                     });
-                } else {
-                    std::thread::sleep(std::time::Duration::from_millis(400))
                 }
+                std::thread::sleep(std::time::Duration::from_millis(400));
             }
-            Err(e) => {
+            Err(fs::TryLockError::Error(e)) => {
                 return Err(Error::IO {
                     details: e.to_string(),
                 });
@@ -953,7 +957,7 @@ fn write_rgb_runtime_lockfile(wallet_dir: &Path) -> Result<(), Error> {
 }
 
 pub(crate) fn load_rgb_runtime<P: AsRef<Path>>(wallet_dir: P) -> Result<RgbRuntime, Error> {
-    write_rgb_runtime_lockfile(wallet_dir.as_ref())?;
+    let lock_file = acquire_rgb_runtime_lock(wallet_dir.as_ref())?;
 
     let rgb_dir = wallet_dir.as_ref().join(RGB_RUNTIME_DIR);
     if !rgb_dir.exists() {
@@ -976,7 +980,7 @@ pub(crate) fn load_rgb_runtime<P: AsRef<Path>>(wallet_dir: P) -> Result<RgbRunti
 
     Ok(RgbRuntime {
         stock,
-        wallet_dir: wallet_dir.as_ref().to_path_buf(),
+        _lock_file: lock_file,
     })
 }
 
@@ -1141,14 +1145,24 @@ mod tests {
     }
 
     #[test]
-    fn test_write_rgb_runtime_lockfile_timeout() {
+    fn test_rgb_runtime_lock_contended() {
         let dir = tempfile::tempdir().unwrap();
         let lock_path = dir.path().join(RGB_RUNTIME_LOCK_FILE);
-        // pre-create the lock file so every open attempt sees AlreadyExists
-        fs::File::create(&lock_path).unwrap();
-        // with a lower LOCK_FILE_TIMEOUT_SECS in test builds the error is returned immediately
-        let result = write_rgb_runtime_lockfile(dir.path());
+        // hold the lock from a separate handle
+        let held = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&lock_path)
+            .unwrap();
+        held.try_lock().unwrap();
+        // contended acquisition times out
+        let result = acquire_rgb_runtime_lock(dir.path());
         assert_matches!(result, Err(Error::Internal { details }) if details == "unreleased lock file");
+        // releasing it lets a fresh acquisition succeed (no lockfile deletion needed)
+        held.unlock().unwrap();
+        assert!(acquire_rgb_runtime_lock(dir.path()).is_ok());
     }
 
     // The None return from build_indexer is only reachable when electrum is enabled but esplora
