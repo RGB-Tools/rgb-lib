@@ -644,15 +644,9 @@ pub(crate) enum IndexerError {
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum InternalError {
-    #[error("Aead error: {0}")]
-    AeadError(String),
-
     #[cfg(any(feature = "electrum", feature = "esplora"))]
     #[error("API error: {0}")]
     Api(#[from] reqwest::Error),
-
-    #[error("Invalid backup path")]
-    BackupInvalidPath(#[from] std::io::Error),
 
     #[error("Base64 decode error: {0}")]
     Base64Decode(#[from] base64::DecodeError),
@@ -679,13 +673,10 @@ pub(crate) enum InternalError {
     FromSlice(#[from] amplify::FromSliceError),
 
     #[error("Hash error: {0}")]
-    HashError(#[from] scrypt::password_hash::Error),
+    HashError(#[from] scrypt::password_hash::phc::Error),
 
     #[error("Infallible error: {0}")]
     Infallible(#[from] std::convert::Infallible),
-
-    #[error("No password hash returned")]
-    NoPasswordHashError,
 
     #[error("PSBT parse error: {0}")]
     PsbtParse(#[from] bdk_wallet::bitcoin::psbt::PsbtParseError),
@@ -1004,14 +995,6 @@ mod tests {
 
     #[test]
     fn from_internal_error() {
-        // BackupInvalidPath error
-        let io_err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "no access");
-        let internal = InternalError::from(io_err);
-        assert_matches!(
-            internal,
-            InternalError::BackupInvalidPath(ref e) if e.to_string().contains("no access")
-        );
-
         // SerdeJSON error
         let serde_err = serde_json::from_str::<serde_json::Value>("not json").unwrap_err();
         let msg = serde_err.to_string();
