@@ -320,7 +320,7 @@ pub(crate) fn zip_dir(
 ) -> Result<(), Error> {
     // setup
     let writer = fs::File::create(path_out)?;
-    let mut zip = zip::ZipWriter::new(writer);
+    let mut zip = ZipWriter::new(writer);
     let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Zstd);
     let mut buffer = [0u8; 4096];
 
@@ -372,9 +372,13 @@ pub(crate) fn zip_dir(
     Ok(())
 }
 
-fn get_zip_archive(zip_path: &PathBuf) -> Result<zip::ZipArchive<std::fs::File>, Error> {
-    let file = fs::File::open(zip_path).map_err(InternalError::from)?;
-    Ok(zip::ZipArchive::new(file).map_err(InternalError::from)?)
+fn get_zip_archive(zip_path: &PathBuf) -> Result<ZipArchive<fs::File>, Error> {
+    let file = fs::File::open(zip_path).map_err(|_| Error::InvalidFilePath {
+        file_path: zip_path.to_string_lossy().to_string(),
+    })?;
+    ZipArchive::new(file).map_err(|_| Error::InvalidFilePath {
+        file_path: zip_path.to_string_lossy().to_string(),
+    })
 }
 
 fn get_fingerprint_from_zip(zip_path: &PathBuf) -> Result<String, Error> {
@@ -408,7 +412,7 @@ pub(crate) fn unzip(zip_path: &PathBuf, path_out: &Path, logger: &Logger) -> Res
                 fs::create_dir_all(p)?;
             }
             let mut outfile = fs::File::create(&outpath)?;
-            std::io::copy(&mut file, &mut outfile)?;
+            io::copy(&mut file, &mut outfile)?;
         }
     }
 

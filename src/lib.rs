@@ -240,7 +240,7 @@ use typenum::consts::U32;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use url::Url;
 use walkdir::WalkDir;
-use zip::write::SimpleFileOptions;
+use zip::{ZipArchive, ZipWriter, write::SimpleFileOptions};
 
 #[cfg(feature = "electrum")]
 use crate::utils::INDEXER_BATCH_SIZE;
