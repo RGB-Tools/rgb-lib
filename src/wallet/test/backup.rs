@@ -176,6 +176,32 @@ fn fail() {
     assert!(
         matches!(result, Err(Error::UnsupportedBackupVersion { version: v }) if v == wrong_ver.to_string())
     );
+
+    // restore from inexistent backup file
+    let inexistent_backup_path =
+        get_test_data_dir_path().join("test_backup_inexistent.rgb-lib_backup");
+    let _ = std::fs::remove_file(&inexistent_backup_path);
+    let target_dir_path = get_restore_dir_path(Some("inexistent_backup"));
+    let target_dir = target_dir_path.to_str().unwrap();
+    let result = restore_backup(
+        inexistent_backup_path.to_str().unwrap(),
+        PASSWORD,
+        target_dir,
+    );
+    assert!(
+        matches!(result, Err(Error::InvalidFilePath { file_path: fp }) if fp == inexistent_backup_path.to_str().unwrap())
+    );
+
+    // restore from invalid backup file
+    let invalid_backup_path = get_test_data_dir_path().join("test_backup_invalid.rgb-lib_backup");
+    let _ = std::fs::remove_file(&invalid_backup_path);
+    fs::write(&invalid_backup_path, b"not a valid backup file").unwrap();
+    let target_dir_path = get_restore_dir_path(Some("invalid_backup"));
+    let target_dir = target_dir_path.to_str().unwrap();
+    let result = restore_backup(invalid_backup_path.to_str().unwrap(), PASSWORD, target_dir);
+    assert!(
+        matches!(result, Err(Error::InvalidFilePath { file_path: fp }) if fp == invalid_backup_path.to_str().unwrap())
+    );
 }
 
 #[cfg(feature = "electrum")]
