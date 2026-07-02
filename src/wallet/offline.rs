@@ -100,17 +100,6 @@ pub trait WalletOffline: WalletBackup {
             .filter(move |u| u.keychain == keychain)
     }
 
-    fn internal_outputs(&self) -> impl Iterator<Item = LocalOutput> + '_ {
-        self.filter_outputs(KeychainKind::Internal)
-    }
-
-    fn get_uncolorable_btc_sum(&self) -> Result<u64, Error> {
-        Ok(self
-            .internal_unspents()
-            .map(|u| u.txout.value.to_sat())
-            .sum())
-    }
-
     fn get_available_allocations<T>(
         &self,
         unspents: T,
