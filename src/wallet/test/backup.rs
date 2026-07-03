@@ -151,9 +151,7 @@ fn fail() {
     )
     .unwrap();
     let json_pub_data = fs::read_to_string(&files.backup_pub_data).unwrap();
-    let mut backup_pub_data: BackupPubData = serde_json::from_str(json_pub_data.as_str())
-        .map_err(InternalError::from)
-        .unwrap();
+    let mut backup_pub_data: BackupPubData = serde_json::from_str(json_pub_data.as_str()).unwrap();
     let wrong_ver = 0;
     backup_pub_data.version = wrong_ver;
     fs::write(

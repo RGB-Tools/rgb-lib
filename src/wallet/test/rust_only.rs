@@ -470,9 +470,7 @@ fn color_psbt_fail() {
         nonce: None,
     };
     let result = party_send.wallet.color_psbt(&mut psbt, coloring_info);
-    assert!(
-        matches!(result, Err(Error::Internal { details: m }) if m.contains(&format!("contract {fake_cid} is unknown")))
-    );
+    assert!(matches!(result, Err(Error::AssetNotFound { asset_id }) if asset_id == fake_cid));
 
     // wrong output map vout
     let fake_o_map: HashMap<u32, u64> = HashMap::from_iter([(666, AMOUNT)]);

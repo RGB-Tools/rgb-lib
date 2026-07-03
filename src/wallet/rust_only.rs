@@ -130,7 +130,12 @@ impl Wallet {
         let assignment_name = FieldName::from(RGB_STATE_ASSET_OWNER);
 
         for (contract_id, asset_coloring_info) in coloring_info.asset_info_map.clone() {
-            let schema = AssetSchema::get_from_contract_id(contract_id, &runtime)?;
+            let schema =
+                AssetSchema::get_from_contract_id(contract_id, &runtime).map_err(|_| {
+                    Error::AssetNotFound {
+                        asset_id: contract_id.to_string(),
+                    }
+                })?;
 
             let mut asset_transition_builder =
                 runtime.transition_builder(contract_id, "transfer")?;

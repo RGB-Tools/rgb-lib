@@ -776,10 +776,6 @@ pub(crate) trait SigParty: OfflineSigParty<W: RgbWalletOpsOnline> {
                     if let Some(ref e) = rt.failure {
                         eprintln!("refresh of {i} failure: {e} ({e:?})");
                         match e {
-                            Error::Internal { details } => {
-                                println!("refresh of {i} internal error: {e}, details: {details}");
-                                non_fatal_error = true;
-                            }
                             Error::InvalidTxid => {
                                 println!("refresh of {i} invalid TXID: {e}");
                                 non_fatal_error = true;
