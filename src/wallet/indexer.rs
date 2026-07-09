@@ -48,7 +48,7 @@ impl Indexer {
             Indexer::Electrum(client) => {
                 let estimate = client
                     .inner
-                    .estimate_fee(blocks as usize)
+                    .estimate_fee(blocks as usize, None)
                     .map_err(IndexerError::from)?; // in BTC/kB
                 if estimate == -1.0 {
                     return Err(Error::CannotEstimateFees);
@@ -238,7 +238,10 @@ mod tests {
     #[cfg(feature = "electrum")]
     fn electrum_indexer(url: &str) -> Indexer {
         let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-        let opts = ConfigBuilder::new().retry(0).timeout(Some(1)).build();
+        let opts = ConfigBuilder::new()
+            .retry(0)
+            .timeout(Some(Duration::from_secs(1)))
+            .build();
         let client = ElectrumClient::from_config(url, opts).expect("electrum client");
         Indexer::Electrum(Box::new(BdkElectrumClient::new(client)))
     }
@@ -266,6 +269,11 @@ mod tests {
     }
 
     #[cfg(feature = "electrum")]
+    fn electrum_server_version_response(id: &serde_json::Value) -> String {
+        format!(r#"{{"jsonrpc":"2.0","id":{id},"result":["mock-electrum","1.6"]}}"#)
+    }
+
+    #[cfg(feature = "electrum")]
     fn start_electrum_mock(
         handler: impl Fn(&str, &serde_json::Value) -> String + Send + 'static,
     ) -> (String, std::thread::JoinHandle<()>) {
@@ -279,26 +287,35 @@ mod tests {
         let handle = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("mock electrum accept");
             let mut reader = BufReader::new(stream.try_clone().expect("clone mock stream"));
-            let mut line = String::new();
-            reader
-                .read_line(&mut line)
-                .expect("read mock electrum request");
-            let req: serde_json::Value =
-                serde_json::from_str(line.trim()).expect("parse mock electrum request");
-            let method = req["method"]
-                .as_str()
-                .expect("mock electrum request method");
-            let id = req["id"].clone();
-            let response = handler(method, &req);
-            if response.is_empty() {
-                return;
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                    return;
+                }
+                let req: serde_json::Value =
+                    serde_json::from_str(line.trim()).expect("parse mock electrum request");
+                let method = req["method"]
+                    .as_str()
+                    .expect("mock electrum request method");
+                let id = req["id"].clone();
+                let response = if method == "server.version" {
+                    electrum_server_version_response(&id)
+                } else {
+                    handler(method, &req)
+                };
+                if response.is_empty() {
+                    return;
+                }
+                let body = if response.starts_with('{') {
+                    response
+                } else {
+                    format!(r#"{{"jsonrpc":"2.0","id":{id},"result":{response}}}"#)
+                };
+                let _ = writeln!(stream, "{body}");
+                if method != "server.version" {
+                    return;
+                }
             }
-            let body = if response.starts_with('{') {
-                response
-            } else {
-                format!(r#"{{"jsonrpc":"2.0","id":{id},"result":{response}}}"#)
-            };
-            let _ = writeln!(stream, "{body}");
         });
 
         (url, handle)
