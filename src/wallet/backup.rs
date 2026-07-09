@@ -110,7 +110,7 @@ pub trait WalletBackup: WalletCore {
         info!(self.logger(), "starting backup...");
         let backup_file = PathBuf::from(&backup_path);
         if backup_file.exists() {
-            return Err(Error::FileAlreadyExists {
+            Err(Error::FileAlreadyExists {
                 path: backup_path.to_string(),
             })?;
         }

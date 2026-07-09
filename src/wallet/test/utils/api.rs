@@ -63,7 +63,7 @@ pub(crate) trait OfflineSigParty {
             .unwrap();
         println!(
             "receive with recipient_id {} is in status {:?}",
-            recipient_id, &transfer_data.status
+            recipient_id, transfer_data.status
         );
         transfer_data.status == expected_status
     }
@@ -82,7 +82,7 @@ pub(crate) trait OfflineSigParty {
         let batch_transfer = batch_transfers.first().unwrap();
         println!(
             "send with txid {} is in status {:?}",
-            txid, &batch_transfer.status
+            txid, batch_transfer.status
         );
         batch_transfer.status == expected_status
     }

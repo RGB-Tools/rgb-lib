@@ -2464,7 +2464,7 @@ pub trait WalletOnline: WalletOffline {
 
         if let Some(err) = consignment_res.error {
             if err.code == -101 {
-                return Err(Error::RecipientIDAlreadyUsed)?;
+                Err(Error::RecipientIDAlreadyUsed)?;
             }
             return Err(Error::InvalidTransportEndpoint {
                 details: format!("proxy error: {}", err.message),
@@ -2529,7 +2529,7 @@ pub trait WalletOnline: WalletOffline {
                     let media_res = proxy_client.post_media(&digest, &media.file_path)?;
                     debug!(self.logger(), "Attachment POST response: {:?}", media_res);
                     if let Some(_err) = media_res.error {
-                        return Err(InternalError::Unexpected)?;
+                        Err(InternalError::Unexpected)?;
                     }
                 }
 
