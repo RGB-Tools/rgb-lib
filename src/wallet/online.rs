@@ -1760,6 +1760,113 @@ pub trait WalletOnline: WalletOffline {
         Ok(refresh_result)
     }
 
+    /// Reconcile orphaned pending witness TXOs with the RGB runtime.
+    ///
+    /// If no consignment ever references the TXID of a TXO in the pending witness state (e.g.
+    /// the same invoice was paid twice and only the replacement TX's consignment was delivered),
+    /// the flag would stay set forever. If the runtime already holds allocations for such a TXO
+    /// (received as part of another consignment's history), save them to the DB as a settled
+    /// transfer and clear the flag. TXOs unknown to the runtime are left untouched, since
+    /// spending them would burn anything a future consignment may still deliver.
+    fn reconcile_pending_witness_txos(&mut self, txn: &DbTxn) -> Result<bool, Error> {
+        let db_data = txn.get_db_data(false)?;
+        let orphan_txos: Vec<&DbTxo> = db_data
+            .txos
+            .iter()
+            .filter(|t| t.pending_witness && t.exists && !t.spent)
+            .filter(|t| !db_data.colorings.iter().any(|c| c.txo_idx == t.idx))
+            .filter(|t| {
+                !db_data
+                    .batch_transfers
+                    .iter()
+                    .any(|b| b.txid.as_deref() == Some(t.txid.as_str()))
+            })
+            .collect();
+        if orphan_txos.is_empty() {
+            return Ok(false);
+        }
+
+        let runtime = self.rgb_runtime()?;
+        let mut reconciled = false;
+        for txo in orphan_txos {
+            let outpoint: OutPoint = txo.outpoint().into();
+            let mut asset_assignments: Vec<(String, Vec<Assignment>)> = vec![];
+            let mut unknown_asset = false;
+            for contract_id in runtime.contracts_assigning([outpoint])? {
+                let asset_id = contract_id.to_string();
+                if txn.get_asset(asset_id.clone())?.is_none() {
+                    unknown_asset = true;
+                    break;
+                }
+                let mut assignments = vec![];
+                for opouts in runtime
+                    .contract_assignments_for(contract_id, [outpoint])?
+                    .into_values()
+                {
+                    for (opout, state) in opouts {
+                        if matches!(state, AllocatedState::Void) {
+                            continue;
+                        }
+                        assignments.push(Assignment::from_opout_and_state(opout, &state));
+                    }
+                }
+                if !assignments.is_empty() {
+                    asset_assignments.push((asset_id, assignments));
+                }
+            }
+            if unknown_asset || asset_assignments.is_empty() {
+                continue;
+            }
+
+            info!(
+                self.logger(),
+                "Reconciling pending witness TXO {} with the RGB runtime",
+                txo.outpoint()
+            );
+            let batch_transfer = DbBatchTransferActMod {
+                txid: ActiveValue::Set(Some(txo.txid.clone())),
+                status: ActiveValue::Set(TransferStatus::Settled),
+                created_at: ActiveValue::Set(now().unix_timestamp()),
+                min_confirmations: ActiveValue::Set(0),
+                ..Default::default()
+            };
+            let batch_transfer_idx = txn.set_batch_transfer(batch_transfer)?;
+            for (asset_id, assignments) in asset_assignments {
+                let asset_transfer = DbAssetTransferActMod {
+                    user_driven: ActiveValue::Set(false),
+                    batch_transfer_idx: ActiveValue::Set(batch_transfer_idx),
+                    asset_id: ActiveValue::Set(Some(asset_id)),
+                    ..Default::default()
+                };
+                let asset_transfer_idx = txn.set_asset_transfer(asset_transfer)?;
+                let transfer = DbTransferActMod {
+                    asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
+                    incoming: ActiveValue::Set(true),
+                    recipient_type: ActiveValue::Set(Some(RecipientTypeFull::Witness {
+                        vout: Some(txo.vout),
+                    })),
+                    ..Default::default()
+                };
+                txn.set_transfer(transfer)?;
+                for assignment in assignments {
+                    let db_coloring = DbColoringActMod {
+                        txo_idx: ActiveValue::Set(txo.idx),
+                        asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
+                        r#type: ActiveValue::Set(ColoringType::Receive),
+                        assignment: ActiveValue::Set(assignment),
+                        ..Default::default()
+                    };
+                    txn.set_coloring(db_coloring)?;
+                }
+            }
+            let mut updated_txo: DbTxoActMod = txo.clone().into();
+            updated_txo.pending_witness = ActiveValue::Set(false);
+            txn.update_txo(updated_txo)?;
+            reconciled = true;
+        }
+        Ok(reconciled)
+    }
+
     fn select_rgb_inputs(
         &self,
         asset_id: String,
@@ -2509,10 +2616,14 @@ pub trait WalletOnline: WalletOffline {
                 let vout = mock_vout(recipient.local_recipient_data.vout());
                 #[cfg(not(test))]
                 let vout = recipient.local_recipient_data.vout();
+                #[cfg(test)]
+                let post_recipient_id = mock_consignment_recipient_id(recipient_id.clone());
+                #[cfg(not(test))]
+                let post_recipient_id = recipient_id.clone();
                 let proxy_client = ProxyClient::new(&proxy_url)?;
                 match self.post_consignment_to_proxy(
                     &proxy_client,
-                    recipient_id.clone(),
+                    post_recipient_id,
                     &consignment_path,
                     txid.clone(),
                     vout,
@@ -3773,7 +3884,8 @@ pub trait RgbWalletOpsOnline: RgbWalletOpsOffline + WalletOnline {
             txn.check_asset_exists(aid.clone())?;
         }
         let res = self.refresh_impl(&txn, asset_id, filter, skip_sync)?;
-        if res.transfers_changed() {
+        let reconciled = self.reconcile_pending_witness_txos(&txn)?;
+        if res.transfers_changed() || reconciled {
             self.update_backup_info(&txn, false)?;
         }
         txn.commit()?;

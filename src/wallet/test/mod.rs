@@ -92,6 +92,7 @@ static INIT: Once = Once::new();
 thread_local! {
     pub(crate) static MOCK_CHAIN_NET: RefCell<Option<ChainNet>> = const { RefCell::new(None) };
     pub(crate) static MOCK_CHECK_FEE_RATE: RefCell<Vec<bool>> = const { RefCell::new(vec![]) };
+    pub(crate) static MOCK_CONSIGNMENT_RECIPIENT_ID: RefCell<Option<String>> = const { RefCell::new(None) };
     pub(crate) static MOCK_CONTRACT_DATA: RefCell<Vec<Attachment>> = const { RefCell::new(vec![]) };
     pub(crate) static MOCK_CONTRACT_DETAILS: RefCell<Option<String>> = const { RefCell::new(None) };
     pub(crate) static MOCK_INPUT_UNSPENTS: RefCell<Vec<LocalUnspent>> = const { RefCell::new(vec![]) };
@@ -292,6 +293,16 @@ pub fn mock_send_end_crash() -> bool {
     } else {
         println!("simulating send_end crash (mock)");
         true
+    }
+}
+
+pub fn mock_consignment_recipient_id(recipient_id: String) -> String {
+    let mock = MOCK_CONSIGNMENT_RECIPIENT_ID.take();
+    if let Some(mock) = mock {
+        println!("mocking consignment recipient ID");
+        mock
+    } else {
+        recipient_id
     }
 }
 
