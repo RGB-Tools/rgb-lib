@@ -917,4 +917,35 @@ fn invoice_new() {
     assert!(
         matches!(result, Err(Error::InvalidInvoice { details: d }) if d == "invalid assignment")
     );
+
+    //
+    // unknown query parameters
+    //
+
+    // alongside known query parameters
+    let invoice_str =
+        format!("rgb:~/~/{amount_str}/{blinded}?assignment_name=assetOwner&foo=bar&baz=qux");
+    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
+    let invoice_data = invoice.invoice_data;
+    assert_eq!(invoice_data.assignment, Assignment::Fungible(amount));
+    assert_eq!(
+        invoice_data.unknown_query_params,
+        HashMap::from([
+            ("foo".to_string(), "bar".to_string()),
+            ("baz".to_string(), "qux".to_string()),
+        ])
+    );
+
+    // only unknown query parameters
+    let invoice_str = format!("rgb:~/~/{amount_str}/{blinded}?foo=bar&baz=qux");
+    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
+    let invoice_data = invoice.invoice_data;
+    assert_eq!(invoice_data.assignment, Assignment::Any);
+    assert_eq!(
+        invoice_data.unknown_query_params,
+        HashMap::from([
+            ("foo".to_string(), "bar".to_string()),
+            ("baz".to_string(), "qux".to_string()),
+        ])
+    );
 }

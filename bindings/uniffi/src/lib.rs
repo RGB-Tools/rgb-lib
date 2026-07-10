@@ -107,6 +107,7 @@ pub struct InvoiceData {
     pub network: BitcoinNetwork,
     pub expiration_timestamp: Option<u64>,
     pub transport_endpoints: Vec<String>,
+    pub unknown_query_params: HashMap<String, String>,
 }
 impl From<RgbLibInvoiceData> for InvoiceData {
     fn from(orig: RgbLibInvoiceData) -> Self {
@@ -119,6 +120,7 @@ impl From<RgbLibInvoiceData> for InvoiceData {
             network: orig.network,
             expiration_timestamp: orig.expiration_timestamp,
             transport_endpoints: orig.transport_endpoints,
+            unknown_query_params: orig.unknown_query_params,
         }
     }
 }
@@ -133,6 +135,7 @@ impl From<InvoiceData> for RgbLibInvoiceData {
             network: orig.network,
             expiration_timestamp: orig.expiration_timestamp,
             transport_endpoints: orig.transport_endpoints,
+            unknown_query_params: orig.unknown_query_params,
         }
     }
 }

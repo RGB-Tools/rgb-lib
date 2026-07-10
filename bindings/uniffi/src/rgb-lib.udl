@@ -350,6 +350,7 @@ dictionary InvoiceData {
   BitcoinNetwork network;
   u64? expiration_timestamp;
   sequence<string> transport_endpoints;
+  record<string, string> unknown_query_params;
 };
 
 [Remote]
