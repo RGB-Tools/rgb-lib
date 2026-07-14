@@ -1,6 +1,33 @@
 use super::*;
 
 #[cfg(feature = "electrum")]
+fn check_unspents_derivation(wallet: &Wallet, unspents: &[Unspent]) {
+    for unspent in unspents.iter().filter(|u| u.utxo.exists) {
+        let outpoint = &unspent.utxo.outpoint;
+        let Some(derivation_index) = unspent.utxo.derivation_index else {
+            panic!("existing unspent {outpoint} is missing derivation index");
+        };
+        let keychain = if unspent.utxo.colorable {
+            KeychainKind::External
+        } else {
+            KeychainKind::Internal
+        };
+        let derived_spk = wallet
+            .bdk_wallet()
+            .public_descriptor(keychain)
+            .at_derivation_index(derivation_index)
+            .unwrap()
+            .script_pubkey();
+        let txid: bdk_wallet::bitcoin::Txid = unspent.utxo.outpoint.txid.parse().unwrap();
+        let tx = wallet.bdk_wallet().get_tx(txid).unwrap();
+        let actual_spk = tx.tx_node.tx.output[unspent.utxo.outpoint.vout as usize]
+            .script_pubkey
+            .clone();
+        assert_eq!(derived_spk, actual_spk);
+    }
+}
+
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn success() {
@@ -31,6 +58,12 @@ fn success() {
     let unspent_list_all = party.list_unspents(false);
     assert_eq!(unspent_list_all.len(), 1);
     assert!(unspent_list_all.iter().all(|u| !u.utxo.colorable));
+    assert!(
+        unspent_list_all
+            .iter()
+            .all(|u| u.utxo.derivation_index.is_some())
+    );
+    check_unspents_derivation(&party.wallet, &unspent_list_all);
 
     party.create_utxos_default();
 
@@ -51,6 +84,21 @@ fn success() {
             .count(),
         1
     );
+    let colorable_unspents: Vec<&Unspent> = unspent_list_all
+        .iter()
+        .filter(|u| u.utxo.colorable)
+        .collect();
+    assert!(
+        colorable_unspents
+            .iter()
+            .all(|u| u.utxo.derivation_index.is_some())
+    );
+    let derivation_indexes: HashSet<Option<u32>> = colorable_unspents
+        .iter()
+        .map(|u| u.utxo.derivation_index)
+        .collect();
+    assert_eq!(derivation_indexes.len(), colorable_unspents.len());
+    check_unspents_derivation(&party.wallet, &unspent_list_all);
     let mut settled_allocations = vec![];
     unspent_list_settled
         .iter()
@@ -222,6 +270,14 @@ fn success() {
             .count(),
         1
     );
+    // every existing UTXO has its derivation index set
+    assert!(
+        unspent_list_all
+            .iter()
+            .filter(|u| u.utxo.exists)
+            .all(|u| u.utxo.derivation_index.is_some())
+    );
+    check_unspents_derivation(&party.wallet, &unspent_list_all);
     let mut pending_allocations = vec![];
     let mut settled_allocations = vec![];
     unspent_list_all
@@ -383,6 +439,25 @@ fn success() {
         .iter()
         .for_each(|u| allocations.extend(u.rgb_allocations.clone()));
     assert_eq!(allocations, settled_allocations);
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn segwit_v0() {
+    initialize();
+
+    let mut party = get_funded_party_p2wpkh();
+
+    let unspent_list_all = party.list_unspents(false);
+    assert_eq!(unspent_list_all.len(), UTXO_NUM as usize + 1);
+    let (colorable, vanilla): (Vec<&Unspent>, Vec<&Unspent>) =
+        unspent_list_all.iter().partition(|u| u.utxo.colorable);
+    assert_eq!(colorable.len(), UTXO_NUM as usize);
+    assert_eq!(vanilla.len(), 1);
+    assert!(colorable.iter().all(|u| u.utxo.derivation_index.is_some()));
+    assert!(vanilla.iter().all(|u| u.utxo.derivation_index.is_some()));
+    check_unspents_derivation(&party.wallet, &unspent_list_all);
 }
 
 #[cfg(feature = "electrum")]

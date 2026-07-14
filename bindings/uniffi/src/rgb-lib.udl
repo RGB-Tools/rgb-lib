@@ -575,6 +575,7 @@ dictionary Utxo {
   u64 btc_amount;
   boolean colorable;
   boolean exists;
+  u32? derivation_index;
 };
 
 [Remote]

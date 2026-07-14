@@ -2188,6 +2188,14 @@ pub trait WalletOffline: WalletBackup {
                 .for_each(|u| u.rgb_allocations.retain(|a| a.settled));
         }
 
+        let spk_index = self.bdk_wallet().spk_index();
+        for unspent in unspents.iter_mut() {
+            if let Some(((KeychainKind::External, derivation_index), _)) =
+                spk_index.txout(BdkOutPoint::from(unspent.utxo.outpoint.clone()))
+            {
+                unspent.utxo.derivation_index = Some(derivation_index);
+            }
+        }
         let mut internal_unspents: Vec<Unspent> =
             self.internal_unspents().map(Unspent::from).collect();
 
