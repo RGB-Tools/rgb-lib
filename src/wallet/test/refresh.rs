@@ -501,8 +501,7 @@ fn uda_with_media() {
     assert!(!txid.is_empty());
 
     party_2.wait_for_refresh(None);
-    let assets_list = party_2.list_assets(&[]);
-    assert!(assets_list.uda.unwrap()[0].media.is_some());
+    party_2.check_uda_medias(&file_bytes);
     party_1.wait_for_refresh(None);
     mine(false);
     party_2.wait_for_refresh(None);
@@ -522,8 +521,7 @@ fn uda_with_media() {
     assert!(!txid.is_empty());
 
     party_3.wait_for_refresh(None);
-    let assets_list = party_3.list_assets(&[]);
-    assert!(assets_list.uda.unwrap()[0].media.is_some());
+    party_3.check_uda_medias(&file_bytes);
     party_2.wait_for_refresh(None);
     mine(false);
     party_3.wait_for_refresh(None);

@@ -136,6 +136,28 @@ pub(crate) trait OfflineSigParty {
         assert_eq!(unspents.len(), 6);
     }
 
+    // check the UDA carries both its contract terms media and its token media, with the related
+    // files available locally
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    fn check_uda_medias(&self, terms_media_bytes: &[u8]) {
+        let uda_assets = self.list_assets(&[AssetSchema::Uda]).uda.unwrap();
+        let asset = uda_assets.first().unwrap();
+
+        let terms_media = asset.media.as_ref().unwrap();
+        assert_eq!(terms_media.mime, "image/png");
+        assert_eq!(
+            std::fs::read(PathBuf::from(&terms_media.file_path)).unwrap(),
+            terms_media_bytes
+        );
+
+        let token_media = asset.token.as_ref().unwrap().media.as_ref().unwrap();
+        assert_eq!(token_media.mime, "text/plain");
+        assert_eq!(
+            std::fs::read(PathBuf::from(&token_media.file_path)).unwrap(),
+            std::fs::read(PathBuf::from(FILE_STR)).unwrap()
+        );
+    }
+
     fn data_dir(&self) -> String {
         self.wlt().get_wallet_data().data_dir
     }
