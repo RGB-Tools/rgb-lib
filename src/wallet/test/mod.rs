@@ -341,6 +341,7 @@ mod list_pending_vanilla_txs;
 mod list_transactions;
 mod list_transfers;
 mod list_unspents;
+mod load;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 mod multisig;
 mod new;

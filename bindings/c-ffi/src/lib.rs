@@ -397,6 +397,15 @@ pub extern "C" fn rgblib_list_unspents(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn rgblib_load_wallet(
+    data_dir: *const c_char,
+    master_fingerprint: *const c_char,
+    mnemonic_opt: *const c_char,
+) -> CResult {
+    load_wallet(data_dir, master_fingerprint, mnemonic_opt).into()
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn rgblib_new_wallet(wallet_data: *const c_char, keys: *const c_char) -> CResult {
     new_wallet(wallet_data, keys).into()
 }

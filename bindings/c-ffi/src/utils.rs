@@ -582,6 +582,17 @@ pub(crate) fn list_unspents(
     Ok(serde_json::to_string(&res)?)
 }
 
+pub(crate) fn load_wallet(
+    data_dir: *const c_char,
+    master_fingerprint: *const c_char,
+    mnemonic_opt: *const c_char,
+) -> Result<Wallet, Error> {
+    let data_dir = ptr_to_string(data_dir);
+    let master_fingerprint = ptr_to_string(master_fingerprint);
+    let mnemonic = convert_optional_string(mnemonic_opt);
+    Ok(Wallet::load(&data_dir, &master_fingerprint, mnemonic)?)
+}
+
 pub(crate) fn new_wallet(wallet_data: *const c_char, keys: *const c_char) -> Result<Wallet, Error> {
     let wallet_data: WalletData = serde_json::from_str(&ptr_to_string(wallet_data))?;
     let keys: SinglesigKeys = serde_json::from_str(&ptr_to_string(keys))?;

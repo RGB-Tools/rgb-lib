@@ -59,6 +59,39 @@
 //!     Ok(())
 //! }
 //! ```
+//!
+//! ### Load an existing RGB singlesig wallet
+//! [`wallet::Wallet::new`] records the wallet settings in the wallet directory, so an existing
+//! wallet can be re-opened with just its location, its master fingerprint and its mnemonic.
+//! Passing no mnemonic loads the wallet in watch-only mode.
+//! ```
+//! use rgb_lib::keys::{WitnessVersion, generate_keys};
+//! use rgb_lib::wallet::{DatabaseType, SinglesigKeys, Wallet, WalletData};
+//! use rgb_lib::{AssetSchema, BitcoinNetwork};
+//!
+//! fn main() -> Result<(), rgb_lib::Error> {
+//!     let data_dir = tempfile::tempdir()?;
+//!     let data_dir = data_dir.path().to_str().unwrap();
+//!     let keys = generate_keys(BitcoinNetwork::Regtest, WitnessVersion::Taproot);
+//!     let wallet_data = WalletData {
+//!         data_dir: data_dir.to_string(),
+//!         bitcoin_network: BitcoinNetwork::Regtest,
+//!         database_type: DatabaseType::Sqlite,
+//!         max_allocations_per_utxo: 5,
+//!         supported_schemas: vec![AssetSchema::Nia],
+//!     };
+//!     let wallet = Wallet::new(wallet_data, SinglesigKeys::from_keys(&keys, None))?;
+//!     drop(wallet);
+//!
+//!     let wallet = Wallet::load(
+//!         data_dir,
+//!         &keys.master_fingerprint,
+//!         Some(keys.mnemonic.clone()),
+//!     )?;
+//!
+//!     Ok(())
+//! }
+//! ```
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) mod api;

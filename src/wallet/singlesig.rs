@@ -178,6 +178,9 @@ impl Wallet {
         let (wallet_dir, logger, _logger_guard) =
             setup_new_wallet(&wallet_data, &keys.master_fingerprint)?;
 
+        // reject settings the wallet wasn't created with before any of them reaches the database
+        WalletManifest::check_settings_unchanged(&wallet_dir, &wallet_data, &keys)?;
+
         // setup the BDK wallet
         let (bdk_wallet, bdk_database) = setup_bdk(
             &wdata,
@@ -194,6 +197,9 @@ impl Wallet {
         // setup rgb-lib DB
         let database = setup_db(&wallet_dir)?;
 
+        // persist the settings needed to load the wallet back
+        WalletManifest::new(&wallet_data, &keys).write(&wallet_dir)?;
+
         info!(logger, "New wallet completed");
         Ok(Self {
             internals: WalletInternals {
@@ -209,6 +215,35 @@ impl Wallet {
             },
             keys,
         })
+    }
+
+    /// Load an existing RGB singlesig wallet, identified by its master fingerprint, from the
+    /// wallet directory inside `data_dir`.
+    ///
+    /// The settings are read back from the manifest that [`Wallet::new`] wrote in the wallet
+    /// directory, so they don't need to be supplied again. Pass the `mnemonic` to load a wallet
+    /// able to sign, or `None` to load it in watch-only mode.
+    ///
+    /// Wallets created before manifest support, or never opened with [`Wallet::new`] since, have
+    /// no manifest and cannot be loaded; call [`Wallet::new`] once to write one.
+    pub fn load(
+        data_dir: &str,
+        master_fingerprint: &str,
+        mnemonic: Option<String>,
+    ) -> Result<Self, Error> {
+        let data_dir_path = Path::new(data_dir);
+        if !data_dir_path.exists() {
+            return Err(Error::InexistentDataDir);
+        }
+        let wallet_dir = fs::canonicalize(data_dir_path)?.join(master_fingerprint);
+        let manifest = WalletManifest::read(&wallet_dir)?;
+        // a manifest reached via a renamed wallet directory would make `new` set up a second,
+        // unrelated wallet at the fingerprint the manifest names
+        if manifest.master_fingerprint != master_fingerprint {
+            return Err(Error::FingerprintMismatch);
+        }
+        let (wallet_data, keys) = manifest.into_parts(data_dir.to_string(), mnemonic);
+        Self::new(wallet_data, keys)
     }
 
     /// Return the bitcoin keys of the wallet.

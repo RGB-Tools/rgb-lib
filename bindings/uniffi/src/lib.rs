@@ -943,6 +943,20 @@ impl Wallet {
         })
     }
 
+    fn load(
+        data_dir: String,
+        master_fingerprint: String,
+        mnemonic: Option<String>,
+    ) -> Result<Self, RgbLibError> {
+        Ok(Wallet {
+            wallet_mutex: Mutex::new(RgbLibWallet::load(
+                &data_dir,
+                &master_fingerprint,
+                mnemonic,
+            )?),
+        })
+    }
+
     fn _get_wallet(&self) -> MutexGuard<'_, RgbLibWallet> {
         self.wallet_mutex.lock().expect("wallet")
     }

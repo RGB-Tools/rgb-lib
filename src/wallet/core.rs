@@ -13,6 +13,146 @@ pub(crate) const RGB_LIB_DB_NAME: &str = "rgb_lib_db";
 pub(crate) const ASSETS_DIR: &str = "assets";
 pub(crate) const MEDIA_DIR: &str = "media_files";
 
+pub(crate) const WALLET_MANIFEST_FILE: &str = "wallet_manifest.json";
+pub(crate) const WALLET_MANIFEST_VERSION: u8 = 1;
+
+// Only the version field, so an unsupported manifest reports its version instead of failing to
+// deserialize.
+#[derive(Deserialize)]
+struct WalletManifestVersion {
+    version: u8,
+}
+
+// The non-secret parts of a WalletData and a SinglesigKeys, persisted inside the wallet
+// directory so the wallet can be re-opened via Wallet::load without re-supplying them.
+//
+// The mnemonic must never be stored here: it's the wallet's only secret and the manifest sits in
+// plaintext next to the databases.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub(crate) struct WalletManifest {
+    pub(crate) version: u8,
+    pub(crate) bitcoin_network: BitcoinNetwork,
+    pub(crate) database_type: DatabaseType,
+    pub(crate) max_allocations_per_utxo: u32,
+    pub(crate) supported_schemas: Vec<AssetSchema>,
+    pub(crate) account_xpub_vanilla: String,
+    pub(crate) account_xpub_colored: String,
+    pub(crate) vanilla_keychain: u8,
+    pub(crate) master_fingerprint: String,
+    pub(crate) witness_version: WitnessVersion,
+}
+
+impl WalletManifest {
+    pub(crate) fn new(wallet_data: &WalletData, keys: &SinglesigKeys) -> Self {
+        Self {
+            version: WALLET_MANIFEST_VERSION,
+            bitcoin_network: wallet_data.bitcoin_network,
+            database_type: wallet_data.database_type.clone(),
+            max_allocations_per_utxo: wallet_data.max_allocations_per_utxo,
+            supported_schemas: wallet_data.supported_schemas.clone(),
+            account_xpub_vanilla: keys.account_xpub_vanilla.clone(),
+            account_xpub_colored: keys.account_xpub_colored.clone(),
+            vanilla_keychain: keys.vanilla_keychain.unwrap_or(KEYCHAIN_BTC),
+            master_fingerprint: keys.master_fingerprint.clone(),
+            witness_version: keys.witness_version,
+        }
+    }
+
+    fn path(wallet_dir: &Path) -> PathBuf {
+        wallet_dir.join(WALLET_MANIFEST_FILE)
+    }
+
+    pub(crate) fn write(&self, wallet_dir: &Path) -> Result<(), Error> {
+        let json = serde_json::to_string_pretty(self).map_err(InternalError::from)?;
+        fs::write(Self::path(wallet_dir), json)?;
+        Ok(())
+    }
+
+    pub(crate) fn read(wallet_dir: &Path) -> Result<Self, Error> {
+        let manifest_path = Self::path(wallet_dir);
+        if !manifest_path.exists() {
+            return Err(Error::InexistentWalletManifest {
+                path: manifest_path.to_string_lossy().to_string(),
+            });
+        }
+        let json = fs::read_to_string(&manifest_path)?;
+        let manifest_version: WalletManifestVersion =
+            serde_json::from_str(&json).map_err(InternalError::from)?;
+        if manifest_version.version != WALLET_MANIFEST_VERSION {
+            return Err(Error::UnsupportedWalletManifestVersion {
+                version: manifest_version.version.to_string(),
+            });
+        }
+        serde_json::from_str(&json).map_err(|e| InternalError::from(e).into())
+    }
+
+    // Fail if wallet_data or keys disagree with settings fixed at wallet creation. Settings that
+    // are allowed to change are not checked on purpose.
+    pub(crate) fn check_settings_unchanged(
+        wallet_dir: &Path,
+        wallet_data: &WalletData,
+        keys: &SinglesigKeys,
+    ) -> Result<(), Error> {
+        if !Self::path(wallet_dir).exists() {
+            // skip when no manifest exists (legacy directory or first creation)
+            return Ok(());
+        }
+        let created_with = Self::read(wallet_dir)?;
+        let requested = Self::new(wallet_data, keys);
+
+        if created_with.bitcoin_network != requested.bitcoin_network {
+            return Err(Error::BitcoinNetworkMismatch);
+        }
+
+        macro_rules! check {
+            ($($field:ident),+ $(,)?) => {
+                $(if created_with.$field != requested.$field {
+                    return Err(Error::WalletSettingMismatch {
+                        setting: stringify!($field).to_string(),
+                        expected: format!("{:?}", created_with.$field),
+                        provided: format!("{:?}", requested.$field),
+                    });
+                })+
+            };
+        }
+
+        // ordered so the root cause is reported ahead of what it derives: a changed witness
+        // version also changes the account xpubs it produces
+        check!(
+            master_fingerprint,
+            witness_version,
+            vanilla_keychain,
+            account_xpub_colored,
+            account_xpub_vanilla,
+        );
+        Ok(())
+    }
+
+    pub(crate) fn into_parts(
+        self,
+        data_dir: String,
+        mnemonic: Option<String>,
+    ) -> (WalletData, SinglesigKeys) {
+        (
+            WalletData {
+                data_dir,
+                bitcoin_network: self.bitcoin_network,
+                database_type: self.database_type,
+                max_allocations_per_utxo: self.max_allocations_per_utxo,
+                supported_schemas: self.supported_schemas,
+            },
+            SinglesigKeys {
+                account_xpub_vanilla: self.account_xpub_vanilla,
+                account_xpub_colored: self.account_xpub_colored,
+                vanilla_keychain: Some(self.vanilla_keychain),
+                master_fingerprint: self.master_fingerprint,
+                mnemonic,
+                witness_version: self.witness_version,
+            },
+        )
+    }
+}
+
 /// Which keychain contributes SPKs to the sync request.
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
