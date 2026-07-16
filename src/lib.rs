@@ -70,7 +70,6 @@ pub mod wallet;
 
 pub use bdk_wallet;
 pub use bdk_wallet::bitcoin;
-pub use rgbinvoice::RgbTransport;
 pub use rgbstd::{
     ContractId, Txid as RgbTxid,
     containers::{
@@ -172,7 +171,9 @@ use reqwest::{
 use rgb_lib_migration::{
     ArrayType, ColumnType, Migrator, MigratorTrait, Nullable, Value, ValueTypeErr,
 };
-use rgbinvoice::{AddressPayload, Beneficiary, RgbInvoice, RgbInvoiceBuilder, XChainNet};
+use rgbinvoice::{
+    AddressPayload, Beneficiary, RgbInvoice, RgbInvoiceBuilder, RgbTransport, XChainNet,
+};
 #[cfg(feature = "electrum")]
 use rgbstd::indexers::electrum_blocking::electrum_client::ConfigBuilder;
 use rgbstd::{
