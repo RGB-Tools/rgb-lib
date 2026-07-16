@@ -530,7 +530,6 @@ impl DbTxn {
         )?)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
     pub(crate) fn get_media(&self, media_idx: i32) -> Result<Option<DbMedia>, Error> {
         Ok(block_on(Media::find_by_id(media_idx).one(self.inner()))?)
     }

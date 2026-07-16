@@ -635,28 +635,6 @@ pub trait WalletOnline: WalletOffline {
         Ok(online)
     }
 
-    fn get_asset_medias(
-        &self,
-        txn: &DbTxn,
-        media_idx: Option<i32>,
-        token: Option<TokenLight>,
-    ) -> Result<HashSet<Media>, Error> {
-        let mut asset_medias = HashSet::new();
-        if let Some(media_idx) = media_idx {
-            let db_media = txn.get_media(media_idx)?.unwrap();
-            asset_medias.insert(Media::from_db_media(&db_media, self.media_dir()));
-        }
-        if let Some(token) = token {
-            if let Some(token_media) = token.media {
-                asset_medias.insert(token_media);
-            }
-            for (_, attachment_media) in token.attachments {
-                asset_medias.insert(attachment_media);
-            }
-        }
-        Ok(asset_medias)
-    }
-
     fn get_signed_psbt(&self, transfer_dir: &Path) -> Result<Psbt, Error> {
         let psbt_file = transfer_dir.join(SIGNED_PSBT_FILE);
         let psbt_str = fs::read_to_string(psbt_file)?;

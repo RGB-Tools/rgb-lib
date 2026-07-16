@@ -1433,6 +1433,28 @@ pub trait WalletOffline: WalletBackup {
         }
     }
 
+    fn get_asset_medias(
+        &self,
+        txn: &DbTxn,
+        media_idx: Option<i32>,
+        token: Option<TokenLight>,
+    ) -> Result<HashSet<Media>, Error> {
+        let mut asset_medias = HashSet::new();
+        if let Some(media_idx) = media_idx {
+            let db_media = txn.get_media(media_idx)?.unwrap();
+            asset_medias.insert(Media::from_db_media(&db_media, self.media_dir()));
+        }
+        if let Some(token) = token {
+            if let Some(token_media) = token.media {
+                asset_medias.insert(token_media);
+            }
+            for (_, attachment_media) in token.attachments {
+                asset_medias.insert(attachment_media);
+            }
+        }
+        Ok(asset_medias)
+    }
+
     fn get_btc_balance_for_keychain(&self, keychain: KeychainKind) -> Result<Balance, Error> {
         let chain = self.bdk_wallet().local_chain();
         let chain_tip = self.bdk_wallet().latest_checkpoint().block_id();
