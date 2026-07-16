@@ -570,6 +570,23 @@ impl Wallet {
         res
     }
 
+    /// Return whether the RGB asset with the provided ID is known to the wallet.
+    ///
+    /// <div class="warning">This method is meant for special usage and is normally not needed, use
+    /// it only if you know what you're doing</div>
+    pub fn is_asset_known(&self, contract_id: ContractId) -> Result<bool, Error> {
+        let asset_id = contract_id.to_string();
+        info!(
+            self.logger(),
+            "Checking if asset '{}' is known...", asset_id
+        );
+        let txn = self.database().begin_transaction()?;
+        let known = txn.get_asset(asset_id)?.is_some();
+        txn.commit()?;
+        info!(self.logger(), "Check if asset is known completed");
+        Ok(known)
+    }
+
     /// Return the consignment file path for a send transfer of an asset.
     ///
     /// <div class="warning">This method is meant for special usage and is normally not needed, use
