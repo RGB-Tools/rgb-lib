@@ -319,6 +319,9 @@ impl Wallet {
 
     /// Accept an RGB transfer using a consignment received out-of-band.
     ///
+    /// Returns the consignment, the received assignments and the hex-encoded digests of the media
+    /// attachments defined in the consignment.
+    ///
     /// <div class="warning">This method is meant for special usage and is normally not needed, use
     /// it only if you know what you're doing</div>
     #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -329,7 +332,7 @@ impl Wallet {
         txid: String,
         vout: u32,
         blinding: u64,
-    ) -> Result<(RgbTransfer, Vec<Assignment>), Error> {
+    ) -> Result<(RgbTransfer, Vec<Assignment>, HashSet<String>), Error> {
         info!(self.logger(), "Accepting transfer consignment...");
         self.check_online(online)?;
         let witness_id = RgbTxid::from_str(&txid).map_err(|_| Error::InvalidTxid)?;
@@ -382,6 +385,11 @@ impl Wallet {
         debug!(self.logger(), "Consignment validity: {:?}", validity);
 
         let valid_contract = valid_consignment.clone().into_valid_contract();
+        let media_digests = self
+            .extract_attachments(&valid_contract, asset_schema)
+            .iter()
+            .map(|a| hex::encode(a.digest))
+            .collect::<HashSet<_>>();
         runtime
             .import_contract(valid_contract, self.blockchain_resolver())
             .expect("failure importing validated contract");
@@ -395,6 +403,7 @@ impl Wallet {
         Ok((
             consignment,
             received_rgb_assignments.into_values().collect(),
+            media_digests,
         ))
     }
 
