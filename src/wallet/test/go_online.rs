@@ -50,11 +50,10 @@ fn fail() {
     assert!(matches!(result, Err(Error::InvalidIndexer { details: m }) if m == details ));
 
     // cannot go online again with an invalid indexer URL
-    let indexer_url = if cfg!(feature = "electrum") {
-        ELECTRUM_URL
-    } else {
-        ESPLORA_URL
-    };
+    #[cfg(feature = "electrum")]
+    let indexer_url = ELECTRUM_URL;
+    #[cfg(all(feature = "esplora", not(feature = "electrum")))]
+    let indexer_url = ESPLORA_URL;
     party.go_online(false, Some(indexer_url));
     let result = party.go_online_result(false, Some("other:50001"));
     assert!(matches!(result, Err(Error::InvalidIndexer { details: m }) if m == details ));

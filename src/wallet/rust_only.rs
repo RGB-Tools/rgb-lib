@@ -660,6 +660,7 @@ impl Wallet {
 }
 
 #[cfg(test)]
+#[cfg(any(feature = "electrum", feature = "esplora"))]
 mod tests {
     use super::*;
 

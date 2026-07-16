@@ -277,7 +277,10 @@ use crate::utils::INDEXER_BATCH_SIZE;
 use crate::utils::INDEXER_PARALLEL_REQUESTS;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 #[cfg(test)]
-use crate::wallet::test::{mock_input_unspents, mock_vout};
+use crate::wallet::test::{
+    mock_input_unspents, mock_local_version, mock_send_end_crash, mock_vout, skip_build_dag,
+    skip_check_fee_rate,
+};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use crate::{
     api::{
@@ -347,8 +350,5 @@ use crate::{
 #[cfg(test)]
 use crate::{
     keys::generate_keys,
-    wallet::test::{
-        mock_asset_terms, mock_chain_net, mock_contract_details, mock_local_version,
-        mock_send_end_crash, mock_token_data, skip_build_dag, skip_check_fee_rate,
-    },
+    wallet::test::{mock_asset_terms, mock_chain_net, mock_contract_details, mock_token_data},
 };

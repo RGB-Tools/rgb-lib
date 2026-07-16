@@ -231,15 +231,25 @@ pub(crate) fn mine(esplora: bool) {
     mine_blocks(esplora, 1)
 }
 
+#[cfg(feature = "electrum")]
 pub fn get_tx_height(esplora: bool, txid: &str) -> Option<u64> {
-    let indexer_url = match esplora {
-        true => ESPLORA_URL,
-        false => ELECTRUM_URL,
+    let indexer_url = if esplora {
+        ESPLORA_URL
+    } else {
+        #[cfg(feature = "electrum")]
+        {
+            ELECTRUM_URL
+        }
+        #[cfg(not(feature = "electrum"))]
+        {
+            panic!("electrum indexer unavailable without electrum feature")
+        }
     };
     let indexer = build_indexer(indexer_url).expect("cannot get indexer");
     indexer.get_tx_confirmations(txid).unwrap()
 }
 
+#[cfg(feature = "electrum")]
 pub fn mine_tx(esplora: bool, txid: &str) {
     println!("trying to have TX {txid} mined");
     for _ in 0..10 {
@@ -279,6 +289,7 @@ pub(crate) fn force_mine_no_resume_when_alone(esplora: bool) {
     }
 }
 
+#[cfg(feature = "electrum")]
 pub(crate) fn stop_mining() -> MinerStopGuard {
     loop {
         let now = OffsetDateTime::now_utc();
@@ -405,11 +416,16 @@ pub(crate) fn wait_indexers_sync() {
         std::thread::sleep(std::time::Duration::from_millis(100));
         let mut all_synced = true;
 
-        let mut indexer_urls = vec![];
-        #[cfg(feature = "electrum")]
-        indexer_urls.extend([ELECTRUM_URL, ELECTRUM_2_URL, ELECTRUM_BLOCKSTREAM_URL]);
-        #[cfg(feature = "esplora")]
-        indexer_urls.push(ESPLORA_URL);
+        let indexer_urls = vec![
+            #[cfg(feature = "electrum")]
+            ELECTRUM_URL,
+            #[cfg(feature = "electrum")]
+            ELECTRUM_2_URL,
+            #[cfg(feature = "electrum")]
+            ELECTRUM_BLOCKSTREAM_URL,
+            #[cfg(feature = "esplora")]
+            ESPLORA_URL,
+        ];
 
         for indexer_url in indexer_urls {
             let err_msg = format!("cannot get indexer {indexer_url}");
