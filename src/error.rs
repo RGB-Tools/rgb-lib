@@ -1028,7 +1028,7 @@ mod tests {
         }
         #[cfg(all(feature = "esplora", not(feature = "electrum")))]
         {
-            let err = IndexerError::Esplora(EsploraError::Minreq(minreq::Error::AddressNotFound));
+            let err = IndexerError::Esplora(EsploraError::InvalidResponse);
             let err = Error::from(err);
             assert_matches!(err, Error::Indexer { details } if !details.is_empty());
         }

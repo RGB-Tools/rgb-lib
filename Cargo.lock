@@ -1295,7 +1295,7 @@ dependencies = [
  "bitcoin",
  "hex-conservative 0.2.2",
  "log",
- "minreq 2.14.1",
+ "minreq",
  "serde",
  "serde_json",
 ]
@@ -2321,12 +2321,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "minreq"
-version = "3.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "659579df697b372ef9e36f02fcbb41f6d6f157dcec7db9c9618fa0f23cf0fc20"
-
-[[package]]
 name = "mio"
 version = "1.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3245,7 +3239,6 @@ dependencies = [
  "dircmp",
  "file-format",
  "hex",
- "minreq 3.0.0",
  "mockito",
  "once_cell",
  "rand 0.10.2",

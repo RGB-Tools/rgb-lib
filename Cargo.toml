@@ -100,7 +100,6 @@ confy = { version = "2.0.0", default-features = false, features = [
 ] }
 copy_dir = { version = "0.1.3", default-features = false }
 dircmp = { version = "0.2.0", default-features = false }
-minreq = { version = "3", default-features = false }
 mockito = { version = "1", default-features = false }
 once_cell = { version = "1.21", default-features = false }
 regex = { version = "1.13", default-features = false }
