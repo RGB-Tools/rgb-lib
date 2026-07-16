@@ -1995,6 +1995,7 @@ mod tests {
     use sea_orm::Iterable;
 
     #[test]
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
     fn refresh_transfer_status_matches_waiting() {
         for status in TransferStatus::iter() {
             assert_eq!(

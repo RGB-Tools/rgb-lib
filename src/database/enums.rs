@@ -687,12 +687,15 @@ mod tests {
         assert!(!TransferStatus::Failed.waiting_counterparty());
         assert!(!TransferStatus::WaitingBroadcast.waiting_counterparty());
 
-        assert!(TransferStatus::WaitingCounterparty.waiting());
-        assert!(TransferStatus::WaitingConfirmations.waiting());
-        assert!(TransferStatus::WaitingBroadcast.waiting());
-        assert!(TransferStatus::WaitingSafeHeight.waiting());
-        assert!(!TransferStatus::Initiated.waiting());
-        assert!(!TransferStatus::Settled.waiting());
-        assert!(!TransferStatus::Failed.waiting());
+        #[cfg(any(feature = "electrum", feature = "esplora"))]
+        {
+            assert!(TransferStatus::WaitingCounterparty.waiting());
+            assert!(TransferStatus::WaitingConfirmations.waiting());
+            assert!(TransferStatus::WaitingBroadcast.waiting());
+            assert!(TransferStatus::WaitingSafeHeight.waiting());
+            assert!(!TransferStatus::Initiated.waiting());
+            assert!(!TransferStatus::Settled.waiting());
+            assert!(!TransferStatus::Failed.waiting());
+        }
     }
 }
