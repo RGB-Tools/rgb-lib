@@ -16,11 +16,8 @@ fn success() {
         max_allocations_per_utxo: 1,
         supported_schemas: vec![AssetSchema::Nia, AssetSchema::Cfa],
     };
-    let wallet = Wallet::new(
-        wallet_data.clone(),
-        SinglesigKeys::from_keys(&keys, Some(2)),
-    )
-    .unwrap();
+    let wallet_keys = SinglesigKeys::from_keys(&keys, Some(2));
+    let wallet = Wallet::new(wallet_data.clone(), wallet_keys.clone()).unwrap();
     let wallet_dir = wallet.get_wallet_dir();
     let descriptors = wallet.get_descriptors();
     drop(wallet);
@@ -38,21 +35,21 @@ fn success() {
 
     let loaded_data = loaded.get_wallet_data();
     assert_eq!(loaded_data.data_dir, wallet_data.data_dir);
-    assert_eq!(loaded_data.bitcoin_network, BitcoinNetwork::Signet);
+    assert_eq!(loaded_data.bitcoin_network, wallet_data.bitcoin_network);
     assert!(matches!(loaded_data.database_type, DatabaseType::Sqlite));
-    assert_eq!(loaded_data.max_allocations_per_utxo, 1);
     assert_eq!(
-        loaded_data.supported_schemas,
-        vec![AssetSchema::Nia, AssetSchema::Cfa]
+        loaded_data.max_allocations_per_utxo,
+        wallet_data.max_allocations_per_utxo
     );
+    assert_eq!(loaded_data.supported_schemas, wallet_data.supported_schemas);
 
     let loaded_keys = loaded.get_keys();
     assert_eq!(loaded_keys.account_xpub_vanilla, keys.account_xpub_vanilla);
     assert_eq!(loaded_keys.account_xpub_colored, keys.account_xpub_colored);
     assert_eq!(loaded_keys.master_fingerprint, keys.master_fingerprint);
-    assert_eq!(loaded_keys.vanilla_keychain, Some(2));
-    assert_eq!(loaded_keys.mnemonic, Some(keys.mnemonic));
-    assert_eq!(loaded_keys.witness_version, WitnessVersion::Taproot);
+    assert_eq!(loaded_keys.vanilla_keychain, wallet_keys.vanilla_keychain);
+    assert_eq!(loaded_keys.mnemonic, wallet_keys.mnemonic);
+    assert_eq!(loaded_keys.witness_version, keys.witness_version);
 }
 
 #[test]
@@ -77,7 +74,7 @@ fn watch_only_success() {
     assert_eq!(loaded_keys.master_fingerprint, keys.master_fingerprint);
     // the witness version the wallet was created with survives the round-trip, so the loaded
     // wallet doesn't silently fall back to the default and derive a different set of descriptors
-    assert_eq!(loaded_keys.witness_version, WitnessVersion::SegWitV0);
+    assert_eq!(loaded_keys.witness_version, keys.witness_version);
 }
 
 #[test]
@@ -87,35 +84,34 @@ fn new_updates_manifest_success() {
     let test_data_dir_str = test_data_dir.to_string_lossy().to_string();
 
     let keys = generate_keys(BitcoinNetwork::Regtest, WitnessVersion::Taproot);
-    let wallet = Wallet::new(
-        WalletData {
-            data_dir: test_data_dir_str.clone(),
-            bitcoin_network: BitcoinNetwork::Regtest,
-            database_type: DatabaseType::Sqlite,
-            max_allocations_per_utxo: 1,
-            supported_schemas: vec![AssetSchema::Nia],
-        },
-        SinglesigKeys::from_keys(&keys, None),
-    )
-    .unwrap();
+    let wallet_data = WalletData {
+        data_dir: test_data_dir_str.clone(),
+        bitcoin_network: BitcoinNetwork::Regtest,
+        database_type: DatabaseType::Sqlite,
+        max_allocations_per_utxo: 1,
+        supported_schemas: vec![AssetSchema::Nia],
+    };
+    let wallet = Wallet::new(wallet_data.clone(), SinglesigKeys::from_keys(&keys, None)).unwrap();
     drop(wallet);
 
     let loaded = Wallet::load(&test_data_dir_str, &keys.master_fingerprint, None).unwrap();
     let loaded_data = loaded.get_wallet_data();
-    assert_eq!(loaded_data.max_allocations_per_utxo, 1);
-    assert_eq!(loaded_data.supported_schemas, vec![AssetSchema::Nia]);
+    assert_eq!(
+        loaded_data.max_allocations_per_utxo,
+        wallet_data.max_allocations_per_utxo
+    );
+    assert_eq!(loaded_data.supported_schemas, wallet_data.supported_schemas);
     drop(loaded);
 
     // new is the way to change the settings that aren't fixed at creation, so it rewrites the
     // manifest and later loads pick the new values up
+    let updated_wallet_data = WalletData {
+        max_allocations_per_utxo: 3,
+        supported_schemas: vec![AssetSchema::Nia, AssetSchema::Cfa],
+        ..wallet_data
+    };
     let wallet = Wallet::new(
-        WalletData {
-            data_dir: test_data_dir_str.clone(),
-            bitcoin_network: BitcoinNetwork::Regtest,
-            database_type: DatabaseType::Sqlite,
-            max_allocations_per_utxo: 3,
-            supported_schemas: vec![AssetSchema::Nia, AssetSchema::Cfa],
-        },
+        updated_wallet_data.clone(),
         SinglesigKeys::from_keys(&keys, None),
     )
     .unwrap();
@@ -123,10 +119,13 @@ fn new_updates_manifest_success() {
 
     let loaded = Wallet::load(&test_data_dir_str, &keys.master_fingerprint, None).unwrap();
     let loaded_data = loaded.get_wallet_data();
-    assert_eq!(loaded_data.max_allocations_per_utxo, 3);
+    assert_eq!(
+        loaded_data.max_allocations_per_utxo,
+        updated_wallet_data.max_allocations_per_utxo
+    );
     assert_eq!(
         loaded_data.supported_schemas,
-        vec![AssetSchema::Nia, AssetSchema::Cfa]
+        updated_wallet_data.supported_schemas
     );
 }
 
@@ -184,18 +183,10 @@ fn new_immutable_settings_fail() {
     let test_data_dir = create_test_data_dir();
     let test_data_dir_str = test_data_dir.to_string_lossy().to_string();
 
-    let mnemonic = generate_keys(BitcoinNetwork::Regtest, WitnessVersion::Taproot).mnemonic;
-    let keys = restore_keys(
-        BitcoinNetwork::Regtest,
-        mnemonic.clone(),
-        WitnessVersion::Taproot,
-    )
-    .unwrap();
-    let wallet = Wallet::new(
-        get_test_wallet_data(&test_data_dir_str),
-        SinglesigKeys::from_keys(&keys, None),
-    )
-    .unwrap();
+    let keys = generate_keys(BitcoinNetwork::Regtest, WitnessVersion::Taproot);
+    let wallet_data = get_test_wallet_data(&test_data_dir_str);
+    let wallet_keys = SinglesigKeys::from_keys(&keys, None);
+    let wallet = Wallet::new(wallet_data.clone(), wallet_keys.clone()).unwrap();
     drop(wallet);
 
     let new_with = |wallet_data: WalletData, keys: SinglesigKeys| -> Error {
@@ -206,12 +197,12 @@ fn new_immutable_settings_fail() {
     // would address a different wallet from the same directory
     let segwit_keys = restore_keys(
         BitcoinNetwork::Regtest,
-        mnemonic.clone(),
+        keys.mnemonic.clone(),
         WitnessVersion::SegWitV0,
     )
     .unwrap();
     let err = new_with(
-        get_test_wallet_data(&test_data_dir_str),
+        wallet_data.clone(),
         SinglesigKeys::from_keys(&segwit_keys, None),
     );
     assert_matches!(err, Error::WalletSettingMismatch { setting, .. } if setting == "witness_version");
@@ -219,42 +210,47 @@ fn new_immutable_settings_fail() {
     // the master fingerprint is the directory name and is the same on every network, so nothing
     // else would stop the same directory being reused for a different chain. the network keeps
     // the error BDK's genesis check has always raised for this
-    let mut wallet_data = get_test_wallet_data(&test_data_dir_str);
-    wallet_data.bitcoin_network = BitcoinNetwork::Testnet;
-    let err = new_with(wallet_data, SinglesigKeys::from_keys(&keys, None));
+    let other_network_wallet_data = WalletData {
+        bitcoin_network: BitcoinNetwork::Testnet,
+        ..wallet_data.clone()
+    };
+    let err = new_with(other_network_wallet_data, wallet_keys.clone());
     assert_matches!(err, Error::BitcoinNetworkMismatch);
 
     // the vanilla keychain index feeds the vanilla descriptor
     let err = new_with(
-        get_test_wallet_data(&test_data_dir_str),
+        wallet_data.clone(),
         SinglesigKeys::from_keys(&keys, Some(2)),
     );
     assert_matches!(err, Error::WalletSettingMismatch { setting, .. } if setting == "vanilla_keychain");
 
-    // but None and Some(KEYCHAIN_BTC) mean the same keychain, so spelling it either way is not a
-    // change and must not be rejected
-    Wallet::new(
-        get_test_wallet_data(&test_data_dir_str),
-        SinglesigKeys::from_keys(&keys, Some(KEYCHAIN_BTC)),
+    // a rejected new leaves the recorded settings untouched
+    let loaded = Wallet::load(
+        &test_data_dir_str,
+        &keys.master_fingerprint,
+        Some(keys.mnemonic.clone()),
     )
     .unwrap();
-    Wallet::new(
-        get_test_wallet_data(&test_data_dir_str),
-        SinglesigKeys::from_keys(&keys, None),
-    )
-    .unwrap();
-
-    // a rejected new leaves the recorded settings alone
-    let loaded =
-        Wallet::load(&test_data_dir_str, &keys.master_fingerprint, Some(mnemonic)).unwrap();
-    assert_eq!(loaded.get_keys().witness_version, WitnessVersion::Taproot);
+    assert_eq!(
+        loaded.get_keys().witness_version,
+        wallet_keys.witness_version
+    );
     // the manifest records the resolved keychain, so a wallet created with None loads back as
-    // Some(KEYCHAIN_BTC): the same keychain, spelled unambiguously
+    // Some(KEYCHAIN_BTC), the one from the original new() call (same keychain, but explicit)
     assert_eq!(loaded.get_keys().vanilla_keychain, Some(KEYCHAIN_BTC));
     assert_eq!(
         loaded.get_wallet_data().bitcoin_network,
-        BitcoinNetwork::Regtest
+        wallet_data.bitcoin_network
     );
+
+    // but None and Some(KEYCHAIN_BTC) mean the same keychain, so spelling it either way is not a
+    // change and must not be rejected
+    Wallet::new(
+        wallet_data.clone(),
+        SinglesigKeys::from_keys(&keys, Some(KEYCHAIN_BTC)),
+    )
+    .unwrap();
+    Wallet::new(wallet_data.clone(), wallet_keys.clone()).unwrap();
 }
 
 #[test]
@@ -296,13 +292,13 @@ fn new_mutable_settings_success() {
     .unwrap();
     drop(wallet);
 
-    // the guard doesn't get in the way of the two settings new is meant to update, nor of the
+    // the guard doesn't get in the way of the settings new is meant to update, nor of the
     // watch-only toggle or moving the wallet directory
     let mut wallet_data = get_test_wallet_data(&test_data_dir_str);
     wallet_data.max_allocations_per_utxo = MAX_ALLOCATIONS_PER_UTXO + 1;
     wallet_data.supported_schemas = vec![AssetSchema::Nia];
     let wallet = Wallet::new(
-        wallet_data,
+        wallet_data.clone(),
         SinglesigKeys::from_keys_no_mnemonic(&keys, None),
     )
     .unwrap();
@@ -312,11 +308,11 @@ fn new_mutable_settings_success() {
     let loaded = Wallet::load(&test_data_dir_str, &keys.master_fingerprint, None).unwrap();
     assert_eq!(
         loaded.get_wallet_data().max_allocations_per_utxo,
-        MAX_ALLOCATIONS_PER_UTXO + 1
+        wallet_data.max_allocations_per_utxo
     );
     assert_eq!(
         loaded.get_wallet_data().supported_schemas,
-        vec![AssetSchema::Nia]
+        wallet_data.supported_schemas
     );
 }
 
