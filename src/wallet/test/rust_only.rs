@@ -701,6 +701,30 @@ fn accept_transfer_consignment_fail() {
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
+fn get_tx_height_success() {
+    initialize();
+
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_empty_party!();
+
+    let _guard = stop_mining();
+    let txid = party.send_btc(&rcv_party.get_address(), 1000);
+
+    // unconfirmed TX
+    let result = party.wallet.get_tx_height(party.online, txid.clone());
+    assert_matches!(result, Ok(None));
+
+    drop(_guard);
+    mine(false);
+
+    // confirmed TX
+    let result = party.wallet.get_tx_height(party.online, txid);
+    assert_matches!(result, Ok(Some(height)) if height > 0);
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
 fn get_tx_height_fail() {
     initialize();
 

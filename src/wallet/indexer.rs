@@ -277,7 +277,7 @@ mod tests {
     fn start_electrum_mock(
         handler: impl Fn(&str, &serde_json::Value) -> String + Send + 'static,
     ) -> (String, std::thread::JoinHandle<()>) {
-        use std::io::{BufRead, BufReader, Write};
+        use std::io::{BufRead, Write};
         use std::net::TcpListener;
 
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock electrum");
@@ -286,12 +286,13 @@ mod tests {
 
         let handle = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("mock electrum accept");
-            let mut reader = BufReader::new(stream.try_clone().expect("clone mock stream"));
+            let reader_stream = stream.try_clone().expect("clone mock electrum stream");
+            let mut reader = std::io::BufReader::new(reader_stream);
             loop {
                 let mut line = String::new();
-                if reader.read_line(&mut line).unwrap_or(0) == 0 {
-                    return;
-                }
+                reader
+                    .read_line(&mut line)
+                    .expect("read mock electrum request");
                 let req: serde_json::Value =
                     serde_json::from_str(line.trim()).expect("parse mock electrum request");
                 let method = req["method"]
@@ -311,7 +312,7 @@ mod tests {
                 } else {
                     format!(r#"{{"jsonrpc":"2.0","id":{id},"result":{response}}}"#)
                 };
-                let _ = writeln!(stream, "{body}");
+                writeln!(stream, "{body}").expect("write mock electrum response");
                 if method != "server.version" {
                     return;
                 }
