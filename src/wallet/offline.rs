@@ -325,7 +325,10 @@ pub trait WalletOffline: WalletBackup {
         let src = original_file_path.as_ref().to_string_lossy().to_string();
         let dst = media.clone().file_path;
         if src != dst {
-            fs::copy(src, dst)?;
+            atomic_write_with(Path::new(&dst), |tmp| {
+                fs::copy(&src, tmp)?;
+                Ok(())
+            })?;
         }
         Ok(())
     }
@@ -401,7 +404,7 @@ pub trait WalletOffline: WalletBackup {
         let valid_contract = builder.issue_contract().expect("issuance should succeed");
         let asset_id = valid_contract.contract_id().to_string();
         let contract_path = self.get_issue_consignment_path(&asset_id);
-        valid_contract.save_file(&contract_path)?;
+        atomic_write_with(&contract_path, |tmp| Ok(valid_contract.save_file(tmp)?))?;
         Ok((asset_id, contract_path, valid_contract))
     }
 
@@ -2642,7 +2645,7 @@ pub trait WalletOffline: WalletBackup {
             let asset_transfer_dir = self.get_asset_transfer_dir(transfer_dir, asset_id);
             fs::create_dir_all(&asset_transfer_dir)?;
             let consignment_path = self.get_send_consignment_path_impl(asset_transfer_dir);
-            consignment.save_file(&consignment_path)?;
+            atomic_write_with(&consignment_path, |tmp| Ok(consignment.save_file(tmp)?))?;
         }
         Ok(())
     }

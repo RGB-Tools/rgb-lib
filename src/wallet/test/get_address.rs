@@ -196,7 +196,7 @@ fn pending_tmp_file_left_by_a_crash_is_recovered() {
 
     // simulate the crash: the write and fsync completed, the rename did not
     let pending = wallet_dir.join(BDK_PENDING_FILE);
-    let tmp = wallet_dir.join(format!("{BDK_PENDING_FILE}.tmp"));
+    let tmp = atomic_tmp_path(&pending).unwrap();
     fs::rename(&pending, &tmp).unwrap();
     assert!(!pending.exists() && tmp.exists());
 

@@ -646,6 +646,57 @@ pub(crate) fn hash_bytes_hex(data: &[u8]) -> String {
     hex::encode(hash_bytes(data))
 }
 
+/// Atomically materialize a file at `path`.
+///
+/// The `write` closure writes to a temporary file in the same directory, which
+/// is then fsynced and renamed into place. Since `rename` is atomic on a
+/// single filesystem, a reader (or a crash) never observes a partially-written
+/// file. The fsync (plus a best-effort directory fsync) makes the result
+/// durable across a power loss.
+pub(crate) fn atomic_write_with<F>(path: &Path, write: F) -> Result<(), Error>
+where
+    F: FnOnce(&Path) -> Result<(), Error>,
+{
+    let parent = path.parent().ok_or_else(|| Error::Internal {
+        details: format!("cannot atomically write {path:?}: no parent directory"),
+    })?;
+    fs::create_dir_all(parent)?;
+    let tmp = atomic_tmp_path(path)?;
+    // drop any temp file leaked by an earlier crash
+    let _ = fs::remove_file(&tmp);
+    write(&tmp)?;
+    // fsync the temp file contents before making them visible
+    fs::File::open(&tmp)?.sync_all()?;
+    fs::rename(&tmp, path)?;
+    // fsync the parent directory so the rename entry itself is durable (a no-op on Windows, where
+    // a directory can't be opened as a file: the data is already fsynced and only the durability
+    // of the rename across a power loss is left to the filesystem)
+    sync_dir(parent)?;
+    Ok(())
+}
+
+/// The temporary file `atomic_write_with` stages `path` in before renaming it into place.
+///
+/// Exposed so a loader can recover a temp file left behind by a crash between the write and the
+/// rename.
+pub(crate) fn atomic_tmp_path(path: &Path) -> Result<PathBuf, Error> {
+    let parent = path.parent().ok_or_else(|| Error::Internal {
+        details: format!("cannot atomically write {path:?}: no parent directory"),
+    })?;
+    let file_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| Error::Internal {
+            details: format!("cannot atomically write {path:?}: invalid file name"),
+        })?;
+    Ok(parent.join(format!(".{file_name}.tmp")))
+}
+
+/// Atomically write `bytes` to `path`.
+pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), Error> {
+    atomic_write_with(path, |tmp| Ok(fs::write(tmp, bytes)?))
+}
+
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn hash_file(path: &Path) -> Result<String, Error> {
     let mut file = fs::File::open(path)?;
@@ -1164,6 +1215,20 @@ mod tests {
         // with a lower LOCK_FILE_TIMEOUT_SECS in test builds the error is returned immediately
         let result = write_rgb_runtime_lockfile(dir.path());
         assert_matches!(result, Err(Error::Internal { details }) if details == "unreleased lock file");
+    }
+
+    #[test]
+    fn test_atomic_write() {
+        let dir = tempfile::tempdir().unwrap();
+        // parent dir does not exist yet: it must be created
+        let path = dir.path().join("sub").join("f.bin");
+        atomic_write(&path, b"hello").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"hello");
+        // overwrites cleanly
+        atomic_write(&path, b"world!!").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"world!!");
+        // no temp file is left behind
+        assert!(!path.parent().unwrap().join(".f.bin.tmp").exists());
     }
 
     // The None return from build_indexer is only reachable when electrum is enabled but esplora

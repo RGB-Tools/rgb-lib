@@ -744,7 +744,7 @@ pub trait WalletOnline: WalletOffline {
                     }
                 },
             };
-            fs::write(&media_path, file_bytes)?;
+            atomic_write(&media_path, &file_bytes)?;
             saved_media_paths.push(media_path);
         }
 
@@ -1136,7 +1136,7 @@ pub trait WalletOnline: WalletOffline {
                     );
                 }
             };
-            fs::write(&consignment_path, consignment_bytes).expect("Unable to write file");
+            atomic_write(&consignment_path, &consignment_bytes)?;
 
             // write consignment metadata
             let meta = ReceivedConsignmentMeta {
@@ -1144,7 +1144,7 @@ pub trait WalletOnline: WalletOffline {
                 vout,
             };
             let meta_str = serde_json::to_string(&meta).map_err(InternalError::from)?;
-            fs::write(&consignment_meta_path, meta_str)?;
+            atomic_write(&consignment_meta_path, meta_str.as_bytes())?;
 
             (proxy_url, txid, vout)
         };
@@ -1401,7 +1401,9 @@ pub trait WalletOnline: WalletOffline {
 
         // save validated consignment
         let valid_consignment_path = self.get_receive_valid_consignment_path(consignment_path);
-        valid_consignment.save_file(&valid_consignment_path)?;
+        atomic_write_with(&valid_consignment_path, |tmp| {
+            Ok(valid_consignment.save_file(tmp)?)
+        })?;
 
         debug!(
             self.logger(),
@@ -1574,9 +1576,10 @@ pub trait WalletOnline: WalletOffline {
             // copy the provided consignment to the canonical receive path, so later refresh stages
             // (safe height, confirmations) find it where they expect it
             let consignment_path = self.get_receive_consignment_path(&recipient_id);
-            let transfer_dir = consignment_path.parent().unwrap();
-            fs::create_dir_all(transfer_dir)?;
-            fs::copy(consignment_path_in, &consignment_path)?;
+            atomic_write_with(&consignment_path, |tmp| {
+                fs::copy(consignment_path_in, tmp)?;
+                Ok(())
+            })?;
 
             let mut updated_batch_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
             let mode = ReceiveMode::OutOfBand {
@@ -2692,7 +2695,7 @@ pub trait WalletOnline: WalletOffline {
         fs::create_dir_all(&transfer_dir)?;
         let fascia_path = transfer_dir.join(FASCIA_FILE);
         let serialized_fascia = serde_json::to_string(&fascia).map_err(InternalError::from)?;
-        fs::write(fascia_path, serialized_fascia)?;
+        atomic_write(&fascia_path, serialized_fascia.as_bytes())?;
 
         let witness_txid = psbt.get_txid();
         for (asset_id, transfer_info) in transfer_info_map.iter_mut() {
@@ -2782,7 +2785,7 @@ pub trait WalletOnline: WalletOffline {
         let serialized_info =
             serde_json::to_string(&info_batch_transfer).map_err(InternalError::from)?;
         let info_file = transfer_dir.join(TRANSFER_DATA_FILE);
-        fs::write(info_file, serialized_info)?;
+        atomic_write(&info_file, serialized_info.as_bytes())?;
 
         Ok(PrepareRgbPsbtResult::Success(Box::new(
             BeginOperationData {
@@ -3353,9 +3356,9 @@ pub trait WalletOnline: WalletOffline {
         fs::rename(transfer_dir, &new_transfer_dir)?;
 
         // persist the unsigned PSBT
-        fs::write(
-            new_transfer_dir.join(UNSIGNED_PSBT_FILE),
-            begin_operation_data.psbt.to_string(),
+        atomic_write(
+            &new_transfer_dir.join(UNSIGNED_PSBT_FILE),
+            begin_operation_data.psbt.to_string().as_bytes(),
         )?;
 
         // update transfer_dir to the new (renamed) directory
@@ -3622,7 +3625,7 @@ pub trait WalletOnline: WalletOffline {
         self.gen_consignments(&fascia, &info_contents.transfers, &transfer_dir)?;
 
         let psbt_out = transfer_dir.join(SIGNED_PSBT_FILE);
-        fs::write(psbt_out, signed_psbt.to_string())?;
+        atomic_write(&psbt_out, signed_psbt.to_string().as_bytes())?;
 
         let mut medias = None;
         let mut tokens = None;

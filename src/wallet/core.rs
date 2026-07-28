@@ -68,7 +68,7 @@ impl WalletManifest {
 
     pub(crate) fn write(&self, wallet_dir: &Path) -> Result<(), Error> {
         let json = serde_json::to_string_pretty(self).map_err(InternalError::from)?;
-        fs::write(Self::path(wallet_dir), json)?;
+        atomic_write(&Self::path(wallet_dir), json.as_bytes())?;
         Ok(())
     }
 
@@ -340,11 +340,9 @@ pub(crate) fn setup_bdk<P: AsRef<Path>>(
     // a crash between the temporary write and the rename leaves the newer changeset in the .tmp
     // file, so fold both in; the pending buffer only ever grows, so applying them in this order
     // ends on the newest state
-    for name in [
-        BDK_PENDING_FILE.to_string(),
-        format!("{BDK_PENDING_FILE}.tmp"),
-    ] {
-        let pending_file = wallet_dir.as_ref().join(name);
+    let pending_path = wallet_dir.as_ref().join(BDK_PENDING_FILE);
+    let pending_tmp_path = atomic_tmp_path(&pending_path)?;
+    for pending_file in [pending_path, pending_tmp_path] {
         if !pending_file.exists() {
             continue;
         }
@@ -470,18 +468,9 @@ pub trait WalletCore {
             }
             serde_json::to_vec(&*guard).map_err(InternalError::from)?
         };
-        // write to a temporary file and rename it into place: the rename is atomic, so a crash
-        // mid-write cannot leave a half-written file, which would fail to parse on reload and
-        // leave the wallet unopenable
-        let path = self.wallet_dir().join(BDK_PENDING_FILE);
-        let tmp_path = self.wallet_dir().join(format!("{BDK_PENDING_FILE}.tmp"));
-        let mut file = fs::File::create(&tmp_path)?;
-        file.write_all(&serialized)?;
-        file.sync_all()?;
-        fs::rename(&tmp_path, &path)?;
-        // the rename is only durable once the directory entry it changed is synced too
-        sync_dir(self.wallet_dir())?;
-        Ok(())
+        // a crash mid-write cannot leave a half-written file, which would fail to parse on reload
+        // and leave the wallet unopenable
+        atomic_write(&self.wallet_dir().join(BDK_PENDING_FILE), &serialized)
     }
 
     /// Persist any pending BDK changes and commit the transaction.

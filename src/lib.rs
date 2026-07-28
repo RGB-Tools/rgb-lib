@@ -341,10 +341,10 @@ use crate::{
     keys::{Keys, WitnessVersion},
     utils::{
         ACCOUNT, DumbResolver, KEYCHAIN_BTC, KEYCHAIN_RGB, LOG_FILE, PURPOSE, RgbRuntime,
-        adjust_canonicalization, beneficiary_from_script_buf, from_str_or_number_mandatory,
-        from_str_or_number_optional, get_account_xpubs, get_coin_type, get_descriptors,
-        get_descriptors_from_xpubs, hash_bytes, hash_bytes_hex, load_rgb_runtime, now,
-        parse_address_str, setup_logger, str_to_xpub, sync_dir,
+        adjust_canonicalization, atomic_tmp_path, atomic_write, atomic_write_with,
+        beneficiary_from_script_buf, from_str_or_number_mandatory, from_str_or_number_optional,
+        get_account_xpubs, get_coin_type, get_descriptors, get_descriptors_from_xpubs, hash_bytes,
+        hash_bytes_hex, load_rgb_runtime, now, parse_address_str, setup_logger, str_to_xpub,
     },
     wallet::{
         Balance, LocalRgbAllocation, LocalUnspent, NUM_KNOWN_SCHEMAS, Outpoint, SCHEMA_ID_CFA,

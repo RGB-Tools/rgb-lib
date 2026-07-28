@@ -1164,11 +1164,14 @@ impl MultisigWallet {
         fs::create_dir_all(&transfer_dir)?;
         let batch_transfer = InfoBatchTransfer::extract_from_files(files)?;
         let batch_data_str = serde_json::to_string(&batch_transfer).expect("serializable");
-        fs::write(transfer_dir.join(TRANSFER_DATA_FILE), batch_data_str)?;
+        atomic_write(
+            &transfer_dir.join(TRANSFER_DATA_FILE),
+            batch_data_str.as_bytes(),
+        )?;
         let fascia = extract_fascia_from_files(files)?;
         let fascia_str = serde_json::to_string(&fascia).expect("serializable");
         let fascia_path = transfer_dir.join(FASCIA_FILE);
-        fs::write(fascia_path, fascia_str)?;
+        atomic_write(&fascia_path, fascia_str.as_bytes())?;
         Ok(())
     }
 

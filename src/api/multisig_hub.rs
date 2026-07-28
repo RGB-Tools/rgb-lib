@@ -249,11 +249,14 @@ impl MultisigHubClient {
             let res = response.json::<APIErrorBody>().map_err(Self::req_err)?;
             return Err(Self::map_hub_error(res));
         }
-        let file = fs::File::create(out_path)?;
-        let mut out = io::BufWriter::new(file);
-        io::copy(&mut response, &mut out)
-            .map_err(|e| Self::req_err(format!("failed to write file: {e}")))?;
-        Ok(())
+        atomic_write_with(out_path.as_ref(), |tmp| {
+            let file = fs::File::create(tmp)?;
+            let mut out = io::BufWriter::new(file);
+            io::copy(&mut response, &mut out)
+                .map_err(|e| Self::req_err(format!("failed to write file: {e}")))?;
+            out.flush()?;
+            Ok(())
+        })
     }
 
     pub(crate) fn get_operation_by_idx(
