@@ -106,7 +106,8 @@ pub use bdk_wallet::bitcoin;
 pub use rgbstd::{
     ContractId, Txid as RgbTxid,
     containers::{
-        ConsignmentExt, Fascia, FileContent, PubWitness, Transfer as RgbTransfer, WitnessBundle,
+        ConsignmentExt, Contract as RgbContract, Fascia, FileContent, PubWitness,
+        Transfer as RgbTransfer, WitnessBundle,
     },
     persistence::UpdateRes,
     schema::SchemaId,

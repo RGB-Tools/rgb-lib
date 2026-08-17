@@ -24,6 +24,23 @@ pub struct ColoringInfo {
     pub nonce: Option<u64>,
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+struct ContractImportResolver;
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+impl ResolveWitness for ContractImportResolver {
+    fn resolve_witness(&self, witness_id: RgbTxid) -> Result<WitnessStatus, WitnessResolverError> {
+        Err(WitnessResolverError::ResolverIssue(
+            Some(witness_id),
+            s!("contract consignments cannot contain witness history"),
+        ))
+    }
+
+    fn check_chain_net(&self, _: ChainNet) -> Result<(), WitnessResolverError> {
+        Ok(())
+    }
+}
+
 /// Map of contract ID and list of its beneficiaries
 pub type AssetBeneficiariesMap = BTreeMap<ContractId, Vec<BuilderSeal<GraphSeal>>>;
 
@@ -79,6 +96,208 @@ pub fn check_proxy_url(proxy_url: &str) -> Result<(), Error> {
 
 /// Rust-only APIs of the wallet.
 impl Wallet {
+    /// Export an RGB contract known to this wallet.
+    ///
+    /// The returned value is a standard RGB contract consignment. It contains the public contract
+    /// definition, not transfer history, wallet allocations or proof that this wallet owns units
+    /// of the asset.
+    ///
+    /// <div class="warning">This method is meant for special usage and is normally not needed,
+    /// use it only if you know what you're doing</div>
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub fn export_asset_contract(&self, asset_id: String) -> Result<RgbContract, Error> {
+        info!(self.logger(), "Exporting asset contract '{}'...", asset_id);
+
+        let txn = self.database().begin_transaction()?;
+        txn.check_asset_exists(asset_id.clone())?;
+        txn.commit()?;
+        let contract_id = ContractId::from_str(&asset_id).expect("invalid contract ID");
+        let contract = self.rgb_runtime()?.export_contract(contract_id)?;
+
+        info!(self.logger(), "Export asset contract completed");
+        Ok(contract)
+    }
+
+    /// Validate and import an RGB contract without importing asset allocations.
+    ///
+    /// This registers the contract and its public metadata locally. It does not transfer asset
+    /// units, so a newly imported contract has a zero wallet balance. Every media file declared by
+    /// the contract and not already stored by the wallet must be supplied in `media_file_paths`.
+    ///
+    /// <div class="warning">This method is meant for special usage and is normally not needed,
+    /// use it only if you know what you're doing</div>
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub fn import_asset_contract(
+        &self,
+        contract: RgbContract,
+        media_file_paths: Vec<String>,
+    ) -> Result<Metadata, Error> {
+        let contract_id = contract.contract_id();
+        let asset_id = contract_id.to_string();
+        info!(self.logger(), "Importing asset contract '{}'...", asset_id);
+
+        let asset_schema: AssetSchema = contract.schema_id().try_into()?;
+        self.check_schema_support(&asset_schema)?;
+        let validation_config = ValidationConfig {
+            chain_net: self.chain_net(),
+            trusted_typesystem: asset_schema.types(),
+            ..Default::default()
+        };
+        let resolver = ContractImportResolver;
+        let valid_contract = match contract.validate(&resolver, &validation_config) {
+            Ok(contract) => contract,
+            Err(ValidationError::InvalidConsignment(e)) => {
+                error!(self.logger(), "Contract consignment is invalid: {}", e);
+                return Err(Error::InvalidConsignment);
+            }
+            Err(ValidationError::ResolverError(e)) => {
+                warn!(self.logger(), "Contract consignment could not be resolved");
+                return Err(Error::Network {
+                    details: e.to_string(),
+                });
+            }
+        };
+
+        let txn = self.database().begin_transaction()?;
+        if txn.get_asset(asset_id.clone())?.is_some() {
+            let metadata = self.get_asset_metadata_impl(&txn, asset_id)?;
+            txn.commit()?;
+            info!(self.logger(), "Import asset contract completed");
+            return Ok(metadata);
+        }
+        let mut runtime = self.rgb_runtime()?;
+
+        let declared_attachments = self.extract_attachments(&valid_contract, asset_schema);
+        let mut expected_media = BTreeMap::new();
+        for attachment in declared_attachments {
+            let digest = hex::encode(attachment.digest);
+            if let Some(expected) = expected_media.insert(digest.clone(), attachment.clone())
+                && expected.ty != attachment.ty
+            {
+                return Err(Error::InvalidAttachments {
+                    details: format!(
+                        "contract declares multiple media types for digest '{digest}'"
+                    ),
+                });
+            }
+        }
+
+        let mut provided_media = BTreeMap::new();
+        for file_path in media_file_paths {
+            let (attachment, media) = self.file_details(&file_path)?;
+            let digest = media.digest.clone();
+            let Some(expected) = expected_media.get(&digest) else {
+                return Err(Error::InvalidAttachments {
+                    details: format!("unexpected media file with digest '{digest}'"),
+                });
+            };
+            if expected.ty != attachment.ty {
+                return Err(Error::InvalidAttachments {
+                    details: format!("media type mismatch for digest '{digest}'"),
+                });
+            }
+            if provided_media
+                .insert(digest.clone(), (file_path, media))
+                .is_some()
+            {
+                return Err(Error::InvalidAttachments {
+                    details: format!("duplicate media file with digest '{digest}'"),
+                });
+            }
+        }
+
+        let mut media_to_copy = vec![];
+        for digest in expected_media.keys() {
+            let destination = self.media_dir().join(digest);
+            if destination.exists() {
+                provided_media.remove(digest);
+                continue;
+            }
+            let Some((source, media)) = provided_media.remove(digest) else {
+                return Err(Error::InvalidAttachments {
+                    details: format!("missing media file with digest '{digest}'"),
+                });
+            };
+            media_to_copy.push((source, media, destination));
+        }
+
+        let mut saved_media_paths = vec![];
+        for (source, media, destination) in media_to_copy {
+            if let Err(e) = self.copy_media_file(source, &media) {
+                if let Err(cleanup_error) = Self::cleanup_media_files(&saved_media_paths) {
+                    warn!(
+                        self.logger(),
+                        "Failed cleaning up media after contract import error: {}", cleanup_error
+                    );
+                }
+                return Err(e);
+            }
+            saved_media_paths.push(destination);
+        }
+
+        let metadata = match self.save_imported_asset_contract(
+            txn,
+            &mut runtime,
+            contract_id,
+            asset_schema,
+            valid_contract,
+            &resolver,
+        ) {
+            Ok(metadata) => metadata,
+            Err(e) => {
+                if let Err(cleanup_error) = Self::cleanup_media_files(&saved_media_paths) {
+                    warn!(
+                        self.logger(),
+                        "Failed cleaning up media after contract import error: {}", cleanup_error
+                    );
+                }
+                return Err(e);
+            }
+        };
+        info!(self.logger(), "Import asset contract completed");
+        Ok(metadata)
+    }
+
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    fn save_imported_asset_contract(
+        &self,
+        txn: DbTxn,
+        runtime: &mut RgbRuntime,
+        contract_id: ContractId,
+        asset_schema: AssetSchema,
+        valid_contract: ValidContract,
+        resolver: &ContractImportResolver,
+    ) -> Result<Metadata, Error> {
+        runtime.import_contract(valid_contract.clone(), resolver)?;
+        let local_asset_data = self.save_new_asset_internal(
+            &txn,
+            runtime,
+            contract_id,
+            asset_schema,
+            valid_contract,
+            None,
+        )?;
+        self.update_backup_info(&txn, false)?;
+        txn.commit()?;
+
+        let initial_supply = local_asset_data.initial_supply;
+        Ok(Metadata {
+            asset_schema: local_asset_data.asset_schema,
+            initial_supply,
+            max_supply: local_asset_data.max_supply.unwrap_or(initial_supply),
+            known_circulating_supply: local_asset_data
+                .known_circulating_supply
+                .unwrap_or(initial_supply),
+            timestamp: local_asset_data.timestamp,
+            name: local_asset_data.name,
+            precision: local_asset_data.precision,
+            ticker: local_asset_data.ticker,
+            details: local_asset_data.details,
+            token: local_asset_data.token,
+            reject_list_url: local_asset_data.reject_list_url,
+        })
+    }
+
     /// Color a PSBT.
     ///
     /// <div class="warning">This method is meant for special usage and is normally not needed, use
