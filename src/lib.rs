@@ -210,7 +210,7 @@ pub use rgbstd::bitcoin;
 pub use rgbstd::{
     AssignmentType, ChainNet, ContractId, Genesis, GraphSeal, OpId, Txid as RgbTxid,
     containers::{
-        BuilderSeal, ConsignmentExt, Fascia, FileContent, LoadError, SpvProof,
+        BuilderSeal, ConsignmentExt, Contract as RgbContract, Fascia, FileContent, LoadError, SpvProof,
         Transfer as RgbTransfer, WitnessBundle,
     },
     indexers::ResolveSpvProof,
