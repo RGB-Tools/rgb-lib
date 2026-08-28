@@ -560,6 +560,19 @@ pub trait WalletCore {
         &self.online_data().as_ref().unwrap().indexer
     }
 
+    fn spv_resolver(&self) -> Option<&dyn ResolveSpvProof> {
+        #[cfg(feature = "_online")]
+        {
+            self.online_data()
+                .as_ref()
+                .map(|d| &d.resolver as &dyn ResolveSpvProof)
+        }
+        #[cfg(not(feature = "_online"))]
+        {
+            None
+        }
+    }
+
     #[cfg(feature = "_online")]
     fn vanilla_sync_lookback(&self) -> u32 {
         self.online_data().as_ref().unwrap().vanilla_sync_lookback
