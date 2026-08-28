@@ -1752,3 +1752,167 @@ fn send_to_oneself() {
         (AMOUNT_SMALL, AMOUNT_SMALL, AMOUNT_SMALL),
     );
 }
+
+/// Reproducer for #82: the `sync_with_hub` cache cleanup empties the whole
+/// `hub_ops/` directory instead of removing the files of the operation it just
+/// completed.
+///
+/// `hub_ops/` is a wallet-wide, flat download cache keyed by `file_id`, shared
+/// by every operation. A wallet that has already downloaded a pending
+/// operation's files therefore loses them as soon as any other operation
+/// reaches a terminal state - which is what a long-running service hits, where
+/// several flows share one wallet directory: one holds a file path while a
+/// neighbouring `sync_with_hub` deletes the file underneath it.
+///
+/// The test drives that shape without concurrency: a cosigner that stayed
+/// behind caches a pending operation's files, then catches up on an older,
+/// already-approved operation.
+#[cfg(feature = "electrum")]
+#[test]
+#[serial]
+fn sync_with_hub_cleanup_keeps_other_operations_files() {
+    initialize();
+    op_counter_reset();
+
+    let bitcoin_network = BitcoinNetwork::Regtest;
+    let threshold_colored = 2;
+    let threshold_vanilla = 2;
+    let random_str: String = rand::rng()
+        .sample_iter(&Alphanumeric)
+        .take(6)
+        .map(char::from)
+        .collect();
+
+    // multisig wallet keys
+    let wlt_1_keys = generate_keys(bitcoin_network, WitnessVersion::Taproot);
+    let wlt_2_keys = generate_keys(bitcoin_network, WitnessVersion::Taproot);
+    let wlt_3_keys = generate_keys(bitcoin_network, WitnessVersion::Taproot);
+
+    // cosigners
+    let cosigners = vec![
+        Cosigner::from_keys(&wlt_1_keys, None),
+        Cosigner::from_keys(&wlt_2_keys, None),
+        Cosigner::from_keys(&wlt_3_keys, None),
+    ];
+    let cosigner_xpubs: Vec<String> = cosigners
+        .iter()
+        .map(|c| c.account_xpub_colored.clone())
+        .collect();
+
+    // biscuit token setup
+    let root_keypair = KeyPair::new();
+    let root_public_key = root_keypair.public();
+    let mut cosigner_tokens = vec![];
+    for cosigner_xpub in &cosigner_xpubs {
+        cosigner_tokens.push(create_token(
+            &root_keypair,
+            Role::Cosigner(cosigner_xpub.clone()),
+            None,
+        ));
+    }
+
+    // hub setup
+    write_hub_config(
+        &cosigner_xpubs,
+        threshold_colored,
+        threshold_vanilla,
+        root_public_key.to_bytes_hex(),
+        None,
+    );
+    restart_multisig_hub();
+
+    // multisig wallets
+    let multisig_wlt_keys =
+        MultisigKeys::new(cosigners.clone(), threshold_colored, threshold_vanilla);
+    let mut wlt_1_multisig = get_test_ms_wallet(&multisig_wlt_keys, format!("{random_str}_1"));
+    let wlt_1_multisig_online = ms_go_online(&mut wlt_1_multisig, &cosigner_tokens[0]);
+    let mut wlt_2_multisig = get_test_ms_wallet(&multisig_wlt_keys, format!("{random_str}_2"));
+    let wlt_2_multisig_online = ms_go_online(&mut wlt_2_multisig, &cosigner_tokens[1]);
+    let mut wlt_3_multisig = get_test_ms_wallet(&multisig_wlt_keys, format!("{random_str}_3"));
+    let wlt_3_multisig_online = ms_go_online(&mut wlt_3_multisig, &cosigner_tokens[2]);
+
+    // singlesig wallets (for signing)
+    let wlt_1_singlesig = get_test_wallet_with_keys(&wlt_1_keys);
+    let wlt_2_singlesig = get_test_wallet_with_keys(&wlt_2_keys);
+    let wlt_3_singlesig = get_test_wallet_with_keys(&wlt_3_keys);
+
+    // multisig parties
+    let mut wlt_1 = ms_party!(
+        &wlt_1_singlesig,
+        &mut wlt_1_multisig,
+        wlt_1_multisig_online,
+        &cosigner_xpubs[0]
+    );
+    let mut wlt_2 = ms_party!(
+        &wlt_2_singlesig,
+        &mut wlt_2_multisig,
+        wlt_2_multisig_online,
+        &cosigner_xpubs[1]
+    );
+    let mut wlt_3 = ms_party!(
+        &wlt_3_singlesig,
+        &mut wlt_3_multisig,
+        wlt_3_multisig_online,
+        &cosigner_xpubs[2]
+    );
+
+    // fund wallet 1
+    send_sats_to_address(wlt_1.get_address(), Some(30_000));
+    mine(false);
+
+    println!("\n=== operation 1: create UTXOs, approved by wlt_1 + wlt_2 ===");
+    // wlt_3 neither votes nor syncs, so it stays behind - the state a service
+    // wallet is in while another cosigner drives the flow
+    let op_1 = wlt_1.create_utxos_init(false, Some(1), Some(1000), FEE_RATE);
+    operation_complete::<CreateUtxosHandler>(
+        op_1.operation_idx,
+        &mut [&mut wlt_1, &mut wlt_2],
+        &mut [],
+        &mut [],
+        true,
+    );
+    mine(false);
+
+    println!("\n=== operation 2: left pending on purpose ===");
+    let op_2 = wlt_1.create_utxos_init(false, Some(1), Some(1000), FEE_RATE);
+
+    // wlt_3 caches the pending operation's files: downloading them is the only
+    // way to read its PSBT, so any flow that inspects a pending operation ends
+    // up holding these paths
+    let (_, files_2) = wlt_3.get_op_and_files(op_2.operation_idx);
+    let cached_2: Vec<_> = files_2.iter().map(|f| f.filepath.clone()).collect();
+    assert!(!cached_2.is_empty());
+    for path in &cached_2 {
+        assert!(path.exists());
+    }
+
+    // ...and the completed operation's files, which the cleanup SHOULD remove
+    let (_, files_1) = wlt_3.get_op_and_files(op_1.operation_idx);
+    let cached_1: Vec<_> = files_1
+        .iter()
+        .map(|f| f.filepath.clone())
+        .filter(|p| !cached_2.contains(p))
+        .collect();
+    assert!(!cached_1.is_empty());
+
+    println!("\n=== wlt_3 catches up on operation 1 ===");
+    let op_info = wlt_3.sync_with_hub();
+    assert_eq!(op_info.operation_idx, op_1.operation_idx);
+
+    // the completed operation's own files are dropped from the cache...
+    for path in &cached_1 {
+        assert!(
+            !path.exists(),
+            "cached file of completed operation {} was kept: {path:?}",
+            op_1.operation_idx
+        );
+    }
+    // ...but operation 2 is still pending: its files must survive
+    for path in &cached_2 {
+        assert!(
+            path.exists(),
+            "sync_with_hub dropped a cached file of pending operation {} (#82): {path:?}",
+            op_2.operation_idx
+        );
+    }
+}
