@@ -24,6 +24,9 @@ bdk_wallet = { version = "=3.2.0", default-features = false, features = [
     "keys-bip39",
     "std",
 ] }
+bdk_bitcoind_rpc = { version = "0.22.0", optional = true, default-features = false, features = [
+    "std",
+] }
 bdk_electrum = { version = "0.24.0", optional = true, default-features = false, features = [
     "use-rustls",
 ] }
@@ -114,8 +117,8 @@ version = "0.13"
 features = ["rustls"]
 
 [features]
-default = ["electrum", "bdk_file_store_migration", "rgb_fs_store_migration"]
-all = ["electrum", "esplora", "bdk_file_store_migration", "rgb_fs_store_migration"]
+default = ["bitcoind", "electrum", "esplora", "bdk_file_store_migration", "rgb_fs_store_migration"]
+all = ["bitcoind", "electrum", "esplora", "bdk_file_store_migration", "rgb_fs_store_migration"]
 # import the BDK data of wallets created before the changeset moved into the rgb-lib DB; only
 # needed to upgrade such wallets, so it can be turned off to drop the bdk_file_store dependency
 bdk_file_store_migration = ["bdk_wallet/file_store"]
@@ -123,12 +126,23 @@ bdk_file_store_migration = ["bdk_wallet/file_store"]
 # data moved into the rgb-lib DB; only needed to upgrade such wallets, so it can be turned off to
 # drop the legacy formats support of rgb-ops
 rgb_fs_store_migration = ["rgb-ops/legacy"]
+# implied by each indexer feature, marking a build that can reach the network; it exists only to
+# avoid repeating the list of indexer features in cfgs and must not be enabled on its own
+_online = []
+bitcoind = [
+    "_online",
+    "bdk_bitcoind_rpc",
+    "reqwest",
+    "rgb-ops/bitcoind_blocking",
+]
 electrum = [
+    "_online",
     "bdk_electrum",
     "reqwest",
     "rgb-ops/electrum_blocking",
 ]
 esplora = [
+    "_online",
     "bdk_esplora",
     "reqwest",
     "rgb-ops/esplora_blocking",

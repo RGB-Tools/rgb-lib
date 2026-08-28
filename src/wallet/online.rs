@@ -14,6 +14,44 @@ pub(crate) const UTXO_NUM: u8 = 5;
 pub(crate) const MIN_BLOCK_ESTIMATION: u16 = 1;
 pub(crate) const MAX_BLOCK_ESTIMATION: u16 = 1008;
 
+/// Return the indexer protocol for the provided URL.
+/// An error is raised if the provided indexer URL is invalid or if the service is for the wrong
+/// network or doesn't have the required functionality.
+///
+/// A Bitcoin Core node is only detected when `bitcoind_auth` is provided, otherwise the URL is
+/// probed for an electrum server first and assumed to be an esplora one if that fails. See
+/// [`IndexerConfig`] for the meaning of the returned protocol.
+pub fn check_indexer_url(
+    indexer_url: &str,
+    bitcoind_auth: Option<&BitcoindAuth>,
+    bitcoin_network: BitcoinNetwork,
+) -> Result<IndexerProtocol, Error> {
+    let indexer_config =
+        detect_indexer(indexer_url, bitcoind_auth).ok_or_else(|| Error::InvalidIndexer {
+            details: if bitcoind_auth.is_some() {
+                s!("bitcoind support is not enabled (requires the `bitcoind` feature)")
+            } else {
+                s!("not a valid electrum nor esplora server")
+            },
+        })?;
+    get_indexer_and_resolver(&indexer_config, bitcoin_network).map_err(|e| {
+        // the esplora config is a blind fallback guess (see detect_indexer), so an unreachable
+        // esplora server means neither probed protocol answered
+        match (&indexer_config, &e) {
+            (IndexerConfig::Esplora { .. }, Error::InvalidIndexer { details })
+                if details == "not a valid esplora server" =>
+            {
+                Error::InvalidIndexer {
+                    details: s!("not a valid electrum nor esplora server"),
+                }
+            }
+            _ => e,
+        }
+    })?;
+
+    Ok(indexer_config.protocol())
+}
+
 pub trait WalletOnline: WalletOffline {
     fn blockchain_resolver(&self) -> &AnyResolver {
         &self.online_data().as_ref().unwrap().resolver
@@ -51,6 +89,19 @@ pub trait WalletOnline: WalletOffline {
             }
             Err(e) => {
                 match e {
+                    #[cfg(feature = "bitcoind")]
+                    IndexerError::Bitcoind(ref e) => {
+                        let err_str = e.to_string();
+                        if err_str.contains("min relay fee not met")
+                            || err_str.contains("mempool min fee not met")
+                        {
+                            return Err(Error::MinFeeNotMet { txid: txid.clone() });
+                        } else if err_str.contains("Fee exceeds maximum configured")
+                            || err_str.contains("max-fee-exceeded")
+                        {
+                            return Err(Error::MaxFeeExceeded { txid: txid.clone() });
+                        }
+                    }
                     #[cfg(feature = "electrum")]
                     IndexerError::Electrum(ref e) => {
                         let err_str = e.to_string();
@@ -714,12 +765,12 @@ pub trait WalletOnline: WalletOffline {
         let online = Online { id };
 
         let (indexer, resolver) =
-            get_indexer_and_resolver(&online_options.indexer_url, self.bitcoin_network())?;
+            get_indexer_and_resolver(&online_options.indexer_config, self.bitcoin_network())?;
         indexer.populate_tx_cache(self.bdk_wallet());
 
         let online_data = OnlineData {
             id: online.id,
-            indexer_url: online_options.indexer_url.to_string(),
+            indexer_config: online_options.indexer_config.clone(),
             indexer,
             resolver,
             hub_client: None,
@@ -732,20 +783,19 @@ pub trait WalletOnline: WalletOffline {
     }
 
     fn go_online_impl(&mut self, online_options: &OnlineOptions) -> Result<Online, Error> {
-        let indexer_url = &online_options.indexer_url;
         let online = if let Some(online_data) = self.online_data().as_ref() {
             let online = Online { id: online_data.id };
-            if online_data.indexer_url != *indexer_url {
+            if online_data.indexer_config != online_options.indexer_config {
                 let (online, online_data) = self.get_online_data(online_options)?;
                 *self.online_data_mut() = Some(online_data);
-                info!(self.logger(), "Went online with new indexer URL");
+                info!(self.logger(), "Went online with new indexer");
                 online
             } else {
                 self.check_online(online)?;
                 // the indexer is unchanged but the other options may have changed. No `..` on
                 // purpose: a new option doesn't compile until it's handled here
                 let OnlineOptions {
-                    indexer_url: _,            // a new URL goes online from scratch, see above
+                    indexer_config: _,         // a new indexer goes online from scratch, see above
                     skip_consistency_check: _, // only used during this call, not stored
                     vanilla_sync_lookback,
                     failed_witness_receive_grace_secs,
@@ -4405,7 +4455,7 @@ pub trait WalletOnline: WalletOffline {
 }
 
 /// Online operations for a wallet.
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub trait RgbWalletOpsOnline: RgbWalletOpsOffline + WalletOnline {
     /// Set the status for eligible transfers to [`TransferStatus::Failed`] and return true if any
     /// transfer has changed.

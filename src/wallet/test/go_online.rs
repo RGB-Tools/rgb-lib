@@ -51,9 +51,16 @@ fn success() {
     // can go online again with esplora URL
     let result_4 = party.go_online_result(false, Some(ESPLORA_URL));
     assert!(result_4.is_ok());
+
+    // can go online again with bitcoind URL
+    #[cfg(feature = "bitcoind")]
+    {
+        let result_5 = party.go_online_result(false, Some(BITCOIND_URL));
+        assert!(result_5.is_ok());
+    }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[test]
 #[parallel]
 fn fail() {
@@ -69,19 +76,33 @@ fn fail() {
 
     // cannot go online with an invalid indexer URL
     let result = party.go_online_result(false, Some("other:50001"));
-    let details = "not a valid electrum nor esplora server";
-    assert!(matches!(result, Err(Error::InvalidIndexer { details: m }) if m == details ));
+    let details = INVALID_INDEXER_MSG;
+    assert!(matches!(result, Err(Error::InvalidIndexer { details: m }) if m.contains(details) ));
 
     // cannot go online again with an invalid indexer URL
     #[cfg(feature = "electrum")]
     let indexer_url = ELECTRUM_URL;
     #[cfg(all(feature = "esplora", not(feature = "electrum")))]
     let indexer_url = ESPLORA_URL;
+    #[cfg(all(
+        feature = "bitcoind",
+        not(any(feature = "electrum", feature = "esplora"))
+    ))]
+    let indexer_url = BITCOIND_URL;
     party.go_online(false, Some(indexer_url));
     let result = party.go_online_result(false, Some("other:50001"));
-    assert!(matches!(result, Err(Error::InvalidIndexer { details: m }) if m == details ));
+    assert!(matches!(result, Err(Error::InvalidIndexer { details: m }) if m.contains(details) ));
 
     let details_another_chain = "resolver is for another chain-network pair";
+
+    #[cfg(feature = "bitcoind")]
+    {
+        // bitcoind wrong network
+        let result = party_testnet.go_online_result(false, Some(BITCOIND_URL));
+        assert!(
+            matches!(result, Err(Error::InvalidIndexer { details: m }) if m == details_another_chain )
+        );
+    }
 
     #[cfg(feature = "electrum")]
     {
@@ -112,6 +133,191 @@ fn fail() {
     let wrong_online = Online { id: 1 };
     let result = party.wallet.check_online(wrong_online);
     assert!(matches!(result, Err(Error::CannotChangeOnline)));
+}
+
+#[cfg(feature = "bitcoind")]
+#[test]
+#[parallel]
+fn bitcoind() {
+    initialize();
+
+    // wallets synced via bitcoind, funded by the electrum-backed helpers; the regtest node has a
+    // block filter index
+    let mut party = get_funded_party!(BITCOIND_URL.to_string());
+    let mut rcv_party = get_funded_party!(BITCOIND_URL.to_string());
+    match party.wallet.indexer() {
+        Indexer::Bitcoind(client) => assert!(client.block_filters),
+        #[cfg(any(feature = "electrum", feature = "esplora"))]
+        _ => panic!("expected a bitcoind indexer"),
+    }
+
+    // same options: same online object
+    let online = party
+        .wallet
+        .go_online(test_go_online_options(Some(BITCOIND_URL)));
+    assert_eq!(online.unwrap(), party.online);
+
+    // a transfer is validated and settled via bitcoind
+    let asset = party.issue_asset_nia(None);
+    let receive_data = rcv_party.blind_receive();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(AMOUNT),
+            recipient_id: receive_data.recipient_id.clone(),
+            witness_data: None,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid = party
+        .wallet
+        .send(
+            party.online,
+            recipient_map,
+            false,
+            FEE_RATE,
+            MIN_CONFIRMATIONS,
+            default_send_expiration(),
+        )
+        .unwrap()
+        .txid;
+    assert!(!txid.is_empty());
+    let transfer_statuses = |party: &SinglesigParty, rcv_party: &SinglesigParty| {
+        let rcv_transfer = rcv_party.get_test_transfer_recipient(&receive_data.recipient_id);
+        let (rcv_transfer_data, _) = rcv_party.get_test_transfer_data(&rcv_transfer);
+        let (transfer, _, _) = party.get_test_transfer_sender(&txid);
+        let (transfer_data, _) = party.get_test_transfer_data(&transfer);
+        (rcv_transfer_data.status, transfer_data.status)
+    };
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(Some(&asset.asset_id));
+    rcv_party.wait_for_refresh(None);
+    assert_eq!(
+        transfer_statuses(&party, &rcv_party),
+        (
+            TransferStatus::WaitingConfirmations,
+            TransferStatus::WaitingConfirmations
+        )
+    );
+    mine(false);
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(Some(&asset.asset_id));
+    assert_eq!(
+        transfer_statuses(&party, &rcv_party),
+        (TransferStatus::Settled, TransferStatus::Settled)
+    );
+
+    // can switch to electrum and back
+    #[cfg(feature = "electrum")]
+    {
+        let online_electrum = party.go_online(false, Some(ELECTRUM_URL));
+        assert_ne!(online_electrum, party.online);
+        party.online = party.go_online(false, Some(BITCOIND_URL));
+        assert_ne!(online_electrum, party.online);
+    }
+
+    let mut online_options = test_go_online_options(Some(BITCOIND_URL));
+
+    // wrong credentials
+    online_options.indexer_config = IndexerConfig::Bitcoind {
+        url: BITCOIND_URL.to_string(),
+        auth: BitcoindAuth::UserPass {
+            username: BITCOIND_USER.to_string(),
+            password: s!("wrong"),
+        },
+    };
+    let result = party.wallet.go_online(online_options.clone());
+    assert!(
+        matches!(result, Err(Error::InvalidIndexer { details: m }) if m.contains("cannot connect"))
+    );
+
+    // unreachable node
+    online_options = test_go_online_options(Some(BITCOIND_URL));
+    online_options.indexer_config = IndexerConfig::Bitcoind {
+        url: s!("http://127.0.0.1:1"),
+        auth: bitcoind_pass_auth(),
+    };
+    let result = party.wallet.go_online(online_options.clone());
+    assert!(
+        matches!(result, Err(Error::InvalidIndexer { details: m }) if m.contains("cannot connect"))
+    );
+
+    // missing cookie file
+    online_options = test_go_online_options(Some(BITCOIND_URL));
+    online_options.indexer_config = IndexerConfig::Bitcoind {
+        url: BITCOIND_URL.to_string(),
+        auth: BitcoindAuth::CookieFile {
+            path: s!("/nonexistent/.cookie"),
+        },
+    };
+    let result = party.wallet.go_online(online_options.clone());
+    assert!(matches!(result, Err(Error::InvalidIndexer { .. })));
+
+    // wrong network
+    let mut party_testnet = offline_party!(get_test_wallet_with_net(
+        true,
+        None,
+        BitcoinNetwork::Testnet
+    ));
+    let result = party_testnet.go_online_result(false, Some(BITCOIND_URL));
+    let details = "resolver is for another chain-network pair";
+    assert!(matches!(result, Err(Error::InvalidIndexer { details: m }) if m == details));
+
+    // check_indexer_url reports the protocol
+    let protocol = check_indexer_url(
+        BITCOIND_URL,
+        Some(&bitcoind_pass_auth()),
+        BitcoinNetwork::Regtest,
+    )
+    .unwrap();
+    assert!(matches!(protocol, IndexerProtocol::Bitcoind));
+}
+
+// only covers what the block-filters node cannot: detection of the missing filter index and the
+// sync path fetching every block. Everything else bitcoind-related is covered by `bitcoind`.
+#[cfg(feature = "bitcoind")]
+#[test]
+#[parallel]
+fn bitcoind_no_block_filters() {
+    initialize();
+
+    // the node has no -blockfilterindex and lives on its own isolated chain, so funding and
+    // mining go through the node itself instead of the shared helpers
+    let mut party = get_empty_party!(BITCOIND_NO_FILTERS_URL.to_string());
+    match party.wallet.indexer() {
+        Indexer::Bitcoind(client) => assert!(!client.block_filters),
+        #[cfg(any(feature = "electrum", feature = "esplora"))]
+        _ => panic!("expected a bitcoind indexer"),
+    }
+
+    // an incoming TX is first seen unconfirmed (via the mempool), then confirmed (applied from a
+    // fetched block)
+    fund_wallet_no_filters(&party.get_address());
+    let balance = party
+        .wallet
+        .get_btc_balance(Some(party.online), false)
+        .unwrap();
+    assert_eq!(balance.vanilla.settled, 0);
+    assert!(balance.vanilla.future > 0);
+    mine_no_filters(1);
+    let balance = party
+        .wallet
+        .get_btc_balance(Some(party.online), false)
+        .unwrap();
+    assert!(balance.vanilla.settled > 0);
+}
+
+// a node without -txindex cannot resolve RGB witnesses by TX ID, so going online is refused
+#[cfg(feature = "bitcoind")]
+#[test]
+#[parallel]
+fn bitcoind_no_txindex() {
+    initialize();
+
+    let mut party = offline_party!(get_test_wallet(true, None));
+    let result = party.go_online_result(false, Some(BITCOIND_NO_TXINDEX_URL));
+    let details = "bitcoind has no synced transaction index (-txindex)";
+    assert!(matches!(result, Err(Error::InvalidIndexer { details: m }) if m == details));
 }
 
 #[cfg(feature = "electrum")]

@@ -4,7 +4,7 @@ use super::*;
 use regex::RegexSet;
 #[cfg(feature = "electrum")]
 use std::io::Write;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 use std::time::{Duration, Instant};
 
 /// Panic if the given expression doesn't match the provided pattern, logging the unexpected result
@@ -112,12 +112,12 @@ impl PrivateDataDir {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn join_with_sep(parts: &[&str]) -> String {
     parts.join(MAIN_SEPARATOR_STR)
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn get_current_time() -> u128 {
     let now = std::time::SystemTime::now();
     now.duration_since(std::time::UNIX_EPOCH)
@@ -130,7 +130,7 @@ pub(crate) fn get_restore_dir_string() -> String {
     join_with_sep(&RESTORE_DIR_PARTS)
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn get_test_data_dir_string() -> String {
     join_with_sep(&TEST_DATA_DIR_PARTS)
 }
@@ -144,12 +144,12 @@ pub(crate) fn get_restore_dir_path<P: AsRef<Path>>(last: Option<P>) -> PathBuf {
     path
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn get_test_data_dir_path() -> PathBuf {
     PathBuf::from(get_test_data_dir_string())
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn create_test_data_dir() -> PathBuf {
     let test_data_dir = get_test_data_dir_path();
     if !test_data_dir.exists() {
@@ -175,7 +175,7 @@ pub(crate) fn get_test_wallet_with_keys(keys: &Keys) -> Wallet {
 }
 
 // return a wallet for testing
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn get_test_wallet_with_net(
     private_keys: bool,
     max_allocations_per_utxo: Option<u32>,
@@ -247,7 +247,7 @@ fn get_test_wallet_raw_in(
     wallet
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 // return a regtest wallet for testing
 pub(crate) fn get_test_wallet(private_keys: bool, max_allocations_per_utxo: Option<u32>) -> Wallet {
     get_test_wallet_with_net(
@@ -269,7 +269,7 @@ pub(crate) fn get_funded_party_p2wpkh() -> SinglesigParty {
     party
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn get_empty_wallet(
     private_keys: bool,
     indexer_url: Option<String>,
@@ -281,7 +281,7 @@ pub(crate) fn get_empty_wallet(
     (wallet, online)
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn get_funded_noutxo_wallet(
     private_keys: bool,
     indexer_url: Option<String>,
@@ -291,7 +291,7 @@ pub(crate) fn get_funded_noutxo_wallet(
     (wallet, online)
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn get_funded_party(private_keys: bool, indexer_url: Option<String>) -> SinglesigParty {
     let (wallet, online) = get_funded_noutxo_wallet(private_keys, indexer_url);
     let mut party = party!(wallet, online);
@@ -299,13 +299,13 @@ pub(crate) fn get_funded_party(private_keys: bool, indexer_url: Option<String>) 
     party
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn get_empty_party(private_keys: bool, indexer_url: Option<String>) -> SinglesigParty {
     let (wallet, online) = get_empty_wallet(private_keys, indexer_url);
     party!(wallet, online)
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn get_funded_noutxo_party(
     private_keys: bool,
     indexer_url: Option<String>,
@@ -314,12 +314,12 @@ pub(crate) fn get_funded_noutxo_party(
     party!(wallet, online)
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn send_to_address(address: String) {
     send_sats_to_address(address, None);
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn send_sats_to_address(address: String, sats: Option<u64>) {
     let amt = BdkAmount::from_sat(sats.unwrap_or(100_000_000));
     let btc_str = amt.to_string_in(Denomination::Bitcoin);
@@ -353,7 +353,7 @@ pub(crate) fn send_sats_to_address(address: String, sats: Option<u64>) {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn fund_wallet(address: String) {
     send_to_address(address);
     mine(false);
@@ -392,7 +392,7 @@ pub(crate) fn print_unspents(unspents: &[Unspent], msg: &str) {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn wait_for_function<F>(mut func: F, timeout_secs: u8, interval_ms: u16) -> bool
 where
     F: FnMut() -> bool,
@@ -426,22 +426,74 @@ pub(crate) fn get_proxy_client(proxy_url: Option<&str>) -> ProxyClient {
     ProxyClient::new(proxy_url.unwrap_or(PROXY_URL)).unwrap()
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "bitcoind")]
+pub(crate) fn bitcoind_pass_auth() -> BitcoindAuth {
+    BitcoindAuth::UserPass {
+        username: BITCOIND_USER.to_string(),
+        password: BITCOIND_PASSWORD.to_string(),
+    }
+}
+
+// the no-filters node authenticates via its cookie file (exported by regtest.sh) so both auth
+// methods get coverage
+#[cfg(feature = "bitcoind")]
+pub(crate) fn bitcoind_cookie_auth() -> BitcoindAuth {
+    BitcoindAuth::CookieFile {
+        path: join_with_sep(&["tests", "tmp_srv", "bitcoind_no_filters.cookie"]),
+    }
+}
+
+#[cfg(feature = "_online")]
+pub(crate) fn test_indexer_config(indexer_url: &str) -> IndexerConfig {
+    let url = indexer_url.to_string();
+    #[cfg(feature = "bitcoind")]
+    if [BITCOIND_URL, BITCOIND_NO_TXINDEX_URL].contains(&indexer_url) {
+        return IndexerConfig::Bitcoind {
+            url,
+            auth: bitcoind_pass_auth(),
+        };
+    }
+    #[cfg(feature = "bitcoind")]
+    if indexer_url == BITCOIND_NO_FILTERS_URL {
+        return IndexerConfig::Bitcoind {
+            url,
+            auth: bitcoind_cookie_auth(),
+        };
+    }
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    if indexer_url == ESPLORA_URL {
+        return IndexerConfig::Esplora { url };
+    }
+    #[cfg(feature = "electrum")]
+    return IndexerConfig::Electrum { url };
+    #[cfg(all(feature = "esplora", not(feature = "electrum")))]
+    return IndexerConfig::Esplora { url };
+    #[cfg(all(
+        feature = "bitcoind",
+        not(any(feature = "electrum", feature = "esplora"))
+    ))]
+    return IndexerConfig::Bitcoind {
+        url,
+        auth: bitcoind_pass_auth(),
+    };
+}
+
+#[cfg(feature = "_online")]
 pub(crate) fn test_go_online_options(indexer_url: Option<&str>) -> OnlineOptions {
     OnlineOptions {
-        indexer_url: indexer_url.unwrap_or(DEFAULT_INDEXER_URL).to_string(),
+        indexer_config: test_indexer_config(indexer_url.unwrap_or(DEFAULT_INDEXER_URL)),
         skip_consistency_check: true,
         vanilla_sync_lookback: INDEXER_SYNC_LOOKBACK as u32,
         failed_witness_receive_grace_secs: FAILED_WITNESS_RECEIVE_GRACE_SECS,
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn default_rcv_expiration() -> u64 {
     (now().unix_timestamp() + DURATION_RCV_TRANSFER as i64) as u64
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn default_send_expiration() -> u64 {
     (now().unix_timestamp() + DURATION_SEND_TRANSFER as i64) as u64
 }

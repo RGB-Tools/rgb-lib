@@ -1867,9 +1867,9 @@ pub(super) fn settle_transfer(
     }
     if let Some(psbt) = psbt {
         let txid = Psbt::from_str(psbt).unwrap().get_txid().to_string();
-        mine_tx(false, &txid);
+        mine_tx(&txid);
     } else if let Some(txid) = txid {
-        mine_tx(false, txid);
+        mine_tx(txid);
     } else {
         mine(false);
     }

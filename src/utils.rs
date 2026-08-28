@@ -38,7 +38,7 @@ pub(crate) const INDEXER_BATCH_SIZE: usize = 5;
 #[cfg(feature = "esplora")]
 pub(crate) const INDEXER_PARALLEL_REQUESTS: usize = 5;
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 const PROXY_PROTOCOL_VERSION: &str = "0.2";
 
 // sea-orm with runtime-tokio-rustls needs a tokio runtime for connection pool management
@@ -538,7 +538,7 @@ pub(crate) fn calculate_descriptor_from_xpub(
     Ok(format!("{}({key})", witness_version.descriptor_fn()))
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn check_proxy(proxy_url: &str) -> Result<(), Error> {
     let proxy_client = ProxyClient::new(proxy_url)?;
     let server_info = proxy_client.get_info()?;
@@ -558,85 +558,164 @@ pub(crate) fn check_proxy(proxy_url: &str) -> Result<(), Error> {
     Err(Error::Proxy { details })
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn get_indexer_and_resolver(
-    indexer_url: &str,
+    indexer_config: &IndexerConfig,
     bitcoin_network: BitcoinNetwork,
 ) -> Result<(Indexer, AnyResolver), Error> {
-    // detect indexer type
-    let indexer = build_indexer(indexer_url);
-    let mut invalid_indexer = true;
-    if let Some(ref indexer) = indexer {
-        invalid_indexer = indexer.block_hash(0).is_err();
-    }
-    if invalid_indexer {
-        return Err(Error::InvalidIndexer {
-            details: s!("not a valid electrum nor esplora server"),
-        });
-    }
-    let indexer = indexer.unwrap();
+    let invalid = |details: String| Error::InvalidIndexer { details };
 
-    let resolver = match indexer {
+    let mut indexer = build_indexer(indexer_config)?;
+    // this also checks connectivity (and credentials for bitcoind)
+    indexer
+        .block_hash(0)
+        .map_err(|e| invalid(unreachable_indexer_details(indexer_config, &e)))?;
+
+    let resolver = match &mut indexer {
+        #[cfg(feature = "bitcoind")]
+        Indexer::Bitcoind(client) => {
+            // RGB witnesses are looked up by TX ID alone, which needs a synced -txindex
+            let indexes = client.indexes()?;
+            if !indexes.txindex {
+                return Err(invalid(s!(
+                    "bitcoind has no synced transaction index (-txindex)"
+                )));
+            }
+            client.block_filters = indexes.block_filters;
+            let IndexerConfig::Bitcoind { url, auth } = indexer_config else {
+                unreachable!("build_indexer only returns a bitcoind indexer for a bitcoind config")
+            };
+            AnyResolver::bitcoind_blocking(url, auth.into()).map_err(invalid)?
+        }
         #[cfg(feature = "electrum")]
         Indexer::Electrum(_) => {
-            let electrum_config = ConfigBuilder::new()
-                .retry(INDEXER_RETRIES)
-                .timeout(Some(Duration::from_secs(INDEXER_TIMEOUT)))
-                .build();
             // the resolver opens its own connection, which can fail even if the indexer one
             // succeeded
-            AnyResolver::electrum_blocking(indexer_url, Some(electrum_config)).map_err(|e| {
-                Error::InvalidIndexer {
-                    details: e.to_string(),
-                }
-            })?
+            AnyResolver::electrum_blocking(indexer_config.url(), Some(electrum_config()))
+                .map_err(|e| invalid(e.to_string()))?
         }
         #[cfg(feature = "esplora")]
-        Indexer::Esplora(_) => {
-            let esplora_config = EsploraBuilder::new(indexer_url)
-                .max_retries(INDEXER_RETRIES.into())
-                .timeout(INDEXER_TIMEOUT);
-            AnyResolver::esplora_blocking(esplora_config)
-                .expect("esplora_blocking wraps an infallible builder and always returns Ok")
-        }
+        Indexer::Esplora(_) => AnyResolver::esplora_blocking(esplora_config(indexer_config.url()))
+            .expect("esplora_blocking wraps an infallible builder and always returns Ok"),
     };
 
     resolver
         .check_chain_net(bitcoin_network.into())
-        .map_err(|e| Error::InvalidIndexer {
-            details: e.to_string(),
-        })?;
+        .map_err(|e| invalid(e.to_string()))?;
 
     Ok((indexer, resolver))
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) fn build_indexer(indexer_url: &str) -> Option<Indexer> {
-    #[cfg(feature = "electrum")]
-    {
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-        let opts = ConfigBuilder::new()
-            .retry(INDEXER_RETRIES)
-            .timeout(Some(Duration::from_secs(INDEXER_TIMEOUT)))
-            .build();
-        if let Ok(client) = ElectrumClient::from_config(indexer_url, opts) {
-            let client = BdkElectrumClient::new(client);
-            let indexer = Indexer::Electrum(Box::new(client));
-            return Some(indexer);
+/// Details for the [`Error::InvalidIndexer`] raised when the service at `indexer_config` cannot be
+/// reached or doesn't speak the configured protocol.
+#[cfg(feature = "_online")]
+fn unreachable_indexer_details(indexer_config: &IndexerConfig, err: &impl fmt::Display) -> String {
+    match indexer_config {
+        IndexerConfig::Bitcoind { .. } => format!("cannot connect to bitcoind: {err}"),
+        IndexerConfig::Electrum { .. } => s!("not a valid electrum server"),
+        IndexerConfig::Esplora { .. } => s!("not a valid esplora server"),
+    }
+}
+
+#[cfg(feature = "bitcoind")]
+impl From<&BitcoindAuth> for BitcoindRpcAuth {
+    fn from(auth: &BitcoindAuth) -> Self {
+        match auth {
+            BitcoindAuth::UserPass { username, password } => {
+                BitcoindRpcAuth::UserPass(username.clone(), password.clone())
+            }
+            BitcoindAuth::CookieFile { path } => BitcoindRpcAuth::CookieFile(PathBuf::from(path)),
         }
     }
-    if cfg!(feature = "esplora") {
+}
+
+#[cfg(feature = "electrum")]
+pub(crate) fn electrum_config() -> ElectrumConfig {
+    ConfigBuilder::new()
+        .retry(INDEXER_RETRIES)
+        .timeout(Some(Duration::from_secs(INDEXER_TIMEOUT)))
+        .build()
+}
+
+#[cfg(feature = "esplora")]
+pub(crate) fn esplora_config(indexer_url: &str) -> EsploraBuilder {
+    EsploraBuilder::new(indexer_url)
+        .max_retries(INDEXER_RETRIES.into())
+        .timeout(INDEXER_TIMEOUT)
+}
+
+/// Build the indexer client described by `indexer_config`.
+///
+/// Fails if support for the configured indexer is not compiled in. The returned client has not
+/// contacted the service yet, except for electrum, whose client connects on creation.
+#[cfg(feature = "_online")]
+pub(crate) fn build_indexer(indexer_config: &IndexerConfig) -> Result<Indexer, Error> {
+    match indexer_config {
+        #[cfg(feature = "bitcoind")]
+        IndexerConfig::Bitcoind { url, auth } => {
+            let client =
+                BitcoindRpcClient::new(url, auth.into()).map_err(|e| Error::InvalidIndexer {
+                    details: unreachable_indexer_details(indexer_config, &e),
+                })?;
+            Ok(Indexer::Bitcoind(Box::new(BitcoindClient {
+                inner: client,
+                block_filters: false,
+            })))
+        }
+        #[cfg(feature = "electrum")]
+        IndexerConfig::Electrum { url } => {
+            let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+            let client = ElectrumClient::from_config(url, electrum_config()).map_err(|e| {
+                Error::InvalidIndexer {
+                    details: unreachable_indexer_details(indexer_config, &e),
+                }
+            })?;
+            Ok(Indexer::Electrum(Box::new(BdkElectrumClient::new(client))))
+        }
         #[cfg(feature = "esplora")]
-        {
-            let opts = EsploraBuilder::new(indexer_url)
-                .max_retries(INDEXER_RETRIES.into())
-                .timeout(INDEXER_TIMEOUT);
-            let client = EsploraClient::from_builder(opts);
-            let indexer = Indexer::Esplora(Box::new(client));
-            return Some(indexer);
+        IndexerConfig::Esplora { url } => Ok(Indexer::Esplora(Box::new(
+            EsploraClient::from_builder(esplora_config(url)),
+        ))),
+        #[cfg(not(all(feature = "bitcoind", feature = "electrum", feature = "esplora")))]
+        _ => {
+            let feature = match indexer_config {
+                IndexerConfig::Bitcoind { .. } => "bitcoind",
+                IndexerConfig::Electrum { .. } => "electrum",
+                IndexerConfig::Esplora { .. } => "esplora",
+            };
+            Err(Error::InvalidIndexer {
+                details: format!(
+                    "{feature} support is not enabled (requires the `{feature}` feature)"
+                ),
+            })
         }
     }
-    None
+}
+
+/// Detect which indexer is served at `indexer_url`: a Bitcoin Core node when `bitcoind_auth` is
+/// provided, otherwise an electrum or esplora server (detected by trying electrum first).
+///
+/// Returns `None` if no supported indexer can be detected.
+#[cfg(feature = "_online")]
+pub(crate) fn detect_indexer(
+    indexer_url: &str,
+    bitcoind_auth: Option<&BitcoindAuth>,
+) -> Option<IndexerConfig> {
+    if let Some(auth) = bitcoind_auth {
+        return cfg!(feature = "bitcoind").then(|| IndexerConfig::Bitcoind {
+            url: indexer_url.to_string(),
+            auth: auth.clone(),
+        });
+    }
+    let electrum = IndexerConfig::Electrum {
+        url: indexer_url.to_string(),
+    };
+    if build_indexer(&electrum).is_ok() {
+        return Some(electrum);
+    }
+    cfg!(feature = "esplora").then(|| IndexerConfig::Esplora {
+        url: indexer_url.to_string(),
+    })
 }
 
 pub(crate) fn hash_bytes(data: &[u8]) -> Vec<u8> {
@@ -708,11 +787,7 @@ pub(crate) fn read_fascia(path: &Path) -> Result<Fascia, Error> {
 }
 
 /// Write a fascia file atomically, so a crash mid-write cannot leave a torn one behind.
-#[cfg(any(
-    feature = "electrum",
-    feature = "esplora",
-    feature = "rgb_fs_store_migration"
-))]
+#[cfg(any(feature = "_online", feature = "rgb_fs_store_migration"))]
 pub(crate) fn write_fascia(path: &Path, fascia: &Fascia) -> Result<(), Error> {
     let bytes = fascia
         .to_strict_serialized::<FASCIA_MAX_LEN>()
@@ -722,7 +797,7 @@ pub(crate) fn write_fascia(path: &Path, fascia: &Fascia) -> Result<(), Error> {
     atomic_write(path, &bytes)
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn hash_file(path: &Path) -> Result<String, Error> {
     let mut file = fs::File::open(path)?;
     let mut engine = sha256::HashEngine::default();
@@ -807,7 +882,7 @@ impl<'txn> RgbStock<'txn> {
         }
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn accept_transfer<R: ResolveWitness>(
         &mut self,
         contract: ValidTransfer,
@@ -853,7 +928,9 @@ impl<'txn> RgbStock<'txn> {
             .map_err(Error::from)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    /// The assignments on the given outpoints of every contract assigning state there, in a
+    /// single store query
+    #[cfg(feature = "_online")]
     pub(crate) fn assignments_by_contract(
         &self,
         outpoints: impl IntoIterator<Item = impl Into<OutPoint>>,
@@ -910,7 +987,7 @@ impl<'txn> RgbStock<'txn> {
             .map_err(Error::from)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn contract_schema(&self, contract_id: ContractId) -> Result<Schema, Error> {
         self.stock
             .as_store()
@@ -964,7 +1041,7 @@ impl<'txn> RgbStock<'txn> {
             .map_err(Error::from)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn transfer_from_fascia_with_dag(
         &self,
         contract_id: ContractId,
@@ -987,7 +1064,7 @@ impl<'txn> RgbStock<'txn> {
             .map_err(Error::from)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn transition_builder_raw(
         &self,
         contract_id: ContractId,
@@ -998,7 +1075,7 @@ impl<'txn> RgbStock<'txn> {
             .map_err(Error::from)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn update_witnesses<R: ResolveWitness>(
         &mut self,
         resolver: &R,
@@ -1020,14 +1097,14 @@ impl<'txn> RgbStock<'txn> {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) struct OffchainResolver<'a, 'cons, const TRANSFER: bool> {
     pub(crate) witness_id: RgbTxid,
     pub(crate) consignment: &'cons Consignment<TRANSFER>,
     pub(crate) fallback: &'a AnyResolver,
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl<const TRANSFER: bool> ResolveWitness for OffchainResolver<'_, '_, TRANSFER> {
     fn resolve_witness(&self, witness_id: RgbTxid) -> Result<WitnessStatus, WitnessResolverError> {
         if witness_id != self.witness_id {
@@ -1151,7 +1228,7 @@ mod tests {
         assert_eq!(result, None);
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     #[test]
     fn test_check_proxy_json_rpc_error() {
         // server returns HTTP 200 with result=null and a JSON-RPC error field
@@ -1169,7 +1246,7 @@ mod tests {
         mock.assert();
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     #[test]
     fn test_check_proxy_invalid_body_error_details() {
         // server returns HTTP 200 with a body that is not a JSON-RPC response: the transport
@@ -1187,7 +1264,7 @@ mod tests {
         mock.assert();
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     #[test]
     fn test_check_proxy_connection_error_details() {
         // bind then drop a listener to get a port that refuses connections: the transport error
@@ -1215,14 +1292,28 @@ mod tests {
         assert!(!path.parent().unwrap().join(".f.bin.tmp").exists());
     }
 
-    // The None return from build_indexer is only reachable when electrum is enabled but esplora
-    // is not, and the URL is not a valid electrum server. With esplora enabled the builder is
-    // infallible so it would always return Some(Indexer::Esplora) instead.
+    // The None return from detect_indexer is only reachable when electrum is enabled but esplora
+    // is not, and the URL is not a valid electrum server. With esplora enabled detection always
+    // falls back to Some(IndexerConfig::Esplora) instead.
     #[cfg(all(feature = "electrum", not(feature = "esplora")))]
     #[test]
-    fn test_build_indexer_invalid_url_returns_none() {
-        let result = build_indexer("not_a_valid_url");
+    fn test_detect_indexer_invalid_url_returns_none() {
+        let result = detect_indexer("not_a_valid_url", None);
         assert!(result.is_none());
+    }
+
+    #[cfg(feature = "_online")]
+    #[test]
+    fn test_build_indexer_invalid_url() {
+        let result = build_indexer(&IndexerConfig::Electrum {
+            url: s!("not_a_valid_url"),
+        });
+        #[cfg(feature = "electrum")]
+        let details = "not a valid electrum server";
+        #[cfg(not(feature = "electrum"))]
+        let details = "electrum support is not enabled (requires the `electrum` feature)";
+        // Indexer is not Debug, so the Ok variant cannot be printed by assert_matches
+        assert!(matches!(result, Err(Error::InvalidIndexer { details: m }) if m == details));
     }
 
     #[test]
@@ -1406,7 +1497,8 @@ mod tests {
     fn get_indexer_and_resolver_resolver_connection_refused() {
         // the indexer connects, then the resolver connection is refused
         let url = start_single_connection_electrum_mock();
-        let result = get_indexer_and_resolver(&url, BitcoinNetwork::Regtest);
+        let result =
+            get_indexer_and_resolver(&IndexerConfig::Electrum { url }, BitcoinNetwork::Regtest);
         // Indexer is not Debug, so the Ok variant cannot be printed by assert_matches
         assert!(matches!(result, Err(Error::InvalidIndexer { .. })));
     }

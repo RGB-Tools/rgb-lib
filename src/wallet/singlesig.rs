@@ -117,7 +117,7 @@ impl WalletBackup for Wallet {}
 
 impl WalletOffline for Wallet {}
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl WalletOnline for Wallet {
     fn wallet_specific_consistency_checks(&mut self, txn: &DbTxn) -> Result<(), Error> {
         self.sync_wallet(
@@ -165,7 +165,7 @@ impl WalletOnline for Wallet {
 impl RgbWalletOpsOffline for Wallet {}
 
 /// Common online APIs of the wallet.
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl RgbWalletOpsOnline for Wallet {}
 
 /// Offline APIs of the wallet.
@@ -238,7 +238,7 @@ impl Wallet {
                 wallet_dir,
                 bdk_wallet,
                 bdk_pending: Arc::new(Mutex::new(ChangeSet::default())),
-                #[cfg(any(feature = "electrum", feature = "esplora"))]
+                #[cfg(feature = "_online")]
                 online_data: None,
             },
             keys,
@@ -642,7 +642,7 @@ impl Wallet {
 }
 
 /// Online APIs of the wallet.
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl Wallet {
     pub(crate) fn watch_only(&self) -> bool {
         self.keys.mnemonic.is_none()

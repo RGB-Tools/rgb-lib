@@ -1,7 +1,21 @@
 services:
   bitcoind:
     image: registry.gitlab.com/hashbeam/docker/bitcoind:30.2
+    command: "-fallbackfee=0.0002 -blockfilterindex=1"
+    ports:
+      - 18443:18443
+  bitcoind_no_filters:
+    image: registry.gitlab.com/hashbeam/docker/bitcoind:30.2
+    profiles: ['tests']
     command: "-fallbackfee=0.0002"
+    ports:
+      - 18444:18443
+  bitcoind_no_txindex:
+    image: registry.gitlab.com/hashbeam/docker/bitcoind:30.2
+    profiles: ['tests']
+    command: "-fallbackfee=0.0002 -txindex=0"
+    ports:
+      - 18445:18443
   electrs:
     image: registry.gitlab.com/hashbeam/docker/electrs:0.11.0
     ports:

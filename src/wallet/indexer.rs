@@ -4,9 +4,16 @@
 
 use super::*;
 
+/// Error code Bitcoin Core returns for an unknown transaction.
+#[cfg(feature = "bitcoind")]
+const BITCOIND_RPC_INVALID_ADDRESS_OR_KEY: i32 = -5;
+
 /// Indexer for a wallet.
 #[non_exhaustive]
 pub enum Indexer {
+    /// Bitcoin Core node (with a synced `-txindex`)
+    #[cfg(feature = "bitcoind")]
+    Bitcoind(Box<BitcoindClient>),
     /// Electrum indexer
     #[cfg(feature = "electrum")]
     Electrum(Box<BdkElectrumClient<ElectrumClient>>),
@@ -15,9 +22,151 @@ pub enum Indexer {
     Esplora(Box<EsploraClient>),
 }
 
+/// Bitcoin Core RPC client with the sync capabilities detected when going online.
+#[cfg(feature = "bitcoind")]
+pub struct BitcoindClient {
+    pub(crate) inner: BitcoindRpcClient,
+    /// Whether the node has a synced BIP158 block filter index (`-blockfilterindex`), allowing
+    /// the wallet to fetch only the blocks matching its scripts instead of every block
+    pub(crate) block_filters: bool,
+}
+
+#[cfg(feature = "bitcoind")]
+impl std::ops::Deref for BitcoindClient {
+    type Target = BitcoindRpcClient;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+/// Status of the Bitcoin Core node indexes relevant to the wallet.
+#[cfg(feature = "bitcoind")]
+pub(crate) struct BitcoindIndexes {
+    pub(crate) txindex: bool,
+    pub(crate) block_filters: bool,
+}
+
+#[cfg(feature = "bitcoind")]
+impl BitcoindClient {
+    /// Which indexes the node maintains and has finished building.
+    pub(crate) fn indexes(&self) -> Result<BitcoindIndexes, IndexerError> {
+        let info = self.inner.get_index_info()?;
+        let synced = |status: Option<BitcoindIndexStatus>| matches!(status, Some(s) if s.synced);
+        Ok(BitcoindIndexes {
+            txindex: synced(info.txindex),
+            block_filters: synced(info.basic_block_filter_index),
+        })
+    }
+
+    /// Bring the BDK wallet up to date with the Bitcoin Core node: apply the blocks since the
+    /// wallet's last checkpoint (handling reorgs), then the mempool.
+    ///
+    /// With a block filter index on the node only the blocks matching the wallet scripts are
+    /// fetched, otherwise every block is.
+    pub(crate) fn sync_bdk_wallet(&self, bdk_wallet: &mut BdkWallet) -> Result<(), Error> {
+        let bdk_sync_error = |e: &dyn fmt::Display| Error::FailedBdkSync {
+            details: e.to_string(),
+        };
+
+        // the emitter tracks the unconfirmed TXs the wallet knows to report the evicted ones
+        let unconfirmed_txs: Vec<_> = bdk_wallet
+            .transactions()
+            .filter(|tx| !tx.chain_position.is_confirmed())
+            .map(|tx| tx.tx_node.tx.clone())
+            .collect();
+
+        if self.block_filters {
+            self.sync_block_filters(bdk_wallet)?;
+        } else {
+            let mut emitter = BitcoindEmitter::new(
+                &self.inner,
+                bdk_wallet.latest_checkpoint(),
+                0,
+                unconfirmed_txs.clone(),
+            );
+            while let Some(event) = emitter.next_block().map_err(IndexerError::from)? {
+                let height = event.block_height();
+                let connected_to = event.connected_to();
+                bdk_wallet
+                    .apply_block_connected_to(&event.block, height, connected_to)
+                    .map_err(|e| bdk_sync_error(&e))?;
+            }
+        }
+
+        let mut emitter = BitcoindEmitter::new(
+            &self.inner,
+            bdk_wallet.latest_checkpoint(),
+            0,
+            unconfirmed_txs,
+        );
+        let mempool = emitter.mempool().map_err(IndexerError::from)?;
+        bdk_wallet.apply_unconfirmed_txs(mempool.update);
+        bdk_wallet.apply_evicted_txs(mempool.evicted);
+        Ok(())
+    }
+
+    /// Apply the blocks since the wallet's last checkpoint using the node BIP158 filters, fetching
+    /// only the ones matching the wallet scripts.
+    ///
+    /// The filters are matched against the revealed scripts plus the lookahead ones: if a pass
+    /// reveals new scripts (as the used ones get discovered), the filters are scanned again from
+    /// the same starting point so no gap in the derivation is left unchecked.
+    fn sync_block_filters(&self, bdk_wallet: &mut BdkWallet) -> Result<(), Error> {
+        let bdk_sync_error = |e: &dyn fmt::Display| Error::FailedBdkSync {
+            details: e.to_string(),
+        };
+        let next_indices = |bdk_wallet: &BdkWallet| -> Vec<(KeychainKind, u32)> {
+            bdk_wallet
+                .keychains()
+                .map(|(kc, _)| (kc, bdk_wallet.next_derivation_index(kc)))
+                .collect()
+        };
+        let start_cp = bdk_wallet.latest_checkpoint();
+        loop {
+            let indices = next_indices(bdk_wallet);
+            let lookahead = bdk_wallet.spk_index().lookahead();
+            let spks: Vec<ScriptBuf> = indices
+                .iter()
+                .flat_map(|(kc, next_index)| {
+                    bdk_wallet
+                        .unbounded_spk_iter(*kc)
+                        .take((next_index + lookahead) as usize)
+                        .map(|(_, spk)| spk)
+                })
+                .collect();
+            for event in BitcoindFilterIter::new(&self.inner, start_cp.clone(), spks) {
+                let event = event.map_err(|e| Error::Indexer {
+                    details: e.to_string(),
+                })?;
+                // advance the chain to this block whether it matched or not, so the blocks
+                // that did match always have their predecessor in the chain to connect to
+                let block_id = event.cp.block_id();
+                bdk_wallet
+                    .apply_update(Update {
+                        chain: Some(event.cp),
+                        ..Default::default()
+                    })
+                    .map_err(|e| bdk_sync_error(&e))?;
+                if let Some(block) = &event.block {
+                    bdk_wallet
+                        .apply_block_connected_to(block, block_id.height, block_id)
+                        .map_err(|e| bdk_sync_error(&e))?;
+                }
+            }
+            if next_indices(bdk_wallet) == indices {
+                break;
+            }
+        }
+        Ok(())
+    }
+}
+
 impl Indexer {
     pub(crate) fn block_hash(&self, height: usize) -> Result<String, IndexerError> {
         Ok(match self {
+            #[cfg(feature = "bitcoind")]
+            Indexer::Bitcoind(client) => client.get_block_hash(height as u64)?.to_string(),
             #[cfg(feature = "electrum")]
             Indexer::Electrum(client) => {
                 client.inner.block_header(height)?.block_hash().to_string()
@@ -29,6 +178,11 @@ impl Indexer {
 
     pub(crate) fn broadcast(&self, tx: &BdkTransaction) -> Result<(), IndexerError> {
         match self {
+            #[cfg(feature = "bitcoind")]
+            Indexer::Bitcoind(client) => {
+                client.send_raw_transaction(tx)?;
+                Ok(())
+            }
             #[cfg(feature = "electrum")]
             Indexer::Electrum(client) => {
                 client.transaction_broadcast(tx)?;
@@ -44,6 +198,17 @@ impl Indexer {
 
     pub(crate) fn fee_estimation(&self, blocks: u16) -> Result<f64, Error> {
         Ok(match self {
+            #[cfg(feature = "bitcoind")]
+            Indexer::Bitcoind(client) => {
+                let estimate = client
+                    .estimate_smart_fee(blocks, None)
+                    .map_err(IndexerError::from)?;
+                // fee_rate is in BTC/kvB
+                let Some(fee_rate) = estimate.fee_rate else {
+                    return Err(Error::CannotEstimateFees);
+                };
+                fee_rate.to_sat() as f64 / 1_000.0
+            }
             #[cfg(feature = "electrum")]
             Indexer::Electrum(client) => {
                 let estimate = client
@@ -101,11 +266,16 @@ impl Indexer {
         })
     }
 
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
     pub(crate) fn full_scan<K: Ord + Clone, R: Into<FullScanRequest<K>>>(
         &self,
         request: R,
     ) -> Result<FullScanResponse<K>, IndexerError> {
         match self {
+            #[cfg(feature = "bitcoind")]
+            Indexer::Bitcoind(_) => {
+                unreachable!("bitcoind syncs via BitcoindClient::sync_bdk_wallet")
+            }
             #[cfg(feature = "electrum")]
             Indexer::Electrum(client) => {
                 Ok(client.full_scan(request, INDEXER_STOP_GAP, INDEXER_BATCH_SIZE, true)?)
@@ -119,6 +289,13 @@ impl Indexer {
 
     pub(crate) fn get_latest_block_height(&self) -> Result<u32, Error> {
         Ok(match self {
+            #[cfg(feature = "bitcoind")]
+            Indexer::Bitcoind(client) => {
+                let height = client.get_block_count().map_err(IndexerError::from)?;
+                u32::try_from(height).map_err(|_| Error::Indexer {
+                    details: s!("bitcoind returned invalid height"),
+                })?
+            }
             #[cfg(feature = "electrum")]
             Indexer::Electrum(client) => {
                 let header = client
@@ -136,6 +313,25 @@ impl Indexer {
 
     pub(crate) fn get_tx_confirmations(&self, txid: &str) -> Result<Option<u64>, Error> {
         Ok(match self {
+            #[cfg(feature = "bitcoind")]
+            Indexer::Bitcoind(client) => {
+                let txid = Txid::from_str(txid).unwrap();
+                match client.get_raw_transaction_info(&txid, None) {
+                    Ok(info) => Some(u64::from(info.confirmations.unwrap_or(0))),
+                    Err(BitcoindRpcError::JsonRpc(BitcoindJsonRpcError::Rpc(e)))
+                        if e.code == BITCOIND_RPC_INVALID_ADDRESS_OR_KEY =>
+                    {
+                        if e.message.contains("genesis block coinbase") {
+                            Some(u64::MAX)
+                        } else {
+                            // the node has a synced txindex (checked when going online), so
+                            // an unknown TX is neither mined nor in the mempool
+                            None
+                        }
+                    }
+                    Err(e) => return Err(IndexerError::from(e).into()),
+                }
+            }
             #[cfg(feature = "electrum")]
             Indexer::Electrum(client) => {
                 let tx_details = match client.inner.raw_call(
@@ -196,9 +392,12 @@ impl Indexer {
 
     pub(crate) fn populate_tx_cache(
         &self,
-        #[cfg_attr(feature = "esplora", allow(unused))] bdk_wallet: &BdkWallet,
+        #[cfg_attr(any(feature = "esplora", feature = "bitcoind"), allow(unused))]
+        bdk_wallet: &BdkWallet,
     ) {
         match self {
+            #[cfg(feature = "bitcoind")]
+            Indexer::Bitcoind(_) => {}
             #[cfg(feature = "electrum")]
             Indexer::Electrum(client) => {
                 client.populate_tx_cache(bdk_wallet.tx_graph().full_txs().map(|tx_node| tx_node.tx))
@@ -208,11 +407,16 @@ impl Indexer {
         }
     }
 
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
     pub(crate) fn sync<I: 'static>(
         &self,
         request: impl Into<SyncRequest<I>>,
     ) -> Result<SyncResponse, IndexerError> {
         match self {
+            #[cfg(feature = "bitcoind")]
+            Indexer::Bitcoind(_) => {
+                unreachable!("bitcoind syncs via BitcoindClient::sync_bdk_wallet")
+            }
             #[cfg(feature = "electrum")]
             Indexer::Electrum(client) => Ok(client.sync(request, INDEXER_BATCH_SIZE, true)?),
             #[cfg(feature = "esplora")]
@@ -223,15 +427,26 @@ impl Indexer {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "_online"))]
 mod tests {
     use super::*;
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     const TEST_TXID: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
     #[cfg(feature = "electrum")]
     const GENESIS_HEADER_HEX: &str = "0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a29ab5f49ffff001d1dac2b7c";
+
+    #[cfg(feature = "bitcoind")]
+    fn bitcoind_indexer(url: &str) -> Indexer {
+        let client =
+            BitcoindRpcClient::new(url, BitcoindRpcAuth::UserPass(s!("user"), s!("password")))
+                .expect("bitcoind client");
+        Indexer::Bitcoind(Box::new(BitcoindClient {
+            inner: client,
+            block_filters: false,
+        }))
+    }
 
     #[cfg(feature = "electrum")]
     fn electrum_indexer(url: &str) -> Indexer {
@@ -248,6 +463,34 @@ mod tests {
     fn esplora_indexer(url: &str) -> Indexer {
         let opts = EsploraBuilder::new(url).max_retries(0).timeout(1);
         Indexer::Esplora(Box::new(EsploraClient::from_builder(opts)))
+    }
+
+    #[cfg(feature = "bitcoind")]
+    fn run_bitcoind_get_tx_confirmations_error_case(
+        error_code: i32,
+        error_message: &str,
+    ) -> Result<Option<u64>, Error> {
+        let mut server = mockito::Server::new();
+        let error_message = error_message.to_string();
+        let mock = server
+            .mock("POST", "/")
+            .with_header("content-type", "application/json")
+            .with_body_from_request(move |request| {
+                let req: serde_json::Value =
+                    serde_json::from_slice(request.body().expect("mock bitcoind request body"))
+                        .expect("parse mock bitcoind request");
+                assert_eq!(req["method"], "getrawtransaction");
+                format!(
+                    r#"{{"jsonrpc":"2.0","id":{},"result":null,"error":{{"code":{error_code},"message":"{error_message}"}}}}"#,
+                    req["id"]
+                )
+                .into()
+            })
+            .create();
+
+        let result = bitcoind_indexer(&server.url()).get_tx_confirmations(TEST_TXID);
+        mock.assert();
+        result
     }
 
     #[cfg(feature = "electrum")]
@@ -417,6 +660,36 @@ mod tests {
         }
 
         result
+    }
+
+    #[cfg(feature = "bitcoind")]
+    #[test]
+    fn test_bitcoind_get_tx_confirmations_not_found() {
+        let res = run_bitcoind_get_tx_confirmations_error_case(
+            BITCOIND_RPC_INVALID_ADDRESS_OR_KEY,
+            "No such mempool or blockchain transaction",
+        )
+        .unwrap();
+        assert_eq!(res, None);
+    }
+
+    #[cfg(feature = "bitcoind")]
+    #[test]
+    fn test_bitcoind_get_tx_confirmations_genesis_coinbase() {
+        let res = run_bitcoind_get_tx_confirmations_error_case(
+            BITCOIND_RPC_INVALID_ADDRESS_OR_KEY,
+            "The genesis block coinbase is not considered an ordinary transaction",
+        )
+        .unwrap();
+        assert_eq!(res, Some(u64::MAX));
+    }
+
+    #[cfg(feature = "bitcoind")]
+    #[test]
+    fn test_bitcoind_get_tx_confirmations_protocol_error() {
+        let res =
+            run_bitcoind_get_tx_confirmations_error_case(-32603, "internal error").unwrap_err();
+        assert_matches!(res, Error::Indexer { .. });
     }
 
     #[cfg(feature = "electrum")]

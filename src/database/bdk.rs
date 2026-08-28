@@ -624,7 +624,7 @@ mod tests {
 
     // A failing savepoint must roll back only its own changes and callbacks, while a succeeding
     // one keeps them, with its callbacks running only once the enclosing transaction commits.
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     #[test]
     fn savepoint_rolls_back_only_on_error() {
         let (db, _dir) = test_db();

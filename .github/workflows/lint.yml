@@ -22,6 +22,8 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: Lint with no features
         run: cargo clippy --workspace --all-targets --no-default-features -- -D warnings
+      - name: Lint with bitcoind feature
+        run: cargo clippy --workspace --all-targets --no-default-features --features bitcoind -- -D warnings
       - name: Lint with electrum feature
         run: cargo clippy --workspace --all-targets --no-default-features --features electrum -- -D warnings
       - name: Lint with esplora feature

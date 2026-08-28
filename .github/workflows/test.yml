@@ -47,6 +47,13 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           rustflags: ""
+      - name: Test with bitcoind feature
+        run: |
+          cargo test --profile reldebug --no-default-features --features bitcoind get_fee_estimation::success_bitcoind -- --ignored
+          SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features bitcoind go_online::fail
+          SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features bitcoind go_online::bitcoind
+          SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features bitcoind send::min_confirmations_bitcoind
+          SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features bitcoind send::min_relay_fee_bitcoind
       - name: Test with electrum feature
         run: |
           cargo test --profile reldebug --no-default-features --features electrum get_fee_estimation::success_electrum -- --ignored

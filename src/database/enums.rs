@@ -75,7 +75,7 @@ impl AssetSchema {
         Self::from_schema_id(schema_id)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn schema_rules(&self) -> SchemaRules {
         match self {
             Self::Nia => NonInflatableAsset::schema_rules(),
@@ -259,7 +259,7 @@ impl TransferStatus {
         .contains(self)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn waiting(&self) -> bool {
         [
             TransferStatus::WaitingCounterparty,
@@ -282,7 +282,7 @@ impl TransferStatus {
         self == &TransferStatus::WaitingCounterparty
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn is_fallible(&self) -> bool {
         [
             TransferStatus::Initiated,
@@ -334,7 +334,7 @@ impl Assignment {
         }
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn add_to_assignments(&self, assignments: &mut AssignmentsCollection) {
         match self {
             Self::Fungible(amt) => {
@@ -364,7 +364,7 @@ impl Assignment {
         }
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn inflation_amount(&self) -> u64 {
         if let Self::InflationRight(amt) = self {
             *amt
@@ -668,7 +668,7 @@ mod tests {
         assert!(!TransferStatus::Failed.waiting_counterparty());
         assert!(!TransferStatus::WaitingBroadcast.waiting_counterparty());
 
-        #[cfg(any(feature = "electrum", feature = "esplora"))]
+        #[cfg(feature = "_online")]
         {
             assert!(TransferStatus::WaitingCounterparty.waiting());
             assert!(TransferStatus::WaitingConfirmations.waiting());
