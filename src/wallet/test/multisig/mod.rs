@@ -1752,3 +1752,184 @@ fn send_to_oneself() {
         (AMOUNT_SMALL, AMOUNT_SMALL, AMOUNT_SMALL),
     );
 }
+
+/// An approved operation whose transaction is already confirmed on-chain must
+/// complete on every party, including a party whose collected response PSBTs
+/// cannot be finalized locally (e.g. a cosigner responded without adding its
+/// signature). The txid commits to all inputs and outputs, so completing the
+/// operation does not require re-finalizing the combined PSBT — erroring with
+/// `CannotFinalizePsbt` instead leaves the operation permanently stuck on
+/// every retry while its transaction is already mined.
+#[cfg(feature = "electrum")]
+#[test]
+#[serial]
+fn operation_completes_when_tx_already_onchain() {
+    initialize();
+    op_counter_reset();
+
+    let bitcoin_network = BitcoinNetwork::Regtest;
+    let threshold = 2;
+    let random_str: String = rand::rng()
+        .sample_iter(&Alphanumeric)
+        .take(6)
+        .map(char::from)
+        .collect();
+
+    // keys and cosigners
+    let wlt_1_keys = generate_keys(bitcoin_network, WitnessVersion::Taproot);
+    let wlt_2_keys = generate_keys(bitcoin_network, WitnessVersion::Taproot);
+    let cosigners = vec![
+        Cosigner::from_keys(&wlt_1_keys, None),
+        Cosigner::from_keys(&wlt_2_keys, None),
+    ];
+    let cosigner_xpubs: Vec<String> = cosigners
+        .iter()
+        .map(|c| c.account_xpub_colored.clone())
+        .collect();
+
+    // biscuit tokens
+    let root_keypair = KeyPair::new();
+    let root_public_key = root_keypair.public();
+    let cosigner_tokens: Vec<String> = cosigner_xpubs
+        .iter()
+        .map(|xpub| create_token(&root_keypair, Role::Cosigner(xpub.clone()), None))
+        .collect();
+
+    // hub setup
+    write_hub_config(
+        &cosigner_xpubs,
+        threshold,
+        threshold,
+        root_public_key.to_bytes_hex(),
+        None,
+    );
+    restart_multisig_hub();
+
+    // multisig + singlesig wallets
+    let multisig_wlt_keys = MultisigKeys::new(cosigners.clone(), threshold, threshold);
+    let mut wlt_1_multisig = get_test_ms_wallet(&multisig_wlt_keys, format!("{random_str}_1"));
+    let wlt_1_multisig_online = ms_go_online(&mut wlt_1_multisig, &cosigner_tokens[0]);
+    let mut wlt_2_multisig = get_test_ms_wallet(&multisig_wlt_keys, format!("{random_str}_2"));
+    let wlt_2_multisig_online = ms_go_online(&mut wlt_2_multisig, &cosigner_tokens[1]);
+    let wlt_1_singlesig = get_test_wallet_with_keys(&wlt_1_keys);
+    let wlt_2_singlesig = get_test_wallet_with_keys(&wlt_2_keys);
+
+    let mut wlt_1 = ms_party!(
+        &wlt_1_singlesig,
+        &mut wlt_1_multisig,
+        wlt_1_multisig_online,
+        &cosigner_xpubs[0]
+    );
+    let mut wlt_2 = ms_party!(
+        &wlt_2_singlesig,
+        &mut wlt_2_multisig,
+        wlt_2_multisig_online,
+        &cosigner_xpubs[1]
+    );
+
+    // destination singlesig wallet
+    let mut dest_wallet = get_test_wallet(true, None);
+    let dest_addr = dest_wallet.get_address().unwrap();
+
+    // fund the multisig wallet
+    send_sats_to_address(wlt_1.get_address(), Some(30_000));
+    mine(false);
+
+    // cosigner 1 initiates a BTC send and acks with a properly signed response
+    let op_init = wlt_1.send_btc_init(&dest_addr, 1000);
+    let op_idx = op_init.operation_idx;
+    let op_info = wlt_1.sync_with_hub();
+    assert_eq!(op_info.operation_idx, op_idx);
+    let signed_1 = wlt_1.sign(&op_init.psbt);
+    wlt_1
+        .multisig
+        .respond_to_operation(
+            wlt_1.online,
+            op_idx,
+            RespondToOperation::Ack(signed_1.clone()),
+        )
+        .unwrap();
+
+    // the fully-signed tx reaches the chain out-of-band (e.g. broadcast by a
+    // party that had collected all signatures before losing local state)
+    let signed_2 = wlt_2.sign(&signed_1);
+    let mut full_psbt = <Psbt as std::str::FromStr>::from_str(&signed_2).unwrap();
+    wlt_1
+        .multisig
+        .finalize_psbt_impl(&mut full_psbt, None)
+        .unwrap();
+    let tx = full_psbt.extract_tx().unwrap();
+    let txid = tx.compute_txid().to_string();
+    wlt_1.multisig.broadcast_tx(tx).unwrap();
+    mine(false);
+    let confirmations = wlt_1
+        .multisig
+        .indexer()
+        .get_tx_confirmations(&txid)
+        .unwrap();
+    assert!(
+        confirmations.unwrap_or(0) >= 1,
+        "precondition: operation tx {txid} must be confirmed on-chain"
+    );
+
+    // cosigner 2's signer failed: its ack carries a response PSBT without its
+    // own signature; the hub reaches threshold acks and approves the op
+    let op_info = wlt_2.sync_with_hub();
+    assert_eq!(op_info.operation_idx, op_idx);
+    let ack_2 = wlt_2.multisig.respond_to_operation(
+        wlt_2.online,
+        op_idx,
+        RespondToOperation::Ack(signed_1.clone()),
+    );
+    if let Err(e) = &ack_2 {
+        panic!("approved operation with tx already on-chain should complete: {e:?}");
+    }
+
+    // cosigner 1 must also be able to complete the operation
+    let op_info = match wlt_1.multisig.sync_with_hub(wlt_1.online) {
+        Ok(op_info) => op_info.expect("operation should be processed"),
+        Err(e) => panic!("sync_with_hub should complete an operation whose tx is on-chain: {e:?}"),
+    };
+    assert_eq!(op_info.operation_idx, op_idx);
+    assert_matches!(
+        op_info.operation,
+        Operation::SendBtcCompleted { txid: ref t, .. } if t == &txid
+    );
+
+    // retrying after completion is a clean no-op: the operation is processed
+    // and must not be picked up again
+    let retry = wlt_1.multisig.sync_with_hub(wlt_1.online).unwrap();
+    assert!(
+        retry.is_none(),
+        "completed operation must not be re-processed on retry"
+    );
+
+    // negative control: an approved operation whose responses cannot finalize
+    // and whose tx is NOT on-chain must keep failing — completion must never
+    // blindly skip finalization when the transaction was not broadcast
+    let op_init_2 = wlt_1.send_btc_init(&dest_addr, 1000);
+    let op_idx_2 = op_init_2.operation_idx;
+    let op_info = wlt_1.sync_with_hub();
+    assert_eq!(op_info.operation_idx, op_idx_2);
+    let signed_1_op2 = wlt_1.sign(&op_init_2.psbt);
+    wlt_1
+        .multisig
+        .respond_to_operation(
+            wlt_1.online,
+            op_idx_2,
+            RespondToOperation::Ack(signed_1_op2.clone()),
+        )
+        .unwrap();
+    let op_info = wlt_2.sync_with_hub();
+    assert_eq!(op_info.operation_idx, op_idx_2);
+    // cosigner 2 again responds without adding its signature; this time the
+    // operation tx is never broadcast, so nothing can complete the operation
+    let ack_2_op2 = wlt_2.multisig.respond_to_operation(
+        wlt_2.online,
+        op_idx_2,
+        RespondToOperation::Ack(signed_1_op2),
+    );
+    assert_matches!(ack_2_op2, Err(Error::CannotFinalizePsbt));
+    let res = wlt_1.multisig.sync_with_hub(wlt_1.online);
+    assert_matches!(res, Err(Error::CannotFinalizePsbt));
+}
