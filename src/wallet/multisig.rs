@@ -212,7 +212,7 @@ impl WalletCore for MultisigWallet {
         &mut self.internals
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     fn sync_wallet(
         &mut self,
         txn: &DbTxn,
@@ -245,7 +245,7 @@ impl WalletCore for MultisigWallet {
 impl WalletBackup for MultisigWallet {}
 
 impl WalletOffline for MultisigWallet {
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     fn get_new_addresses(
         &mut self,
         keychain: KeychainKind,
@@ -266,7 +266,7 @@ impl WalletOffline for MultisigWallet {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl WalletOnline for MultisigWallet {
     fn wallet_specific_consistency_checks(&mut self, _txn: &DbTxn) -> Result<(), Error> {
         Ok(())
@@ -315,7 +315,7 @@ impl WalletOnline for MultisigWallet {
 impl RgbWalletOpsOffline for MultisigWallet {}
 
 /// Common online APIs of the wallet.
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl RgbWalletOpsOnline for MultisigWallet {
     fn fail_transfers(
         &mut self,
@@ -346,7 +346,7 @@ impl RgbWalletOpsOnline for MultisigWallet {
 }
 
 /// Multisig-specific options for the [`MultisigWallet::go_online`] method.
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct MultisigOnlineOptions {
@@ -358,7 +358,7 @@ pub struct MultisigOnlineOptions {
 
 /// Voting status for multisig operations.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct MultisigVotingStatus {
     /// xPubs of cosigners that ACKed
@@ -372,7 +372,7 @@ pub struct MultisigVotingStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 struct ReceiveMetadata {
     invoice: String,
     min_confirmations: u8,
@@ -382,7 +382,7 @@ struct ReceiveMetadata {
 
 /// Operations for multisig wallets.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub enum Operation {
     // CreateUtxos variants
     /// Create UTXOs operation waiting for user's response (ACK/NACK)
@@ -557,13 +557,13 @@ pub enum Operation {
 }
 
 #[derive(Debug, Clone)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) struct FileResponse {
     pub(crate) r#type: FileType,
     pub(crate) filepath: PathBuf,
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl InfoBatchTransfer {
     fn extract_from_files(files: &[FileResponse]) -> Result<Self, Error> {
         let transfer_data_file = files
@@ -580,7 +580,7 @@ impl InfoBatchTransfer {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 fn extract_fascia_path(files: &[FileResponse]) -> Result<String, Error> {
     files
         .iter()
@@ -591,7 +591,7 @@ fn extract_fascia_path(files: &[FileResponse]) -> Result<String, Error> {
         })
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 fn extract_fascia_from_files(files: &[FileResponse]) -> Result<Fascia, Error> {
     let fascia_file = files
         .iter()
@@ -605,10 +605,10 @@ fn extract_fascia_from_files(files: &[FileResponse]) -> Result<Fascia, Error> {
 }
 
 #[derive(Debug, Clone)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) struct NoDetails;
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) trait OperationHandler {
     type Details: Clone;
 
@@ -637,10 +637,10 @@ pub(crate) trait OperationHandler {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) struct CreateUtxosHandler;
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl OperationHandler for CreateUtxosHandler {
     type Details = NoDetails;
 
@@ -674,10 +674,10 @@ impl OperationHandler for CreateUtxosHandler {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) struct SendBtcHandler;
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl OperationHandler for SendBtcHandler {
     type Details = NoDetails;
 
@@ -711,10 +711,10 @@ impl OperationHandler for SendBtcHandler {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) struct SendRgbHandler;
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl OperationHandler for SendRgbHandler {
     type Details = SendDetails;
 
@@ -785,10 +785,10 @@ impl OperationHandler for SendRgbHandler {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) struct InflateHandler;
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl OperationHandler for InflateHandler {
     type Details = InflateDetails;
 
@@ -865,10 +865,10 @@ impl OperationHandler for InflateHandler {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) struct BurnHandler;
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl OperationHandler for BurnHandler {
     type Details = BurnDetails;
 
@@ -947,7 +947,7 @@ impl OperationHandler for BurnHandler {
 
 /// Information about an operation.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct OperationInfo {
     /// Index of the operation
@@ -960,7 +960,7 @@ pub struct OperationInfo {
 
 /// Response to an operation.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub enum RespondToOperation {
     /// ACK the operation with a signed PSBT
     Ack(String),
@@ -970,7 +970,7 @@ pub enum RespondToOperation {
 
 /// Result of an operation initialization.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct InitOperationResult {
     /// PSBT of the operation
@@ -981,7 +981,7 @@ pub struct InitOperationResult {
 
 /// The role of the user on the hub.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub enum UserRole {
     /// A cosigner
     Cosigner,
@@ -989,7 +989,7 @@ pub enum UserRole {
     WatchOnly,
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl From<UserRoleResponse> for UserRole {
     fn from(orig: UserRoleResponse) -> Self {
         match orig {
@@ -1001,7 +1001,7 @@ impl From<UserRoleResponse> for UserRole {
 
 /// Information about the hub.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct HubInfo {
     /// The minimum supported rgb-lib version
@@ -1016,7 +1016,7 @@ pub struct HubInfo {
     pub user_role: UserRole,
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl From<InfoResponse> for HubInfo {
     fn from(orig: InfoResponse) -> Self {
         Self {
@@ -1029,7 +1029,7 @@ impl From<InfoResponse> for HubInfo {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 enum PostData {
     BeginOperationData(Box<BeginOperationData>),
     Psbt(Psbt),
@@ -1080,7 +1080,7 @@ impl MultisigWallet {
                 wallet_dir,
                 bdk_wallet,
                 bdk_pending: Arc::new(Mutex::new(ChangeSet::default())),
-                #[cfg(any(feature = "electrum", feature = "esplora"))]
+                #[cfg(feature = "_online")]
                 online_data: None,
             },
             keys,
@@ -1124,7 +1124,7 @@ impl MultisigWallet {
 }
 
 /// Online APIs of the wallet
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl MultisigWallet {
     fn is_cosigner(&self) -> Result<bool, Error> {
         Ok(matches!(

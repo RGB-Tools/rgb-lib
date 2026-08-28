@@ -808,7 +808,7 @@ fn success() {
         .unwrap()
         .get_txid()
         .to_string();
-    mine_tx(false, &send_btc_txid);
+    mine_tx(&send_btc_txid);
     let op_init_last_successful = op_init;
 
     println!("\n=== receive failed (wlt_1) ===");

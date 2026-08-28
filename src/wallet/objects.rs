@@ -58,10 +58,10 @@ pub struct Online {
     pub id: u64,
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub struct OnlineData {
     pub(crate) id: u64,
-    pub(crate) indexer_url: String,
+    pub(crate) indexer_config: IndexerConfig,
     pub(crate) indexer: Indexer,
     pub(crate) resolver: AnyResolver,
     pub(crate) hub_client: Option<MultisigHubClient>,
@@ -71,12 +71,12 @@ pub struct OnlineData {
 }
 
 /// Options for the [`Wallet::go_online`] and [`MultisigWallet::go_online`] methods.
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct OnlineOptions {
-    /// URL of the indexer to use
-    pub indexer_url: String,
+    /// Indexer the wallet should use
+    pub indexer_config: IndexerConfig,
     /// Whether to skip the consistency check when going online.
     ///
     /// Setting this to false runs a check on UTXOs (BDK vs rgb-lib DB), assets (RGB vs rgb-lib DB)
@@ -100,6 +100,94 @@ pub struct OnlineOptions {
     /// is only detected by a FullSync or a FullScan. Setting this to 0 stops syncing the script as
     /// soon as the receive fails.
     pub failed_witness_receive_grace_secs: u32,
+}
+
+/// Indexer the wallet connects to, see [`OnlineOptions::indexer_config`].
+///
+/// The variant selects the protocol to speak, so support for it must be compiled in: going online
+/// with an indexer whose feature is disabled fails with [`Error::InvalidIndexer`].
+#[cfg(feature = "_online")]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub enum IndexerConfig {
+    /// A Bitcoin Core node. Requires the `bitcoind` feature.
+    ///
+    /// The node must maintain a synced transaction index (`-txindex`), as RGB witnesses are
+    /// looked up by TXID alone. The wallet is synced by scanning blocks from its last known
+    /// checkpoint, so its first sync goes through the whole chain: with a block filter index on
+    /// the node (`-blockfilterindex`) only the blocks matching the wallet scripts are fetched,
+    /// which makes this considerably faster.
+    Bitcoind {
+        /// URL of the Bitcoin Core node RPC endpoint
+        url: String,
+        /// Credentials for the RPC connection
+        auth: BitcoindAuth,
+    },
+    /// An indexer implementing the electrum protocol. Requires the `electrum` feature.
+    Electrum {
+        /// URL of the electrum server
+        url: String,
+    },
+    /// An indexer implementing the esplora protocol. Requires the `esplora` feature.
+    Esplora {
+        /// URL of the esplora server
+        url: String,
+    },
+}
+
+#[cfg(feature = "_online")]
+impl IndexerConfig {
+    /// URL of the indexer.
+    pub fn url(&self) -> &str {
+        match self {
+            Self::Bitcoind { url, .. } | Self::Electrum { url } | Self::Esplora { url } => url,
+        }
+    }
+
+    /// Protocol the indexer speaks.
+    pub fn protocol(&self) -> IndexerProtocol {
+        match self {
+            Self::Bitcoind { .. } => IndexerProtocol::Bitcoind,
+            Self::Electrum { .. } => IndexerProtocol::Electrum,
+            Self::Esplora { .. } => IndexerProtocol::Esplora,
+        }
+    }
+}
+
+/// Authentication for a Bitcoin Core node RPC connection, see [`IndexerConfig::Bitcoind`].
+#[cfg(feature = "_online")]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub enum BitcoindAuth {
+    /// RPC username and password (`rpcuser` and `rpcpassword` or `rpcauth`)
+    UserPass {
+        /// RPC username
+        username: String,
+        /// RPC password
+        password: String,
+    },
+    /// Path to the cookie file written by the node (`.cookie` in its data directory)
+    CookieFile {
+        /// Cookie file path
+        path: String,
+    },
+}
+
+/// Indexer protocol
+#[cfg(feature = "_online")]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub enum IndexerProtocol {
+    /// A Bitcoin Core node
+    Bitcoind,
+    /// An indexer implementing the electrum protocol
+    Electrum,
+    /// An indexer implementing the esplora protocol
+    Esplora,
+}
+
+#[cfg(feature = "_online")]
+impl fmt::Display for IndexerProtocol {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{self:?}")
+    }
 }
 
 // ────────────────────────────────────────────────────────────
@@ -816,7 +904,7 @@ pub struct LocalAssetData {
 pub struct IssueData {
     pub(crate) asset_data: LocalAssetData,
     pub(crate) valid_contract: ValidContract,
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) contract_path: PathBuf,
     pub(crate) issue_utxos: HashMap<i32, Vec<Assignment>>,
 }
@@ -837,7 +925,7 @@ pub struct AssignmentsCollection {
     pub inflation: u64,
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl AssignmentsCollection {
     fn add_fungible(&mut self, amt: u64) {
         self.fungible = self
@@ -930,7 +1018,7 @@ pub enum TypeOfTransition {
 }
 
 impl TypeOfTransition {
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn type_name(&self) -> &'static str {
         match self {
             Self::Inflate => "inflate",
@@ -1662,7 +1750,7 @@ pub struct RgbInspection {
 
 /// The result of a burn begin operation.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct BurnBeginResult {
     /// PSBT to inspect and sign
@@ -1675,7 +1763,7 @@ pub struct BurnBeginResult {
 
 /// Details for burn operations.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct BurnDetails {
     /// Path to the strict-encoded fascia file, for inspection
@@ -1688,7 +1776,7 @@ pub struct BurnDetails {
 
 /// The result of an inflate begin operation.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct InflateBeginResult {
     /// PSBT to inspect and sign
@@ -1701,7 +1789,7 @@ pub struct InflateBeginResult {
 
 /// Details for inflate operations.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct InflateDetails {
     /// Path to the strict-encoded fascia file, for inspection
@@ -1714,7 +1802,7 @@ pub struct InflateDetails {
 
 /// The result of a send begin operation.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct SendBeginResult {
     /// PSBT to inspect and sign
@@ -1727,7 +1815,7 @@ pub struct SendBeginResult {
 
 /// Details for send operations.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct SendDetails {
     /// Path to the strict-encoded fascia file, for inspection
@@ -1742,7 +1830,7 @@ pub struct SendDetails {
 
 /// The result of an operation.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct OperationResult {
     /// ID of the transaction
@@ -1755,7 +1843,7 @@ pub struct OperationResult {
 
 /// The pending status of a [`Transfer`] (eligible for refresh).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub enum RefreshTransferStatus {
     /// Waiting for the counterparty to take action
     WaitingCounterparty,
@@ -1767,7 +1855,7 @@ pub enum RefreshTransferStatus {
     WaitingConfirmations,
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl TryFrom<TransferStatus> for RefreshTransferStatus {
     type Error = &'static str;
 
@@ -1784,7 +1872,7 @@ impl TryFrom<TransferStatus> for RefreshTransferStatus {
 
 /// A transfer refresh filter.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct RefreshFilter {
     /// Transfer status
@@ -1795,7 +1883,7 @@ pub struct RefreshFilter {
 
 /// A refreshed transfer
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct RefreshedTransfer {
     /// The updated transfer status, if it has changed
@@ -1805,15 +1893,15 @@ pub struct RefreshedTransfer {
 }
 
 /// The result of a refresh operation
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub type RefreshResult = HashMap<i32, RefreshedTransfer>;
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) trait RefreshResultTrait {
     fn transfers_changed(&self) -> bool;
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl RefreshResultTrait for RefreshResult {
     fn transfers_changed(&self) -> bool {
         self.values().any(|rt| rt.updated_status.is_some())
@@ -1856,7 +1944,7 @@ pub enum LocalRecipientData {
 }
 
 impl LocalRecipientData {
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn vout(&self) -> Option<u32> {
         match &self {
             LocalRecipientData::Blind(_) => None,
@@ -1945,7 +2033,7 @@ pub struct InfoBatchTransfer {
     pub transfers: BTreeMap<String, InfoAssetTransfer>,
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl InfoBatchTransfer {
     /// Whether this is the data of an operation of the kind identified by the given main
     /// transition, i.e. whether every transfer of the batch has it
@@ -1960,7 +2048,7 @@ impl InfoBatchTransfer {
 
 pub type TransferEndData = (String, PathBuf, InfoBatchTransfer, Fascia);
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub struct BeginOperationData {
     pub psbt: Psbt,
     pub transfer_dir: PathBuf,
@@ -1968,51 +2056,51 @@ pub struct BeginOperationData {
     pub batch_transfer_idx: Option<i32>,
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub enum PrepareRgbPsbtResult {
     Retry,
     Success(Box<BeginOperationData>),
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub enum PrepareTransferPsbtResult {
     Retry,
     Success(Box<BeginOperationData>),
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ReceivedConsignmentMeta {
     #[serde(default)]
     pub proxy_url: Option<String>,
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub enum TryFailBatchTransferOutcome {
     Failed,
     Refreshed,
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub struct FailTransfersOutcome {
     pub transfers_changed: bool,
     pub cannot_fail: bool,
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub enum ReceiveMode {
     Proxy { proxy_url: String },
     OutOfBand { media_file_paths: Vec<String> },
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub enum ReceiveMatcher {
     Blind(SecretSeal),
     Witness(ScriptBuf),
 }
 
 impl DbTransfer {
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn receive_matcher(&self) -> Result<ReceiveMatcher, Error> {
         let recipient_id = self
             .recipient_id
@@ -2041,13 +2129,21 @@ impl DbTransfer {
 }
 
 #[cfg(test)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 mod tests {
     use super::*;
     use sea_orm::Iterable;
 
     #[test]
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
+    fn display_indexer_protocol() {
+        assert_eq!(IndexerProtocol::Bitcoind.to_string(), "Bitcoind");
+        assert_eq!(IndexerProtocol::Electrum.to_string(), "Electrum");
+        assert_eq!(IndexerProtocol::Esplora.to_string(), "Esplora");
+    }
+
+    #[test]
+    #[cfg(feature = "_online")]
     fn refresh_transfer_status_matches_waiting() {
         for status in TransferStatus::iter() {
             assert_eq!(

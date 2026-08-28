@@ -506,7 +506,7 @@ pub trait WalletOffline: WalletBackup {
         Ok(IssueData {
             asset_data,
             valid_contract,
-            #[cfg(any(feature = "electrum", feature = "esplora"))]
+            #[cfg(feature = "_online")]
             contract_path: _contract_path,
             issue_utxos,
         })
@@ -651,7 +651,7 @@ pub trait WalletOffline: WalletBackup {
         Ok(IssueData {
             asset_data,
             valid_contract,
-            #[cfg(any(feature = "electrum", feature = "esplora"))]
+            #[cfg(feature = "_online")]
             contract_path: _contract_path,
             issue_utxos,
         })
@@ -760,7 +760,7 @@ pub trait WalletOffline: WalletBackup {
         Ok(IssueData {
             asset_data,
             valid_contract,
-            #[cfg(any(feature = "electrum", feature = "esplora"))]
+            #[cfg(feature = "_online")]
             contract_path: _contract_path,
             issue_utxos,
         })
@@ -895,7 +895,7 @@ pub trait WalletOffline: WalletBackup {
         Ok(IssueData {
             asset_data,
             valid_contract,
-            #[cfg(any(feature = "electrum", feature = "esplora"))]
+            #[cfg(feature = "_online")]
             contract_path: _contract_path,
             issue_utxos,
         })
@@ -1816,27 +1816,15 @@ pub trait WalletOffline: WalletBackup {
 
     fn sync_if_requested(
         &mut self,
-        #[cfg_attr(
-            not(any(feature = "electrum", feature = "esplora")),
-            allow(unused_variables)
-        )]
-        txn: &DbTxn,
-        #[cfg_attr(
-            not(any(feature = "electrum", feature = "esplora")),
-            allow(unused_variables)
-        )]
-        online: Option<Online>,
+        #[cfg_attr(not(feature = "_online"), allow(unused_variables))] txn: &DbTxn,
+        #[cfg_attr(not(feature = "_online"), allow(unused_variables))] online: Option<Online>,
         skip_sync: bool,
-        #[cfg_attr(
-            not(any(feature = "electrum", feature = "esplora")),
-            allow(unused_variables)
-        )]
-        keychain: KeychainKind,
+        #[cfg_attr(not(feature = "_online"), allow(unused_variables))] keychain: KeychainKind,
     ) -> Result<(), Error> {
         if !skip_sync {
-            #[cfg(not(any(feature = "electrum", feature = "esplora")))]
+            #[cfg(not(feature = "_online"))]
             return Err(Error::Offline);
-            #[cfg(any(feature = "electrum", feature = "esplora"))]
+            #[cfg(feature = "_online")]
             {
                 if let Some(online) = online {
                     self.check_online(online)?;
@@ -2647,7 +2635,7 @@ pub trait WalletOffline: WalletBackup {
                 transfer_info.beneficiaries_blinded.clone(),
                 fascia,
             )?;
-            #[cfg(all(test, any(feature = "electrum", feature = "esplora")))]
+            #[cfg(all(test, feature = "_online"))]
             if strip_terminals() {
                 consignment.terminals = Default::default();
             }

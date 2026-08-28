@@ -266,6 +266,22 @@ pub(crate) fn blind_receive(
     Ok(serde_json::to_string(&res)?)
 }
 
+pub(crate) fn check_indexer_url(
+    indexer_url: *const c_char,
+    bitcoind_auth: *const c_char,
+    bitcoin_network: *const c_char,
+) -> Result<String, Error> {
+    let indexer_url = ptr_to_string(indexer_url);
+    let bitcoind_auth: Option<BitcoindAuth> = match convert_optional_string(bitcoind_auth) {
+        Some(json) => Some(serde_json::from_str(&json)?),
+        None => None,
+    };
+    let bitcoin_network = BitcoinNetwork::from_str(&ptr_to_string(bitcoin_network))?;
+    let res =
+        rgb_lib::wallet::check_indexer_url(&indexer_url, bitcoind_auth.as_ref(), bitcoin_network)?;
+    Ok(serde_json::to_string(&res)?)
+}
+
 pub(crate) fn create_utxos(
     wallet: &COpaqueStruct,
     online: *const c_char,

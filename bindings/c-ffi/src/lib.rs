@@ -16,8 +16,8 @@ use rgb_lib::{
     keys::WitnessVersion,
     utils::BitcoinNetwork,
     wallet::{
-        AssetFilter, Online, OnlineOptions, Recipient, RefreshFilter, RgbWalletOpsOffline,
-        RgbWalletOpsOnline, SinglesigKeys, SyncOptions, Wallet, WalletData,
+        AssetFilter, BitcoindAuth, Online, OnlineOptions, Recipient, RefreshFilter,
+        RgbWalletOpsOffline, RgbWalletOpsOnline, SinglesigKeys, SyncOptions, Wallet, WalletData,
     },
 };
 
@@ -146,6 +146,15 @@ pub extern "C" fn rgblib_blind_receive(
         min_confirmations,
     )
     .into()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rgblib_check_indexer_url(
+    indexer_url: *const c_char,
+    bitcoind_auth: *const c_char,
+    bitcoin_network: *const c_char,
+) -> CResultString {
+    check_indexer_url(indexer_url, bitcoind_auth, bitcoin_network).into()
 }
 
 #[unsafe(no_mangle)]

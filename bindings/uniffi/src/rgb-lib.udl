@@ -1,4 +1,8 @@
 namespace rgb_lib {
+  [Throws=RgbLibError]
+  IndexerProtocol check_indexer_url(string indexer_url, BitcoindAuth? bitcoind_auth,
+    BitcoinNetwork bitcoin_network);
+
   Keys generate_keys(BitcoinNetwork bitcoin_network, WitnessVersion witness_version);
 
   [Throws=RgbLibError]
@@ -421,9 +425,28 @@ dictionary Online {
   u64 id;
 };
 
+[Enum]
+interface BitcoindAuth {
+  UserPass(string username, string password);
+  CookieFile(string path);
+};
+
+[Enum]
+interface IndexerConfig {
+  Bitcoind(string url, BitcoindAuth auth);
+  Electrum(string url);
+  Esplora(string url);
+};
+
 [Remote]
+enum IndexerProtocol {
+  "Bitcoind",
+  "Electrum",
+  "Esplora",
+};
+
 dictionary OnlineOptions {
-  string indexer_url;
+  IndexerConfig indexer_config;
   boolean skip_consistency_check;
   u32 vanilla_sync_lookback;
   u32 failed_witness_receive_grace_secs;

@@ -4,7 +4,7 @@ use std::ffi::OsString;
 use std::fs::File;
 #[cfg(feature = "electrum")]
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 use std::{
     process::{Command, Stdio},
     sync::{Once, RwLock},
@@ -12,12 +12,12 @@ use std::{
 };
 
 use std::cell::RefCell;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 use std::path::MAIN_SEPARATOR_STR;
 
 #[cfg(feature = "electrum")]
 use amplify::set;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 use bdk_wallet::bitcoin::Denomination;
 use bdk_wallet::descriptor::ExtendedDescriptor;
 #[cfg(feature = "electrum")]
@@ -29,9 +29,9 @@ use once_cell::sync::Lazy;
 use rgbstd::stl::{EmbeddedMedia as RgbEmbeddedMedia, ProofOfReserves as RgbProofOfReserves};
 use serde_json::Value;
 use serial_test::parallel;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 use serial_test::serial;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 use time::OffsetDateTime;
 
 use super::*;
@@ -42,12 +42,12 @@ use crate::keys::Keys;
 use crate::keys::restore_keys;
 #[cfg(all(feature = "electrum", feature = "rgb_fs_store_migration"))]
 use crate::utils::{RGB_RUNTIME_DELETING_DIR, RGB_RUNTIME_DIR};
+#[cfg(feature = "_online")]
+use crate::wallet::online::*;
 #[cfg(feature = "electrum")]
 use crate::wallet::rust_only::check_proxy_url;
-#[cfg(all(feature = "esplora", not(feature = "electrum")))]
-use crate::wallet::rust_only::*;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-use crate::wallet::{online::*, rust_only::check_indexer_url, utils::build_indexer};
+use crate::wallet::utils::build_indexer;
 use crate::{
     keys::generate_keys,
     utils::{
@@ -64,7 +64,7 @@ use crate::{
 
 const PROXY_HOST: &str = "127.0.0.1:3000/json-rpc";
 static PROXY_ENDPOINT: Lazy<String> = Lazy::new(|| format!("rpc://{PROXY_HOST}"));
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 const TEST_DATA_DIR_PARTS: [&str; 2] = ["tests", "tmp_srv"];
 const NOSRV_DATA_DIR_PARTS: [&str; 2] = ["tests", "tmp_nosrv"];
 const PASSWORD: &str = "password";
@@ -76,13 +76,23 @@ const MAX_ALLOCATIONS_PER_UTXO: u32 = 5;
 const PROXY_HOST_MOD_API: &str = "127.0.0.1:3002/json-rpc";
 #[cfg(feature = "electrum")]
 const PROXY_HOST_MOD_PROTO: &str = "127.0.0.1:3001/json-rpc";
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 const PROXY_URL: &str = "http://127.0.0.1:3000/json-rpc";
 #[cfg(feature = "electrum")]
 const PROXY_URL_MOD_API: &str = "http://127.0.0.1:3002/json-rpc";
 #[cfg(feature = "electrum")]
 const PROXY_URL_MOD_PROTO: &str = "http://127.0.0.1:3001/json-rpc";
 static TRANSPORT_ENDPOINTS: Lazy<Vec<String>> = Lazy::new(|| vec![PROXY_ENDPOINT.clone()]);
+#[cfg(feature = "bitcoind")]
+const BITCOIND_URL: &str = "http://127.0.0.1:18443";
+#[cfg(feature = "bitcoind")]
+const BITCOIND_NO_FILTERS_URL: &str = "http://127.0.0.1:18444";
+#[cfg(feature = "bitcoind")]
+const BITCOIND_NO_TXINDEX_URL: &str = "http://127.0.0.1:18445";
+#[cfg(feature = "bitcoind")]
+const BITCOIND_USER: &str = "user";
+#[cfg(feature = "bitcoind")]
+const BITCOIND_PASSWORD: &str = "default_password";
 #[cfg(feature = "electrum")]
 const ELECTRUM_URL: &str = "127.0.0.1:50001";
 #[cfg(feature = "electrum")]
@@ -99,21 +109,21 @@ const MULTISIG_HUB_URL: &str = "http://127.0.0.1:8141";
 const LISTS_DIR_PARTS: [&str; 2] = ["tests", "lists"];
 #[cfg(feature = "electrum")]
 const HUB_DIR_PARTS: [&str; 2] = ["tests", "hub"];
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 const TICKER: &str = "TICKER";
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 const NAME: &str = "asset name";
 #[cfg(feature = "electrum")]
 const DETAILS: &str = "details with ℧nicode characters";
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 const PRECISION: u8 = 7;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 const AMOUNT: u64 = 666;
 #[cfg(feature = "electrum")]
 const AMOUNT_INFLATION: u64 = 400;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 const AMOUNT_SMALL: u64 = 66;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 const FEE_RATE: u64 = 2;
 #[cfg(feature = "electrum")]
 const FILE_STR: &str = "README.md";
@@ -139,23 +149,38 @@ const FAKE_OUTPOINT: &str = "e5a3e577309df31bd606f48049049d2e1e02b048206ba232944
 const UNKNOWN_IDX: i32 = 9999;
 #[cfg(feature = "electrum")]
 const TINY_BTC_AMOUNT: u32 = 330;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 const QUEUE_DEPTH_EXCEEDED: &str = "Work queue depth exceeded";
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 const DURATION_RCV_TRANSFER: u32 = 86400;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 const DURATION_SEND_TRANSFER: u32 = 3600;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) const INDEXER_SYNC_LOOKBACK: usize = 20;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) const FAILED_WITNESS_RECEIVE_GRACE_SECS: u32 = 604800;
 
 #[cfg(all(feature = "esplora", not(feature = "electrum")))]
 const DEFAULT_INDEXER_URL: &str = ESPLORA_URL;
+#[cfg(all(
+    feature = "bitcoind",
+    not(any(feature = "electrum", feature = "esplora"))
+))]
+const DEFAULT_INDEXER_URL: &str = BITCOIND_URL;
 #[cfg(feature = "electrum")]
 const DEFAULT_INDEXER_URL: &str = ELECTRUM_URL;
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "electrum")]
+const INVALID_INDEXER_MSG: &str = "not a valid electrum server";
+#[cfg(all(feature = "esplora", not(feature = "electrum")))]
+const INVALID_INDEXER_MSG: &str = "not a valid esplora server";
+#[cfg(all(
+    feature = "bitcoind",
+    not(any(feature = "electrum", feature = "esplora"))
+))]
+const INVALID_INDEXER_MSG: &str = "cannot connect to bitcoind";
+
+#[cfg(feature = "_online")]
 static INIT: Once = Once::new();
 
 thread_local! {
@@ -165,7 +190,7 @@ thread_local! {
     pub(crate) static MOCK_TOKEN_DATA: RefCell<Vec<TokenData>> = const { RefCell::new(vec![]) };
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 thread_local! {
     pub(crate) static MOCK_CHECK_FEE_RATE: RefCell<Vec<bool>> = const { RefCell::new(vec![]) };
     pub(crate) static MOCK_INPUT_UNSPENTS: RefCell<Vec<LocalUnspent>> = const { RefCell::new(vec![]) };
@@ -176,7 +201,7 @@ thread_local! {
     pub(crate) static MOCK_STRIP_TERMINALS: RefCell<Option<()>> = const { RefCell::new(None) };
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub fn initialize() {
     INIT.call_once(|| {
         if std::env::var("SKIP_INIT").is_ok() {
@@ -239,7 +264,7 @@ pub fn restart_multisig_hub() {
 }
 
 // the get_*_wallet! macros can be called with no arguments to use defaults
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 macro_rules! get_empty_party {
     ($i: expr) => {
         get_empty_party(true, Some($i))
@@ -249,7 +274,7 @@ macro_rules! get_empty_party {
     };
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 macro_rules! get_funded_noutxo_party {
     ($i: expr) => {
         get_funded_noutxo_party(true, Some($i))
@@ -259,7 +284,7 @@ macro_rules! get_funded_noutxo_party {
     };
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 macro_rules! get_funded_party {
     ($i: expr) => {
         get_funded_party(true, Some($i))
@@ -296,7 +321,7 @@ pub fn mock_token_data(token_data: TokenData) -> TokenData {
     })
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub fn mock_input_unspents<W: WalletOnline + ?Sized>(
     wallet: &W,
     unspents: &[LocalUnspent],
@@ -331,7 +356,7 @@ pub fn mock_chain_net<W: WalletOffline + ?Sized>(wallet: &W) -> ChainNet {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub fn mock_local_version(version: &str) -> String {
     let mock = MOCK_LOCAL_VERSION.take();
     if let Some(mock) = mock {
@@ -342,7 +367,7 @@ pub fn mock_local_version(version: &str) -> String {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub fn skip_check_fee_rate() -> bool {
     MOCK_CHECK_FEE_RATE.with_borrow_mut(|mock| {
         if mock.is_empty() {
@@ -354,7 +379,7 @@ pub fn skip_check_fee_rate() -> bool {
     })
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub fn skip_build_dag() -> bool {
     if MOCK_SKIP_BUILD_DAG.take().is_none() {
         false
@@ -364,7 +389,7 @@ pub fn skip_build_dag() -> bool {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub fn strip_terminals() -> bool {
     if MOCK_STRIP_TERMINALS.take().is_none() {
         false
@@ -374,7 +399,7 @@ pub fn strip_terminals() -> bool {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub fn mock_send_end_crash() -> bool {
     if MOCK_SEND_END_CRASH.take().is_none() {
         false
@@ -384,7 +409,7 @@ pub fn mock_send_end_crash() -> bool {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub fn mock_vout(vout: Option<u32>) -> Option<u32> {
     let mock = MOCK_VOUT.take();
     if mock.is_some() {
@@ -399,7 +424,7 @@ pub fn mock_vout(vout: Option<u32>) -> Option<u32> {
 // test utilities
 #[macro_use]
 mod utils;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) use utils::chain::*;
 pub(crate) use utils::{api::*, helpers::*};
 
@@ -410,6 +435,8 @@ mod backup;
 mod blind_receive;
 #[cfg(feature = "electrum")]
 mod burn;
+#[cfg(feature = "_online")]
+mod check_indexer_url;
 #[cfg(feature = "electrum")]
 mod create_utxos;
 #[cfg(feature = "electrum")]
@@ -426,11 +453,11 @@ mod get_asset_balance;
 mod get_asset_metadata;
 #[cfg(feature = "electrum")]
 mod get_btc_balance;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 mod get_fee_estimation;
 mod get_wallet_data;
 mod get_wallet_dir;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 mod go_online;
 #[cfg(feature = "electrum")]
 mod inflate;
@@ -459,9 +486,9 @@ mod multisig;
 mod new;
 #[cfg(feature = "electrum")]
 mod refresh;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "electrum")]
 mod rust_only;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 mod send;
 #[cfg(feature = "electrum")]
 mod send_btc;

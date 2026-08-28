@@ -6,7 +6,7 @@ pub(crate) struct OfflineSinglesigParty {
 }
 
 // singlesig party (allows uniform access to some functionality via SigParty trait)
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) struct SinglesigParty {
     pub(crate) wallet: Wallet,
     pub(crate) online: Online,
@@ -20,7 +20,7 @@ macro_rules! offline_party {
 }
 
 // convenience macro to instantiate SinglesigParty
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 macro_rules! party {
     ($wallet:expr, $online:expr) => {
         SinglesigParty {
@@ -520,7 +520,7 @@ pub(crate) trait OfflineSigParty {
         user_driven_transfer
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     fn get_test_transfer_data(&self, transfer: &DbTransfer) -> (TransferData, DbAssetTransfer) {
         let txn = self.wlt().database().begin_transaction().unwrap();
         let db_data = txn.get_db_data(false).unwrap();
@@ -540,7 +540,7 @@ pub(crate) trait OfflineSigParty {
         (transfer_data, asset_transfer)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     fn get_test_transfer_recipient(&self, recipient_id: &str) -> DbTransfer {
         let txn = self.wlt().database().begin_transaction().unwrap();
         let asset_transfers = txn.iter_asset_transfers().unwrap();
@@ -558,7 +558,7 @@ pub(crate) trait OfflineSigParty {
         transfer
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     fn get_test_transfer_related(
         &self,
         transfer: &DbTransfer,
@@ -569,7 +569,7 @@ pub(crate) trait OfflineSigParty {
         transfer.related_transfers(&db_data.asset_transfers, &db_data.batch_transfers)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     fn get_test_transfer_sender(
         &self,
         txid: &str,
@@ -769,7 +769,7 @@ pub(crate) trait OfflineSigParty {
 }
 
 // convenience trait to allow uniform access to online functionality from all parties
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) trait SigParty: OfflineSigParty<W: RgbWalletOpsOnline> {
     fn party_online(&self) -> Online;
 
@@ -793,7 +793,7 @@ pub(crate) trait SigParty: OfflineSigParty<W: RgbWalletOpsOnline> {
             .unwrap()
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     fn fail_transfers_single(&mut self, batch_transfer_idx: i32) -> bool {
         let online = self.party_online();
         self.wlt_mut()
@@ -953,7 +953,7 @@ pub(crate) trait SigParty: OfflineSigParty<W: RgbWalletOpsOnline> {
 
 // shared singlesig-party test helpers that call inherent Wallet methods
 // (which OfflineSigParty's RgbWalletOpsOffline bound can't reach)
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) trait SinglesigWalletParty {
     #[cfg(feature = "electrum")]
     fn abort_pending_vanilla_tx(&self, txid: &str);
@@ -961,7 +961,7 @@ pub(crate) trait SinglesigWalletParty {
     #[cfg(feature = "electrum")]
     fn abort_pending_vanilla_tx_result(&self, txid: &str) -> Result<(), Error>;
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     fn blind_receive(&mut self) -> ReceiveData;
 
     #[cfg(feature = "electrum")]
@@ -971,7 +971,7 @@ pub(crate) trait SinglesigWalletParty {
         expiration: Option<u64>,
     ) -> ReceiveData;
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     fn blind_receive_result(&mut self) -> Result<ReceiveData, Error>;
 
     #[cfg(feature = "electrum")]
@@ -1052,7 +1052,7 @@ impl OfflineSigParty for OfflineSinglesigParty {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl OfflineSigParty for SinglesigParty {
     type W = Wallet;
 
@@ -1065,14 +1065,14 @@ impl OfflineSigParty for SinglesigParty {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl SigParty for SinglesigParty {
     fn party_online(&self) -> Online {
         self.online
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl<T: OfflineSigParty<W = Wallet>> SinglesigWalletParty for T {
     #[cfg(feature = "electrum")]
     fn abort_pending_vanilla_tx(&self, txid: &str) {
@@ -1084,7 +1084,7 @@ impl<T: OfflineSigParty<W = Wallet>> SinglesigWalletParty for T {
         self.wlt().abort_pending_vanilla_tx(txid.to_string())
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     fn blind_receive(&mut self) -> ReceiveData {
         self.blind_receive_result().unwrap()
     }
@@ -1106,7 +1106,7 @@ impl<T: OfflineSigParty<W = Wallet>> SinglesigWalletParty for T {
             .unwrap()
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     fn blind_receive_result(&mut self) -> Result<ReceiveData, Error> {
         self.wlt_mut().blind_receive(
             None,
@@ -1274,7 +1274,7 @@ impl<T: OfflineSigParty<W = Wallet>> SinglesigWalletParty for T {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl SinglesigParty {
     #[cfg(feature = "electrum")]
     pub(crate) fn get_keys(&self) -> SinglesigKeys {
@@ -1322,7 +1322,7 @@ impl SinglesigParty {
         )
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn create_utxos(
         &mut self,
         up_to: bool,
@@ -1366,7 +1366,7 @@ impl SinglesigParty {
             .create_utxos_begin(self.online, up_to, num, size, fee_rate, false, true)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn create_utxos_default(&mut self) {
         self.create_utxos(false, None, None, FEE_RATE, None);
     }
@@ -1432,14 +1432,14 @@ impl SinglesigParty {
             .unwrap()
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn refresh_asset(&mut self, asset_id: &str) -> bool {
         self.refresh_result(Some(asset_id), &[])
             .unwrap()
             .transfers_changed()
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn refresh_all(&mut self) -> bool {
         self.refresh_result(None, &[]).unwrap().transfers_changed()
     }
@@ -1497,7 +1497,7 @@ impl SinglesigParty {
             .unwrap();
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn send_retry(&mut self, recipient_map: &HashMap<String, Vec<Recipient>>) -> String {
         let start = Instant::now();
         let timeout = Duration::from_secs(10);
@@ -1524,7 +1524,7 @@ impl SinglesigParty {
         }
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn send_result(
         &mut self,
         recipient_map: &HashMap<String, Vec<Recipient>>,

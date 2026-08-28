@@ -588,52 +588,6 @@ fn color_psbt_overflow_fail() {
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
-fn check_indexer_url_electrum_success() {
-    initialize();
-
-    let result = check_indexer_url(ELECTRUM_URL, BitcoinNetwork::Regtest);
-    assert_matches!(result, Ok(IndexerProtocol::Electrum));
-
-    let result = check_indexer_url(ELECTRUM_2_URL, BitcoinNetwork::Regtest);
-    assert_matches!(result, Ok(IndexerProtocol::Electrum));
-}
-
-#[cfg(feature = "electrum")]
-#[test]
-#[parallel]
-fn check_indexer_url_electrum_fail() {
-    initialize();
-
-    let result = check_indexer_url(ELECTRUM_BLOCKSTREAM_URL, BitcoinNetwork::Regtest);
-    let verbose_unsupported =
-        "verbose transactions are unsupported by the provided electrum service";
-    assert_matches!(result, Err(Error::InvalidIndexer { details: m }) if m.contains(verbose_unsupported));
-}
-
-#[cfg(feature = "esplora")]
-#[test]
-#[parallel]
-fn check_indexer_url_esplora_success() {
-    initialize();
-
-    let result = check_indexer_url(ESPLORA_URL, BitcoinNetwork::Regtest);
-    assert_matches!(result, Ok(IndexerProtocol::Esplora));
-}
-
-#[cfg(feature = "esplora")]
-#[test]
-#[parallel]
-fn check_indexer_url_esplora_fail() {
-    initialize();
-
-    let result = check_indexer_url(PROXY_URL, BitcoinNetwork::Regtest);
-    let invalid_indexer = s!("not a valid electrum nor esplora server");
-    assert_matches!(result, Err(Error::InvalidIndexer { details: m }) if m == invalid_indexer);
-}
-
-#[cfg(feature = "electrum")]
-#[test]
-#[parallel]
 fn check_proxy_url_success() {
     initialize();
 

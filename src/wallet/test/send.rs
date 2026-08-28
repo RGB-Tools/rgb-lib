@@ -4818,7 +4818,7 @@ fn witness_multiple_inputs_success() {
     assert_eq!(transfer_data.status, TransferStatus::Settled);
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 fn min_confirmations_common(
     party: &mut SinglesigParty,
     rcv_party: &mut SinglesigParty,
@@ -5021,6 +5021,19 @@ fn min_confirmations_common(
     let (transfer_data, _) = rcv_party.get_test_transfer_data(&transfer);
     assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
     assert_eq!(transfer_data.status, TransferStatus::Settled);
+}
+
+#[cfg(feature = "bitcoind")]
+#[test]
+#[parallel]
+fn min_confirmations_bitcoind() {
+    initialize();
+
+    // wallets
+    let mut party = get_funded_party!(BITCOIND_URL.to_string());
+    let mut rcv_party = get_funded_party!(BITCOIND_URL.to_string());
+
+    min_confirmations_common(&mut party, &mut rcv_party, false);
 }
 
 #[cfg(feature = "electrum")]
@@ -5622,7 +5635,7 @@ fn min_fee_rate() {
     assert!(party.refresh_asset(&asset.asset_id));
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 fn max_fee_exceeded_common(
     asset_id: &str,
     party: &mut SinglesigParty,
@@ -5687,6 +5700,20 @@ fn max_fee_exceeded_common(
     assert_eq!(result, HashMap::new());
 }
 
+#[cfg(feature = "bitcoind")]
+#[test]
+#[serial]
+fn max_fee_exceeded_bitcoind() {
+    initialize();
+
+    let mut party = get_funded_party!(BITCOIND_URL.to_string());
+    let mut rcv_party = get_empty_party!(BITCOIND_URL.to_string());
+
+    let asset = party.issue_asset_nia(None);
+
+    max_fee_exceeded_common(&asset.asset_id, &mut party, &mut rcv_party, 2);
+}
+
 #[cfg(feature = "electrum")]
 #[test]
 #[serial]
@@ -5715,7 +5742,7 @@ fn max_fee_exceeded_esplora() {
     max_fee_exceeded_common(&asset.asset_id, &mut party, &mut rcv_party, 2);
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 fn min_relay_fee_common(
     asset_id: &str,
     party: &mut SinglesigParty,
@@ -5800,6 +5827,20 @@ fn min_relay_fee_common(
     party.fail_transfers_single(send_result.batch_transfer_idx);
     let result = party.refresh_result(None, &[]).unwrap();
     assert_eq!(result, HashMap::new());
+}
+
+#[cfg(feature = "bitcoind")]
+#[test]
+#[parallel]
+fn min_relay_fee_bitcoind() {
+    initialize();
+
+    let mut party = get_funded_party!(BITCOIND_URL.to_string());
+    let mut rcv_party = get_empty_party!(BITCOIND_URL.to_string());
+
+    let asset = party.issue_asset_nia(None);
+
+    min_relay_fee_common(&asset.asset_id, &mut party, &mut rcv_party, 3);
 }
 
 #[cfg(feature = "electrum")]

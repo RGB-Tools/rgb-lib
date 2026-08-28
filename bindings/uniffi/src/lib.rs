@@ -14,29 +14,79 @@ use rgb_lib::{
     utils::BitcoinNetwork,
     wallet::{
         Address as RgbLibAddress, AssetCFA, AssetFilter as RgbLibAssetFilter, AssetIFA, AssetNIA,
-        AssetUDA, Assets, AssignmentsCollection, Balance, BlockTime, BtcBalance, BurnBeginResult,
-        BurnDetails, Cosigner as CosignerData, DatabaseType, EmbeddedMedia, HubInfo,
-        InflateBeginResult, InflateDetails, InitOperationResult, Invoice as RgbLibInvoice,
-        InvoiceData as RgbLibInvoiceData, Media, Metadata, MultisigKeys, MultisigOnlineOptions,
-        MultisigVotingStatus as RgbLibMultisigVotingStatus, MultisigWallet as RgbLibMultisigWallet,
-        Online, OnlineOptions, Operation as RgbLibOperation, OperationInfo as RgbLibOperationInfo,
-        OperationResult, Outpoint, PendingVanillaTx, ProofOfReserves, PsbtInputInfo,
-        PsbtInspection, PsbtOutputInfo, ReceiveData, Recipient as RgbLibRecipient,
-        RecipientInfo as RgbLibRecipientInfo, RecipientType, RefreshFilter, RefreshTransferStatus,
-        RefreshedTransfer, RespondToOperation as RgbLibRespondToOperation,
-        RgbAllocation as RgbLibRgbAllocation, RgbInputInfo as RgbLibRgbInputInfo,
-        RgbInspection as RgbLibRgbInspection, RgbOperationInfo as RgbLibRgbOperationInfo,
-        RgbOutputInfo as RgbLibRgbOutputInfo, RgbTransitionInfo as RgbLibRgbTransitionInfo,
-        RgbWalletOpsOffline, RgbWalletOpsOnline, SendBeginResult, SendDetails, SinglesigKeys,
-        SyncKeychain as RgbLibSyncKeychain, SyncOptions as RgbLibSyncOptions, SyncStrategy, Token,
-        TokenLight, Transaction, TransactionType, Transfer as RgbLibTransfer, TransferKind,
-        TransferTransportEndpoint, TransportEndpoint as RgbLibTransportEndpoint, TypeOfTransition,
-        Unspent as RgbLibUnspent, UserRole, Utxo, Wallet as RgbLibWallet, WalletData,
-        WalletDescriptors, WitnessData,
+        AssetUDA, Assets, AssignmentsCollection, Balance, BitcoindAuth as RgbLibBitcoindAuth,
+        BlockTime, BtcBalance, BurnBeginResult, BurnDetails, Cosigner as CosignerData,
+        DatabaseType, EmbeddedMedia, HubInfo, IndexerConfig as RgbLibIndexerConfig,
+        IndexerProtocol, InflateBeginResult, InflateDetails, InitOperationResult,
+        Invoice as RgbLibInvoice, InvoiceData as RgbLibInvoiceData, Media, Metadata, MultisigKeys,
+        MultisigOnlineOptions, MultisigVotingStatus as RgbLibMultisigVotingStatus,
+        MultisigWallet as RgbLibMultisigWallet, Online, OnlineOptions as RgbLibOnlineOptions,
+        Operation as RgbLibOperation, OperationInfo as RgbLibOperationInfo, OperationResult,
+        Outpoint, PendingVanillaTx, ProofOfReserves, PsbtInputInfo, PsbtInspection, PsbtOutputInfo,
+        ReceiveData, Recipient as RgbLibRecipient, RecipientInfo as RgbLibRecipientInfo,
+        RecipientType, RefreshFilter, RefreshTransferStatus, RefreshedTransfer,
+        RespondToOperation as RgbLibRespondToOperation, RgbAllocation as RgbLibRgbAllocation,
+        RgbInputInfo as RgbLibRgbInputInfo, RgbInspection as RgbLibRgbInspection,
+        RgbOperationInfo as RgbLibRgbOperationInfo, RgbOutputInfo as RgbLibRgbOutputInfo,
+        RgbTransitionInfo as RgbLibRgbTransitionInfo, RgbWalletOpsOffline, RgbWalletOpsOnline,
+        SendBeginResult, SendDetails, SinglesigKeys, SyncKeychain as RgbLibSyncKeychain,
+        SyncOptions as RgbLibSyncOptions, SyncStrategy, Token, TokenLight, Transaction,
+        TransactionType, Transfer as RgbLibTransfer, TransferKind, TransferTransportEndpoint,
+        TransportEndpoint as RgbLibTransportEndpoint, TypeOfTransition, Unspent as RgbLibUnspent,
+        UserRole, Utxo, Wallet as RgbLibWallet, WalletData, WalletDescriptors, WitnessData,
     },
 };
 
 uniffi::include_scaffolding!("rgb-lib");
+
+// temporary solution needed because the UDL Enum and Remote attributes are incompatible with each other
+pub enum BitcoindAuth {
+    UserPass { username: String, password: String },
+    CookieFile { path: String },
+}
+impl From<BitcoindAuth> for RgbLibBitcoindAuth {
+    fn from(orig: BitcoindAuth) -> Self {
+        match orig {
+            BitcoindAuth::UserPass { username, password } => {
+                RgbLibBitcoindAuth::UserPass { username, password }
+            }
+            BitcoindAuth::CookieFile { path } => RgbLibBitcoindAuth::CookieFile { path },
+        }
+    }
+}
+pub enum IndexerConfig {
+    Bitcoind { url: String, auth: BitcoindAuth },
+    Electrum { url: String },
+    Esplora { url: String },
+}
+impl From<IndexerConfig> for RgbLibIndexerConfig {
+    fn from(orig: IndexerConfig) -> Self {
+        match orig {
+            IndexerConfig::Bitcoind { url, auth } => RgbLibIndexerConfig::Bitcoind {
+                url,
+                auth: auth.into(),
+            },
+            IndexerConfig::Electrum { url } => RgbLibIndexerConfig::Electrum { url },
+            IndexerConfig::Esplora { url } => RgbLibIndexerConfig::Esplora { url },
+        }
+    }
+}
+pub struct OnlineOptions {
+    pub indexer_config: IndexerConfig,
+    pub skip_consistency_check: bool,
+    pub vanilla_sync_lookback: u32,
+    pub failed_witness_receive_grace_secs: u32,
+}
+impl From<OnlineOptions> for RgbLibOnlineOptions {
+    fn from(orig: OnlineOptions) -> Self {
+        Self {
+            indexer_config: orig.indexer_config.into(),
+            skip_consistency_check: orig.skip_consistency_check,
+            vanilla_sync_lookback: orig.vanilla_sync_lookback,
+            failed_witness_receive_grace_secs: orig.failed_witness_receive_grace_secs,
+        }
+    }
+}
 
 // temporary solution needed because the UDL Enum and Remote attributes are incompatible with each other
 pub enum SyncKeychain {
@@ -818,6 +868,15 @@ impl From<RespondToOperation> for RgbLibRespondToOperation {
     }
 }
 
+fn check_indexer_url(
+    indexer_url: String,
+    bitcoind_auth: Option<BitcoindAuth>,
+    bitcoin_network: BitcoinNetwork,
+) -> Result<IndexerProtocol, RgbLibError> {
+    let bitcoind_auth = bitcoind_auth.map(RgbLibBitcoindAuth::from);
+    rgb_lib::wallet::check_indexer_url(&indexer_url, bitcoind_auth.as_ref(), bitcoin_network)
+}
+
 fn generate_keys(bitcoin_network: BitcoinNetwork, witness_version: WitnessVersion) -> Keys {
     rgb_lib::keys::generate_keys(bitcoin_network, witness_version)
 }
@@ -1153,7 +1212,7 @@ impl Wallet {
     }
 
     fn go_online(&self, online_options: OnlineOptions) -> Result<Online, RgbLibError> {
-        self._get_wallet().go_online(online_options)
+        self._get_wallet().go_online(online_options.into())
     }
 
     fn burn(
@@ -1646,7 +1705,7 @@ impl MultisigWallet {
         multisig_online_options: MultisigOnlineOptions,
     ) -> Result<Online, RgbLibError> {
         let mut wallet = self.wallet_mutex.lock().expect("wallet");
-        wallet.go_online(online_options, multisig_online_options)
+        wallet.go_online(online_options.into(), multisig_online_options)
     }
 
     fn hub_info(&self, online: Online) -> Result<HubInfo, RgbLibError> {

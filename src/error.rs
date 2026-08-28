@@ -167,7 +167,7 @@ pub enum Error {
     InsufficientAllocationSlots,
 
     /// There are not enough assignments of the requested asset to fulfill the request
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     #[error("Insufficient total assignments for asset: {asset_id}")]
     InsufficientAssignments {
         /// Asset ID
@@ -688,6 +688,10 @@ pub enum Error {
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum IndexerError {
+    #[cfg(feature = "bitcoind")]
+    #[error("Bitcoind error: {0}")]
+    Bitcoind(#[from] BitcoindRpcError),
+
     #[cfg(feature = "electrum")]
     #[error("Electrum error: {0}")]
     Electrum(#[from] ElectrumError),
@@ -699,7 +703,7 @@ pub(crate) enum IndexerError {
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum InternalError {
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     #[error("API error: {0}")]
     Api(#[from] reqwest::Error),
 
@@ -811,7 +815,7 @@ impl From<IndexerError> for Error {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl From<reqwest::Error> for Error {
     fn from(e: reqwest::Error) -> Self {
         Error::RestClientBuild {
@@ -976,13 +980,19 @@ mod tests {
         assert_matches!(err, Error::Internal { details } if !details.is_empty());
 
         // IndexerError error
+        #[cfg(feature = "bitcoind")]
+        {
+            let err = IndexerError::Bitcoind(BitcoindRpcError::ReturnedError(s!("boom")));
+            let err = Error::from(err);
+            assert_matches!(err, Error::Indexer { details } if !details.is_empty());
+        }
         #[cfg(feature = "electrum")]
         {
             let err = IndexerError::Electrum(ElectrumError::MissingDomain);
             let err = Error::from(err);
             assert_matches!(err, Error::Indexer { details } if !details.is_empty());
         }
-        #[cfg(all(feature = "esplora", not(feature = "electrum")))]
+        #[cfg(feature = "esplora")]
         {
             let err = IndexerError::Esplora(EsploraError::InvalidResponse);
             let err = Error::from(err);

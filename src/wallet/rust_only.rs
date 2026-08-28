@@ -27,52 +27,13 @@ pub struct ColoringInfo {
 /// Map of contract ID and list of its beneficiaries
 pub type AssetBeneficiariesMap = BTreeMap<ContractId, Vec<BuilderSeal<GraphSeal>>>;
 
-/// Indexer protocol
-#[derive(Debug, Clone)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-pub enum IndexerProtocol {
-    /// An indexer implementing the electrum protocol
-    Electrum,
-    /// An indexer implementing the esplora protocol
-    Esplora,
-}
-
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-impl fmt::Display for IndexerProtocol {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{self:?}")
-    }
-}
-
-/// Return the indexer protocol for the provided URL.
-/// An error is raised if the provided indexer URL is invalid or if the service is for the wrong
-/// network or doesn't have the required functionality.
-///
-/// <div class="warning">This method is meant for special usage and is normally not needed, use
-/// it only if you know what you're doing</div>
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-pub fn check_indexer_url(
-    indexer_url: &str,
-    bitcoin_network: BitcoinNetwork,
-) -> Result<IndexerProtocol, Error> {
-    let (indexer, _) = get_indexer_and_resolver(indexer_url, bitcoin_network)?;
-    let indexer_protocol = match indexer {
-        #[cfg(feature = "electrum")]
-        Indexer::Electrum(_) => IndexerProtocol::Electrum,
-        #[cfg(feature = "esplora")]
-        Indexer::Esplora(_) => IndexerProtocol::Esplora,
-    };
-
-    Ok(indexer_protocol)
-}
-
 /// Check whether the provided URL points to a valid proxy.
 /// An error is raised if the provided proxy URL is invalid or if the service is running an
 /// unsupported protocol version.
 ///
 /// <div class="warning">This method is meant for special usage and is normally not needed, use
 /// it only if you know what you're doing</div>
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub fn check_proxy_url(proxy_url: &str) -> Result<(), Error> {
     check_proxy(proxy_url)
 }
@@ -336,7 +297,7 @@ impl Wallet {
     ///
     /// <div class="warning">This method is meant for special usage and is normally not needed, use
     /// it only if you know what you're doing</div>
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub fn accept_transfer_consignment(
         &mut self,
         online: Online,
@@ -450,7 +411,7 @@ impl Wallet {
     ///
     /// <div class="warning">This method is meant for special usage and is normally not needed, use
     /// it only if you know what you're doing</div>
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub fn get_tx_height(&self, online: Online, txid: String) -> Result<Option<u32>, Error> {
         info!(self.logger(), "Getting TX height...");
         self.check_online(online)?;
@@ -463,7 +424,7 @@ impl Wallet {
     ///
     /// <div class="warning">This method is meant for special usage and is normally not needed, use
     /// it only if you know what you're doing</div>
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub fn update_witnesses(
         &self,
         online: Online,
@@ -503,7 +464,7 @@ impl Wallet {
     ///
     /// <div class="warning">This method is meant for special usage and is normally not needed, use
     /// it only if you know what you're doing</div>
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub fn save_new_asset(
         &self,
         online: Online,
@@ -554,7 +515,7 @@ impl Wallet {
     ///
     /// <div class="warning">This method is meant for special usage, for most cases the method
     /// <code>list_unspents</code> is sufficient</div>
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub fn list_unspents_vanilla(
         &mut self,
         online: Online,
@@ -648,7 +609,7 @@ impl Wallet {
     ///
     /// <div class="warning">This method is meant for special usage and is normally not needed, use
     /// it only if you know what you're doing</div>
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub fn send_end_db_update_only(
         &mut self,
         online: Online,
@@ -688,18 +649,5 @@ impl Wallet {
             batch_transfer_idx,
             entropy: info_contents.entropy,
         })
-    }
-}
-
-#[cfg(test)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-mod tests {
-    use super::*;
-
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
-    #[test]
-    fn display_indexer_protocol() {
-        assert_eq!(IndexerProtocol::Electrum.to_string(), "Electrum");
-        assert_eq!(IndexerProtocol::Esplora.to_string(), "Esplora");
     }
 }

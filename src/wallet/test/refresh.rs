@@ -212,8 +212,8 @@ fn success() {
 
     drop(_guard);
     mine(false);
-    mine_tx(false, &txid_2a);
-    mine_tx(false, &txid_2b);
+    mine_tx(&txid_2a);
+    mine_tx(&txid_2b);
 
     // refresh incoming WaitingConfirmations only (wallet 2): the TX is now mined so the transfer
     // settles

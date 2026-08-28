@@ -4,12 +4,12 @@
 
 pub(crate) mod backup;
 pub(crate) mod core;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) mod indexer;
 pub(crate) mod multisig;
 pub(crate) mod objects;
 pub(crate) mod offline;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) mod online;
 pub mod rust_only;
 pub(crate) mod singlesig;
@@ -19,7 +19,7 @@ pub(crate) mod test;
 
 pub use backup::restore_backup;
 pub use multisig::{Cosigner, MultisigKeys, MultisigWallet};
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub use multisig::{
     HubInfo, InitOperationResult, MultisigOnlineOptions, MultisigVotingStatus, Operation,
     OperationInfo, RespondToOperation, UserRole,
@@ -33,15 +33,15 @@ pub use objects::{
     TokenLight, Transaction, TransactionType, Transfer, TransferKind, TransferTransportEndpoint,
     TransportEndpoint, TypeOfTransition, Unspent, Utxo, WalletData, WalletDescriptors, WitnessData,
 };
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub use objects::{
-    BurnBeginResult, BurnDetails, InflateBeginResult, InflateDetails, OnlineOptions,
-    OperationResult, RefreshFilter, RefreshResult, RefreshTransferStatus, RefreshedTransfer,
-    SendBeginResult, SendDetails,
+    BitcoindAuth, BurnBeginResult, BurnDetails, IndexerConfig, IndexerProtocol, InflateBeginResult,
+    InflateDetails, OnlineOptions, OperationResult, RefreshFilter, RefreshResult,
+    RefreshTransferStatus, RefreshedTransfer, SendBeginResult, SendDetails,
 };
 pub use offline::RgbWalletOpsOffline;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-pub use online::RgbWalletOpsOnline;
+#[cfg(feature = "_online")]
+pub use online::{RgbWalletOpsOnline, check_indexer_url};
 pub use singlesig::{SinglesigKeys, Wallet};
 
 pub(crate) use backup::WalletBackup;
@@ -49,11 +49,13 @@ pub(crate) use core::{
     ASSETS_DIR, MEDIA_DIR, NUM_KNOWN_SCHEMAS, WalletCore, WalletInternals, WalletManifest,
     setup_bdk, setup_db, setup_new_wallet, setup_rgb,
 };
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub use core::{SyncKeychain, SyncOptions, SyncStrategy};
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "bitcoind")]
+pub(crate) use indexer::BitcoindClient;
+#[cfg(feature = "_online")]
 pub(crate) use indexer::Indexer;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) use objects::{
     AssetInfo, AssetSpend, BeginOperationData, BtcChange, FailTransfersOutcome, LocalRecipient,
     LocalRecipientData, LocalWitnessData, OnlineData, PrepareRgbPsbtResult,
@@ -65,12 +67,12 @@ pub(crate) use objects::{
     LocalRgbAllocation, LocalTransportEndpoint, LocalUnspent, ReceiveDataInternal, TransferData,
     TransferEndData,
 };
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) use offline::TRANSFER_DATA_FILE;
 #[cfg(feature = "rgb_fs_store_migration")]
 pub(crate) use offline::TRANSFERS_DIR;
 pub(crate) use offline::WalletOffline;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) use online::WalletOnline;
 
 use super::*;
@@ -90,9 +92,9 @@ pub(crate) const SCHEMA_ID_IFA: &str =
 
 pub(crate) const RGB_STATE_ASSET_OWNER: &str = "assetOwner";
 pub(crate) const RGB_STATE_INFLATION_ALLOWANCE: &str = "inflationAllowance";
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) const RGB_GLOBAL_BURNED_ASSET: &str = "burnedAsset";
 pub(crate) const RGB_GLOBAL_ISSUED_SUPPLY: &str = "issuedSupply";
 pub(crate) const RGB_GLOBAL_REJECT_LIST_URL: &str = "rejectListUrl";
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) const RGB_METADATA_ALLOWED_INFLATION: &str = "allowedInflation";

@@ -93,7 +93,18 @@
 //! }
 //! ```
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+// the `_online` feature is implied by each indexer feature and stands for "this build can reach
+// the network": enabling it on its own leaves no indexer to talk to
+#[cfg(all(
+    feature = "_online",
+    not(any(feature = "bitcoind", feature = "electrum", feature = "esplora"))
+))]
+compile_error!(
+    "the `_online` feature cannot be enabled on its own: enable one of `bitcoind`, `electrum` or \
+     `esplora` instead"
+);
+
+#[cfg(feature = "_online")]
 pub(crate) mod api;
 pub(crate) mod database;
 pub(crate) mod error;
@@ -120,7 +131,7 @@ pub use crate::{
     utils::{BitcoinNetwork, block_on},
 };
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 use std::{
     cmp::{Ordering, max, min},
     collections::hash_map::DefaultHasher,
@@ -144,8 +155,17 @@ use amplify::{
     confinement::{Confined, MediumOrdMap},
     s,
 };
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 use base64::{Engine as _, engine::general_purpose};
+#[cfg(feature = "bitcoind")]
+use bdk_bitcoind_rpc::{
+    Emitter as BitcoindEmitter,
+    bip158::FilterIter as BitcoindFilterIter,
+    bitcoincore_rpc::{
+        Auth as BitcoindRpcAuth, Client as BitcoindRpcClient, Error as BitcoindRpcError, RpcApi,
+        json::IndexStatus as BitcoindIndexStatus, jsonrpc::Error as BitcoindJsonRpcError,
+    },
+};
 #[cfg(feature = "electrum")]
 use bdk_electrum::{
     BdkElectrumClient,
@@ -158,6 +178,10 @@ use bdk_esplora::{
         BlockingClient as EsploraClient, Builder as EsploraBuilder, Error as EsploraError,
     },
 };
+#[cfg(feature = "_online")]
+use bdk_wallet::Update;
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+use bdk_wallet::chain::spk_client::{FullScanRequest, FullScanResponse, SyncRequest, SyncResponse};
 #[cfg(feature = "bdk_file_store_migration")]
 use bdk_wallet::file_store::Store;
 use bdk_wallet::{
@@ -184,21 +208,17 @@ use bdk_wallet::{
     miniscript::{Descriptor, DescriptorPublicKey},
     signer::SignersContainer,
 };
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 use bdk_wallet::{
-    Update,
     bitcoin::{blockdata::fee_rate::FeeRate, hashes::HashEngine},
-    chain::{
-        DescriptorExt,
-        spk_client::{FullScanRequest, FullScanResponse, SyncRequest, SyncResponse},
-    },
+    chain::DescriptorExt,
     coin_selection::InsufficientFunds,
 };
 use chacha20poly1305::{Key, KeyInit, XChaCha20Poly1305, XNonce, aead::Aead};
 use file_format::FileFormat;
 use psrgbt::{RgbOutExt, RgbPsbtExt};
 use rand::{RngExt, distr::Alphanumeric};
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 use reqwest::{
     blocking::{Client as RestClient, multipart},
     header::CONTENT_TYPE,
@@ -210,7 +230,9 @@ use rgbinvoice::{
     AddressPayload, Beneficiary, RgbInvoice, RgbInvoiceBuilder, RgbTransport, XChainNet,
 };
 #[cfg(feature = "electrum")]
-use rgbstd::indexers::electrum_blocking::electrum_client::ConfigBuilder;
+use rgbstd::indexers::electrum_blocking::electrum_client::{
+    Config as ElectrumConfig, ConfigBuilder,
+};
 use rgbstd::{
     Allocation, Amount, AssignmentType, BundleId, ChainNet, Genesis, GlobalStateType, GraphSeal,
     Identity, KnownTransition, Layer1, OpId, Operation as _, Opout, OutputSeal, OwnedFraction,
@@ -245,7 +267,7 @@ use rgbstd::{
     },
     vm::WitnessPos,
 };
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 use rgbstd::{
     containers::Consignment,
     contract::FilterIncludeAll,
@@ -255,7 +277,7 @@ use rgbstd::{
         OpoutsDagData, SchemaRules, ValidationConfig, ValidationError, Validity, Warning,
     },
 };
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 use schemata::{CfaWrapper, NiaWrapper, UdaWrapper};
 use schemata::{
     CollectibleFungibleAsset, IfaWrapper, InflatableFungibleAsset, NonInflatableAsset, OS_ASSET,
@@ -270,22 +292,18 @@ use sea_orm::{
 };
 use serde::de::{self, Unexpected, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 use slog::warn;
 use slog::{Drain, Logger, debug, error, info, o};
 use slog_async::AsyncGuard;
 use slog_term::{FullFormat, PlainDecorator};
-#[cfg(any(
-    feature = "electrum",
-    feature = "esplora",
-    feature = "rgb_fs_store_migration"
-))]
+#[cfg(any(feature = "_online", feature = "rgb_fs_store_migration"))]
 use strict_encoding::StrictSerialize;
 use strict_encoding::{FieldName, StrictDecode, StrictDeserialize, StrictEncode};
 use strict_types::{TypeLib, TypeLibId};
 use tempfile::TempDir;
 use time::OffsetDateTime;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 use url::Url;
 use walkdir::WalkDir;
 use zip::{ZipArchive, ZipWriter, write::SimpleFileOptions};
@@ -295,14 +313,18 @@ use crate::utils::INDEXER_BATCH_SIZE;
 #[cfg(feature = "esplora")]
 use crate::utils::INDEXER_PARALLEL_REQUESTS;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
+use crate::utils::INDEXER_STOP_GAP;
+#[cfg(feature = "_online")]
 use crate::utils::write_fascia;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "bitcoind")]
+use crate::wallet::BitcoindClient;
+#[cfg(feature = "_online")]
 #[cfg(test)]
 use crate::wallet::test::{
     mock_input_unspents, mock_local_version, mock_send_end_crash, mock_vout, skip_build_dag,
     skip_check_fee_rate, strip_terminals,
 };
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 use crate::{
     api::{
         multisig_hub::{
@@ -322,10 +344,12 @@ use crate::{
     },
     error::IndexerError,
     utils::{
-        INDEXER_STOP_GAP, OffchainResolver, check_proxy, get_indexer_and_resolver, hash_file,
+        OffchainResolver, check_proxy, detect_indexer, get_indexer_and_resolver, hash_file,
         script_buf_from_recipient_id,
     },
-    wallet::{AssignmentsCollection, Indexer, multisig::RespondToOperation},
+    wallet::{
+        AssignmentsCollection, BitcoindAuth, Indexer, IndexerConfig, multisig::RespondToOperation,
+    },
 };
 use crate::{
     database::rgb::migrate_rgb_fs_to_db,

@@ -158,7 +158,7 @@ impl WalletManifest {
 }
 
 /// Which keychain contributes SPKs to the sync request.
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SyncKeychain {
     /// Sync the colored keychain
@@ -171,8 +171,9 @@ pub enum SyncKeychain {
     },
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl SyncKeychain {
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
     fn keychain(&self) -> KeychainKind {
         match self {
             SyncKeychain::Colored => KeychainKind::External,
@@ -182,7 +183,7 @@ impl SyncKeychain {
 }
 
 /// Strategy used to build the indexer sync request.
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SyncStrategy {
     /// BIP44 stop-gap full scan
@@ -196,7 +197,7 @@ pub enum SyncStrategy {
 }
 
 /// Options driving a single sync invocation.
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SyncOptions {
     /// Which keychain to sync
@@ -213,8 +214,22 @@ pub struct WalletInternals {
     pub(crate) wallet_dir: PathBuf,
     pub(crate) bdk_wallet: BdkWallet,
     pub(crate) bdk_pending: Arc<Mutex<ChangeSet>>,
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) online_data: Option<OnlineData>,
+}
+
+impl WalletInternals {
+    /// Borrow the bitcoind client and the BDK wallet at the same time, when the wallet is online
+    /// via a bitcoind indexer. The wallet accessor methods borrow the whole struct, so callers
+    /// needing both use this field-level split borrow instead.
+    #[cfg(feature = "bitcoind")]
+    pub(crate) fn bitcoind_and_bdk_mut(&mut self) -> Option<(&BitcoindClient, &mut BdkWallet)> {
+        match &self.online_data.as_ref().expect("wallet is online").indexer {
+            Indexer::Bitcoind(client) => Some((client, &mut self.bdk_wallet)),
+            #[cfg(any(feature = "electrum", feature = "esplora"))]
+            _ => None,
+        }
+    }
 }
 
 pub(crate) fn setup_rgb(
@@ -530,27 +545,27 @@ pub trait WalletCore {
         &self.internals().wallet_dir
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     fn online_data(&self) -> &Option<OnlineData> {
         &self.internals().online_data
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     fn online_data_mut(&mut self) -> &mut Option<OnlineData> {
         &mut self.internals_mut().online_data
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     fn indexer(&self) -> &Indexer {
         &self.online_data().as_ref().unwrap().indexer
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     fn vanilla_sync_lookback(&self) -> u32 {
         self.online_data().as_ref().unwrap().vanilla_sync_lookback
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     fn failed_witness_receive_grace_secs(&self) -> u32 {
         self.online_data()
             .as_ref()
@@ -558,7 +573,7 @@ pub trait WalletCore {
             .failed_witness_receive_grace_secs
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     fn check_online(&self, online: Online) -> Result<(), Error> {
         if let Some(online_data) = &self.online_data() {
             if online_data.id != online.id {
@@ -591,7 +606,7 @@ pub trait WalletCore {
     /// registered, by [`Self::update_db_colored_txos_from_bdk`].
     ///
     /// Returns the kept scripts, mapped to whether their receive is still pending.
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     fn reconcile_pending_witness(&self, txn: &DbTxn) -> Result<HashMap<String, bool>, Error> {
         let pending_witness_scripts = txn.iter_pending_witness_scripts()?;
         let pending_witness_txos = txn.iter_pending_witness_txos()?;
@@ -672,7 +687,7 @@ pub trait WalletCore {
         Ok(kept_scripts)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     fn fast_sync_vanilla_spks(&self, lookback: u32) -> HashSet<ScriptBuf> {
         let spk_index = self.bdk_wallet().spk_index();
         let Some(last_revealed) = spk_index.last_revealed_index(KeychainKind::Internal) else {
@@ -689,7 +704,7 @@ pub trait WalletCore {
             .collect()
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     fn unconfirmed_colored_spks(&self) -> HashSet<ScriptBuf> {
         let spk_index = self.bdk_wallet().spk_index();
         let mut spks: HashSet<ScriptBuf> = HashSet::new();
@@ -711,7 +726,7 @@ pub trait WalletCore {
         spks
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     fn sync_bdk_and_db_txos(
         &mut self,
         txn: &DbTxn,
@@ -720,11 +735,54 @@ pub trait WalletCore {
     ) -> Result<(), Error> {
         debug!(self.logger(), "Syncing {:?}...", options);
 
-        let kc = options.keychain.keychain();
         let pending_witness_scripts = match options.keychain {
             SyncKeychain::Colored => self.reconcile_pending_witness(txn)?,
             SyncKeychain::Vanilla { .. } => HashMap::new(),
         };
+
+        #[cfg(feature = "bitcoind")]
+        if let Some((client, bdk_wallet)) = self.internals_mut().bitcoind_and_bdk_mut() {
+            // a node has no address index, so there is no per-SPK request to make: whatever the
+            // strategy, the wallet is brought up to date by applying every block since its last
+            // checkpoint (the first sync scans the whole chain) plus the mempool
+            client.sync_bdk_wallet(bdk_wallet)?;
+            return self.finish_sync(txn, options, include_spent, &pending_witness_scripts);
+        }
+
+        #[cfg(not(any(feature = "electrum", feature = "esplora")))]
+        unreachable!("without electrum/esplora the indexer can only be bitcoind");
+
+        #[cfg(any(feature = "electrum", feature = "esplora"))]
+        {
+            self.sync_bdk_via_requests(options, &pending_witness_scripts)?;
+            self.finish_sync(txn, options, include_spent, &pending_witness_scripts)
+        }
+    }
+
+    /// DB-side bookkeeping shared by both sync paths, run after the BDK wallet has been synced.
+    #[cfg(feature = "_online")]
+    fn finish_sync(
+        &mut self,
+        txn: &DbTxn,
+        options: SyncOptions,
+        include_spent: bool,
+        pending_witness_scripts: &HashMap<String, bool>,
+    ) -> Result<(), Error> {
+        if matches!(options.keychain, SyncKeychain::Colored) {
+            self.update_db_colored_txos_from_bdk(txn, include_spent, pending_witness_scripts)?;
+        }
+        debug!(self.logger(), "Synced");
+        Ok(())
+    }
+
+    /// Sync the BDK wallet via SPK-based requests to an electrum/esplora indexer.
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    fn sync_bdk_via_requests(
+        &mut self,
+        options: SyncOptions,
+        pending_witness_scripts: &HashMap<String, bool>,
+    ) -> Result<(), Error> {
+        let kc = options.keychain.keychain();
         let latest_checkpoint = self.bdk_wallet().latest_checkpoint();
         let update: Update = match options.strategy {
             SyncStrategy::FullScan => {
@@ -773,12 +831,6 @@ pub trait WalletCore {
             .map_err(|e| Error::FailedBdkSync {
                 details: e.to_string(),
             })?;
-
-        if matches!(options.keychain, SyncKeychain::Colored) {
-            self.update_db_colored_txos_from_bdk(txn, include_spent, &pending_witness_scripts)?;
-        }
-
-        debug!(self.logger(), "Synced");
         Ok(())
     }
 
@@ -787,7 +839,7 @@ pub trait WalletCore {
     /// `pending_witness_scripts` are the pending witness scripts returned by
     /// [`Self::reconcile_pending_witness`]: a TXO paying one of them is flagged as pending witness
     /// only if its receive is still pending, and the script is dropped as it has been paid.
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     fn update_db_colored_txos_from_bdk(
         &mut self,
         txn: &DbTxn,
@@ -824,7 +876,7 @@ pub trait WalletCore {
         Ok(())
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     fn sync_wallet(
         &mut self,
         txn: &DbTxn,
