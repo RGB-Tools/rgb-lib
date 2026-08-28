@@ -195,6 +195,7 @@ thread_local! {
     pub(crate) static MOCK_CHECK_FEE_RATE: RefCell<Vec<bool>> = const { RefCell::new(vec![]) };
     pub(crate) static MOCK_INPUT_UNSPENTS: RefCell<Vec<LocalUnspent>> = const { RefCell::new(vec![]) };
     pub(crate) static MOCK_SKIP_BUILD_DAG: RefCell<Option<()>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_SPV_ONLY: RefCell<bool> = const { RefCell::new(false) };
     pub(crate) static MOCK_VOUT: RefCell<Option<u32>> = const { RefCell::new(None) };
     pub(crate) static MOCK_LOCAL_VERSION: RefCell<Option<String>> = const { RefCell::new(None) };
     pub(crate) static MOCK_SEND_END_CRASH: RefCell<Option<()>> = const { RefCell::new(None) };
@@ -387,6 +388,15 @@ pub fn skip_build_dag() -> bool {
         println!("skipping check dag (mock)");
         true
     }
+}
+
+#[cfg(feature = "_online")]
+pub fn spv_only() -> bool {
+    let spv_only = MOCK_SPV_ONLY.with_borrow(|s| *s);
+    if spv_only {
+        println!("refusing witness TX lookup (mock)");
+    }
+    spv_only
 }
 
 #[cfg(feature = "_online")]

@@ -1015,17 +1015,30 @@ impl<'txn> RgbStock<'txn> {
         self.stock.store_secret_seal(seal).map_err(Error::from)
     }
 
+    pub(crate) fn store_spv_proofs(&mut self, proofs: RetrievedSpvProofs) -> Result<(), Error> {
+        if !proofs.is_empty() {
+            self.stock.store_spv_proofs(proofs)?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn transfer(
         &self,
         contract_id: ContractId,
         outputs: impl AsRef<[OutputSeal]>,
         secret_seals: impl AsRef<[SecretSeal]>,
         witness_id: Option<RgbTxid>,
-    ) -> Result<RgbTransfer, Error> {
-        // SPV proofs are not attached to outgoing consignments (yet)
+        spv_resolver: Option<&dyn ResolveSpvProof>,
+    ) -> Result<(RgbTransfer, RetrievedSpvProofs), Error> {
         self.stock
-            .transfer(contract_id, outputs, secret_seals, [], witness_id, None)
-            .map(|(consignment, _)| consignment)
+            .transfer(
+                contract_id,
+                outputs,
+                secret_seals,
+                [],
+                witness_id,
+                spv_resolver,
+            )
             .map_err(Error::from)
     }
 
@@ -1035,9 +1048,10 @@ impl<'txn> RgbStock<'txn> {
         outputs: impl AsRef<[OutputSeal]>,
         secret_seals: impl AsRef<[SecretSeal]>,
         fascia: &Fascia,
+        spv_resolver: Option<&dyn ResolveSpvProof>,
     ) -> Result<(RgbTransfer, RetrievedSpvProofs), Error> {
         self.stock
-            .transfer_from_fascia(contract_id, outputs, secret_seals, [], fascia, None)
+            .transfer_from_fascia(contract_id, outputs, secret_seals, [], fascia, spv_resolver)
             .map_err(Error::from)
     }
 
@@ -1095,6 +1109,11 @@ impl<'txn> RgbStock<'txn> {
         self.stock.upsert_witness(witness_id, witness_ord)?;
         Ok(())
     }
+
+    #[cfg(all(test, feature = "electrum"))]
+    pub(crate) fn witness_spv_proof(&self, witness_id: RgbTxid) -> Result<Option<SpvProof>, Error> {
+        self.stock.as_store().witness_spv_proof(witness_id)
+    }
 }
 
 #[cfg(feature = "_online")]
@@ -1108,6 +1127,13 @@ pub(crate) struct OffchainResolver<'a, 'cons, const TRANSFER: bool> {
 impl<const TRANSFER: bool> ResolveWitness for OffchainResolver<'_, '_, TRANSFER> {
     fn resolve_witness(&self, witness_id: RgbTxid) -> Result<WitnessStatus, WitnessResolverError> {
         if witness_id != self.witness_id {
+            #[cfg(test)]
+            if spv_only() {
+                return Err(WitnessResolverError::ResolverIssue(
+                    Some(witness_id),
+                    s!("witness TX lookup refused (mock)"),
+                ));
+            }
             return self.fallback.resolve_witness(witness_id);
         }
         self.consignment
@@ -1118,6 +1144,10 @@ impl<const TRANSFER: bool> ResolveWitness for OffchainResolver<'_, '_, TRANSFER>
                 || self.fallback.resolve_witness(witness_id),
                 |tx| Ok(WitnessStatus::Resolved(tx, WitnessOrd::Tentative)),
             )
+    }
+    fn get_block_header(&self, height: NonZeroU32) -> Result<BlockHeader, WitnessResolverError> {
+        // lets the SPV proofs carried by the consignment be verified via the indexer headers
+        self.fallback.get_block_header(height)
     }
     fn check_chain_net(&self, chain_net: ChainNet) -> Result<(), WitnessResolverError> {
         self.fallback.check_chain_net(chain_net)

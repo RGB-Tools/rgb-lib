@@ -2626,15 +2626,17 @@ pub trait WalletOffline: WalletBackup {
         transfer_info_map: &BTreeMap<String, InfoAssetTransfer>,
         transfer_dir: &PathBuf,
     ) -> Result<(), Error> {
-        let stock = self.rgb_stock(txn)?;
+        let mut stock = self.rgb_stock(txn)?;
         for (asset_id, transfer_info) in transfer_info_map {
             #[allow(unused_mut)]
-            let (mut consignment, _) = stock.transfer_from_fascia(
+            let (mut consignment, spv_proofs) = stock.transfer_from_fascia(
                 transfer_info.asset_info.contract_id,
                 transfer_info.beneficiaries_witness.clone(),
                 transfer_info.beneficiaries_blinded.clone(),
                 fascia,
+                self.spv_resolver(),
             )?;
+            stock.store_spv_proofs(spv_proofs)?;
             #[cfg(all(test, feature = "_online"))]
             if strip_terminals() {
                 consignment.terminals = Default::default();

@@ -117,6 +117,7 @@ pub use bdk_wallet::bitcoin;
 pub use rgbstd::{
     ContractId, Txid as RgbTxid,
     containers::{ConsignmentExt, Fascia, FileContent, Transfer as RgbTransfer, WitnessBundle},
+    indexers::ResolveSpvProof,
     persistence::{RetrievedSpvProofs, UpdateRes},
     schema::SchemaId,
     txout::CloseMethod,
@@ -210,7 +211,7 @@ use bdk_wallet::{
 };
 #[cfg(feature = "_online")]
 use bdk_wallet::{
-    bitcoin::{blockdata::fee_rate::FeeRate, hashes::HashEngine},
+    bitcoin::{block::Header as BlockHeader, blockdata::fee_rate::FeeRate, hashes::HashEngine},
     chain::DescriptorExt,
     coin_selection::InsufficientFunds,
 };
@@ -322,7 +323,7 @@ use crate::wallet::BitcoindClient;
 #[cfg(test)]
 use crate::wallet::test::{
     mock_input_unspents, mock_local_version, mock_send_end_crash, mock_vout, skip_build_dag,
-    skip_check_fee_rate, strip_terminals,
+    skip_check_fee_rate, spv_only, strip_terminals,
 };
 #[cfg(feature = "_online")]
 use crate::{

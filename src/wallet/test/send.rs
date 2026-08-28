@@ -5065,6 +5065,107 @@ fn min_confirmations_esplora() {
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
+fn spv_proofs() {
+    initialize();
+
+    let amount: u64 = 66;
+
+    // wallets
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+
+    // issue and send: the consignment carries no proof, its only witness is not mined yet
+    let asset = party.issue_asset_nia(None);
+    let receive_data = rcv_party.blind_receive();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(amount),
+            recipient_id: receive_data.recipient_id.clone(),
+            witness_data: None,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid_1 = party.send(recipient_map, FEE_RATE, None).txid;
+    let consignment_path = party
+        .wallet
+        .get_send_consignment_path(&asset.asset_id, &txid_1);
+    let consignment = RgbTransfer::load_file(consignment_path).unwrap();
+    assert!(
+        consignment
+            .bundled_witnesses()
+            .all(|bw| bw.spv_proof.is_none())
+    );
+
+    // settle the transfer
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(Some(&asset.asset_id));
+    mine(false);
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(Some(&asset.asset_id));
+    assert!(
+        rcv_party.check_test_transfer_status_recipient(
+            &receive_data.recipient_id,
+            TransferStatus::Settled
+        )
+    );
+
+    // spend the received allocation: the consignment now carries a proof for the mined
+    // witness of the first transfer, while its own (unmined) witness has none
+    let receive_data_2 = party.blind_receive();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(amount / 2),
+            recipient_id: receive_data_2.recipient_id.clone(),
+            witness_data: None,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid_2 = rcv_party.send(recipient_map, FEE_RATE, None).txid;
+    let consignment_path = rcv_party
+        .wallet
+        .get_send_consignment_path(&asset.asset_id, &txid_2);
+    let consignment = RgbTransfer::load_file(consignment_path).unwrap();
+    let proofs: HashMap<String, bool> = consignment
+        .bundled_witnesses()
+        .map(|bw| (bw.witness_id().to_string(), bw.spv_proof.is_some()))
+        .collect();
+    assert_eq!(proofs.get(&txid_1), Some(&true));
+    assert_eq!(proofs.get(&txid_2), Some(&false));
+
+    // the retrieved proof has been stored
+    let txn = rcv_party.wallet.database().begin_transaction().unwrap();
+    let stock = rcv_party.wallet.rgb_stock(&txn).unwrap();
+    let proof = stock
+        .witness_spv_proof(RgbTxid::from_str(&txid_1).unwrap())
+        .unwrap();
+    assert!(proof.is_some());
+    drop(txn);
+
+    // the receiver validates the consignment via the proof alone: looking up the mined witness
+    // is refused, so validation can only succeed through the proof and the block header
+    MOCK_SPV_ONLY.replace(true);
+    party.wait_for_refresh(None);
+    MOCK_SPV_ONLY.replace(false);
+    let rcv_transfer = party.get_test_transfer_recipient(&receive_data_2.recipient_id);
+    let (rcv_transfer_data, _) = party.get_test_transfer_data(&rcv_transfer);
+    assert_eq!(rcv_transfer_data.status, TransferStatus::WaitingBroadcast);
+
+    // and the transfer settles
+    rcv_party.wait_for_refresh(Some(&asset.asset_id));
+    mine(false);
+    party.wait_for_refresh(None);
+    rcv_party.wait_for_refresh(Some(&asset.asset_id));
+    assert!(party.check_test_transfer_status_recipient(
+        &receive_data_2.recipient_id,
+        TransferStatus::Settled
+    ));
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
 fn spend_double_receive() {
     initialize();
 

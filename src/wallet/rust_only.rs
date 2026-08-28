@@ -260,12 +260,15 @@ impl Wallet {
                     }
                 };
             }
-            transfers.push(stock.transfer(
+            let (consignment, spv_proofs) = stock.transfer(
                 contract_id,
                 beneficiaries_witness,
                 beneficiaries_blinded,
                 Some(witness_txid),
-            )?);
+                self.spv_resolver(),
+            )?;
+            stock.store_spv_proofs(spv_proofs)?;
+            transfers.push(consignment);
         }
 
         txn.commit()?;
