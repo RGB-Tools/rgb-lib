@@ -3,7 +3,8 @@ use super::*;
 #[test]
 #[parallel]
 fn success() {
-    let mut party = offline_party!(get_test_wallet(false, None));
+    let data_dir = PrivateDataDir::new();
+    let mut party = offline_party!(data_dir.wallet(false, None));
     let bak_info_before = party.db_backup_info_opt();
     assert!(bak_info_before.is_none());
     assert_eq!(
@@ -28,7 +29,8 @@ fn success() {
 #[test]
 #[parallel]
 fn reveal_survives_rolled_back_txn() {
-    let mut wallet = get_test_wallet(true, None);
+    let data_dir = PrivateDataDir::new();
+    let mut wallet = data_dir.wallet(true, None);
 
     // reveal an address and write it, then roll the transaction back instead of committing
     let txn = wallet.database().begin_transaction().unwrap();
@@ -91,7 +93,8 @@ fn reveal_survives_rolled_back_txn() {
 #[test]
 #[parallel]
 fn bdk_pending_file_survives_a_crash() {
-    let mut wallet = get_test_wallet(true, None);
+    let data_dir = PrivateDataDir::new();
+    let mut wallet = data_dir.wallet(true, None);
     let wallet_dir = wallet.get_wallet_dir();
     let descriptors = wallet.get_descriptors();
 
@@ -145,10 +148,11 @@ fn bdk_pending_file_survives_a_crash() {
 fn recovered_pending_is_visible_right_after_load() {
     let keys = generate_keys(BitcoinNetwork::Regtest, WitnessVersion::Taproot);
     let wallet_keys = SinglesigKeys::from_keys(&keys, None);
+    let data_dir = PrivateDataDir::new();
 
     // a wallet that revealed an address, flushed it as a broadcast does, then died
     let (wallet_dir, address) = {
-        let mut wallet = get_test_wallet_raw(&wallet_keys, None, BitcoinNetwork::Regtest);
+        let mut wallet = data_dir.wallet_raw(&wallet_keys, None, BitcoinNetwork::Regtest);
         let txn = wallet.database().begin_transaction().unwrap();
         let address = wallet.get_new_address().unwrap();
         wallet.flush_bdk_pending().unwrap();
@@ -158,7 +162,7 @@ fn recovered_pending_is_visible_right_after_load() {
     assert!(wallet_dir.join(BDK_PENDING_FILE).exists());
 
     // restart: no commit of our own, just construction
-    let wallet = get_test_wallet_raw(&wallet_keys, None, BitcoinNetwork::Regtest);
+    let wallet = data_dir.wallet_raw(&wallet_keys, None, BitcoinNetwork::Regtest);
     assert_eq!(wallet.get_wallet_dir(), wallet_dir);
 
     let index = wallet
@@ -184,9 +188,10 @@ fn recovered_pending_is_visible_right_after_load() {
 fn pending_tmp_file_left_by_a_crash_is_recovered() {
     let keys = generate_keys(BitcoinNetwork::Regtest, WitnessVersion::Taproot);
     let wallet_keys = SinglesigKeys::from_keys(&keys, None);
+    let data_dir = PrivateDataDir::new();
 
     let (wallet_dir, address) = {
-        let mut wallet = get_test_wallet_raw(&wallet_keys, None, BitcoinNetwork::Regtest);
+        let mut wallet = data_dir.wallet_raw(&wallet_keys, None, BitcoinNetwork::Regtest);
         let txn = wallet.database().begin_transaction().unwrap();
         let address = wallet.get_new_address().unwrap();
         wallet.flush_bdk_pending().unwrap();
@@ -201,7 +206,7 @@ fn pending_tmp_file_left_by_a_crash_is_recovered() {
     assert!(!pending.exists() && tmp.exists());
 
     // restart: the reveal is recovered from the temporary file alone
-    let wallet = get_test_wallet_raw(&wallet_keys, None, BitcoinNetwork::Regtest);
+    let wallet = data_dir.wallet_raw(&wallet_keys, None, BitcoinNetwork::Regtest);
     assert_eq!(wallet.get_wallet_dir(), wallet_dir);
     let index = wallet
         .bdk_wallet()

@@ -98,13 +98,11 @@ fn success() {
     assert_eq!(tte_data.len(), transport_endpoints.len());
 }
 
-#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn fail() {
-    initialize();
-
-    let mut wallet = get_test_wallet(true, None);
+    let data_dir = PrivateDataDir::new();
+    let mut wallet = data_dir.wallet(true, None);
 
     // 0 expiration
     let result = wallet

@@ -3,8 +3,8 @@ use super::*;
 #[test]
 #[parallel]
 fn success() {
-    let test_data_dir = create_test_data_dir();
-    let test_data_dir_str = test_data_dir.to_string_lossy().to_string();
+    let test_data_dir = PrivateDataDir::new();
+    let test_data_dir_str = test_data_dir.string();
 
     // test manual values
     let keys = generate_keys(BitcoinNetwork::Signet, WitnessVersion::Taproot);

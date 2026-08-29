@@ -39,7 +39,7 @@ if [ -z "${params}" ]; then
     _help
 fi
 
-TMP_DIR="${CWD}/tmp"
+TMP_DIR="${CWD}/tmp_srv"
 LISTS_DIR="${CWD}/lists"
 HUB_DIR="${CWD}/hub"
 COMPOSE_FPATH="${CWD}/compose.yaml"

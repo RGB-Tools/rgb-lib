@@ -279,7 +279,8 @@ fn filters() {
 #[test]
 #[parallel]
 fn fail() {
-    let party = offline_party!(get_test_wallet(false, None));
+    let data_dir = PrivateDataDir::new();
+    let party = offline_party!(data_dir.wallet(false, None));
 
     // asset not found
     let result = party.list_transfers_result(Some("rgb1inexistent"));

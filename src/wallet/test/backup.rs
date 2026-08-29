@@ -102,18 +102,16 @@ fn success() {
     let _asset = party.issue_asset_nia(None);
 }
 
-#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn fail() {
-    // services are unnecessary here but this prevents removal of the test dir during exectution
-    initialize();
+    let data_dir = PrivateDataDir::new();
+    let restore_dir = |last: &str| data_dir.sub_path("restored").join(last);
 
-    let backup_file_path = get_test_data_dir_path().join("test_backup_fail.rgb-lib_backup");
+    let backup_file_path = data_dir.sub_path("test_backup_fail.rgb-lib_backup");
     let backup_file = backup_file_path.to_str().unwrap();
-    let _ = std::fs::remove_file(backup_file);
 
-    let wallet = get_test_wallet(true, None);
+    let wallet = data_dir.wallet(true, None);
 
     // backup
     wallet.backup(backup_file, PASSWORD).unwrap();
@@ -131,13 +129,13 @@ fn fail() {
     );
 
     // restore with wrong password
-    let target_dir_path = get_restore_dir_path(Some("wrong_password"));
+    let target_dir_path = restore_dir("wrong_password");
     let target_dir = target_dir_path.to_str().unwrap();
     let result = restore_backup(backup_file, "wrong password", target_dir);
     assert!(matches!(result, Err(Error::WrongPassword)));
 
     // restore with wrong version
-    let target_dir_path = get_restore_dir_path(Some("wrong_version"));
+    let target_dir_path = restore_dir("wrong_version");
     let target_dir = target_dir_path.to_str().unwrap();
     let backup_parent = backup_file_path.parent().unwrap().to_path_buf();
     let files = get_backup_paths(&backup_parent).unwrap();
@@ -159,10 +157,8 @@ fn fail() {
         serde_json::to_string(&backup_pub_data).unwrap(),
     )
     .unwrap();
-    let backup_file_wrong_ver_path =
-        get_test_data_dir_path().join("test_backup_fail.rgb-lib_backup.wrong_ver");
+    let backup_file_wrong_ver_path = data_dir.sub_path("test_backup_fail.rgb-lib_backup.wrong_ver");
     let backup_file_wrong_ver = backup_file_wrong_ver_path.to_str().unwrap();
-    let _ = std::fs::remove_file(backup_file_wrong_ver);
     zip_dir(
         &PathBuf::from(files.tempdir.path()),
         &PathBuf::from(backup_file_wrong_ver),
@@ -176,10 +172,8 @@ fn fail() {
     );
 
     // restore from inexistent backup file
-    let inexistent_backup_path =
-        get_test_data_dir_path().join("test_backup_inexistent.rgb-lib_backup");
-    let _ = std::fs::remove_file(&inexistent_backup_path);
-    let target_dir_path = get_restore_dir_path(Some("inexistent_backup"));
+    let inexistent_backup_path = data_dir.sub_path("test_backup_inexistent.rgb-lib_backup");
+    let target_dir_path = restore_dir("inexistent_backup");
     let target_dir = target_dir_path.to_str().unwrap();
     let result = restore_backup(
         inexistent_backup_path.to_str().unwrap(),
@@ -191,10 +185,9 @@ fn fail() {
     );
 
     // restore from invalid backup file
-    let invalid_backup_path = get_test_data_dir_path().join("test_backup_invalid.rgb-lib_backup");
-    let _ = std::fs::remove_file(&invalid_backup_path);
+    let invalid_backup_path = data_dir.sub_path("test_backup_invalid.rgb-lib_backup");
     fs::write(&invalid_backup_path, b"not a valid backup file").unwrap();
-    let target_dir_path = get_restore_dir_path(Some("invalid_backup"));
+    let target_dir_path = restore_dir("invalid_backup");
     let target_dir = target_dir_path.to_str().unwrap();
     let result = restore_backup(invalid_backup_path.to_str().unwrap(), PASSWORD, target_dir);
     assert!(
@@ -322,15 +315,12 @@ fn double_restore() {
     party_2.issue_asset_nia(None);
 }
 
-#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn backup_info() {
-    // services are unnecessary here but this prevents removal of the test dir during exectution
-    initialize();
-
     // wallets
-    let wallet = get_test_wallet(true, None);
+    let data_dir = PrivateDataDir::new();
+    let wallet = data_dir.wallet(true, None);
 
     // backup not required for new wallets
     let backup_required = wallet.backup_info().unwrap();

@@ -526,7 +526,8 @@ fn transfer_balances() {
 #[test]
 #[parallel]
 fn fail() {
-    let party = offline_party!(get_test_wallet(true, None));
+    let data_dir = PrivateDataDir::new();
+    let party = offline_party!(data_dir.wallet(true, None));
 
     // bad asset_id returns an error
     let result = party.get_asset_balance_result("rgb1inexistent");

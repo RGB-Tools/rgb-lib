@@ -29,12 +29,11 @@ fn success() {
     assert!(Psbt::from_str(&signed_psbt).is_ok());
 }
 
-#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn fail() {
-    initialize();
-    let wallet = get_test_wallet(true, None);
+    let data_dir = PrivateDataDir::new();
+    let wallet = data_dir.wallet(true, None);
 
     let result = wallet.sign_psbt("rgb1invalid".to_string(), None);
     assert!(matches!(result, Err(Error::InvalidPsbt { details: _ })));

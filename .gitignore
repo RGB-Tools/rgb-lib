@@ -2,7 +2,9 @@
 **/example
 **/rgblib.h*
 **/target
-**/tests/tmp
+/migration/tests/tmp
+**/tests/tmp_srv
+**/tests/tmp_nosrv
 **/tests/lists
 **/tests/hub
 /.vim

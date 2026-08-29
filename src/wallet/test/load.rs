@@ -5,8 +5,8 @@ use crate::keys::restore_keys;
 #[test]
 #[parallel]
 fn success() {
-    let test_data_dir = create_test_data_dir();
-    let test_data_dir_str = test_data_dir.to_string_lossy().to_string();
+    let test_data_dir = PrivateDataDir::new();
+    let test_data_dir_str = test_data_dir.string();
 
     let keys = generate_keys(BitcoinNetwork::Signet, WitnessVersion::Taproot);
     let wallet_data = WalletData {
@@ -55,8 +55,8 @@ fn success() {
 #[test]
 #[parallel]
 fn watch_only_success() {
-    let test_data_dir = create_test_data_dir();
-    let test_data_dir_str = test_data_dir.to_string_lossy().to_string();
+    let test_data_dir = PrivateDataDir::new();
+    let test_data_dir_str = test_data_dir.string();
 
     let keys = generate_keys(BitcoinNetwork::Regtest, WitnessVersion::SegWitV0);
     let wallet = Wallet::new(
@@ -80,8 +80,8 @@ fn watch_only_success() {
 #[test]
 #[parallel]
 fn new_updates_manifest_success() {
-    let test_data_dir = create_test_data_dir();
-    let test_data_dir_str = test_data_dir.to_string_lossy().to_string();
+    let test_data_dir = PrivateDataDir::new();
+    let test_data_dir_str = test_data_dir.string();
 
     let keys = generate_keys(BitcoinNetwork::Regtest, WitnessVersion::Taproot);
     let wallet_data = WalletData {
@@ -132,8 +132,8 @@ fn new_updates_manifest_success() {
 #[test]
 #[parallel]
 fn watch_only_toggle_success() {
-    let test_data_dir = create_test_data_dir();
-    let test_data_dir_str = test_data_dir.to_string_lossy().to_string();
+    let test_data_dir = PrivateDataDir::new();
+    let test_data_dir_str = test_data_dir.string();
 
     let keys = generate_keys(BitcoinNetwork::Regtest, WitnessVersion::Taproot);
     let wallet = Wallet::new(
@@ -180,8 +180,8 @@ fn watch_only_toggle_success() {
 #[test]
 #[parallel]
 fn new_immutable_settings_fail() {
-    let test_data_dir = create_test_data_dir();
-    let test_data_dir_str = test_data_dir.to_string_lossy().to_string();
+    let test_data_dir = PrivateDataDir::new();
+    let test_data_dir_str = test_data_dir.string();
 
     let keys = generate_keys(BitcoinNetwork::Regtest, WitnessVersion::Taproot);
     let wallet_data = get_test_wallet_data(&test_data_dir_str);
@@ -256,8 +256,8 @@ fn new_immutable_settings_fail() {
 #[test]
 #[parallel]
 fn new_immutable_settings_watch_only_fail() {
-    let test_data_dir = create_test_data_dir();
-    let test_data_dir_str = test_data_dir.to_string_lossy().to_string();
+    let test_data_dir = PrivateDataDir::new();
+    let test_data_dir_str = test_data_dir.string();
 
     let keys = generate_keys(BitcoinNetwork::Regtest, WitnessVersion::Taproot);
     let wallet = Wallet::new(
@@ -281,8 +281,8 @@ fn new_immutable_settings_watch_only_fail() {
 #[test]
 #[parallel]
 fn new_mutable_settings_success() {
-    let test_data_dir = create_test_data_dir();
-    let test_data_dir_str = test_data_dir.to_string_lossy().to_string();
+    let test_data_dir = PrivateDataDir::new();
+    let test_data_dir_str = test_data_dir.string();
 
     let keys = generate_keys(BitcoinNetwork::Regtest, WitnessVersion::Taproot);
     let wallet = Wallet::new(
@@ -319,8 +319,8 @@ fn new_mutable_settings_success() {
 #[test]
 #[parallel]
 fn restored_backup_success() {
-    let test_data_dir = create_test_data_dir();
-    let test_data_dir_str = test_data_dir.to_string_lossy().to_string();
+    let test_data_dir = PrivateDataDir::new();
+    let test_data_dir_str = test_data_dir.string();
 
     let keys = generate_keys(BitcoinNetwork::Regtest, WitnessVersion::Taproot);
     let wallet = Wallet::new(
@@ -330,15 +330,13 @@ fn restored_backup_success() {
     .unwrap();
     let descriptors = wallet.get_descriptors();
 
-    let backup_file_path = get_test_data_dir_path().join("test_load_backup.rgb-lib_backup");
+    let backup_file_path = test_data_dir.sub_path("test_load_backup.rgb-lib_backup");
     let backup_file = backup_file_path.to_str().unwrap();
-    let _ = fs::remove_file(backup_file);
     wallet.backup(backup_file, PASSWORD).unwrap();
     drop(wallet);
 
-    let target_dir_path = get_restore_dir_path(Some("load"));
+    let target_dir_path = test_data_dir.sub_path("restored");
     let target_dir = target_dir_path.to_str().unwrap();
-    let _ = fs::remove_dir_all(target_dir);
     restore_backup(backup_file, PASSWORD, target_dir).unwrap();
 
     // the manifest lives in the wallet directory, so it rides along in the backup and the wallet
@@ -360,8 +358,8 @@ fn inexistent_data_dir_fail() {
 #[test]
 #[parallel]
 fn inexistent_manifest_fail() {
-    let test_data_dir = create_test_data_dir();
-    let test_data_dir_str = test_data_dir.to_string_lossy().to_string();
+    let test_data_dir = PrivateDataDir::new();
+    let test_data_dir_str = test_data_dir.string();
 
     let keys = generate_keys(BitcoinNetwork::Regtest, WitnessVersion::Taproot);
     let wallet = Wallet::new(
@@ -392,8 +390,8 @@ fn inexistent_manifest_fail() {
 #[test]
 #[parallel]
 fn unsupported_manifest_version_fail() {
-    let test_data_dir = create_test_data_dir();
-    let test_data_dir_str = test_data_dir.to_string_lossy().to_string();
+    let test_data_dir = PrivateDataDir::new();
+    let test_data_dir_str = test_data_dir.string();
 
     let keys = generate_keys(BitcoinNetwork::Regtest, WitnessVersion::Taproot);
     let wallet = Wallet::new(
@@ -421,8 +419,8 @@ fn unsupported_manifest_version_fail() {
 #[test]
 #[parallel]
 fn wrong_mnemonic_fail() {
-    let test_data_dir = create_test_data_dir();
-    let test_data_dir_str = test_data_dir.to_string_lossy().to_string();
+    let test_data_dir = PrivateDataDir::new();
+    let test_data_dir_str = test_data_dir.string();
 
     let keys = generate_keys(BitcoinNetwork::Regtest, WitnessVersion::Taproot);
     let wallet = Wallet::new(
@@ -447,8 +445,8 @@ fn wrong_mnemonic_fail() {
 #[test]
 #[parallel]
 fn manifest_fingerprint_mismatch_fail() {
-    let test_data_dir = create_test_data_dir();
-    let test_data_dir_str = test_data_dir.to_string_lossy().to_string();
+    let test_data_dir = PrivateDataDir::new();
+    let test_data_dir_str = test_data_dir.string();
 
     let keys_1 = generate_keys(BitcoinNetwork::Regtest, WitnessVersion::Taproot);
     let wallet_1 = Wallet::new(
