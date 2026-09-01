@@ -2492,6 +2492,61 @@ fn nack() {
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
+fn nack_pre_existing_receiver_fails() {
+    initialize();
+
+    let amount: u64 = 66;
+
+    // wallets
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+
+    // issue
+    let asset = party.issue_asset_nia(None);
+
+    // send with donation set to false
+    let receive_data = rcv_party.blind_receive();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(amount),
+            recipient_id: receive_data.recipient_id.clone(),
+            witness_data: None,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid = party.send_retry(&recipient_map);
+    assert!(!txid.is_empty());
+    assert!(rcv_party.check_test_transfer_status_recipient(
+        &receive_data.recipient_id,
+        TransferStatus::WaitingCounterparty
+    ));
+
+    // a NACK is recorded on the proxy before the receiver processes the consignment
+    let proxy_client = get_proxy_client(None);
+    proxy_client
+        .post_ack(&receive_data.recipient_id, false)
+        .unwrap();
+
+    // the receiver validates the consignment but its ACK is refused by the proxy ("Cannot change
+    // ACK"): the sender will never see an ACK and never broadcast, so the receive transfer must
+    // be failed rather than left waiting for confirmations of a TX that will never appear
+    rcv_party.wait_for_refresh(None);
+    assert!(
+        rcv_party.check_test_transfer_status_recipient(
+            &receive_data.recipient_id,
+            TransferStatus::Failed
+        )
+    );
+
+    // the sender fails as usual
+    party.wait_for_refresh(Some(&asset.asset_id));
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Failed));
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
 fn no_change_on_pending_send() {
     initialize();
 
