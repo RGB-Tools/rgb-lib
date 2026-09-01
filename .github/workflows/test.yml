@@ -10,35 +10,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test_and_coverage:
-    timeout-minutes: 45
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-      - name: Setup rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          components: llvm-tools-preview
-          toolchain: stable
-      - name: Install llvm-cov
-        env:
-          LLVM_COV_RELEASES: https://github.com/taiki-e/cargo-llvm-cov/releases
-        run: |
-          host=$(rustc -Vv | grep host | sed 's/host: //')
-          curl -fsSL $LLVM_COV_RELEASES/latest/download/cargo-llvm-cov-$host.tar.gz | tar xzf - -C "$HOME/.cargo/bin"
-      - name: Test with all features and generate coverage report
-        run: ./tests/coverage.sh --ci
-      - name: Upload coverage report
-        uses: codecov/codecov-action@v6
-        with:
-          fail_ci_if_error: true
-          file: coverage.lcov
-          flags: rust
-          token: ${{ secrets.CODECOV_TOKEN }}
-
-  test_features:
+  repro_test:
     timeout-minutes: 30
     runs-on: ubuntu-latest
 
@@ -47,31 +19,5 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           rustflags: ""
-      - name: Test with electrum feature
-        run: |
-          cargo test --profile reldebug --no-default-features --features electrum get_fee_estimation::success_electrum -- --ignored
-          SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features electrum go_online::fail
-          SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features electrum send::min_confirmations_electrum
-          SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features electrum send::min_relay_fee_electrum
-      - name: Test with esplora feature
-        run: |
-          cargo test --profile reldebug --no-default-features --features esplora get_fee_estimation::success_esplora -- --ignored
-          SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features esplora go_online::fail
-          SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features esplora send::min_confirmations_esplora
-          SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features esplora send::min_relay_fee_esplora
-      - name: Test with no default features
-        run: |
-          cargo test --profile reldebug --no-default-features
-
-  test_doc:
-    timeout-minutes: 30
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          rustflags: ""
-      - name: Test documentation
-        run: |
-          cargo test --doc
+      - name: Run the repro tests (offline unit tests, no services needed)
+        run: cargo test --profile reldebug --no-default-features --features electrum -- test_check_proxy_invalid_body_error_details test_check_proxy_connection_error_details

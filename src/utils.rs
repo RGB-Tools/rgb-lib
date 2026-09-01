@@ -1144,6 +1144,42 @@ mod tests {
         mock.assert();
     }
 
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[test]
+    fn test_check_proxy_invalid_body_error_details() {
+        // server returns HTTP 200 with a body that is not a JSON-RPC response: the transport
+        // error (body decoding) must be reported, not the generic connection message
+        let mut server = mockito::Server::new();
+        let mock = server
+            .mock("POST", "/")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body("not json")
+            .create();
+        let result = check_proxy(&server.url());
+        assert_matches!(
+            result,
+            Err(Error::Proxy { details }) if details != "unable to connect to proxy"
+        );
+        mock.assert();
+    }
+
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[test]
+    fn test_check_proxy_connection_error_details() {
+        // bind then drop a listener to get a port that refuses connections: the transport error
+        // (connection refused) must be reported, not the generic connection message
+        let port = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.local_addr().unwrap().port()
+        };
+        let result = check_proxy(&format!("http://127.0.0.1:{port}"));
+        assert_matches!(
+            result,
+            Err(Error::Proxy { details }) if details != "unable to connect to proxy"
+        );
+    }
+
     #[test]
     fn test_load_rgb_runtime_corrupt_stock() {
         let dir = tempfile::tempdir().unwrap();
