@@ -38,7 +38,7 @@ use rgb_lib::{
 
 uniffi::include_scaffolding!("rgb-lib");
 
-// temporary solution needed because the Enum attribute doesn't support the Remote one
+// temporary solution needed because the UDL Enum and Remote attributes are incompatible with each other
 pub enum SyncKeychain {
     Colored,
     Vanilla { lookback: u32 },
@@ -87,7 +87,7 @@ impl From<AssetFilter> for RgbLibAssetFilter {
     }
 }
 
-// temporary solution needed because the Enum attribute doesn't support the Remote one
+// temporary solution needed because the UDL Enum and Remote attributes are incompatible with each other
 pub enum Assignment {
     Fungible { amount: u64 },
     NonFungible,
@@ -405,7 +405,7 @@ impl From<RgbInspection> for RgbLibRgbInspection {
     }
 }
 
-// temporary solution needed because the Enum attribute doesn't support the Remote one
+// temporary solution needed because the UDL Enum and Remote attributes are incompatible with each other
 pub enum Operation {
     CreateUtxosToReview {
         psbt: String,
@@ -796,7 +796,7 @@ impl From<RgbLibOperationInfo> for OperationInfo {
     }
 }
 
-// temporary solution needed because the Enum attribute doesn't support the Remote one
+// temporary solution needed because the UDL Enum and Remote attributes are incompatible with each other
 pub enum RespondToOperation {
     Ack { signed_psbt: String },
     Nack,
