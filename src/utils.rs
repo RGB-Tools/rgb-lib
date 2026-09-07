@@ -719,6 +719,16 @@ pub struct RgbRuntime {
 
 impl RgbRuntime {
     #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub(crate) fn export_contract(
+        &self,
+        contract_id: ContractId,
+    ) -> Result<RgbContract, InternalError> {
+        self.stock
+            .export_contract(contract_id)
+            .map_err(InternalError::from)
+    }
+
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
     pub(crate) fn accept_transfer<R: ResolveWitness>(
         &mut self,
         contract: ValidTransfer,
