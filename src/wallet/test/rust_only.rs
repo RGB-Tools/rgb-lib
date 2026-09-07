@@ -1,7 +1,9 @@
 use super::*;
 
+#[cfg(feature = "electrum")]
 use rgbstd::{GenesisSeal, Vout};
 
+#[cfg(feature = "electrum")]
 fn nia_contract(wallet: &Wallet, chain_net: ChainNet) -> RgbContract {
     let beneficiary_txid =
         RgbTxid::from_str("14295d5bb1a191cdb6286dc0944df938421e3dfcbf0811353ccac4100c2068c5")
