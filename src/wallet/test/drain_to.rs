@@ -223,7 +223,7 @@ fn fail() {
     // - an RGB one
     party.create_utxos_default();
     let asset = party.issue_asset_ifa(None, None, None);
-    let unsigned_psbt = party.burn_begin(&asset.asset_id, 1);
+    let unsigned_psbt = party.burn_begin(&asset.asset_id, 1, None);
     let signed_psbt = party.wallet.sign_psbt(unsigned_psbt, None).unwrap();
     let txid = Psbt::from_str(&signed_psbt)
         .unwrap()

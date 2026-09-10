@@ -190,6 +190,7 @@ pub(crate) fn burn(
     online: *const c_char,
     asset_id: *const c_char,
     amount: *const c_char,
+    burn_reason: *const c_char,
     fee_rate: *const c_char,
     min_confirmations: *const c_char,
 ) -> Result<String, Error> {
@@ -197,17 +198,27 @@ pub(crate) fn burn(
     let online = convert_online(online)?;
     let asset_id = ptr_to_string(asset_id);
     let amount = ptr_to_num(amount)?;
+    let burn_reason = convert_optional_string(burn_reason);
     let fee_rate = ptr_to_num(fee_rate)?;
     let min_confirmations = ptr_to_num(min_confirmations)?;
-    let res = wallet.burn(online, asset_id, amount, fee_rate, min_confirmations)?;
+    let res = wallet.burn(
+        online,
+        asset_id,
+        amount,
+        burn_reason,
+        fee_rate,
+        min_confirmations,
+    )?;
     Ok(serde_json::to_string(&res)?)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn burn_begin(
     wallet: &COpaqueStruct,
     online: *const c_char,
     asset_id: *const c_char,
     amount: *const c_char,
+    burn_reason: *const c_char,
     fee_rate: *const c_char,
     min_confirmations: *const c_char,
     dry_run: bool,
@@ -216,12 +227,14 @@ pub(crate) fn burn_begin(
     let online = convert_online(online)?;
     let asset_id = ptr_to_string(asset_id);
     let amount = ptr_to_num(amount)?;
+    let burn_reason = convert_optional_string(burn_reason);
     let fee_rate = ptr_to_num(fee_rate)?;
     let min_confirmations = ptr_to_num(min_confirmations)?;
     let res = wallet.burn_begin(
         online,
         asset_id,
         amount,
+        burn_reason,
         fee_rate,
         min_confirmations,
         dry_run,

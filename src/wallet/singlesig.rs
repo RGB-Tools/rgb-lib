@@ -1281,6 +1281,7 @@ impl Wallet {
         online: Online,
         asset_id: String,
         amount: u64,
+        burn_reason: Option<String>,
         fee_rate: u64,
         min_confirmations: u8,
     ) -> Result<OperationResult, Error> {
@@ -1288,8 +1289,15 @@ impl Wallet {
         self.check_xprv()?;
         self.check_online(online)?;
         let txn = self.database().begin_transaction()?;
-        let mut begin_op_data =
-            self.burn_begin_impl(&txn, asset_id, amount, fee_rate, min_confirmations, true)?;
+        let mut begin_op_data = self.burn_begin_impl(
+            &txn,
+            asset_id,
+            amount,
+            burn_reason,
+            fee_rate,
+            min_confirmations,
+            true,
+        )?;
         self.sign_psbt_impl(&mut begin_op_data.psbt, None)?;
         let res = self.burn_end_impl(&txn, &begin_op_data.psbt)?;
         self.update_backup_info(&txn, false)?;
@@ -1302,6 +1310,9 @@ impl Wallet {
     /// `fee_rate` (in sat/vB).
     ///
     /// The amount of assets to burn is specified by the `amount` parameter and cannot be zero.
+    ///
+    /// The optional `burn_reason` is a hex-encoded 32-byte value committed in the burn transition
+    /// (e.g. a hash binding the burn to an external destination).
     ///
     /// If `dry_run` is true, the wallet does not persist the transfer in
     /// [`TransferStatus::Initiated`]. The returned [`BurnBeginResult::batch_transfer_idx`] is None
@@ -1320,6 +1331,7 @@ impl Wallet {
         online: Online,
         asset_id: String,
         amount: u64,
+        burn_reason: Option<String>,
         fee_rate: u64,
         min_confirmations: u8,
         dry_run: bool,
@@ -1327,8 +1339,15 @@ impl Wallet {
         info!(self.logger(), "Burning (begin) amount: {}...", amount);
         self.check_online(online)?;
         let txn = self.database().begin_transaction()?;
-        let begin_operation_data =
-            self.burn_begin_impl(&txn, asset_id, amount, fee_rate, min_confirmations, dry_run)?;
+        let begin_operation_data = self.burn_begin_impl(
+            &txn,
+            asset_id,
+            amount,
+            burn_reason,
+            fee_rate,
+            min_confirmations,
+            dry_run,
+        )?;
         if !dry_run {
             self.update_backup_info(&txn, false)?;
         }
@@ -1345,6 +1364,13 @@ impl Wallet {
                     .to_string(),
                 min_confirmations,
                 entropy: begin_operation_data.info_batch_transfer.entropy,
+                burn_reason: begin_operation_data
+                    .info_batch_transfer
+                    .transfers
+                    .values()
+                    .next()
+                    .and_then(|transfer| transfer.burn_reason)
+                    .map(|burn_reason| burn_reason.to_string()),
             },
         })
     }
@@ -1353,6 +1379,10 @@ impl Wallet {
     ///
     /// The provided PSBT, prepared with the [`burn_begin`](Wallet::burn_begin) function, needs to
     /// have already been signed.
+    ///
+    /// A consignment proving the burn (with its full history) is also written to disk, at the
+    /// `consignment_path` reported by [`list_transfers`](Wallet::list_transfers) for the burn
+    /// operation, so that it can be handed to third parties that need to verify it.
     ///
     /// This doesn't require the wallet to have private keys.
     ///

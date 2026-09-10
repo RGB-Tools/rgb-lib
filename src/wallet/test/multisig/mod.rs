@@ -744,8 +744,8 @@ fn success() {
     println!("\n=== burn (wlt_1) ===");
     check_wallets_up_to_date(&mut [&mut wlt_1, &mut wlt_2, &mut wlt_3]);
     let burn_amount = 50;
-    let op_init = wlt_1.burn_init(&ifa_asset.asset_id, burn_amount);
-    inspect_burn(&wlt_3, &op_init, &ifa_asset);
+    let op_init = wlt_1.burn_init(&ifa_asset.asset_id, burn_amount, Some(BURN_REASON));
+    inspect_burn(&wlt_3, &op_init, &ifa_asset, Some(BURN_REASON));
     operation_complete::<BurnHandler>(
         op_init.operation_idx,
         &mut [&mut wlt_1, &mut wlt_2, &mut wlt_3],
@@ -769,7 +769,8 @@ fn success() {
     );
 
     println!("\n=== burn discarded (wlt_3) ===");
-    let op_init = wlt_3.burn_init(&ifa_asset.asset_id, 1);
+    let op_init = wlt_3.burn_init(&ifa_asset.asset_id, 1, None);
+    inspect_burn(&wlt_1, &op_init, &ifa_asset, None);
     operation_complete::<BurnHandler>(
         op_init.operation_idx,
         &mut [],
@@ -1407,7 +1408,7 @@ fn offline() {
     );
     assert_matches!(result, Err(Error::Offline));
 
-    let result = wallet.burn_init(fake_online, "aid".into(), 0, 0, 0);
+    let result = wallet.burn_init(fake_online, "aid".into(), 0, None, 0, 0);
     assert_matches!(result, Err(Error::Offline));
 
     let result = wallet.create_utxos_init(fake_online, false, None, None, 0, false);

@@ -1239,11 +1239,18 @@ impl Wallet {
         online: Online,
         asset_id: String,
         amount: u64,
+        burn_reason: Option<String>,
         fee_rate: u64,
         min_confirmations: u8,
     ) -> Result<OperationResult, RgbLibError> {
-        self._get_wallet()
-            .burn(online, asset_id, amount, fee_rate, min_confirmations)
+        self._get_wallet().burn(
+            online,
+            asset_id,
+            amount,
+            burn_reason,
+            fee_rate,
+            min_confirmations,
+        )
     }
 
     fn burn_begin(
@@ -1251,6 +1258,7 @@ impl Wallet {
         online: Online,
         asset_id: String,
         amount: u64,
+        burn_reason: Option<String>,
         fee_rate: u64,
         min_confirmations: u8,
         dry_run: bool,
@@ -1259,6 +1267,7 @@ impl Wallet {
             online,
             asset_id,
             amount,
+            burn_reason,
             fee_rate,
             min_confirmations,
             dry_run,
@@ -1736,11 +1745,18 @@ impl MultisigWallet {
         online: Online,
         asset_id: String,
         amount: u64,
+        burn_reason: Option<String>,
         fee_rate: u64,
         min_confirmations: u8,
     ) -> Result<InitOperationResult, RgbLibError> {
-        self._get_wallet()
-            .burn_init(online, asset_id, amount, fee_rate, min_confirmations)
+        self._get_wallet().burn_init(
+            online,
+            asset_id,
+            amount,
+            burn_reason,
+            fee_rate,
+            min_confirmations,
+        )
     }
 
     fn inflate_init(
