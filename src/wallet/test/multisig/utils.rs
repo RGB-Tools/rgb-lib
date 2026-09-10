@@ -1439,12 +1439,19 @@ pub(super) fn inspect_inflate(
     let mut sorted_expected = inflation_amounts.to_vec();
     sorted_expected.sort();
     assert_eq!(sorted_inflate_outputs, sorted_expected);
+    assert_eq!(
+        inflate_transitions[0].globals,
+        vec![TransitionGlobal::IssuedSupply(
+            inflation_amounts.iter().sum()
+        )]
+    );
 }
 
 pub(super) fn inspect_burn(
     wallet: &MultisigParty,
     op_init: &InitOperationResult,
     ifa_asset: &AssetIFA,
+    burn_amount: u64,
     burn_reason: Option<&str>,
 ) {
     let psbt = &op_init.psbt;
@@ -1465,6 +1472,11 @@ pub(super) fn inspect_burn(
         .filter(|t| t.r#type == TypeOfTransition::Burn)
         .collect();
     assert_eq!(burn_transitions.len(), 1);
+    let mut expected_globals = vec![TransitionGlobal::BurnedAsset(burn_amount)];
+    if let Some(burn_reason) = burn_reason {
+        expected_globals.push(TransitionGlobal::BurnReason(burn_reason.to_string()));
+    }
+    assert_eq!(burn_transitions[0].globals, expected_globals);
 }
 
 pub(super) fn inspect_send(
