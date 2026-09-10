@@ -799,11 +799,20 @@ enum CloseMethod {
   "TapretFirst",
 };
 
+[Enum]
+interface TransitionGlobal {
+  IssuedSupply(u64 amount);
+  BurnedAsset(u64 amount);
+  BurnedInflation(u64 amount);
+  BurnReason(string reason);
+};
+
 [Remote]
 dictionary RgbTransitionInfo {
   TypeOfTransition type;
   sequence<RgbInputInfo> inputs;
   sequence<RgbOutputInfo> outputs;
+  sequence<TransitionGlobal> globals;
 };
 
 [Remote]

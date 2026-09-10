@@ -2538,10 +2538,55 @@ pub trait WalletOffline: WalletBackup {
                         });
                     }
                 }
+                // collect transition globals
+                let mut transition_globals = Vec::new();
+                for (global_type, values) in transition.globals.iter() {
+                    for value in values.iter() {
+                        let decode_amount = |name: &str| {
+                            Amount::from_strict_serialized(value.to_inner())
+                                .map(u64::from)
+                                .map_err(|e| Error::RgbInspection {
+                                    details: format!(
+                                        "bundle for contract {contract_id}: invalid {name} global: {e}"
+                                    ),
+                                })
+                        };
+                        let global = match *global_type {
+                            GS_ISSUED_SUPPLY => TransitionGlobal::IssuedSupply(decode_amount(
+                                RGB_GLOBAL_ISSUED_SUPPLY,
+                            )?),
+                            GS_BURNED_ASSET => TransitionGlobal::BurnedAsset(decode_amount(
+                                RGB_GLOBAL_BURNED_ASSET,
+                            )?),
+                            GS_BURNED_INFLATION => TransitionGlobal::BurnedInflation(
+                                decode_amount(RGB_GLOBAL_BURNED_INFLATION)?,
+                            ),
+                            GS_BURN_REASON => TransitionGlobal::BurnReason(
+                                BurnReason::from_strict_serialized(value.to_inner())
+                                    .map_err(|e| Error::RgbInspection {
+                                        details: format!(
+                                            "bundle for contract {contract_id}: invalid {RGB_GLOBAL_BURN_REASON} global: {e}"
+                                        ),
+                                    })?
+                                    .to_string(),
+                            ),
+                            _ => {
+                                return Err(Error::RgbInspection {
+                                    details: format!(
+                                        "bundle for contract {contract_id}: unknown global state type: {global_type}"
+                                    ),
+                                });
+                            }
+                        };
+                        transition_globals.push(global);
+                    }
+                }
+
                 transitions.push(RgbTransitionInfo {
                     r#type: kind,
                     inputs: transition_inputs,
                     outputs: transition_outputs,
+                    globals: transition_globals,
                 });
             }
 

@@ -31,7 +31,8 @@ pub use objects::{
     PsbtOutputInfo, ReceiveData, Recipient, RecipientInfo, RecipientType, RgbAllocation,
     RgbInputInfo, RgbInspection, RgbOperationInfo, RgbOutputInfo, RgbTransitionInfo, Token,
     TokenLight, Transaction, TransactionType, Transfer, TransferKind, TransferTransportEndpoint,
-    TransportEndpoint, TypeOfTransition, Unspent, Utxo, WalletData, WalletDescriptors, WitnessData,
+    TransitionGlobal, TransportEndpoint, TypeOfTransition, Unspent, Utxo, WalletData,
+    WalletDescriptors, WitnessData,
 };
 #[cfg(feature = "_online")]
 pub use objects::{
@@ -92,9 +93,8 @@ pub(crate) const SCHEMA_ID_IFA: &str =
 
 pub(crate) const RGB_STATE_ASSET_OWNER: &str = "assetOwner";
 pub(crate) const RGB_STATE_INFLATION_ALLOWANCE: &str = "inflationAllowance";
-#[cfg(feature = "_online")]
 pub(crate) const RGB_GLOBAL_BURNED_ASSET: &str = "burnedAsset";
-#[cfg(feature = "_online")]
+pub(crate) const RGB_GLOBAL_BURNED_INFLATION: &str = "burnedInflation";
 pub(crate) const RGB_GLOBAL_BURN_REASON: &str = "burnReason";
 pub(crate) const RGB_GLOBAL_ISSUED_SUPPLY: &str = "issuedSupply";
 pub(crate) const RGB_GLOBAL_REJECT_LIST_URL: &str = "rejectListUrl";

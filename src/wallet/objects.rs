@@ -1713,6 +1713,19 @@ pub struct RgbOutputInfo {
     pub is_ours: bool,
 }
 
+/// A global state entry committed in an RGB transition.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub enum TransitionGlobal {
+    /// Amount of newly issued supply, committed in inflate transitions
+    IssuedSupply(u64),
+    /// Amount of burned asset, committed in burn transitions
+    BurnedAsset(u64),
+    /// Amount of burned inflation rights, committed in burn transitions
+    BurnedInflation(u64),
+    /// Hex-encoded 32-byte burn reason, committed in burn transitions
+    BurnReason(String),
+}
+
 /// Information about an RGB transition.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
@@ -1723,6 +1736,8 @@ pub struct RgbTransitionInfo {
     pub inputs: Vec<RgbInputInfo>,
     /// Details of the transition outputs
     pub outputs: Vec<RgbOutputInfo>,
+    /// Global state entries committed in the transition
+    pub globals: Vec<TransitionGlobal>,
 }
 
 /// Information about an RGB operation.

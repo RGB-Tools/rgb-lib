@@ -32,8 +32,9 @@ use rgb_lib::{
         SendBeginResult, SendDetails, SinglesigKeys, SyncKeychain as RgbLibSyncKeychain,
         SyncOptions as RgbLibSyncOptions, SyncStrategy, Token, TokenLight, Transaction,
         TransactionType, Transfer as RgbLibTransfer, TransferKind, TransferTransportEndpoint,
-        TransportEndpoint as RgbLibTransportEndpoint, TypeOfTransition, Unspent as RgbLibUnspent,
-        UserRole, Utxo, Wallet as RgbLibWallet, WalletData, WalletDescriptors, WitnessData,
+        TransitionGlobal as RgbLibTransitionGlobal, TransportEndpoint as RgbLibTransportEndpoint,
+        TypeOfTransition, Unspent as RgbLibUnspent, UserRole, Utxo, Wallet as RgbLibWallet,
+        WalletData, WalletDescriptors, WitnessData,
     },
 };
 
@@ -388,10 +389,45 @@ impl From<RgbOutputInfo> for RgbLibRgbOutputInfo {
         }
     }
 }
+pub enum TransitionGlobal {
+    IssuedSupply { amount: u64 },
+    BurnedAsset { amount: u64 },
+    BurnedInflation { amount: u64 },
+    BurnReason { reason: String },
+}
+impl From<RgbLibTransitionGlobal> for TransitionGlobal {
+    fn from(orig: RgbLibTransitionGlobal) -> Self {
+        match orig {
+            RgbLibTransitionGlobal::IssuedSupply(amount) => {
+                TransitionGlobal::IssuedSupply { amount }
+            }
+            RgbLibTransitionGlobal::BurnedAsset(amount) => TransitionGlobal::BurnedAsset { amount },
+            RgbLibTransitionGlobal::BurnedInflation(amount) => {
+                TransitionGlobal::BurnedInflation { amount }
+            }
+            RgbLibTransitionGlobal::BurnReason(reason) => TransitionGlobal::BurnReason { reason },
+        }
+    }
+}
+impl From<TransitionGlobal> for RgbLibTransitionGlobal {
+    fn from(orig: TransitionGlobal) -> Self {
+        match orig {
+            TransitionGlobal::IssuedSupply { amount } => {
+                RgbLibTransitionGlobal::IssuedSupply(amount)
+            }
+            TransitionGlobal::BurnedAsset { amount } => RgbLibTransitionGlobal::BurnedAsset(amount),
+            TransitionGlobal::BurnedInflation { amount } => {
+                RgbLibTransitionGlobal::BurnedInflation(amount)
+            }
+            TransitionGlobal::BurnReason { reason } => RgbLibTransitionGlobal::BurnReason(reason),
+        }
+    }
+}
 pub struct RgbTransitionInfo {
     pub r#type: TypeOfTransition,
     pub inputs: Vec<RgbInputInfo>,
     pub outputs: Vec<RgbOutputInfo>,
+    pub globals: Vec<TransitionGlobal>,
 }
 impl From<RgbLibRgbTransitionInfo> for RgbTransitionInfo {
     fn from(orig: RgbLibRgbTransitionInfo) -> Self {
@@ -399,6 +435,7 @@ impl From<RgbLibRgbTransitionInfo> for RgbTransitionInfo {
             r#type: orig.r#type,
             inputs: orig.inputs.into_iter().map(|i| i.into()).collect(),
             outputs: orig.outputs.into_iter().map(|o| o.into()).collect(),
+            globals: orig.globals.into_iter().map(|g| g.into()).collect(),
         }
     }
 }
@@ -408,6 +445,7 @@ impl From<RgbTransitionInfo> for RgbLibRgbTransitionInfo {
             r#type: orig.r#type,
             inputs: orig.inputs.into_iter().map(|i| i.into()).collect(),
             outputs: orig.outputs.into_iter().map(|o| o.into()).collect(),
+            globals: orig.globals.into_iter().map(|g| g.into()).collect(),
         }
     }
 }

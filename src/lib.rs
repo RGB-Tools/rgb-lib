@@ -281,7 +281,8 @@ use rgbstd::{
 #[cfg(feature = "_online")]
 use schemata::{CfaWrapper, NiaWrapper, UdaWrapper};
 use schemata::{
-    CollectibleFungibleAsset, IfaWrapper, InflatableFungibleAsset, NonInflatableAsset, OS_ASSET,
+    CollectibleFungibleAsset, GS_BURN_REASON, GS_BURNED_ASSET, GS_BURNED_INFLATION,
+    GS_ISSUED_SUPPLY, IfaWrapper, InflatableFungibleAsset, NonInflatableAsset, OS_ASSET,
     OS_INFLATION, TS_BURN, TS_INFLATION, TS_TRANSFER, UniqueDigitalAsset,
 };
 use scrypt::{Params, phc::Salt, scrypt};
