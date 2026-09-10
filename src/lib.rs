@@ -258,9 +258,9 @@ use rgbstd::{
         mpc::{Commitment, MerkleTree, Message, MultiSource, ProtocolId},
     },
     stl::{
-        AssetSpec, Attachment, ContractTerms, Details, EmbeddedMedia as RgbEmbeddedMedia,
-        MediaType, Name, ProofOfReserves as RgbProofOfReserves, RejectListUrl, RicardianContract,
-        Ticker, TokenData,
+        AssetSpec, Attachment, BurnReason, ContractTerms, Details,
+        EmbeddedMedia as RgbEmbeddedMedia, MediaType, Name, ProofOfReserves as RgbProofOfReserves,
+        RejectListUrl, RicardianContract, Ticker, TokenData,
     },
     txout::{BlindSeal, ExplicitSeal, TxPtr},
     validation::{

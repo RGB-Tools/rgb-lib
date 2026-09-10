@@ -2909,6 +2909,10 @@ pub trait WalletOnline: WalletOffline {
                     asset_transition_builder = asset_transition_builder
                         .add_global_state(RGB_GLOBAL_BURNED_ASSET, Amount::from(burn))
                         .unwrap();
+                    if let Some(burn_reason) = transfer_info.burn_reason {
+                        asset_transition_builder = asset_transition_builder
+                            .add_global_state(RGB_GLOBAL_BURN_REASON, burn_reason)?;
+                    }
                 }
                 _ => {}
             }
@@ -3906,6 +3910,7 @@ pub trait WalletOnline: WalletOffline {
                     main_transition,
                     beneficiaries_blinded: vec![],
                     beneficiaries_witness: vec![],
+                    burn_reason: None,
                 };
                 transfer_info_map.insert(asset_id.clone(), transfer_info);
             }
@@ -4206,6 +4211,7 @@ pub trait WalletOnline: WalletOffline {
             main_transition: TypeOfTransition::Inflate,
             beneficiaries_blinded: vec![],
             beneficiaries_witness: vec![],
+            burn_reason: None,
         };
         let mut transfer_info_map: BTreeMap<String, InfoAssetTransfer> =
             BTreeMap::from([(asset_id.clone(), transfer_info)]);
@@ -4320,6 +4326,7 @@ pub trait WalletOnline: WalletOffline {
         txn: &DbTxn,
         asset_id: String,
         amount: u64,
+        burn_reason: Option<String>,
         fee_rate: u64,
         min_confirmations: u8,
         dry_run: bool,
@@ -4336,6 +4343,10 @@ pub trait WalletOnline: WalletOffline {
         if amount == 0 {
             return Err(Error::NoBurnAmount);
         }
+
+        let burn_reason = burn_reason
+            .map(|reason| self.check_burn_reason(reason))
+            .transpose()?;
 
         let (fee_rate_checked, unspents, input_unspents, mut stock) =
             self.get_transfer_begin_data(txn, fee_rate)?;
@@ -4390,6 +4401,7 @@ pub trait WalletOnline: WalletOffline {
             main_transition: TypeOfTransition::Burn,
             beneficiaries_blinded: vec![],
             beneficiaries_witness: vec![],
+            burn_reason,
         };
         let mut transfer_info_map: BTreeMap<String, InfoAssetTransfer> =
             BTreeMap::from([(asset_id.clone(), transfer_info)]);
@@ -4427,7 +4439,7 @@ pub trait WalletOnline: WalletOffline {
 
     fn burn_end_impl(&mut self, txn: &DbTxn, signed_psbt: &Psbt) -> Result<OperationResult, Error> {
         self.check_end_initiated(txn, signed_psbt)?;
-        let (txid, _transfer_dir, info_contents, fascia) =
+        let (txid, transfer_dir, info_contents, mut fascia) =
             self.get_transfer_end_data(signed_psbt)?;
 
         // the data must be of this operation: another one would be completed skipping its checks
@@ -4435,6 +4447,16 @@ pub trait WalletOnline: WalletOffline {
         if !info_contents.is_operation(&TypeOfTransition::Burn) {
             return Err(Error::WrongOperation { txid });
         }
+
+        // embed the signed transaction, then generate the consignment proving the burn: a burn
+        // has no recipient, so the consignment is not posted anywhere and is only made available
+        // on disk (see the `consignment_path` of the operation)
+        let tx = signed_psbt
+            .clone()
+            .extract_tx()
+            .map_err(InternalError::from)?;
+        fascia.update_witness_tx(tx);
+        self.gen_consignments(txn, &fascia, &info_contents.transfers, &transfer_dir)?;
 
         let batch_transfer_idx = self.finalize_transfer_end(
             txn,

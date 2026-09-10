@@ -51,6 +51,7 @@ interface RgbLibError {
   InvalidAttachments(string details);
   InvalidBitcoinKeys();
   InvalidBitcoinNetwork(string network);
+  InvalidBurnReason(string details);
   InvalidColoringInfo(string details);
   InvalidConsignment();
   InvalidCosigner(string details);
@@ -658,6 +659,7 @@ dictionary BurnDetails {
   string fascia_path;
   u8 min_confirmations;
   u64 entropy;
+  string? burn_reason;
 };
 
 [Remote]
@@ -937,12 +939,12 @@ interface Wallet {
 
   [Throws=RgbLibError]
   OperationResult burn(
-    Online online, string asset_id, u64 amount, u64 fee_rate,
+    Online online, string asset_id, u64 amount, string? burn_reason, u64 fee_rate,
     u8 min_confirmations);
 
   [Throws=RgbLibError]
   BurnBeginResult burn_begin(
-    Online online, string asset_id, u64 amount, u64 fee_rate,
+    Online online, string asset_id, u64 amount, string? burn_reason, u64 fee_rate,
     u8 min_confirmations, boolean dry_run);
 
   [Throws=RgbLibError]
@@ -1119,7 +1121,7 @@ interface MultisigWallet {
 
   [Throws=RgbLibError]
   InitOperationResult burn_init(
-    Online online, string asset_id, u64 amount, u64 fee_rate,
+    Online online, string asset_id, u64 amount, string? burn_reason, u64 fee_rate,
     u8 min_confirmations);
 
   [Throws=RgbLibError]

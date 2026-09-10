@@ -1047,11 +1047,19 @@ impl<'txn> RgbStock<'txn> {
         contract_id: ContractId,
         outputs: impl AsRef<[OutputSeal]>,
         secret_seals: impl AsRef<[SecretSeal]>,
+        opids: impl IntoIterator<Item = OpId>,
         fascia: &Fascia,
         spv_resolver: Option<&dyn ResolveSpvProof>,
     ) -> Result<(RgbTransfer, RetrievedSpvProofs), Error> {
         self.stock
-            .transfer_from_fascia(contract_id, outputs, secret_seals, [], fascia, spv_resolver)
+            .transfer_from_fascia(
+                contract_id,
+                outputs,
+                secret_seals,
+                opids,
+                fascia,
+                spv_resolver,
+            )
             .map_err(Error::from)
     }
 

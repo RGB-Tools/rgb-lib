@@ -66,7 +66,7 @@ fn success() {
     party.create_utxos_default();
     let burn_amount = 199;
     let bak_info_before = party.db_backup_info();
-    let res = party.burn(&asset.asset_id, burn_amount);
+    let res = party.burn(&asset.asset_id, burn_amount, Some(BURN_REASON));
     let bak_info_after = party.db_backup_info();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     party.show_unspent_colorings("after burn");
@@ -123,6 +123,44 @@ fn success() {
     assert!(transfer.invoice_string.is_none());
     assert!(transfer.consignment_path.is_some());
 
+    // check the burn consignment: it carries the burn transition (with the committed reason) and
+    // no terminal, and it validates from the point of view of a third party that doesn't know the
+    // asset
+    let consignment_path = transfer.consignment_path.as_ref().unwrap();
+    let consignment = RgbTransfer::load_file(consignment_path).unwrap();
+    assert!(consignment.terminals.is_empty());
+    let burn_transitions: Vec<_> = consignment
+        .bundles
+        .iter()
+        .flat_map(|witness_bundle| witness_bundle.bundle.known_transitions.iter())
+        .filter(|kt| kt.transition.transition_type == TS_BURN)
+        .collect();
+    assert_eq!(burn_transitions.len(), 1);
+    let burn_reason_type = InflatableFungibleAsset::schema().global_type(RGB_GLOBAL_BURN_REASON);
+    let burn_reason = burn_transitions[0]
+        .transition
+        .globals
+        .get(&burn_reason_type)
+        .and_then(|values| values.first())
+        .map(|data| BurnReason::from_strict_serialized(data.to_inner()).unwrap())
+        .unwrap();
+    assert_eq!(burn_reason.to_string(), BURN_REASON);
+    let validation_config = ValidationConfig {
+        chain_net: rcv_party.wallet.chain_net(),
+        ..Default::default()
+    };
+    let valid_consignment = consignment
+        .validate(
+            &AssetSchema::Ifa.schema_rules(),
+            rcv_party.wallet.blockchain_resolver(),
+            &validation_config,
+        )
+        .unwrap();
+    assert_eq!(
+        valid_consignment.validation_status().validity(),
+        Validity::Valid
+    );
+
     assert_burn_unspents(
         &mut party,
         &asset.asset_id,
@@ -172,7 +210,7 @@ fn success() {
     assert!(burn_amount_2 > burn_change);
     assert!(burn_amount_2 > inflated_amount);
     assert!(burn_amount_2 < burn_change + inflated_amount);
-    let res_burn_2 = party.burn(&asset.asset_id, burn_amount_2);
+    let res_burn_2 = party.burn(&asset.asset_id, burn_amount_2, None);
     party.show_unspent_colorings("after second burn");
 
     let remaining_amount = amount_after_inflate - burn_amount_2;
@@ -323,7 +361,7 @@ fn success() {
     // the receiving wallet now holds all remaining assets: burn part of them, then burn the rest
     rcv_party.create_utxos_default();
     let rcv_burn_amount = 50;
-    let res_rcv_burn = rcv_party.burn(&asset.asset_id, rcv_burn_amount);
+    let res_rcv_burn = rcv_party.burn(&asset.asset_id, rcv_burn_amount, None);
     rcv_party.show_unspent_colorings("after rcv partial burn");
 
     let rcv_remaining = remaining_amount - rcv_burn_amount;
@@ -376,7 +414,7 @@ fn success() {
 
     // burn everything from the receiving wallet
     rcv_party.create_utxos_default();
-    let res_rcv_burn_all = rcv_party.burn(&asset.asset_id, rcv_remaining);
+    let res_rcv_burn_all = rcv_party.burn(&asset.asset_id, rcv_remaining, None);
     rcv_party.show_unspent_colorings("after rcv burn all");
 
     let balance = rcv_party.get_asset_balance(&asset.asset_id);
@@ -433,15 +471,20 @@ fn fail() {
         let wallet = get_test_wallet(true, None);
         party!(wallet, Online { id: 0 })
     };
-    let result =
-        offline_party
-            .wallet
-            .burn(Online { id: 0 }, s!(""), 0, FEE_RATE, MIN_CONFIRMATIONS);
+    let result = offline_party.wallet.burn(
+        Online { id: 0 },
+        s!(""),
+        0,
+        None,
+        FEE_RATE,
+        MIN_CONFIRMATIONS,
+    );
     assert_matches!(result, Err(Error::Offline));
     let result = offline_party.wallet.burn_begin(
         Online { id: 0 },
         s!(""),
         0,
+        None,
         FEE_RATE,
         MIN_CONFIRMATIONS,
         false,
@@ -463,7 +506,7 @@ fn fail() {
     let mut wallet_wo = get_test_wallet(false, None);
     let online_wo = wallet_wo.go_online(test_go_online_options(None)).unwrap();
     let mut party_wo = party!(wallet_wo, online_wo);
-    let result = party_wo.burn_result(&asset_ifa.asset_id, 10);
+    let result = party_wo.burn_result(&asset_ifa.asset_id, 10, None);
     assert_matches!(result, Err(Error::WatchOnly));
 
     // - wrong online
@@ -473,21 +516,29 @@ fn fail() {
     // - check online is correct
     let good_online = party.online;
     party.online = wrong_online;
-    let result = party.burn_begin_result(&asset_ifa.asset_id, 10);
+    let result = party.burn_begin_result(&asset_ifa.asset_id, 10, None);
     party.online = good_online;
     assert_matches!(result, Err(Error::CannotChangeOnline));
     // - invalid asset_id
-    let result = party.burn_begin_result("malformed", 10);
+    let result = party.burn_begin_result("malformed", 10, None);
     assert_matches!(result, Err(Error::AssetNotFound { asset_id: _ }));
     // - check zero burn amount
-    let result = party.burn_begin_result(&asset_ifa.asset_id, 0);
+    let result = party.burn_begin_result(&asset_ifa.asset_id, 0, None);
     assert_matches!(result, Err(Error::NoBurnAmount));
+    // - check burn_reason
+    //   - not hex
+    let result = party.burn_begin_result(&asset_ifa.asset_id, 10, Some("not-hex"));
+    assert_matches!(result, Err(Error::InvalidBurnReason { details: _ }));
+    //   - wrong length
+    let result = party.burn_begin_result(&asset_ifa.asset_id, 10, Some("0011"));
+    assert_matches!(result, Err(Error::InvalidBurnReason { details: _ }));
     // - check fee_rate
     //   - low
     let result = party.wallet.burn_begin(
         party.online,
         asset_ifa.asset_id.clone(),
         10,
+        None,
         0,
         MIN_CONFIRMATIONS,
         false,
@@ -498,6 +549,7 @@ fn fail() {
         party.online,
         asset_ifa.asset_id.clone(),
         10,
+        None,
         u64::MAX,
         MIN_CONFIRMATIONS,
         false,
@@ -506,7 +558,7 @@ fn fail() {
 
     // burn_begin errors
     // - inexistent asset
-    let result = party.burn_begin_result("rgb1nexistent", 10);
+    let result = party.burn_begin_result("rgb1nexistent", 10, None);
     assert_matches!(result, Err(Error::AssetNotFound { asset_id: _ }));
     // - schema not supported
     create_test_data_dir();
@@ -568,7 +620,7 @@ fn fail() {
         .go_online(test_go_online_options(Some(ELECTRUM_URL)))
         .unwrap();
     let mut party_nia = party!(wallet_nia, online_nia);
-    let result = party_nia.burn_begin_result(&asset_ifa.asset_id, 10);
+    let result = party_nia.burn_begin_result(&asset_ifa.asset_id, 10, None);
     assert_matches!(result, Err(Error::UnsupportedSchema { asset_schema: _ }));
     // - burn not supported
     let asset_nia = party.issue_asset_nia(None);
@@ -580,11 +632,11 @@ fn fail() {
         (asset_uda.asset_id, AssetSchema::Uda),
     ];
     for (asset_id, schema) in unsupported_asset_ids {
-        let result = party.burn_result(&asset_id, 10);
+        let result = party.burn_result(&asset_id, 10, None);
         assert_matches!(result, Err(Error::UnsupportedBurn { asset_schema }) if asset_schema == schema);
     }
     // - burn zero amount
-    let result = party.burn_begin_result(&asset_ifa.asset_id, 0);
+    let result = party.burn_begin_result(&asset_ifa.asset_id, 0, None);
     assert_matches!(result, Err(Error::NoBurnAmount));
 
     // burn_end input params
@@ -607,7 +659,7 @@ fn fail() {
     // burn_end errors
     // - no prior burn_begin
     party.create_utxos(false, Some(1), None, FEE_RATE, None);
-    let unsigned_psbt = party.burn_begin(&asset_ifa.asset_id, 10);
+    let unsigned_psbt = party.burn_begin(&asset_ifa.asset_id, 10, None);
     let signed_psbt = party.wallet.sign_psbt(unsigned_psbt, None).unwrap();
     let psbt_txid = Psbt::from_str(&signed_psbt)
         .unwrap()
@@ -649,6 +701,7 @@ fn begin_end() {
             party.online,
             asset.asset_id.clone(),
             AMOUNT,
+            None,
             FEE_RATE,
             MIN_CONFIRMATIONS,
             true,
@@ -668,6 +721,7 @@ fn begin_end() {
             party.online,
             asset.asset_id.clone(),
             AMOUNT,
+            None,
             FEE_RATE,
             MIN_CONFIRMATIONS,
             false,
@@ -705,6 +759,7 @@ fn end_after_fail_or_end() {
                 party.online,
                 asset.asset_id.clone(),
                 AMOUNT,
+                None,
                 FEE_RATE,
                 MIN_CONFIRMATIONS,
                 false,

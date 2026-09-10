@@ -225,6 +225,13 @@ pub enum Error {
         network: String,
     },
 
+    /// The provided burn reason is invalid
+    #[error("Invalid burn reason: {details}")]
+    InvalidBurnReason {
+        /// Error details
+        details: String,
+    },
+
     /// The provided coloring info is invalid
     #[error("Invalid coloring info")]
     InvalidColoringInfo {

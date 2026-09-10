@@ -109,7 +109,7 @@ fn success() {
         assert!(transfer.expiration_timestamp.is_none());
         assert!(transfer.transport_endpoints.is_empty());
         assert!(transfer.invoice_string.is_none());
-        assert!(transfer.consignment_path.is_some());
+        assert!(transfer.consignment_path.is_none());
     }
     assert_eq!(recipient_id_set.len(), inflation_amounts.len());
     assert_eq!(receive_utxo_set.len(), inflation_amounts.len());
@@ -540,7 +540,7 @@ fn fail() {
     let result = empty_party.inflate_end_result(&signed_psbt);
     assert_matches!(result, Err(Error::UnknownTransfer { txid }) if txid == psbt_txid);
     // - PSBT of another operation
-    let unsigned_psbt = party.burn_begin(&asset_ifa.asset_id, 1);
+    let unsigned_psbt = party.burn_begin(&asset_ifa.asset_id, 1, None);
     let signed_psbt = party.wallet.sign_psbt(unsigned_psbt, None).unwrap();
     let txid = Psbt::from_str(&signed_psbt)
         .unwrap()

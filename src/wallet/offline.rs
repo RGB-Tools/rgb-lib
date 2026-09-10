@@ -209,6 +209,19 @@ pub trait WalletOffline: WalletBackup {
         Ok(())
     }
 
+    fn check_burn_reason(&self, burn_reason: String) -> Result<BurnReason, Error> {
+        let bytes = hex::decode(burn_reason).map_err(|e| Error::InvalidBurnReason {
+            details: format!("not a hex string: {e}"),
+        })?;
+        let bytes: [u8; 32] =
+            bytes
+                .try_into()
+                .map_err(|bytes: Vec<u8>| Error::InvalidBurnReason {
+                    details: format!("expected 32 bytes, got {}", bytes.len()),
+                })?;
+        Ok(BurnReason::from(Bytes32::from(bytes)))
+    }
+
     fn check_details(&self, details: String) -> Result<Details, Error> {
         if details.is_empty() {
             return Err(Error::InvalidDetails {
@@ -2031,12 +2044,12 @@ pub trait WalletOffline: WalletBackup {
         };
 
         let consignment_path = match (&kind, batch_transfer.status) {
-            (TransferKind::Send | TransferKind::Inflation | TransferKind::Burn, _) => {
-                Some(self.send_consignment_path(
-                    &asset_transfer.asset_id.clone().unwrap(),
-                    &batch_transfer.txid.clone().unwrap(),
-                ))
-            }
+            (TransferKind::Send | TransferKind::Burn, _) => Some(self.send_consignment_path(
+                &asset_transfer.asset_id.clone().unwrap(),
+                &batch_transfer.txid.clone().unwrap(),
+            )),
+            // no consignment is produced for an inflation, which has no counterparty
+            (TransferKind::Inflation, _) => None,
             (
                 TransferKind::ReceiveBlind | TransferKind::ReceiveWitness,
                 TransferStatus::WaitingCounterparty,
@@ -2628,11 +2641,30 @@ pub trait WalletOffline: WalletBackup {
     ) -> Result<(), Error> {
         let mut stock = self.rgb_stock(txn)?;
         for (asset_id, transfer_info) in transfer_info_map {
+            let contract_id = transfer_info.asset_info.contract_id;
+            // a burn has no beneficiary, so its transition is selected explicitly by OpId
+            let opids: Vec<OpId> = if transfer_info.main_transition == TypeOfTransition::Burn {
+                fascia
+                    .bundles()
+                    .get(&contract_id)
+                    .map(|bundle| {
+                        bundle
+                            .known_transitions
+                            .iter()
+                            .filter(|kt| kt.transition.transition_type == TS_BURN)
+                            .map(|kt| kt.opid)
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            } else {
+                vec![]
+            };
             #[allow(unused_mut)]
             let (mut consignment, spv_proofs) = stock.transfer_from_fascia(
-                transfer_info.asset_info.contract_id,
+                contract_id,
                 transfer_info.beneficiaries_witness.clone(),
                 transfer_info.beneficiaries_blinded.clone(),
+                opids,
                 fascia,
                 self.spv_resolver(),
             )?;

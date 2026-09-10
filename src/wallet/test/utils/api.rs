@@ -1282,13 +1282,25 @@ impl SinglesigParty {
     }
 
     #[cfg(feature = "electrum")]
-    pub(crate) fn burn(&mut self, asset_id: &str, amount: u64) -> OperationResult {
-        self.burn_result(asset_id, amount).unwrap()
+    pub(crate) fn burn(
+        &mut self,
+        asset_id: &str,
+        amount: u64,
+        burn_reason: Option<&str>,
+    ) -> OperationResult {
+        self.burn_result(asset_id, amount, burn_reason).unwrap()
     }
 
     #[cfg(feature = "electrum")]
-    pub(crate) fn burn_begin(&mut self, asset_id: &str, amount: u64) -> String {
-        self.burn_begin_result(asset_id, amount).unwrap().psbt
+    pub(crate) fn burn_begin(
+        &mut self,
+        asset_id: &str,
+        amount: u64,
+        burn_reason: Option<&str>,
+    ) -> String {
+        self.burn_begin_result(asset_id, amount, burn_reason)
+            .unwrap()
+            .psbt
     }
 
     #[cfg(feature = "electrum")]
@@ -1296,11 +1308,13 @@ impl SinglesigParty {
         &mut self,
         asset_id: &str,
         amount: u64,
+        burn_reason: Option<&str>,
     ) -> Result<BurnBeginResult, Error> {
         self.wallet.burn_begin(
             self.online,
             asset_id.to_string(),
             amount,
+            burn_reason.map(str::to_string),
             FEE_RATE,
             MIN_CONFIRMATIONS,
             true,
@@ -1312,11 +1326,13 @@ impl SinglesigParty {
         &mut self,
         asset_id: &str,
         amount: u64,
+        burn_reason: Option<&str>,
     ) -> Result<OperationResult, Error> {
         self.wallet.burn(
             self.online,
             asset_id.to_string(),
             amount,
+            burn_reason.map(str::to_string),
             FEE_RATE,
             MIN_CONFIRMATIONS,
         )

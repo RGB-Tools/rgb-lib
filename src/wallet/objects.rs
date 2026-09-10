@@ -1387,7 +1387,10 @@ pub struct Transfer {
     pub transport_endpoints: Vec<TransferTransportEndpoint>,
     /// Invoice string of the incoming transfer
     pub invoice_string: Option<String>,
-    /// Consignment path
+    /// Path of the consignment file for the operation, when one is produced: the contract for
+    /// issuances, the consignment sent for outgoing transfers, the one received for incoming
+    /// transfers and the burn one generated for third-party verification; `None` for inflations and
+    /// for incoming transfers still waiting for the counterparty
     pub consignment_path: Option<String>,
     /// Path of the unsigned PSBT produced by the `_begin` step, when available
     pub psbt_path: Option<String>,
@@ -1772,6 +1775,8 @@ pub struct BurnDetails {
     pub min_confirmations: u8,
     /// Entropy used for the merkle tree construction operation
     pub entropy: u64,
+    /// Hex-encoded 32-byte reason committed in the burn transition, if any
+    pub burn_reason: Option<String>,
 }
 
 /// The result of an inflate begin operation.
@@ -2018,6 +2023,7 @@ pub struct InfoAssetTransfer {
     pub main_transition: TypeOfTransition,
     pub beneficiaries_blinded: Vec<SecretSeal>,
     pub beneficiaries_witness: Vec<ExplicitSeal<RgbTxid>>,
+    pub burn_reason: Option<BurnReason>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

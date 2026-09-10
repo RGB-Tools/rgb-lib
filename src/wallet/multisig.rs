@@ -892,6 +892,12 @@ impl OperationHandler for BurnHandler {
             fascia_path,
             min_confirmations: info_batch_transfer.min_confirmations,
             entropy: info_batch_transfer.entropy,
+            burn_reason: info_batch_transfer
+                .transfers
+                .values()
+                .next()
+                .and_then(|transfer| transfer.burn_reason)
+                .map(|burn_reason| burn_reason.to_string()),
         })
     }
 
@@ -2342,6 +2348,9 @@ impl MultisigWallet {
     /// Prepare the PSBT to burn the specified `amount` of RGB assets, with the provided `fee_rate`
     /// (in sat/vB) and post the operation to the hub.
     ///
+    /// The optional `burn_reason` is a hex-encoded 32-byte value committed in the burn transition
+    /// (e.g. a hash binding the burn to an external destination).
+    ///
     /// The `min_confirmations` number determines the minimum number of confirmations needed for
     /// the transaction anchoring the transfer for it to be considered final and move (while
     /// refreshing) to the [`TransferStatus::Settled`] status.
@@ -2352,6 +2361,7 @@ impl MultisigWallet {
         online: Online,
         asset_id: String,
         amount: u64,
+        burn_reason: Option<String>,
         fee_rate: u64,
         min_confirmations: u8,
     ) -> Result<InitOperationResult, Error> {
@@ -2359,8 +2369,15 @@ impl MultisigWallet {
         self.check_online(online)?;
         self.check_is_cosigner()?;
         let txn = self.database().begin_transaction()?;
-        let data =
-            self.burn_begin_impl(&txn, asset_id, amount, fee_rate, min_confirmations, true)?;
+        let data = self.burn_begin_impl(
+            &txn,
+            asset_id,
+            amount,
+            burn_reason,
+            fee_rate,
+            min_confirmations,
+            true,
+        )?;
         let res = self.post_operation(
             OperationType::Burn,
             PostData::BeginOperationData(Box::new(data)),

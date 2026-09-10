@@ -486,20 +486,36 @@ pub(super) trait MultisigOps: OfflineSigParty {
         )
     }
 
-    fn burn_init(&mut self, asset_id: &str, amount: u64) -> InitOperationResult {
+    fn burn_init(
+        &mut self,
+        asset_id: &str,
+        amount: u64,
+        burn_reason: Option<&str>,
+    ) -> InitOperationResult {
         println!("burn init {}", self.data_dir());
         let bt_before = self.bak_ts();
-        let res = self.burn_init_res(asset_id, amount).unwrap();
+        let res = self.burn_init_res(asset_id, amount, burn_reason).unwrap();
         assert_eq!(self.bak_ts(), bt_before);
         op_counter_bump();
         println!("initiated burn with operation ID {}", res.operation_idx);
         res
     }
 
-    fn burn_init_res(&mut self, asset_id: &str, amount: u64) -> Result<InitOperationResult, Error> {
+    fn burn_init_res(
+        &mut self,
+        asset_id: &str,
+        amount: u64,
+        burn_reason: Option<&str>,
+    ) -> Result<InitOperationResult, Error> {
         let online = self.online();
-        self.multisig_mut()
-            .burn_init(online, asset_id.to_string(), amount, FEE_RATE, 1)
+        self.multisig_mut().burn_init(
+            online,
+            asset_id.to_string(),
+            amount,
+            burn_reason.map(str::to_string),
+            FEE_RATE,
+            1,
+        )
     }
 
     fn issue_asset_cfa(&mut self, amounts: Option<&[u64]>, file_path: Option<String>) -> AssetCFA {
@@ -1429,10 +1445,12 @@ pub(super) fn inspect_burn(
     wallet: &MultisigParty,
     op_init: &InitOperationResult,
     ifa_asset: &AssetIFA,
+    burn_reason: Option<&str>,
 ) {
     let psbt = &op_init.psbt;
     let (_, files) = wallet.get_op_and_files(op_init.operation_idx);
     let details = BurnHandler::extract_details(&files).unwrap();
+    assert_eq!(details.burn_reason.as_deref(), burn_reason);
     let rgb_inspection = wallet
         .multisig
         .inspect_rgb_transfer(psbt.clone(), details.fascia_path, details.entropy)
