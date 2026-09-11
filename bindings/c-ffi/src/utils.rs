@@ -243,18 +243,18 @@ pub(crate) fn burn_end(
 
 pub(crate) fn blind_receive(
     wallet: &COpaqueStruct,
-    asset_id_opt: *const c_char,
+    asset_id: *const c_char,
     assignment: *const c_char,
-    expiration_timestamp_opt: *const c_char,
+    expiration_timestamp: *const c_char,
     transport_endpoints: *const c_char,
     min_confirmations: *const c_char,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let transport_endpoints: Vec<String> =
         serde_json::from_str(&ptr_to_string(transport_endpoints))?;
-    let asset_id = convert_optional_string(asset_id_opt);
+    let asset_id = convert_optional_string(asset_id);
     let assignment: Assignment = serde_json::from_str(&ptr_to_string(assignment))?;
-    let expiration_timestamp = ptr_to_num(expiration_timestamp_opt)?;
+    let expiration_timestamp = ptr_to_num(expiration_timestamp)?;
     let min_confirmations = ptr_to_num(min_confirmations)?;
     let res = wallet.blind_receive(
         asset_id,
@@ -270,15 +270,15 @@ pub(crate) fn create_utxos(
     wallet: &COpaqueStruct,
     online: *const c_char,
     up_to: bool,
-    num_opt: *const c_char,
-    size_opt: *const c_char,
+    num: *const c_char,
+    size: *const c_char,
     fee_rate: *const c_char,
     skip_sync: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = convert_online(online)?;
-    let num = convert_optional_number(num_opt)?;
-    let size = convert_optional_number(size_opt)?;
+    let num = convert_optional_number(num)?;
+    let size = convert_optional_number(size)?;
     let fee_rate = ptr_to_num(fee_rate)?;
     let res = wallet.create_utxos(online, up_to, num, size, fee_rate, skip_sync)?;
     Ok(serde_json::to_string(&res)?)
@@ -289,16 +289,16 @@ pub(crate) fn create_utxos_begin(
     wallet: &COpaqueStruct,
     online: *const c_char,
     up_to: bool,
-    num_opt: *const c_char,
-    size_opt: *const c_char,
+    num: *const c_char,
+    size: *const c_char,
     fee_rate: *const c_char,
     skip_sync: bool,
     dry_run: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = convert_online(online)?;
-    let num = convert_optional_number(num_opt)?;
-    let size = convert_optional_number(size_opt)?;
+    let num = convert_optional_number(num)?;
+    let size = convert_optional_number(size)?;
     let fee_rate = ptr_to_num(fee_rate)?;
     let res = wallet.create_utxos_begin(online, up_to, num, size, fee_rate, skip_sync, dry_run)?;
     Ok(res)
@@ -318,11 +318,11 @@ pub(crate) fn create_utxos_end(
 
 pub(crate) fn delete_transfers(
     wallet: &COpaqueStruct,
-    batch_transfer_idx_opt: *const c_char,
+    batch_transfer_idx: *const c_char,
     no_asset_only: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
-    let batch_transfer_idx = convert_optional_number(batch_transfer_idx_opt)?;
+    let batch_transfer_idx = convert_optional_number(batch_transfer_idx)?;
     let res = wallet.delete_transfers(batch_transfer_idx, no_asset_only)?;
     Ok(serde_json::to_string(&res)?)
 }
@@ -357,13 +357,13 @@ pub(crate) fn drain_to_end(
 pub(crate) fn fail_transfers(
     wallet: &COpaqueStruct,
     online: *const c_char,
-    batch_transfer_idx_opt: *const c_char,
+    batch_transfer_idx: *const c_char,
     no_asset_only: bool,
     skip_sync: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = convert_online(online)?;
-    let batch_transfer_idx = convert_optional_number(batch_transfer_idx_opt)?;
+    let batch_transfer_idx = convert_optional_number(batch_transfer_idx)?;
     let res = wallet.fail_transfers(online, batch_transfer_idx, no_asset_only, skip_sync)?;
     Ok(serde_json::to_string(&res)?)
 }
@@ -517,16 +517,16 @@ pub(crate) fn invoice_data(invoice_string: *const c_char) -> Result<String, Erro
 pub(crate) fn issue_asset_cfa(
     wallet: &COpaqueStruct,
     name: *const c_char,
-    details_opt: *const c_char,
+    details: *const c_char,
     precision: *const c_char,
     amounts: *const c_char,
-    file_path_opt: *const c_char,
+    file_path: *const c_char,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let precision = ptr_to_num(precision)?;
     let amounts = convert_strings_array(amounts)?;
-    let details = convert_optional_string(details_opt);
-    let file_path = convert_optional_string(file_path_opt);
+    let details = convert_optional_string(details);
+    let file_path = convert_optional_string(file_path);
     let res =
         wallet.issue_asset_cfa(ptr_to_string(name), details, precision, amounts, file_path)?;
     Ok(serde_json::to_string(&res)?)
@@ -540,13 +540,13 @@ pub(crate) fn issue_asset_ifa(
     precision: *const c_char,
     amounts: *const c_char,
     inflation_amounts: *const c_char,
-    reject_list_url_opt: *const c_char,
+    reject_list_url: *const c_char,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let precision = ptr_to_num(precision)?;
     let amounts = convert_strings_array(amounts)?;
     let inflation_amounts = convert_strings_array(inflation_amounts)?;
-    let reject_list_url = convert_optional_string(reject_list_url_opt);
+    let reject_list_url = convert_optional_string(reject_list_url);
     let res = wallet.issue_asset_ifa(
         ptr_to_string(ticker),
         ptr_to_string(name),
@@ -582,15 +582,15 @@ pub(crate) fn issue_asset_uda(
     wallet: &COpaqueStruct,
     ticker: *const c_char,
     name: *const c_char,
-    details_opt: *const c_char,
+    details: *const c_char,
     precision: *const c_char,
-    media_file_path_opt: *const c_char,
+    media_file_path: *const c_char,
     attachments_file_paths: *const c_char,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
-    let details = convert_optional_string(details_opt);
+    let details = convert_optional_string(details);
     let precision = ptr_to_num(precision)?;
-    let media_file_path = convert_optional_string(media_file_path_opt);
+    let media_file_path = convert_optional_string(media_file_path);
     let attachments_file_paths: Vec<String> =
         serde_json::from_str(&ptr_to_string(attachments_file_paths))?;
     let res = wallet.issue_asset_uda(
@@ -621,19 +621,19 @@ pub(crate) fn list_transactions(
     skip_sync: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
-    let online = convert_online(online)?;
-    let res = wallet.list_transactions(Some(online), skip_sync)?;
+    let online = convert_optional_online(online)?;
+    let res = wallet.list_transactions(online, skip_sync)?;
     Ok(serde_json::to_string(&res)?)
 }
 
 pub(crate) fn list_transfers(
     wallet: &COpaqueStruct,
     asset_filter: *const c_char,
-    txid_opt: *const c_char,
+    txid: *const c_char,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let asset_filter: AssetFilter = serde_json::from_str(&ptr_to_string(asset_filter))?;
-    let txid = convert_optional_string(txid_opt);
+    let txid = convert_optional_string(txid);
     let res = wallet.list_transfers(asset_filter, txid)?;
     Ok(serde_json::to_string(&res)?)
 }
@@ -645,19 +645,19 @@ pub(crate) fn list_unspents(
     skip_sync: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
-    let online = convert_online(online)?;
-    let res = wallet.list_unspents(Some(online), settled_only, skip_sync)?;
+    let online = convert_optional_online(online)?;
+    let res = wallet.list_unspents(online, settled_only, skip_sync)?;
     Ok(serde_json::to_string(&res)?)
 }
 
 pub(crate) fn load_wallet(
     data_dir: *const c_char,
     master_fingerprint: *const c_char,
-    mnemonic_opt: *const c_char,
+    mnemonic: *const c_char,
 ) -> Result<Wallet, Error> {
     let data_dir = ptr_to_string(data_dir);
     let master_fingerprint = ptr_to_string(master_fingerprint);
-    let mnemonic = convert_optional_string(mnemonic_opt);
+    let mnemonic = convert_optional_string(mnemonic);
     Ok(Wallet::load(&data_dir, &master_fingerprint, mnemonic)?)
 }
 
@@ -670,14 +670,14 @@ pub(crate) fn new_wallet(wallet_data: *const c_char, keys: *const c_char) -> Res
 pub(crate) fn refresh(
     wallet: &COpaqueStruct,
     online: *const c_char,
-    asset_id_opt: *const c_char,
+    asset_id: *const c_char,
     filter: *const c_char,
     skip_sync: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = convert_online(online)?;
     let filter: Vec<RefreshFilter> = serde_json::from_str(&ptr_to_string(filter))?;
-    let asset_id = convert_optional_string(asset_id_opt);
+    let asset_id = convert_optional_string(asset_id);
     let res = wallet.refresh(online, asset_id, filter, skip_sync)?;
     Ok(serde_json::to_string(&res)?)
 }
@@ -714,7 +714,7 @@ pub(crate) fn send(
     donation: bool,
     fee_rate: *const c_char,
     min_confirmations: *const c_char,
-    expiration_timestamp_opt: *const c_char,
+    expiration_timestamp: *const c_char,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = convert_online(online)?;
@@ -722,7 +722,7 @@ pub(crate) fn send(
         serde_json::from_str(&ptr_to_string(recipient_map))?;
     let fee_rate = ptr_to_num(fee_rate)?;
     let min_confirmations = ptr_to_num(min_confirmations)?;
-    let expiration_timestamp = ptr_to_num(expiration_timestamp_opt)?;
+    let expiration_timestamp = ptr_to_num(expiration_timestamp)?;
     let res = wallet.send(
         online,
         recipient_map,
@@ -742,7 +742,7 @@ pub(crate) fn send_begin(
     donation: bool,
     fee_rate: *const c_char,
     min_confirmations: *const c_char,
-    expiration_timestamp_opt: *const c_char,
+    expiration_timestamp: *const c_char,
     dry_run: bool,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
@@ -751,7 +751,7 @@ pub(crate) fn send_begin(
         serde_json::from_str(&ptr_to_string(recipient_map))?;
     let fee_rate = ptr_to_num(fee_rate)?;
     let min_confirmations = ptr_to_num(min_confirmations)?;
-    let expiration_timestamp = ptr_to_num(expiration_timestamp_opt)?;
+    let expiration_timestamp = ptr_to_num(expiration_timestamp)?;
     let res = wallet.send_begin(
         online,
         recipient_map,
@@ -846,18 +846,18 @@ pub(crate) fn sync(
 
 pub(crate) fn witness_receive(
     wallet: &COpaqueStruct,
-    asset_id_opt: *const c_char,
+    asset_id: *const c_char,
     assignment: *const c_char,
-    expiration_timestamp_opt: *const c_char,
+    expiration_timestamp: *const c_char,
     transport_endpoints: *const c_char,
     min_confirmations: *const c_char,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let transport_endpoints: Vec<String> =
         serde_json::from_str(&ptr_to_string(transport_endpoints))?;
-    let asset_id = convert_optional_string(asset_id_opt);
+    let asset_id = convert_optional_string(asset_id);
     let assignment: Assignment = serde_json::from_str(&ptr_to_string(assignment))?;
-    let expiration_timestamp = ptr_to_num(expiration_timestamp_opt)?;
+    let expiration_timestamp = ptr_to_num(expiration_timestamp)?;
     let min_confirmations = ptr_to_num(min_confirmations)?;
     let res = wallet.witness_receive(
         asset_id,
