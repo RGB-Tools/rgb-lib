@@ -783,6 +783,8 @@ fn success() {
     let amount = 1000;
     let addr = singlesig_wlt.get_address();
     let op_init = wlt_1.send_btc_init(&addr, amount);
+    // the balance check below expects the TX to be unconfirmed
+    let _guard = stop_mining();
     operation_complete::<SendBtcHandler>(
         op_init.operation_idx,
         &mut [&mut wlt_1, &mut wlt_2, &mut wlt_3],
@@ -800,6 +802,7 @@ fn success() {
         (0, 6442, 6442),
         (15366, 15366, 15366),
     );
+    drop(_guard);
     let op_init_last_successful = op_init;
 
     println!("\n=== receive failed (wlt_1) ===");

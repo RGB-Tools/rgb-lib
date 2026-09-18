@@ -1626,6 +1626,10 @@ pub(super) fn operation_complete<H>(
     H: OperationHandler,
     H::Details: Sanitizable,
 {
+    // stop mining so the TX broadcast by the final sign_and_ack doesn't get confirmed
+    // before callers check the unconfirmed state
+    let _mining_guard = stop_mining();
+
     let (op, files) = if !ackers.is_empty() {
         let party = ackers.first().unwrap();
         party.get_op_and_files(op_idx)
