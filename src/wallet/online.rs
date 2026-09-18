@@ -3185,37 +3185,32 @@ pub trait WalletOnline: WalletOffline {
                 let asset_transfers = txn.iter_asset_transfers()?;
                 let transfers = txn.iter_transfers()?;
                 let batch_data = existing.get_transfers(&asset_transfers, &transfers)?;
-                for asset_transfer_data in &batch_data.asset_transfers_data {
-                    let asset_id = asset_transfer_data
-                        .asset_transfer
-                        .asset_id
-                        .as_ref()
-                        .expect("exists at this point");
-                    let info_asset = info_contents
-                        .transfers
-                        .get(asset_id)
-                        .expect("exists at this point");
-                    for db_transfer in &asset_transfer_data.transfers {
-                        let recipient = info_asset
-                            .recipients
+                // copy the used flags set while posting consignments to the DB rows persisted by
+                // a non-dry-run begin; only recipients have transport endpoints, so
+                // non-user-driven asset transfers (extra allocations) are never visited
+                let db_transfers: Vec<&DbTransfer> = batch_data
+                    .asset_transfers_data
+                    .iter()
+                    .flat_map(|a| a.transfers.iter())
+                    .collect();
+                for recipient in info_contents.transfers.values().flat_map(|t| &t.recipients) {
+                    let db_transfer = db_transfers
+                        .iter()
+                        .find(|t| {
+                            t.recipient_id.as_deref() == Some(recipient.recipient_id.as_str())
+                        })
+                        .expect("transfer should be set");
+                    let tte_data = txn.get_transfer_transport_endpoints_data(db_transfer.idx)?;
+                    for (tte, te) in tte_data {
+                        let local_used = recipient
+                            .transport_endpoints
                             .iter()
-                            .find(|r| {
-                                db_transfer.recipient_id.as_deref() == Some(r.recipient_id.as_str())
-                            })
-                            .expect("recipient should be set");
-                        let tte_data =
-                            txn.get_transfer_transport_endpoints_data(db_transfer.idx)?;
-                        for (tte, te) in tte_data {
-                            let local_used = recipient
-                                .transport_endpoints
-                                .iter()
-                                .find(|lte| lte.endpoint == te.endpoint)
-                                .is_some_and(|lte| lte.used);
-                            if tte.used != local_used {
-                                let mut updated_tte: DbTransferTransportEndpointActMod = tte.into();
-                                updated_tte.used = ActiveValue::Set(local_used);
-                                txn.update_transfer_transport_endpoint(&mut updated_tte)?;
-                            }
+                            .find(|lte| lte.endpoint == te.endpoint)
+                            .is_some_and(|lte| lte.used);
+                        if tte.used != local_used {
+                            let mut updated_tte: DbTransferTransportEndpointActMod = tte.into();
+                            updated_tte.used = ActiveValue::Set(local_used);
+                            txn.update_transfer_transport_endpoint(&mut updated_tte)?;
                         }
                     }
                 }
