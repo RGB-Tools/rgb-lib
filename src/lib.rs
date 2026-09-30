@@ -101,6 +101,9 @@ pub mod keys;
 pub mod utils;
 pub mod wallet;
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub use api::proxy;
+
 pub use bdk_wallet;
 pub use bdk_wallet::bitcoin;
 pub use rgbstd::{
