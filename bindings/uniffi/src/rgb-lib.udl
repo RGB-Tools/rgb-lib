@@ -10,6 +10,8 @@ namespace rgb_lib {
 
 [Error, Remote]
 interface RgbLibError {
+  AddressBusy(string address);
+  AddressReuseNotAllowed(string details);
   AllocationsAlreadyAvailable();
   AssetNotFound(string asset_id);
   BatchTransferNotFound(i32 idx);
@@ -110,6 +112,7 @@ interface RgbLibError {
   TooHighIssuanceAmounts();
   TooManyCosigners();
   TooManySignaturesInPsbt();
+  UnknownAddress(string address);
   UnknownRgbSchema(string schema_id);
   UnknownTransfer(string txid);
   UnsupportedBackupVersion(string version);
@@ -274,6 +277,19 @@ interface TransportEndpoint {
 [Remote]
 enum TransportType {
   "JsonRpc",
+};
+
+[Remote]
+enum Keychain {
+  "Colored",
+  "Vanilla",
+};
+
+[Enum]
+interface AddressReuse {
+  New();
+  Pinned();
+  Existing(string address);
 };
 
 [Remote]
@@ -850,7 +866,8 @@ interface Wallet {
   [Throws=RgbLibError]
   ReceiveData witness_receive(
     string? asset_id, Assignment assignment, u64 expiration_timestamp,
-    sequence<string> transport_endpoints, u8 min_confirmations);
+    sequence<string> transport_endpoints, u8 min_confirmations,
+    AddressReuse reuse);
 
   [Throws=RgbLibError]
   string finalize_psbt(string signed_psbt);
@@ -892,7 +909,10 @@ interface Wallet {
     boolean skip_sync);
 
   [Throws=RgbLibError]
-  string get_address();
+  string get_address(AddressReuse reuse);
+
+  [Throws=RgbLibError]
+  string pin_address(Keychain keychain, string? address);
 
   [Throws=RgbLibError]
   Balance get_asset_balance(string asset_id);
@@ -1054,7 +1074,7 @@ interface MultisigWallet {
   [Throws=RgbLibError]
   ReceiveData witness_receive(
     Online online, string? asset_id, Assignment assignment, u64 expiration_timestamp,
-    sequence<string> transport_endpoints, u8 min_confirmations);
+    sequence<string> transport_endpoints, u8 min_confirmations, AddressReuse reuse);
 
   [Throws=RgbLibError]
   string finalize_psbt(string signed_psbt);
@@ -1151,7 +1171,10 @@ interface MultisigWallet {
   void sync(Online online, SyncOptions options);
 
   [Throws=RgbLibError]
-  string get_address(Online online);
+  string get_address(Online online, AddressReuse reuse);
+
+  [Throws=RgbLibError]
+  string pin_address(Keychain keychain, string? address);
 
   [Throws=RgbLibError]
   OperationInfo? sync_with_hub(Online online);

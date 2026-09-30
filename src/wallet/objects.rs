@@ -923,6 +923,17 @@ impl TypeOfTransition {
 // Invoices, recipients & transport
 // ────────────────────────────────────────────────────────────
 
+/// The address a receive call hands out.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub enum AddressReuse {
+    /// Reveal the next address of the keychain
+    New,
+    /// Use the pinned address of the keychain, pinning the next address when none is set
+    Pinned,
+    /// Use this address, already revealed on the keychain
+    Existing(String),
+}
+
 /// The type of an RGB recipient
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub enum RecipientType {
@@ -953,8 +964,7 @@ pub struct RecipientInfo {
 impl RecipientInfo {
     /// Builds a new [`RecipientInfo`] from the provided string, checking that it is valid.
     pub fn new(recipient_id: String) -> Result<Self, Error> {
-        let xchainnet_beneficiary = XChainNet::<Beneficiary>::from_str(&recipient_id)
-            .map_err(|_| Error::InvalidRecipientID)?;
+        let (xchainnet_beneficiary, _) = parse_recipient_id(&recipient_id)?;
         let recipient_type = match xchainnet_beneficiary.into_inner() {
             Beneficiary::WitnessVout(_, _) => RecipientType::Witness,
             Beneficiary::BlindedSeal(_) => RecipientType::Blind,
@@ -1104,7 +1114,22 @@ impl Invoice {
                 }
             }
         };
-        let recipient_id = decoded.beneficiary.to_string();
+        let mut unknown_query = decoded.unknown_query;
+        let mut recipient_id = decoded.beneficiary.to_string();
+        if let Some(nonce) = unknown_query.shift_remove(INVOICE_NONCE_PARAM) {
+            let nonce = nonce.parse::<u64>().map_err(|_| Error::InvalidInvoice {
+                details: s!("invalid nonce"),
+            })?;
+            if !matches!(
+                decoded.beneficiary.into_inner(),
+                Beneficiary::WitnessVout(..)
+            ) {
+                return Err(Error::InvalidInvoice {
+                    details: s!("nonce on a blinded beneficiary"),
+                });
+            }
+            recipient_id = format!("{recipient_id}:{nonce}");
+        }
         let transport_endpoints: Vec<String> =
             decoded.transports.iter().map(|t| t.to_string()).collect();
 
@@ -1129,7 +1154,7 @@ impl Invoice {
                 expiration_timestamp: decoded.expiry.map(|t| t as u64),
                 transport_endpoints,
                 network,
-                unknown_query_params: decoded.unknown_query.into_iter().collect(),
+                unknown_query_params: unknown_query.into_iter().collect(),
             },
         })
     }
@@ -1363,6 +1388,7 @@ pub struct ReceiveDataInternal {
     pub(crate) recipient_type_full: RecipientTypeFull,
     pub(crate) blind_seal: Option<GraphSeal>,
     pub(crate) script_pubkey: Option<ScriptBuf>,
+    pub(crate) receive_dir: Option<String>,
 }
 
 // ────────────────────────────────────────────────────────────
@@ -1974,7 +2000,7 @@ pub enum ReceiveMode {
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) enum ReceiveMatcher {
     Blind(SecretSeal),
-    Witness(ScriptBuf),
+    Witness(ScriptBuf, Option<u64>),
 }
 
 impl DbTransfer {
@@ -1998,9 +2024,10 @@ impl DbTransfer {
                 }
             }
             RecipientTypeFull::Witness { .. } => {
+                let (_, nonce) = parse_recipient_id(&recipient_id)?;
                 let script_pubkey = script_buf_from_recipient_id(recipient_id)?
                     .expect("witness recipient ID should yield a script");
-                Ok(ReceiveMatcher::Witness(script_pubkey))
+                Ok(ReceiveMatcher::Witness(script_pubkey, nonce))
             }
         }
     }

@@ -22,6 +22,7 @@ pub struct Model {
     pub recipient_id: Option<String>,
     pub ack: Option<bool>,
     pub invoice_string: Option<String>,
+    pub receive_dir: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
@@ -33,6 +34,7 @@ pub enum Column {
     RecipientId,
     Ack,
     InvoiceString,
+    ReceiveDir,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DerivePrimaryKey)]
@@ -64,6 +66,7 @@ impl ColumnTrait for Column {
             Self::RecipientId => ColumnType::String(StringLen::None).def().null(),
             Self::Ack => ColumnType::Boolean.def().null(),
             Self::InvoiceString => ColumnType::String(StringLen::None).def().null(),
+            Self::ReceiveDir => ColumnType::String(StringLen::None).def().null(),
         }
     }
 }

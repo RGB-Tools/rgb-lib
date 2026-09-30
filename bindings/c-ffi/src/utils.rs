@@ -387,9 +387,21 @@ pub(crate) fn generate_keys(
     Ok(serde_json::to_string(&res)?)
 }
 
-pub(crate) fn get_address(wallet: &COpaqueStruct) -> Result<String, Error> {
+pub(crate) fn get_address(wallet: &COpaqueStruct, reuse: *const c_char) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
-    Ok(wallet.get_address()?)
+    let reuse: AddressReuse = serde_json::from_str(&ptr_to_string(reuse))?;
+    Ok(wallet.get_address(reuse)?)
+}
+
+pub(crate) fn pin_address(
+    wallet: &COpaqueStruct,
+    keychain: *const c_char,
+    address_opt: *const c_char,
+) -> Result<String, Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let keychain: Keychain = serde_json::from_str(&ptr_to_string(keychain))?;
+    let address = convert_optional_string(address_opt);
+    Ok(wallet.pin_address(keychain, address)?)
 }
 
 pub(crate) fn get_asset_balance(
@@ -851,6 +863,7 @@ pub(crate) fn witness_receive(
     expiration_timestamp: *const c_char,
     transport_endpoints: *const c_char,
     min_confirmations: *const c_char,
+    reuse: *const c_char,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let transport_endpoints: Vec<String> =
@@ -859,12 +872,14 @@ pub(crate) fn witness_receive(
     let assignment: Assignment = serde_json::from_str(&ptr_to_string(assignment))?;
     let expiration_timestamp = ptr_to_num(expiration_timestamp)?;
     let min_confirmations = ptr_to_num(min_confirmations)?;
+    let reuse: AddressReuse = serde_json::from_str(&ptr_to_string(reuse))?;
     let res = wallet.witness_receive(
         asset_id,
         assignment,
         expiration_timestamp,
         transport_endpoints,
         min_confirmations,
+        reuse,
     )?;
     Ok(serde_json::to_string(&res)?)
 }

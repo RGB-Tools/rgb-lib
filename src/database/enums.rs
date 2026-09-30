@@ -208,6 +208,27 @@ impl Nullable for RecipientTypeFull {
     }
 }
 
+/// A keychain of a singlesig wallet.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, Deserialize, Serialize)]
+#[sea_orm(rs_type = "u8", db_type = "TinyUnsigned")]
+pub enum Keychain {
+    /// The colored keychain
+    #[sea_orm(num_value = 0)]
+    Colored = 0,
+    /// The vanilla keychain
+    #[sea_orm(num_value = 1)]
+    Vanilla = 1,
+}
+
+impl From<Keychain> for KeychainKind {
+    fn from(keychain: Keychain) -> Self {
+        match keychain {
+            Keychain::Colored => KeychainKind::External,
+            Keychain::Vanilla => KeychainKind::Internal,
+        }
+    }
+}
+
 /// The type of an RGB transport.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, Deserialize, Serialize)]
 #[sea_orm(rs_type = "u8", db_type = "TinyUnsigned")]
@@ -276,7 +297,6 @@ impl TransferStatus {
         .contains(self)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
     pub(crate) fn waiting(&self) -> bool {
         [
             TransferStatus::WaitingCounterparty,

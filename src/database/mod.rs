@@ -4,8 +4,8 @@ pub(crate) mod entities;
 use super::*;
 
 use crate::database::entities::{
-    asset, coloring, media, prelude::*, transfer_transport_endpoint, transport_endpoint, txo,
-    wallet_transaction,
+    asset, coloring, keychain_reuse, media, prelude::*, reused_script, transfer_transport_endpoint,
+    transport_endpoint, txo, wallet_transaction,
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use crate::database::entities::{batch_transfer, pending_witness_script, reserved_txo};
@@ -75,7 +75,6 @@ impl DbBatchTransfer {
         self.status.failed()
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
     pub(crate) fn waiting(&self) -> bool {
         self.status.waiting()
     }
@@ -320,6 +319,52 @@ impl DbTxn {
         let res =
             block_on(PendingWitnessScript::insert(pending_witness_script).exec(self.inner()))?;
         Ok(res.last_insert_id)
+    }
+
+    pub(crate) fn add_reused_script(
+        &self,
+        keychain: Keychain,
+        script: String,
+    ) -> Result<(), Error> {
+        let reused_script = reused_script::ActiveModel {
+            keychain: ActiveValue::Set(keychain),
+            script: ActiveValue::Set(script),
+            ..Default::default()
+        };
+        let res = block_on(
+            ReusedScript::insert(reused_script)
+                .on_conflict(
+                    sea_query::OnConflict::column(reused_script::Column::Script)
+                        .do_nothing()
+                        .to_owned(),
+                )
+                .exec(self.inner()),
+        );
+        match res {
+            Ok(_) | Err(DbErr::RecordNotInserted) => Ok(()),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    pub(crate) fn set_pinned_script(
+        &self,
+        keychain: Keychain,
+        script: String,
+    ) -> Result<(), Error> {
+        let keychain_reuse = keychain_reuse::ActiveModel {
+            keychain: ActiveValue::Set(keychain),
+            pinned_script: ActiveValue::Set(Some(script)),
+        };
+        block_on(
+            KeychainReuse::insert(keychain_reuse)
+                .on_conflict(
+                    sea_query::OnConflict::column(keychain_reuse::Column::Keychain)
+                        .update_column(keychain_reuse::Column::PinnedScript)
+                        .to_owned(),
+                )
+                .exec(self.inner()),
+        )?;
+        Ok(())
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -637,6 +682,25 @@ impl DbTxn {
         &self,
     ) -> Result<Vec<DbPendingWitnessScript>, Error> {
         Ok(block_on(PendingWitnessScript::find().all(self.inner()))?)
+    }
+
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub(crate) fn iter_reused_scripts(&self, keychain: Keychain) -> Result<Vec<String>, Error> {
+        Ok(block_on(
+            ReusedScript::find()
+                .filter(reused_script::Column::Keychain.eq(keychain))
+                .all(self.inner()),
+        )?
+        .into_iter()
+        .map(|r| r.script)
+        .collect())
+    }
+
+    pub(crate) fn get_pinned_script(&self, keychain: Keychain) -> Result<Option<String>, Error> {
+        Ok(
+            block_on(KeychainReuse::find_by_id(keychain).one(self.inner()))?
+                .and_then(|k| k.pinned_script),
+        )
     }
 
     pub(crate) fn iter_reserved_txos(&self) -> Result<Vec<DbReservedTxo>, Error> {

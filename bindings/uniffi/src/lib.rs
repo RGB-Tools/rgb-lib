@@ -8,15 +8,16 @@ use std::{
 };
 
 use rgb_lib::{
-    AssetSchema, Assignment as RgbLibAssignment, CloseMethod, Error as RgbLibError, TransferStatus,
-    TransportType, WalletTransactionType,
+    AssetSchema, Assignment as RgbLibAssignment, CloseMethod, Error as RgbLibError, Keychain,
+    TransferStatus, TransportType, WalletTransactionType,
     keys::{Keys, WitnessVersion},
     utils::BitcoinNetwork,
     wallet::{
-        Address as RgbLibAddress, AssetCFA, AssetFilter as RgbLibAssetFilter, AssetIFA, AssetNIA,
-        AssetUDA, Assets, AssignmentsCollection, Balance, BlockTime, BtcBalance, BurnBeginResult,
-        BurnDetails, Cosigner as CosignerData, DatabaseType, EmbeddedMedia, HubInfo,
-        InflateBeginResult, InflateDetails, InitOperationResult, Invoice as RgbLibInvoice,
+        Address as RgbLibAddress, AddressReuse as RgbLibAddressReuse, AssetCFA,
+        AssetFilter as RgbLibAssetFilter, AssetIFA, AssetNIA, AssetUDA, Assets,
+        AssignmentsCollection, Balance, BlockTime, BtcBalance, BurnBeginResult, BurnDetails,
+        Cosigner as CosignerData, DatabaseType, EmbeddedMedia, HubInfo, InflateBeginResult,
+        InflateDetails, InitOperationResult, Invoice as RgbLibInvoice,
         InvoiceData as RgbLibInvoiceData, Media, Metadata, MultisigKeys, MultisigOnlineOptions,
         MultisigVotingStatus as RgbLibMultisigVotingStatus, MultisigWallet as RgbLibMultisigWallet,
         Online, OnlineOptions, Operation as RgbLibOperation, OperationInfo as RgbLibOperationInfo,
@@ -37,6 +38,21 @@ use rgb_lib::{
 };
 
 uniffi::include_scaffolding!("rgb-lib");
+
+pub enum AddressReuse {
+    New,
+    Pinned,
+    Existing { address: String },
+}
+impl From<AddressReuse> for RgbLibAddressReuse {
+    fn from(orig: AddressReuse) -> Self {
+        match orig {
+            AddressReuse::New => RgbLibAddressReuse::New,
+            AddressReuse::Pinned => RgbLibAddressReuse::Pinned,
+            AddressReuse::Existing { address } => RgbLibAddressReuse::Existing(address),
+        }
+    }
+}
 
 // temporary solution needed because the UDL Enum and Remote attributes are incompatible with each other
 pub enum SyncKeychain {
@@ -1035,6 +1051,7 @@ impl Wallet {
         expiration_timestamp: u64,
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
+        reuse: AddressReuse,
     ) -> Result<ReceiveData, RgbLibError> {
         self._get_wallet().witness_receive(
             asset_id,
@@ -1042,6 +1059,7 @@ impl Wallet {
             expiration_timestamp,
             transport_endpoints,
             min_confirmations,
+            reuse.into(),
         )
     }
 
@@ -1128,8 +1146,16 @@ impl Wallet {
             .fail_transfers(online, batch_transfer_idx, no_asset_only, skip_sync)
     }
 
-    fn get_address(&self) -> Result<String, RgbLibError> {
-        self._get_wallet().get_address()
+    fn get_address(&self, reuse: AddressReuse) -> Result<String, RgbLibError> {
+        self._get_wallet().get_address(reuse.into())
+    }
+
+    fn pin_address(
+        &self,
+        keychain: Keychain,
+        address: Option<String>,
+    ) -> Result<String, RgbLibError> {
+        self._get_wallet().pin_address(keychain, address)
     }
 
     fn get_asset_balance(&self, asset_id: String) -> Result<Balance, RgbLibError> {
@@ -1572,6 +1598,7 @@ impl MultisigWallet {
         expiration_timestamp: u64,
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
+        reuse: AddressReuse,
     ) -> Result<ReceiveData, RgbLibError> {
         self._get_wallet().witness_receive(
             online,
@@ -1580,6 +1607,7 @@ impl MultisigWallet {
             expiration_timestamp,
             transport_endpoints,
             min_confirmations,
+            reuse.into(),
         )
     }
 
@@ -1835,9 +1863,18 @@ impl MultisigWallet {
         wallet.sync(online, options.into())
     }
 
-    fn get_address(&self, online: Online) -> Result<String, RgbLibError> {
+    fn get_address(&self, online: Online, reuse: AddressReuse) -> Result<String, RgbLibError> {
         let mut wallet = self.wallet_mutex.lock().expect("wallet");
-        wallet.get_address(online)
+        wallet.get_address(online, reuse.into())
+    }
+
+    fn pin_address(
+        &self,
+        keychain: Keychain,
+        address: Option<String>,
+    ) -> Result<String, RgbLibError> {
+        let mut wallet = self.wallet_mutex.lock().expect("wallet");
+        wallet.pin_address(keychain, address)
     }
 
     fn sync_with_hub(&self, online: Online) -> Result<Option<OperationInfo>, RgbLibError> {

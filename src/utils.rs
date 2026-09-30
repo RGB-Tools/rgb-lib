@@ -445,10 +445,32 @@ pub(crate) fn parse_address_str(
         })
 }
 
+pub(crate) const INVOICE_NONCE_PARAM: &str = "nonce";
+
+// Split a recipient ID into its beneficiary and the nonce of a reused address.
+pub(crate) fn parse_recipient_id(
+    recipient_id: &str,
+) -> Result<(XChainNet<Beneficiary>, Option<u64>), Error> {
+    if let Ok(beneficiary) = XChainNet::<Beneficiary>::from_str(recipient_id) {
+        return Ok((beneficiary, None));
+    }
+    let (id, nonce) = recipient_id
+        .rsplit_once(':')
+        .ok_or(Error::InvalidRecipientID)?;
+    let nonce = nonce
+        .parse::<u64>()
+        .map_err(|_| Error::InvalidRecipientID)?;
+    let beneficiary =
+        XChainNet::<Beneficiary>::from_str(id).map_err(|_| Error::InvalidRecipientID)?;
+    if !matches!(beneficiary.into_inner(), Beneficiary::WitnessVout(..)) {
+        return Err(Error::InvalidRecipientID);
+    }
+    Ok((beneficiary, Some(nonce)))
+}
+
 /// Extract the witness script if recipient is a Witness one
 pub fn script_buf_from_recipient_id(recipient_id: String) -> Result<Option<ScriptBuf>, Error> {
-    let xchainnet_beneficiary =
-        XChainNet::<Beneficiary>::from_str(&recipient_id).map_err(|_| Error::InvalidRecipientID)?;
+    let (xchainnet_beneficiary, _) = parse_recipient_id(&recipient_id)?;
     match xchainnet_beneficiary.into_inner() {
         Beneficiary::WitnessVout(pay_2_vout, _) => {
             let script_buf = pay_2_vout.to_script();

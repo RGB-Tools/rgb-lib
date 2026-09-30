@@ -67,7 +67,7 @@ int main(int argc, char *argv[]) {
     const struct COpaqueStruct *wlt = &wallet.inner;
     printf("Wallet created\n");
 
-    CResultString address_res = rgblib_get_address(wlt);
+    CResultString address_res = rgblib_get_address(wlt, "\"New\"");
     if (address_res.result == Err) {
         printf("ERR: %s\n", address_res.inner);
         return EXIT_FAILURE;

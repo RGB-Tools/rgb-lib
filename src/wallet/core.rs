@@ -192,6 +192,8 @@ pub enum SyncStrategy {
     /// Sync only SPKs we strictly need to observe:
     /// - colored: SPKs used in pending transfers or unconfirmed transactions
     /// - vanilla: a tail of recently revealed SPKs
+    ///
+    /// On both keychains, reused SPKs are always synced.
     FastSync,
 }
 
@@ -539,24 +541,38 @@ pub trait WalletCore {
         for pws in txn.iter_pending_witness_scripts()? {
             spks.insert(ScriptBuf::from_hex(&pws.script).expect("valid script"));
         }
+        for script in txn.iter_reused_scripts(Keychain::Colored)? {
+            spks.insert(ScriptBuf::from_hex(&script).expect("valid script"));
+        }
         Ok(spks)
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
-    fn fast_sync_vanilla_spks(&self, lookback: u32) -> HashSet<ScriptBuf> {
+    fn fast_sync_vanilla_spks(
+        &self,
+        txn: &DbTxn,
+        lookback: u32,
+    ) -> Result<HashSet<ScriptBuf>, Error> {
+        let mut spks: HashSet<ScriptBuf> = txn
+            .iter_reused_scripts(Keychain::Vanilla)?
+            .iter()
+            .map(|script| ScriptBuf::from_hex(script).expect("valid script"))
+            .collect();
         let spk_index = self.bdk_wallet().spk_index();
         let Some(last_revealed) = spk_index.last_revealed_index(KeychainKind::Internal) else {
-            return HashSet::new();
+            return Ok(spks);
         };
         let lookback_anchor = spk_index
             .last_used_index(KeychainKind::Internal)
             .unwrap_or(last_revealed);
         let start = lookback_anchor.saturating_sub(lookback);
-        spk_index
-            .revealed_keychain_spks(KeychainKind::Internal)
-            .filter(|(i, _)| *i >= start && *i <= last_revealed)
-            .map(|(_, spk)| spk)
-            .collect()
+        spks.extend(
+            spk_index
+                .revealed_keychain_spks(KeychainKind::Internal)
+                .filter(|(i, _)| *i >= start && *i <= last_revealed)
+                .map(|(_, spk)| spk),
+        );
+        Ok(spks)
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -621,7 +637,7 @@ pub trait WalletCore {
                         spks.extend(self.unconfirmed_colored_spks());
                     }
                     SyncKeychain::Vanilla { lookback } => {
-                        spks.extend(self.fast_sync_vanilla_spks(lookback));
+                        spks.extend(self.fast_sync_vanilla_spks(txn, lookback)?);
                     }
                 }
                 let request = SyncRequest::builder()
@@ -663,6 +679,7 @@ pub trait WalletCore {
             .into_iter()
             .map(|s| s.script)
             .collect();
+        let reused_scripts = txn.iter_reused_scripts(Keychain::Colored)?;
 
         let iter: Box<dyn Iterator<Item = LocalOutput>> = if include_spent {
             Box::new(self.bdk_wallet().list_output())
@@ -675,12 +692,13 @@ pub trait WalletCore {
             .filter(|u| !db_outpoints.contains(&u.outpoint.to_string()))
         {
             let mut new_db_utxo: DbTxoActMod = new_utxo.clone().into();
-            if !pending_witness_scripts.is_empty() {
-                let pending_witness_script = new_utxo.txout.script_pubkey.to_hex_string();
-                if pending_witness_scripts.contains(&pending_witness_script) {
-                    new_db_utxo.pending_witness = ActiveValue::Set(true);
-                    txn.del_pending_witness_script(pending_witness_script)?;
-                }
+            let script = new_utxo.txout.script_pubkey.to_hex_string();
+            if reused_scripts.contains(&script) {
+                // a reused script quarantines every new output
+                new_db_utxo.pending_witness = ActiveValue::Set(true);
+            } else if pending_witness_scripts.contains(&script) {
+                new_db_utxo.pending_witness = ActiveValue::Set(true);
+                txn.del_pending_witness_script(script)?;
             }
             txn.set_txo(new_db_utxo.clone())?;
         }

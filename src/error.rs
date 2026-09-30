@@ -8,6 +8,20 @@ use super::*;
 /// The error variants returned by functions.
 #[derive(Debug, Clone, PartialEq, thiserror::Error, Deserialize, Serialize)]
 pub enum Error {
+    /// The address has a fresh witness receive that is not final
+    #[error("Address {address} is busy")]
+    AddressBusy {
+        /// The address
+        address: String,
+    },
+
+    /// The wallet does not allow address reuse
+    #[error("Address reuse is not allowed: {details}")]
+    AddressReuseNotAllowed {
+        /// Error details
+        details: String,
+    },
+
     /// No need to create more allocations
     #[error("Allocations already available")]
     AllocationsAlreadyAvailable,
@@ -582,6 +596,13 @@ pub enum Error {
     /// PSBT has too many signatures
     #[error("PSBT has too many signatures")]
     TooManySignaturesInPsbt,
+
+    /// The address was not revealed on the requested keychain and network
+    #[error("Unknown address: {address}")]
+    UnknownAddress {
+        /// The address
+        address: String,
+    },
 
     /// The detected RGB schema is unknown
     #[error("Unknown RGB schema: {schema_id}")]
