@@ -30,31 +30,17 @@ pub enum Error {
     #[error("Bitcoin network mismatch")]
     BitcoinNetworkMismatch,
 
+    /// Requested pending vanilla TX cannot be aborted
+    #[error("Pending vanilla TX cannot be aborted")]
+    CannotAbortPendingVanillaTx,
+
     /// A wallet cannot go online twice with different data
     #[error("Cannot change online object")]
     CannotChangeOnline,
 
-    /// An out-of-band ACK cannot be provided for this transfer
-    #[error("Cannot provide out-of-band ACK: {details}")]
-    CannotProvideOutOfBandAck {
-        /// Error details
-        details: String,
-    },
-
     /// The given PSBTs cannot be combined
     #[error("The given PSBTs cannot be combined")]
     CannotCombinePsbts,
-
-    /// An out-of-band consignment cannot be provided for this transfer
-    #[error("Cannot provide out-of-band consignment: {details}")]
-    CannotProvideOutOfBandConsignment {
-        /// Error details
-        details: String,
-    },
-
-    /// Requested pending vanilla TX cannot be aborted
-    #[error("Pending vanilla TX cannot be aborted")]
-    CannotAbortPendingVanillaTx,
 
     /// Requested batch transfer cannot be deleted
     #[error("Batch transfer cannot be deleted")]
@@ -71,6 +57,20 @@ pub enum Error {
     /// The given PSBT cannot be finalized
     #[error("The given PSBT cannot be finalized")]
     CannotFinalizePsbt,
+
+    /// An out-of-band ACK cannot be provided for this transfer
+    #[error("Cannot provide out-of-band ACK: {details}")]
+    CannotProvideOutOfBandAck {
+        /// Error details
+        details: String,
+    },
+
+    /// An out-of-band consignment cannot be provided for this transfer
+    #[error("Cannot provide out-of-band consignment: {details}")]
+    CannotProvideOutOfBandConsignment {
+        /// Error details
+        details: String,
+    },
 
     /// Cannot use IFA schema on mainnet
     #[error("Cannot use IFA schema on mainnet")]
@@ -422,13 +422,6 @@ pub enum Error {
         txid: String,
     },
 
-    /// Multisig hub service error
-    #[error("Multisig hub service error: {details}")]
-    MultisigHubService {
-        /// Error details
-        details: String,
-    },
-
     /// Cannot mark operation as processed
     #[error("Cannot mark operation as processed: {details}")]
     MultisigCannotMarkOperationProcessed {
@@ -439,6 +432,13 @@ pub enum Error {
     /// Cannot respond to operation
     #[error("Cannot respond to operation: {details}")]
     MultisigCannotRespondToOperation {
+        /// Error details
+        details: String,
+    },
+
+    /// Multisig hub service error
+    #[error("Multisig hub service error: {details}")]
+    MultisigHubService {
         /// Error details
         details: String,
     },
