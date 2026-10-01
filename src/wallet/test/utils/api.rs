@@ -1133,7 +1133,7 @@ impl<T: OfflineSigParty<W = Wallet>> SinglesigWalletParty for T {
     }
 
     fn get_address(&mut self) -> String {
-        self.wlt_mut().get_address().unwrap()
+        self.wlt_mut().get_address(AddressReuse::New).unwrap()
     }
 
     fn go_online(&mut self, skip_consistency_check: bool, indexer_url: Option<&str>) -> Online {
@@ -1267,6 +1267,7 @@ impl<T: OfflineSigParty<W = Wallet>> SinglesigWalletParty for T {
                 default_rcv_expiration(),
                 TRANSPORT_ENDPOINTS.clone(),
                 MIN_CONFIRMATIONS,
+                AddressReuse::New,
             )
             .unwrap()
     }
@@ -1274,6 +1275,26 @@ impl<T: OfflineSigParty<W = Wallet>> SinglesigWalletParty for T {
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 impl SinglesigParty {
+    #[cfg(feature = "electrum")]
+    pub(crate) fn witness_receive_reuse(
+        &mut self,
+        assignment: Assignment,
+        transport_endpoints: Vec<String>,
+        expiration_timestamp: u64,
+        reuse: AddressReuse,
+    ) -> ReceiveData {
+        self.wallet
+            .witness_receive(
+                None,
+                assignment,
+                expiration_timestamp,
+                transport_endpoints,
+                MIN_CONFIRMATIONS,
+                reuse,
+            )
+            .unwrap()
+    }
+
     #[cfg(feature = "electrum")]
     pub(crate) fn get_keys(&self) -> SinglesigKeys {
         self.wallet.get_keys()
@@ -1572,7 +1593,7 @@ impl SinglesigParty {
     #[cfg(feature = "electrum")]
     pub(crate) fn drain_wallet(&mut self) {
         let mut rcv_wallet = get_test_wallet(false, None);
-        self.drain_to(&rcv_wallet.get_address().unwrap());
+        self.drain_to(&rcv_wallet.get_address(AddressReuse::New).unwrap());
     }
 
     #[cfg(feature = "electrum")]

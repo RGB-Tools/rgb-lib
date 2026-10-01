@@ -8291,6 +8291,7 @@ fn out_of_band_success() {
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
+            AddressReuse::New,
         )
         .unwrap();
     // the out-of-band exchange stores no transport endpoint at all
@@ -9258,4 +9259,783 @@ fn invalid_proxy_consignment_bytes() {
 
     consignment_mock.assert();
     ack_mock.assert();
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn reuse_concurrent_proxy() {
+    initialize();
+
+    // two payers pay their own invoice on one pinned address
+    let mut rcv_party = get_funded_noutxo_party!();
+    let mut party_1 = get_funded_party!();
+    let mut party_2 = get_funded_party!();
+    let asset_1 = party_1.issue_asset_nia(None);
+    let asset_2 = party_2.issue_asset_nia(None);
+    let receive_data_1 = rcv_party.witness_receive_reuse(
+        Assignment::Any,
+        TRANSPORT_ENDPOINTS.clone(),
+        default_rcv_expiration(),
+        AddressReuse::Pinned,
+    );
+    let receive_data_2 = rcv_party.witness_receive_reuse(
+        Assignment::Any,
+        TRANSPORT_ENDPOINTS.clone(),
+        default_rcv_expiration(),
+        AddressReuse::Pinned,
+    );
+    let (plain_id_1, _) = receive_data_1.recipient_id.rsplit_once(':').unwrap();
+    let (plain_id_2, _) = receive_data_2.recipient_id.rsplit_once(':').unwrap();
+    assert_eq!(plain_id_1, plain_id_2);
+    assert_ne!(receive_data_1.recipient_id, receive_data_2.recipient_id);
+
+    // both pay before the receiver refreshes
+    let txid_1 = party_1.send_retry(&HashMap::from([(
+        asset_1.asset_id.clone(),
+        vec![witness_recipient(
+            &receive_data_1.recipient_id,
+            100,
+            TRANSPORT_ENDPOINTS.clone(),
+        )],
+    )]));
+    let txid_2 = party_2.send_retry(&HashMap::from([(
+        asset_2.asset_id.clone(),
+        vec![witness_recipient(
+            &receive_data_2.recipient_id,
+            200,
+            TRANSPORT_ENDPOINTS.clone(),
+        )],
+    )]));
+    let rcv_idxs = [
+        receive_data_1.batch_transfer_idx,
+        receive_data_2.batch_transfer_idx,
+    ];
+    rcv_party.wait_for_refresh_raw(None, Some(&rcv_idxs));
+    party_1.wait_for_refresh(Some(&asset_1.asset_id));
+    party_2.wait_for_refresh(Some(&asset_2.asset_id));
+    mine(false);
+    rcv_party.wait_for_refresh_raw(None, Some(&rcv_idxs));
+
+    // each receive settles with its own payment, in its own directory
+    let mut receive_utxos = vec![];
+    for (receive_data, txid, asset_id, amount) in [
+        (&receive_data_1, &txid_1, &asset_1.asset_id, 100),
+        (&receive_data_2, &txid_2, &asset_2.asset_id, 200),
+    ] {
+        let transfer = rcv_party.get_test_transfer_recipient(&receive_data.recipient_id);
+        let (transfer_data, asset_transfer) = rcv_party.get_test_transfer_data(&transfer);
+        assert_eq!(transfer_data.status, TransferStatus::Settled);
+        assert_eq!(transfer_data.txid.as_ref(), Some(txid));
+        assert_eq!(
+            transfer_data.assignments,
+            vec![Assignment::Fungible(amount)]
+        );
+        assert_eq!(asset_transfer.asset_id.as_ref(), Some(asset_id));
+        let receive_dir = receive_data.recipient_id.replace(':', "_");
+        assert_eq!(transfer.receive_dir.as_ref(), Some(&receive_dir));
+        assert!(
+            transfer_data
+                .consignment_path
+                .unwrap()
+                .contains(&receive_dir)
+        );
+        let receive_utxo = transfer_data.receive_utxo.unwrap();
+        let unspents = rcv_party.list_unspents(false);
+        let unspent = unspents
+            .iter()
+            .find(|u| u.utxo.outpoint == receive_utxo)
+            .unwrap();
+        assert_eq!(unspent.rgb_allocations.len(), 1);
+        let allocation = unspent.rgb_allocations.first().unwrap();
+        assert_eq!(allocation.asset_id.as_ref(), Some(asset_id));
+        assert_eq!(allocation.assignment, Assignment::Fungible(amount));
+        assert!(!rcv_party.db_txo(&receive_utxo).unwrap().pending_witness);
+        receive_utxos.push(receive_utxo);
+    }
+    assert_ne!(receive_utxos[0], receive_utxos[1]);
+
+    // spending one outpoint leaves the other
+    let receive_data = party_1.blind_receive();
+    rcv_party.send_retry(&HashMap::from([(
+        asset_1.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(100),
+            recipient_id: receive_data.recipient_id,
+            witness_data: None,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]));
+    assert_eq!(rcv_party.get_asset_balance(&asset_1.asset_id).future, 0);
+    assert_eq!(
+        rcv_party.get_asset_balance(&asset_2.asset_id),
+        Balance {
+            settled: 200,
+            future: 200,
+            spendable: 200,
+        }
+    );
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn reuse_send_blinding() {
+    initialize();
+
+    let amount = 10;
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_empty_party!();
+    let asset = party.issue_asset_nia(None);
+    let receive_data = rcv_party.witness_receive_reuse(
+        Assignment::Any,
+        TRANSPORT_ENDPOINTS.clone(),
+        default_rcv_expiration(),
+        AddressReuse::Pinned,
+    );
+    let nonce: u64 = receive_data
+        .recipient_id
+        .rsplit_once(':')
+        .unwrap()
+        .1
+        .parse()
+        .unwrap();
+
+    // a caller blinding that differs from the nonce is refused
+    let mut recipient = witness_recipient(
+        &receive_data.recipient_id,
+        amount,
+        TRANSPORT_ENDPOINTS.clone(),
+    );
+    recipient.witness_data = Some(WitnessData {
+        amount_sat: 1000,
+        blinding: Some(nonce.wrapping_add(1)),
+    });
+    let result = party.send_result(&HashMap::from([(
+        asset.asset_id.clone(),
+        vec![recipient.clone()],
+    )]));
+    assert_matches!(result, Err(Error::InvalidRecipientData { .. }));
+
+    // the seal blinding is the nonce
+    recipient.witness_data = Some(WitnessData {
+        amount_sat: 1000,
+        blinding: Some(nonce),
+    });
+    let txid = party.send_retry(&HashMap::from([(asset.asset_id.clone(), vec![recipient])]));
+    rcv_party.wait_for_refresh(None);
+    let transfer = rcv_party.get_test_transfer_recipient(&receive_data.recipient_id);
+    let (transfer_data, _) = rcv_party.get_test_transfer_data(&transfer);
+    assert_eq!(transfer_data.status, TransferStatus::WaitingBroadcast);
+    let vout = transfer_data.receive_utxo.unwrap().vout;
+    let consignment_path = party
+        .wallet
+        .get_send_consignment_path(&asset.asset_id, &txid);
+    let consignment = RgbTransfer::load_file(&consignment_path).unwrap();
+    let bundle = consignment.bundles.last().unwrap();
+    let mut blindings = vec![];
+    for KnownTransition { transition, .. } in bundle.bundle.known_transitions.iter() {
+        for typed_assigns in transition.assignments.values() {
+            for assignment in typed_assigns.as_fungible() {
+                if let Assign::Revealed { seal, .. } = assignment
+                    && seal.txid == TxPtr::WitnessTx
+                    && seal.vout.into_u32() == vout
+                {
+                    blindings.push(seal.blinding);
+                }
+            }
+        }
+    }
+    assert_eq!(blindings, vec![nonce]);
+
+    // a fresh invoice is paid as before
+    party.wait_for_refresh(Some(&asset.asset_id));
+    mine(false);
+    party.wait_for_refresh(Some(&asset.asset_id));
+    let receive_data = rcv_party.witness_receive();
+    assert!(RecipientInfo::new(receive_data.recipient_id.clone()).is_ok());
+    assert!(!receive_data.invoice.contains("nonce="));
+    party.send_retry(&HashMap::from([(
+        asset.asset_id.clone(),
+        vec![witness_recipient(
+            &receive_data.recipient_id,
+            amount,
+            TRANSPORT_ENDPOINTS.clone(),
+        )],
+    )]));
+    rcv_party.wait_for_refresh_raw(None, Some(&[receive_data.batch_transfer_idx]));
+    assert!(rcv_party.check_test_transfer_status_recipient(
+        &receive_data.recipient_id,
+        TransferStatus::WaitingBroadcast
+    ));
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn reuse_refusals() {
+    initialize();
+
+    let amount = 10;
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_empty_party!();
+    let asset_a = party.issue_asset_nia(None);
+    let asset_b = party.issue_asset_nia(None);
+    let asset_c = party.issue_asset_nia(None);
+    let asset_d = party.issue_asset_nia(None);
+    party.create_utxos(false, Some(10), None, FEE_RATE, None);
+    let map = |asset_id: &str, recipient_id: &str, endpoints: Vec<String>| {
+        HashMap::from([(
+            asset_id.to_string(),
+            vec![witness_recipient(recipient_id, amount, endpoints)],
+        )])
+    };
+    let soon = || (now().unix_timestamp() + 10) as u64;
+    let batch_status = |party: &SinglesigParty, idx: i32| {
+        party
+            .db_batch_transfers()
+            .into_iter()
+            .find(|b| b.idx == idx)
+            .unwrap()
+            .status
+    };
+
+    // receives that expire soon, over the proxy and out of band
+    let old_proxy = rcv_party.witness_receive_reuse(
+        Assignment::Any,
+        TRANSPORT_ENDPOINTS.clone(),
+        soon(),
+        AddressReuse::Pinned,
+    );
+    let old_oob =
+        rcv_party.witness_receive_reuse(Assignment::Any, vec![], soon(), AddressReuse::Pinned);
+    party.send_retry(&map(
+        &asset_b.asset_id,
+        &old_proxy.recipient_id,
+        TRANSPORT_ENDPOINTS.clone(),
+    ));
+    let txid_old_oob = party.send_retry(&map(&asset_d.asset_id, &old_oob.recipient_id, vec![]));
+    let consignment_old_oob = party
+        .wallet
+        .get_send_consignment_path(&asset_d.asset_id, &txid_old_oob)
+        .to_string_lossy()
+        .to_string();
+    // the sender keeps the file and frees its inputs
+    let old_oob_send = party.db_batch_transfers_filtered(&txid_old_oob)[0].idx;
+    assert!(party.fail_transfers_single(old_oob_send));
+    // no receiver refresh before they expire
+    while now().unix_timestamp() as u64 <= old_proxy.expiration_timestamp
+        || now().unix_timestamp() as u64 <= old_oob.expiration_timestamp
+    {
+        std::thread::sleep(Duration::from_millis(500));
+    }
+
+    // (a) a consignment reposted under another live receive is refused
+    let receive_1 = rcv_party.witness_receive_reuse(
+        Assignment::Any,
+        TRANSPORT_ENDPOINTS.clone(),
+        default_rcv_expiration(),
+        AddressReuse::Pinned,
+    );
+    let receive_2 = rcv_party.witness_receive_reuse(
+        Assignment::Any,
+        TRANSPORT_ENDPOINTS.clone(),
+        default_rcv_expiration(),
+        AddressReuse::Pinned,
+    );
+    let txid_1 = party.send_retry(&map(
+        &asset_a.asset_id,
+        &receive_1.recipient_id,
+        TRANSPORT_ENDPOINTS.clone(),
+    ));
+    let proxy_client = get_proxy_client(None);
+    let vout = proxy_client
+        .get_consignment(&receive_1.recipient_id)
+        .unwrap()
+        .result
+        .unwrap()
+        .vout;
+    proxy_client
+        .post_consignment(
+            &receive_2.recipient_id,
+            party
+                .wallet
+                .get_send_consignment_path(&asset_a.asset_id, &txid_1),
+            &txid_1,
+            vout,
+        )
+        .unwrap();
+    rcv_party.wait_for_refresh_raw(
+        None,
+        Some(&[receive_1.batch_transfer_idx, receive_2.batch_transfer_idx]),
+    );
+    assert_eq!(
+        batch_status(&rcv_party, receive_1.batch_transfer_idx),
+        TransferStatus::WaitingBroadcast
+    );
+    assert_eq!(
+        batch_status(&rcv_party, receive_2.batch_transfer_idx),
+        TransferStatus::Failed
+    );
+    assert_eq!(
+        proxy_client
+            .get_ack(&receive_2.recipient_id)
+            .unwrap()
+            .result,
+        Some(false)
+    );
+    party.wait_for_refresh(Some(&asset_a.asset_id));
+    mine(false);
+    rcv_party.wait_for_refresh_raw(None, Some(&[receive_1.batch_transfer_idx]));
+    assert_eq!(
+        batch_status(&rcv_party, receive_1.batch_transfer_idx),
+        TransferStatus::Settled
+    );
+
+    // (b) a consignment for an expired receive was refused, a newer live receive settles its own
+    let new_proxy = rcv_party.witness_receive_reuse(
+        Assignment::Any,
+        TRANSPORT_ENDPOINTS.clone(),
+        default_rcv_expiration(),
+        AddressReuse::Pinned,
+    );
+    assert_eq!(
+        batch_status(&rcv_party, old_proxy.batch_transfer_idx),
+        TransferStatus::Failed
+    );
+    assert_eq!(
+        batch_status(&rcv_party, new_proxy.batch_transfer_idx),
+        TransferStatus::WaitingCounterparty
+    );
+    party.wait_for_refresh(Some(&asset_b.asset_id));
+    party.send_retry(&map(
+        &asset_b.asset_id,
+        &new_proxy.recipient_id,
+        TRANSPORT_ENDPOINTS.clone(),
+    ));
+    rcv_party.wait_for_refresh_raw(None, Some(&[new_proxy.batch_transfer_idx]));
+    party.wait_for_refresh(Some(&asset_b.asset_id));
+    mine(false);
+    rcv_party.wait_for_refresh_raw(None, Some(&[new_proxy.batch_transfer_idx]));
+    assert_eq!(
+        batch_status(&rcv_party, new_proxy.batch_transfer_idx),
+        TransferStatus::Settled
+    );
+
+    // (d) out of band, an expired receive matches nothing, not even a newer live one
+    let new_oob = rcv_party.witness_receive_reuse(
+        Assignment::Any,
+        vec![],
+        default_rcv_expiration(),
+        AddressReuse::Pinned,
+    );
+    let result = rcv_party.wallet.provide_out_of_band_consignment(
+        rcv_party.online,
+        consignment_old_oob,
+        vec![],
+    );
+    assert_matches!(result, Err(Error::CannotProvideOutOfBandConsignment { .. }));
+    assert_eq!(
+        batch_status(&rcv_party, new_oob.batch_transfer_idx),
+        TransferStatus::WaitingCounterparty
+    );
+
+    // (e) out of band, the receive whose nonce is in the seal is accepted
+    let txid_new_oob = party.send_retry(&map(&asset_d.asset_id, &new_oob.recipient_id, vec![]));
+    let refreshed = rcv_party
+        .wallet
+        .provide_out_of_band_consignment(
+            rcv_party.online,
+            party
+                .wallet
+                .get_send_consignment_path(&asset_d.asset_id, &txid_new_oob)
+                .to_string_lossy()
+                .to_string(),
+            vec![],
+        )
+        .unwrap();
+    assert_eq!(refreshed.len(), 1);
+    assert_eq!(
+        refreshed
+            .get(&new_oob.batch_transfer_idx)
+            .unwrap()
+            .updated_status,
+        Some(TransferStatus::WaitingBroadcast)
+    );
+
+    // (c) an older sender that drops the nonce gets no ACK and broadcasts nothing
+    let receive_c = rcv_party.witness_receive_reuse(
+        Assignment::Any,
+        TRANSPORT_ENDPOINTS.clone(),
+        default_rcv_expiration(),
+        AddressReuse::Pinned,
+    );
+    let (plain_id, _) = receive_c.recipient_id.rsplit_once(':').unwrap();
+    let balance_c = party.get_asset_balance(&asset_c.asset_id);
+    let txid_c = party.send_retry(&map(
+        &asset_c.asset_id,
+        plain_id,
+        TRANSPORT_ENDPOINTS.clone(),
+    ));
+    rcv_party.refresh_result(None, &[]).unwrap();
+    party.refresh_result(Some(&asset_c.asset_id), &[]).unwrap();
+    assert!(party.check_test_transfer_status_sender(&txid_c, TransferStatus::WaitingCounterparty));
+    assert_eq!(
+        batch_status(&rcv_party, receive_c.batch_transfer_idx),
+        TransferStatus::WaitingCounterparty
+    );
+    assert_eq!(
+        party.get_asset_balance(&asset_c.asset_id).settled,
+        balance_c.settled
+    );
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn reuse_replay_guard() {
+    initialize();
+
+    let amount = 10;
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_empty_party!();
+    let asset = party.issue_asset_nia(None);
+    let receive_1 = rcv_party.witness_receive_reuse(
+        Assignment::Any,
+        vec![],
+        default_rcv_expiration(),
+        AddressReuse::Pinned,
+    );
+    let receive_2 = rcv_party.witness_receive_reuse(
+        Assignment::Any,
+        vec![],
+        default_rcv_expiration(),
+        AddressReuse::Pinned,
+    );
+
+    // the first receive is paid and accepted
+    let txid = party.send_retry(&HashMap::from([(
+        asset.asset_id.clone(),
+        vec![witness_recipient(&receive_1.recipient_id, amount, vec![])],
+    )]));
+    let consignment_path = party
+        .wallet
+        .get_send_consignment_path(&asset.asset_id, &txid)
+        .to_string_lossy()
+        .to_string();
+    rcv_party
+        .wallet
+        .provide_out_of_band_consignment(rcv_party.online, consignment_path.clone(), vec![])
+        .unwrap();
+    let transfer_1 = rcv_party.get_test_transfer_recipient(&receive_1.recipient_id);
+    let (transfer_data_1, asset_transfer_1) = rcv_party.get_test_transfer_data(&transfer_1);
+    assert_eq!(transfer_data_1.status, TransferStatus::WaitingBroadcast);
+    let outpoint = transfer_data_1.receive_utxo.unwrap();
+
+    // the second receive takes the first one's identity, the consignment matches it
+    let txn = rcv_party.wallet.database().begin_transaction().unwrap();
+    let transfer_2 = txn
+        .iter_transfers()
+        .unwrap()
+        .into_iter()
+        .find(|t| t.recipient_id.as_ref() == Some(&receive_2.recipient_id))
+        .unwrap();
+    let mut transfer_2: DbTransferActMod = transfer_2.into();
+    transfer_2.recipient_id = ActiveValue::Set(Some(receive_1.recipient_id.clone()));
+    txn.update_transfer(&mut transfer_2).unwrap();
+    txn.commit().unwrap();
+
+    // an outpoint another transfer colored is refused
+    let refreshed = rcv_party
+        .wallet
+        .provide_out_of_band_consignment(rcv_party.online, consignment_path, vec![])
+        .unwrap();
+    assert_eq!(
+        refreshed
+            .get(&receive_2.batch_transfer_idx)
+            .unwrap()
+            .updated_status,
+        Some(TransferStatus::Failed)
+    );
+    let txo = rcv_party.db_txo(&outpoint).unwrap();
+    let colorings: Vec<DbColoring> = rcv_party
+        .db_colorings()
+        .into_iter()
+        .filter(|c| c.txo_idx == txo.idx)
+        .collect();
+    assert!(!colorings.is_empty());
+    assert!(
+        colorings
+            .iter()
+            .all(|c| c.asset_transfer_idx == asset_transfer_1.idx)
+    );
+
+    // the first receive settles
+    party
+        .wallet
+        .provide_out_of_band_ack(party.online, receive_1.recipient_id.clone())
+        .unwrap();
+    mine(false);
+    rcv_party.wait_for_refresh_raw(None, Some(&[receive_1.batch_transfer_idx]));
+    let batch_transfer = rcv_party
+        .db_batch_transfers()
+        .into_iter()
+        .find(|b| b.idx == receive_1.batch_transfer_idx)
+        .unwrap();
+    assert_eq!(batch_transfer.status, TransferStatus::Settled);
+}
+
+#[cfg(feature = "electrum")]
+fn reuse_donate(
+    party: &mut SinglesigParty,
+    asset_id: &str,
+    recipient_id: &str,
+    amount: u64,
+) -> String {
+    party
+        .wallet
+        .send(
+            party.online,
+            HashMap::from([(
+                asset_id.to_string(),
+                vec![witness_recipient(
+                    recipient_id,
+                    amount,
+                    TRANSPORT_ENDPOINTS.clone(),
+                )],
+            )]),
+            true,
+            FEE_RATE,
+            MIN_CONFIRMATIONS,
+            default_send_expiration(),
+        )
+        .unwrap()
+        .txid
+}
+
+#[cfg(feature = "electrum")]
+fn reuse_wait_outpoint(party: &mut SinglesigParty, txid: &str) -> Outpoint {
+    let mut outpoint = None;
+    let check = || {
+        outpoint = party
+            .list_unspents_with_sync(false)
+            .into_iter()
+            .map(|u| u.utxo.outpoint)
+            .find(|o| o.txid == txid);
+        outpoint.is_some()
+    };
+    assert!(wait_for_function(check, 10, 500));
+    outpoint.unwrap()
+}
+
+#[cfg(feature = "electrum")]
+fn reuse_is_available(party: &SinglesigParty, outpoint: &Outpoint) -> bool {
+    let unspents = party.db_rgb_allocations(party.db_unspent_txos(vec![]), None, None, None, None);
+    party
+        .wallet
+        .get_available_allocations(unspents, &[], None)
+        .unwrap()
+        .iter()
+        .any(|u| u.utxo.outpoint() == *outpoint)
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn reuse_quarantine() {
+    initialize();
+
+    let amount = 10;
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_noutxo_party!();
+    let asset = party.issue_asset_nia(None);
+    let recipient_map = |party: &mut SinglesigParty| {
+        let receive_data = party.blind_receive();
+        HashMap::from([(
+            asset.asset_id.clone(),
+            vec![Recipient {
+                assignment: Assignment::Fungible(amount),
+                recipient_id: receive_data.recipient_id,
+                witness_data: None,
+                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+            }],
+        )])
+    };
+
+    // sync first: the donation output is quarantined before the consignment arrives
+    let receive_data = rcv_party.witness_receive_reuse(
+        Assignment::Any,
+        TRANSPORT_ENDPOINTS.clone(),
+        default_rcv_expiration(),
+        AddressReuse::Pinned,
+    );
+    let txid = reuse_donate(
+        &mut party,
+        &asset.asset_id,
+        &receive_data.recipient_id,
+        amount,
+    );
+    let outpoint = reuse_wait_outpoint(&mut rcv_party, &txid);
+    assert!(rcv_party.db_txo(&outpoint).unwrap().pending_witness);
+    assert!(!reuse_is_available(&rcv_party, &outpoint));
+    assert_matches!(
+        rcv_party.blind_receive_result(),
+        Err(Error::InsufficientAllocationSlots)
+    );
+    rcv_party.wait_for_refresh_raw(None, Some(&[receive_data.batch_transfer_idx]));
+    assert!(rcv_party.db_txo(&outpoint).unwrap().pending_witness);
+    let map = recipient_map(&mut party);
+    assert_matches!(
+        rcv_party.send_result(&map),
+        Err(Error::InsufficientAssignments { .. })
+    );
+    mine(false);
+    rcv_party.wait_for_refresh_raw(None, Some(&[receive_data.batch_transfer_idx]));
+    assert!(
+        rcv_party.check_test_transfer_status_recipient(
+            &receive_data.recipient_id,
+            TransferStatus::Settled
+        )
+    );
+    assert!(!rcv_party.db_txo(&outpoint).unwrap().pending_witness);
+    assert!(reuse_is_available(&rcv_party, &outpoint));
+    party.wait_for_refresh(Some(&asset.asset_id));
+
+    // consignment first: the output is written quarantined and sync keeps it so
+    let receive_data = rcv_party.witness_receive_reuse(
+        Assignment::Any,
+        TRANSPORT_ENDPOINTS.clone(),
+        default_rcv_expiration(),
+        AddressReuse::Pinned,
+    );
+    let txid = reuse_donate(
+        &mut party,
+        &asset.asset_id,
+        &receive_data.recipient_id,
+        amount,
+    );
+    let check = || {
+        rcv_party
+            .wallet
+            .refresh(rcv_party.online, None, vec![], true)
+            .unwrap();
+        !rcv_party.check_test_transfer_status_recipient(
+            &receive_data.recipient_id,
+            TransferStatus::WaitingCounterparty,
+        )
+    };
+    assert!(wait_for_function(check, 10, 500));
+    let transfer = rcv_party.get_test_transfer_recipient(&receive_data.recipient_id);
+    let vout = match transfer.recipient_type {
+        Some(RecipientTypeFull::Witness { vout }) => vout.unwrap(),
+        _ => panic!("witness receive expected"),
+    };
+    let outpoint = Outpoint {
+        txid: txid.clone(),
+        vout,
+    };
+    assert!(rcv_party.db_txo(&outpoint).unwrap().pending_witness);
+    assert_eq!(reuse_wait_outpoint(&mut rcv_party, &txid), outpoint);
+    let txo = rcv_party.db_txo(&outpoint).unwrap();
+    assert!(txo.exists && txo.pending_witness);
+    assert!(!reuse_is_available(&rcv_party, &outpoint));
+    mine(false);
+    rcv_party.wait_for_refresh_raw(None, Some(&[receive_data.batch_transfer_idx]));
+    assert!(!rcv_party.db_txo(&outpoint).unwrap().pending_witness);
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn reuse_quarantine_failures() {
+    initialize();
+
+    let amount = 10;
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+    let asset = party.issue_asset_nia(None);
+
+    // (a) a failed settlement keeps the output quarantined
+    let receive_data = rcv_party.witness_receive_reuse(
+        Assignment::Any,
+        TRANSPORT_ENDPOINTS.clone(),
+        default_rcv_expiration(),
+        AddressReuse::Pinned,
+    );
+    party.send_retry(&HashMap::from([(
+        asset.asset_id.clone(),
+        vec![witness_recipient(
+            &receive_data.recipient_id,
+            amount,
+            TRANSPORT_ENDPOINTS.clone(),
+        )],
+    )]));
+    rcv_party.wait_for_refresh_raw(None, Some(&[receive_data.batch_transfer_idx]));
+    party.wait_for_refresh(Some(&asset.asset_id));
+    let transfer = rcv_party.get_test_transfer_recipient(&receive_data.recipient_id);
+    let (transfer_data, _) = rcv_party.get_test_transfer_data(&transfer);
+    let outpoint = transfer_data.receive_utxo.unwrap();
+    let valid_path =
+        PathBuf::from(transfer_data.consignment_path.unwrap()).with_extension("valid.rgbc");
+    let moved_path = valid_path.with_extension("moved");
+    fs::rename(&valid_path, &moved_path).unwrap();
+    mine(false);
+    let check = || {
+        rcv_party
+            .refresh_result(None, &[])
+            .unwrap()
+            .get(&receive_data.batch_transfer_idx)
+            .is_some_and(|r| matches!(r.failure, Some(Error::Internal { .. })))
+    };
+    assert!(wait_for_function(check, 10, 500));
+    assert!(rcv_party.db_txo(&outpoint).unwrap().pending_witness);
+    assert!(!reuse_is_available(&rcv_party, &outpoint));
+    assert!(rcv_party.check_test_transfer_status_recipient(
+        &receive_data.recipient_id,
+        TransferStatus::WaitingBroadcast
+    ));
+    fs::rename(&moved_path, &valid_path).unwrap();
+    rcv_party.wait_for_refresh_raw(None, Some(&[receive_data.batch_transfer_idx]));
+    assert!(
+        rcv_party.check_test_transfer_status_recipient(
+            &receive_data.recipient_id,
+            TransferStatus::Settled
+        )
+    );
+    assert!(!rcv_party.db_txo(&outpoint).unwrap().pending_witness);
+
+    party.wait_for_refresh(Some(&asset.asset_id));
+
+    // (b) a refused donation stays quarantined after fail and delete
+    let own_asset = rcv_party.issue_asset_nia(None);
+    let receive_data = rcv_party
+        .wallet
+        .witness_receive(
+            Some(own_asset.asset_id),
+            Assignment::Any,
+            default_rcv_expiration(),
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+            AddressReuse::Pinned,
+        )
+        .unwrap();
+    let txid = reuse_donate(
+        &mut party,
+        &asset.asset_id,
+        &receive_data.recipient_id,
+        amount,
+    );
+    let outpoint = reuse_wait_outpoint(&mut rcv_party, &txid);
+    rcv_party.wait_for_refresh_raw(None, Some(&[receive_data.batch_transfer_idx]));
+    assert!(
+        rcv_party.check_test_transfer_status_recipient(
+            &receive_data.recipient_id,
+            TransferStatus::Failed
+        )
+    );
+    rcv_party.fail_transfers_all();
+    assert!(rcv_party.db_txo(&outpoint).unwrap().pending_witness);
+    assert!(rcv_party.delete_transfers(Some(receive_data.batch_transfer_idx), false));
+    assert!(rcv_party.db_txo(&outpoint).unwrap().pending_witness);
+    assert!(!reuse_is_available(&rcv_party, &outpoint));
 }

@@ -287,7 +287,7 @@ pub(crate) fn get_funded_noutxo_wallet(
     indexer_url: Option<String>,
 ) -> (Wallet, Online) {
     let (mut wallet, online) = get_empty_wallet(private_keys, indexer_url);
-    fund_wallet(wallet.get_address().unwrap());
+    fund_wallet(wallet.get_address(AddressReuse::New).unwrap());
     (wallet, online)
 }
 
@@ -443,4 +443,21 @@ pub(crate) fn default_rcv_expiration() -> u64 {
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn default_send_expiration() -> u64 {
     (now().unix_timestamp() + DURATION_SEND_TRANSFER as i64) as u64
+}
+
+#[cfg(feature = "electrum")]
+pub(crate) fn witness_recipient(
+    recipient_id: &str,
+    amount: u64,
+    transport_endpoints: Vec<String>,
+) -> Recipient {
+    Recipient {
+        assignment: Assignment::Fungible(amount),
+        recipient_id: recipient_id.to_string(),
+        witness_data: Some(WitnessData {
+            amount_sat: 1000,
+            blinding: None,
+        }),
+        transport_endpoints,
+    }
 }
