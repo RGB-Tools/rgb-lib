@@ -539,24 +539,21 @@ pub(crate) fn calculate_descriptor_from_xpub(
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn check_proxy(proxy_url: &str) -> Result<(), Error> {
     let proxy_client = ProxyClient::new(proxy_url)?;
-    let mut err_details = s!("unable to connect to proxy");
-    if let Ok(server_info) = proxy_client.get_info() {
-        if let Some(info) = server_info.result {
-            if info.protocol_version == *PROXY_PROTOCOL_VERSION {
-                return Ok(());
-            } else {
-                return Err(Error::InvalidProxyProtocol {
-                    version: info.protocol_version,
-                });
-            }
+    let server_info = proxy_client.get_info()?;
+    if let Some(info) = server_info.result {
+        if info.protocol_version == *PROXY_PROTOCOL_VERSION {
+            return Ok(());
+        } else {
+            return Err(Error::InvalidProxyProtocol {
+                version: info.protocol_version,
+            });
         }
-        if let Some(err) = server_info.error {
-            err_details = err.message;
-        }
+    }
+    let details = match server_info.error {
+        Some(err) => err.message,
+        None => s!("proxy response has neither result nor error"),
     };
-    Err(Error::Proxy {
-        details: err_details,
-    })
+    Err(Error::Proxy { details })
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -1208,10 +1205,8 @@ mod tests {
             .with_body("not json")
             .create();
         let result = check_proxy(&server.url());
-        assert_matches!(
-            result,
-            Err(Error::Proxy { details }) if details != "unable to connect to proxy"
-        );
+        let expected = format!("error decoding response body for url ({}/)", server.url());
+        assert_matches!(result, Err(Error::Proxy { details }) if details == expected);
         mock.assert();
     }
 
@@ -1225,10 +1220,8 @@ mod tests {
             listener.local_addr().unwrap().port()
         };
         let result = check_proxy(&format!("http://127.0.0.1:{port}"));
-        assert_matches!(
-            result,
-            Err(Error::Proxy { details }) if details != "unable to connect to proxy"
-        );
+        let expected = format!("error sending request for url (http://127.0.0.1:{port}/)");
+        assert_matches!(result, Err(Error::Proxy { details }) if details == expected);
     }
 
     #[test]
