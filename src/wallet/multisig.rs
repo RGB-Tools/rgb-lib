@@ -1199,10 +1199,10 @@ impl MultisigWallet {
     /// Only [`AddressReuse::New`] is supported: any other `reuse` returns
     /// [`Error::AddressReuseNotAllowed`].
     pub fn get_address(&mut self, online: Online, reuse: AddressReuse) -> Result<String, Error> {
-        info!(self.logger(), "Getting address...");
         if reuse != AddressReuse::New {
             return Err(address_reuse_not_allowed());
         }
+        info!(self.logger(), "Getting address...");
         self.check_online(online)?;
         self.check_is_cosigner()?;
         let address = self.get_new_addresses(KeychainKind::Internal, 1)?;
@@ -1622,15 +1622,15 @@ impl MultisigWallet {
         min_confirmations: u8,
         reuse: AddressReuse,
     ) -> Result<ReceiveData, Error> {
+        if reuse != AddressReuse::New {
+            return Err(address_reuse_not_allowed());
+        }
         info!(
             self.logger(),
             "Receiving via witness TX for asset '{:?}' with expiration '{}'...",
             asset_id,
             expiration_timestamp,
         );
-        if reuse != AddressReuse::New {
-            return Err(address_reuse_not_allowed());
-        }
         self.check_online(online)?;
         self.check_is_cosigner()?;
         let receive_data = self.receive_impl(
