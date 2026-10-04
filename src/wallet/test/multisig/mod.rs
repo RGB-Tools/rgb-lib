@@ -803,6 +803,12 @@ fn success() {
         (15366, 15366, 15366),
     );
     drop(_guard);
+    // confirm the TX, so the final state checks below don't depend on other tests mining
+    let send_btc_txid = Psbt::from_str(&op_init.psbt)
+        .unwrap()
+        .get_txid()
+        .to_string();
+    mine_tx(false, &send_btc_txid);
     let op_init_last_successful = op_init;
 
     println!("\n=== receive failed (wlt_1) ===");
@@ -879,7 +885,7 @@ fn success() {
     );
 
     // final state expectations
-    let btc_final_vanilla = (0, 6442, 6442);
+    let btc_final_vanilla = (6442, 6442, 6442);
     let btc_final_colored = (15366, 15366, 15366);
     let tx_type_final = TransactionType::SendBtc;
     #[rustfmt::skip]
