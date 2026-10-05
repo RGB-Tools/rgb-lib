@@ -542,3 +542,52 @@ fn decrypt_file(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn zip_dir_missing_source() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let source = tempdir.path().join("missing");
+        let archive = tempdir.path().join("backup.zip");
+        let logger = slog::Logger::root(slog::Discard, slog::o!());
+        let result = zip_dir(&source, &archive, false, &logger);
+        assert!(matches!(result, Err(Error::IO { details }) if details.contains("missing")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn zip_dir_unreadable_directory() {
+        // Restore permissions on every exit path so TempDir can clean up, including on panics.
+        struct RestorePermissions<'a>(&'a Path, fs::Permissions);
+
+        impl Drop for RestorePermissions<'_> {
+            fn drop(&mut self) {
+                let _ = fs::set_permissions(self.0, self.1.clone());
+            }
+        }
+
+        let tempdir = tempfile::tempdir().unwrap();
+        let source = tempdir.path().join("source");
+        let unreadable = source.join("unreadable");
+        fs::create_dir_all(&unreadable).unwrap();
+        fs::write(unreadable.join("contents"), b"must not be silently omitted").unwrap();
+        let permissions = fs::metadata(&unreadable).unwrap().permissions();
+        let _guard = RestorePermissions(&unreadable, permissions);
+        fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o000)).unwrap();
+
+        // Permission bits are not enforced for privileged users (root or CAP_DAC_OVERRIDE).
+        if fs::read_dir(&unreadable).is_ok() {
+            return;
+        }
+
+        let logger = slog::Logger::root(slog::Discard, slog::o!());
+        let result = zip_dir(&source, &tempdir.path().join("backup.zip"), false, &logger);
+        assert!(matches!(result, Err(Error::IO { details }) if details.contains("unreadable")));
+    }
+}
