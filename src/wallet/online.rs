@@ -619,6 +619,11 @@ pub trait WalletOnline: WalletOffline {
                 online
             } else {
                 self.check_online(online)?;
+                // the indexer is unchanged but the other options may have changed
+                self.online_data_mut()
+                    .as_mut()
+                    .unwrap()
+                    .vanilla_sync_lookback = online_options.vanilla_sync_lookback;
                 online
             }
         } else {
