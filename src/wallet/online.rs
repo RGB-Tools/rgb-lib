@@ -619,11 +619,17 @@ pub trait WalletOnline: WalletOffline {
                 online
             } else {
                 self.check_online(online)?;
-                // the indexer is unchanged but the other options may have changed
+                // the indexer is unchanged but the other options may have changed. No `..` on
+                // purpose: a new option doesn't compile until it's handled here
+                let OnlineOptions {
+                    indexer_url: _,            // a new URL goes online from scratch, see above
+                    skip_consistency_check: _, // only used during this call, not stored
+                    vanilla_sync_lookback,
+                } = online_options;
                 self.online_data_mut()
                     .as_mut()
                     .unwrap()
-                    .vanilla_sync_lookback = online_options.vanilla_sync_lookback;
+                    .vanilla_sync_lookback = *vanilla_sync_lookback;
                 online
             }
         } else {
