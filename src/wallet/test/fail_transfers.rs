@@ -901,3 +901,102 @@ fn witness_receive_cleanup() {
     assert_only_btc_received(&mut rcv_party, &receive_data, &txid);
     rcv_party.blind_receive();
 }
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn ack_failure() {
+    initialize();
+
+    let amount: u64 = 66;
+    let expiration_secs: u64 = 20;
+
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+
+    // issue
+    let asset = party.issue_asset_nia(Some(&[AMOUNT]));
+
+    let (server, _mock) = failing_ack_proxy();
+    let failing_ack_endpoint = format!("rpc://{}/json-rpc", server.host_with_port());
+
+    // send to 2 recipients, with transfers expiring soon
+    let expiration = (now().unix_timestamp() + expiration_secs as i64) as u64;
+    let receive_data_1 = rcv_party
+        .blind_receive_with_endpoints(Some(expiration), vec![failing_ack_endpoint.clone()]);
+    let receive_data_2 = rcv_party
+        .blind_receive_with_endpoints(Some(expiration), vec![failing_ack_endpoint.clone()]);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![
+            Recipient {
+                assignment: Assignment::Fungible(amount),
+                recipient_id: receive_data_1.recipient_id.clone(),
+                witness_data: None,
+                transport_endpoints: vec![failing_ack_endpoint.clone()],
+            },
+            Recipient {
+                assignment: Assignment::Fungible(amount),
+                recipient_id: receive_data_2.recipient_id.clone(),
+                witness_data: None,
+                transport_endpoints: vec![failing_ack_endpoint],
+            },
+        ],
+    )]);
+    let send_result = party.send(recipient_map, FEE_RATE, Some(expiration));
+    assert!(!send_result.txid.is_empty());
+
+    // refreshing the receives fails to post the ACK
+    let refresh_res = rcv_party.refresh_result(None, &[]).unwrap();
+    for batch_transfer_idx in [
+        receive_data_1.batch_transfer_idx,
+        receive_data_2.batch_transfer_idx,
+    ] {
+        let refreshed = refresh_res.get(&batch_transfer_idx).unwrap();
+        assert!(refreshed.updated_status.is_none());
+        assert_matches!(refreshed.failure, Some(Error::Proxy { .. }));
+    }
+    // refreshing the send fails to get the ACK
+    let refresh_res = party.refresh_result(None, &[]).unwrap();
+    let refreshed = refresh_res.get(&send_result.batch_transfer_idx).unwrap();
+    assert!(refreshed.updated_status.is_none());
+    assert_matches!(refreshed.failure, Some(Error::Proxy { .. }));
+
+    // before expiration the error could be transient, so the transfers cannot be failed
+    let result = rcv_party.fail_transfers(Some(receive_data_1.batch_transfer_idx), false, false);
+    assert_matches!(result, Err(Error::Proxy { .. }));
+    let result = party.fail_transfers(Some(send_result.batch_transfer_idx), false, false);
+    assert_matches!(result, Err(Error::Proxy { .. }));
+    assert!(rcv_party.check_test_transfer_status_recipient(
+        &receive_data_1.recipient_id,
+        TransferStatus::WaitingCounterparty
+    ));
+    assert!(rcv_party.check_test_transfer_status_recipient(
+        &receive_data_2.recipient_id,
+        TransferStatus::WaitingCounterparty
+    ));
+    assert!(
+        party.check_test_transfer_status_sender(
+            &send_result.txid,
+            TransferStatus::WaitingCounterparty
+        )
+    );
+
+    // wait for the transfers to expire
+    let wait_secs = (expiration as i64 - now().unix_timestamp()).clamp(0, i64::MAX) as u64 + 2;
+    std::thread::sleep(std::time::Duration::from_secs(wait_secs));
+
+    // once expired, the transfers can be failed both explicitly and as expired ones
+    assert!(rcv_party.fail_transfers_single(receive_data_1.batch_transfer_idx));
+    assert!(rcv_party.check_test_transfer_status_recipient(
+        &receive_data_1.recipient_id,
+        TransferStatus::Failed
+    ));
+    assert!(rcv_party.fail_transfers_all());
+    assert!(rcv_party.check_test_transfer_status_recipient(
+        &receive_data_2.recipient_id,
+        TransferStatus::Failed
+    ));
+    assert!(party.fail_transfers_single(send_result.batch_transfer_idx));
+    assert!(party.check_test_transfer_status_sender(&send_result.txid, TransferStatus::Failed));
+}

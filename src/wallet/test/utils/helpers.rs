@@ -445,3 +445,37 @@ pub(crate) fn default_rcv_expiration() -> u64 {
 pub(crate) fn default_send_expiration() -> u64 {
     (now().unix_timestamp() + DURATION_SEND_TRANSFER as i64) as u64
 }
+
+// proxy that forwards every call to the real one, except ACK posts and gets that receive an
+// unparsable response
+#[cfg(feature = "electrum")]
+pub(crate) fn failing_ack_proxy() -> (mockito::ServerGuard, mockito::Mock) {
+    let mut server = mockito::Server::new();
+    let mock = server
+        .mock("POST", "/json-rpc")
+        .with_body_from_request(|req| {
+            let body = req.body().unwrap().clone();
+            let body_str = String::from_utf8_lossy(&body);
+            if body_str.contains("\"ack.post\"") || body_str.contains("\"ack.get\"") {
+                return b"not valid json".to_vec();
+            }
+            let content_type = req.header(CONTENT_TYPE)[0].clone();
+            // the blocking client cannot run inside mockito's async runtime
+            std::thread::spawn(move || {
+                RestClient::new()
+                    .post(PROXY_URL)
+                    .header(CONTENT_TYPE, content_type)
+                    .body(body)
+                    .send()
+                    .unwrap()
+                    .bytes()
+                    .unwrap()
+                    .to_vec()
+            })
+            .join()
+            .unwrap()
+        })
+        .expect_at_least(1)
+        .create();
+    (server, mock)
+}
