@@ -80,6 +80,14 @@ impl DbBatchTransfer {
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
+    /// Whether the transfer has expired at `now`. Only operations with a counterparty (sends and
+    /// receives) carry an expiration, which the public API requires; the ones without (burn,
+    /// inflation) have none and never expire, as they are broadcast right away and wait for nobody.
+    pub(crate) fn is_expired(&self, now: i64) -> bool {
+        self.expiration.is_some_and(|expiration| expiration < now)
+    }
+
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
     pub(crate) fn waiting(&self) -> bool {
         self.status.waiting()
     }
