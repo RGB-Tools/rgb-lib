@@ -504,9 +504,22 @@ pub trait WalletOnline: WalletOffline {
         batch_transfer: &DbBatchTransfer,
         db_data: &DbData,
     ) -> Result<TryFailBatchTransferOutcome, Error> {
+        let now = now().unix_timestamp();
+        let expired = batch_transfer.is_expired(now);
         let updated_batch_transfer =
             match self.refresh_transfer(txn, batch_transfer, db_data, &[], true) {
                 Err(Error::MinFeeNotMet { txid: _ }) | Err(Error::MaxFeeExceeded { txid: _ }) => {
+                    Ok(None)
+                }
+                // a transfer that keeps failing to refresh (e.g. its ACK can't be posted or
+                // retrieved) would otherwise never be failed; once expired its TX should no longer
+                // be broadcast by the sender, so it's safe to fail it, while before that the
+                // error could be transient and the transfer could still complete
+                Err(e) if expired => {
+                    warn!(
+                        self.logger(),
+                        "Failing expired transfer that failed to refresh: {e}"
+                    );
                     Ok(None)
                 }
                 Err(e) => Err(e),
@@ -558,7 +571,7 @@ pub trait WalletOnline: WalletOffline {
             // expired, since the TX may still be broadcast before then
             if batch_transfer.status == TransferStatus::WaitingBroadcast {
                 let now = now().unix_timestamp();
-                let expired = batch_transfer.expiration.unwrap_or(now) < now;
+                let expired = batch_transfer.is_expired(now);
                 if !expired {
                     return Ok(FailTransfersOutcome {
                         transfers_changed: false,
@@ -588,7 +601,7 @@ pub trait WalletOnline: WalletOffline {
             // fail all expired transfers that are in a fallible status
             let now = now().unix_timestamp();
             for batch_transfer in db_data.batch_transfers.iter().filter(|t| {
-                let expired = t.expiration.unwrap_or(now) < now;
+                let expired = t.is_expired(now);
                 expired && t.is_fallible()
             }) {
                 if no_asset_only {
@@ -1848,7 +1861,7 @@ pub trait WalletOnline: WalletOffline {
         // allowed to fail it, so broadcasting now could complete a transfer the recipient has
         // already given up on
         let now = now().unix_timestamp();
-        if batch_transfer.expiration.unwrap_or(now) < now {
+        if batch_transfer.is_expired(now) {
             debug!(
                 self.logger(),
                 "Transfer expired before broadcast, failing it instead of broadcasting"
