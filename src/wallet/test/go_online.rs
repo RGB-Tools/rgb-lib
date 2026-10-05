@@ -19,11 +19,34 @@ fn success() {
     // can go online again with the same electrum URL
     let result_2 = party.go_online_result(false, None);
     assert!(result_2.is_ok());
-    assert_eq!(result_1.unwrap(), result_2.unwrap());
+    let online = result_2.unwrap();
+    assert_eq!(result_1.unwrap(), online);
 
-    // can go online again with a different electrum URL
-    let result_3 = party.go_online_result(false, Some(ELECTRUM_2_URL));
+    // going online again with the same electrum URL updates the other options
+    let online_2 = party
+        .wallet
+        .go_online(OnlineOptions {
+            vanilla_sync_lookback: INDEXER_SYNC_LOOKBACK as u32 + 1,
+            ..test_go_online_options(None)
+        })
+        .unwrap();
+    assert_eq!(online_2, online);
+    assert_eq!(
+        party.wallet.vanilla_sync_lookback(),
+        INDEXER_SYNC_LOOKBACK as u32 + 1
+    );
+
+    // can go online again with a different electrum URL, which also updates the other options
+    let result_3 = party.wallet.go_online(OnlineOptions {
+        skip_consistency_check: false,
+        vanilla_sync_lookback: INDEXER_SYNC_LOOKBACK as u32 + 2,
+        ..test_go_online_options(Some(ELECTRUM_2_URL))
+    });
     assert!(result_3.is_ok());
+    assert_eq!(
+        party.wallet.vanilla_sync_lookback(),
+        INDEXER_SYNC_LOOKBACK as u32 + 2
+    );
 
     // can go online again with esplora URL
     let result_4 = party.go_online_result(false, Some(ESPLORA_URL));
