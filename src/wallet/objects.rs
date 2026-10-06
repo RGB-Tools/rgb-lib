@@ -1963,6 +1963,8 @@ pub enum PrepareTransferPsbtResult {
 pub struct ReceivedConsignmentMeta {
     pub txid: String,
     pub vout: Option<u32>,
+    #[serde(default)]
+    pub proxy_url: Option<String>,
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]

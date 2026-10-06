@@ -273,6 +273,37 @@ impl DbTxn {
             .push(Box::new(f));
     }
 
+    /// Run `f` inside a savepoint of this transaction.
+    ///
+    /// If `f` succeeds its changes are kept (and become durable only once this transaction
+    /// commits), otherwise they are rolled back without affecting the rest of this transaction.
+    /// Callbacks registered by `f` are moved to this transaction on success and dropped otherwise.
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub(crate) fn with_savepoint<T>(
+        &self,
+        f: impl FnOnce(&DbTxn) -> Result<T, Error>,
+    ) -> Result<T, Error> {
+        let mut savepoint = DbTxn {
+            txn: Some(block_on(self.inner().begin())?),
+            on_commit: Mutex::new(Vec::new()),
+        };
+        // on error the savepoint is dropped, which rolls it back
+        let res = f(&savepoint)?;
+        let txn = savepoint.txn.take().expect("txn already consumed");
+        block_on(txn.commit())?;
+        let callbacks = std::mem::take(
+            &mut *savepoint
+                .on_commit
+                .lock()
+                .expect("on_commit mutex is never poisoned"),
+        );
+        self.on_commit
+            .lock()
+            .expect("on_commit mutex is never poisoned")
+            .extend(callbacks);
+        Ok(res)
+    }
+
     pub(crate) fn commit(mut self) -> Result<(), Error> {
         let txn = self.txn.take().expect("txn already consumed");
         block_on(txn.commit())?;
