@@ -681,3 +681,190 @@ fn waiting_safe_height() {
         TransferStatus::Failed
     ));
 }
+
+/// failing a witness receive must not leave its pending witness state behind: a payment to its
+/// address is then an ordinary (spendable) UTXO, instead of being stuck as pending witness
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn witness_receive_cleanup() {
+    initialize();
+
+    let fast_sync = SyncOptions {
+        keychain: SyncKeychain::Colored,
+        strategy: SyncStrategy::FastSync,
+    };
+    // an RGB transfer to a witness receive, broadcast right away (as a donation) since the receive
+    // is not going to ACK it
+    let send_rgb_to = |party: &mut SinglesigParty, asset_id: &str, recipient_id: &str| {
+        let recipient_map = HashMap::from([(
+            asset_id.to_string(),
+            vec![Recipient {
+                assignment: Assignment::Fungible(66),
+                recipient_id: recipient_id.to_string(),
+                witness_data: Some(WitnessData {
+                    amount_sat: 1000,
+                    blinding: None,
+                }),
+                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+            }],
+        )]);
+        party
+            .wallet
+            .send(
+                party.online,
+                recipient_map,
+                true,
+                FEE_RATE,
+                MIN_CONFIRMATIONS,
+                default_send_expiration(),
+            )
+            .unwrap()
+            .txid
+    };
+    // the BTC part of a transfer to a failed witness receive is an ordinary UTXO, while its RGB part
+    // is ignored
+    let assert_only_btc_received =
+        |rcv_party: &mut SinglesigParty, receive_data: &ReceiveData, txid: &str| {
+            let txos = rcv_party.db_txos();
+            assert_eq!(txos.len(), 1);
+            assert_eq!(txos[0].txid, txid);
+            assert!(txos[0].exists);
+            assert!(!txos[0].pending_witness);
+            let unspents = rcv_party.list_unspents(false);
+            let unspent = unspents
+                .iter()
+                .find(|u| u.utxo.outpoint.txid == txid)
+                .unwrap();
+            assert!(unspent.rgb_allocations.is_empty());
+            assert!(rcv_party.list_assets(&[]).nia.unwrap().is_empty());
+            // a refresh doesn't bring the failed receive back
+            rcv_party.refresh_result(None, &[]).unwrap();
+            assert!(rcv_party.check_test_transfer_status_recipient(
+                &receive_data.recipient_id,
+                TransferStatus::Failed
+            ));
+        };
+
+    let mut party = get_funded_party!();
+    let asset = party.issue_asset_nia(None);
+
+    //
+    // payment after the fail, within the grace time: detected by fast sync as an ordinary UTXO
+    //
+
+    let mut rcv_party = get_empty_party!();
+
+    // a witness receive registers its script as pending witness
+    let receive_data = rcv_party.witness_receive();
+    assert_eq!(rcv_party.db_pending_witness_scripts().len(), 1);
+
+    // fail the receive: the script keeps being watched for a while, in case the counterparty
+    // broadcasts anyway
+    assert!(rcv_party.fail_transfers_single(receive_data.batch_transfer_idx));
+    assert!(
+        rcv_party.check_test_transfer_status_recipient(
+            &receive_data.recipient_id,
+            TransferStatus::Failed
+        )
+    );
+    rcv_party.sync(fast_sync);
+    assert_eq!(rcv_party.db_pending_witness_scripts().len(), 1);
+
+    // an RGB transfer to the receive, broadcast anyway: fast sync detects its BTC part as an
+    // ordinary UTXO, its RGB part is ignored
+    let txid = send_rgb_to(&mut party, &asset.asset_id, &receive_data.recipient_id);
+    mine(false);
+    // settle the donation, so that its change can be sent again
+    party.refresh_result(None, &[]).unwrap();
+    rcv_party.sync(fast_sync);
+    assert_only_btc_received(&mut rcv_party, &receive_data, &txid);
+    assert!(rcv_party.db_pending_witness_scripts().is_empty());
+    // the UTXO is usable (e.g. to allocate a blind receive)
+    rcv_party.blind_receive();
+
+    //
+    // payment before the fail (donation broadcast, then consignment refused): the TXO has been
+    // detected as pending witness and must be unflagged by the fail
+    //
+
+    let mut rcv_party = get_empty_party!();
+    let _guard = stop_mining();
+    // an out-of-band receive, so that the consignment can be provided (and refused) manually
+    let receive_data = rcv_party
+        .wallet
+        .witness_receive(
+            None,
+            Assignment::Any,
+            default_rcv_expiration(),
+            vec![],
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(66),
+            recipient_id: receive_data.recipient_id.clone(),
+            witness_data: Some(WitnessData {
+                amount_sat: 1000,
+                blinding: None,
+            }),
+            transport_endpoints: vec![],
+        }],
+    )]);
+    let OperationResult { txid, .. } = party
+        .wallet
+        .send(
+            party.online,
+            recipient_map,
+            true,
+            FEE_RATE,
+            MIN_CONFIRMATIONS,
+            default_send_expiration(),
+        )
+        .unwrap();
+    rcv_party.sync(fast_sync);
+    let txos = rcv_party.db_txos();
+    assert_eq!(txos.len(), 1);
+    assert_eq!(txos[0].txid, txid);
+    assert!(txos[0].pending_witness);
+    assert!(rcv_party.db_pending_witness_scripts().is_empty());
+    let outpoint = txos[0].outpoint();
+    // the UTXO is not usable while flagged as pending witness
+    let result = rcv_party.wallet.blind_receive(
+        None,
+        Assignment::Any,
+        default_rcv_expiration(),
+        TRANSPORT_ENDPOINTS.clone(),
+        MIN_CONFIRMATIONS,
+    );
+    assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
+
+    // refuse the consignment (invalid against its own genesis after a schema swap): the TXO
+    // becomes an ordinary UTXO
+    let consignment_path = party
+        .wallet
+        .get_send_consignment_path(&asset.asset_id, &txid)
+        .to_string_lossy()
+        .to_string();
+    let mut consignment = RgbTransfer::load_file(&consignment_path).unwrap();
+    consignment.schema = CollectibleFungibleAsset::schema();
+    let invalid_file = tempfile::NamedTempFile::with_prefix("witness_receive_cleanup::").unwrap();
+    consignment.save_file(invalid_file.path()).unwrap();
+    let refreshed = rcv_party
+        .wallet
+        .provide_out_of_band_consignment(
+            rcv_party.online,
+            invalid_file.path().to_string_lossy().to_string(),
+            vec![],
+        )
+        .unwrap();
+    assert_eq!(
+        refreshed.into_values().next().unwrap().updated_status,
+        Some(TransferStatus::Failed)
+    );
+    assert!(!rcv_party.db_txo(&outpoint).unwrap().pending_witness);
+    assert_only_btc_received(&mut rcv_party, &receive_data, &txid);
+    rcv_party.blind_receive();
+}
