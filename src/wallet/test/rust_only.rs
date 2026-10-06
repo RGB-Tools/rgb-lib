@@ -143,6 +143,7 @@ fn success() {
             &invoice_id(&txid, &recipient_pk),
             &(now().unix_timestamp() + 3600).to_string(),
             &recipient_pk,
+            1,
             None,
         )
         .unwrap();

@@ -509,9 +509,9 @@ fn consignment_extension_rename() {
     let send_path = party
         .wallet
         .get_send_consignment_path(&asset.asset_id, &txid);
-    let rcv_path = rcv_party
-        .wallet
-        .get_receive_consignment_path(&receive_data.recipient_id);
+    let rcv_path = rcv_party.wallet.get_receive_consignment_path(
+        &rcv_party.get_test_transfer_recipient(&receive_data.recipient_id),
+    );
     let valid_path = rcv_party
         .wallet
         .get_receive_valid_consignment_path(&rcv_path);

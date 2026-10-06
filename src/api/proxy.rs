@@ -9,9 +9,6 @@
 
 use super::*;
 
-/// Number of transfers an invoice is reserved for: invoices are single-use.
-pub(crate) const INVOICE_QUOTA: u32 = 1;
-
 pub struct ProxyClient {
     client: RestClient,
     base_url: String,
@@ -125,7 +122,7 @@ pub(crate) struct InvoiceCheckResponse {
 /// State of a transfer on a recipient proxy, as reported by `transfer.list`.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
-pub(crate) enum ProxyTransferState {
+pub enum ProxyTransferState {
     /// the transfer data (consignment and media) is available
     Pending,
     /// the transfer data has been deleted via `transfer.retrieved`
@@ -204,8 +201,9 @@ pub(crate) fn prepare_invoice_auth_message(
     invoice_id: &str,
     expires_at: &str,
     recipient_pk: &str,
+    quota: u32,
 ) -> String {
-    format!("{invoice_id}{expires_at}{recipient_pk}{INVOICE_QUOTA}")
+    format!("{invoice_id}{expires_at}{recipient_pk}{quota}")
 }
 
 /// Message authenticating an `ack.prepare` call on a proxy with proxy-level authentication
@@ -263,11 +261,17 @@ pub(crate) fn transfer_retrieved_message(transfer_id: &str) -> String {
     format!("{transfer_id}retrieved")
 }
 
+/// Message signed by the recipient to delete a transfer: `transfer_id ‖ "delete"`.
+pub(crate) fn delete_transfer_message(transfer_id: &str) -> String {
+    format!("{transfer_id}delete")
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 struct PrepareInvoiceParams {
     invoice_id: String,
     expires_at: String,
     recipient_pk: String,
+    quota: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     signature: Option<String>,
 }
@@ -297,7 +301,7 @@ struct ListTransfersParams {
 }
 
 #[derive(Debug, Serialize)]
-struct TransferRetrievedParams {
+struct TransferIDSignatureParams {
     transfer_id: String,
     signature: String,
 }
@@ -475,6 +479,7 @@ impl ProxyClient {
         invoice_id: &str,
         expiration: &str,
         recipient_pk: &str,
+        quota: u32,
         signature: Option<String>,
     ) -> Result<JsonRpcResponse<bool>, Error> {
         self.call(
@@ -483,6 +488,7 @@ impl ProxyClient {
                 invoice_id: invoice_id.to_string(),
                 expires_at: expiration.to_string(),
                 recipient_pk: recipient_pk.to_string(),
+                quota: quota.to_string(),
                 signature,
             }),
         )
@@ -577,7 +583,21 @@ impl ProxyClient {
     ) -> Result<JsonRpcResponse<bool>, Error> {
         self.call(
             "transfer.retrieved",
-            Some(TransferRetrievedParams {
+            Some(TransferIDSignatureParams {
+                transfer_id: transfer_id.to_string(),
+                signature: signature.to_string(),
+            }),
+        )
+    }
+
+    pub(crate) fn delete_transfer(
+        &self,
+        transfer_id: &str,
+        signature: &str,
+    ) -> Result<JsonRpcResponse<bool>, Error> {
+        self.call(
+            "transfer.delete",
+            Some(TransferIDSignatureParams {
                 transfer_id: transfer_id.to_string(),
                 signature: signature.to_string(),
             }),
@@ -792,12 +812,17 @@ mod tests {
 
     #[test]
     fn prepare_invoice_error() {
-        assert_proxy_errors(|c| c.prepare_invoice("123", "999", "pk", None));
+        assert_proxy_errors(|c| c.prepare_invoice("123", "999", "pk", 1, None));
     }
 
     #[test]
     fn list_transfers_error() {
         assert_proxy_errors(|c| c.list_transfers("123", "00", "999"));
+    }
+
+    #[test]
+    fn delete_transfer_error() {
+        assert_proxy_errors(|c| c.delete_transfer("123", "00"));
     }
 
     #[test]

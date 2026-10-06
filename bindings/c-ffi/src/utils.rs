@@ -272,6 +272,7 @@ pub(crate) fn blind_receive(
     transport_endpoints: *const c_char,
     min_confirmations: *const c_char,
     encryption: *const c_char,
+    quota: *const c_char,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = convert_optional_online(online)?;
@@ -282,6 +283,7 @@ pub(crate) fn blind_receive(
     let expiration_timestamp = ptr_to_num(expiration_timestamp)?;
     let min_confirmations = ptr_to_num(min_confirmations)?;
     let encryption = convert_optional_encryption(encryption)?;
+    let quota = convert_optional_number(quota)?;
     let res = wallet.blind_receive(
         online,
         asset_id,
@@ -290,6 +292,7 @@ pub(crate) fn blind_receive(
         transport_endpoints,
         min_confirmations,
         encryption,
+        quota,
     )?;
     Ok(serde_json::to_string(&res)?)
 }
@@ -1150,6 +1153,7 @@ pub(crate) fn witness_receive(
     transport_endpoints: *const c_char,
     min_confirmations: *const c_char,
     encryption: *const c_char,
+    quota: *const c_char,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = convert_optional_online(online)?;
@@ -1160,6 +1164,7 @@ pub(crate) fn witness_receive(
     let expiration_timestamp = ptr_to_num(expiration_timestamp)?;
     let min_confirmations = ptr_to_num(min_confirmations)?;
     let encryption = convert_optional_encryption(encryption)?;
+    let quota = convert_optional_number(quota)?;
     let res = wallet.witness_receive(
         online,
         asset_id,
@@ -1168,6 +1173,7 @@ pub(crate) fn witness_receive(
         transport_endpoints,
         min_confirmations,
         encryption,
+        quota,
     )?;
     Ok(serde_json::to_string(&res)?)
 }

@@ -4,12 +4,12 @@ pub(crate) mod rgb;
 
 use super::*;
 
-use crate::database::entities::{
-    asset, asset_transfer, batch_transfer, coloring, media, prelude::*, transfer,
-    transfer_transport_endpoint, transport_endpoint, txo, wallet_transaction,
-};
 #[cfg(feature = "_online")]
-use crate::database::entities::{pending_witness_script, reserved_txo};
+use crate::database::entities::reserved_txo;
+use crate::database::entities::{
+    asset, asset_transfer, batch_transfer, coloring, media, pending_witness_script, prelude::*,
+    transfer, transfer_transport_endpoint, transport_endpoint, txo, wallet_transaction,
+};
 
 /// Max number of values bound in a single `IN (...)` clause, well below SQLite's variable limit.
 const SQL_IN_CHUNK_SIZE: usize = 500;
@@ -250,6 +250,16 @@ fn unpaid_invoice_utxos<'a>(
         })
 }
 
+impl DbInvoice {
+    /// Whether the reusable invoice can still receive transfers: until its deadline a transfer
+    /// created before its expiration can still be discovered on its recipient proxies, so its
+    /// blinded UTXO keeps room for it, its witness script stays watched and its proxies are asked
+    /// for new transfers.
+    pub(crate) fn live(&self, now: i64) -> bool {
+        now < self.deadline
+    }
+}
+
 impl DbTxo {
     pub(crate) fn outpoint(&self) -> Outpoint {
         Outpoint {
@@ -459,12 +469,29 @@ impl DbTxn {
         Ok(res.last_insert_id)
     }
 
+    /// Watch a witness receive script, which may already be watched for another transfer to the
+    /// same reusable invoice.
     pub(crate) fn set_pending_witness_script(
         &self,
         pending_witness_script: DbPendingWitnessScriptActMod,
-    ) -> Result<i32, Error> {
-        let res =
-            block_on(PendingWitnessScript::insert(pending_witness_script).exec(self.inner()))?;
+    ) -> Result<(), Error> {
+        let res = block_on(
+            PendingWitnessScript::insert(pending_witness_script)
+                .on_conflict(
+                    sea_query::OnConflict::column(pending_witness_script::Column::Script)
+                        .do_nothing()
+                        .to_owned(),
+                )
+                .exec(self.inner()),
+        );
+        match res {
+            Ok(_) | Err(DbErr::RecordNotInserted) => Ok(()),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    pub(crate) fn set_invoice(&self, invoice: DbInvoiceActMod) -> Result<i32, Error> {
+        let res = block_on(Invoice::insert(invoice).exec(self.inner()))?;
         Ok(res.last_insert_id)
     }
 
@@ -725,6 +752,11 @@ impl DbTxn {
 
     pub(crate) fn get_backup_info(&self) -> Result<Option<DbBackupInfo>, Error> {
         Ok(block_on(BackupInfo::find().one(self.inner()))?)
+    }
+
+    #[cfg(feature = "_online")]
+    pub(crate) fn get_transfer(&self, idx: i32) -> Result<Option<DbTransfer>, Error> {
+        Ok(block_on(Transfer::find_by_id(idx).one(self.inner()))?)
     }
 
     pub(crate) fn get_batch_transfer(&self, idx: i32) -> Result<Option<DbBatchTransfer>, Error> {
@@ -1028,6 +1060,10 @@ impl DbTxn {
         Ok(block_on(Media::find().all(self.inner()))?)
     }
 
+    pub(crate) fn iter_invoices(&self) -> Result<Vec<DbInvoice>, Error> {
+        Ok(block_on(Invoice::find().all(self.inner()))?)
+    }
+
     #[cfg(feature = "_online")]
     pub(crate) fn iter_pending_witness_scripts(
         &self,
@@ -1054,6 +1090,16 @@ impl DbTxn {
 
     pub(crate) fn iter_tokens(&self) -> Result<Vec<DbToken>, Error> {
         Ok(block_on(Token::find().all(self.inner()))?)
+    }
+
+    /// The transfers to a reusable invoice.
+    #[cfg(feature = "_online")]
+    pub(crate) fn get_invoice_transfers(&self, invoice_idx: i32) -> Result<Vec<DbTransfer>, Error> {
+        Ok(block_on(
+            Transfer::find()
+                .filter(transfer::Column::InvoiceIdx.eq(invoice_idx))
+                .all(self.inner()),
+        )?)
     }
 
     pub(crate) fn iter_transfers(&self) -> Result<Vec<DbTransfer>, Error> {
@@ -1415,8 +1461,31 @@ impl DbTxn {
         let colorings = colorings.map(Ok).unwrap_or_else(|| self.iter_colorings())?;
         let transfers = transfers.map(Ok).unwrap_or_else(|| self.iter_transfers())?;
 
-        let pending_blinded_utxos =
+        let mut pending_blinded_utxos =
             unpaid_invoice_utxos(&transfers, &asset_transfers, &batch_transfers, &colorings);
+        // a reusable blind invoice can still receive transfers (each one assigning to its blinded
+        // UTXO) until its deadline, so its UTXO is kept, with room for the transfers it can still
+        // receive
+        let now = now().unix_timestamp();
+        for invoice in self.iter_invoices()?.iter().filter(|i| i.live(now)) {
+            let Some(Some(RecipientTypeFull::Blind { unblinded_utxo })) = transfers
+                .iter()
+                .find(|t| t.invoice_idx == Some(invoice.idx))
+                .map(|t| &t.recipient_type)
+            else {
+                continue;
+            };
+            let received = transfers
+                .iter()
+                .filter(|t| t.invoice_idx == Some(invoice.idx))
+                .filter(|t| {
+                    let (_, bt) = t.related_transfers(&asset_transfers, &batch_transfers);
+                    !bt.failed()
+                })
+                .count() as u32;
+            *pending_blinded_utxos.entry(unblinded_utxo).or_insert(0) +=
+                invoice.quota.saturating_sub(received);
+        }
 
         utxos
             .iter()

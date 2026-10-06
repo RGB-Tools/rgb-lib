@@ -1554,6 +1554,8 @@ impl MultisigWallet {
             transport_endpoints,
             recipient_type,
             encryption,
+            // invoices cannot be reused by multisig wallets
+            1,
         )?;
 
         // post operation and metadata to hub
@@ -1899,6 +1901,9 @@ impl MultisigWallet {
                 .unwrap_or_default(),
             encryption: invoice_data.encryption,
             retention_deadline: receive_metadata.retention_deadline,
+            quota: 1,
+            invoice_deadline: None,
+            receive_dir: None,
         };
         let batch_transfer_idx =
             self.store_receive_transfer(txn, &receive_data_internal, min_confirmations)?;

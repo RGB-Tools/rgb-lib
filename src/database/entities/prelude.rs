@@ -12,6 +12,7 @@ pub use super::bdk_txout::Entity as BdkTxout;
 pub use super::bdk_wallet::Entity as BdkWallet;
 pub use super::bdk_wallet_locked_outpoint::Entity as BdkWalletLockedOutpoint;
 pub use super::coloring::Entity as Coloring;
+pub use super::invoice::Entity as Invoice;
 pub use super::media::Entity as Media;
 pub use super::pending_witness_script::Entity as PendingWitnessScript;
 pub use super::reserved_txo::Entity as ReservedTxo;

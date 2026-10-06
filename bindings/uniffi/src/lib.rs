@@ -1659,6 +1659,7 @@ impl Wallet {
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
         encryption: Option<Encryption>,
+        quota: Option<u32>,
     ) -> Result<ReceiveData, RgbLibError> {
         self._get_wallet().blind_receive(
             online,
@@ -1668,9 +1669,11 @@ impl Wallet {
             transport_endpoints,
             min_confirmations,
             encryption,
+            quota,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn witness_receive(
         &self,
         online: Option<Online>,
@@ -1680,6 +1683,7 @@ impl Wallet {
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
         encryption: Option<Encryption>,
+        quota: Option<u32>,
     ) -> Result<ReceiveData, RgbLibError> {
         self._get_wallet().witness_receive(
             online,
@@ -1689,6 +1693,7 @@ impl Wallet {
             transport_endpoints,
             min_confirmations,
             encryption,
+            quota,
         )
     }
 
@@ -2252,7 +2257,7 @@ impl Wallet {
         self._get_wallet().sync(online, options.into())
     }
 
-    fn get_received_mint(&self, recipient_id: String) -> Result<Option<ReceivedMint>, RgbLibError> {
+    fn get_received_mint(&self, recipient_id: String) -> Result<Vec<ReceivedMint>, RgbLibError> {
         self._get_wallet().get_received_mint(recipient_id)
     }
 
@@ -2690,7 +2695,7 @@ impl MultisigWallet {
             .into())
     }
 
-    fn get_received_mint(&self, recipient_id: String) -> Result<Option<ReceivedMint>, RgbLibError> {
+    fn get_received_mint(&self, recipient_id: String) -> Result<Vec<ReceivedMint>, RgbLibError> {
         self._get_wallet().get_received_mint(recipient_id)
     }
 

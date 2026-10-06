@@ -784,6 +784,13 @@ impl Wallet {
     /// The `min_confirmations` number determines the minimum number of confirmations needed for
     /// the transaction anchoring the transfer for it to be considered final and move (while
     /// refreshing) to the [`TransferStatus::Settled`] status.
+    ///
+    /// An optional `quota` (default 1) sets the number of transfers the invoice can receive. A
+    /// reusable invoice (quota greater than 1) requires transport endpoints. Each transfer received
+    /// after the first one gets a transfer of its own, which is created when refreshing. The
+    /// blinded UTXO keeps room for the transfers the invoice can still receive and cannot be spent
+    /// until a transfer posted before the invoice expiration can no longer be downloaded (the
+    /// expiration plus the longest retention grace among the proxies the invoice is reserved on).
     pub fn blind_receive(
         &mut self,
         online: Option<Online>,
@@ -793,6 +800,7 @@ impl Wallet {
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
         encryption: Option<Encryption>,
+        quota: Option<u32>,
     ) -> Result<ReceiveData, Error> {
         info!(
             self.logger(),
@@ -810,6 +818,7 @@ impl Wallet {
             transport_endpoints,
             RecipientType::Blind,
             encryption,
+            quota.unwrap_or(1),
         )?;
         let batch_transfer_idx =
             self.store_receive_transfer(&txn, &receive_data_internal, min_confirmations)?;
@@ -867,6 +876,13 @@ impl Wallet {
     /// The `min_confirmations` number determines the minimum number of confirmations needed for
     /// the transaction anchoring the transfer for it to be considered final and move (while
     /// refreshing) to the [`TransferStatus::Settled`] status.
+    ///
+    /// An optional `quota` (default 1) sets the number of transfers the invoice can receive. A
+    /// reusable invoice (quota greater than 1) requires transport endpoints. Each transfer received
+    /// after the first one gets a transfer of its own, which is created when refreshing. Every
+    /// transfer to a reusable invoice uses a different seal blinding, derived from the keys of the
+    /// parties, which identifies the output paying it. The outputs paying a reusable invoice cannot
+    /// be spent until the transfer each pays has been accepted.
     pub fn witness_receive(
         &mut self,
         online: Option<Online>,
@@ -876,6 +892,7 @@ impl Wallet {
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
         encryption: Option<Encryption>,
+        quota: Option<u32>,
     ) -> Result<ReceiveData, Error> {
         info!(
             self.logger(),
@@ -893,6 +910,7 @@ impl Wallet {
             transport_endpoints,
             RecipientType::Witness,
             encryption,
+            quota.unwrap_or(1),
         )?;
         let batch_transfer_idx =
             self.store_receive_transfer(&txn, &receive_data_internal, min_confirmations)?;

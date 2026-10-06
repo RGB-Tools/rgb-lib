@@ -277,6 +277,8 @@ thread_local! {
     pub(crate) static MOCK_CONFIRMATION_MARGIN: RefCell<Option<u32>> = const { RefCell::new(None) };
     pub(crate) static RECEIVED_CONSIGNMENT_VALIDATIONS: RefCell<usize> = const { RefCell::new(0) };
     pub(crate) static MOCK_MINT_KEPT_AMOUNT: RefCell<Option<u64>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_GET_CONSIGNMENT_FAILURES: RefCell<u32> = const { RefCell::new(0) };
+    pub(crate) static MOCK_TRANSFER_DELETE_FAILURES: RefCell<u32> = const { RefCell::new(0) };
 }
 
 #[cfg(feature = "_online")]
@@ -639,6 +641,27 @@ pub fn count_received_consignment_validation() {
     RECEIVED_CONSIGNMENT_VALIDATIONS.with_borrow_mut(|n| *n += 1);
 }
 
+// simulate a recipient proxy failing to serve the consignment of a discovered transfer, for the
+// number of times set
+#[cfg(feature = "_online")]
+pub fn mock_get_consignment_fail() -> bool {
+    MOCK_GET_CONSIGNMENT_FAILURES.with_borrow_mut(|n| {
+        let fail = *n > 0;
+        *n = n.saturating_sub(1);
+        fail
+    })
+}
+
+// simulate a recipient proxy failing to delete a transfer, for the number of times set
+#[cfg(feature = "_online")]
+pub fn mock_transfer_delete_fail() -> bool {
+    MOCK_TRANSFER_DELETE_FAILURES.with_borrow_mut(|n| {
+        let fail = *n > 0;
+        *n = n.saturating_sub(1);
+        fail
+    })
+}
+
 #[cfg(feature = "_online")]
 pub fn mock_send_end_crash() -> bool {
     if MOCK_SEND_END_CRASH.take().is_none() {
@@ -701,6 +724,8 @@ mod inflate;
 mod inspect_consignment;
 #[cfg(feature = "electrum")]
 mod inspect_fascia;
+#[cfg(feature = "electrum")]
+mod invoice_reuse;
 #[cfg(feature = "electrum")]
 mod issue_asset_bfa;
 #[cfg(feature = "electrum")]

@@ -518,6 +518,13 @@ pub enum Error {
         details: String,
     },
 
+    /// The provided invoice quota is invalid
+    #[error("Invalid quota: {details}")]
+    InvalidQuota {
+        /// Error details
+        details: String,
+    },
+
     /// The provided recipient data is invalid
     #[error("The provided recipient data is invalid: {details}")]
     InvalidRecipientData {

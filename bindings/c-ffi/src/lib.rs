@@ -143,6 +143,7 @@ pub extern "C" fn rgblib_blind_receive(
     transport_endpoints: *const c_char,
     min_confirmations: *const c_char,
     encryption: *const c_char,
+    quota: *const c_char,
 ) -> CResultString {
     blind_receive(
         wallet,
@@ -153,6 +154,7 @@ pub extern "C" fn rgblib_blind_receive(
         transport_endpoints,
         min_confirmations,
         encryption,
+        quota,
     )
     .into()
 }
@@ -830,6 +832,7 @@ pub extern "C" fn rgblib_witness_receive(
     transport_endpoints: *const c_char,
     min_confirmations: *const c_char,
     encryption: *const c_char,
+    quota: *const c_char,
 ) -> CResultString {
     witness_receive(
         wallet,
@@ -840,6 +843,7 @@ pub extern "C" fn rgblib_witness_receive(
         transport_endpoints,
         min_confirmations,
         encryption,
+        quota,
     )
     .into()
 }

@@ -1958,7 +1958,7 @@ fn mint_refused() {
             wlt.multisig
                 .get_received_mint(receive_data.recipient_id.clone())
                 .unwrap()
-                .is_none()
+                .is_empty()
         );
     }
     check_transfer_status(
@@ -1987,6 +1987,6 @@ fn mint_refused() {
             .multisig
             .get_received_mint(receive_data.recipient_id.clone())
             .unwrap()
-            .is_none()
+            .is_empty()
     );
 }

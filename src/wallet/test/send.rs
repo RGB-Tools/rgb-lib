@@ -345,6 +345,7 @@ fn encryption_variants() {
                 TRANSPORT_ENDPOINTS.clone(),
                 MIN_CONFIRMATIONS,
                 Some(encryption),
+                None,
             )
             .unwrap();
         let recipient_map = HashMap::from([(
@@ -2958,6 +2959,7 @@ fn recipient_refuses_tampered_consignment() {
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
             Some(Encryption::Unsupported),
+            None,
         )
         .unwrap();
 
@@ -3028,6 +3030,7 @@ fn recipient_refuses_consignment_not_paying_it() {
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
             Some(Encryption::Unsupported),
+            None,
         )
         .unwrap();
     let consignment_path = party
@@ -4269,6 +4272,7 @@ fn fail() {
         default_rcv_expiration(),
         transport_endpoints,
         MIN_CONFIRMATIONS,
+        None,
         None,
     );
     assert!(matches!(result, Err(Error::NoValidTransportEndpoint)));
@@ -6532,6 +6536,7 @@ fn min_confirmations_common(
             TRANSPORT_ENDPOINTS.clone(),
             min_confirmations,
             None,
+            None,
         )
         .unwrap();
     let recipient_map = HashMap::from([(
@@ -6624,6 +6629,7 @@ fn min_confirmations_common(
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             min_confirmations,
+            None,
             None,
         )
         .unwrap();
@@ -9089,6 +9095,7 @@ fn blinded_change_failed_xfer() {
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
             None,
+            None,
         )
         .unwrap();
     let recipient_map = HashMap::from([(
@@ -9244,6 +9251,7 @@ fn blinded_change_send_begin_only() {
             default_rcv_expiration(), // v1.0: keep the proxy reservation valid for the send; the recipient is failed via its explicit batch idx (is_fallible, no expiry needed)
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
+            None,
             None,
         )
         .unwrap();
@@ -9402,6 +9410,7 @@ fn donation_recipient_nack() {
             default_rcv_expiration(), // v1.0: keep the proxy reservation valid for the send; the recipient is failed via its explicit batch idx (is_fallible, no expiry needed)
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
+            None,
             None,
         )
         .unwrap();
@@ -10247,6 +10256,7 @@ fn unsafe_history_waits_for_safe_height() {
             vec![],
             2,
             None,
+            None,
         )
         .unwrap();
     let recipient_map_2 = HashMap::from([(
@@ -10434,6 +10444,7 @@ fn out_of_band_success() {
             vec![],
             MIN_CONFIRMATIONS,
             None,
+            None,
         )
         .unwrap();
     let receive_witness = rcv_party
@@ -10445,6 +10456,7 @@ fn out_of_band_success() {
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
+            None,
             None,
         )
         .unwrap();
@@ -10604,6 +10616,7 @@ fn out_of_band_fail() {
             vec![],
             MIN_CONFIRMATIONS,
             None,
+            None,
         )
         .unwrap();
     let recipient_map = HashMap::from([(
@@ -10722,6 +10735,7 @@ fn out_of_band_fail() {
             vec![],
             MIN_CONFIRMATIONS,
             None,
+            None,
         )
         .unwrap();
     let recipient_map = HashMap::from([(
@@ -10804,6 +10818,7 @@ fn out_of_band_fail() {
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
+            None,
             None,
         )
         .unwrap();
@@ -10889,6 +10904,7 @@ fn out_of_band_media() {
             vec![],
             MIN_CONFIRMATIONS,
             None,
+            None,
         )
         .unwrap();
     let receive_data_2 = rcv_party
@@ -10901,6 +10917,7 @@ fn out_of_band_media() {
             vec![],
             MIN_CONFIRMATIONS,
             None,
+            None,
         )
         .unwrap();
     let receive_data_3 = rcv_party
@@ -10912,6 +10929,7 @@ fn out_of_band_media() {
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
+            None,
             None,
         )
         .unwrap();
@@ -11041,6 +11059,7 @@ fn out_of_band_media_cleanup() {
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
+            None,
             None,
         )
         .unwrap();
@@ -11242,6 +11261,7 @@ fn out_of_band_mixed_batch() {
             vec![],
             MIN_CONFIRMATIONS,
             None,
+            None,
         )
         .unwrap();
 
@@ -11383,6 +11403,7 @@ fn out_of_band_consignment_multiple_receives() {
             vec![],
             MIN_CONFIRMATIONS,
             None,
+            None,
         )
         .unwrap();
     let receive_2 = rcv_party
@@ -11394,6 +11415,7 @@ fn out_of_band_consignment_multiple_receives() {
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
+            None,
             None,
         )
         .unwrap();
@@ -11803,7 +11825,9 @@ fn recipient_fails_unconfirmed_past_deadline() {
     assert_eq!(batch_transfer.broadcast_deadline, Some(deadline));
     let saved_tx = rcv_party
         .wallet
-        .get_receive_consignment_path(&receive_data.recipient_id)
+        .get_receive_consignment_path(
+            &rcv_party.get_test_transfer_recipient(&receive_data.recipient_id),
+        )
         .with_file_name("rcv_signed.tx");
     assert!(saved_tx.exists());
 

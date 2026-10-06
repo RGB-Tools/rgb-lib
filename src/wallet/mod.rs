@@ -75,8 +75,8 @@ pub(crate) use objects::{
     CleanAckOutcome, ConsignmentPayment, ExtraAllocations, FailTransfersOutcome, LocalRecipient,
     LocalRecipientData, LocalWitnessData, MainTransition, OnlineData, PaymentSeal,
     PendingMintLocks, PrepareRgbPsbtResult, PrepareTransferPsbtResult, ProxyReceiveData,
-    ReceiveMatcher, ReceiveMode, ReceivedConsignmentMeta, RefreshResultTrait, SelectedInputs,
-    SentMint, TakenSlots, TryFailBatchTransferOutcome,
+    ReceiveMatcher, ReceiveMode, ReceivedConsignmentMeta, RefreshResultTrait, SavedConsignment,
+    SelectedInputs, SentMint, TakenSlots, TryFailBatchTransferOutcome, WatchedWitnessScript,
 };
 pub(crate) use objects::{
     AssetTransferColoringInfo, InfoAssetTransfer, InfoBatchTransfer, IssueData, IssuedAssetDetails,
@@ -120,6 +120,16 @@ pub const MAX_EXPIRATION_SECS: u32 = 10 * 365 * 24 * 60 * 60;
 /// update them along with it.
 #[cfg(feature = "_online")]
 pub(crate) const PROXY_CLOCK_SKEW_MARGIN_SECS: u32 = 300;
+
+/// The clock skew margin (see [`PROXY_CLOCK_SKEW_MARGIN_SECS`]), which tests can mock.
+#[cfg(feature = "_online")]
+pub(crate) fn clock_skew_margin() -> u32 {
+    #[cfg(test)]
+    if let Some(margin) = mock_clock_skew_margin() {
+        return margin;
+    }
+    PROXY_CLOCK_SKEW_MARGIN_SECS
+}
 
 /// Minimum time, in seconds, between the expiration of an outgoing operation and the earliest
 /// invoice expiration among its recipients, so the TX can only be released while the recipients

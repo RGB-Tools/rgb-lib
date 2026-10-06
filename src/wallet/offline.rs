@@ -194,6 +194,15 @@ pub trait WalletOffline: WalletBackup {
             .filter(move |u| u.keychain == keychain)
     }
 
+    /// The number of allocations a UTXO can be given: no more than it can hold and still be spent,
+    /// whatever the setting (counting them all, an upper bound for the ones of each asset).
+    fn max_utxo_allocations(&self) -> u32 {
+        Ord::min(
+            self.max_allocations_per_utxo(),
+            u32::try_from(max_utxo_asset_allocations()).unwrap_or(u32::MAX),
+        )
+    }
+
     fn get_available_allocations<T>(
         &self,
         unspents: T,
@@ -208,14 +217,8 @@ pub trait WalletOffline: WalletBackup {
             .iter_mut()
             .for_each(|u| u.rgb_allocations.retain(|a| !a.status.failed()));
         let max_allocs = max_allocations.unwrap_or_else(|| {
-            // a UTXO can't be given more allocations than it can hold and still be spent, whatever
-            // the setting (counting them all, an upper bound for the ones of each asset)
-            let max_per_utxo = Ord::min(
-                self.max_allocations_per_utxo(),
-                u32::try_from(max_utxo_asset_allocations()).unwrap_or(u32::MAX),
-            );
             // guaranteed > 0; guard here too to avoid future regression
-            max_per_utxo
+            self.max_utxo_allocations()
                 .checked_sub(1)
                 .expect("max allocations per UTXO must be greater than 0")
         });
@@ -1323,11 +1326,35 @@ pub trait WalletOffline: WalletBackup {
         transport_endpoints: Vec<String>,
         recipient_type: RecipientType,
         encryption: Option<Encryption>,
+        quota: u32,
     ) -> Result<ReceiveDataInternal, Error> {
         let encryption = encryption.unwrap_or(Encryption::Required);
 
         // no need to be online if an out-of-band exchange is requested
         let out_of_band = transport_endpoints.is_empty();
+
+        // a reusable invoice relies on the recipient proxies to keep its transfers apart and on the
+        // seal blinding derived from the keys of both parties to tell which outputs pay each
+        // transfer, so the out-of-band exchange cannot be used
+        if quota == 0 {
+            return Err(Error::InvalidQuota {
+                details: s!("must be at least 1"),
+            });
+        }
+        if out_of_band && quota > 1 {
+            return Err(Error::InvalidQuota {
+                details: s!("a reusable invoice requires transport endpoints"),
+            });
+        }
+        // the blinded UTXO needs room for an allocation per transfer the invoice can receive
+        if recipient_type == RecipientType::Blind && quota > self.max_utxo_allocations() {
+            return Err(Error::InvalidQuota {
+                details: format!(
+                    "a blind invoice can receive at most {} transfers",
+                    self.max_utxo_allocations()
+                ),
+            });
+        }
         #[cfg(not(feature = "_online"))]
         if !out_of_band {
             return Err(Error::Offline);
@@ -1361,7 +1388,10 @@ pub trait WalletOffline: WalletBackup {
                             })
                     });
                 }
-                let utxo = self.get_utxo(txn, &[], Some(&unspents), true, None)?;
+                // the blinded UTXO needs room for an allocation per transfer the invoice can
+                // receive
+                let max_allocations = self.max_utxo_allocations() - quota;
+                let utxo = self.get_utxo(txn, &[], Some(&unspents), true, Some(max_allocations))?;
                 let unblinded_utxo = utxo.outpoint();
                 debug!(
                     self.logger(),
@@ -1467,6 +1497,10 @@ pub trait WalletOffline: WalletBackup {
         // grace among them, until which a transfer to the invoice can still be downloaded
         #[allow(unused_mut)]
         let mut retention_deadline = None;
+        // for an invoice reserved on proxies, the invoice expiration plus the longest retention
+        // grace among them, whatever the recipient type
+        #[cfg(feature = "_online")]
+        let mut proxies_retention_deadline: Option<i64> = None;
 
         // reserve the invoice on the proxy/proxies; skipped for the out-of-band exchange
         #[cfg(feature = "_online")]
@@ -1491,6 +1525,7 @@ pub trait WalletOffline: WalletBackup {
                             &invoice_id,
                             &reservation_expiration,
                             &recipient_pk,
+                            quota,
                         ),
                     )
                 });
@@ -1498,16 +1533,17 @@ pub trait WalletOffline: WalletBackup {
                     &invoice_id,
                     &reservation_expiration,
                     &recipient_pk,
+                    quota,
                     signature,
                 ) {
                     Ok(res) if res.error.is_none() => {
                         reserved = true;
-                        if matches!(recipient_type_full, RecipientTypeFull::Blind { .. }) {
-                            let deadline = expiration_timestamp
-                                .saturating_add(i64::from(proxy_retention_grace(&info)));
-                            retention_deadline =
-                                Some(max(retention_deadline.unwrap_or(deadline), deadline));
-                        }
+                        let deadline = expiration_timestamp
+                            .saturating_add(i64::from(proxy_retention_grace(&info)));
+                        proxies_retention_deadline = Some(max(
+                            proxies_retention_deadline.unwrap_or(deadline),
+                            deadline,
+                        ));
                     }
                     Ok(res) => match map_proxy_error(res.error.unwrap()) {
                         // a draining proxy, the invoice can be reserved on the other ones
@@ -1525,8 +1561,28 @@ pub trait WalletOffline: WalletBackup {
                     Error::NoValidTransportEndpoint
                 });
             }
+            if matches!(recipient_type_full, RecipientTypeFull::Blind { .. }) {
+                retention_deadline = proxies_retention_deadline;
+            }
         }
+        // a transfer to a reusable invoice can be discovered until the retention deadline has
+        // passed on the proxies' clocks too
+        #[cfg(feature = "_online")]
+        let invoice_deadline = proxies_retention_deadline
+            .filter(|_| quota > 1)
+            .map(|d| d.saturating_add(i64::from(clock_skew_margin())));
+        #[cfg(not(feature = "_online"))]
+        let invoice_deadline = None;
 
+        // the recipient ID of a reusable invoice is shared by its transfers, so the data of each
+        // transfer is kept in a directory of its own, named after the (unique) invoice key
+        let receive_dir = (quota > 1).then(|| {
+            format!(
+                "{}_{}",
+                self.normalize_recipient_id(&recipient_id),
+                hex::encode(&recipient_vk.to_bytes()[..8])
+            )
+        });
         Ok(ReceiveDataInternal {
             asset_id,
             detected_assignment,
@@ -1542,6 +1598,9 @@ pub trait WalletOffline: WalletBackup {
             recipient_pubkey: recipient_vk.to_bytes().to_vec(),
             encryption,
             retention_deadline,
+            quota,
+            invoice_deadline,
+            receive_dir,
         })
     }
 
@@ -1571,7 +1630,19 @@ pub trait WalletOffline: WalletBackup {
             ..Default::default()
         };
         let asset_transfer_idx = txn.set_asset_transfer(asset_transfer)?;
+        // a reusable invoice keeps receiving transfers after this first one, until it expires
+        let invoice_idx = match receive_data_internal.invoice_deadline {
+            Some(deadline) => Some(txn.set_invoice(DbInvoiceActMod {
+                quota: ActiveValue::Set(receive_data_internal.quota),
+                asset_id: ActiveValue::Set(receive_data_internal.asset_id.clone()),
+                deadline: ActiveValue::Set(deadline),
+                ..Default::default()
+            })?),
+            None => None,
+        };
         let transfer = DbTransferActMod {
+            invoice_idx: ActiveValue::Set(invoice_idx),
+            receive_dir: ActiveValue::Set(receive_data_internal.receive_dir.clone()),
             asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
             requested_assignment: ActiveValue::Set(Some(
                 receive_data_internal.detected_assignment.clone(),
@@ -1666,6 +1737,32 @@ pub trait WalletOffline: WalletBackup {
         let db_data = txn.get_db_data(true)?;
         let mut transfers_changed = false;
 
+        // the transfers to a reusable invoice are what its data is reached through (e.g. its
+        // blinded UTXO or script and its recipient proxies), and the failed ones are deleted from
+        // the proxies until they stop listing them: they are kept while the invoice can still
+        // receive transfers (see DbInvoice::live), as deleting them would silently stop it
+        let now = now().unix_timestamp();
+        let live_invoices: HashSet<i32> = txn
+            .iter_invoices()?
+            .into_iter()
+            .filter(|i| i.live(now))
+            .map(|i| i.idx)
+            .collect();
+        let live_invoice_asset_transfers: HashSet<i32> = if live_invoices.is_empty() {
+            HashSet::new()
+        } else {
+            txn.iter_transfers()?
+                .into_iter()
+                .filter(|t| t.invoice_idx.is_some_and(|i| live_invoices.contains(&i)))
+                .map(|t| t.asset_transfer_idx)
+                .collect()
+        };
+        let of_live_invoice = |asset_transfers: &[DbAssetTransfer]| {
+            asset_transfers
+                .iter()
+                .any(|at| live_invoice_asset_transfers.contains(&at.idx))
+        };
+
         if let Some(batch_transfer_idx) = batch_transfer_idx {
             let batch_transfer =
                 txn.get_batch_transfer_or_fail(batch_transfer_idx, &db_data.batch_transfers)?;
@@ -1675,6 +1772,10 @@ pub trait WalletOffline: WalletBackup {
             }
 
             let asset_transfers = batch_transfer.get_asset_transfers(&db_data.asset_transfers);
+
+            if of_live_invoice(&asset_transfers) {
+                return Err(Error::CannotDeleteBatchTransfer);
+            }
 
             if no_asset_only {
                 let connected_assets = asset_transfers.iter().any(|t| t.asset_id.is_some());
@@ -1701,6 +1802,9 @@ pub trait WalletOffline: WalletBackup {
                 .collect();
             for batch_transfer in batch_transfers.iter_mut() {
                 let asset_transfers = batch_transfer.get_asset_transfers(&db_data.asset_transfers);
+                if of_live_invoice(&asset_transfers) {
+                    continue;
+                }
                 if no_asset_only {
                     let connected_assets = asset_transfers.iter().any(|t| t.asset_id.is_some());
                     if connected_assets {
@@ -2623,21 +2727,27 @@ pub trait WalletOffline: WalletBackup {
         recipient_id.replace(":", "_")
     }
 
-    fn get_receive_consignment_path(&self, recipient_id: &str) -> PathBuf {
-        self.get_transfers_dir()
-            .join(self.normalize_recipient_id(recipient_id))
-            .join(CONSIGNMENT_RCV_FILE.as_str())
+    /// Directory holding the data of an incoming transfer: named after its recipient ID, unless
+    /// the recipient ID is shared with other transfers (reusable invoice).
+    fn get_receive_dir(&self, transfer: &DbTransfer) -> PathBuf {
+        let dir = transfer.receive_dir.clone().unwrap_or_else(|| {
+            self.normalize_recipient_id(
+                transfer
+                    .recipient_id
+                    .as_ref()
+                    .expect("transfer should have a recipient ID"),
+            )
+        });
+        self.get_transfers_dir().join(dir)
     }
 
-    fn get_received_mint_path(&self, recipient_id: &str) -> PathBuf {
-        self.get_transfers_dir()
-            .join(self.normalize_recipient_id(recipient_id))
-            .join(MINT_RCV_FILE)
+    fn get_received_mint_path(&self, transfer: &DbTransfer) -> PathBuf {
+        self.get_receive_dir(transfer).join(MINT_RCV_FILE)
     }
 
-    /// The details of the mint received on `recipient_id`, saved once the wallet has checked it.
-    fn read_received_mint(&self, recipient_id: &str) -> Result<Option<ReceivedMint>, Error> {
-        let path = self.get_received_mint_path(recipient_id);
+    /// The details of the mint received by `transfer`, saved once the wallet has checked it.
+    fn read_received_mint(&self, transfer: &DbTransfer) -> Result<Option<ReceivedMint>, Error> {
+        let path = self.get_received_mint_path(transfer);
         if !path.exists() {
             return Ok(None);
         }
@@ -2650,47 +2760,49 @@ pub trait WalletOffline: WalletBackup {
         &self,
         txn: &DbTxn,
         recipient_id: &str,
-    ) -> Result<Option<ReceivedMint>, Error> {
-        // the receive is looked up by the recipient ID exactly as the wallet stored it, as the
-        // path of the mint details is built from it: another form of it (e.g. with `_` in place
-        // of `:`, or a relative path) naming the same or other files finds no receive
+    ) -> Result<Vec<ReceivedMint>, Error> {
+        // the recipient ID can be shared by the transfers to a reused invoice, each receiving its
+        // own mint, and by the outgoing one of a mint to self, while a failed receive has nothing
+        // left to lock for
         let db_data = txn.get_db_data(false)?;
-        let mut receives = db_data
+        let mut received_mints = vec![];
+        for transfer in db_data
             .transfers
             .iter()
             .filter(|t| t.recipient_id.as_deref() == Some(recipient_id))
-            .filter_map(|t| {
-                db_data
-                    .asset_transfers
-                    .iter()
-                    .find(|at| at.idx == t.asset_transfer_idx)
-            })
-            .filter_map(|at| {
-                db_data
-                    .batch_transfers
-                    .iter()
-                    .find(|bt| bt.idx == at.batch_transfer_idx)
-            })
-            .filter(|bt| bt.incoming);
-        let Some(receive) = receives.next() else {
-            return Ok(None);
-        };
-        // a recipient ID is generated for a single receive, so it can't name more than one
-        if receives.next().is_some() {
-            return Err(Error::Internal {
-                details: format!("multiple receives for recipient ID {recipient_id}"),
-            });
+        {
+            let receiving = db_data
+                .asset_transfers
+                .iter()
+                .find(|at| at.idx == transfer.asset_transfer_idx)
+                .and_then(|at| {
+                    db_data
+                        .batch_transfers
+                        .iter()
+                        .find(|bt| bt.idx == at.batch_transfer_idx)
+                })
+                .is_some_and(|bt| bt.incoming && bt.status != TransferStatus::Failed);
+            if !receiving {
+                continue;
+            }
+            if let Some(received_mint) = self.read_received_mint(transfer)? {
+                received_mints.push(received_mint);
+            }
         }
-        // no lock should be made for a failed receive
-        if receive.status == TransferStatus::Failed {
-            return Ok(None);
-        }
-        self.read_received_mint(recipient_id)
+        Ok(received_mints)
     }
 
-    fn get_receive_consignment_meta_path(&self, recipient_id: &str) -> PathBuf {
-        self.get_transfers_dir()
-            .join(self.normalize_recipient_id(recipient_id))
+    fn get_receive_consignment_path(&self, transfer: &DbTransfer) -> PathBuf {
+        Self::receive_consignment_path_in(&self.get_receive_dir(transfer))
+    }
+
+    /// Path of the received consignment in the given receive dir (see [`Self::get_receive_dir`])
+    fn receive_consignment_path_in(receive_dir: &Path) -> PathBuf {
+        receive_dir.join(CONSIGNMENT_RCV_FILE.as_str())
+    }
+
+    fn get_receive_consignment_meta_path(&self, transfer: &DbTransfer) -> PathBuf {
+        self.get_receive_dir(transfer)
             .join(CONSIGNMENT_RCV_META_FILE)
     }
 
@@ -2772,7 +2884,7 @@ pub trait WalletOffline: WalletBackup {
             // no consignment is produced for an inflation, which has no counterparty
             TransferKind::Inflation => None,
             TransferKind::ReceiveBlind | TransferKind::ReceiveWitness => {
-                Some(self.get_receive_consignment_path(&transfer.recipient_id.clone().unwrap()))
+                Some(self.get_receive_consignment_path(transfer))
             }
             TransferKind::Issuance => {
                 Some(self.get_issue_consignment_path(&asset_transfer.asset_id.clone().unwrap()))
@@ -3456,7 +3568,11 @@ pub trait RgbWalletOpsOffline: WalletOffline + WalletBackup {
     /// If no `batch_transfer_idx` is provided, all failed transfers will be deleted, and if
     /// `no_asset_only` is true transfers with an associated asset ID will be skipped.
     ///
-    /// Eligible transfers are the ones in status [`TransferStatus::Failed`].
+    /// Eligible transfers are the ones in status [`TransferStatus::Failed`], except the transfers
+    /// to a reusable invoice that can still receive transfers (until its expiration plus the
+    /// retention grace of its recipient proxies): deleting them would stop the wallet from
+    /// receiving the invoice's next transfers. These are skipped when deleting all failed
+    /// transfers, while a `batch_transfer_idx` of one returns an error.
     fn delete_transfers(
         &self,
         batch_transfer_idx: Option<i32>,
@@ -3542,9 +3658,10 @@ pub trait RgbWalletOpsOffline: WalletOffline + WalletBackup {
     /// always returns `None` for one: no lock should be made for a mint paying a multisig wallet.
     /// This is temporary, it will be addressed along with other open issues of multisig wallets.
     ///
-    /// Returns `None` if no mint checked by the wallet pays `recipient_id` (e.g. it hasn't been
-    /// received or checked yet, or it has been refused or failed).
-    fn get_received_mint(&self, recipient_id: String) -> Result<Option<ReceivedMint>, Error> {
+    /// A reused invoice can receive several mints, one per transfer, each needing its own lock.
+    /// Returns an empty list if no mint checked by the wallet pays `recipient_id` (e.g. it hasn't
+    /// been received or checked yet, or it has been refused or failed).
+    fn get_received_mint(&self, recipient_id: String) -> Result<Vec<ReceivedMint>, Error> {
         info!(self.logger(), "Getting received mint...");
         let txn = self.database().begin_transaction()?;
         let received_mint = self.get_received_mint_impl(&txn, &recipient_id)?;

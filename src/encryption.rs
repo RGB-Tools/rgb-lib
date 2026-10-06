@@ -168,6 +168,16 @@ pub(crate) fn transfer_id(invoice_id: &str, sender_pk_hex: &str) -> String {
     ))
 }
 
+/// Whether a transfer ID received from a proxy has the form of the ones computed by
+/// [`transfer_id`]: a hex-encoded SHA-256 digest.
+#[cfg(feature = "_online")]
+pub(crate) fn is_transfer_id(transfer_id: &str) -> bool {
+    transfer_id.len() == 64
+        && transfer_id
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
 /// Number of leading zero bits of a digest, starting from the most significant bit of its first
 /// byte.
 #[cfg(feature = "_online")]
@@ -444,6 +454,20 @@ mod tests {
                 format!("rgb-proxy-server/transfer/v1{invoice_id}bb").as_bytes()
             ))
         );
+        assert!(is_transfer_id(&transfer_id(&invoice_id, "bb")));
+        // a transfer ID listed by a proxy names a directory: anything else than a digest is
+        // rejected
+        for invalid in [
+            "",
+            "abc",
+            &"0".repeat(63),
+            &"0".repeat(65),
+            &"A".repeat(64),
+            &format!("{}/..", "0".repeat(61)),
+            &format!("{}é", "0".repeat(62)),
+        ] {
+            assert!(!is_transfer_id(invalid), "{invalid}");
+        }
     }
 
     #[test]

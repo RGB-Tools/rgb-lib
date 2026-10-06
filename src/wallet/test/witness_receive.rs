@@ -23,6 +23,7 @@ fn success() {
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
             None,
+            None,
         )
         .unwrap();
     let bak_info_after = party.db_backup_info();
@@ -51,6 +52,7 @@ fn success() {
             expiration_timestamp,
             TRANSPORT_ENDPOINTS.clone(),
             min_confirmations,
+            None,
             None,
         )
         .unwrap();
@@ -97,6 +99,7 @@ fn success() {
         transport_endpoints.clone(),
         MIN_CONFIRMATIONS,
         None,
+        None,
     );
     assert!(result.is_ok());
     let transfer = party.get_test_transfer_recipient(&result.unwrap().recipient_id);
@@ -114,7 +117,21 @@ fn schema_assignment_combinations() {
     // more UTXOs to have free allocation slots for the issuances
     party.create_utxos_default();
 
-    check_receive_schema_assignment_combinations(&mut party, Wallet::witness_receive);
+    check_receive_schema_assignment_combinations(
+        &mut party,
+        |w, online, asset_id, assignment, expiration, endpoints, min_confirmations, encryption| {
+            w.witness_receive(
+                online,
+                asset_id,
+                assignment,
+                expiration,
+                endpoints,
+                min_confirmations,
+                encryption,
+                None,
+            )
+        },
+    );
 }
 
 #[test]
@@ -133,6 +150,7 @@ fn fail() {
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
             None,
+            None,
         )
         .unwrap_err();
     #[cfg(feature = "_online")]
@@ -150,6 +168,7 @@ fn fail() {
             vec![],
             MIN_CONFIRMATIONS,
             None,
+            None,
         )
         .unwrap_err();
     assert_matches!(result, Error::InvalidExpiration);
@@ -163,6 +182,7 @@ fn fail() {
             (now().unix_timestamp() + i64::from(MAX_EXPIRATION_SECS) + 1) as u64,
             vec![],
             MIN_CONFIRMATIONS,
+            None,
             None,
         )
         .unwrap_err();

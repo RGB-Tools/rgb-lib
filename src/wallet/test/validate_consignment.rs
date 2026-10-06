@@ -102,9 +102,9 @@ fn success() {
     rcv_party.wait_for_refresh(None);
 
     // the validated consignment kept by the recipient is not a consignment to be validated
-    let rcv_consignment_path = rcv_party
-        .wallet
-        .get_receive_consignment_path(&receive_data.recipient_id);
+    let rcv_consignment_path = rcv_party.wallet.get_receive_consignment_path(
+        &rcv_party.get_test_transfer_recipient(&receive_data.recipient_id),
+    );
     let valid_consignment_path = rcv_party
         .wallet
         .get_receive_valid_consignment_path(&rcv_consignment_path);

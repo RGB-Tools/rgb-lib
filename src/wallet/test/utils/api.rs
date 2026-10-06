@@ -1578,6 +1578,7 @@ impl SinglesigParty {
                 TRANSPORT_ENDPOINTS.clone(),
                 MIN_CONFIRMATIONS,
                 None,
+                None,
             )
             .unwrap()
     }
@@ -1590,6 +1591,7 @@ impl SinglesigParty {
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
+            None,
             None,
         )
     }
@@ -1609,6 +1611,7 @@ impl SinglesigParty {
                 transport_endpoints,
                 MIN_CONFIRMATIONS,
                 None,
+                None,
             )
             .unwrap()
     }
@@ -1622,6 +1625,7 @@ impl SinglesigParty {
                 default_rcv_expiration(),
                 TRANSPORT_ENDPOINTS.clone(),
                 MIN_CONFIRMATIONS,
+                None,
                 None,
             )
             .unwrap()

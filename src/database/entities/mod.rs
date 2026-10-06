@@ -14,6 +14,7 @@ pub mod bdk_txout;
 pub mod bdk_wallet;
 pub mod bdk_wallet_locked_outpoint;
 pub mod coloring;
+pub mod invoice;
 pub mod media;
 pub mod pending_witness_script;
 pub mod reserved_txo;

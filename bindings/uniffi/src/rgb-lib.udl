@@ -107,6 +107,7 @@ interface RgbLibError {
   InvalidProxyProtocol(string version);
   InvalidPsbt(string details);
   InvalidPubkey(string details);
+  InvalidQuota(string details);
   InvalidRecipientData(string details);
   InvalidRecipientID();
   InvalidRecipientMap();
@@ -1166,7 +1167,7 @@ interface Wallet {
   string get_media_dir();
 
   [Throws=RgbLibError]
-  ReceivedMint? get_received_mint(string recipient_id);
+  sequence<ReceivedMint> get_received_mint(string recipient_id);
 
   [Throws=RgbLibError]
   PsbtInspection inspect_psbt(string psbt);
@@ -1185,12 +1186,14 @@ interface Wallet {
   [Throws=RgbLibError]
   ReceiveData blind_receive(
     Online? online, string? asset_id, Assignment assignment, u64 expiration_timestamp,
-    sequence<string> transport_endpoints, u8 min_confirmations, Encryption? encryption);
+    sequence<string> transport_endpoints, u8 min_confirmations, Encryption? encryption,
+    u32? quota);
 
   [Throws=RgbLibError]
   ReceiveData witness_receive(
     Online? online, string? asset_id, Assignment assignment, u64 expiration_timestamp,
-    sequence<string> transport_endpoints, u8 min_confirmations, Encryption? encryption);
+    sequence<string> transport_endpoints, u8 min_confirmations, Encryption? encryption,
+    u32? quota);
 
   [Throws=RgbLibError]
   string finalize_psbt(string signed_psbt);
@@ -1408,7 +1411,7 @@ interface MultisigWallet {
   string get_media_dir();
 
   [Throws=RgbLibError]
-  ReceivedMint? get_received_mint(string recipient_id);
+  sequence<ReceivedMint> get_received_mint(string recipient_id);
 
   [Throws=RgbLibError]
   PsbtInspection inspect_psbt(string psbt);

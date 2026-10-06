@@ -1005,6 +1005,7 @@ fn filter_with_waiting_safe_height() {
             TRANSPORT_ENDPOINTS.clone(),
             2,
             None,
+            None,
         )
         .unwrap();
     let recipient_map_2 = HashMap::from([(

@@ -1436,6 +1436,15 @@ pub struct ReceiveDataInternal {
     /// For a blind receive reserved on proxies, the invoice expiration plus the longest retention
     /// grace among them, until which a transfer to the invoice can still be downloaded
     pub(crate) retention_deadline: Option<i64>,
+    /// Maximum number of transfers the invoice can receive
+    pub(crate) quota: u32,
+    /// For a reusable invoice, the time until which a transfer to it can still be discovered on
+    /// its recipient proxies: the invoice expiration plus the longest retention grace among them
+    /// and the clock skew margin
+    pub(crate) invoice_deadline: Option<i64>,
+    /// Directory of the transfer data, set when the recipient ID can be shared with other
+    /// transfers
+    pub(crate) receive_dir: Option<String>,
 }
 
 // ────────────────────────────────────────────────────────────
@@ -2280,6 +2289,26 @@ pub struct ProxyReceiveData {
     pub(crate) recipient_encryption: Encryption,
     /// whether the operation is a batch (multiple recipients)
     pub(crate) batch: bool,
+}
+
+/// The outcome of saving a consignment downloaded from a recipient proxy.
+#[cfg(feature = "_online")]
+pub enum SavedConsignment {
+    /// The consignment has been saved, ready to be processed
+    Saved(ProxyReceiveData),
+    /// The consignment couldn't be decrypted or verified and has been refused, with the updated
+    /// batch transfer
+    Refused(Option<DbBatchTransfer>),
+}
+
+/// A watched witness receive script, as reconciled before a sync.
+#[cfg(feature = "_online")]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WatchedWitnessScript {
+    /// whether a receive paid by the script is pending, so the TXOs paying it must be flagged
+    pub(crate) pending: bool,
+    /// whether the script can be paid by more than one transfer (reusable invoice)
+    pub(crate) shared: bool,
 }
 
 #[cfg(feature = "_online")]

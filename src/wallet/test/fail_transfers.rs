@@ -320,6 +320,7 @@ fn fail() {
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
             None,
+            None,
         )
         .unwrap();
     let result = party.fail_transfers(Some(receive_data.batch_transfer_idx), true, false);
@@ -712,6 +713,7 @@ fn waiting_safe_height() {
             TRANSPORT_ENDPOINTS.clone(),
             2,
             None,
+            None,
         )
         .unwrap();
     let recipient_map_2 = HashMap::from([(
@@ -900,6 +902,7 @@ fn witness_receive_cleanup() {
             vec![],
             MIN_CONFIRMATIONS,
             None,
+            None,
         )
         .unwrap();
     let recipient_map = HashMap::from([(
@@ -944,6 +947,7 @@ fn witness_receive_cleanup() {
         default_rcv_expiration(),
         TRANSPORT_ENDPOINTS.clone(),
         MIN_CONFIRMATIONS,
+        None,
         None,
     );
     assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));

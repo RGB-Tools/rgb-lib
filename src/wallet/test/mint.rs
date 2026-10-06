@@ -129,9 +129,11 @@ fn success() {
             .get_received_mint(receive_data.recipient_id.clone())
             .unwrap()
     };
-    assert!(received_mint(&party).is_none());
+    assert!(received_mint(&party).is_empty());
     assert!(!party.refresh_all());
-    let mint = received_mint(&party).unwrap();
+    let mints = received_mint(&party);
+    assert_eq!(mints.len(), 1);
+    let mint = &mints[0];
     assert_eq!(mint.opid, res.details.opid);
     // the lock has to be made for the mint in the TX the minter will broadcast
     assert_eq!(mint.lock_id, mint_lock_id(&res));
@@ -508,9 +510,9 @@ fn revalidate_received_mint() {
 
     // without its validated copy, the received mint consignment is validated again, confirming
     // its claim on the bridge's chain
-    let consignment_path = rcv_party
-        .wallet
-        .get_receive_consignment_path(&receive_data.recipient_id);
+    let consignment_path = rcv_party.wallet.get_receive_consignment_path(
+        &rcv_party.get_test_transfer_recipient(&receive_data.recipient_id),
+    );
     let valid_consignment_path = rcv_party
         .wallet
         .get_receive_valid_consignment_path(&consignment_path);
@@ -604,7 +606,7 @@ fn lock_for_other_tx() {
         .wallet
         .get_received_mint(receive_data.recipient_id.clone())
         .unwrap()
-        .unwrap();
+        .remove(0);
     assert_eq!(mint.lock_id, mint_lock_id(&res));
 
     // locks of the minted amount that don't commit to the TX including the mint, as the operation
@@ -825,7 +827,7 @@ fn before_block_too_far() {
             .wallet
             .get_received_mint(receive_data.recipient_id.clone())
             .unwrap()
-            .is_none()
+            .is_empty()
     );
 
     // one committing to a block within it is checked
@@ -848,7 +850,7 @@ fn before_block_too_far() {
         .wallet
         .get_received_mint(receive_data.recipient_id.clone())
         .unwrap()
-        .unwrap();
+        .remove(0);
     assert_eq!(received_mint.before_block, before_block);
 }
 
@@ -886,7 +888,8 @@ fn checked_mint_reject_list_not_repeated() {
             .wallet
             .get_received_mint(receive_data.recipient_id.clone())
             .unwrap()
-            .is_some()
+            .len()
+            == 1
     );
 
     // the reject list is updated to reject the history of the mint (the mint right it spends)
@@ -939,7 +942,8 @@ fn retry_looks_up_mint_lock() {
             .wallet
             .get_received_mint(receive_data.recipient_id.clone())
             .unwrap()
-            .is_some()
+            .len()
+            == 1
     );
     assert!(rcv_party.check_test_transfer_status_recipient(
         &receive_data.recipient_id,
@@ -1025,7 +1029,8 @@ fn locked_mint_not_refused() {
             .wallet
             .get_received_mint(receive_data.recipient_id.clone())
             .unwrap()
-            .is_some()
+            .len()
+            == 1
     );
     settle_locked_mint(
         &mut party,
@@ -1168,6 +1173,7 @@ fn out_of_band_mint_refused() {
             &invoice_id(&receive_data.recipient_id, &receive_data.public_key),
             &receive_data.expiration_timestamp.to_string(),
             &receive_data.public_key,
+            1,
             None,
         )
         .unwrap();
@@ -1199,7 +1205,7 @@ fn out_of_band_mint_refused() {
             .wallet
             .get_received_mint(receive_data.recipient_id.clone())
             .unwrap()
-            .is_none()
+            .is_empty()
     );
 }
 
@@ -1225,7 +1231,8 @@ fn checked_mint_utxo_allocations_checked() {
             .wallet
             .get_received_mint(receive_data.recipient_id.clone())
             .unwrap()
-            .is_some()
+            .len()
+            == 1
     );
     // other forms of the recipient ID, naming the same files, find no receive
     let other_forms = [
@@ -1238,7 +1245,7 @@ fn checked_mint_utxo_allocations_checked() {
                 .wallet
                 .get_received_mint(recipient_id.clone())
                 .unwrap()
-                .is_none()
+                .is_empty()
         );
     }
 
@@ -1264,7 +1271,7 @@ fn checked_mint_utxo_allocations_checked() {
                 .wallet
                 .get_received_mint(recipient_id)
                 .unwrap()
-                .is_none()
+                .is_empty()
         );
     }
 }
@@ -1301,7 +1308,7 @@ fn mint_paying_less_than_minted_refused() {
             .wallet
             .get_received_mint(receive_data.recipient_id.clone())
             .unwrap()
-            .is_none()
+            .is_empty()
     );
 }
 
@@ -1626,6 +1633,7 @@ fn received_mint_amount() {
                 TRANSPORT_ENDPOINTS.clone(),
                 MIN_CONFIRMATIONS,
                 None,
+                None,
             )
             .unwrap();
         let recipient = Recipient {
@@ -1655,7 +1663,7 @@ fn received_mint_amount() {
             .wallet
             .get_received_mint(receive_data.recipient_id.clone())
             .unwrap()
-            .is_none()
+            .is_empty()
     );
 
     // a mint of the requested amount is checked and waits for its lock
@@ -1664,12 +1672,90 @@ fn received_mint_amount() {
         &receive_data.recipient_id,
         TransferStatus::WaitingCounterparty
     ));
-    let mint = rcv_party
+    let mints = rcv_party
+        .wallet
+        .get_received_mint(receive_data.recipient_id.clone())
+        .unwrap();
+    assert_eq!(mints.len(), 1);
+    let mint = &mints[0];
+    assert_eq!(mint.amount, AMOUNT);
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[serial(evm)]
+fn reused_invoice() {
+    initialize();
+
+    let token_contract = deploy_test_erc20("Bridged Token", "BRG", 18, 1_000_000);
+    let bridge_contract = deploy_bridge(&token_contract.address);
+
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+    // a mint right per mint, plus the last one that cannot be spent
+    let asset = party.issue_asset_bfa(3, bridge_contract.address.clone(), None);
+
+    // an invoice that can receive 2 transfers, each one a mint
+    let receive_data = rcv_party
+        .wallet
+        .blind_receive(
+            Some(rcv_party.online),
+            None,
+            Assignment::Any,
+            default_rcv_expiration(),
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+            None,
+            Some(2),
+        )
+        .unwrap();
+    let recipient = Recipient {
+        assignment: Assignment::Fungible(AMOUNT),
+        recipient_id: receive_data.recipient_id.clone(),
+        witness_data: None,
+        transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        public_key: Some(receive_data.public_key.clone()),
+        expiration_timestamp: None,
+        encryption: Encryption::Optional,
+    };
+    let res_1 = party.mint_begin(party.online, &asset.asset_id, recipient.clone());
+    let res_2 = party.mint_begin(party.online, &asset.asset_id, recipient);
+    assert_ne!(res_1.details.opid, res_2.details.opid);
+
+    // the recipient checks each mint on its own, both waiting for their lock
+    rcv_party.refresh_all();
+    let mut opids: Vec<String> = rcv_party
         .wallet
         .get_received_mint(receive_data.recipient_id.clone())
         .unwrap()
-        .unwrap();
-    assert_eq!(mint.amount, AMOUNT);
+        .into_iter()
+        .map(|m| m.opid)
+        .collect();
+    opids.sort();
+    let mut expected = vec![res_1.details.opid.clone(), res_2.details.opid.clone()];
+    expected.sort();
+    assert_eq!(opids, expected);
+
+    // both mints complete once their locks are finalized
+    erc20_approve(
+        &token_contract.address,
+        &bridge_contract.address,
+        AMOUNT * 2,
+    );
+    bridge_funds_in(&bridge_contract.address, AMOUNT, &mint_lock_id(&res_1));
+    bridge_funds_in(&bridge_contract.address, AMOUNT, &mint_lock_id(&res_2));
+    evm_mine(EVM_FINALITY_DEPTH);
+    rcv_party.wait_for_refresh(None);
+    for res in [res_1, res_2] {
+        let signed_psbt = party.wallet.sign_psbt(res.psbt, None).unwrap();
+        party.mint_end(party.online, signed_psbt);
+    }
+    mine(false);
+    rcv_party.wait_for_refresh(None);
+    assert_eq!(
+        rcv_party.get_asset_balance(&asset.asset_id).settled,
+        AMOUNT * 2
+    );
 }
 
 #[cfg(feature = "electrum")]
@@ -1704,7 +1790,8 @@ fn invoice_expiration_ignored() {
             .wallet
             .get_received_mint(receive_data.recipient_id.clone())
             .unwrap()
-            .is_some()
+            .len()
+            == 1
     );
 
     // once the mint has been checked, the invoice expiration no longer applies: past it, neither
@@ -1802,6 +1889,7 @@ fn mint_checked_by_fail_all() {
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
             None,
+            None,
         )
         .unwrap();
     let recipient = Recipient {
@@ -1840,7 +1928,8 @@ fn mint_checked_by_fail_all() {
             .wallet
             .get_received_mint(receive_data.recipient_id.clone())
             .unwrap()
-            .is_some()
+            .len()
+            == 1
     );
 
     // the mint then completes past the invoice expiration
@@ -1889,7 +1978,8 @@ fn mint_checked_by_fail_single() {
             .wallet
             .get_received_mint(receive_data.recipient_id.clone())
             .unwrap()
-            .is_some()
+            .len()
+            == 1
     );
 
     // the mint then completes
@@ -2229,7 +2319,8 @@ fn fail_received() {
             .wallet
             .get_received_mint(receive_data.recipient_id.clone())
             .unwrap()
-            .is_some()
+            .len()
+            == 1
     );
     let check_not_failed = |rcv_party: &mut SinglesigParty, status: TransferStatus| {
         let result = rcv_party.wallet.fail_transfers(
@@ -2988,6 +3079,7 @@ fn receive_mint_right_on_utxo_with_one() {
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
             None,
+            None,
         )
     };
 
@@ -3357,7 +3449,7 @@ fn mint_past_u64_on_utxo_refused() {
             .wallet
             .get_received_mint(receive_data.recipient_id.clone())
             .unwrap()
-            .is_none()
+            .is_empty()
     );
     assert_eq!(rcv_party.get_asset_balance(&asset.asset_id).settled, AMOUNT);
 }

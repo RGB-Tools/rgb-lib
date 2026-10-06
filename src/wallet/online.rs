@@ -146,14 +146,6 @@ fn clean_ack_outcome(error: Option<JsonRpcError>) -> Result<CleanAckOutcome, Err
     }
 }
 
-fn clock_skew_margin() -> u32 {
-    #[cfg(test)]
-    if let Some(margin) = mock_clock_skew_margin() {
-        return margin;
-    }
-    PROXY_CLOCK_SKEW_MARGIN_SECS
-}
-
 /// Whether the expiration of an outgoing operation has passed on the local clock by more than the
 /// clock skew margin, so it has passed on the sender proxy's clock as well and the proxy can no
 /// longer release the signed TX, whatever it knows about the operation.
@@ -959,7 +951,10 @@ pub trait WalletOnline: WalletOffline {
                     vout,
                 });
             }
-            if let Some(recipient_id) = transfer.recipient_id
+            // a script shared with other transfers (reusable invoice) is left to the pending witness
+            // reconciliation, as its other TXOs may belong to transfers that are still pending
+            if transfer.receive_dir.is_none()
+                && let Some(recipient_id) = transfer.recipient_id
                 && let Some(script) = script_buf_from_recipient_id(recipient_id)?
             {
                 scripts.insert(script);
@@ -1514,13 +1509,13 @@ pub trait WalletOnline: WalletOffline {
     fn received_mint_tx_inputs_spent_elsewhere(
         &self,
         batch_transfer: &DbBatchTransfer,
-        recipient_id: &str,
+        transfer: &DbTransfer,
     ) -> Result<bool, Error> {
         let txid = batch_transfer
             .txid
             .as_deref()
             .expect("an accepted receive has a TXID");
-        let valid_consignment = self.load_received_valid_transfer(batch_transfer, recipient_id)?;
+        let valid_consignment = self.load_received_valid_transfer(batch_transfer, transfer)?;
         let Some(witness_bundle) = valid_consignment
             .bundles
             .iter()
@@ -1697,16 +1692,15 @@ pub trait WalletOnline: WalletOffline {
         })
     }
 
-    fn get_received_signed_tx_path(&self, recipient_id: &str) -> PathBuf {
-        self.get_receive_consignment_path(recipient_id)
-            .with_file_name(RECEIVED_SIGNED_TX_FILE)
+    fn get_received_signed_tx_path(&self, transfer: &DbTransfer) -> PathBuf {
+        self.get_receive_dir(transfer).join(RECEIVED_SIGNED_TX_FILE)
     }
 
     /// Decrypt the released signed TX, verify it, save it so it can be broadcast again until the
     /// broadcast deadline (v1.0-changes-spec.md 6.4) and broadcast it.
     fn broadcast_received_tx(
         &self,
-        recipient_id: &str,
+        transfer: &DbTransfer,
         signed_tx_b64: &str,
         signed_tx_hash: &str,
         sender_pubkey_hex: &str,
@@ -1726,15 +1720,15 @@ pub trait WalletOnline: WalletOffline {
             .map_err(|e| Error::Internal {
                 details: e.to_string(),
             })?;
-        atomic_write(&self.get_received_signed_tx_path(recipient_id), &tx_bytes)?;
+        atomic_write(&self.get_received_signed_tx_path(transfer), &tx_bytes)?;
         self.broadcast_tx(tx)?;
         Ok(())
     }
 
     /// Broadcast again the signed TX released to a recipient, if saved, e.g. after it was evicted
     /// from the mempool. Failures are only logged, as the TX may e.g. have been replaced.
-    fn rebroadcast_received_tx(&self, recipient_id: &str) {
-        let path = self.get_received_signed_tx_path(recipient_id);
+    fn rebroadcast_received_tx(&self, transfer: &DbTransfer) {
+        let path = self.get_received_signed_tx_path(transfer);
         let Ok(tx_bytes) = fs::read(&path) else {
             return;
         };
@@ -1759,12 +1753,16 @@ pub trait WalletOnline: WalletOffline {
         &self,
         txn: &DbTxn,
         mode: &ReceiveMode,
-        recipient_id: &str,
+        transfer: &DbTransfer,
         recipient_seed: &[u8],
         updated_batch_transfer: &mut DbBatchTransferActMod,
         // whether the consignment is a mint paying the recipient, posted before its TX is signed
         mint_consignment: bool,
     ) -> Result<Option<DbBatchTransfer>, Error> {
+        let recipient_id = transfer
+            .recipient_id
+            .as_deref()
+            .expect("transfer should have a recipient ID");
         debug!(
             self.logger(),
             "Refusing invalid consignment for {recipient_id}"
@@ -1796,12 +1794,16 @@ pub trait WalletOnline: WalletOffline {
         }
 
         // a refused receive has no TXO registered, but a sync may have detected one paying its
-        // script if the counterparty has already broadcast
-        let scripts = script_buf_from_recipient_id(recipient_id.to_string())?
-            .into_iter()
-            .collect();
-        self.unflag_pending_witness_txos(txn, &HashSet::new(), &scripts)?;
-        self.delete_valid_consignment(recipient_id)?;
+        // script if the counterparty has already broadcast. A script shared with other transfers
+        // (reusable invoice) is instead left to the pending witness reconciliation, as its other
+        // TXOs may belong to transfers that are still pending
+        if transfer.receive_dir.is_none() {
+            let scripts = script_buf_from_recipient_id(recipient_id.to_string())?
+                .into_iter()
+                .collect();
+            self.unflag_pending_witness_txos(txn, &HashSet::new(), &scripts)?;
+        }
+        self.delete_valid_consignment(transfer)?;
         updated_batch_transfer.status = ActiveValue::Set(TransferStatus::Failed);
         Ok(Some(txn.update_batch_transfer(updated_batch_transfer)?))
     }
@@ -2126,9 +2128,13 @@ pub trait WalletOnline: WalletOffline {
     fn load_received_valid_transfer(
         &self,
         batch_transfer: &DbBatchTransfer,
-        recipient_id: &str,
+        transfer: &DbTransfer,
     ) -> Result<ValidTransfer, Error> {
-        let consignment_path = self.get_receive_consignment_path(recipient_id);
+        let recipient_id = transfer
+            .recipient_id
+            .as_deref()
+            .expect("transfer should have a recipient ID");
+        let consignment_path = self.get_receive_consignment_path(transfer);
         let valid_consignment_path = self.get_receive_valid_consignment_path(&consignment_path);
         if valid_consignment_path.exists() {
             return ValidTransfer::load_file(&valid_consignment_path)
@@ -2173,8 +2179,8 @@ pub trait WalletOnline: WalletOffline {
     }
 
     /// Delete the validated copy of a received consignment
-    fn delete_valid_consignment(&self, recipient_id: &str) -> Result<(), Error> {
-        let consignment_path = self.get_receive_consignment_path(recipient_id);
+    fn delete_valid_consignment(&self, transfer: &DbTransfer) -> Result<(), Error> {
+        let consignment_path = self.get_receive_consignment_path(transfer);
         match fs::remove_file(self.get_receive_valid_consignment_path(&consignment_path)) {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -2237,11 +2243,6 @@ pub trait WalletOnline: WalletOffline {
     ) -> Result<Option<DbBatchTransfer>, Error> {
         debug!(self.logger(), "ACKing consignment...");
 
-        let recipient_id = transfer
-            .recipient_id
-            .clone()
-            .expect("transfer should have a recipient ID");
-
         // the sender proxy retention grace is how long after the operation expiration a released
         // signed TX can still be retrieved: a non-donation, non-mint transfer whose sender proxy
         // grants less than the acceptable minimum is NACKed (v1.0-changes-spec.md 6.4)
@@ -2259,7 +2260,7 @@ pub trait WalletOnline: WalletOffline {
                 return self.refuse_consignment(
                     txn,
                     mode,
-                    &recipient_id,
+                    transfer,
                     recipient_seed,
                     updated_batch_transfer,
                     mint_consignment,
@@ -2342,7 +2343,7 @@ pub trait WalletOnline: WalletOffline {
                     (Some(signed_tx), Some(signed_tx_hash), Some(sender_pubkey)) => {
                         // the TX has been released: decrypt and broadcast it
                         self.broadcast_received_tx(
-                            &recipient_id,
+                            transfer,
                             &signed_tx,
                             &signed_tx_hash,
                             &sender_pubkey,
@@ -2442,8 +2443,8 @@ pub trait WalletOnline: WalletOffline {
         // failed for a transient reason (e.g. network error), reuse them instead of hitting the
         // proxy again; the endpoint we used is recorded in the metadata, since a failed refresh
         // rolls back the `used` flag on the transfer transport endpoint
-        let consignment_path = self.get_receive_consignment_path(&recipient_id);
-        let consignment_meta_path = self.get_receive_consignment_meta_path(&recipient_id);
+        let consignment_path = self.get_receive_consignment_path(&transfer);
+        let consignment_meta_path = self.get_receive_consignment_meta_path(&transfer);
         let data = if consignment_path.exists()
             && consignment_meta_path.exists()
             && let Ok(meta_str) = fs::read_to_string(&consignment_meta_path)
@@ -2497,17 +2498,33 @@ pub trait WalletOnline: WalletOffline {
                 },
             )?);
             let invoice_id = invoice_id(&recipient_id, &recipient_pk);
+            // the transfers to a reusable invoice are discovered (and assigned their transfer ID)
+            // by discover_invoice_transfers
+            if transfer.invoice_idx.is_some() && transfer.proxy_transfer_id.is_none() {
+                return Ok(None);
+            }
             let mut proxy_res = None;
             for (transfer_transport_endpoint, transport_endpoint) in tte_data {
                 if transfer_transport_endpoint.kind != TransportEndpointKind::RecipientProxy {
                     continue;
                 }
-                let Some(found) = self.find_invoice_transfer(
-                    &transport_endpoint.endpoint,
-                    &invoice_id,
-                    &recipient_seed,
-                )?
-                else {
+                let found = match &transfer.proxy_transfer_id {
+                    // a transfer already discovered is downloaded from the endpoint it was found on
+                    Some(transfer_id) if transfer_transport_endpoint.used => self
+                        .fetch_invoice_transfer(
+                            &transport_endpoint.endpoint,
+                            &invoice_id,
+                            transfer_id,
+                        )?
+                        .map(|res| (transfer_id.clone(), res)),
+                    Some(_) => None,
+                    None => self.find_invoice_transfer(
+                        &transport_endpoint.endpoint,
+                        &invoice_id,
+                        &recipient_seed,
+                    )?,
+                };
+                let Some(found) = found else {
                     info!(
                         self.logger(),
                         "Skipping transport endpoint: {:?}", &transport_endpoint
@@ -2525,66 +2542,17 @@ pub trait WalletOnline: WalletOffline {
             let Some((proxy_url, (transfer_id, result))) = proxy_res else {
                 return Ok(None);
             };
-            // the sender endpoint arrives in RgbTransport (rpc://) format; convert to an HTTP URL
-            let sender_proxy =
-                self.convert_transport_endpoint_url(&result.sender_transport_endpoint)?;
-            let data = ProxyReceiveData {
+            match self.save_received_consignment(
+                txn,
+                batch_transfer,
+                &transfer,
                 proxy_url,
                 transfer_id,
-                sender_proxy,
-                sender_pubkey: result.sender_pk.clone(),
-                consignment_hash: result.consignment_hash.clone(),
-                recipient_encryption: transfer.recipient_encryption,
-                batch: result.batch,
-            };
-
-            // decode and (if needed) decrypt the consignment; a malformed payload is refused like
-            // one that fails decryption or verification
-            match self.decrypt_blob_with_shared_key_to_file(
-                &result.consignment,
-                data.recipient_encryption,
-                &recipient_seed,
-                &data.sender_pubkey,
-                &data.consignment_hash,
-                &consignment_path,
-            ) {
-                Ok(()) => {}
-                Err(e @ Error::IO { .. }) => return Err(e),
-                Err(_) => {
-                    error!(self.logger(), "Failed to decrypt/verify consignment");
-                    // a consignment that can't be read isn't known to be a mint: if it is one, it
-                    // hasn't been checked, so its transfer still expires with the invoice even if
-                    // the NACK keeps failing
-                    return self.refuse_consignment(
-                        txn,
-                        &ReceiveMode::Proxy(data),
-                        &recipient_id,
-                        &recipient_seed,
-                        &mut updated_batch_transfer,
-                        false,
-                    );
-                }
+                result,
+            )? {
+                SavedConsignment::Saved(data) => data,
+                SavedConsignment::Refused(res) => return Ok(res),
             }
-            let meta = ReceivedConsignmentMeta {
-                proxy_url: Some(data.proxy_url.clone()),
-                transfer_id: Some(data.transfer_id.clone()),
-                sender_transport_endpoint: data.sender_proxy.clone(),
-                sender_pubkey: data.sender_pubkey.clone(),
-                consignment_hash: data.consignment_hash.clone(),
-                batch: data.batch,
-            };
-            let meta_str = serde_json::to_string(&meta).map_err(InternalError::from)?;
-            atomic_write(&consignment_meta_path, meta_str.as_bytes())?;
-
-            // persist the transfer ID, the consignment hash and the sender proxy endpoint (for the
-            // ACK)
-            let mut ut: DbTransferActMod = transfer.clone().into();
-            ut.consignment_hash = ActiveValue::Set(Some(data.consignment_hash.clone()));
-            ut.proxy_transfer_id = ActiveValue::Set(Some(data.transfer_id.clone()));
-            txn.update_transfer(&mut ut)?;
-            self.save_sender_transport_endpoint(txn, transfer.idx, &data.sender_proxy)?;
-
-            data
         };
 
         let proxy_url = data.proxy_url.clone();
@@ -2595,17 +2563,590 @@ pub trait WalletOnline: WalletOffline {
             batch_transfer,
             &asset_transfer,
             &transfer,
-            recipient_id,
             &consignment_path,
             mode,
             &mut updated_batch_transfer,
         )?;
-        // once the consignment has been handled (ACKed or refused), its data is saved locally and
-        // the proxy can delete it, while the transfer keeps counting towards the invoice quota
-        if res.is_some() && self.releases_received_transfer_data() {
-            self.mark_transfer_retrieved(&proxy_url, &transfer_id, &recipient_seed);
-        }
+        self.release_handled_transfer(
+            &transfer,
+            &proxy_url,
+            &transfer_id,
+            &recipient_seed,
+            res.as_ref(),
+        );
         Ok(res)
+    }
+
+    /// The data of a transfer downloaded from a recipient proxy for `transfer`.
+    fn proxy_receive_data(
+        &self,
+        transfer: &DbTransfer,
+        proxy_url: String,
+        transfer_id: String,
+        result: &GetConsignmentResponse,
+    ) -> Result<ProxyReceiveData, Error> {
+        Ok(ProxyReceiveData {
+            proxy_url,
+            transfer_id,
+            // the sender endpoint arrives in RgbTransport (rpc://) format; convert to an HTTP URL
+            sender_proxy: self.convert_transport_endpoint_url(&result.sender_transport_endpoint)?,
+            sender_pubkey: result.sender_pk.clone(),
+            consignment_hash: result.consignment_hash.clone(),
+            recipient_encryption: transfer.recipient_encryption,
+            batch: result.batch,
+        })
+    }
+
+    /// Decode and (if needed) decrypt the consignment downloaded from a recipient proxy to
+    /// `consignment_path`, returning whether it could be (a malformed payload counts as one that
+    /// fails decryption or verification).
+    fn decrypt_received_consignment(
+        &self,
+        consignment: &str,
+        data: &ProxyReceiveData,
+        recipient_seed: &[u8],
+        consignment_path: &Path,
+    ) -> Result<bool, Error> {
+        match self.decrypt_blob_with_shared_key_to_file(
+            consignment,
+            data.recipient_encryption,
+            recipient_seed,
+            &data.sender_pubkey,
+            &data.consignment_hash,
+            consignment_path,
+        ) {
+            Ok(()) => Ok(true),
+            Err(e @ Error::IO { .. }) => Err(e),
+            Err(_) => {
+                error!(self.logger(), "Failed to decrypt/verify consignment");
+                Ok(false)
+            }
+        }
+    }
+
+    /// Save the metadata of the consignment of a transfer downloaded from a recipient proxy along
+    /// with it, so that it can be processed by [`Self::wait_consignment`] without downloading it
+    /// again, and persist the transfer ID, the consignment hash and the sender proxy endpoint
+    /// (for the ACK).
+    fn record_received_consignment(
+        &self,
+        txn: &DbTxn,
+        transfer: &DbTransfer,
+        data: &ProxyReceiveData,
+    ) -> Result<(), Error> {
+        let meta = ReceivedConsignmentMeta {
+            proxy_url: Some(data.proxy_url.clone()),
+            transfer_id: Some(data.transfer_id.clone()),
+            sender_transport_endpoint: data.sender_proxy.clone(),
+            sender_pubkey: data.sender_pubkey.clone(),
+            consignment_hash: data.consignment_hash.clone(),
+            batch: data.batch,
+        };
+        let meta_str = serde_json::to_string(&meta).map_err(InternalError::from)?;
+        atomic_write(
+            &self.get_receive_consignment_meta_path(transfer),
+            meta_str.as_bytes(),
+        )?;
+        let mut ut: DbTransferActMod = transfer.clone().into();
+        ut.consignment_hash = ActiveValue::Set(Some(data.consignment_hash.clone()));
+        ut.proxy_transfer_id = ActiveValue::Set(Some(data.transfer_id.clone()));
+        txn.update_transfer(&mut ut)?;
+        self.save_sender_transport_endpoint(txn, transfer.idx, &data.sender_proxy)?;
+        Ok(())
+    }
+
+    /// Decrypt the consignment of a transfer downloaded from a recipient proxy to its receive
+    /// path and record it (see [`Self::record_received_consignment`]). A consignment that can't be
+    /// decrypted or verified is refused instead.
+    fn save_received_consignment(
+        &self,
+        txn: &DbTxn,
+        batch_transfer: &DbBatchTransfer,
+        transfer: &DbTransfer,
+        proxy_url: String,
+        transfer_id: String,
+        result: GetConsignmentResponse,
+    ) -> Result<SavedConsignment, Error> {
+        // the recipient's per-operation Ed25519 secret seed (used to derive the shared secret)
+        let recipient_seed = batch_transfer
+            .operation_secret_key
+            .clone()
+            .unwrap_or_default();
+        let data = self.proxy_receive_data(transfer, proxy_url, transfer_id, &result)?;
+        if !self.decrypt_received_consignment(
+            &result.consignment,
+            &data,
+            &recipient_seed,
+            &self.get_receive_consignment_path(transfer),
+        )? {
+            let (proxy_url, transfer_id) = (data.proxy_url.clone(), data.transfer_id.clone());
+            let mut updated_batch_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
+            // refused as a regular transfer, posting a NACK (a mint consignment leaves it to
+            // ack_consignment): being unreadable, the consignment can't be known to be a mint.
+            // Even if it is one, its transfer still fails when the invoice expires should the NACK
+            // keep failing, as only a checked mint is exempt from failing (see is_mint)
+            let res = self.refuse_consignment(
+                txn,
+                &ReceiveMode::Proxy(data),
+                transfer,
+                &recipient_seed,
+                &mut updated_batch_transfer,
+                false,
+            )?;
+            self.release_handled_transfer(
+                transfer,
+                &proxy_url,
+                &transfer_id,
+                &recipient_seed,
+                res.as_ref(),
+            );
+            return Ok(SavedConsignment::Refused(res));
+        }
+        self.record_received_consignment(txn, transfer, &data)?;
+        Ok(SavedConsignment::Saved(data))
+    }
+
+    /// Once the consignment of a transfer downloaded from a recipient proxy has been handled
+    /// (ACKed or refused, `handled` being the updated batch transfer), its data is saved locally
+    /// and the proxy can delete it, while the transfer keeps counting towards the invoice quota,
+    /// unless it is a refused transfer to a reusable invoice, which is deleted to free its quota
+    /// slot.
+    fn release_handled_transfer(
+        &self,
+        transfer: &DbTransfer,
+        proxy_url: &str,
+        transfer_id: &str,
+        recipient_seed: &[u8],
+        handled: Option<&DbBatchTransfer>,
+    ) {
+        let Some(updated) = handled else {
+            return;
+        };
+        if !self.releases_received_transfer_data() {
+            return;
+        }
+        let delete = transfer.invoice_idx.is_some() && updated.status == TransferStatus::Failed;
+        self.release_transfer_data(proxy_url, transfer_id, recipient_seed, delete);
+    }
+
+    /// Whether the payment to a receive made by the TX with `txid` (at `vout` for a witness
+    /// receive) has already been received by another (not failed) incoming transfer.
+    fn payment_already_received(
+        &self,
+        txn: &DbTxn,
+        transfer: &DbTransfer,
+        txid: &str,
+        vout: Option<u32>,
+    ) -> Result<bool, Error> {
+        let asset_transfers = txn.iter_asset_transfers()?;
+        let batch_transfers = txn.iter_batch_transfers()?;
+        Ok(txn.iter_transfers()?.iter().any(|other| {
+            if other.idx == transfer.idx || other.recipient_id != transfer.recipient_id {
+                return false;
+            }
+            let (_, other_batch) = other.related_transfers(&asset_transfers, &batch_transfers);
+            if !other_batch.incoming
+                || other_batch.failed()
+                || other_batch.txid.as_deref() != Some(txid)
+            {
+                return false;
+            }
+            match other.recipient_type {
+                Some(RecipientTypeFull::Witness { vout: other_vout }) => other_vout == vout,
+                _ => true,
+            }
+        }))
+    }
+
+    /// Discover the transfers to the reusable invoices that can still receive them (see
+    /// [`DbInvoice::live`]), asking their recipient proxies; an asset-filtered refresh only asks
+    /// for the ones to the invoices of that asset. The first transfer to an invoice is assigned to
+    /// the receive created along with the invoice, each following one gets an incoming transfer of
+    /// its own (a copy of the first one), until the invoice quota is reached.
+    ///
+    /// A transfer gets a local one only once its consignment has been downloaded, checked (see
+    /// [`Self::check_discovered_transfer`]) and saved, to be handled by
+    /// [`Self::wait_consignment`], so that one that can't be downloaded doesn't take a quota slot.
+    /// One that wasn't posted by its sender or doesn't pass the check (e.g. spam) is deleted from
+    /// the proxy, leaving nothing behind, so a failed deletion is retried by discovering it again.
+    /// A transfer that failed locally is deleted from the proxy too (see
+    /// [`Self::release_handled_transfer`]), which is retried while the proxy still lists it, so
+    /// that it frees its quota slot there as well.
+    fn discover_invoice_transfers(&self, txn: &DbTxn, asset_id: Option<&str>) -> Result<(), Error> {
+        let now = now().unix_timestamp();
+        let invoices: Vec<DbInvoice> = txn
+            .iter_invoices()?
+            .into_iter()
+            .filter(|i| i.live(now))
+            .filter(|i| asset_id.is_none() || i.asset_id.as_deref() == asset_id)
+            .collect();
+        if invoices.is_empty() {
+            return Ok(());
+        }
+        let db_data = txn.get_db_data(false)?;
+        for invoice in invoices {
+            let mut invoice_transfers: Vec<(&DbTransfer, DbBatchTransfer)> = db_data
+                .transfers
+                .iter()
+                .filter(|t| t.invoice_idx == Some(invoice.idx))
+                .map(|t| {
+                    let (_, bt) =
+                        t.related_transfers(&db_data.asset_transfers, &db_data.batch_transfers);
+                    (t, bt)
+                })
+                .collect();
+            invoice_transfers.sort_by_key(|(t, _)| t.idx);
+            // the first transfer was created along with the invoice and holds its data
+            let Some((first, first_batch)) = invoice_transfers.first().cloned() else {
+                continue;
+            };
+            let mut known: HashSet<String> = invoice_transfers
+                .iter()
+                .filter_map(|(t, _)| t.proxy_transfer_id.clone())
+                .collect();
+            let failed: HashSet<String> = invoice_transfers
+                .iter()
+                .filter(|(_, bt)| bt.failed())
+                .filter_map(|(t, _)| t.proxy_transfer_id.clone())
+                .collect();
+            let mut active = invoice_transfers
+                .iter()
+                .filter(|(t, bt)| t.proxy_transfer_id.is_some() && !bt.failed())
+                .count() as u32;
+            let mut first_free = first.proxy_transfer_id.is_none()
+                && first_batch.status == TransferStatus::WaitingCounterparty;
+            if active >= invoice.quota && failed.is_empty() {
+                continue;
+            }
+            let recipient_id = first
+                .recipient_id
+                .clone()
+                .expect("transfer should have a recipient ID");
+            let recipient_pk = hex::encode(first.recipient_pubkey.clone().unwrap_or_default());
+            let invoice_id = invoice_id(&recipient_id, &recipient_pk);
+            let recipient_seed = first_batch.operation_secret_key.clone().unwrap_or_default();
+            let tte_data: Vec<_> = txn
+                .get_transfer_transport_endpoints_data(first.idx)?
+                .into_iter()
+                .filter(|(tte, _)| tte.kind == TransportEndpointKind::RecipientProxy)
+                .collect();
+            for (tte, te) in &tte_data {
+                let Some(listed) =
+                    self.list_proxy_invoice_transfers(&te.endpoint, &invoice_id, &recipient_seed)
+                else {
+                    continue;
+                };
+                for (transfer_id, state) in listed {
+                    if failed.contains(&transfer_id) {
+                        self.release_transfer_data(
+                            &te.endpoint,
+                            &transfer_id,
+                            &recipient_seed,
+                            true,
+                        );
+                        continue;
+                    }
+                    if state != ProxyTransferState::Pending
+                        || active >= invoice.quota
+                        || known.contains(&transfer_id)
+                    {
+                        continue;
+                    }
+                    #[cfg(test)]
+                    if mock_get_consignment_fail() {
+                        continue;
+                    }
+                    let Ok(result) = self.get_consignment(&te.endpoint, transfer_id.clone()) else {
+                        continue;
+                    };
+                    if !Self::posted_by_sender(&invoice_id, &transfer_id, &result) {
+                        warn!(
+                            self.logger(),
+                            "Deleting transfer {transfer_id}, which doesn't match its sender pubkey"
+                        );
+                        self.release_transfer_data(
+                            &te.endpoint,
+                            &transfer_id,
+                            &recipient_seed,
+                            true,
+                        );
+                        continue;
+                    }
+                    debug!(
+                        self.logger(),
+                        "Discovered transfer {transfer_id} to invoice {}", invoice.idx
+                    );
+                    let assign_first = first_free;
+                    // the receive dir the transfer gets (see add_invoice_transfer)
+                    let receive_dir = if assign_first {
+                        self.get_receive_dir(first)
+                    } else {
+                        self.get_transfers_dir()
+                            .join(self.invoice_transfer_receive_dir(&recipient_id, &transfer_id))
+                    };
+                    let checked = self.check_discovered_transfer(
+                        first,
+                        &invoice,
+                        &te.endpoint,
+                        &transfer_id,
+                        &result,
+                        &recipient_seed,
+                        &Self::receive_consignment_path_in(&receive_dir),
+                    );
+                    // a transfer that can't be saved is discovered again on a later refresh
+                    let saved = checked.and_then(|data| {
+                        let Some(data) = data else {
+                            return Ok(false);
+                        };
+                        txn.with_savepoint(|txn| {
+                            let transfer = if assign_first {
+                                let mut updated_tte: DbTransferTransportEndpointActMod =
+                                    tte.clone().into();
+                                updated_tte.used = ActiveValue::Set(true);
+                                txn.update_transfer_transport_endpoint(&mut updated_tte)?;
+                                first.clone()
+                            } else {
+                                self.add_invoice_transfer(
+                                    txn,
+                                    first,
+                                    &first_batch,
+                                    &invoice,
+                                    &tte_data,
+                                    &te.endpoint,
+                                    &transfer_id,
+                                )?
+                            };
+                            self.record_received_consignment(txn, &transfer, &data)
+                        })?;
+                        Ok(true)
+                    });
+                    match saved {
+                        Ok(true) => {
+                            first_free &= !assign_first;
+                            known.insert(transfer_id);
+                            active += 1;
+                        }
+                        // refused: NACKed (best-effort, as its sender endpoint may never take it)
+                        // and deleted from the proxy, freeing its quota slot. As it has no local
+                        // transfer, a failed deletion is retried by discovering it again
+                        Ok(false) => {
+                            warn!(
+                                self.logger(),
+                                "Refusing transfer {transfer_id}, which can't be paying invoice {}",
+                                invoice.idx
+                            );
+                            self.remove_receive_dir(&receive_dir);
+                            if let Ok(sender_proxy) = self
+                                .convert_transport_endpoint_url(&result.sender_transport_endpoint)
+                                && let Err(e) = self.sign_and_post_ack(
+                                    &sender_proxy,
+                                    &transfer_id,
+                                    false,
+                                    &result.consignment_hash,
+                                    &recipient_seed,
+                                )
+                            {
+                                warn!(self.logger(), "Failed to post NACK: {e}");
+                            }
+                            self.release_transfer_data(
+                                &te.endpoint,
+                                &transfer_id,
+                                &recipient_seed,
+                                true,
+                            );
+                        }
+                        Err(e) => {
+                            warn!(
+                                self.logger(),
+                                "Failed to save discovered transfer {transfer_id}: {e}"
+                            );
+                            self.remove_receive_dir(&receive_dir);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Add an incoming transfer to a reusable invoice, copying the data of the `first` transfer
+    /// created along with the invoice, returning it.
+    #[allow(clippy::too_many_arguments)]
+    fn add_invoice_transfer(
+        &self,
+        txn: &DbTxn,
+        first: &DbTransfer,
+        first_batch: &DbBatchTransfer,
+        invoice: &DbInvoice,
+        tte_data: &[(DbTransferTransportEndpoint, DbTransportEndpoint)],
+        proxy_url: &str,
+        transfer_id: &str,
+    ) -> Result<DbTransfer, Error> {
+        let batch_transfer_idx = txn.set_batch_transfer(DbBatchTransferActMod {
+            status: ActiveValue::Set(TransferStatus::WaitingCounterparty),
+            expiration: ActiveValue::Set(first_batch.expiration),
+            created_at: ActiveValue::Set(now().unix_timestamp()),
+            min_confirmations: ActiveValue::Set(first_batch.min_confirmations),
+            incoming: ActiveValue::Set(true),
+            operation_secret_key: ActiveValue::Set(first_batch.operation_secret_key.clone()),
+            retention_deadline: ActiveValue::Set(first_batch.retention_deadline),
+            ..Default::default()
+        })?;
+        // the asset of the invoice, as the first transfer to an invoice without one gets the
+        // asset it receives
+        let asset_transfer_idx = txn.set_asset_transfer(DbAssetTransferActMod {
+            user_driven: ActiveValue::Set(true),
+            batch_transfer_idx: ActiveValue::Set(batch_transfer_idx),
+            asset_id: ActiveValue::Set(invoice.asset_id.clone()),
+            ..Default::default()
+        })?;
+        let recipient_id = first
+            .recipient_id
+            .clone()
+            .expect("transfer should have a recipient ID");
+        // the recipient type of a witness receive gets its vout once the consignment is accepted
+        let recipient_type = match &first.recipient_type {
+            Some(RecipientTypeFull::Witness { .. }) => RecipientTypeFull::Witness { vout: None },
+            other => other
+                .clone()
+                .expect("transfer should have a recipient type"),
+        };
+        let transfer_idx = txn.set_transfer(DbTransferActMod {
+            asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
+            requested_assignment: ActiveValue::Set(first.requested_assignment.clone()),
+            recipient_id: ActiveValue::Set(Some(recipient_id.clone())),
+            recipient_type: ActiveValue::Set(Some(recipient_type)),
+            invoice_string: ActiveValue::Set(first.invoice_string.clone()),
+            recipient_pubkey: ActiveValue::Set(first.recipient_pubkey.clone()),
+            recipient_encryption: ActiveValue::Set(first.recipient_encryption),
+            invoice_idx: ActiveValue::Set(first.invoice_idx),
+            proxy_transfer_id: ActiveValue::Set(Some(transfer_id.to_string())),
+            receive_dir: ActiveValue::Set(Some(
+                self.invoice_transfer_receive_dir(&recipient_id, transfer_id),
+            )),
+            ..Default::default()
+        })?;
+        for (_, te) in tte_data {
+            self.save_transfer_transport_endpoint(
+                txn,
+                transfer_idx,
+                &LocalTransportEndpoint {
+                    endpoint: te.endpoint.clone(),
+                    transport_type: te.transport_type,
+                    used: te.endpoint == proxy_url,
+                    usable: true,
+                },
+            )?;
+        }
+        Ok(txn
+            .get_transfer(transfer_idx)?
+            .expect("transfer should exist"))
+    }
+
+    /// The name of the receive dir of a transfer to a reusable invoice other than the first one.
+    fn invoice_transfer_receive_dir(&self, recipient_id: &str, transfer_id: &str) -> String {
+        // the transfer ID has been checked to be a hex digest (see list_proxy_invoice_transfers)
+        format!(
+            "{}_{}",
+            self.normalize_recipient_id(recipient_id),
+            &transfer_id[..16]
+        )
+    }
+
+    /// Remove the receive dir of a discovered transfer that didn't get a local one (best-effort).
+    fn remove_receive_dir(&self, receive_dir: &Path) {
+        match fs::remove_dir_all(receive_dir) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => warn!(
+                self.logger(),
+                "Failed to remove receive dir {}: {e}",
+                receive_dir.display()
+            ),
+        }
+    }
+
+    /// Check a transfer discovered for a reusable invoice before it gets a local one (see
+    /// [`Self::discover_invoice_transfers`]), decrypting its consignment to `consignment_path`,
+    /// returning its data if it passes.
+    ///
+    /// Its consignment must be decrypted and verified and pay `first` (the transfer created along
+    /// with the invoice) at a single destination, with the seal blinding derived from the keys of
+    /// both parties, an asset of a schema the wallet supports and of the invoice asset, if any.
+    /// Only what the consignment shows is looked at, without validating it (which is done once
+    /// it's processed by [`Self::wait_consignment`]): this is meant to drop, leaving nothing
+    /// behind, what can't be paying the invoice (e.g. spam).
+    #[allow(clippy::too_many_arguments)]
+    fn check_discovered_transfer(
+        &self,
+        first: &DbTransfer,
+        invoice: &DbInvoice,
+        proxy_url: &str,
+        transfer_id: &str,
+        result: &GetConsignmentResponse,
+        recipient_seed: &[u8],
+        consignment_path: &Path,
+    ) -> Result<Option<ProxyReceiveData>, Error> {
+        let Ok(data) = self.proxy_receive_data(
+            first,
+            proxy_url.to_string(),
+            transfer_id.to_string(),
+            result,
+        ) else {
+            error!(self.logger(), "Invalid sender transport endpoint");
+            return Ok(None);
+        };
+        if !self.decrypt_received_consignment(
+            &result.consignment,
+            &data,
+            recipient_seed,
+            consignment_path,
+        )? {
+            return Ok(None);
+        }
+        let consignment = match RgbTransfer::load_file(consignment_path) {
+            Ok(c) => c,
+            Err(e) => {
+                error!(self.logger(), "Failed to load consignment file: {e}");
+                return Ok(None);
+            }
+        };
+        let Ok(asset_schema) = AssetSchema::try_from(consignment.schema_id()) else {
+            error!(self.logger(), "Consignment has an unknown schema");
+            return Ok(None);
+        };
+        if !self.supports_schema(&asset_schema) {
+            error!(
+                self.logger(),
+                "The wallet doesn't support the provided schema: {}", asset_schema
+            );
+            return Ok(None);
+        }
+        if invoice
+            .asset_id
+            .as_ref()
+            .is_some_and(|a| *a != consignment.contract_id().to_string())
+        {
+            error!(
+                self.logger(),
+                "Received a different asset than the expected one"
+            );
+            return Ok(None);
+        }
+        let Some(blinding) = Self::proxy_seal_blinding(recipient_seed, &data.sender_pubkey)? else {
+            error!(self.logger(), "Invalid sender pubkey");
+            return Ok(None);
+        };
+        let matcher = first.receive_matcher(Some(blinding))?;
+        let spent = Self::known_spent_opouts(&consignment);
+        if self.find_payments(&consignment, &matcher, &spent).count() != 1 {
+            error!(
+                self.logger(),
+                "Consignment doesn't pay the invoice at a single destination"
+            );
+            return Ok(None);
+        }
+        Ok(Some(data))
     }
 
     /// Find the transfer to an invoice on a recipient proxy and download its consignment.
@@ -2620,42 +3161,61 @@ pub trait WalletOnline: WalletOffline {
         invoice_id: &str,
         recipient_seed: &[u8],
     ) -> Result<Option<(String, GetConsignmentResponse)>, Error> {
+        let Some(listed) = self.list_proxy_invoice_transfers(proxy_url, invoice_id, recipient_seed)
+        else {
+            return Ok(None);
+        };
+        for (transfer_id, state) in listed {
+            if state != ProxyTransferState::Pending {
+                continue;
+            }
+            if let Some(result) =
+                self.fetch_invoice_transfer(proxy_url, invoice_id, &transfer_id)?
+            {
+                return Ok(Some((transfer_id, result)));
+            }
+        }
+        Ok(None)
+    }
+
+    /// The transfers to an invoice on a recipient proxy, with their state, sorted by ID, or `None`
+    /// if the proxy cannot list them (e.g. it is unreachable or doesn't know the invoice). A
+    /// transfer ID is a hex-encoded SHA-256 digest (see [`is_transfer_id`]): any other ID listed by
+    /// the proxy is ignored, as it is used to name the directory of the transfer data.
+    fn list_proxy_invoice_transfers(
+        &self,
+        proxy_url: &str,
+        invoice_id: &str,
+        recipient_seed: &[u8],
+    ) -> Option<Vec<(String, ProxyTransferState)>> {
         let transfers = match list_invoice_transfers(proxy_url, invoice_id, recipient_seed) {
             Ok(res) => match (res.result, res.error) {
                 (Some(transfers), None) => transfers,
                 (_, err) => {
                     debug!(self.logger(), "Transfer list error: {:?}", err);
-                    return Ok(None);
+                    return None;
                 }
             },
             Err(e) => {
                 debug!(self.logger(), "Transfer list error: {e}");
-                return Ok(None);
+                return None;
             }
         };
-        let mut pending: Vec<String> = transfers
+        let mut listed: Vec<(String, ProxyTransferState)> = transfers
             .into_iter()
-            .filter(|(_, state)| *state == ProxyTransferState::Pending)
-            .map(|(tid, _)| tid)
+            .filter(|(transfer_id, _)| {
+                let valid = is_transfer_id(transfer_id);
+                if !valid {
+                    warn!(
+                        self.logger(),
+                        "Ignoring invalid transfer ID {transfer_id:?}"
+                    );
+                }
+                valid
+            })
             .collect();
-        pending.sort();
-        for transfer_id in pending {
-            let result = match self.get_consignment(proxy_url, transfer_id.clone()) {
-                Err(Error::NoConsignment) => continue,
-                Err(e) => return Err(e),
-                Ok(r) => r,
-            };
-            // a transfer whose ID doesn't match the sender pubkey was not posted by its sender
-            if self::transfer_id(invoice_id, &result.sender_pk) != transfer_id {
-                warn!(
-                    self.logger(),
-                    "Ignoring transfer {transfer_id}, which doesn't match its sender pubkey"
-                );
-                continue;
-            }
-            return Ok(Some((transfer_id, result)));
-        }
-        Ok(None)
+        listed.sort_by(|(a, _), (b, _)| a.cmp(b));
+        Some(listed)
     }
 
     /// Whether a blind receive still waiting for the counterparty may be failed, which releases its
@@ -2723,24 +3283,99 @@ pub trait WalletOnline: WalletOffline {
         Ok(true)
     }
 
-    /// Let the recipient proxy delete the data of a transfer that has been handled. Failures are
-    /// only logged, as the proxy deletes the data anyway once the invoice expires.
-    fn mark_transfer_retrieved(&self, proxy_url: &str, transfer_id: &str, recipient_seed: &[u8]) {
+    /// Download the consignment of a transfer to an invoice, if available and posted by the sender
+    /// the transfer ID was derived from.
+    fn fetch_invoice_transfer(
+        &self,
+        proxy_url: &str,
+        invoice_id: &str,
+        transfer_id: &str,
+    ) -> Result<Option<GetConsignmentResponse>, Error> {
+        let result = match self.get_consignment(proxy_url, transfer_id.to_string()) {
+            Err(Error::NoConsignment) => return Ok(None),
+            Err(e) => return Err(e),
+            Ok(r) => r,
+        };
+        if !Self::posted_by_sender(invoice_id, transfer_id, &result) {
+            warn!(
+                self.logger(),
+                "Ignoring transfer {transfer_id}, which doesn't match its sender pubkey"
+            );
+            return Ok(None);
+        }
+        Ok(Some(result))
+    }
+
+    /// The seal blinding of a transfer exchanged through a proxy, derived from the keys of both
+    /// parties, or `None` if the sender pubkey is invalid.
+    fn proxy_seal_blinding(
+        recipient_seed: &[u8],
+        sender_pubkey: &str,
+    ) -> Result<Option<u64>, Error> {
+        let seed: [u8; 32] = recipient_seed.try_into().map_err(|_| Error::Internal {
+            details: s!("invalid recipient secret key"),
+        })?;
+        let Some(sender_vk) = hex::decode(sender_pubkey)
+            .ok()
+            .and_then(|pk| verifying_key_from_bytes(&pk).ok())
+        else {
+            return Ok(None);
+        };
+        Ok(Some(
+            derive_shared(&ed25519_from_seed(&seed), &sender_vk)?.seal_blinding,
+        ))
+    }
+
+    /// Whether a transfer to an invoice was posted by its sender: a transfer whose ID doesn't match
+    /// the sender pubkey was not.
+    fn posted_by_sender(
+        invoice_id: &str,
+        transfer_id: &str,
+        result: &GetConsignmentResponse,
+    ) -> bool {
+        self::transfer_id(invoice_id, &result.sender_pk) == transfer_id
+    }
+
+    /// Let the recipient proxy delete the data of a transfer that has been handled
+    /// (`transfer.retrieved`), also freeing its invoice quota slot if `delete` is set
+    /// (`transfer.delete`). Failures are only logged, as the proxy deletes the data anyway once the
+    /// invoice expires.
+    fn release_transfer_data(
+        &self,
+        proxy_url: &str,
+        transfer_id: &str,
+        recipient_seed: &[u8],
+        delete: bool,
+    ) {
         let Ok(seed) = <[u8; 32]>::try_from(recipient_seed) else {
             return;
         };
+        #[cfg(test)]
+        if delete && mock_transfer_delete_fail() {
+            warn!(self.logger(), "Failed to release the transfer data: mocked");
+            return;
+        }
         let sk = ed25519_from_seed(&seed);
-        let digest = sha256_digest(transfer_retrieved_message(transfer_id).as_bytes());
-        let signature = hex::encode(sign_ed25519(&sk, &digest));
-        let res = ProxyClient::new(proxy_url)
-            .and_then(|client| client.transfer_retrieved(transfer_id, &signature));
+        let message = if delete {
+            delete_transfer_message(transfer_id)
+        } else {
+            transfer_retrieved_message(transfer_id)
+        };
+        let signature = hex::encode(sign_ed25519(&sk, &sha256_digest(message.as_bytes())));
+        let res = ProxyClient::new(proxy_url).and_then(|client| {
+            if delete {
+                client.delete_transfer(transfer_id, &signature)
+            } else {
+                client.transfer_retrieved(transfer_id, &signature)
+            }
+        });
         match res {
             Ok(r) if r.error.is_none() => {}
             Ok(r) => warn!(
                 self.logger(),
-                "Failed to mark transfer as retrieved: {:?}", r.error
+                "Failed to release the transfer data: {:?}", r.error
             ),
-            Err(e) => warn!(self.logger(), "Failed to mark transfer as retrieved: {e}"),
+            Err(e) => warn!(self.logger(), "Failed to release the transfer data: {e}"),
         }
     }
 
@@ -2851,12 +3486,12 @@ pub trait WalletOnline: WalletOffline {
 
     fn save_received_mint(
         &self,
-        recipient_id: &str,
+        transfer: &DbTransfer,
         received_mint: &ReceivedMint,
     ) -> Result<(), Error> {
         let serialized = serde_json::to_string(received_mint).map_err(InternalError::from)?;
         atomic_write(
-            &self.get_received_mint_path(recipient_id),
+            &self.get_received_mint_path(transfer),
             serialized.as_bytes(),
         )
     }
@@ -2952,7 +3587,6 @@ pub trait WalletOnline: WalletOffline {
         batch_transfer: &DbBatchTransfer,
         asset_transfer: &DbAssetTransfer,
         transfer: &DbTransfer,
-        recipient_id: String,
         consignment_path: &Path,
         mode: ReceiveMode,
         updated_batch_transfer: &mut DbBatchTransferActMod,
@@ -2974,10 +3608,10 @@ pub trait WalletOnline: WalletOffline {
                 return self.refuse_consignment(
                     txn,
                     &mode,
-                    &recipient_id,
+                    transfer,
                     &recipient_seed,
                     updated_batch_transfer,
-                    received_mint.is_some() || self.get_received_mint_path(&recipient_id).exists(),
+                    received_mint.is_some() || self.get_received_mint_path(transfer).exists(),
                 )
             };
         }
@@ -3021,21 +3655,13 @@ pub trait WalletOnline: WalletOffline {
         // from the keys of both parties), to locate the payment once the consignment is validated
         let blinding = match &mode {
             ReceiveMode::Proxy(data) => {
-                let seed: [u8; 32] =
-                    recipient_seed
-                        .clone()
-                        .try_into()
-                        .map_err(|_| Error::Internal {
-                            details: s!("invalid recipient secret key"),
-                        })?;
-                let sender_vk = hex::decode(&data.sender_pubkey)
-                    .ok()
-                    .and_then(|pk| verifying_key_from_bytes(&pk).ok());
-                let Some(sender_vk) = sender_vk else {
+                let Some(blinding) =
+                    Self::proxy_seal_blinding(&recipient_seed, &data.sender_pubkey)?
+                else {
                     error!(self.logger(), "Invalid sender pubkey");
                     refuse!();
                 };
-                Some(derive_shared(&ed25519_from_seed(&seed), &sender_vk)?.seal_blinding)
+                Some(blinding)
             }
             ReceiveMode::OutOfBand { .. } => None,
         };
@@ -3090,6 +3716,18 @@ pub trait WalletOnline: WalletOffline {
         let vout = payment_seal.vout();
         let witness_id = paying_bundle.witness_id();
         let txid = witness_id.to_string();
+
+        // an output paying an invoice that receives more than once (or an address shared by
+        // several invoices) can only be credited to a single transfer, lest the same allocation
+        // would be credited twice (e.g. a sender posting a copy of a transfer with a different
+        // key)
+        if self.payment_already_received(txn, transfer, &txid, vout)? {
+            error!(
+                self.logger(),
+                "The payment has already been received by another transfer"
+            );
+            refuse!();
+        }
 
         // an invoice is paid by a single allocation: a sender never needs more, as amounts can
         // always be merged, while each extra allocation weighs on the receiving UTXO (spending it
@@ -3168,7 +3806,7 @@ pub trait WalletOnline: WalletOffline {
         // the lock relied on, nor run for one whose lock is already recorded (e.g. made before the
         // check by a bridge locking right away, or for a wallet restored from a backup older than
         // the check). The UTXO allocations are checked anyway (see below)
-        let checked_mint = self.read_received_mint(&recipient_id)?.is_some();
+        let checked_mint = self.read_received_mint(transfer)?.is_some();
         let mut committed_mint = checked_mint;
 
         // a UTXO holding more allocations of the asset than a bundle can spend would be frozen,
@@ -3440,7 +4078,7 @@ pub trait WalletOnline: WalletOffline {
                             refuse!();
                         }
                     }
-                    self.save_received_mint(&recipient_id, received_mint)?;
+                    self.save_received_mint(transfer, received_mint)?;
                     // a backup taken before the check doesn't have it: mark one as required, so
                     // that a backup restored once the lock is made has the mint checked already
                     self.update_backup_info(txn, false)?;
@@ -3492,7 +4130,7 @@ pub trait WalletOnline: WalletOffline {
         };
         let validation_status = valid_consignment.validation_status().clone();
         if let Some(received_mint) = &received_mint {
-            self.save_received_mint(&recipient_id, received_mint)?;
+            self.save_received_mint(transfer, received_mint)?;
         }
 
         if asset_transfer.asset_id.is_none() {
@@ -3679,7 +4317,7 @@ pub trait WalletOnline: WalletOffline {
 
             // copy the provided consignment to the canonical receive path, so later refresh stages
             // (safe height, confirmations) find it where they expect it
-            let consignment_path = self.get_receive_consignment_path(&recipient_id);
+            let consignment_path = self.get_receive_consignment_path(&transfer);
             atomic_write_with(&consignment_path, |tmp| {
                 fs::copy(consignment_path_in, tmp)?;
                 Ok(())
@@ -3694,7 +4332,6 @@ pub trait WalletOnline: WalletOffline {
                 &batch_transfer,
                 &asset_transfer,
                 &transfer,
-                recipient_id,
                 &consignment_path,
                 mode,
                 &mut updated_batch_transfer,
@@ -3722,10 +4359,6 @@ pub trait WalletOnline: WalletOffline {
 
         let (_, transfer) =
             batch_transfer.get_incoming_transfer(&db_data.asset_transfers, &db_data.transfers)?;
-        let recipient_id = transfer
-            .recipient_id
-            .clone()
-            .expect("transfer should have a recipient ID");
         let txid = batch_transfer
             .txid
             .as_deref()
@@ -3756,7 +4389,7 @@ pub trait WalletOnline: WalletOffline {
             return Ok(Some(self.fail_batch_transfer(txn, batch_transfer)?));
         }
 
-        let valid_consignment = self.load_received_valid_transfer(batch_transfer, &recipient_id)?;
+        let valid_consignment = self.load_received_valid_transfer(batch_transfer, &transfer)?;
         let validation_status = valid_consignment.validation_status();
         let unsafe_txids = Self::collect_unsafe_history_txids(&validation_status.warnings, txid);
 
@@ -3782,7 +4415,7 @@ pub trait WalletOnline: WalletOffline {
         let signed_tx =
             paying_bundle.and_then(|paying_bundle| Self::donation_signed_tx(&paying_bundle.tx));
         // the mint paying the recipient was saved when the consignment was accepted
-        let mint_consignment = self.get_received_mint_path(&recipient_id).exists();
+        let mint_consignment = self.get_received_mint_path(&transfer).exists();
 
         let mut updated_batch_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
         let tte_data = txn.get_transfer_transport_endpoints_data(transfer.idx)?;
@@ -3793,7 +4426,7 @@ pub trait WalletOnline: WalletOffline {
         } else {
             let proxy_url =
                 Self::used_recipient_proxy_endpoint(&tte_data).expect("there should be 1 used TTE");
-            let consignment_meta_path = self.get_receive_consignment_meta_path(&recipient_id);
+            let consignment_meta_path = self.get_receive_consignment_meta_path(&transfer);
             let meta: ReceivedConsignmentMeta =
                 serde_json::from_str(&fs::read_to_string(&consignment_meta_path)?)
                     .map_err(InternalError::from)?;
@@ -4322,9 +4955,7 @@ pub trait WalletOnline: WalletOffline {
             {
                 let (_, transfer) = batch_transfer
                     .get_incoming_transfer(&db_data.asset_transfers, &db_data.transfers)?;
-                if let Some(recipient_id) = &transfer.recipient_id {
-                    self.rebroadcast_received_tx(recipient_id);
-                }
+                self.rebroadcast_received_tx(&transfer);
             }
         }
 
@@ -4376,11 +5007,10 @@ pub trait WalletOnline: WalletOffline {
             }
 
             // accept consignment
-            let valid_consignment =
-                self.load_received_valid_transfer(batch_transfer, &recipient_id)?;
+            let valid_consignment = self.load_received_valid_transfer(batch_transfer, &transfer)?;
             let mut stock = self.rgb_stock(txn)?;
             stock.accept_transfer(valid_consignment.clone(), &self.blockchain_resolver())?;
-            self.delete_valid_consignment(&recipient_id)?;
+            self.delete_valid_consignment(&transfer)?;
             let asset_schema: AssetSchema = valid_consignment.schema_id().try_into()?;
             match asset_schema {
                 AssetSchema::Ifa => {
@@ -4526,11 +5156,7 @@ pub trait WalletOnline: WalletOffline {
         // for until its TX is broadcast (detected by wait_confirmations, tried before this on
         // every refresh), or failed once the TX can never confirm
         if self.is_mint(batch_transfer, db_data)? {
-            let recipient_id = transfer
-                .recipient_id
-                .as_deref()
-                .expect("transfer should have a recipient ID");
-            if self.received_mint_tx_inputs_spent_elsewhere(batch_transfer, recipient_id)? {
+            if self.received_mint_tx_inputs_spent_elsewhere(batch_transfer, &transfer)? {
                 info!(
                     self.logger(),
                     "An input of the mint TX has been spent by another confirmed transaction, \
@@ -4634,12 +5260,8 @@ pub trait WalletOnline: WalletOffline {
 
         match (res.signed_tx, res.signed_tx_hash, res.sender_pk) {
             (Some(signed_tx), Some(signed_tx_hash), Some(sender_pubkey)) => {
-                let recipient_id = transfer
-                    .recipient_id
-                    .clone()
-                    .expect("transfer should have a recipient ID");
                 self.broadcast_received_tx(
-                    &recipient_id,
+                    &transfer,
                     &signed_tx,
                     &signed_tx_hash,
                     &sender_pubkey,
@@ -4670,6 +5292,16 @@ pub trait WalletOnline: WalletOffline {
         filter: Vec<RefreshFilter>,
         skip_sync: bool,
     ) -> Result<RefreshResult, Error> {
+        // the transfers to reusable invoices are discovered as new incoming transfers waiting for
+        // the counterparty
+        let discover = filter.is_empty()
+            || filter.contains(&RefreshFilter {
+                status: RefreshTransferStatus::WaitingCounterparty,
+                incoming: true,
+            });
+        if discover {
+            self.discover_invoice_transfers(txn, asset_id.as_deref())?;
+        }
         let mut db_data = txn.get_db_data(false)?;
 
         if asset_id.is_some() {
@@ -8106,10 +8738,7 @@ pub trait WalletOnline: WalletOffline {
         }
         let (_, transfer) =
             batch_transfer.get_incoming_transfer(&db_data.asset_transfers, &db_data.transfers)?;
-        Ok(transfer
-            .recipient_id
-            .as_ref()
-            .is_some_and(|recipient_id| self.get_received_mint_path(recipient_id).exists()))
+        Ok(transfer.recipient_id.is_some() && self.get_received_mint_path(&transfer).exists())
     }
 
     /// The circulating supply the bridge contract at `contract` accounts as of the latest block

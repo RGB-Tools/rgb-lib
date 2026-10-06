@@ -551,10 +551,12 @@ use crate::utils::{atomic_tmp_path, atomic_write, sync_dir};
 #[cfg(test)]
 use crate::wallet::test::{
     accept_multiple_allocations, count_received_consignment_validation, mock_chain_tx,
-    mock_clock_skew_margin, mock_confirmation_margin, mock_hub_accept_pending, mock_input_unspents,
-    mock_local_version, mock_max_utxo_asset_allocations, mock_min_retention_grace,
-    mock_mint_kept_amount, mock_retention_grace, mock_send_end_crash, mock_spam_hidden_spends,
-    mock_spam_recipient_assignments, skip_build_dag, skip_check_fee_rate, spv_only,
+    mock_clock_skew_margin, mock_confirmation_margin, mock_get_consignment_fail,
+    mock_hub_accept_pending, mock_input_unspents, mock_local_version,
+    mock_max_utxo_asset_allocations, mock_min_retention_grace, mock_mint_kept_amount,
+    mock_retention_grace, mock_send_end_crash, mock_spam_hidden_spends,
+    mock_spam_recipient_assignments, mock_transfer_delete_fail, skip_build_dag,
+    skip_check_fee_rate, spv_only,
 };
 #[cfg(feature = "electrum")]
 use crate::wallet::utils::INDEXER_BATCH_SIZE;
@@ -577,8 +579,8 @@ use crate::{
         proxy::{
             AckTransferData, GetAckResponse, GetConsignmentResponse, InvoiceStatus, JsonRpcError,
             JsonRpcResponse, PostAckResponse, PostConsignmentData, ProxyClient, ProxyTransferState,
-            ServerInfoResponse, get_ack_message, list_transfers_message, map_proxy_error,
-            post_consignment_message, post_media_message, pow_difficulty_required,
+            ServerInfoResponse, delete_transfer_message, get_ack_message, list_transfers_message,
+            map_proxy_error, post_consignment_message, post_media_message, pow_difficulty_required,
             prepare_ack_auth_message, prepare_invoice_auth_message, transfer_retrieved_message,
         },
     },
@@ -589,8 +591,8 @@ use crate::{
     },
     encryption::{
         decode_hash_hex, decrypt_blob, decrypt_stream, derive_shared, ed25519_from_seed,
-        encrypt_blob, encrypt_to_tempfile, invoice_id, sign_ed25519, solve_pow, transfer_id,
-        verify_ed25519, verifying_key_from_bytes,
+        encrypt_blob, encrypt_to_tempfile, invoice_id, is_transfer_id, sign_ed25519, solve_pow,
+        transfer_id, verify_ed25519, verifying_key_from_bytes,
     },
     no_wallet::script_buf_from_recipient_id,
     wallet::utils::{
@@ -610,6 +612,7 @@ use crate::{
             backup_info::{ActiveModel as DbBackupInfoActMod, Model as DbBackupInfo},
             batch_transfer::{ActiveModel as DbBatchTransferActMod, Model as DbBatchTransfer},
             coloring::{ActiveModel as DbColoringActMod, Model as DbColoring},
+            invoice::{ActiveModel as DbInvoiceActMod, Model as DbInvoice},
             media::{ActiveModel as DbMediaActMod, Model as DbMedia},
             pending_witness_script::ActiveModel as DbPendingWitnessScriptActMod,
             reserved_txo::Model as DbReservedTxo,

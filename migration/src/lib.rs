@@ -17,6 +17,7 @@ mod m20261020_143313_asset_links;
 mod m20261117_104500_asset_reject_list;
 mod m20261117_160000_asset_bridge_location;
 mod m20261124_120000_consignment_extension;
+mod m20261125_120000_invoice_reuse;
 
 pub use m20261124_120000_consignment_extension::Migration as ConsignmentExtensionMigration;
 
@@ -43,6 +44,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261117_104500_asset_reject_list::Migration),
             Box::new(m20261117_160000_asset_bridge_location::Migration),
             Box::new(m20261124_120000_consignment_extension::Migration),
+            Box::new(m20261125_120000_invoice_reuse::Migration),
         ]
     }
 }
