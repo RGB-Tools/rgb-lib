@@ -3,6 +3,117 @@ use super::*;
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
+fn receive_ack_retry() {
+    initialize();
+
+    let amount = 66;
+    let mut server = mockito::Server::new();
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+    mine(false);
+    wait_indexers_sync();
+    let asset = party.issue_asset_nia(None);
+    let receive_data = rcv_party.blind_receive_with_endpoints(
+        None,
+        vec![format!(
+            "rpc://{}",
+            server.url().trim_start_matches("http://")
+        )],
+    );
+
+    // Keep the real consignment local so the mock proxy controls its delivery and ACK.
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(amount),
+            recipient_id: receive_data.recipient_id.clone(),
+            witness_data: None,
+            transport_endpoints: vec![],
+        }],
+    )]);
+    let txid = party.send_retry(&recipient_map);
+    let consignment_path = party
+        .wallet
+        .get_send_consignment_path(&asset.asset_id, &txid);
+    let consignment_mock = server
+        .mock("POST", "/")
+        .match_body(mockito::Matcher::PartialJson(serde_json::json!({
+            "method": "consignment.get",
+            "params": { "recipient_id": receive_data.recipient_id }
+        })))
+        .with_header("content-type", "application/json")
+        .with_body(
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": null,
+                "result": {
+                    "consignment": general_purpose::STANDARD.encode(
+                        std::fs::read(consignment_path).unwrap()
+                    ),
+                    "txid": txid,
+                    "vout": null
+                }
+            })
+            .to_string(),
+        )
+        .expect(1)
+        .create();
+    let ack_request = mockito::Matcher::PartialJson(serde_json::json!({
+        "method": "ack.post",
+        "params": { "recipient_id": receive_data.recipient_id, "ack": true }
+    }));
+    let failed_ack_mock = server
+        .mock("POST", "/")
+        .match_body(ack_request.clone())
+        .with_status(503)
+        .with_body("ACK unavailable")
+        .expect(1)
+        .create();
+
+    let refreshed = rcv_party.refresh_result(None, &[]).unwrap();
+    let refreshed_transfer = &refreshed[&receive_data.batch_transfer_idx];
+    assert!(matches!(
+        refreshed_transfer.failure,
+        Some(Error::Proxy { .. })
+    ));
+    assert_eq!(refreshed_transfer.updated_status, None);
+    assert!(rcv_party.check_test_transfer_status_recipient(
+        &receive_data.recipient_id,
+        TransferStatus::WaitingCounterparty
+    ));
+    assert_eq!(rcv_party.get_asset_balance(&asset.asset_id).future, amount);
+    let transfer = rcv_party.get_test_transfer_recipient(&receive_data.recipient_id);
+    let (asset_transfer, _) = rcv_party.get_test_transfer_related(&transfer);
+    assert_eq!(rcv_party.db_colorings_filtered(asset_transfer.idx).len(), 1);
+
+    failed_ack_mock.assert();
+    failed_ack_mock.remove();
+    let ack_mock = server
+        .mock("POST", "/")
+        .match_body(ack_request)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"jsonrpc":"2.0","id":null,"result":true}"#)
+        .expect(1)
+        .create();
+
+    // Retrying refresh must ACK the cached consignment without counting it twice.
+    let refreshed = rcv_party.refresh_result(None, &[]).unwrap();
+    assert_eq!(
+        refreshed[&receive_data.batch_transfer_idx],
+        RefreshedTransfer {
+            updated_status: Some(TransferStatus::WaitingBroadcast),
+            failure: None,
+        }
+    );
+    assert_eq!(rcv_party.get_asset_balance(&asset.asset_id).future, amount);
+    assert_eq!(rcv_party.db_colorings_filtered(asset_transfer.idx).len(), 1);
+    consignment_mock.assert();
+    ack_mock.assert();
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
 fn success() {
     initialize();
 
