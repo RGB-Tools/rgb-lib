@@ -144,6 +144,8 @@ const DURATION_RCV_TRANSFER: u32 = 86400;
 const DURATION_SEND_TRANSFER: u32 = 3600;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) const INDEXER_SYNC_LOOKBACK: usize = 20;
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+pub(crate) const FAILED_WITNESS_RECEIVE_GRACE_SECS: u32 = 604800;
 
 #[cfg(all(feature = "esplora", not(feature = "electrum")))]
 const DEFAULT_INDEXER_URL: &str = ESPLORA_URL;

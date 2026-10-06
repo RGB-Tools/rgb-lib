@@ -520,6 +520,14 @@ pub trait WalletCore {
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
+    fn failed_witness_receive_grace_secs(&self) -> u32 {
+        self.online_data()
+            .as_ref()
+            .unwrap()
+            .failed_witness_receive_grace_secs
+    }
+
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
     fn check_online(&self, online: Online) -> Result<(), Error> {
         if let Some(online_data) = &self.online_data() {
             if online_data.id != online.id {
@@ -533,13 +541,104 @@ pub trait WalletCore {
         Ok(())
     }
 
+    /// Reconcile the pending witness state with the status of the witness receives it belongs to.
+    ///
+    /// A witness receive registers its script as pending witness and, once its consignment is
+    /// accepted, a TXO flagged as pending witness. Both are meant to live only while the receive is
+    /// pending, but the receive may end in ways that leave them behind (e.g. it is failed, or the
+    /// counterparty broadcasts despite a refusal), so they are checked against the receive status
+    /// on every colored sync:
+    /// - the script of a pending receive is kept and a payment to it is a pending witness UTXO
+    /// - the script of a failed receive is kept for a grace time (see
+    ///   [`OnlineOptions::failed_witness_receive_grace_secs`]), so that a payment the counterparty
+    ///   broadcasts anyway is still detected by fast sync, but as an ordinary UTXO
+    /// - any other script (failed receive past its grace time, settled receive, or unknown one, e.g.
+    ///   deleted) is dropped
+    /// - a TXO flagged as pending witness whose receive is not pending anymore gets unflagged
+    ///
+    /// The script of a receive that gets paid is instead dropped once the TXO paying it is
+    /// registered, by [`Self::update_db_colored_txos_from_bdk`].
+    ///
+    /// Returns the kept scripts, mapped to whether their receive is still pending.
     #[cfg(any(feature = "electrum", feature = "esplora"))]
-    fn fast_sync_colored_spks(&self, txn: &DbTxn) -> Result<HashSet<ScriptBuf>, Error> {
-        let mut spks: HashSet<ScriptBuf> = HashSet::new();
-        for pws in txn.iter_pending_witness_scripts()? {
-            spks.insert(ScriptBuf::from_hex(&pws.script).expect("valid script"));
+    fn reconcile_pending_witness(&self, txn: &DbTxn) -> Result<HashMap<String, bool>, Error> {
+        let pending_witness_scripts = txn.iter_pending_witness_scripts()?;
+        let pending_witness_txos = txn.iter_pending_witness_txos()?;
+        if pending_witness_scripts.is_empty() && pending_witness_txos.is_empty() {
+            return Ok(HashMap::new());
         }
-        Ok(spks)
+
+        // incoming witness receives that are pending or failed within the grace time, by script
+        // and by asset transfer: any other receive is not pending (outgoing transfers can pay one
+        // of this wallet's scripts too, when sending to oneself)
+        let failed_since = now().unix_timestamp() - self.failed_witness_receive_grace_secs() as i64;
+        let mut receives: HashMap<String, DbBatchTransfer> = HashMap::new();
+        let mut receives_by_asset_transfer: HashMap<i32, DbBatchTransfer> = HashMap::new();
+        for (transfer, batch_transfer) in
+            txn.get_pending_or_recently_failed_incoming_transfers(failed_since)?
+        {
+            if !matches!(
+                transfer.recipient_type,
+                Some(RecipientTypeFull::Witness { .. })
+            ) {
+                continue;
+            }
+            let Some(recipient_id) = transfer.recipient_id else {
+                continue;
+            };
+            let Some(script) = script_buf_from_recipient_id(recipient_id)? else {
+                continue;
+            };
+            receives.insert(script.to_hex_string(), batch_transfer.clone());
+            receives_by_asset_transfer.insert(transfer.asset_transfer_idx, batch_transfer);
+        }
+
+        let mut kept_scripts = HashMap::new();
+        for pws in pending_witness_scripts {
+            match receives.get(&pws.script) {
+                Some(b) => {
+                    kept_scripts.insert(pws.script, b.status.pending());
+                }
+                None => {
+                    debug!(
+                        self.logger(),
+                        "Dropping stale pending witness script {}", pws.script
+                    );
+                    txn.del_pending_witness_script(pws.script)?;
+                }
+            }
+        }
+
+        let receive_colorings = txn.get_receive_colorings_by_txo_idxs(
+            pending_witness_txos.iter().map(|t| t.idx).collect(),
+        )?;
+        for txo in pending_witness_txos {
+            // the receive the TXO belongs to: via its receive coloring once the consignment has
+            // been accepted, via the script it pays otherwise (detected by a sync before that)
+            let batch_transfer = receive_colorings
+                .iter()
+                .filter(|c| c.txo_idx == txo.idx)
+                .find_map(|c| receives_by_asset_transfer.get(&c.asset_transfer_idx))
+                .or_else(|| {
+                    self.bdk_wallet()
+                        .tx_graph()
+                        .get_txout(txo.outpoint().into())
+                        .and_then(|txout| receives.get(&txout.script_pubkey.to_hex_string()))
+                });
+            if batch_transfer.is_some_and(|b| b.status.pending()) {
+                continue;
+            }
+            debug!(
+                self.logger(),
+                "Clearing pending witness flag of TXO {}, its receive is not pending",
+                txo.outpoint()
+            );
+            let mut txo: DbTxoActMod = txo.into();
+            txo.pending_witness = ActiveValue::Set(false);
+            txn.update_txo(txo)?;
+        }
+
+        Ok(kept_scripts)
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -591,6 +690,10 @@ pub trait WalletCore {
         debug!(self.logger(), "Syncing {:?}...", options);
 
         let kc = options.keychain.keychain();
+        let pending_witness_scripts = match options.keychain {
+            SyncKeychain::Colored => self.reconcile_pending_witness(txn)?,
+            SyncKeychain::Vanilla { .. } => HashMap::new(),
+        };
         let latest_checkpoint = self.bdk_wallet().latest_checkpoint();
         let update: Update = match options.strategy {
             SyncStrategy::FullScan => {
@@ -617,7 +720,11 @@ pub trait WalletCore {
                 let mut spks: HashSet<ScriptBuf> = HashSet::new();
                 match options.keychain {
                     SyncKeychain::Colored => {
-                        spks.extend(self.fast_sync_colored_spks(txn)?);
+                        spks.extend(
+                            pending_witness_scripts
+                                .keys()
+                                .map(|s| ScriptBuf::from_hex(s).expect("valid script")),
+                        );
                         spks.extend(self.unconfirmed_colored_spks());
                     }
                     SyncKeychain::Vanilla { lookback } => {
@@ -637,18 +744,24 @@ pub trait WalletCore {
             })?;
 
         if matches!(options.keychain, SyncKeychain::Colored) {
-            self.update_db_colored_txos_from_bdk(txn, include_spent)?;
+            self.update_db_colored_txos_from_bdk(txn, include_spent, &pending_witness_scripts)?;
         }
 
         debug!(self.logger(), "Synced");
         Ok(())
     }
 
+    /// Register in the DB the colored TXOs known to BDK but not to the DB yet.
+    ///
+    /// `pending_witness_scripts` are the pending witness scripts returned by
+    /// [`Self::reconcile_pending_witness`]: a TXO paying one of them is flagged as pending witness
+    /// only if its receive is still pending, and the script is dropped as it has been paid.
     #[cfg(any(feature = "electrum", feature = "esplora"))]
     fn update_db_colored_txos_from_bdk(
         &mut self,
         txn: &DbTxn,
         include_spent: bool,
+        pending_witness_scripts: &HashMap<String, bool>,
     ) -> Result<(), Error> {
         let db_txos = txn.iter_txos()?;
 
@@ -656,12 +769,6 @@ pub trait WalletCore {
             .into_iter()
             .filter(|t| t.exists && (include_spent || !t.spent))
             .map(|u| u.outpoint().to_string())
-            .collect();
-
-        let pending_witness_scripts: Vec<String> = txn
-            .iter_pending_witness_scripts()?
-            .into_iter()
-            .map(|s| s.script)
             .collect();
 
         let iter: Box<dyn Iterator<Item = LocalOutput>> = if include_spent {
@@ -675,12 +782,10 @@ pub trait WalletCore {
             .filter(|u| !db_outpoints.contains(&u.outpoint.to_string()))
         {
             let mut new_db_utxo: DbTxoActMod = new_utxo.clone().into();
-            if !pending_witness_scripts.is_empty() {
-                let pending_witness_script = new_utxo.txout.script_pubkey.to_hex_string();
-                if pending_witness_scripts.contains(&pending_witness_script) {
-                    new_db_utxo.pending_witness = ActiveValue::Set(true);
-                    txn.del_pending_witness_script(pending_witness_script)?;
-                }
+            let script = new_utxo.txout.script_pubkey.to_hex_string();
+            if let Some(receive_pending) = pending_witness_scripts.get(&script) {
+                new_db_utxo.pending_witness = ActiveValue::Set(*receive_pending);
+                txn.del_pending_witness_script(script)?;
             }
             txn.set_txo(new_db_utxo.clone())?;
         }

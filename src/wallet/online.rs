@@ -105,7 +105,8 @@ pub trait WalletOnline: WalletOffline {
 
         // promote any newly-known colored UTXOs (e.g. the change output) from
         // exists=false to exists=true in the rgb_lib DB
-        self.update_db_colored_txos_from_bdk(txn, false)?;
+        let pending_witness_scripts = self.reconcile_pending_witness(txn)?;
+        self.update_db_colored_txos_from_bdk(txn, false, &pending_witness_scripts)?;
 
         for input in tx.clone().input {
             let txid = input.previous_output.txid.to_string();
@@ -420,12 +421,78 @@ pub trait WalletOnline: WalletOffline {
         Ok(())
     }
 
+    /// Clear the pending witness flag of the TXOs flagged for witness receives that are not pending
+    /// anymore, as they would otherwise never become spendable. The TXOs are identified by their
+    /// outpoint (the one registered when accepting the consignment) or by the script they pay (one
+    /// detected by a sync, e.g. when the counterparty broadcasts before its consignment gets
+    /// refused). Pending witness scripts are left to [`WalletCore::reconcile_pending_witness`],
+    /// which keeps watching them for a grace time in case the counterparty broadcasts anyway.
+    fn unflag_pending_witness_txos(
+        &self,
+        txn: &DbTxn,
+        outpoints: &HashSet<Outpoint>,
+        scripts: &HashSet<ScriptBuf>,
+    ) -> Result<(), Error> {
+        for txo in txn.iter_pending_witness_txos()? {
+            let outpoint = txo.outpoint();
+            let pays_script = || {
+                self.bdk_wallet()
+                    .tx_graph()
+                    .get_txout(outpoint.clone().into())
+                    .is_some_and(|txout| scripts.contains(&txout.script_pubkey))
+            };
+            if !outpoints.contains(&outpoint) && !pays_script() {
+                continue;
+            }
+            let mut txo: DbTxoActMod = txo.into();
+            txo.pending_witness = ActiveValue::Set(false);
+            txn.update_txo(txo)?;
+        }
+        Ok(())
+    }
+
+    /// Clear the pending witness flag of the TXOs flagged for the witness receives of a batch
+    /// transfer being failed.
+    fn clean_failed_witness_receives(
+        &self,
+        txn: &DbTxn,
+        batch_transfer: &DbBatchTransfer,
+    ) -> Result<(), Error> {
+        if !batch_transfer.incoming {
+            return Ok(());
+        }
+        let mut outpoints = HashSet::new();
+        let mut scripts = HashSet::new();
+        for transfer in txn.get_batch_transfer_transfers(batch_transfer.idx)? {
+            let vout = match transfer.recipient_type {
+                Some(RecipientTypeFull::Witness { vout }) => vout,
+                _ => continue,
+            };
+            if let (Some(txid), Some(vout)) = (&batch_transfer.txid, vout) {
+                outpoints.insert(Outpoint {
+                    txid: txid.clone(),
+                    vout,
+                });
+            }
+            if let Some(recipient_id) = transfer.recipient_id
+                && let Some(script) = script_buf_from_recipient_id(recipient_id)?
+            {
+                scripts.insert(script);
+            }
+        }
+        if outpoints.is_empty() && scripts.is_empty() {
+            return Ok(());
+        }
+        self.unflag_pending_witness_txos(txn, &outpoints, &scripts)
+    }
+
     fn fail_batch_transfer(
         &self,
         txn: &DbTxn,
         batch_transfer: &DbBatchTransfer,
     ) -> Result<DbBatchTransfer, Error> {
         self.set_hub_fail_status(batch_transfer.idx)?;
+        self.clean_failed_witness_receives(txn, batch_transfer)?;
         let mut updated_batch_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
         updated_batch_transfer.status = ActiveValue::Set(TransferStatus::Failed);
         txn.update_batch_transfer(&mut updated_batch_transfer)
@@ -603,6 +670,7 @@ pub trait WalletOnline: WalletOffline {
             hub_client: None,
             user_role: None,
             vanilla_sync_lookback: online_options.vanilla_sync_lookback,
+            failed_witness_receive_grace_secs: online_options.failed_witness_receive_grace_secs,
         };
 
         Ok((online, online_data))
@@ -625,11 +693,11 @@ pub trait WalletOnline: WalletOffline {
                     indexer_url: _,            // a new URL goes online from scratch, see above
                     skip_consistency_check: _, // only used during this call, not stored
                     vanilla_sync_lookback,
+                    failed_witness_receive_grace_secs,
                 } = online_options;
-                self.online_data_mut()
-                    .as_mut()
-                    .unwrap()
-                    .vanilla_sync_lookback = *vanilla_sync_lookback;
+                let online_data = self.online_data_mut().as_mut().unwrap();
+                online_data.vanilla_sync_lookback = *vanilla_sync_lookback;
+                online_data.failed_witness_receive_grace_secs = *failed_witness_receive_grace_secs;
                 online
             }
         } else {
@@ -682,6 +750,12 @@ pub trait WalletOnline: WalletOffline {
             };
         }
 
+        // a refused receive has no TXO registered, but a sync may have detected one paying its
+        // script if the counterparty has already broadcast
+        let scripts = script_buf_from_recipient_id(recipient_id.clone())?
+            .into_iter()
+            .collect();
+        self.unflag_pending_witness_txos(txn, &HashSet::new(), &scripts)?;
         updated_batch_transfer.status = ActiveValue::Set(TransferStatus::Failed);
         Ok(Some(txn.update_batch_transfer(updated_batch_transfer)?))
     }

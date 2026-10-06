@@ -8,7 +8,11 @@ use crate::database::entities::{
     wallet_transaction,
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-use crate::database::entities::{batch_transfer, pending_witness_script, reserved_txo};
+use crate::database::entities::{
+    asset_transfer, batch_transfer, pending_witness_script, reserved_txo, transfer,
+};
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+use sea_orm::{Condition, Iterable, JoinType, QuerySelect, RelationTrait};
 
 #[derive(Debug, Clone)]
 #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -555,6 +559,53 @@ impl DbTxn {
         )?)
     }
 
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub(crate) fn get_batch_transfer_transfers(
+        &self,
+        batch_transfer_idx: i32,
+    ) -> Result<Vec<DbTransfer>, Error> {
+        Ok(block_on(
+            Transfer::find()
+                .join(JoinType::InnerJoin, transfer::Relation::AssetTransfer.def())
+                .filter(asset_transfer::Column::BatchTransferIdx.eq(batch_transfer_idx))
+                .all(self.inner()),
+        )?)
+    }
+
+    /// The transfers of incoming batch transfers that are pending or that have failed after
+    /// `failed_since`, each with its batch transfer.
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub(crate) fn get_pending_or_recently_failed_incoming_transfers(
+        &self,
+        failed_since: i64,
+    ) -> Result<Vec<(DbTransfer, DbBatchTransfer)>, Error> {
+        let pending_statuses: Vec<TransferStatus> =
+            TransferStatus::iter().filter(|s| s.pending()).collect();
+        Ok(block_on(
+            Transfer::find()
+                .join(JoinType::InnerJoin, transfer::Relation::AssetTransfer.def())
+                .join(
+                    JoinType::InnerJoin,
+                    asset_transfer::Relation::BatchTransfer.def(),
+                )
+                .filter(batch_transfer::Column::Incoming.eq(true))
+                .filter(
+                    Condition::any()
+                        .add(batch_transfer::Column::Status.is_in(pending_statuses))
+                        .add(
+                            Condition::all()
+                                .add(batch_transfer::Column::Status.eq(TransferStatus::Failed))
+                                .add(batch_transfer::Column::UpdatedAt.gt(failed_since)),
+                        ),
+                )
+                .select_also(BatchTransfer)
+                .all(self.inner()),
+        )?
+        .into_iter()
+        .map(|(t, b)| (t, b.expect("should be connected")))
+        .collect())
+    }
+
     pub(crate) fn get_media(&self, media_idx: i32) -> Result<Option<DbMedia>, Error> {
         Ok(block_on(Media::find_by_id(media_idx).one(self.inner()))?)
     }
@@ -564,6 +615,19 @@ impl DbTxn {
             Media::find()
                 .filter(media::Column::Digest.eq(digest))
                 .one(self.inner()),
+        )?)
+    }
+
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub(crate) fn get_receive_colorings_by_txo_idxs(
+        &self,
+        txo_idxs: Vec<i32>,
+    ) -> Result<Vec<DbColoring>, Error> {
+        Ok(block_on(
+            Coloring::find()
+                .filter(coloring::Column::TxoIdx.is_in(txo_idxs))
+                .filter(coloring::Column::Type.eq(ColoringType::Receive))
+                .all(self.inner()),
         )?)
     }
 
@@ -637,6 +701,15 @@ impl DbTxn {
         &self,
     ) -> Result<Vec<DbPendingWitnessScript>, Error> {
         Ok(block_on(PendingWitnessScript::find().all(self.inner()))?)
+    }
+
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub(crate) fn iter_pending_witness_txos(&self) -> Result<Vec<DbTxo>, Error> {
+        Ok(block_on(
+            Txo::find()
+                .filter(txo::Column::PendingWitness.eq(true))
+                .all(self.inner()),
+        )?)
     }
 
     pub(crate) fn iter_reserved_txos(&self) -> Result<Vec<DbReservedTxo>, Error> {

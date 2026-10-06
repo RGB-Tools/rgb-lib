@@ -67,6 +67,7 @@ pub struct OnlineData {
     pub(crate) hub_client: Option<MultisigHubClient>,
     pub(crate) user_role: Option<UserRole>,
     pub(crate) vanilla_sync_lookback: u32,
+    pub(crate) failed_witness_receive_grace_secs: u32,
 }
 
 /// Options for the [`Wallet::go_online`] and [`MultisigWallet::go_online`] methods.
@@ -88,6 +89,17 @@ pub struct OnlineOptions {
     /// Number of addresses before the last used (or last revealed if none) address to sync when
     /// doing an automatic FastSync for the vanilla keychain
     pub vanilla_sync_lookback: u32,
+    /// Number of seconds, after a witness receive has failed, during which its script keeps being
+    /// synced by FastSync for the colored keychain.
+    ///
+    /// The counterparty may broadcast its TX even if the receive has failed (e.g. if it was refused
+    /// after the counterparty had already broadcast, or the counterparty ignored the refusal), in
+    /// which case the BTC paid to the script is detected and becomes available as an ordinary UTXO.
+    /// A longer grace period detects late payments for longer, at the cost of adding the scripts of
+    /// recently failed witness receives to each FastSync. A payment arriving after the grace period
+    /// is only detected by a FullSync or a FullScan. Setting this to 0 stops syncing the script as
+    /// soon as the receive fails.
+    pub failed_witness_receive_grace_secs: u32,
 }
 
 // ────────────────────────────────────────────────────────────
