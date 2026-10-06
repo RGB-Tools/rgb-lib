@@ -621,4 +621,67 @@ mod tests {
         drop(txn);
         assert!(!rolled_back.load(Ordering::Relaxed));
     }
+
+    // A failing savepoint must roll back only its own changes and callbacks, while a succeeding
+    // one keeps them, with its callbacks running only once the enclosing transaction commits.
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[test]
+    fn savepoint_rolls_back_only_on_error() {
+        let (db, _dir) = test_db();
+
+        let changeset_with_tx = |out: u8| {
+            let tx = BdkTransaction {
+                version: Version::TWO,
+                lock_time: LockTime::ZERO,
+                input: vec![TxIn::default()],
+                output: vec![TxOut {
+                    value: BdkAmount::from_sat(1000),
+                    script_pubkey: ScriptBuf::from_bytes(vec![out]),
+                }],
+            };
+            let txid = tx.compute_txid();
+            let mut changeset = ChangeSet::default();
+            changeset.tx_graph.txs.insert(Arc::new(tx));
+            (changeset, txid)
+        };
+        let (kept_changeset, kept_txid) = changeset_with_tx(0x51);
+        let (dropped_changeset, dropped_txid) = changeset_with_tx(0x52);
+
+        let kept_cb = Arc::new(AtomicBool::new(false));
+        let dropped_cb = Arc::new(AtomicBool::new(false));
+        let txn = db.begin_transaction().unwrap();
+        let flag = Arc::clone(&kept_cb);
+        txn.with_savepoint(|sp| {
+            sp.update_bdk_changeset(&kept_changeset)?;
+            sp.on_commit(move || flag.store(true, Ordering::Relaxed));
+            Ok(())
+        })
+        .unwrap();
+        let flag = Arc::clone(&dropped_cb);
+        let res: Result<(), Error> = txn.with_savepoint(|sp| {
+            sp.update_bdk_changeset(&dropped_changeset)?;
+            sp.on_commit(move || flag.store(true, Ordering::Relaxed));
+            Err(Error::Internal {
+                details: s!("savepoint failure"),
+            })
+        });
+        assert!(res.is_err());
+        assert!(!kept_cb.load(Ordering::Relaxed));
+        txn.commit().unwrap();
+        assert!(kept_cb.load(Ordering::Relaxed));
+        assert!(!dropped_cb.load(Ordering::Relaxed));
+
+        let txn = db.begin_transaction().unwrap();
+        let txids: Vec<_> = txn
+            .get_bdk_changeset()
+            .unwrap()
+            .tx_graph
+            .txs
+            .iter()
+            .map(|t| t.compute_txid())
+            .collect();
+        txn.commit().unwrap();
+        assert!(txids.contains(&kept_txid));
+        assert!(!txids.contains(&dropped_txid));
+    }
 }

@@ -1163,26 +1163,33 @@ pub trait WalletOnline: WalletOffline {
         let mut updated_batch_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
 
         // if we already downloaded the consignment and its metadata in a
-        // previous attempt that failed during validation for a transient
-        // reason (e.g. network error), reuse them instead of hitting the proxy
-        // again; the endpoint we used is recoverable from the DB via the
-        // `used` flag on the transfer transport endpoint
+        // previous attempt that failed for a transient reason (e.g. network
+        // error), reuse them instead of hitting the proxy again; the endpoint
+        // we used is recorded in the metadata, since a failed refresh rolls
+        // back the `used` flag on the transfer transport endpoint (metadata
+        // written by older versions lacks it, fall back to the flag then)
         let consignment_path = self.get_receive_consignment_path(&recipient_id);
         let consignment_meta_path = self.get_receive_consignment_meta_path(&recipient_id);
         let (proxy_url, txid, vout) = if consignment_path.exists()
             && consignment_meta_path.exists()
-            && let Some(cached_proxy_url) = tte_data
-                .iter()
-                .find(|(tte, _)| tte.used)
-                .map(|(_, te)| te.endpoint.clone())
             && let Ok(meta_str) = fs::read_to_string(&consignment_meta_path)
             && let Ok(meta) = serde_json::from_str::<ReceivedConsignmentMeta>(&meta_str)
-        {
+            && let Some((cached_tte, cached_te)) = tte_data.iter().find(|(tte, te)| {
+                meta.proxy_url
+                    .as_ref()
+                    .map_or(tte.used, |url| url == &te.endpoint)
+            }) {
             debug!(
                 self.logger(),
                 "Reusing previously-downloaded consignment for {recipient_id}"
             );
-            (cached_proxy_url, meta.txid, meta.vout)
+            if !cached_tte.used {
+                let mut updated_transfer_transport_endpoint: DbTransferTransportEndpointActMod =
+                    cached_tte.clone().into();
+                updated_transfer_transport_endpoint.used = ActiveValue::Set(true);
+                txn.update_transfer_transport_endpoint(&mut updated_transfer_transport_endpoint)?;
+            }
+            (cached_te.endpoint.clone(), meta.txid, meta.vout)
         } else {
             // download consignment and its metadata
             let mut proxy_res = None;
@@ -1240,6 +1247,7 @@ pub trait WalletOnline: WalletOffline {
             let meta = ReceivedConsignmentMeta {
                 txid: txid.clone(),
                 vout,
+                proxy_url: Some(proxy_url.clone()),
             };
             let meta_str = serde_json::to_string(&meta).map_err(InternalError::from)?;
             atomic_write(&consignment_meta_path, meta_str.as_bytes())?;
@@ -1248,7 +1256,7 @@ pub trait WalletOnline: WalletOffline {
         };
 
         let mode = ReceiveMode::Proxy { proxy_url };
-        self.validate_received_consignment(
+        self.process_received_consignment(
             txn,
             batch_transfer,
             &asset_transfer,
@@ -1263,8 +1271,8 @@ pub trait WalletOnline: WalletOffline {
     }
 
     // validate a received consignment, if valid import any unknown asset (and its media), persist
-    // the receive colorings and update the transfer status
-    fn validate_received_consignment(
+    // the receive colorings, then update the transfer status (ACKing the consignment when possible)
+    fn process_received_consignment(
         &self,
         txn: &DbTxn,
         batch_transfer: &DbBatchTransfer,
@@ -1683,7 +1691,7 @@ pub trait WalletOnline: WalletOffline {
             let mode = ReceiveMode::OutOfBand {
                 media_file_paths: media_file_paths.clone(),
             };
-            let updated = self.validate_received_consignment(
+            let updated = self.process_received_consignment(
                 txn,
                 &batch_transfer,
                 &asset_transfer,
@@ -2191,7 +2199,11 @@ pub trait WalletOnline: WalletOffline {
         for transfer in &db_data.batch_transfers {
             let mut failure = None;
             let mut updated_status = None;
-            match self.refresh_transfer(txn, transfer, &db_data, &filter, skip_sync) {
+            // a failed refresh must not leave its partial changes behind (e.g. the colorings of a
+            // consignment validated before its ACK failed), as the next one would redo them
+            match txn.with_savepoint(|txn| {
+                self.refresh_transfer(txn, transfer, &db_data, &filter, skip_sync)
+            }) {
                 Ok(Some(updated_transfer)) => updated_status = Some(updated_transfer.status),
                 Err(e) => failure = Some(e),
                 _ => {}
