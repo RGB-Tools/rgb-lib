@@ -447,16 +447,26 @@ pub(crate) fn default_send_expiration() -> u64 {
 }
 
 // proxy that forwards every call to the real one, except ACK posts and gets that receive an
-// unparsable response
+// unparsable response while `fail_ack` is set; it also returns how many times a consignment
+// has been requested
 #[cfg(feature = "electrum")]
-pub(crate) fn failing_ack_proxy() -> (mockito::ServerGuard, mockito::Mock) {
+pub(crate) fn failing_ack_proxy(
+    fail_ack: Arc<AtomicBool>,
+) -> (mockito::ServerGuard, mockito::Mock, Arc<AtomicUsize>) {
+    let consignment_gets = Arc::new(AtomicUsize::new(0));
+    let gets = Arc::clone(&consignment_gets);
     let mut server = mockito::Server::new();
     let mock = server
         .mock("POST", "/json-rpc")
-        .with_body_from_request(|req| {
+        .with_body_from_request(move |req| {
             let body = req.body().unwrap().clone();
             let body_str = String::from_utf8_lossy(&body);
-            if body_str.contains("\"ack.post\"") || body_str.contains("\"ack.get\"") {
+            if body_str.contains("\"consignment.get\"") {
+                gets.fetch_add(1, Ordering::Relaxed);
+            }
+            if fail_ack.load(Ordering::Relaxed)
+                && (body_str.contains("\"ack.post\"") || body_str.contains("\"ack.get\""))
+            {
                 return b"not valid json".to_vec();
             }
             let content_type = req.header(CONTENT_TYPE)[0].clone();
@@ -477,5 +487,5 @@ pub(crate) fn failing_ack_proxy() -> (mockito::ServerGuard, mockito::Mock) {
         })
         .expect_at_least(1)
         .create();
-    (server, mock)
+    (server, mock, consignment_gets)
 }
