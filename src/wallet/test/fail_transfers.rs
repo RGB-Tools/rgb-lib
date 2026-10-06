@@ -694,6 +694,10 @@ fn witness_receive_cleanup() {
         keychain: SyncKeychain::Colored,
         strategy: SyncStrategy::FastSync,
     };
+    let full_sync = SyncOptions {
+        keychain: SyncKeychain::Colored,
+        strategy: SyncStrategy::FullSync,
+    };
     // an RGB transfer to a witness receive, broadcast right away (as a donation) since the receive
     // is not going to ACK it
     let send_rgb_to = |party: &mut SinglesigParty, asset_id: &str, recipient_id: &str| {
@@ -781,6 +785,35 @@ fn witness_receive_cleanup() {
     assert_only_btc_received(&mut rcv_party, &receive_data, &txid);
     assert!(rcv_party.db_pending_witness_scripts().is_empty());
     // the UTXO is usable (e.g. to allocate a blind receive)
+    rcv_party.blind_receive();
+
+    //
+    // payment after the fail, past the grace time: only a full sync detects it
+    //
+
+    let mut rcv_party = get_empty_party!();
+    let receive_data = rcv_party.witness_receive();
+    assert!(rcv_party.fail_transfers_single(receive_data.batch_transfer_idx));
+
+    // the script is dropped by the next sync once the grace time has elapsed
+    rcv_party
+        .wallet
+        .go_online(OnlineOptions {
+            failed_witness_receive_grace_secs: 0,
+            ..test_go_online_options(None)
+        })
+        .unwrap();
+    rcv_party.sync(fast_sync);
+    assert!(rcv_party.db_pending_witness_scripts().is_empty());
+
+    // an RGB transfer to the receive is not detected by fast sync anymore, a full sync is needed
+    let txid = send_rgb_to(&mut party, &asset.asset_id, &receive_data.recipient_id);
+    mine(false);
+    party.refresh_result(None, &[]).unwrap();
+    rcv_party.sync(fast_sync);
+    assert!(rcv_party.db_txos().is_empty());
+    rcv_party.sync(full_sync);
+    assert_only_btc_received(&mut rcv_party, &receive_data, &txid);
     rcv_party.blind_receive();
 
     //

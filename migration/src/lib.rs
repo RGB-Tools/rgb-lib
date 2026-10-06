@@ -8,6 +8,7 @@ mod m20260414_134758_add_reserved_txo;
 mod m20260625_121819_incoming_rework;
 mod m20260727_115821_add_bdk_tables;
 mod m20261019_120000_add_transfer_indexes;
+mod m20261020_093003_add_pending_witness_indexes;
 
 pub struct Migrator;
 
@@ -23,6 +24,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260625_121819_incoming_rework::Migration),
             Box::new(m20260727_115821_add_bdk_tables::Migration),
             Box::new(m20261019_120000_add_transfer_indexes::Migration),
+            Box::new(m20261020_093003_add_pending_witness_indexes::Migration),
         ]
     }
 }
