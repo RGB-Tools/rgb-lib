@@ -357,3 +357,79 @@ fn begin_end() {
     let bak_info_after = party.db_backup_info();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
 }
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn reuse_plain_sats_colored() {
+    initialize();
+
+    let mut party = get_funded_noutxo_party!();
+    let mut rcv_party = get_funded_party!();
+    let pinned = rcv_party
+        .wallet
+        .pin_address(Keychain::Colored, None)
+        .unwrap();
+
+    // plain sats on a reused colored address are quarantined
+    let txid = party.send_btc(&pinned, 10_000);
+    mine(false);
+    let mut outpoint = None;
+    let check = || {
+        outpoint = rcv_party
+            .list_unspents_with_sync(false)
+            .into_iter()
+            .map(|u| u.utxo.outpoint)
+            .find(|o| o.txid == txid);
+        outpoint.is_some()
+    };
+    assert!(wait_for_function(check, 10, 500));
+    let outpoint = outpoint.unwrap();
+    assert!(rcv_party.db_txo(&outpoint).unwrap().pending_witness);
+    let available = |party: &SinglesigParty| {
+        let unspents =
+            party.db_rgb_allocations(party.db_unspent_txos(vec![]), None, None, None, None);
+        party
+            .wallet
+            .get_available_allocations(unspents, &[], None)
+            .unwrap()
+    };
+    assert!(
+        !available(&rcv_party)
+            .iter()
+            .any(|u| u.utxo.outpoint() == outpoint)
+    );
+
+    // vanilla operations do not spend it
+    let address = party.get_address();
+    rcv_party.send_btc(&address, 1000);
+    rcv_party.create_utxos(false, Some(1), None, FEE_RATE, None);
+    mine(false);
+    rcv_party.list_unspents_with_sync(false);
+    let bdk_outpoint: BdkOutPoint = outpoint.clone().into();
+    assert!(
+        rcv_party
+            .wallet
+            .bdk_wallet()
+            .get_utxo(bdk_outpoint)
+            .is_some()
+    );
+    assert!(
+        !available(&rcv_party)
+            .iter()
+            .any(|u| u.utxo.outpoint() == outpoint)
+    );
+
+    // drain_to sweeps it
+    rcv_party.drain_to(&address);
+    mine(false);
+    let check = || {
+        rcv_party.list_unspents_with_sync(false);
+        rcv_party
+            .wallet
+            .bdk_wallet()
+            .get_utxo(bdk_outpoint)
+            .is_none()
+    };
+    assert!(wait_for_function(check, 10, 500));
+}

@@ -11,6 +11,14 @@ const SIGNED_PSBT_FILE: &str = "signed.psbt";
 
 const MIN_FEE_RATE: u64 = 1;
 
+// A reuse receive takes no consignment after it expires. Only a reuse receive has a receive_dir.
+fn is_expired_reuse_receive(batch_transfer: &DbBatchTransfer, transfer: &DbTransfer) -> bool {
+    transfer.receive_dir.is_some()
+        && batch_transfer
+            .expiration
+            .is_some_and(|e| e < now().unix_timestamp())
+}
+
 pub(crate) const UTXO_SIZE: u32 = 1000;
 pub(crate) const UTXO_NUM: u8 = 5;
 
@@ -793,19 +801,21 @@ pub trait WalletOnline: WalletOffline {
         // the terminal (paying) bundle is guaranteed to be the last one in the consignment
         match consignment.bundles.last() {
             Some(bundle) if bundle.witness_id() == witness_id => {
-                self.assignments_for_bundle(bundle, vout, known_concealed)
+                self.assignments_for_bundle(bundle, vout, known_concealed, None)
             }
             _ => HashMap::new(),
         }
     }
 
     // extract the assignments in a single bundle that pay the recipient identified by
-    // `known_concealed` (blind receives) or by the witness `vout` (witness receives)
+    // `known_concealed` (blind receives) or by the witness `vout` (witness receives); with a
+    // `blinding`, a witness seal must also carry it
     fn assignments_for_bundle(
         &self,
         bundle: &WitnessBundle,
         vout: Option<u32>,
         known_concealed: Option<SecretSeal>,
+        blinding: Option<u64>,
     ) -> HashMap<Opout, Assignment> {
         let mut received = HashMap::new();
         for KnownTransition { transition, opid } in bundle.bundle.known_transitions.iter() {
@@ -828,6 +838,7 @@ pub trait WalletOnline: WalletOffline {
                     if let Assign::Revealed { seal, state, .. } = fungible_assignment
                         && seal.txid == TxPtr::WitnessTx
                         && Some(seal.vout.into_u32()) == vout
+                        && blinding.is_none_or(|b| b == seal.blinding)
                     {
                         match *ass_type {
                             OS_ASSET => {
@@ -851,6 +862,7 @@ pub trait WalletOnline: WalletOffline {
                     if let Assign::Revealed { seal, .. } = structured_assignment
                         && seal.txid == TxPtr::WitnessTx
                         && Some(seal.vout.into_u32()) == vout
+                        && blinding.is_none_or(|b| b == seal.blinding)
                     {
                         received.insert(opout, Assignment::NonFungible);
                     };
@@ -1069,8 +1081,8 @@ pub trait WalletOnline: WalletOffline {
         // reason (e.g. network error), reuse them instead of hitting the proxy
         // again; the endpoint we used is recoverable from the DB via the
         // `used` flag on the transfer transport endpoint
-        let consignment_path = self.get_receive_consignment_path(&recipient_id);
-        let consignment_meta_path = self.get_receive_consignment_meta_path(&recipient_id);
+        let consignment_path = self.get_receive_consignment_path(&transfer);
+        let consignment_meta_path = self.get_receive_consignment_meta_path(&transfer);
         let (proxy_url, txid, vout) = if consignment_path.exists()
             && consignment_meta_path.exists()
             && let Some(cached_proxy_url) = tte_data
@@ -1150,6 +1162,10 @@ pub trait WalletOnline: WalletOffline {
         };
 
         let mode = ReceiveMode::Proxy { proxy_url };
+        if is_expired_reuse_receive(batch_transfer, &transfer) {
+            error!(self.logger(), "The reuse receive has expired");
+            return self.refuse_consignment(txn, &mode, recipient_id, &mut updated_batch_transfer);
+        }
         self.validate_received_consignment(
             txn,
             batch_transfer,
@@ -1265,9 +1281,9 @@ pub trait WalletOnline: WalletOffline {
             }
         };
 
-        let known_concealed = match transfer.receive_matcher()? {
-            ReceiveMatcher::Blind(secret_seal) => Some(secret_seal),
-            ReceiveMatcher::Witness(script_pubkey) => {
+        let (known_concealed, nonce) = match transfer.receive_matcher()? {
+            ReceiveMatcher::Blind(secret_seal) => (Some(secret_seal), None),
+            ReceiveMatcher::Witness(script_pubkey, nonce) => {
                 if let Some(vout) = vout {
                     if let PubWitness::Tx(tx) = &anchored_bundle.pub_witness {
                         if let Some(output) = tx.output.get(vout as usize) {
@@ -1313,14 +1329,33 @@ pub trait WalletOnline: WalletOffline {
                         updated_batch_transfer,
                     );
                 }
-                None
+                (None, nonce)
             }
         };
-        let receiving = self.assignments_for_bundle(anchored_bundle, vout, known_concealed);
+        let receiving = self.assignments_for_bundle(anchored_bundle, vout, known_concealed, nonce);
         if receiving.is_empty() {
             error!(self.logger(), "Cannot find any receiving assignment");
             return self.refuse_consignment(txn, &mode, recipient_id, updated_batch_transfer);
         };
+
+        // one outpoint feeds one transfer
+        if let Some(vout) = vout
+            && let Some(txo) = txn.get_txo(&Outpoint {
+                txid: txid.clone(),
+                vout,
+            })?
+            && txn.iter_colorings()?.iter().any(|c| {
+                c.txo_idx == txo.idx
+                    && c.r#type == ColoringType::Receive
+                    && c.asset_transfer_idx != asset_transfer.idx
+            })
+        {
+            error!(
+                self.logger(),
+                "Another transfer already colored the outpoint"
+            );
+            return self.refuse_consignment(txn, &mode, recipient_id, updated_batch_transfer);
+        }
 
         if asset_schema == AssetSchema::Ifa {
             let url = if let Ok(ass) = txn.check_asset_exists(asset_id.clone()) {
@@ -1514,12 +1549,15 @@ pub trait WalletOnline: WalletOffline {
             if !transfer.uses_out_of_band_exchange() {
                 continue;
             }
+            if is_expired_reuse_receive(batch_transfer, &transfer) {
+                continue;
+            }
 
             // check if the provided consignment matches the transfer
             let matched = match transfer.receive_matcher()? {
                 ReceiveMatcher::Blind(secret_seal) => {
                     if self
-                        .assignments_for_bundle(ab, None, Some(secret_seal))
+                        .assignments_for_bundle(ab, None, Some(secret_seal), None)
                         .is_empty()
                     {
                         None
@@ -1527,7 +1565,7 @@ pub trait WalletOnline: WalletOffline {
                         Some((ab.witness_id().to_string(), None))
                     }
                 }
-                ReceiveMatcher::Witness(script_pubkey) => {
+                ReceiveMatcher::Witness(script_pubkey, nonce) => {
                     let mut found = None;
                     if let PubWitness::Tx(tx) = &ab.pub_witness {
                         for (idx, output) in tx.output.iter().enumerate() {
@@ -1535,7 +1573,10 @@ pub trait WalletOnline: WalletOffline {
                                 continue;
                             }
                             let vout = idx as u32;
-                            if !self.assignments_for_bundle(ab, Some(vout), None).is_empty() {
+                            if !self
+                                .assignments_for_bundle(ab, Some(vout), None, nonce)
+                                .is_empty()
+                            {
                                 found = Some((ab.witness_id().to_string(), Some(vout)));
                                 break;
                             }
@@ -1575,7 +1616,7 @@ pub trait WalletOnline: WalletOffline {
 
             // copy the provided consignment to the canonical receive path, so later refresh stages
             // (safe height, confirmations) find it where they expect it
-            let consignment_path = self.get_receive_consignment_path(&recipient_id);
+            let consignment_path = self.get_receive_consignment_path(&transfer);
             atomic_write_with(&consignment_path, |tmp| {
                 fs::copy(consignment_path_in, tmp)?;
                 Ok(())
@@ -1624,7 +1665,7 @@ pub trait WalletOnline: WalletOffline {
             .recipient_id
             .clone()
             .expect("transfer should have a recipient ID");
-        let consignment_path = self.get_receive_consignment_path(&recipient_id);
+        let consignment_path = self.get_receive_consignment_path(&transfer);
         let valid_consignment_path = self.get_receive_valid_consignment_path(&consignment_path);
         let valid_consignment =
             ValidTransfer::load_file(&valid_consignment_path).map_err(InternalError::from)?;
@@ -1961,29 +2002,21 @@ pub trait WalletOnline: WalletOffline {
                 .expect("transfer should have a recipient ID");
             debug!(self.logger(), "Recipient ID: {recipient_id}");
 
-            if let Some(RecipientTypeFull::Witness { vout }) = transfer.recipient_type {
-                if !skip_sync {
-                    self.sync_wallet(
-                        txn,
-                        SyncOptions {
-                            keychain: SyncKeychain::Colored,
-                            strategy: SyncStrategy::FastSync,
-                        },
-                        false,
-                    )?;
-                }
-                let outpoint = Outpoint {
-                    txid: txid.clone(),
-                    vout: vout.unwrap(),
-                };
-                let txo = txn.get_txo(&outpoint)?.expect("txo must exist");
-                let mut txo: DbTxoActMod = txo.into();
-                txo.pending_witness = ActiveValue::Set(false);
-                txn.update_txo(txo)?;
+            if let Some(RecipientTypeFull::Witness { .. }) = transfer.recipient_type
+                && !skip_sync
+            {
+                self.sync_wallet(
+                    txn,
+                    SyncOptions {
+                        keychain: SyncKeychain::Colored,
+                        strategy: SyncStrategy::FastSync,
+                    },
+                    false,
+                )?;
             }
 
             // accept consignment
-            let consignment_path = self.get_receive_consignment_path(&recipient_id);
+            let consignment_path = self.get_receive_consignment_path(&transfer);
             let valid_consignment_path = self.get_receive_valid_consignment_path(&consignment_path);
             let valid_consignment =
                 ValidTransfer::load_file(&valid_consignment_path).map_err(InternalError::from)?;
@@ -2009,6 +2042,18 @@ pub trait WalletOnline: WalletOffline {
                         ActiveValue::Set(Some(known_circulating_supply.to_string()));
                     txn.update_asset(&mut updated_asset)?;
                 }
+            }
+
+            // release the output only once the transfer settles
+            if let Some(RecipientTypeFull::Witness { vout }) = transfer.recipient_type {
+                let outpoint = Outpoint {
+                    txid: txid.clone(),
+                    vout: vout.unwrap(),
+                };
+                let txo = txn.get_txo(&outpoint)?.expect("txo must exist");
+                let mut txo: DbTxoActMod = txo.into();
+                txo.pending_witness = ActiveValue::Set(false);
+                txn.update_txo(txo)?;
             }
         }
 
@@ -3474,9 +3519,7 @@ pub trait WalletOnline: WalletOffline {
                     });
                 }
 
-                let xchainnet_beneficiary =
-                    XChainNet::<Beneficiary>::from_str(&recipient.recipient_id)
-                        .map_err(|_| Error::InvalidRecipientID)?;
+                let (xchainnet_beneficiary, nonce) = parse_recipient_id(&recipient.recipient_id)?;
 
                 if xchainnet_beneficiary.chain_network() != chainnet {
                     return Err(Error::InvalidRecipientNetwork);
@@ -3495,9 +3538,19 @@ pub trait WalletOnline: WalletOffline {
                         if let Some(ref witness_data) = recipient.witness_data {
                             let script_buf = pay_2_vout.to_script();
                             witness_recipients.push((script_buf.clone(), witness_data.amount_sat));
+                            // a reused address identifies its receive by the seal blinding
+                            let blinding = match (nonce, witness_data.blinding) {
+                                (Some(n), Some(b)) if b != n => {
+                                    return Err(Error::InvalidRecipientData {
+                                        details: s!("blinding differs from the recipient nonce"),
+                                    });
+                                }
+                                (Some(n), _) => Some(n),
+                                (None, b) => b,
+                            };
                             let local_witness_data = LocalWitnessData {
                                 amount_sat: witness_data.amount_sat,
-                                blinding: witness_data.blinding,
+                                blinding,
                                 vout: recipient_vout,
                             };
                             recipient_vout += 1;

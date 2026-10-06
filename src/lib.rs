@@ -116,7 +116,7 @@ pub use rgbstd::{
 
 pub use crate::{
     database::enums::{
-        AssetSchema, Assignment, TransferStatus, TransportType, WalletTransactionType,
+        AssetSchema, Assignment, Keychain, TransferStatus, TransportType, WalletTransactionType,
     },
     error::Error,
     utils::{BitcoinNetwork, block_on},
@@ -340,11 +340,12 @@ use crate::{
     error::InternalError,
     keys::{Keys, WitnessVersion},
     utils::{
-        ACCOUNT, DumbResolver, KEYCHAIN_BTC, KEYCHAIN_RGB, LOG_FILE, PURPOSE, RgbRuntime,
-        adjust_canonicalization, atomic_tmp_path, atomic_write, atomic_write_with,
+        ACCOUNT, DumbResolver, INVOICE_NONCE_PARAM, KEYCHAIN_BTC, KEYCHAIN_RGB, LOG_FILE, PURPOSE,
+        RgbRuntime, adjust_canonicalization, atomic_tmp_path, atomic_write, atomic_write_with,
         beneficiary_from_script_buf, from_str_or_number_mandatory, from_str_or_number_optional,
         get_account_xpubs, get_coin_type, get_descriptors, get_descriptors_from_xpubs, hash_bytes,
-        hash_bytes_hex, load_rgb_runtime, now, parse_address_str, setup_logger, str_to_xpub,
+        hash_bytes_hex, load_rgb_runtime, now, parse_address_str, parse_recipient_id,
+        recipient_id_from_script_buf, setup_logger, str_to_xpub,
     },
     wallet::{
         Balance, LocalRgbAllocation, LocalUnspent, NUM_KNOWN_SCHEMAS, Outpoint, SCHEMA_ID_CFA,
@@ -354,5 +355,7 @@ use crate::{
 #[cfg(test)]
 use crate::{
     keys::generate_keys,
-    wallet::test::{mock_asset_terms, mock_chain_net, mock_contract_details, mock_token_data},
+    wallet::test::{
+        mock_asset_terms, mock_chain_net, mock_contract_details, mock_nonce, mock_token_data,
+    },
 };

@@ -11,7 +11,7 @@ fn success() {
         party.wlt().get_wallet_data().data_dir,
         party.wlt_mut().get_wallet_data().data_dir
     );
-    let address = party.wallet.get_address().unwrap();
+    let address = party.wallet.get_address(AddressReuse::New).unwrap();
     let bak_info_after = party.db_backup_info();
     assert!(
         bak_info_after
@@ -221,4 +221,145 @@ fn pending_tmp_file_left_by_a_crash_is_recovered() {
         address
     );
     assert!(!tmp.exists());
+}
+
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[test]
+#[parallel]
+fn reuse_resolution() {
+    let data_dir = PrivateDataDir::new();
+    let mut wallet = data_dir.wallet(false, None);
+    let other_address = PrivateDataDir::new()
+        .wallet(false, None)
+        .get_address(AddressReuse::New)
+        .unwrap();
+    let last_revealed = |wallet: &Wallet, kc: KeychainKind| {
+        wallet
+            .bdk_wallet()
+            .spk_index()
+            .last_revealed_index(kc)
+            .unwrap_or(0)
+    };
+    let reused_scripts = |wallet: &Wallet, keychain: Keychain| {
+        let txn = wallet.database().begin_transaction().unwrap();
+        let scripts = txn.iter_reused_scripts(keychain).unwrap();
+        txn.commit().unwrap();
+        scripts
+    };
+    let script_of = |address: &str| {
+        BdkAddress::from_str(address)
+            .unwrap()
+            .assume_checked()
+            .script_pubkey()
+            .to_hex_string()
+    };
+    let colored_address = |wallet: &Wallet, receive_data: &ReceiveData| {
+        let script = script_buf_from_recipient_id(receive_data.recipient_id.clone())
+            .unwrap()
+            .unwrap();
+        wallet.address_from_script(&script).to_string()
+    };
+    let witness_receive = |wallet: &mut Wallet, reuse: AddressReuse| {
+        wallet.witness_receive(
+            None,
+            Assignment::Any,
+            u64::MAX / 2,
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+            reuse,
+        )
+    };
+
+    for keychain in [Keychain::Vanilla, Keychain::Colored] {
+        let kc: KeychainKind = keychain.into();
+        let other_kc = match keychain {
+            Keychain::Vanilla => KeychainKind::External,
+            Keychain::Colored => KeychainKind::Internal,
+        };
+        // hand out an address with the requested reuse, return it
+        let request = |wallet: &mut Wallet, reuse: AddressReuse| -> Result<String, Error> {
+            match keychain {
+                Keychain::Vanilla => wallet.get_address(reuse),
+                Keychain::Colored => {
+                    witness_receive(wallet, reuse).map(|rd| colored_address(wallet, &rd))
+                }
+            }
+        };
+
+        // New reveals the next index
+        let before = wallet.bdk_wallet().spk_index().last_revealed_index(kc);
+        let fresh = request(&mut wallet, AddressReuse::New).unwrap();
+        let fresh_idx = last_revealed(&wallet, kc);
+        assert_eq!(fresh_idx, before.map_or(0, |i| i + 1));
+
+        // the first Pinned reveals and pins one address, later ones move nothing
+        let pinned = request(&mut wallet, AddressReuse::Pinned).unwrap();
+        let pinned_idx = last_revealed(&wallet, kc);
+        assert_eq!(pinned_idx, fresh_idx + 1);
+        for _ in 0..3 {
+            assert_eq!(request(&mut wallet, AddressReuse::Pinned).unwrap(), pinned);
+        }
+        assert_eq!(last_revealed(&wallet, kc), pinned_idx);
+
+        // Existing moves nothing
+        if keychain == Keychain::Colored {
+            // the fresh receive is not final
+            assert_matches!(
+                request(&mut wallet, AddressReuse::Existing(fresh.clone())),
+                Err(Error::AddressBusy { address: a }) if a == fresh
+            );
+            let old = request(&mut wallet, AddressReuse::Existing(pinned.clone())).unwrap();
+            assert_eq!(old, pinned);
+        } else {
+            let old = request(&mut wallet, AddressReuse::Existing(fresh.clone())).unwrap();
+            assert_eq!(old, fresh);
+        }
+        assert_eq!(last_revealed(&wallet, kc), pinned_idx);
+
+        // pin_address moves the pin, the old pin stays watched
+        let pin_none = wallet.pin_address(keychain, None).unwrap();
+        assert_eq!(last_revealed(&wallet, kc), pinned_idx + 1);
+        assert_eq!(
+            request(&mut wallet, AddressReuse::Pinned).unwrap(),
+            pin_none
+        );
+        let pin_some = wallet.pin_address(keychain, Some(pinned.clone())).unwrap();
+        assert_eq!(pin_some, pinned);
+        assert_eq!(last_revealed(&wallet, kc), pinned_idx + 1);
+        assert_eq!(request(&mut wallet, AddressReuse::Pinned).unwrap(), pinned);
+        let scripts = reused_scripts(&wallet, keychain);
+        assert!(scripts.contains(&script_of(&pinned)));
+        assert!(scripts.contains(&script_of(&pin_none)));
+
+        // addresses that are not revealed on this keychain and network
+        let last = last_revealed(&wallet, kc);
+        let other_keychain = wallet
+            .bdk_wallet()
+            .peek_address(other_kc, 0)
+            .address
+            .to_string();
+        let lookahead = wallet.bdk_wallet().peek_address(kc, last + 1).address;
+        let beyond = wallet.bdk_wallet().peek_address(kc, last + 100).address;
+        for address in [
+            other_address.clone(),
+            s!("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"),
+            other_keychain,
+            lookahead.to_string(),
+            beyond.to_string(),
+        ] {
+            assert_matches!(
+                request(&mut wallet, AddressReuse::Existing(address.clone())),
+                Err(Error::UnknownAddress { address: a }) if a == address
+            );
+            assert_matches!(
+                wallet.pin_address(keychain, Some(address.clone())),
+                Err(Error::UnknownAddress { address: a }) if a == address
+            );
+        }
+        assert_matches!(
+            request(&mut wallet, AddressReuse::Existing(s!("invalid"))),
+            Err(Error::InvalidAddress { .. })
+        );
+        assert_eq!(last_revealed(&wallet, kc), last);
+    }
 }

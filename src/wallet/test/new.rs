@@ -381,7 +381,7 @@ fn watch_only_success() {
 
     // check generated addresses are the same
     let address_watch = party_watch.get_address();
-    let address_signer = wallet_sign.get_address().unwrap();
+    let address_signer = wallet_sign.get_address(AddressReuse::New).unwrap();
     assert_eq!(address_watch, address_signer);
 
     // fund wallet
@@ -637,7 +637,7 @@ fn legacy_bdk_store_is_imported() {
     let data_dir = PrivateDataDir::new();
     let mut donor = data_dir.wallet(true, None);
     for _ in 0..5 {
-        donor.get_address().unwrap();
+        donor.get_address(AddressReuse::New).unwrap();
     }
     let descriptors = donor.get_descriptors();
     let txn = donor.database().begin_transaction().unwrap();
@@ -683,4 +683,114 @@ fn legacy_bdk_store_is_imported() {
 
     // the legacy store is gone, so an older rgb-lib cannot pick up the stale copy
     assert!(!dir.sub_path(BDK_DB_NAME).exists());
+}
+
+#[cfg(feature = "electrum")]
+use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+
+#[cfg(feature = "electrum")]
+fn reuse_db_connection(wallet_dir: &Path) -> DatabaseConnection {
+    let db_path = adjust_canonicalization(wallet_dir.join("rgb_lib_db"));
+    block_on(Database::connect(format!("sqlite:{db_path}?mode=rw"))).unwrap()
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn migration_additive() {
+    initialize();
+
+    // a wallet with assets, unspents and transfers
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+    let asset = party.issue_asset_nia(None);
+    let receive_data = rcv_party.witness_receive();
+    party.send_retry(&HashMap::from([(
+        asset.asset_id.clone(),
+        vec![witness_recipient(
+            &receive_data.recipient_id,
+            10,
+            TRANSPORT_ENDPOINTS.clone(),
+        )],
+    )]));
+    rcv_party.wait_for_refresh(None);
+    let snapshot = |wallet: &mut Wallet| {
+        format!(
+            "{:?} {:?} {:?} {:?}",
+            wallet.list_assets(vec![]).unwrap(),
+            wallet.list_unspents(None, false, true).unwrap(),
+            wallet.list_transfers(AssetFilter::AnyOrNone, None).unwrap(),
+            wallet.get_descriptors(),
+        )
+    };
+    let before = snapshot(&mut rcv_party.wallet);
+    let keys = rcv_party.wallet.get_keys();
+    let data_dir = rcv_party.wallet.get_wallet_data().data_dir;
+    let wallet_dir = rcv_party.wallet.get_wallet_dir();
+    drop(rcv_party);
+
+    // roll the wallet back to the schema before address reuse
+    let connection = reuse_db_connection(&wallet_dir);
+    block_on(Migrator::down(&connection, Some(1))).unwrap();
+    let tables: Vec<String> = block_on(connection.query_all_raw(Statement::from_string(
+        DatabaseBackend::Sqlite,
+        "SELECT name FROM sqlite_master WHERE type = 'table'",
+    )))
+    .unwrap()
+    .iter()
+    .map(|r| r.try_get::<String>("", "name").unwrap())
+    .collect();
+    assert!(tables.contains(&s!("transfer")));
+    assert!(!tables.contains(&s!("reused_script")));
+    assert!(!tables.contains(&s!("keychain_reuse")));
+    let columns: Vec<String> = block_on(connection.query_all_raw(Statement::from_string(
+        DatabaseBackend::Sqlite,
+        "SELECT name FROM pragma_table_info('transfer')",
+    )))
+    .unwrap()
+    .iter()
+    .map(|r| r.try_get::<String>("", "name").unwrap())
+    .collect();
+    assert!(!columns.contains(&s!("receive_dir")));
+    block_on(connection.close()).unwrap();
+
+    // the current library opens it unchanged
+    let mut wallet = Wallet::load(&data_dir, &keys.master_fingerprint, keys.mnemonic).unwrap();
+    assert_eq!(snapshot(&mut wallet), before);
+    let txn = wallet.database().begin_transaction().unwrap();
+    for keychain in [Keychain::Colored, Keychain::Vanilla] {
+        assert!(txn.iter_reused_scripts(keychain).unwrap().is_empty());
+        assert!(txn.get_pinned_script(keychain).unwrap().is_none());
+    }
+    assert!(
+        txn.iter_transfers()
+            .unwrap()
+            .iter()
+            .all(|t| t.receive_dir.is_none())
+    );
+    txn.commit().unwrap();
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn migration_old_library_refuses() {
+    struct OldMigrator;
+
+    #[rgb_lib_migration::async_trait::async_trait]
+    impl MigratorTrait for OldMigrator {
+        fn migrations() -> Vec<Box<dyn rgb_lib_migration::MigrationTrait>> {
+            let mut migrations = Migrator::migrations();
+            migrations.pop();
+            migrations
+        }
+    }
+
+    let data_dir = PrivateDataDir::new();
+    let wallet = data_dir.wallet(false, None);
+    let wallet_dir = wallet.get_wallet_dir();
+    drop(wallet);
+    let connection = reuse_db_connection(&wallet_dir);
+    let result = block_on(OldMigrator::up(&connection, None));
+    assert!(result.is_err());
 }

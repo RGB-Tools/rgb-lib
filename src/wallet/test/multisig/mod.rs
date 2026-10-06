@@ -1090,6 +1090,7 @@ fn fail() {
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
+            AddressReuse::New,
         )
         .unwrap_err();
     assert_eq!(err, Error::UnsupportedTransportType);
@@ -1239,6 +1240,40 @@ fn fail() {
         .unwrap_err();
     assert_matches!(err, Error::MultisigHubService { details: d } if d == "URL must be valid and start with http:// or https://");
 
+    // address reuse is not allowed and moves no index
+    let online = wlt_1.online();
+    let address = wlt_1.get_address();
+    let wallet = wlt_1.multisig_mut();
+    let indexes = |wallet: &MultisigWallet| {
+        [KeychainKind::External, KeychainKind::Internal]
+            .map(|k| wallet.bdk_wallet().spk_index().last_revealed_index(k))
+    };
+    let before = indexes(wallet);
+    for reuse in [
+        AddressReuse::Pinned,
+        AddressReuse::Existing(address.clone()),
+    ] {
+        let result = wallet.get_address(online, reuse.clone());
+        assert_matches!(result, Err(Error::AddressReuseNotAllowed { .. }));
+        let result = wallet.witness_receive(
+            online,
+            None,
+            Assignment::Any,
+            default_rcv_expiration(),
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+            reuse,
+        );
+        assert_matches!(result, Err(Error::AddressReuseNotAllowed { .. }));
+    }
+    for keychain in [Keychain::Colored, Keychain::Vanilla] {
+        for pin in [None, Some(address.clone())] {
+            let result = wallet.pin_address(keychain, pin);
+            assert_matches!(result, Err(Error::AddressReuseNotAllowed { .. }));
+        }
+    }
+    assert_eq!(indexes(wallet), before);
+
     // respond with PSBT that has no signatures
     send_sats_to_address(wlt_1.get_address(), Some(10_000));
     mine(false);
@@ -1320,7 +1355,7 @@ fn fail() {
     // watch-only forbidden
     let err = wlt_wo
         .multisig_mut()
-        .get_address(wlt_wo_multisig_online)
+        .get_address(wlt_wo_multisig_online, AddressReuse::New)
         .unwrap_err();
     assert_eq!(err, Error::MultisigUserNotCosigner);
     let err = wlt_wo.issue_asset_cfa_res(None, None).unwrap_err();
@@ -1416,7 +1451,7 @@ fn offline() {
     let result = wallet.fail_transfers(fake_online, None, false, false);
     assert_matches!(result, Err(Error::Offline));
 
-    let result = wallet.get_address(fake_online);
+    let result = wallet.get_address(fake_online, AddressReuse::New);
     assert_matches!(result, Err(Error::Offline));
 
     let result = wallet.get_fee_estimation(fake_online, 1);
@@ -1477,6 +1512,7 @@ fn offline() {
         default_rcv_expiration(),
         vec![],
         0,
+        AddressReuse::New,
     );
     assert_matches!(result, Err(Error::Offline));
 }

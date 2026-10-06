@@ -12,12 +12,12 @@ use std::{
 };
 
 use rgb_lib::{
-    AssetSchema, Assignment, Error as RgbLibError,
+    AssetSchema, Assignment, Error as RgbLibError, Keychain,
     keys::WitnessVersion,
     utils::BitcoinNetwork,
     wallet::{
-        AssetFilter, Online, OnlineOptions, Recipient, RefreshFilter, RgbWalletOpsOffline,
-        RgbWalletOpsOnline, SinglesigKeys, SyncOptions, Wallet, WalletData,
+        AddressReuse, AssetFilter, Online, OnlineOptions, Recipient, RefreshFilter,
+        RgbWalletOpsOffline, RgbWalletOpsOnline, SinglesigKeys, SyncOptions, Wallet, WalletData,
     },
 };
 
@@ -244,8 +244,20 @@ pub extern "C" fn rgblib_generate_keys(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rgblib_get_address(wallet: &COpaqueStruct) -> CResultString {
-    get_address(wallet).into()
+pub extern "C" fn rgblib_get_address(
+    wallet: &COpaqueStruct,
+    reuse: *const c_char,
+) -> CResultString {
+    get_address(wallet, reuse).into()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rgblib_pin_address(
+    wallet: &COpaqueStruct,
+    keychain: *const c_char,
+    address_opt: *const c_char,
+) -> CResultString {
+    pin_address(wallet, keychain, address_opt).into()
 }
 
 #[unsafe(no_mangle)]
@@ -609,6 +621,7 @@ pub extern "C" fn rgblib_witness_receive(
     expiration_timestamp: *const c_char,
     transport_endpoints: *const c_char,
     min_confirmations: *const c_char,
+    reuse: *const c_char,
 ) -> CResultString {
     witness_receive(
         wallet,
@@ -617,6 +630,7 @@ pub extern "C" fn rgblib_witness_receive(
         expiration_timestamp,
         transport_endpoints,
         min_confirmations,
+        reuse,
     )
     .into()
 }

@@ -158,6 +158,7 @@ thread_local! {
     pub(crate) static MOCK_CONTRACT_DATA: RefCell<Vec<Attachment>> = const { RefCell::new(vec![]) };
     pub(crate) static MOCK_CONTRACT_DETAILS: RefCell<Option<String>> = const { RefCell::new(None) };
     pub(crate) static MOCK_TOKEN_DATA: RefCell<Vec<TokenData>> = const { RefCell::new(vec![]) };
+    pub(crate) static MOCK_NONCE: RefCell<Vec<u64>> = const { RefCell::new(vec![]) };
 }
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -313,6 +314,17 @@ pub fn mock_contract_details<W: WalletOffline + ?Sized>(wallet: &W) -> Option<De
     } else {
         None
     }
+}
+
+pub fn mock_nonce() -> u64 {
+    MOCK_NONCE.with_borrow_mut(|v| {
+        if v.is_empty() {
+            rand::random()
+        } else {
+            println!("mocking nonce");
+            v.remove(0)
+        }
+    })
 }
 
 pub fn mock_chain_net<W: WalletOffline + ?Sized>(wallet: &W) -> ChainNet {

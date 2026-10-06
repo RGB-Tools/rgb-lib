@@ -941,6 +941,7 @@ pub trait WalletOffline: WalletBackup {
         expiration_timestamp: i64,
         transport_endpoints: Vec<String>,
         recipient_type: RecipientType,
+        reused_script: Option<ScriptBuf>,
     ) -> Result<ReceiveDataInternal, Error> {
         let (beneficiary, recipient_type_full, blind_seal, script_pubkey) = match recipient_type {
             RecipientType::Blind => {
@@ -964,7 +965,10 @@ pub trait WalletOffline: WalletBackup {
                 (beneficiary, recipient_type_full, Some(blind_seal), None)
             }
             RecipientType::Witness => {
-                let script_pubkey = self.get_new_address()?.script_pubkey();
+                let script_pubkey = match &reused_script {
+                    Some(script_pubkey) => script_pubkey.clone(),
+                    None => self.get_new_address()?.script_pubkey(),
+                };
                 let beneficiary = beneficiary_from_script_buf(script_pubkey.clone());
                 let recipient_type_full = RecipientTypeFull::Witness { vout: None };
                 (beneficiary, recipient_type_full, None, Some(script_pubkey))
@@ -977,7 +981,31 @@ pub trait WalletOffline: WalletBackup {
         let network: ChainNet = self.bitcoin_network().into();
 
         let beneficiary = XChainNet::with(network, beneficiary);
-        let recipient_id = beneficiary.to_string();
+        let mut recipient_id = beneficiary.to_string();
+        let mut nonce = None;
+        if reused_script.is_some() {
+            // a reuse receive gets a nonce that no other receive or directory has
+            let transfers = txn.iter_transfers()?;
+            loop {
+                #[cfg(test)]
+                let n = mock_nonce();
+                #[cfg(not(test))]
+                let n = rand::random::<u64>();
+                let id = format!("{recipient_id}:{n}");
+                if !transfers
+                    .iter()
+                    .any(|t| t.recipient_id.as_ref() == Some(&id))
+                    && !self
+                        .get_transfers_dir()
+                        .join(self.normalize_recipient_id(&id))
+                        .exists()
+                {
+                    recipient_id = id;
+                    nonce = Some(n);
+                    break;
+                }
+            }
+        }
         debug!(self.logger(), "Recipient ID: {recipient_id}");
         let (schema, contract_id) = if let Some(aid) = asset_id.clone() {
             let asset = txn.check_asset_exists(aid.clone())?;
@@ -1045,8 +1073,14 @@ pub trait WalletOffline: WalletBackup {
             return Err(Error::InvalidExpiration);
         }
         invoice_builder = invoice_builder.set_expiry_timestamp(expiration_timestamp);
-        let invoice = invoice_builder.finish();
+        let mut invoice = invoice_builder.finish();
+        if let Some(nonce) = nonce {
+            invoice
+                .unknown_query
+                .insert(INVOICE_NONCE_PARAM.to_string(), nonce.to_string());
+        }
         let invoice_string = invoice.to_string();
+        let receive_dir = nonce.map(|_| self.normalize_recipient_id(&recipient_id));
 
         Ok(ReceiveDataInternal {
             asset_id,
@@ -1058,7 +1092,9 @@ pub trait WalletOffline: WalletBackup {
             expiration_timestamp,
             recipient_type_full,
             blind_seal,
-            script_pubkey,
+            // a reused script has no pending row: sync flags each new output on it
+            script_pubkey: script_pubkey.filter(|_| nonce.is_none()),
+            receive_dir,
         })
     }
 
@@ -1094,6 +1130,7 @@ pub trait WalletOffline: WalletBackup {
                 receive_data_internal.recipient_type_full.clone(),
             )),
             invoice_string: ActiveValue::Set(Some(receive_data_internal.invoice_string.clone())),
+            receive_dir: ActiveValue::Set(receive_data_internal.receive_dir.clone()),
             ..Default::default()
         };
         let transfer_idx = txn.set_transfer(transfer)?;
@@ -1240,6 +1277,99 @@ pub trait WalletOffline: WalletBackup {
 
     fn get_new_address(&mut self) -> Result<BdkAddress, Error> {
         self.get_new_addresses(KeychainKind::External, 1)
+    }
+
+    fn address_from_script(&self, script_pubkey: &ScriptBuf) -> BdkAddress {
+        BdkAddress::from_script(script_pubkey, BdkNetwork::from(self.bitcoin_network()))
+            .expect("wallet script")
+    }
+
+    // Return the script of an address revealed on the keychain.
+    fn revealed_script(
+        &self,
+        txn: &DbTxn,
+        keychain: Keychain,
+        address: &str,
+    ) -> Result<ScriptBuf, Error> {
+        let unknown = || Error::UnknownAddress {
+            address: address.to_string(),
+        };
+        let script_pubkey = BdkAddress::from_str(address)
+            .map_err(|e| Error::InvalidAddress {
+                details: e.to_string(),
+            })?
+            .require_network(self.bitcoin_network().into())
+            .map_err(|_| unknown())?
+            .script_pubkey();
+        let kc = keychain.into();
+        let spk_index = self.bdk_wallet().spk_index();
+        match spk_index.index_of_spk(script_pubkey.clone()) {
+            Some(&(k, i))
+                if k == kc && spk_index.last_revealed_index(kc).is_some_and(|l| i <= l) => {}
+            _ => return Err(unknown()),
+        }
+        if keychain == Keychain::Colored {
+            let recipient_id =
+                recipient_id_from_script_buf(script_pubkey.clone(), self.bitcoin_network());
+            let db_data = txn.get_db_data(false)?;
+            let busy = db_data
+                .transfers
+                .iter()
+                .filter(|t| t.recipient_id.as_ref() == Some(&recipient_id))
+                .filter_map(|t| {
+                    db_data
+                        .asset_transfers
+                        .iter()
+                        .find(|at| at.idx == t.asset_transfer_idx)
+                })
+                .filter_map(|at| {
+                    db_data
+                        .batch_transfers
+                        .iter()
+                        .find(|bt| bt.idx == at.batch_transfer_idx)
+                })
+                .any(|bt| bt.waiting());
+            if busy {
+                return Err(Error::AddressBusy {
+                    address: address.to_string(),
+                });
+            }
+        }
+        Ok(script_pubkey)
+    }
+
+    fn pin_script(
+        &mut self,
+        txn: &DbTxn,
+        keychain: Keychain,
+        address: Option<String>,
+    ) -> Result<ScriptBuf, Error> {
+        let script_pubkey = match address {
+            Some(address) => self.revealed_script(txn, keychain, &address)?,
+            None => self.get_new_addresses(keychain.into(), 1)?.script_pubkey(),
+        };
+        txn.add_reused_script(keychain, script_pubkey.to_hex_string())?;
+        txn.set_pinned_script(keychain, script_pubkey.to_hex_string())?;
+        Ok(script_pubkey)
+    }
+
+    // Return the reused script, or None for a fresh address.
+    fn resolve_reuse(
+        &mut self,
+        txn: &DbTxn,
+        keychain: Keychain,
+        reuse: AddressReuse,
+    ) -> Result<Option<ScriptBuf>, Error> {
+        let script_pubkey = match reuse {
+            AddressReuse::New => return Ok(None),
+            AddressReuse::Pinned => match txn.get_pinned_script(keychain)? {
+                Some(script) => ScriptBuf::from_hex(&script).expect("valid script"),
+                None => return Ok(Some(self.pin_script(txn, keychain, None)?)),
+            },
+            AddressReuse::Existing(address) => self.revealed_script(txn, keychain, &address)?,
+        };
+        txn.add_reused_script(keychain, script_pubkey.to_hex_string())?;
+        Ok(Some(script_pubkey))
     }
 
     fn get_asset_balance_impl(&self, txn: &DbTxn, asset_id: String) -> Result<Balance, Error> {
@@ -1925,15 +2055,24 @@ pub trait WalletOffline: WalletBackup {
         recipient_id.replace(":", "_")
     }
 
-    fn get_receive_consignment_path(&self, recipient_id: &str) -> PathBuf {
-        self.get_transfers_dir()
-            .join(self.normalize_recipient_id(recipient_id))
-            .join(CONSIGNMENT_RCV_FILE)
+    fn get_receive_dir(&self, transfer: &DbTransfer) -> PathBuf {
+        let dir = transfer.receive_dir.clone().unwrap_or_else(|| {
+            self.normalize_recipient_id(
+                transfer
+                    .recipient_id
+                    .as_ref()
+                    .expect("transfer should have a recipient ID"),
+            )
+        });
+        self.get_transfers_dir().join(dir)
     }
 
-    fn get_receive_consignment_meta_path(&self, recipient_id: &str) -> PathBuf {
-        self.get_transfers_dir()
-            .join(self.normalize_recipient_id(recipient_id))
+    fn get_receive_consignment_path(&self, transfer: &DbTransfer) -> PathBuf {
+        self.get_receive_dir(transfer).join(CONSIGNMENT_RCV_FILE)
+    }
+
+    fn get_receive_consignment_meta_path(&self, transfer: &DbTransfer) -> PathBuf {
+        self.get_receive_dir(transfer)
             .join(CONSIGNMENT_RCV_META_FILE)
     }
 
@@ -2048,7 +2187,7 @@ pub trait WalletOffline: WalletBackup {
                 TransferStatus::WaitingCounterparty,
             ) => None,
             (TransferKind::ReceiveBlind | TransferKind::ReceiveWitness, _) => {
-                Some(self.get_receive_consignment_path(&transfer.recipient_id.clone().unwrap()))
+                Some(self.get_receive_consignment_path(transfer))
             }
             (TransferKind::Issuance, _) => {
                 Some(self.get_issue_consignment_path(&asset_transfer.asset_id.clone().unwrap()))

@@ -486,3 +486,49 @@ fn begin_end() {
     let bak_info_after = party.db_backup_info();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
 }
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn reuse_vanilla_outputs() {
+    initialize();
+
+    let mut party = get_funded_noutxo_party!();
+    let mut rcv_party = get_empty_party!();
+    let pinned = rcv_party.wallet.get_address(AddressReuse::Pinned).unwrap();
+
+    // two payments to one address are two outputs
+    party.send_btc(&pinned, 5000);
+    party.send_btc(&pinned, 6000);
+    mine(false);
+    let mut unspents = vec![];
+    let check = || {
+        unspents = rcv_party.list_unspents_vanilla(None);
+        unspents.len() == 2
+    };
+    assert!(wait_for_function(check, 10, 500));
+    assert_ne!(unspents[0].outpoint, unspents[1].outpoint);
+    assert_eq!(
+        unspents[0].txout.script_pubkey,
+        unspents[1].txout.script_pubkey
+    );
+    assert_eq!(unspents[0].derivation_index, unspents[1].derivation_index);
+    let mut amounts: Vec<u64> = unspents.iter().map(|u| u.txout.value.to_sat()).collect();
+    amounts.sort();
+    assert_eq!(amounts, vec![5000, 6000]);
+
+    // each output is spent like any other
+    let address = party.get_address();
+    let txid = rcv_party.send_btc(&address, 1000);
+    let tx = rcv_party
+        .wallet
+        .bdk_wallet()
+        .get_tx(Txid::from_str(&txid).unwrap())
+        .unwrap();
+    let inputs: Vec<BdkOutPoint> = tx.tx_node.input.iter().map(|i| i.previous_output).collect();
+    assert!(
+        inputs
+            .iter()
+            .all(|i| unspents.iter().any(|u| u.outpoint == *i))
+    );
+}

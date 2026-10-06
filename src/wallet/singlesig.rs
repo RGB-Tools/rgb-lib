@@ -116,24 +116,13 @@ impl WalletOffline for Wallet {}
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 impl WalletOnline for Wallet {
     fn wallet_specific_consistency_checks(&mut self, txn: &DbTxn) -> Result<(), Error> {
-        self.sync_wallet(
-            txn,
-            SyncOptions {
-                keychain: SyncKeychain::Colored,
-                strategy: SyncStrategy::FullScan,
-            },
-            false,
-        )?;
-        self.sync_wallet(
-            txn,
-            SyncOptions {
-                keychain: SyncKeychain::Vanilla {
-                    lookback: self.vanilla_sync_lookback(),
-                },
-                strategy: SyncStrategy::FullScan,
-            },
-            false,
-        )?;
+        let lookback = self.vanilla_sync_lookback();
+        // a fast sync after each full scan covers reused scripts past the stop gap
+        for keychain in [SyncKeychain::Colored, SyncKeychain::Vanilla { lookback }] {
+            for strategy in [SyncStrategy::FullScan, SyncStrategy::FastSync] {
+                self.sync_wallet(txn, SyncOptions { keychain, strategy }, false)?;
+            }
+        }
         let bdk_utxos: Vec<String> = self
             .bdk_wallet()
             .list_unspent()
@@ -286,15 +275,41 @@ impl Wallet {
         Ok(psbt.to_string())
     }
 
-    /// Return a new Bitcoin address from the vanilla wallet.
-    pub fn get_address(&mut self) -> Result<String, Error> {
+    /// Return a Bitcoin address from the vanilla wallet.
+    ///
+    /// [`AddressReuse::New`] reveals a new address. [`AddressReuse::Pinned`] and
+    /// [`AddressReuse::Existing`] return an address already revealed on the vanilla keychain,
+    /// which every automatic sync then watches.
+    pub fn get_address(&mut self, reuse: AddressReuse) -> Result<String, Error> {
         info!(self.logger(), "Getting address...");
-        let address = self.get_new_addresses(KeychainKind::Internal, 1)?;
         let txn = self.database().begin_transaction()?;
+        let address = match self.resolve_reuse(&txn, Keychain::Vanilla, reuse)? {
+            Some(script_pubkey) => self.address_from_script(&script_pubkey),
+            None => self.get_new_addresses(KeychainKind::Internal, 1)?,
+        };
         self.update_backup_info(&txn, false)?;
         self.persist_and_commit(txn)?;
         info!(self.logger(), "Get address completed");
         Ok(address.to_string())
+    }
+
+    /// Pin an address of the `keychain` and return it.
+    ///
+    /// With `None` the next address is revealed and pinned. Otherwise the provided address, already
+    /// revealed on the keychain, is pinned. The pinned address is the one returned for
+    /// [`AddressReuse::Pinned`]. A previous pin stays watched by every automatic sync.
+    pub fn pin_address(
+        &mut self,
+        keychain: Keychain,
+        address: Option<String>,
+    ) -> Result<String, Error> {
+        info!(self.logger(), "Pinning address...");
+        let txn = self.database().begin_transaction()?;
+        let script_pubkey = self.pin_script(&txn, keychain, address)?;
+        self.update_backup_info(&txn, false)?;
+        self.persist_and_commit(txn)?;
+        info!(self.logger(), "Pin address completed");
+        Ok(self.address_from_script(&script_pubkey).to_string())
     }
 
     /// List the pending vanilla transactions that have reserved TXOs in the wallet.
@@ -536,6 +551,7 @@ impl Wallet {
             expiration_timestamp as i64,
             transport_endpoints,
             RecipientType::Blind,
+            None,
         )?;
         let batch_transfer_idx =
             self.store_receive_transfer(&txn, &receive_data_internal, min_confirmations)?;
@@ -576,6 +592,11 @@ impl Wallet {
     /// The `min_confirmations` number determines the minimum number of confirmations needed for
     /// the transaction anchoring the transfer for it to be considered final and move (while
     /// refreshing) to the [`TransferStatus::Settled`] status.
+    ///
+    /// The `reuse` argument selects the address, as in [`get_address`](Wallet::get_address) but on
+    /// the colored keychain. A reused address gets a random nonce in the invoice and the
+    /// recipient ID. Each new output on a reused address is not spendable until the transfer
+    /// that claims it settles.
     pub fn witness_receive(
         &mut self,
         asset_id: Option<String>,
@@ -583,6 +604,7 @@ impl Wallet {
         expiration_timestamp: u64,
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
+        reuse: AddressReuse,
     ) -> Result<ReceiveData, Error> {
         info!(
             self.logger(),
@@ -591,6 +613,7 @@ impl Wallet {
             expiration_timestamp,
         );
         let txn = self.database().begin_transaction()?;
+        let reused_script = self.resolve_reuse(&txn, Keychain::Colored, reuse)?;
         let receive_data_internal = self.create_receive_data(
             &txn,
             asset_id,
@@ -598,6 +621,7 @@ impl Wallet {
             expiration_timestamp as i64,
             transport_endpoints,
             RecipientType::Witness,
+            reused_script,
         )?;
         let batch_transfer_idx =
             self.store_receive_transfer(&txn, &receive_data_internal, min_confirmations)?;

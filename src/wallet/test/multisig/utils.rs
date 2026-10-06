@@ -440,7 +440,9 @@ pub(super) trait MultisigOps: OfflineSigParty {
 
     fn get_address(&mut self) -> String {
         let online = self.online();
-        self.multisig_mut().get_address(online).unwrap()
+        self.multisig_mut()
+            .get_address(online, AddressReuse::New)
+            .unwrap()
     }
 
     fn get_op(&self, idx: i32) -> OperationResponse {
@@ -751,6 +753,7 @@ pub(super) trait MultisigOps: OfflineSigParty {
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
+            AddressReuse::New,
         )
     }
 }

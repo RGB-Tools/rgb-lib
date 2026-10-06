@@ -1083,6 +1083,22 @@ impl MultisigWallet {
         );
         Ok(idx)
     }
+
+    /// Address reuse is not supported for multisig wallets: this always returns
+    /// [`Error::AddressReuseNotAllowed`].
+    pub fn pin_address(
+        &mut self,
+        _keychain: Keychain,
+        _address: Option<String>,
+    ) -> Result<String, Error> {
+        Err(address_reuse_not_allowed())
+    }
+}
+
+fn address_reuse_not_allowed() -> Error {
+    Error::AddressReuseNotAllowed {
+        details: s!("multisig wallets do not support address reuse"),
+    }
 }
 
 /// Online APIs of the wallet
@@ -1179,7 +1195,13 @@ impl MultisigWallet {
     ///
     /// This method generates a new address using the index atomically retrieved from the hub.
     /// This ensures all cosigners maintain consistent address derivation indices.
-    pub fn get_address(&mut self, online: Online) -> Result<String, Error> {
+    ///
+    /// Only [`AddressReuse::New`] is supported: any other `reuse` returns
+    /// [`Error::AddressReuseNotAllowed`].
+    pub fn get_address(&mut self, online: Online, reuse: AddressReuse) -> Result<String, Error> {
+        if reuse != AddressReuse::New {
+            return Err(address_reuse_not_allowed());
+        }
         info!(self.logger(), "Getting address...");
         self.check_online(online)?;
         self.check_is_cosigner()?;
@@ -1476,6 +1498,7 @@ impl MultisigWallet {
             expiration_timestamp as i64,
             transport_endpoints,
             recipient_type,
+            None,
         )?;
 
         // post operation and metadata to hub
@@ -1586,6 +1609,9 @@ impl MultisigWallet {
     /// The `min_confirmations` number determines the minimum number of confirmations needed for
     /// the transaction anchoring the transfer for it to be considered final and move (while
     /// refreshing) to the [`TransferStatus::Settled`] status.
+    ///
+    /// Only [`AddressReuse::New`] is supported: any other `reuse` returns
+    /// [`Error::AddressReuseNotAllowed`].
     pub fn witness_receive(
         &mut self,
         online: Online,
@@ -1594,7 +1620,11 @@ impl MultisigWallet {
         expiration_timestamp: u64,
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
+        reuse: AddressReuse,
     ) -> Result<ReceiveData, Error> {
+        if reuse != AddressReuse::New {
+            return Err(address_reuse_not_allowed());
+        }
         info!(
             self.logger(),
             "Receiving via witness TX for asset '{:?}' with expiration '{}'...",
@@ -1786,6 +1816,7 @@ impl MultisigWallet {
             blind_seal,
             recipient_type_full,
             script_pubkey,
+            receive_dir: None,
         };
         let batch_transfer_idx =
             self.store_receive_transfer(txn, &receive_data_internal, min_confirmations)?;
