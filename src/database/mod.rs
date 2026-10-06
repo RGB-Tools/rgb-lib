@@ -308,6 +308,33 @@ impl DbTxn {
         Ok(res.last_insert_id)
     }
 
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub(crate) fn replace_receive_colorings(
+        &self,
+        asset_transfer_idx: i32,
+        txo_idx: i32,
+        assignments: impl IntoIterator<Item = Assignment>,
+    ) -> Result<(), Error> {
+        // Receive data can be committed before ACK delivery succeeds. Replace only this
+        // receive's allocations so retrying the consignment cannot count them twice.
+        block_on(
+            Coloring::delete_many()
+                .filter(coloring::Column::AssetTransferIdx.eq(asset_transfer_idx))
+                .filter(coloring::Column::Type.eq(ColoringType::Receive))
+                .exec(self.inner()),
+        )?;
+        for assignment in assignments {
+            self.set_coloring(DbColoringActMod {
+                txo_idx: ActiveValue::Set(txo_idx),
+                asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
+                r#type: ActiveValue::Set(ColoringType::Receive),
+                assignment: ActiveValue::Set(assignment),
+                ..Default::default()
+            })?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn set_media(&self, media: DbMediaActMod) -> Result<i32, Error> {
         let res = block_on(Media::insert(media).exec(self.inner()))?;
         Ok(res.last_insert_id)

@@ -1434,16 +1434,7 @@ pub trait WalletOnline: WalletOffline {
             }
             _ => return Err(InternalError::Unexpected.into()),
         };
-        for assignment in receiving.into_values() {
-            let db_coloring = DbColoringActMod {
-                txo_idx: ActiveValue::Set(utxo_idx),
-                asset_transfer_idx: ActiveValue::Set(asset_transfer.idx),
-                r#type: ActiveValue::Set(ColoringType::Receive),
-                assignment: ActiveValue::Set(assignment),
-                ..Default::default()
-            };
-            txn.set_coloring(db_coloring)?;
-        }
+        txn.replace_receive_colorings(asset_transfer.idx, utxo_idx, receiving.into_values())?;
 
         // if the consignment contains unsafe history set status to WaitingSafeHeight and stop here
         if validation_status.validity() == Validity::Warnings {
