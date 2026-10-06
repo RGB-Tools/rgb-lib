@@ -8,7 +8,11 @@ use crate::database::entities::{
     wallet_transaction,
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-use crate::database::entities::{batch_transfer, pending_witness_script, reserved_txo};
+use crate::database::entities::{
+    asset_transfer, batch_transfer, pending_witness_script, reserved_txo, transfer,
+};
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+use sea_orm::{Condition, Iterable, JoinType, QuerySelect, RelationTrait};
 
 #[derive(Debug, Clone)]
 #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -73,6 +77,14 @@ impl DbBatchTransfer {
 
     pub(crate) fn failed(&self) -> bool {
         self.status.failed()
+    }
+
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    /// Whether the transfer has expired at `now`. Only operations with a counterparty (sends and
+    /// receives) carry an expiration, which the public API requires; the ones without (burn,
+    /// inflation) have none and never expire, as they are broadcast right away and wait for nobody.
+    pub(crate) fn is_expired(&self, now: i64) -> bool {
+        self.expiration.is_some_and(|expiration| expiration < now)
     }
 
     #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -259,6 +271,37 @@ impl DbTxn {
             .lock()
             .expect("on_commit mutex is never poisoned")
             .push(Box::new(f));
+    }
+
+    /// Run `f` inside a savepoint of this transaction.
+    ///
+    /// If `f` succeeds its changes are kept (and become durable only once this transaction
+    /// commits), otherwise they are rolled back without affecting the rest of this transaction.
+    /// Callbacks registered by `f` are moved to this transaction on success and dropped otherwise.
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub(crate) fn with_savepoint<T>(
+        &self,
+        f: impl FnOnce(&DbTxn) -> Result<T, Error>,
+    ) -> Result<T, Error> {
+        let mut savepoint = DbTxn {
+            txn: Some(block_on(self.inner().begin())?),
+            on_commit: Mutex::new(Vec::new()),
+        };
+        // on error the savepoint is dropped, which rolls it back
+        let res = f(&savepoint)?;
+        let txn = savepoint.txn.take().expect("txn already consumed");
+        block_on(txn.commit())?;
+        let callbacks = std::mem::take(
+            &mut *savepoint
+                .on_commit
+                .lock()
+                .expect("on_commit mutex is never poisoned"),
+        );
+        self.on_commit
+            .lock()
+            .expect("on_commit mutex is never poisoned")
+            .extend(callbacks);
+        Ok(res)
     }
 
     pub(crate) fn commit(mut self) -> Result<(), Error> {
@@ -555,6 +598,53 @@ impl DbTxn {
         )?)
     }
 
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub(crate) fn get_batch_transfer_transfers(
+        &self,
+        batch_transfer_idx: i32,
+    ) -> Result<Vec<DbTransfer>, Error> {
+        Ok(block_on(
+            Transfer::find()
+                .join(JoinType::InnerJoin, transfer::Relation::AssetTransfer.def())
+                .filter(asset_transfer::Column::BatchTransferIdx.eq(batch_transfer_idx))
+                .all(self.inner()),
+        )?)
+    }
+
+    /// The transfers of incoming batch transfers that are pending or that have failed after
+    /// `failed_since`, each with its batch transfer.
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub(crate) fn get_pending_or_recently_failed_incoming_transfers(
+        &self,
+        failed_since: i64,
+    ) -> Result<Vec<(DbTransfer, DbBatchTransfer)>, Error> {
+        let pending_statuses: Vec<TransferStatus> =
+            TransferStatus::iter().filter(|s| s.pending()).collect();
+        Ok(block_on(
+            Transfer::find()
+                .join(JoinType::InnerJoin, transfer::Relation::AssetTransfer.def())
+                .join(
+                    JoinType::InnerJoin,
+                    asset_transfer::Relation::BatchTransfer.def(),
+                )
+                .filter(batch_transfer::Column::Incoming.eq(true))
+                .filter(
+                    Condition::any()
+                        .add(batch_transfer::Column::Status.is_in(pending_statuses))
+                        .add(
+                            Condition::all()
+                                .add(batch_transfer::Column::Status.eq(TransferStatus::Failed))
+                                .add(batch_transfer::Column::UpdatedAt.gt(failed_since)),
+                        ),
+                )
+                .select_also(BatchTransfer)
+                .all(self.inner()),
+        )?
+        .into_iter()
+        .map(|(t, b)| (t, b.expect("should be connected")))
+        .collect())
+    }
+
     pub(crate) fn get_media(&self, media_idx: i32) -> Result<Option<DbMedia>, Error> {
         Ok(block_on(Media::find_by_id(media_idx).one(self.inner()))?)
     }
@@ -564,6 +654,19 @@ impl DbTxn {
             Media::find()
                 .filter(media::Column::Digest.eq(digest))
                 .one(self.inner()),
+        )?)
+    }
+
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub(crate) fn get_receive_colorings_by_txo_idxs(
+        &self,
+        txo_idxs: Vec<i32>,
+    ) -> Result<Vec<DbColoring>, Error> {
+        Ok(block_on(
+            Coloring::find()
+                .filter(coloring::Column::TxoIdx.is_in(txo_idxs))
+                .filter(coloring::Column::Type.eq(ColoringType::Receive))
+                .all(self.inner()),
         )?)
     }
 
@@ -637,6 +740,15 @@ impl DbTxn {
         &self,
     ) -> Result<Vec<DbPendingWitnessScript>, Error> {
         Ok(block_on(PendingWitnessScript::find().all(self.inner()))?)
+    }
+
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub(crate) fn iter_pending_witness_txos(&self) -> Result<Vec<DbTxo>, Error> {
+        Ok(block_on(
+            Txo::find()
+                .filter(txo::Column::PendingWitness.eq(true))
+                .all(self.inner()),
+        )?)
     }
 
     pub(crate) fn iter_reserved_txos(&self) -> Result<Vec<DbReservedTxo>, Error> {

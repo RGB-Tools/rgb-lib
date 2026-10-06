@@ -105,7 +105,8 @@ pub trait WalletOnline: WalletOffline {
 
         // promote any newly-known colored UTXOs (e.g. the change output) from
         // exists=false to exists=true in the rgb_lib DB
-        self.update_db_colored_txos_from_bdk(txn, false)?;
+        let pending_witness_scripts = self.reconcile_pending_witness(txn)?;
+        self.update_db_colored_txos_from_bdk(txn, false, &pending_witness_scripts)?;
 
         for input in tx.clone().input {
             let txid = input.previous_output.txid.to_string();
@@ -420,12 +421,78 @@ pub trait WalletOnline: WalletOffline {
         Ok(())
     }
 
+    /// Clear the pending witness flag of the TXOs flagged for witness receives that are not pending
+    /// anymore, as they would otherwise never become spendable. The TXOs are identified by their
+    /// outpoint (the one registered when accepting the consignment) or by the script they pay (one
+    /// detected by a sync, e.g. when the counterparty broadcasts before its consignment gets
+    /// refused). Pending witness scripts are left to [`WalletCore::reconcile_pending_witness`],
+    /// which keeps watching them for a grace time in case the counterparty broadcasts anyway.
+    fn unflag_pending_witness_txos(
+        &self,
+        txn: &DbTxn,
+        outpoints: &HashSet<Outpoint>,
+        scripts: &HashSet<ScriptBuf>,
+    ) -> Result<(), Error> {
+        for txo in txn.iter_pending_witness_txos()? {
+            let outpoint = txo.outpoint();
+            let pays_script = || {
+                self.bdk_wallet()
+                    .tx_graph()
+                    .get_txout(outpoint.clone().into())
+                    .is_some_and(|txout| scripts.contains(&txout.script_pubkey))
+            };
+            if !outpoints.contains(&outpoint) && !pays_script() {
+                continue;
+            }
+            let mut txo: DbTxoActMod = txo.into();
+            txo.pending_witness = ActiveValue::Set(false);
+            txn.update_txo(txo)?;
+        }
+        Ok(())
+    }
+
+    /// Clear the pending witness flag of the TXOs flagged for the witness receives of a batch
+    /// transfer being failed.
+    fn clean_failed_witness_receives(
+        &self,
+        txn: &DbTxn,
+        batch_transfer: &DbBatchTransfer,
+    ) -> Result<(), Error> {
+        if !batch_transfer.incoming {
+            return Ok(());
+        }
+        let mut outpoints = HashSet::new();
+        let mut scripts = HashSet::new();
+        for transfer in txn.get_batch_transfer_transfers(batch_transfer.idx)? {
+            let vout = match transfer.recipient_type {
+                Some(RecipientTypeFull::Witness { vout }) => vout,
+                _ => continue,
+            };
+            if let (Some(txid), Some(vout)) = (&batch_transfer.txid, vout) {
+                outpoints.insert(Outpoint {
+                    txid: txid.clone(),
+                    vout,
+                });
+            }
+            if let Some(recipient_id) = transfer.recipient_id
+                && let Some(script) = script_buf_from_recipient_id(recipient_id)?
+            {
+                scripts.insert(script);
+            }
+        }
+        if outpoints.is_empty() && scripts.is_empty() {
+            return Ok(());
+        }
+        self.unflag_pending_witness_txos(txn, &outpoints, &scripts)
+    }
+
     fn fail_batch_transfer(
         &self,
         txn: &DbTxn,
         batch_transfer: &DbBatchTransfer,
     ) -> Result<DbBatchTransfer, Error> {
         self.set_hub_fail_status(batch_transfer.idx)?;
+        self.clean_failed_witness_receives(txn, batch_transfer)?;
         let mut updated_batch_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
         updated_batch_transfer.status = ActiveValue::Set(TransferStatus::Failed);
         txn.update_batch_transfer(&mut updated_batch_transfer)
@@ -437,9 +504,22 @@ pub trait WalletOnline: WalletOffline {
         batch_transfer: &DbBatchTransfer,
         db_data: &DbData,
     ) -> Result<TryFailBatchTransferOutcome, Error> {
+        let now = now().unix_timestamp();
+        let expired = batch_transfer.is_expired(now);
         let updated_batch_transfer =
             match self.refresh_transfer(txn, batch_transfer, db_data, &[], true) {
                 Err(Error::MinFeeNotMet { txid: _ }) | Err(Error::MaxFeeExceeded { txid: _ }) => {
+                    Ok(None)
+                }
+                // a transfer that keeps failing to refresh (e.g. its ACK can't be posted or
+                // retrieved) would otherwise never be failed; once expired its TX should no longer
+                // be broadcast by the sender, so it's safe to fail it, while before that the
+                // error could be transient and the transfer could still complete
+                Err(e) if expired => {
+                    warn!(
+                        self.logger(),
+                        "Failing expired transfer that failed to refresh: {e}"
+                    );
                     Ok(None)
                 }
                 Err(e) => Err(e),
@@ -491,7 +571,7 @@ pub trait WalletOnline: WalletOffline {
             // expired, since the TX may still be broadcast before then
             if batch_transfer.status == TransferStatus::WaitingBroadcast {
                 let now = now().unix_timestamp();
-                let expired = batch_transfer.expiration.unwrap_or(now) < now;
+                let expired = batch_transfer.is_expired(now);
                 if !expired {
                     return Ok(FailTransfersOutcome {
                         transfers_changed: false,
@@ -521,7 +601,7 @@ pub trait WalletOnline: WalletOffline {
             // fail all expired transfers that are in a fallible status
             let now = now().unix_timestamp();
             for batch_transfer in db_data.batch_transfers.iter().filter(|t| {
-                let expired = t.expiration.unwrap_or(now) < now;
+                let expired = t.is_expired(now);
                 expired && t.is_fallible()
             }) {
                 if no_asset_only {
@@ -603,6 +683,7 @@ pub trait WalletOnline: WalletOffline {
             hub_client: None,
             user_role: None,
             vanilla_sync_lookback: online_options.vanilla_sync_lookback,
+            failed_witness_receive_grace_secs: online_options.failed_witness_receive_grace_secs,
         };
 
         Ok((online, online_data))
@@ -619,6 +700,17 @@ pub trait WalletOnline: WalletOffline {
                 online
             } else {
                 self.check_online(online)?;
+                // the indexer is unchanged but the other options may have changed. No `..` on
+                // purpose: a new option doesn't compile until it's handled here
+                let OnlineOptions {
+                    indexer_url: _,            // a new URL goes online from scratch, see above
+                    skip_consistency_check: _, // only used during this call, not stored
+                    vanilla_sync_lookback,
+                    failed_witness_receive_grace_secs,
+                } = online_options;
+                let online_data = self.online_data_mut().as_mut().unwrap();
+                online_data.vanilla_sync_lookback = *vanilla_sync_lookback;
+                online_data.failed_witness_receive_grace_secs = *failed_witness_receive_grace_secs;
                 online
             }
         } else {
@@ -671,6 +763,12 @@ pub trait WalletOnline: WalletOffline {
             };
         }
 
+        // a refused receive has no TXO registered, but a sync may have detected one paying its
+        // script if the counterparty has already broadcast
+        let scripts = script_buf_from_recipient_id(recipient_id.clone())?
+            .into_iter()
+            .collect();
+        self.unflag_pending_witness_txos(txn, &HashSet::new(), &scripts)?;
         updated_batch_transfer.status = ActiveValue::Set(TransferStatus::Failed);
         Ok(Some(txn.update_batch_transfer(updated_batch_transfer)?))
     }
@@ -1065,26 +1163,33 @@ pub trait WalletOnline: WalletOffline {
         let mut updated_batch_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
 
         // if we already downloaded the consignment and its metadata in a
-        // previous attempt that failed during validation for a transient
-        // reason (e.g. network error), reuse them instead of hitting the proxy
-        // again; the endpoint we used is recoverable from the DB via the
-        // `used` flag on the transfer transport endpoint
+        // previous attempt that failed for a transient reason (e.g. network
+        // error), reuse them instead of hitting the proxy again; the endpoint
+        // we used is recorded in the metadata, since a failed refresh rolls
+        // back the `used` flag on the transfer transport endpoint (metadata
+        // written by older versions lacks it, fall back to the flag then)
         let consignment_path = self.get_receive_consignment_path(&recipient_id);
         let consignment_meta_path = self.get_receive_consignment_meta_path(&recipient_id);
         let (proxy_url, txid, vout) = if consignment_path.exists()
             && consignment_meta_path.exists()
-            && let Some(cached_proxy_url) = tte_data
-                .iter()
-                .find(|(tte, _)| tte.used)
-                .map(|(_, te)| te.endpoint.clone())
             && let Ok(meta_str) = fs::read_to_string(&consignment_meta_path)
             && let Ok(meta) = serde_json::from_str::<ReceivedConsignmentMeta>(&meta_str)
-        {
+            && let Some((cached_tte, cached_te)) = tte_data.iter().find(|(tte, te)| {
+                meta.proxy_url
+                    .as_ref()
+                    .map_or(tte.used, |url| url == &te.endpoint)
+            }) {
             debug!(
                 self.logger(),
                 "Reusing previously-downloaded consignment for {recipient_id}"
             );
-            (cached_proxy_url, meta.txid, meta.vout)
+            if !cached_tte.used {
+                let mut updated_transfer_transport_endpoint: DbTransferTransportEndpointActMod =
+                    cached_tte.clone().into();
+                updated_transfer_transport_endpoint.used = ActiveValue::Set(true);
+                txn.update_transfer_transport_endpoint(&mut updated_transfer_transport_endpoint)?;
+            }
+            (cached_te.endpoint.clone(), meta.txid, meta.vout)
         } else {
             // download consignment and its metadata
             let mut proxy_res = None;
@@ -1142,6 +1247,7 @@ pub trait WalletOnline: WalletOffline {
             let meta = ReceivedConsignmentMeta {
                 txid: txid.clone(),
                 vout,
+                proxy_url: Some(proxy_url.clone()),
             };
             let meta_str = serde_json::to_string(&meta).map_err(InternalError::from)?;
             atomic_write(&consignment_meta_path, meta_str.as_bytes())?;
@@ -1150,7 +1256,7 @@ pub trait WalletOnline: WalletOffline {
         };
 
         let mode = ReceiveMode::Proxy { proxy_url };
-        self.validate_received_consignment(
+        self.process_received_consignment(
             txn,
             batch_transfer,
             &asset_transfer,
@@ -1165,8 +1271,8 @@ pub trait WalletOnline: WalletOffline {
     }
 
     // validate a received consignment, if valid import any unknown asset (and its media), persist
-    // the receive colorings and update the transfer status
-    fn validate_received_consignment(
+    // the receive colorings, then update the transfer status (ACKing the consignment when possible)
+    fn process_received_consignment(
         &self,
         txn: &DbTxn,
         batch_transfer: &DbBatchTransfer,
@@ -1585,7 +1691,7 @@ pub trait WalletOnline: WalletOffline {
             let mode = ReceiveMode::OutOfBand {
                 media_file_paths: media_file_paths.clone(),
             };
-            let updated = self.validate_received_consignment(
+            let updated = self.process_received_consignment(
                 txn,
                 &batch_transfer,
                 &asset_transfer,
@@ -1763,7 +1869,7 @@ pub trait WalletOnline: WalletOffline {
         // allowed to fail it, so broadcasting now could complete a transfer the recipient has
         // already given up on
         let now = now().unix_timestamp();
-        if batch_transfer.expiration.unwrap_or(now) < now {
+        if batch_transfer.is_expired(now) {
             debug!(
                 self.logger(),
                 "Transfer expired before broadcast, failing it instead of broadcasting"
@@ -2093,7 +2199,11 @@ pub trait WalletOnline: WalletOffline {
         for transfer in &db_data.batch_transfers {
             let mut failure = None;
             let mut updated_status = None;
-            match self.refresh_transfer(txn, transfer, &db_data, &filter, skip_sync) {
+            // a failed refresh must not leave its partial changes behind (e.g. the colorings of a
+            // consignment validated before its ACK failed), as the next one would redo them
+            match txn.with_savepoint(|txn| {
+                self.refresh_transfer(txn, transfer, &db_data, &filter, skip_sync)
+            }) {
                 Ok(Some(updated_transfer)) => updated_status = Some(updated_transfer.status),
                 Err(e) => failure = Some(e),
                 _ => {}

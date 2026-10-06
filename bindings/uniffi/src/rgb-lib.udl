@@ -424,6 +424,7 @@ dictionary OnlineOptions {
   string indexer_url;
   boolean skip_consistency_check;
   u32 vanilla_sync_lookback;
+  u32 failed_witness_receive_grace_secs;
 };
 
 [Remote]
