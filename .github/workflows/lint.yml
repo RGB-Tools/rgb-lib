@@ -19,13 +19,13 @@ jobs:
         with:
           components: clippy
       - name: Lint with all features
-        run: cargo clippy --lib --workspace --all-features --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: Lint with no features
-        run: cargo clippy --lib --workspace --no-default-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --no-default-features -- -D warnings
       - name: Lint with electrum feature
-        run: cargo clippy --lib --workspace --no-default-features --features electrum -- -D warnings
+        run: cargo clippy --workspace --all-targets --no-default-features --features electrum -- -D warnings
       - name: Lint with esplora feature
-        run: cargo clippy --lib --workspace --no-default-features --features esplora -- -D warnings
+        run: cargo clippy --workspace --all-targets --no-default-features --features esplora -- -D warnings
       - name: Lint c-ffi bindings
         working-directory: ./bindings/c-ffi
         run: cargo clippy
