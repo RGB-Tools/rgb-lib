@@ -1,7 +1,7 @@
 #[cfg(feature = "electrum")]
 use std::ffi::OsString;
 #[cfg(feature = "electrum")]
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use std::{
     process::{Command, Stdio},

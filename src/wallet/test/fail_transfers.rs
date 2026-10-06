@@ -917,7 +917,7 @@ fn ack_failure() {
     // issue
     let asset = party.issue_asset_nia(Some(&[AMOUNT]));
 
-    let (server, _mock) = failing_ack_proxy();
+    let (server, _mock, _) = failing_ack_proxy(Arc::new(AtomicBool::new(true)));
     let failing_ack_endpoint = format!("rpc://{}/json-rpc", server.host_with_port());
 
     // send to 2 recipients, with transfers expiring soon
