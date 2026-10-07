@@ -198,7 +198,9 @@ pub trait WalletOnline: WalletOffline {
         for address in addresses {
             tx_builder.add_recipient(address.clone(), BdkAmount::from_sat(size as u64));
         }
-        tx_builder.finish()
+        let mut psbt = tx_builder.finish()?;
+        self.add_non_witness_utxos(&mut psbt);
+        Ok(psbt)
     }
 
     fn create_utxos_begin_impl(
@@ -372,7 +374,7 @@ pub trait WalletOnline: WalletOffline {
             .drain_to(script_pubkey)
             .fee_rate(fee_rate_checked);
 
-        let psbt = tx_builder.finish().map_err(|e| match e {
+        let mut psbt = tx_builder.finish().map_err(|e| match e {
             bdk_wallet::error::CreateTxError::CoinSelection(InsufficientFunds {
                 needed,
                 available,
@@ -387,6 +389,7 @@ pub trait WalletOnline: WalletOffline {
                 details: e.to_string(),
             },
         })?;
+        self.add_non_witness_utxos(&mut psbt);
 
         if !dry_run {
             self.reserve_vanilla_txos(txn, &psbt, WalletTransactionType::Drain)?;
@@ -2372,7 +2375,7 @@ pub trait WalletOnline: WalletOffline {
         }
         builder.drain_to(change_addr.clone());
 
-        let psbt = builder.finish().map_err(|e| match e {
+        let mut psbt = builder.finish().map_err(|e| match e {
             bdk_wallet::error::CreateTxError::CoinSelection(InsufficientFunds {
                 needed,
                 available,
@@ -2387,6 +2390,7 @@ pub trait WalletOnline: WalletOffline {
                 details: e.to_string(),
             },
         })?;
+        self.add_non_witness_utxos(&mut psbt);
 
         let btc_change = psbt
             .unsigned_tx
@@ -3835,7 +3839,7 @@ pub trait WalletOnline: WalletOffline {
             .unspendable(unspendable)
             .add_recipient(script_pubkey, BdkAmount::from_sat(amount))
             .fee_rate(fee_rate_checked);
-        let psbt = tx_builder.finish().map_err(|e| match e {
+        let mut psbt = tx_builder.finish().map_err(|e| match e {
             bdk_wallet::error::CreateTxError::CoinSelection(InsufficientFunds {
                 needed,
                 available,
@@ -3850,6 +3854,7 @@ pub trait WalletOnline: WalletOffline {
                 details: e.to_string(),
             },
         })?;
+        self.add_non_witness_utxos(&mut psbt);
 
         if !dry_run {
             self.reserve_vanilla_txos(txn, &psbt, WalletTransactionType::SendBtc)?;

@@ -660,7 +660,6 @@ fn legacy_bdk_store_is_imported() {
         dir.path(),
         descriptors.colored.clone(),
         descriptors.vanilla.clone(),
-        false,
         BitcoinNetwork::Regtest,
     )
     .unwrap();
