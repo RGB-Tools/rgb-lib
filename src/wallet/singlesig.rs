@@ -95,8 +95,12 @@ impl SinglesigKeys {
 ///
 /// Can be obtained with the [`Wallet::new`] method.
 pub struct Wallet {
+    // state shared with the multisig wallet (data, logger, DB, BDK wallet, online data)
     pub(crate) internals: WalletInternals,
+    // keys the wallet was created with, the mnemonic is missing for a watch-only wallet
     pub(crate) keys: SinglesigKeys,
+    // colored and vanilla signers, empty for a watch-only wallet
+    signers: [SignersContainer; 2],
 }
 
 impl WalletCore for Wallet {
@@ -189,12 +193,33 @@ impl Wallet {
         let bdk_wallet = setup_bdk(
             &txn,
             &wallet_dir,
-            descs.colored,
-            descs.vanilla,
-            watch_only,
+            descs.colored.clone(),
+            descs.vanilla.clone(),
             wdata.bitcoin_network,
         )?;
         txn.commit()?;
+
+        // keep the signing keys outside the BDK wallet
+        let signers = if watch_only {
+            Default::default()
+        } else {
+            let network_kind = wdata.bitcoin_network.network_kind();
+            let secp = bdk_wallet.secp_ctx();
+            let build_signers = |desc: &str, keychain| -> Result<SignersContainer, Error> {
+                let (_, keymap) = desc
+                    .into_wallet_descriptor(secp, network_kind)
+                    .map_err(InternalError::from)?;
+                Ok(SignersContainer::build(
+                    keymap,
+                    bdk_wallet.public_descriptor(keychain),
+                    secp,
+                ))
+            };
+            [
+                build_signers(&descs.colored, KeychainKind::External)?,
+                build_signers(&descs.vanilla, KeychainKind::Internal)?,
+            ]
+        };
 
         // setup RGB
         setup_rgb(&wallet_dir, wdata.supported_schemas, wdata.bitcoin_network)?;
@@ -216,6 +241,7 @@ impl Wallet {
                 online_data: None,
             },
             keys,
+            signers,
         })
     }
 
@@ -267,8 +293,9 @@ impl Wallet {
         sign_options: Option<SignOptions>,
     ) -> Result<(), Error> {
         let sign_options = sign_options.unwrap_or_default();
+        let [colored, vanilla] = &self.signers;
         self.bdk_wallet()
-            .sign(psbt, sign_options)
+            .sign_with_signers(psbt, &[colored, vanilla], sign_options)
             .map_err(InternalError::from)?;
         Ok(())
     }

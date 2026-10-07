@@ -176,7 +176,7 @@ use bdk_wallet::{
     chain::{
         BlockId, CanonicalizationParams, ChainPosition, ConfirmationBlockTime, DescriptorId, Merge,
     },
-    descriptor::Segwitv0,
+    descriptor::{IntoWalletDescriptor, Segwitv0},
     keys::{
         DerivableKey, DescriptorKey,
         DescriptorKey::{Public, Secret},
@@ -184,6 +184,7 @@ use bdk_wallet::{
         bip39::{Language, Mnemonic, WordCount},
     },
     miniscript::{Descriptor, DescriptorPublicKey},
+    signer::SignersContainer,
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use bdk_wallet::{

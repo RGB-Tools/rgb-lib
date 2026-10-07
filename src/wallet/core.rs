@@ -319,20 +319,16 @@ pub(crate) fn setup_bdk<P: AsRef<Path>>(
     wallet_dir: P,
     desc_colored: String,
     desc_vanilla: String,
-    watch_only: bool,
     bitcoin_network: BitcoinNetwork,
 ) -> Result<BdkWallet, Error> {
     let chain_net: ChainNet = bitcoin_network.into();
-    let mut wallet_params = BdkWallet::load()
+    let wallet_params = BdkWallet::load()
         .descriptor(KeychainKind::External, Some(desc_colored.clone()))
         .descriptor(KeychainKind::Internal, Some(desc_vanilla.clone()))
         .use_spk_cache(false)
         .check_genesis_hash(BlockHash::from_byte_array(
             chain_net.chain_hash().to_bytes(),
         ));
-    if !watch_only {
-        wallet_params = wallet_params.extract_keys();
-    }
     let mut changeset = txn.get_bdk_changeset()?;
     // an empty changeset means either a brand-new wallet or one whose data still lives in the
     // legacy file store
@@ -417,6 +413,22 @@ pub trait WalletCore {
 
     fn bdk_wallet_mut(&mut self) -> &mut BdkWallet {
         &mut self.internals_mut().bdk_wallet
+    }
+
+    /// Add the full previous transaction to each PSBT input missing it.
+    ///
+    /// BDK never sets it for taproot inputs, but its signer refuses to sign without it unless it
+    /// already knows the previous transaction, which a separate signer (e.g. for a watch-only or
+    /// multisig wallet) doesn't.
+    fn add_non_witness_utxos(&self, psbt: &mut Psbt) {
+        let tx_graph = self.bdk_wallet().tx_graph();
+        for (input, txin) in psbt.inputs.iter_mut().zip(&psbt.unsigned_tx.input) {
+            if input.non_witness_utxo.is_none()
+                && let Some(prev_tx) = tx_graph.get_tx(txin.previous_output.txid)
+            {
+                input.non_witness_utxo = Some(prev_tx.as_ref().clone());
+            }
+        }
     }
 
     /// Persist the BDK wallet's staged changes through the given rgb-lib transaction.
