@@ -1,14 +1,24 @@
+//! Blocking client for the RGB proxy JSON-RPC API (requires `electrum` or `esplora`).
+
 use super::*;
 
+/// Blocking client for exchanging consignments, media and ACKs with an RGB proxy.
+///
+/// Methods return `Ok` whenever the response decodes, even if it carries a JSON-RPC error, so
+/// check [`JsonRpcResponse::error`] before using `result`. Transport and decoding failures return
+/// [`Error::Proxy`].
 pub struct ProxyClient {
     client: RestClient,
     base_url: String,
 }
 
+/// JSON-RPC error returned by the proxy.
 #[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct JsonRpcError {
-    pub(crate) code: i64,
-    pub(crate) message: String,
+pub struct JsonRpcError {
+    /// JSON-RPC error code
+    pub code: i64,
+    /// Error description
+    pub message: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -19,29 +29,42 @@ pub(crate) struct JsonRpcRequest<P> {
     params: Option<P>,
 }
 
+/// JSON-RPC response, carrying either a result or an error.
 #[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct JsonRpcResponse<R> {
-    jsonrpc: String,
-    id: Option<String>,
-    pub(crate) result: Option<R>,
-    pub(crate) error: Option<JsonRpcError>,
+pub struct JsonRpcResponse<R> {
+    /// JSON-RPC protocol version
+    pub jsonrpc: String,
+    /// Response ID, if any
+    pub id: Option<String>,
+    /// Method result (`None` if absent or `null`)
+    pub result: Option<R>,
+    /// JSON-RPC error, if any
+    pub error: Option<JsonRpcError>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct NullRequest;
 
+/// Proxy server information.
 #[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct ServerInfoResponse {
-    pub(crate) protocol_version: String,
-    pub(crate) version: String,
-    pub(crate) uptime: i64,
+pub struct ServerInfoResponse {
+    /// Proxy protocol version
+    pub protocol_version: String,
+    /// Server software version
+    pub version: String,
+    /// Server uptime in seconds
+    pub uptime: i64,
 }
 
+/// Consignment with its transaction information.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct GetConsignmentResponse {
-    pub(crate) consignment: String,
-    pub(crate) txid: String,
-    pub(crate) vout: Option<u32>,
+    /// Base64-encoded consignment
+    pub consignment: String,
+    /// Transaction ID
+    pub txid: String,
+    /// Output index (witness recipients only)
+    pub vout: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -74,7 +97,8 @@ pub(crate) struct AttachmentIdParam {
 }
 
 impl ProxyClient {
-    pub(crate) fn new(base_url: &str) -> Result<Self, Error> {
+    /// Create a client for the given proxy URL.
+    pub fn new(base_url: &str) -> Result<Self, Error> {
         let client = RestClient::builder()
             .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT))
             .timeout(Duration::from_secs(READ_WRITE_TIMEOUT))
@@ -91,7 +115,8 @@ impl ProxyClient {
         }
     }
 
-    pub(crate) fn get_info(&self) -> Result<JsonRpcResponse<ServerInfoResponse>, Error> {
+    /// Get the proxy server information.
+    pub fn get_info(&self) -> Result<JsonRpcResponse<ServerInfoResponse>, Error> {
         let body: JsonRpcRequest<NullRequest> = JsonRpcRequest {
             method: s!("server.info"),
             jsonrpc: s!("2.0"),
@@ -108,7 +133,9 @@ impl ProxyClient {
             .map_err(Self::req_err)
     }
 
-    pub(crate) fn get_ack(&self, recipient_id: &str) -> Result<JsonRpcResponse<bool>, Error> {
+    /// Get the ACK for a recipient: `Some(true)` is an ACK, `Some(false)` a NACK and `None` means
+    /// no ACK has been posted yet.
+    pub fn get_ack(&self, recipient_id: &str) -> Result<JsonRpcResponse<bool>, Error> {
         let body = JsonRpcRequest {
             method: s!("ack.get"),
             jsonrpc: s!("2.0"),
@@ -127,7 +154,8 @@ impl ProxyClient {
             .map_err(Self::req_err)
     }
 
-    pub(crate) fn get_consignment(
+    /// Get the consignment for a recipient.
+    pub fn get_consignment(
         &self,
         recipient_id: &str,
     ) -> Result<JsonRpcResponse<GetConsignmentResponse>, Error> {
@@ -149,7 +177,8 @@ impl ProxyClient {
             .map_err(Self::req_err)
     }
 
-    pub(crate) fn get_media(&self, attachment_id: &str) -> Result<JsonRpcResponse<String>, Error> {
+    /// Get the base64-encoded media for an attachment ID.
+    pub fn get_media(&self, attachment_id: &str) -> Result<JsonRpcResponse<String>, Error> {
         let body = JsonRpcRequest {
             method: s!("media.get"),
             jsonrpc: s!("2.0"),
@@ -168,11 +197,8 @@ impl ProxyClient {
             .map_err(Self::req_err)
     }
 
-    pub(crate) fn post_ack(
-        &self,
-        recipient_id: &str,
-        ack: bool,
-    ) -> Result<JsonRpcResponse<bool>, Error> {
+    /// Post an ACK (`true`) or NACK (`false`) for a recipient.
+    pub fn post_ack(&self, recipient_id: &str, ack: bool) -> Result<JsonRpcResponse<bool>, Error> {
         let body = JsonRpcRequest {
             method: s!("ack.post"),
             jsonrpc: s!("2.0"),
@@ -192,7 +218,8 @@ impl ProxyClient {
             .map_err(Self::req_err)
     }
 
-    pub(crate) fn post_consignment<P: AsRef<Path>>(
+    /// Post a consignment file for a recipient.
+    pub fn post_consignment<P: AsRef<Path>>(
         &self,
         recipient_id: &str,
         consignment_path: P,
@@ -228,7 +255,8 @@ impl ProxyClient {
             .map_err(Self::req_err)
     }
 
-    pub(crate) fn post_media<P: AsRef<Path>>(
+    /// Post a media file for an attachment ID.
+    pub fn post_media<P: AsRef<Path>>(
         &self,
         attachment_id: &str,
         media_path: P,
