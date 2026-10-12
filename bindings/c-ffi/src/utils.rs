@@ -552,6 +552,16 @@ pub(crate) fn inflate_end(
     Ok(serde_json::to_string(&res)?)
 }
 
+pub(crate) fn inspect_consignment(
+    consignment_path: *const c_char,
+    bundle_filter: *const c_char,
+) -> Result<String, Error> {
+    let consignment_path = ptr_to_string(consignment_path);
+    let bundle_filter: BundleFilter = serde_json::from_str(&ptr_to_string(bundle_filter))?;
+    let res = rgb_lib::no_wallet::inspect_consignment(consignment_path, bundle_filter)?;
+    Ok(serde_json::to_string(&res)?)
+}
+
 pub(crate) fn invoice_data(invoice_string: *const c_char) -> Result<String, Error> {
     let invoice_string = ptr_to_string(invoice_string);
     let invoice = rgb_lib::wallet::Invoice::new(invoice_string)?;
