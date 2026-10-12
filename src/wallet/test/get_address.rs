@@ -60,7 +60,6 @@ fn reveal_survives_rolled_back_txn() {
         wallet.get_wallet_dir(),
         wallet.get_descriptors().colored,
         wallet.get_descriptors().vanilla,
-        false,
         BitcoinNetwork::Regtest,
     )
     .unwrap();
@@ -123,7 +122,6 @@ fn bdk_pending_file_survives_a_crash() {
         &wallet_dir,
         descriptors.colored,
         descriptors.vanilla,
-        false,
         BitcoinNetwork::Regtest,
     )
     .unwrap();

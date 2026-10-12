@@ -432,6 +432,7 @@ pub(crate) fn test_go_online_options(indexer_url: Option<&str>) -> OnlineOptions
         indexer_url: indexer_url.unwrap_or(DEFAULT_INDEXER_URL).to_string(),
         skip_consistency_check: true,
         vanilla_sync_lookback: INDEXER_SYNC_LOOKBACK as u32,
+        failed_witness_receive_grace_secs: FAILED_WITNESS_RECEIVE_GRACE_SECS,
     }
 }
 
@@ -443,4 +444,48 @@ pub(crate) fn default_rcv_expiration() -> u64 {
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn default_send_expiration() -> u64 {
     (now().unix_timestamp() + DURATION_SEND_TRANSFER as i64) as u64
+}
+
+// proxy that forwards every call to the real one, except ACK posts and gets that receive an
+// unparsable response while `fail_ack` is set; it also returns how many times a consignment
+// has been requested
+#[cfg(feature = "electrum")]
+pub(crate) fn failing_ack_proxy(
+    fail_ack: Arc<AtomicBool>,
+) -> (mockito::ServerGuard, mockito::Mock, Arc<AtomicUsize>) {
+    let consignment_gets = Arc::new(AtomicUsize::new(0));
+    let gets = Arc::clone(&consignment_gets);
+    let mut server = mockito::Server::new();
+    let mock = server
+        .mock("POST", "/json-rpc")
+        .with_body_from_request(move |req| {
+            let body = req.body().unwrap().clone();
+            let body_str = String::from_utf8_lossy(&body);
+            if body_str.contains("\"consignment.get\"") {
+                gets.fetch_add(1, Ordering::Relaxed);
+            }
+            if fail_ack.load(Ordering::Relaxed)
+                && (body_str.contains("\"ack.post\"") || body_str.contains("\"ack.get\""))
+            {
+                return b"not valid json".to_vec();
+            }
+            let content_type = req.header(CONTENT_TYPE)[0].clone();
+            // the blocking client cannot run inside mockito's async runtime
+            std::thread::spawn(move || {
+                RestClient::new()
+                    .post(PROXY_URL)
+                    .header(CONTENT_TYPE, content_type)
+                    .body(body)
+                    .send()
+                    .unwrap()
+                    .bytes()
+                    .unwrap()
+                    .to_vec()
+            })
+            .join()
+            .unwrap()
+        })
+        .expect_at_least(1)
+        .create();
+    (server, mock, consignment_gets)
 }

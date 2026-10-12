@@ -1039,3 +1039,79 @@ fn filter_with_waiting_safe_height() {
         TransferStatus::WaitingBroadcast
     ));
 }
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn ack_failure_no_duplicate_colorings() {
+    initialize();
+
+    let amount: u64 = 66;
+    let refreshes = 3;
+
+    let mut party_1 = get_funded_party!();
+    let mut party_2 = get_funded_party!();
+
+    // issue
+    let asset = party_1.issue_asset_nia(Some(&[AMOUNT]));
+
+    let fail_ack = Arc::new(AtomicBool::new(true));
+    let (server, _mock, consignment_gets) = failing_ack_proxy(Arc::clone(&fail_ack));
+    let failing_ack_endpoints = vec![format!("rpc://{}/json-rpc", server.host_with_port())];
+
+    // send
+    let receive_data = party_2.blind_receive_with_endpoints(None, failing_ack_endpoints.clone());
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(amount),
+            recipient_id: receive_data.recipient_id.clone(),
+            witness_data: None,
+            transport_endpoints: failing_ack_endpoints,
+        }],
+    )]);
+    let txid = party_1.send_retry(&recipient_map);
+    assert!(!txid.is_empty());
+
+    // each refresh validates the consignment and then fails to ACK it, rolling back its changes
+    for _ in 0..refreshes {
+        let refresh_res = party_2.refresh_result(None, &[]).unwrap();
+        let refreshed = refresh_res.get(&receive_data.batch_transfer_idx).unwrap();
+        assert!(refreshed.updated_status.is_none());
+        assert_matches!(refreshed.failure, Some(Error::Proxy { .. }));
+        assert!(party_2.check_test_transfer_status_recipient(
+            &receive_data.recipient_id,
+            TransferStatus::WaitingCounterparty
+        ));
+    }
+
+    // the consignment is downloaded once and then reused, even if the failed refreshes rolled
+    // back the record of which transport endpoint it came from
+    assert_eq!(consignment_gets.load(Ordering::Relaxed), 1);
+
+    // nothing from the failed refreshes is left behind
+    assert!(party_2.db_colorings().is_empty());
+    assert_matches!(
+        party_2.get_asset_balance_result(&asset.asset_id),
+        Err(Error::AssetNotFound { .. })
+    );
+
+    // once the ACK goes through the transfer completes and the amount is counted only once
+    fail_ack.store(false, Ordering::Relaxed);
+    let refresh_res = party_2.refresh_result(None, &[]).unwrap();
+    let refreshed = refresh_res.get(&receive_data.batch_transfer_idx).unwrap();
+    assert!(refreshed.failure.is_none());
+    assert_eq!(
+        refreshed.updated_status,
+        Some(TransferStatus::WaitingBroadcast)
+    );
+    assert_eq!(consignment_gets.load(Ordering::Relaxed), 1);
+    assert_eq!(
+        party_2.get_asset_balance(&asset.asset_id),
+        Balance {
+            settled: 0,
+            future: amount,
+            spendable: 0,
+        }
+    );
+}

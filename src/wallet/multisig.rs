@@ -1024,7 +1024,6 @@ impl MultisigWallet {
             &wallet_dir,
             descs.colored,
             descs.vanilla,
-            true,
             wdata.bitcoin_network,
         )?;
         txn.commit()?;
