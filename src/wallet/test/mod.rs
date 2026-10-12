@@ -3,7 +3,7 @@ use std::ffi::OsString;
 #[cfg(all(feature = "electrum", feature = "rgb_fs_store_migration"))]
 use std::fs::File;
 #[cfg(feature = "electrum")]
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize};
 #[cfg(feature = "_online")]
 use std::{
     process::{Command, Stdio},
@@ -25,6 +25,8 @@ use biscuit_auth::{KeyPair, builder::date, macros::*};
 #[cfg(feature = "electrum")]
 use chrono::{DateTime, Utc};
 use once_cell::sync::Lazy;
+#[cfg(feature = "electrum")]
+use regex::RegexSet;
 #[cfg(feature = "electrum")]
 use rgbstd::stl::{EmbeddedMedia as RgbEmbeddedMedia, ProofOfReserves as RgbProofOfReserves};
 use serde_json::Value;
@@ -50,6 +52,13 @@ use crate::wallet::online::*;
 use crate::wallet::rust_only::check_proxy_url;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use crate::wallet::utils::build_indexer;
+#[cfg(feature = "electrum")]
+use crate::{
+    database::enums::{SCHEMA_ID_CFA, SCHEMA_ID_IFA, SCHEMA_ID_NIA, SCHEMA_ID_UDA},
+    no_wallet::{BundleFilter, inspect_consignment},
+    utils::{get_account_data, recipient_id_from_script_buf, script_buf_from_recipient_id},
+    wallet::{multisig::*, rust_only::*},
+};
 use crate::{
     keys::generate_keys,
     utils::{
@@ -57,11 +66,6 @@ use crate::{
         get_extended_derivation_path,
     },
     wallet::{backup::*, core::*, offline::*, singlesig::*},
-};
-#[cfg(feature = "electrum")]
-use crate::{
-    utils::{get_account_data, recipient_id_from_script_buf, script_buf_from_recipient_id},
-    wallet::{multisig::*, rust_only::*},
 };
 
 const PROXY_HOST: &str = "127.0.0.1:3000/json-rpc";
@@ -533,6 +537,10 @@ mod get_wallet_dir;
 mod go_online;
 #[cfg(feature = "electrum")]
 mod inflate;
+#[cfg(feature = "electrum")]
+mod inspect_consignment;
+#[cfg(feature = "electrum")]
+mod inspect_rgb_transfer;
 #[cfg(feature = "electrum")]
 mod issue_asset_cfa;
 #[cfg(feature = "electrum")]

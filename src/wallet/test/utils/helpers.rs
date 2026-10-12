@@ -1,12 +1,5 @@
 use super::*;
 
-#[cfg(feature = "electrum")]
-use regex::RegexSet;
-#[cfg(feature = "electrum")]
-use std::io::Write;
-#[cfg(feature = "_online")]
-use std::time::{Duration, Instant};
-
 /// Panic if the given expression doesn't match the provided pattern, logging the unexpected result
 #[macro_export]
 macro_rules! assert_matches {

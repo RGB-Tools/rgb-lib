@@ -10,8 +10,6 @@ use crate::database::entities::{
 };
 #[cfg(feature = "_online")]
 use crate::database::entities::{pending_witness_script, reserved_txo};
-#[cfg(feature = "_online")]
-use sea_orm::RelationTrait;
 
 /// Max number of values bound in a single `IN (...)` clause, well below SQLite's variable limit.
 const SQL_IN_CHUNK_SIZE: usize = 500;

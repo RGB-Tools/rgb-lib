@@ -3969,7 +3969,7 @@ pub trait WalletOnline: WalletOffline {
         unspents: Vec<LocalUnspent>,
     ) -> Result<AssetSpend, Error> {
         // sort unspents by the sum of main amounts
-        fn cmp_localunspent_allocation_sum(a: &LocalUnspent, b: &LocalUnspent) -> Ordering {
+        fn cmp_localunspent_allocation_sum(a: &LocalUnspent, b: &LocalUnspent) -> cmp::Ordering {
             let a_sum: u64 = a
                 .rgb_allocations
                 .iter()
@@ -3983,7 +3983,7 @@ pub trait WalletOnline: WalletOffline {
             a_sum.cmp(&b_sum)
         }
         // sort unspents by the sum of inflation right amounts
-        fn cmp_localunspent_inflation_sum(a: &LocalUnspent, b: &LocalUnspent) -> Ordering {
+        fn cmp_localunspent_inflation_sum(a: &LocalUnspent, b: &LocalUnspent) -> cmp::Ordering {
             let a_sum: u64 = a
                 .rgb_allocations
                 .iter()

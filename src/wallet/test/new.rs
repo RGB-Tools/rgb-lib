@@ -1,7 +1,5 @@
 use super::*;
 
-use std::os::unix::fs::PermissionsExt;
-
 fn check_wallet(
     party: &impl OfflineSigParty<W = Wallet>,
     network: BitcoinNetwork,

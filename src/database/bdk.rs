@@ -422,10 +422,6 @@ async fn persist_changeset(
 mod tests {
     use super::*;
 
-    use std::sync::atomic::{AtomicBool, Ordering};
-
-    use bdk_wallet::bitcoin::{TxIn, absolute::LockTime, transaction::Version};
-
     use crate::wallet::core::RGB_LIB_DB_NAME;
 
     const TPUB: &str = "tpubD6NzVbkrYhZ4WLczPJWReQycCJdd6YVWXubbVUFnJ5KgU5MDQrD998ZJLSmaB7GVcCnJSDWprxmrGkJ6SvgQC6QAffVpqSvonXmeizXcrkN";

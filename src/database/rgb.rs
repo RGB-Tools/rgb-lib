@@ -1333,11 +1333,6 @@ pub(crate) fn migrate_rgb_fs_to_db(
 mod legacy {
     use super::*;
 
-    use rgbstd::containers::{Consignment, legacy::ConsignmentV0};
-    use rgbstd::contract::{KnownState, OpWitness, OutputAssignment};
-    use rgbstd::persistence::LegacyFsStore;
-    use strict_encoding::{DeserializeError, StreamReader, StrictReader};
-
     use crate::utils::{RGB_RUNTIME_DIR, atomic_write_with, sync_dir, write_fascia};
     use crate::wallet::{ASSETS_DIR, FASCIA_FILE, TRANSFERS_DIR, UNSIGNED_PSBT_FILE};
 
@@ -1781,8 +1776,6 @@ mod legacy {
     mod test {
         use super::*;
 
-        use std::collections::BTreeSet;
-
         /// Collect what `visit_files` hands to the callback, as file names.
         fn visited(dir: &Path, max_entries: usize) -> Result<BTreeSet<String>, Error> {
             let mut seen = BTreeSet::new();
@@ -1868,9 +1861,6 @@ mod legacy {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    use bdk_wallet::bitcoin::absolute::LockTime;
-    use strict_encoding::StrictDumb;
 
     use crate::wallet::core::RGB_LIB_DB_NAME;
 

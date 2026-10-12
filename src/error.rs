@@ -800,6 +800,7 @@ pub enum Error {
     WrongPassword,
 }
 
+#[cfg(feature = "wallet")]
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum IndexerError {
     #[cfg(feature = "bitcoind")]
@@ -815,6 +816,7 @@ pub(crate) enum IndexerError {
     Esplora(#[from] EsploraError),
 }
 
+#[cfg(feature = "wallet")]
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum InternalError {
     #[cfg(feature = "_online")]
@@ -897,6 +899,7 @@ pub(crate) enum InternalError {
     ZipError(#[from] zip::result::ZipError),
 }
 
+#[cfg(feature = "wallet")]
 impl From<bdk_wallet::keys::bip39::Error> for Error {
     fn from(e: bdk_wallet::keys::bip39::Error) -> Self {
         Error::InvalidMnemonic {
@@ -905,6 +908,7 @@ impl From<bdk_wallet::keys::bip39::Error> for Error {
     }
 }
 
+#[cfg(feature = "wallet")]
 impl From<bdk_wallet::bitcoin::bip32::Error> for Error {
     fn from(e: bdk_wallet::bitcoin::bip32::Error) -> Self {
         Error::InvalidPubkey {
@@ -913,6 +917,7 @@ impl From<bdk_wallet::bitcoin::bip32::Error> for Error {
     }
 }
 
+#[cfg(feature = "wallet")]
 impl From<bdk_wallet::bitcoin::psbt::PsbtParseError> for Error {
     fn from(e: bdk_wallet::bitcoin::psbt::PsbtParseError) -> Self {
         Error::InvalidPsbt {
@@ -921,6 +926,7 @@ impl From<bdk_wallet::bitcoin::psbt::PsbtParseError> for Error {
     }
 }
 
+#[cfg(feature = "wallet")]
 impl From<IndexerError> for Error {
     fn from(e: IndexerError) -> Self {
         Error::Indexer {
@@ -938,36 +944,42 @@ impl From<reqwest::Error> for Error {
     }
 }
 
+#[cfg(feature = "wallet")]
 impl From<bdk_wallet::bitcoin::psbt::ExtractTxError> for InternalError {
     fn from(e: bdk_wallet::bitcoin::psbt::ExtractTxError) -> Self {
         InternalError::BdkExtractTxError(e.to_string())
     }
 }
 
+#[cfg(feature = "wallet")]
 impl From<psrgbt::CommitError> for InternalError {
     fn from(e: psrgbt::CommitError) -> Self {
         InternalError::Commit(e.to_string())
     }
 }
 
+#[cfg(feature = "wallet")]
 impl From<psrgbt::RgbPsbtError> for InternalError {
     fn from(e: psrgbt::RgbPsbtError) -> Self {
         InternalError::RgbPsbtError(e.to_string())
     }
 }
 
+#[cfg(feature = "wallet")]
 impl From<psrgbt::OpretKeyError> for InternalError {
     fn from(e: psrgbt::OpretKeyError) -> Self {
         InternalError::RgbPsbtError(e.to_string())
     }
 }
 
+#[cfg(feature = "wallet")]
 impl From<psrgbt::MpcPsbtError> for InternalError {
     fn from(e: psrgbt::MpcPsbtError) -> Self {
         InternalError::RgbPsbtError(e.to_string())
     }
 }
 
+#[cfg(feature = "wallet")]
 impl<E: std::error::Error> From<StockError<&DbTxn, E>> for Error {
     fn from(e: StockError<&DbTxn, E>) -> Self {
         match e {
@@ -988,6 +1000,7 @@ impl<E: std::error::Error> From<StockError<&DbTxn, E>> for Error {
     }
 }
 
+#[cfg(feature = "wallet")]
 impl From<rgbinvoice::TransportParseError> for Error {
     fn from(e: rgbinvoice::TransportParseError) -> Self {
         Error::InvalidTransportEndpoint {
@@ -996,6 +1009,7 @@ impl From<rgbinvoice::TransportParseError> for Error {
     }
 }
 
+#[cfg(feature = "wallet")]
 impl From<bdk_wallet::LoadError> for Error {
     fn from(e: bdk_wallet::LoadError) -> Self {
         match e {
@@ -1019,6 +1033,7 @@ impl From<std::io::Error> for Error {
     }
 }
 
+#[cfg(feature = "wallet")]
 impl From<InternalError> for Error {
     fn from(e: InternalError) -> Self {
         Error::Internal {
@@ -1027,6 +1042,7 @@ impl From<InternalError> for Error {
     }
 }
 
+#[cfg(feature = "wallet")]
 impl From<sea_orm::DbErr> for Error {
     fn from(e: sea_orm::DbErr) -> Self {
         Error::Database {
@@ -1035,6 +1051,7 @@ impl From<sea_orm::DbErr> for Error {
     }
 }
 
+#[cfg(feature = "wallet")]
 impl From<rgbstd::contract::BuilderError> for Error {
     fn from(e: rgbstd::contract::BuilderError) -> Self {
         Error::Internal {
@@ -1043,7 +1060,7 @@ impl From<rgbstd::contract::BuilderError> for Error {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "wallet"))]
 mod tests {
     use super::*;
 

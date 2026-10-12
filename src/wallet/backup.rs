@@ -552,9 +552,6 @@ fn decrypt_file(
 mod tests {
     use super::*;
 
-    #[cfg(unix)]
-    use std::os::unix::fs::PermissionsExt;
-
     #[test]
     fn zip_dir_missing_source() {
         let tempdir = tempfile::tempdir().unwrap();

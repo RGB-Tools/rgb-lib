@@ -1559,9 +1559,6 @@ mod tests {
     /// and answers the requests needed to check it can be reached, returning its URL.
     #[cfg(feature = "electrum")]
     fn start_single_connection_electrum_mock() -> String {
-        use std::io::{BufRead, BufReader};
-        use std::net::TcpListener;
-
         const GENESIS_HEADER_HEX: &str = "0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a29ab5f49ffff001d1dac2b7c";
 
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock electrum");

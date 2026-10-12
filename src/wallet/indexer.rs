@@ -236,10 +236,10 @@ impl Indexer {
                         let mut upper_key = None;
                         for k in estimate_map.keys() {
                             match k.cmp(&blocks) {
-                                Ordering::Less => {
+                                cmp::Ordering::Less => {
                                     lower_key = Some(k);
                                 }
-                                Ordering::Greater => {
+                                cmp::Ordering::Greater => {
                                     upper_key = Some(k);
                                     break;
                                 }
@@ -523,9 +523,6 @@ mod tests {
     fn start_electrum_mock(
         handler: impl Fn(&str, &serde_json::Value) -> String + Send + 'static,
     ) -> (String, std::thread::JoinHandle<()>) {
-        use std::io::{BufRead, Write};
-        use std::net::TcpListener;
-
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock electrum");
         let port = listener.local_addr().expect("mock electrum addr").port();
         let url = format!("tcp://127.0.0.1:{port}");
