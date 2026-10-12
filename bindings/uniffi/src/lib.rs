@@ -11,6 +11,10 @@ use rgb_lib::{
     AssetSchema, Assignment as RgbLibAssignment, CloseMethod, Encryption, Error as RgbLibError,
     TransferStatus, TransportType, WalletTransactionType,
     keys::{Keys, WitnessVersion},
+    no_wallet::{
+        BundleFilter as RgbLibBundleFilter, ConsignmentInspection as RgbLibConsignmentInspection,
+        RgbGenesisInfo as RgbLibRgbGenesisInfo, TransitionMetadata as RgbLibTransitionMetadata,
+    },
     utils::BitcoinNetwork,
     wallet::{
         Address as RgbLibAddress, AssetBFA, AssetCFA, AssetFilter as RgbLibAssetFilter, AssetIFA,
@@ -390,28 +394,37 @@ impl From<RgbInputInfo> for RgbLibRgbInputInfo {
     }
 }
 pub struct RgbOutputInfo {
+    pub txid: Option<String>,
     pub vout: Option<u32>,
     pub assignment: Assignment,
     pub is_concealed: bool,
-    pub is_ours: bool,
+    pub recipient_id: Option<String>,
+    pub is_ours: Option<bool>,
+    pub is_terminal: Option<bool>,
 }
 impl From<RgbLibRgbOutputInfo> for RgbOutputInfo {
     fn from(orig: RgbLibRgbOutputInfo) -> Self {
         Self {
+            txid: orig.txid,
             vout: orig.vout,
             assignment: orig.assignment.into(),
             is_concealed: orig.is_concealed,
+            recipient_id: orig.recipient_id,
             is_ours: orig.is_ours,
+            is_terminal: orig.is_terminal,
         }
     }
 }
 impl From<RgbOutputInfo> for RgbLibRgbOutputInfo {
     fn from(orig: RgbOutputInfo) -> Self {
         Self {
+            txid: orig.txid,
             vout: orig.vout,
             assignment: orig.assignment.into(),
             is_concealed: orig.is_concealed,
+            recipient_id: orig.recipient_id,
             is_ours: orig.is_ours,
+            is_terminal: orig.is_terminal,
         }
     }
 }
@@ -449,12 +462,51 @@ impl From<TransitionGlobal> for RgbLibTransitionGlobal {
         }
     }
 }
+pub enum BundleFilter {
+    All,
+    Terminals,
+    Witness { txid: String },
+}
+impl From<BundleFilter> for RgbLibBundleFilter {
+    fn from(orig: BundleFilter) -> Self {
+        match orig {
+            BundleFilter::All => RgbLibBundleFilter::All,
+            BundleFilter::Terminals => RgbLibBundleFilter::Terminals,
+            BundleFilter::Witness { txid } => RgbLibBundleFilter::Witness(txid),
+        }
+    }
+}
+pub enum TransitionMetadata {
+    AllowedInflation { amount: u64 },
+    AfterBlock { block: u64 },
+}
+impl From<RgbLibTransitionMetadata> for TransitionMetadata {
+    fn from(orig: RgbLibTransitionMetadata) -> Self {
+        match orig {
+            RgbLibTransitionMetadata::AllowedInflation(amount) => {
+                TransitionMetadata::AllowedInflation { amount }
+            }
+            RgbLibTransitionMetadata::AfterBlock(block) => TransitionMetadata::AfterBlock { block },
+        }
+    }
+}
+impl From<TransitionMetadata> for RgbLibTransitionMetadata {
+    fn from(orig: TransitionMetadata) -> Self {
+        match orig {
+            TransitionMetadata::AllowedInflation { amount } => {
+                RgbLibTransitionMetadata::AllowedInflation(amount)
+            }
+            TransitionMetadata::AfterBlock { block } => RgbLibTransitionMetadata::AfterBlock(block),
+        }
+    }
+}
 pub struct RgbTransitionInfo {
     pub r#type: TypeOfTransition,
     pub opid: String,
     pub inputs: Vec<RgbInputInfo>,
     pub outputs: Vec<RgbOutputInfo>,
     pub globals: Vec<TransitionGlobal>,
+    pub metadata: Vec<TransitionMetadata>,
 }
 impl From<RgbLibRgbTransitionInfo> for RgbTransitionInfo {
     fn from(orig: RgbLibRgbTransitionInfo) -> Self {
@@ -464,6 +516,7 @@ impl From<RgbLibRgbTransitionInfo> for RgbTransitionInfo {
             inputs: orig.inputs.into_iter().map(|i| i.into()).collect(),
             outputs: orig.outputs.into_iter().map(|o| o.into()).collect(),
             globals: orig.globals.into_iter().map(|g| g.into()).collect(),
+            metadata: orig.metadata.into_iter().map(|m| m.into()).collect(),
         }
     }
 }
@@ -475,17 +528,22 @@ impl From<RgbTransitionInfo> for RgbLibRgbTransitionInfo {
             inputs: orig.inputs.into_iter().map(|i| i.into()).collect(),
             outputs: orig.outputs.into_iter().map(|o| o.into()).collect(),
             globals: orig.globals.into_iter().map(|g| g.into()).collect(),
+            metadata: orig.metadata.into_iter().map(|m| m.into()).collect(),
         }
     }
 }
 pub struct RgbOperationInfo {
     pub asset_id: String,
+    pub committed_transition_count: u32,
+    pub committed_input_count: u32,
     pub transitions: Vec<RgbTransitionInfo>,
 }
 impl From<RgbLibRgbOperationInfo> for RgbOperationInfo {
     fn from(orig: RgbLibRgbOperationInfo) -> Self {
         Self {
             asset_id: orig.asset_id,
+            committed_transition_count: orig.committed_transition_count,
+            committed_input_count: orig.committed_input_count,
             transitions: orig.transitions.into_iter().map(|t| t.into()).collect(),
         }
     }
@@ -494,11 +552,14 @@ impl From<RgbOperationInfo> for RgbLibRgbOperationInfo {
     fn from(orig: RgbOperationInfo) -> Self {
         Self {
             asset_id: orig.asset_id,
+            committed_transition_count: orig.committed_transition_count,
+            committed_input_count: orig.committed_input_count,
             transitions: orig.transitions.into_iter().map(|t| t.into()).collect(),
         }
     }
 }
 pub struct RgbInspection {
+    pub txid: String,
     pub close_method: CloseMethod,
     pub commitment_hex: String,
     pub operations: Vec<RgbOperationInfo>,
@@ -506,6 +567,7 @@ pub struct RgbInspection {
 impl From<RgbLibRgbInspection> for RgbInspection {
     fn from(orig: RgbLibRgbInspection) -> Self {
         Self {
+            txid: orig.txid,
             close_method: orig.close_method,
             commitment_hex: orig.commitment_hex,
             operations: orig.operations.into_iter().map(|a| a.into()).collect(),
@@ -515,9 +577,83 @@ impl From<RgbLibRgbInspection> for RgbInspection {
 impl From<RgbInspection> for RgbLibRgbInspection {
     fn from(orig: RgbInspection) -> Self {
         Self {
+            txid: orig.txid,
             close_method: orig.close_method,
             commitment_hex: orig.commitment_hex,
             operations: orig.operations.into_iter().map(|a| a.into()).collect(),
+        }
+    }
+}
+pub struct RgbGenesisInfo {
+    pub chain_net: String,
+    pub timestamp: i64,
+    pub issuer: String,
+    pub name: String,
+    pub ticker: Option<String>,
+    pub details: Option<String>,
+    pub precision: u8,
+    pub outputs: Vec<RgbOutputInfo>,
+}
+impl From<RgbLibRgbGenesisInfo> for RgbGenesisInfo {
+    fn from(orig: RgbLibRgbGenesisInfo) -> Self {
+        Self {
+            chain_net: orig.chain_net,
+            timestamp: orig.timestamp,
+            issuer: orig.issuer,
+            name: orig.name,
+            ticker: orig.ticker,
+            details: orig.details,
+            precision: orig.precision,
+            outputs: orig.outputs.into_iter().map(|o| o.into()).collect(),
+        }
+    }
+}
+impl From<RgbGenesisInfo> for RgbLibRgbGenesisInfo {
+    fn from(orig: RgbGenesisInfo) -> Self {
+        Self {
+            chain_net: orig.chain_net,
+            timestamp: orig.timestamp,
+            issuer: orig.issuer,
+            name: orig.name,
+            ticker: orig.ticker,
+            details: orig.details,
+            precision: orig.precision,
+            outputs: orig.outputs.into_iter().map(|o| o.into()).collect(),
+        }
+    }
+}
+pub struct ConsignmentInspection {
+    pub consignment_id: String,
+    pub version: u8,
+    pub is_transfer: bool,
+    pub asset_id: String,
+    pub asset_schema: AssetSchema,
+    pub genesis: RgbGenesisInfo,
+    pub witnesses: Vec<RgbInspection>,
+}
+impl From<RgbLibConsignmentInspection> for ConsignmentInspection {
+    fn from(orig: RgbLibConsignmentInspection) -> Self {
+        Self {
+            consignment_id: orig.consignment_id,
+            version: orig.version,
+            is_transfer: orig.is_transfer,
+            asset_id: orig.asset_id,
+            asset_schema: orig.asset_schema,
+            genesis: orig.genesis.into(),
+            witnesses: orig.witnesses.into_iter().map(|w| w.into()).collect(),
+        }
+    }
+}
+impl From<ConsignmentInspection> for RgbLibConsignmentInspection {
+    fn from(orig: ConsignmentInspection) -> Self {
+        Self {
+            consignment_id: orig.consignment_id,
+            version: orig.version,
+            is_transfer: orig.is_transfer,
+            asset_id: orig.asset_id,
+            asset_schema: orig.asset_schema,
+            genesis: orig.genesis.into(),
+            witnesses: orig.witnesses.into_iter().map(|w| w.into()).collect(),
         }
     }
 }
@@ -962,6 +1098,14 @@ fn restore_backup(
     data_dir: String,
 ) -> Result<(), RgbLibError> {
     rgb_lib::wallet::restore_backup(&backup_path, &password, &data_dir)
+}
+
+fn inspect_consignment(
+    consignment_path: String,
+    bundle_filter: BundleFilter,
+) -> Result<ConsignmentInspection, RgbLibError> {
+    rgb_lib::no_wallet::inspect_consignment(consignment_path, bundle_filter.into())
+        .map(|i| i.into())
 }
 
 struct RecipientInfo {

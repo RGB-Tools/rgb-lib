@@ -17,6 +17,11 @@ pub(crate) mod singlesig;
 #[cfg(test)]
 pub(crate) mod test;
 
+pub use crate::database::enums::TypeOfTransition;
+pub use crate::no_wallet::{
+    RgbInputInfo, RgbInspection, RgbOperationInfo, RgbOutputInfo, RgbTransitionInfo,
+    TransitionGlobal, TransitionMetadata,
+};
 pub use backup::restore_backup;
 pub use multisig::{Cosigner, MultisigKeys, MultisigWallet};
 #[cfg(feature = "_online")]
@@ -29,10 +34,9 @@ pub use objects::{
     AssignmentsCollection, Balance, BlockTime, BtcBalance, DatabaseType, EmbeddedMedia, Invoice,
     InvoiceData, Media, Metadata, Online, Outpoint, PendingVanillaTx, ProofOfReserves,
     PsbtInputInfo, PsbtInspection, PsbtOutputInfo, ReceiveData, ReceivedMint, Recipient,
-    RecipientInfo, RecipientType, RgbAllocation, RgbInputInfo, RgbInspection, RgbOperationInfo,
-    RgbOutputInfo, RgbTransitionInfo, Token, TokenLight, Transaction, TransactionType, Transfer,
-    TransferKind, TransferTransportEndpoint, TransitionGlobal, TransportEndpoint, TypeOfTransition,
-    Unspent, Utxo, WalletData, WalletDescriptors, WitnessData,
+    RecipientInfo, RecipientType, RgbAllocation, Token, TokenLight, Transaction, TransactionType,
+    Transfer, TransferKind, TransferTransportEndpoint, TransportEndpoint, Unspent, Utxo,
+    WalletData, WalletDescriptors, WitnessData,
 };
 #[cfg(feature = "_online")]
 pub use objects::{
@@ -161,28 +165,9 @@ pub(crate) fn max_mint_scan_blocks() -> u64 {
 #[cfg(feature = "_online")]
 pub(crate) const MAX_POW_DIFFICULTY: u32 = 28;
 
-pub(crate) const SCHEMA_ID_NIA: &str =
-    "rgb:sch:RWhwUfTMpuP2Zfx1~j4nswCANGeJrYOqDcKelaMV4zU#remote-digital-pegasus";
-pub(crate) const SCHEMA_ID_UDA: &str =
-    "rgb:sch:~6rjymf3GTE840lb5JoXm2aFwE8eWCk3mCjOf_mUztE#spider-montana-fantasy";
-pub(crate) const SCHEMA_ID_CFA: &str =
-    "rgb:sch:JgqK5hJX9YBT4osCV7VcW_iLTcA5csUCnLzvaKTTrNY#mars-house-friend";
-pub(crate) const SCHEMA_ID_IFA: &str =
-    "rgb:sch:Y2a6SW4rY3gRwLE40OxILhwOyL2FR9ppte790oLbIe0#athena-paul-horizon";
-pub(crate) const SCHEMA_ID_BFA: &str =
-    "rgb:sch:Ryl5eQZ3IHrU05e3AWdQZJR4FB5GvxZPy96cwhJiApc#amazon-norway-harris";
-
 pub(crate) const RGB_STATE_ASSET_OWNER: &str = "assetOwner";
 pub(crate) const RGB_STATE_INFLATION_ALLOWANCE: &str = "inflationAllowance";
 pub(crate) const RGB_STATE_MINT_RIGHT: &str = "mintRight";
 pub(crate) const RGB_GLOBAL_BRIDGE_LOCATION: &str = "bridgeLocation";
-pub(crate) const RGB_GLOBAL_BURNED_ASSET: &str = "burnedAsset";
-pub(crate) const RGB_GLOBAL_BURNED_INFLATION: &str = "burnedInflation";
-pub(crate) const RGB_GLOBAL_BURN_REASON: &str = "burnReason";
-pub(crate) const RGB_GLOBAL_ISSUED_SUPPLY: &str = "issuedSupply";
 pub(crate) const RGB_GLOBAL_REJECT_LIST: &str = "rejectList";
 pub(crate) const RGB_GLOBAL_REJECT_LIST_URL: &str = "rejectListUrl";
-#[cfg(feature = "_online")]
-pub(crate) const RGB_METADATA_AFTER_BLOCK: &str = "afterBlock";
-#[cfg(feature = "_online")]
-pub(crate) const RGB_METADATA_ALLOWED_INFLATION: &str = "allowedInflation";

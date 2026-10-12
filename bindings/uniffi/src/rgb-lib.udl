@@ -10,6 +10,9 @@ namespace rgb_lib {
 
   [Throws=RgbLibError]
   void restore_backup(string backup_path, string password, string data_dir);
+
+  [Throws=RgbLibError]
+  ConsignmentInspection inspect_consignment(string consignment_path, BundleFilter bundle_filter);
 };
 
 [Error, Remote]
@@ -867,15 +870,20 @@ dictionary RgbInputInfo {
 
 [Remote]
 dictionary RgbOutputInfo {
+  string? txid;
   u32? vout;
   Assignment assignment;
   boolean is_concealed;
-  boolean is_ours;
+  string? recipient_id;
+  boolean? is_ours;
+  boolean? is_terminal;
 };
 
 [Remote]
 dictionary RgbOperationInfo {
   string asset_id;
+  u32 committed_transition_count;
+  u32 committed_input_count;
   sequence<RgbTransitionInfo> transitions;
 };
 
@@ -901,6 +909,19 @@ interface TransitionGlobal {
   BurnReason(string reason);
 };
 
+[Enum]
+interface BundleFilter {
+  All();
+  Terminals();
+  Witness(string txid);
+};
+
+[Enum]
+interface TransitionMetadata {
+  AllowedInflation(u64 amount);
+  AfterBlock(u64 block);
+};
+
 [Remote]
 dictionary RgbTransitionInfo {
   TypeOfTransition type;
@@ -908,13 +929,38 @@ dictionary RgbTransitionInfo {
   sequence<RgbInputInfo> inputs;
   sequence<RgbOutputInfo> outputs;
   sequence<TransitionGlobal> globals;
+  sequence<TransitionMetadata> metadata;
 };
 
 [Remote]
 dictionary RgbInspection {
+  string txid;
   CloseMethod close_method;
   string commitment_hex;
   sequence<RgbOperationInfo> operations;
+};
+
+[Remote]
+dictionary RgbGenesisInfo {
+  string chain_net;
+  i64 timestamp;
+  string issuer;
+  string name;
+  string? ticker;
+  string? details;
+  u8 precision;
+  sequence<RgbOutputInfo> outputs;
+};
+
+[Remote]
+dictionary ConsignmentInspection {
+  string consignment_id;
+  u8 version;
+  boolean is_transfer;
+  string asset_id;
+  AssetSchema asset_schema;
+  RgbGenesisInfo genesis;
+  sequence<RgbInspection> witnesses;
 };
 
 [Remote]

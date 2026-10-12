@@ -30,6 +30,11 @@
 //! The library also supports the use of a multisig hub to support multisig wallets and the use
 //! of a reject list service.
 //!
+//! ## Features
+//! The wallet functionality requires the `wallet` feature (enabled by default and by all the
+//! indexer features). Without it the library only provides the APIs that don't need a wallet,
+//! like [`no_wallet::inspect_consignment`], depending on few crates other than the RGB ones.
+//!
 //! ## Errors
 //! Errors are handled with the crate `thiserror`.
 //!
@@ -39,10 +44,16 @@
 //! ## Examples
 //! ### Create an RGB singlesig wallet
 //! ```
+//! # #[cfg(feature = "wallet")]
 //! use rgb_lib::keys::{WitnessVersion, generate_keys};
+//! # #[cfg(feature = "wallet")]
 //! use rgb_lib::wallet::{DatabaseType, SinglesigKeys, Wallet, WalletData};
+//! # #[cfg(feature = "wallet")]
 //! use rgb_lib::{AssetSchema, BitcoinNetwork};
 //!
+//! # #[cfg(not(feature = "wallet"))]
+//! # fn main() {}
+//! # #[cfg(feature = "wallet")]
 //! fn main() -> Result<(), rgb_lib::Error> {
 //!     let data_dir = tempfile::tempdir()?;
 //!     let keys = generate_keys(BitcoinNetwork::Regtest, WitnessVersion::Taproot);
@@ -65,10 +76,16 @@
 //! wallet can be re-opened with just its location, its master fingerprint and its mnemonic.
 //! Passing no mnemonic loads the wallet in watch-only mode.
 //! ```
+//! # #[cfg(feature = "wallet")]
 //! use rgb_lib::keys::{WitnessVersion, generate_keys};
+//! # #[cfg(feature = "wallet")]
 //! use rgb_lib::wallet::{DatabaseType, SinglesigKeys, Wallet, WalletData};
+//! # #[cfg(feature = "wallet")]
 //! use rgb_lib::{AssetSchema, BitcoinNetwork};
 //!
+//! # #[cfg(not(feature = "wallet"))]
+//! # fn main() {}
+//! # #[cfg(feature = "wallet")]
 //! fn main() -> Result<(), rgb_lib::Error> {
 //!     let data_dir = tempfile::tempdir()?;
 //!     let data_dir = data_dir.path().to_str().unwrap();
@@ -106,15 +123,32 @@ compile_error!(
 
 #[cfg(feature = "_online")]
 pub(crate) mod api;
+#[cfg(feature = "wallet")]
 pub(crate) mod database;
+// without the wallet only the database enums are needed, as some are shared with inspection
+#[cfg(not(feature = "wallet"))]
+pub(crate) mod database {
+    use super::*;
+
+    pub(crate) mod enums;
+}
+#[cfg(feature = "wallet")]
 pub(crate) mod encryption;
 pub(crate) mod error;
+#[cfg(feature = "wallet")]
 pub mod keys;
+pub mod no_wallet;
+#[cfg(feature = "wallet")]
 pub mod utils;
+#[cfg(feature = "wallet")]
 pub mod wallet;
 
+#[cfg(feature = "wallet")]
 pub use bdk_wallet;
+#[cfg(feature = "wallet")]
 pub use bdk_wallet::bitcoin;
+#[cfg(not(feature = "wallet"))]
+pub use rgbstd::bitcoin;
 pub use rgbstd::{
     ContractId, Txid as RgbTxid,
     containers::{ConsignmentExt, Fascia, FileContent, Transfer as RgbTransfer, WitnessBundle},
@@ -126,10 +160,12 @@ pub use rgbstd::{
 };
 
 pub use crate::{
-    database::enums::{
-        AssetSchema, Assignment, Encryption, TransferStatus, TransportType, WalletTransactionType,
-    },
+    database::enums::{AssetSchema, Assignment, TypeOfTransition},
     error::Error,
+};
+#[cfg(feature = "wallet")]
+pub use crate::{
+    database::enums::{Encryption, TransferStatus, TransportType, WalletTransactionType},
     utils::{BitcoinNetwork, block_on},
 };
 
@@ -141,20 +177,28 @@ use std::{
     hash::Hasher,
     num::NonZeroU32,
 };
+#[cfg(feature = "wallet")]
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
-    fmt, fs,
+    collections::{BTreeMap, BTreeSet},
+    fs,
     hash::Hash,
     io::{self, Read, Write},
     panic,
-    path::{Path, PathBuf},
-    str::FromStr,
+    path::PathBuf,
     sync::{Arc, LazyLock, Mutex},
     time::Duration,
 };
+use std::{
+    collections::{HashMap, HashSet},
+    fmt,
+    path::Path,
+    str::FromStr,
+};
 
+use amplify::{ByteArray, Wrapper};
+#[cfg(feature = "wallet")]
 use amplify::{
-    Bytes32, Wrapper, bmap,
+    Bytes32, bmap,
     confinement::{Confined, MediumOrdMap},
     s,
 };
@@ -187,11 +231,12 @@ use bdk_wallet::Update;
 use bdk_wallet::chain::spk_client::{FullScanRequest, FullScanResponse, SyncRequest, SyncResponse};
 #[cfg(feature = "bdk_file_store_migration")]
 use bdk_wallet::file_store::Store;
+#[cfg(feature = "wallet")]
 use bdk_wallet::{
     ChangeSet, KeychainKind, LocalOutput, SignOptions, Wallet as BdkWallet,
     bitcoin::{
         Address as BdkAddress, Amount as BdkAmount, BlockHash, Network as BdkNetwork, NetworkKind,
-        OutPoint, OutPoint as BdkOutPoint, ScriptBuf, Transaction as BdkTransaction, TxOut, Txid,
+        OutPoint as BdkOutPoint, ScriptBuf, TxOut,
         bip32::{ChildNumber, DerivationPath, Fingerprint, KeySource, Xpriv, Xpub},
         consensus::{Decodable, Encodable},
         hashes::Hash as Sha256Hash,
@@ -221,16 +266,21 @@ use bdk_wallet::{
     chain::DescriptorExt,
     coin_selection::InsufficientFunds,
 };
+#[cfg(feature = "wallet")]
 use chacha20poly1305::{Key, KeyInit, XChaCha20Poly1305, XNonce, aead::Aead};
+#[cfg(feature = "wallet")]
 use ed25519_dalek::SigningKey;
 #[cfg(feature = "_online")]
 use ed25519_dalek::{Signature, Signer, Verifier, VerifyingKey};
+#[cfg(feature = "wallet")]
 use file_format::FileFormat;
 #[cfg(feature = "_online")]
 use hkdf::Hkdf;
 #[cfg(feature = "_online")]
 use hmac::{Mac, SimpleHmac};
+#[cfg(feature = "wallet")]
 use psrgbt::{RgbOutExt, RgbPsbtExt};
+#[cfg(feature = "wallet")]
 use rand::{RngExt, TryRng, distr::Alphanumeric, rngs::SysRng};
 #[cfg(feature = "_online")]
 use reqwest::{
@@ -238,27 +288,25 @@ use reqwest::{
     blocking::{Client as RestClient, Response, multipart},
     header::CONTENT_TYPE,
 };
+#[cfg(feature = "wallet")]
 use rgb_lib_migration::{
     ArrayType, ColumnType, Migrator, MigratorTrait, Nullable, Value, ValueTypeErr,
 };
-use rgbinvoice::{
-    AddressPayload, Beneficiary, RgbInvoice, RgbInvoiceBuilder, RgbTransport, XChainNet,
-};
+#[cfg(feature = "wallet")]
+use rgbinvoice::{AddressPayload, RgbInvoice, RgbInvoiceBuilder, RgbTransport};
+use rgbinvoice::{Beneficiary, XChainNet};
 #[cfg(feature = "electrum")]
 use rgbstd::indexers::electrum_blocking::electrum_client::{
     Config as ElectrumConfig, ConfigBuilder,
 };
+#[cfg(feature = "wallet")]
 use rgbstd::{
-    Allocation, Amount, AssignmentType, BundleId, ChainNet, Genesis, GlobalStateType, GraphSeal,
-    Identity, KnownTransition, Layer1, OpId, Operation as _, Opout, OutputSeal, OwnedFraction,
-    Precision, RevealedData, Schema, SecretSeal, TokenIndex, Transition, TransitionBundle,
-    TransitionType, Vout,
-    containers::{
-        BuilderSeal, SealWitness, SpvProof, ValidConsignment, ValidContract, ValidTransfer,
-    },
+    Allocation, BundleId, Identity, Layer1, OutputSeal, OwnedFraction, RevealedData, TokenIndex,
+    Vout,
+    containers::{SealWitness, SpvProof, ValidConsignment},
     contract::{
-        AllocatedState, ContractBuilder, ContractData, FilteredContractState, IssuerWrapper,
-        SchemaWrapper, TransitionBuilder,
+        AllocatedState, ContractBuilder, ContractData, FilteredContractState, SchemaWrapper,
+        TransitionBuilder,
     },
     info::SchemaInfo,
     invoice::{InvoiceState, Pay2Vout},
@@ -269,13 +317,12 @@ use rgbstd::{
     },
     rgbcore::commit_verify::{
         CommitId, Conceal, TryCommitVerify,
-        mpc::{Commitment, MerkleTree, Message, MultiSource, ProtocolId},
+        mpc::{MerkleTree, Message, MultiSource, ProtocolId},
     },
     stl::{
-        AssetSpec, Attachment, BridgeLocation, BurnReason, ContractTerms, Details,
-        EmbeddedMedia as RgbEmbeddedMedia, EvmAddress, EvmContract, MediaType, Name,
-        ProofOfReserves as RgbProofOfReserves, RejectListLocation, RejectListUrl,
-        RicardianContract, Ticker, TokenData,
+        Attachment, BridgeLocation, ContractTerms, EmbeddedMedia as RgbEmbeddedMedia, EvmAddress,
+        EvmContract, MediaType, ProofOfReserves as RgbProofOfReserves, RejectListLocation,
+        RejectListUrl, RicardianContract, Ticker, TokenData,
     },
     txout::{BlindSeal, ExplicitSeal, TxPtr},
     validation::{
@@ -283,58 +330,92 @@ use rgbstd::{
     },
     vm::WitnessPos,
 };
+use rgbstd::{
+    Amount, AssignmentType, Assignments, ChainNet, ExposedSeal, Genesis, GlobalStateType,
+    GraphSeal, KnownTransition, OpId, Operation as _, Opout, Precision, Schema, SecretSeal,
+    Transition, TransitionBundle, TransitionType, TypedAssigns,
+    bitcoin::{OutPoint, Transaction as BdkTransaction, Txid},
+    containers::{
+        BuilderSeal, Consignment, LoadError, UniversalFile, ValidContract, ValidTransfer,
+    },
+    contract::IssuerWrapper,
+    rgbcore::{commit_verify::mpc::Commitment, dbc::Proof as _},
+    stl::{AssetSpec, BlockNumber, BurnReason, Details, Name},
+    txout::TxoSeal,
+    validation::DbcProof,
+};
 #[cfg(feature = "_online")]
 use rgbstd::{
-    containers::{
-        AnchorResolverError, CheckedAnchorResolver, Consignment, PendingConsignment, ResolveAnchor,
-    },
+    containers::{AnchorResolverError, CheckedAnchorResolver, PendingConsignment, ResolveAnchor},
     contract::FilterIncludeAll,
     daggy::Walker,
     indexers::AnyResolver,
-    stl::BlockNumber,
     validation::{
         ExternalAnchor, OpoutsDagData, SchemaRules, Status as ValidationStatus, ValidationConfig,
         ValidationError, Validity, Warning,
     },
 };
+#[cfg(feature = "wallet")]
+use schemata::IfaWrapper;
 #[cfg(feature = "_online")]
 use schemata::{BfaWrapper, CfaWrapper, NiaWrapper, UdaWrapper};
 use schemata::{
-    BridgedFungibleAsset, CollectibleFungibleAsset, GS_BURN_REASON, GS_BURNED_ASSET,
-    GS_BURNED_INFLATION, GS_ISSUED_SUPPLY, IfaWrapper, InflatableFungibleAsset, NonInflatableAsset,
-    OS_ASSET, OS_INFLATION, OS_MINT, TS_BURN, TS_INFLATION, TS_MINT, TS_TRANSFER,
+    BridgedFungibleAsset, CollectibleFungibleAsset, InflatableFungibleAsset, NonInflatableAsset,
     UniqueDigitalAsset,
 };
+use schemata::{
+    GS_BURN_REASON, GS_BURNED_ASSET, GS_BURNED_INFLATION, GS_DETAILS, GS_ISSUED_SUPPLY, GS_NAME,
+    GS_NOMINAL, GS_PRECISION, MS_AFTER_BLOCK, MS_ALLOWED_INFLATION, OS_ASSET, OS_INFLATION,
+    OS_MINT, TS_BURN, TS_INFLATION, TS_MINT, TS_TRANSFER,
+};
+#[cfg(feature = "wallet")]
 use scrypt::{Params, phc::Salt, scrypt};
+#[cfg(feature = "wallet")]
 use sea_orm::{
     ActiveValue, ColumnTrait, ConnectOptions, Database, DatabaseConnection, DatabaseTransaction,
     DbErr, DeriveActiveEnum, EntityTrait, EnumIter, Iterable, JoinType, JsonValue, QueryFilter,
     QueryOrder, QueryResult, QuerySelect, TransactionTrait, TryGetError, TryGetable, TryIntoModel,
     sea_query::{Alias, Condition, Expr, ExprTrait, Func, OnConflict, SimpleExpr},
 };
+#[cfg(feature = "wallet")]
+use serde::Deserializer;
+#[cfg(feature = "wallet")]
 use serde::de::{self, Unexpected, Visitor};
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 #[cfg(feature = "_online")]
 use sha2::Sha512;
+#[cfg(feature = "wallet")]
 use sha2::{Digest, Sha256};
 #[cfg(feature = "_online")]
 use slog::warn;
+#[cfg(feature = "wallet")]
 use slog::{Drain, Logger, debug, error, info, o};
+#[cfg(feature = "wallet")]
 use slog_async::AsyncGuard;
+#[cfg(feature = "wallet")]
 use slog_term::{FullFormat, PlainDecorator};
 #[cfg(any(feature = "_online", feature = "rgb_fs_store_migration"))]
 use strict_encoding::StrictSerialize;
-use strict_encoding::{FieldName, StrictDecode, StrictDeserialize, StrictEncode};
+use strict_encoding::{DeserializeError, StrictDeserialize};
+#[cfg(feature = "wallet")]
+use strict_encoding::{FieldName, StrictDecode, StrictEncode};
+#[cfg(feature = "wallet")]
 use strict_types::{TypeLib, TypeLibId};
+#[cfg(feature = "wallet")]
 use tempfile::TempDir;
+#[cfg(feature = "wallet")]
 use time::OffsetDateTime;
 #[cfg(feature = "_online")]
 use url::Url;
+#[cfg(feature = "wallet")]
 use walkdir::WalkDir;
 #[cfg(feature = "_online")]
 use x25519_dalek::{PublicKey as X25519Public, StaticSecret as X25519Secret};
+#[cfg(feature = "wallet")]
 use zip::{ZipArchive, ZipWriter, write::SimpleFileOptions};
 
+#[cfg(feature = "wallet")]
+use crate::no_wallet::{bundle_info, check_file_exists, verify_witness_commitment};
 #[cfg(feature = "electrum")]
 use crate::utils::INDEXER_BATCH_SIZE;
 #[cfg(feature = "esplora")]
@@ -394,6 +475,7 @@ use crate::{
         AssignmentsCollection, BitcoindAuth, Indexer, IndexerConfig, multisig::RespondToOperation,
     },
 };
+#[cfg(feature = "wallet")]
 use crate::{
     database::rgb::migrate_rgb_fs_to_db,
     database::{
@@ -453,12 +535,19 @@ use crate::{
     },
     wallet::{
         Balance, LocalRgbAllocation, LocalUnspent, NUM_KNOWN_SCHEMAS, Outpoint,
-        RGB_STATE_ASSET_OWNER, RGB_STATE_INFLATION_ALLOWANCE, RGB_STATE_MINT_RIGHT, SCHEMA_ID_BFA,
-        SCHEMA_ID_CFA, SCHEMA_ID_IFA, SCHEMA_ID_NIA, SCHEMA_ID_UDA, WalletDescriptors,
+        RGB_STATE_ASSET_OWNER, RGB_STATE_INFLATION_ALLOWANCE, RGB_STATE_MINT_RIGHT,
+        WalletDescriptors,
     },
 };
-#[cfg(test)]
+#[cfg(all(test, feature = "wallet"))]
 use crate::{
     keys::generate_keys,
     wallet::test::{mock_asset_terms, mock_chain_net, mock_contract_details, mock_token_data},
 };
+
+pub(crate) const RGB_GLOBAL_BURNED_ASSET: &str = "burnedAsset";
+pub(crate) const RGB_GLOBAL_BURNED_INFLATION: &str = "burnedInflation";
+pub(crate) const RGB_GLOBAL_BURN_REASON: &str = "burnReason";
+pub(crate) const RGB_GLOBAL_ISSUED_SUPPLY: &str = "issuedSupply";
+pub(crate) const RGB_METADATA_AFTER_BLOCK: &str = "afterBlock";
+pub(crate) const RGB_METADATA_ALLOWED_INFLATION: &str = "allowedInflation";

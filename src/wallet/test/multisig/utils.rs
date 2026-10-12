@@ -1429,10 +1429,23 @@ pub(super) fn inspect_inflate(
         .multisig
         .inspect_rgb_transfer(psbt.clone(), details.fascia_path, details.entropy)
         .unwrap();
+    assert_eq!(
+        rgb_inspection.txid,
+        Psbt::from_str(psbt)
+            .unwrap()
+            .unsigned_tx
+            .compute_txid()
+            .to_string()
+    );
     assert_eq!(rgb_inspection.close_method, CloseMethod::OpretFirst);
     assert_eq!(rgb_inspection.operations.len(), 1);
     let ifa_op = &rgb_inspection.operations[0];
     assert_eq!(ifa_op.asset_id, ifa_asset.asset_id);
+    // the fascia built by the wallet includes all the committed transitions
+    assert_eq!(
+        ifa_op.committed_transition_count as usize,
+        ifa_op.transitions.len()
+    );
     let inflate_transitions: Vec<_> = ifa_op
         .transitions
         .iter()
@@ -1455,6 +1468,19 @@ pub(super) fn inspect_inflate(
         vec![TransitionGlobal::IssuedSupply(
             inflation_amounts.iter().sum()
         )]
+    );
+    // the allowed inflation matches the inflation rights in output
+    let inflation_rights: u64 = inflate_transitions[0]
+        .outputs
+        .iter()
+        .filter_map(|o| match o.assignment {
+            Assignment::InflationRight(amount) => Some(amount),
+            _ => None,
+        })
+        .sum();
+    assert_eq!(
+        inflate_transitions[0].metadata,
+        vec![TransitionMetadata::AllowedInflation(inflation_rights)]
     );
 }
 
@@ -1542,8 +1568,21 @@ pub(super) fn inspect_send(
         .flat_map(|t| &t.outputs)
         .collect();
     assert_eq!(cfa_outputs.len(), 3);
-    let cfa_sent_outputs: Vec<_> = cfa_outputs.iter().filter(|o| !o.is_ours).collect();
-    let cfa_change_outputs: Vec<_> = cfa_outputs.iter().filter(|o| o.is_ours).collect();
+    assert!(cfa_outputs.iter().all(|o| o.is_terminal.is_none()));
+    assert!(
+        cfa_outputs
+            .iter()
+            .all(|o| o.is_concealed == o.txid.is_none()
+                && o.is_concealed == o.recipient_id.is_some())
+    );
+    let cfa_sent_outputs: Vec<_> = cfa_outputs
+        .iter()
+        .filter(|o| o.is_ours == Some(false))
+        .collect();
+    let cfa_change_outputs: Vec<_> = cfa_outputs
+        .iter()
+        .filter(|o| o.is_ours == Some(true))
+        .collect();
     assert_eq!(cfa_sent_outputs.len(), 2);
     assert_eq!(cfa_change_outputs.len(), 1);
     let cfa_witness_output = cfa_sent_outputs.iter().find(|o| !o.is_concealed).unwrap();
@@ -1552,18 +1591,18 @@ pub(super) fn inspect_send(
         cfa_amount_witness
     );
     assert!(!cfa_witness_output.is_concealed);
-    assert!(!cfa_witness_output.is_ours);
+    assert_eq!(cfa_witness_output.is_ours, Some(false));
     let cfa_blind_output = cfa_sent_outputs.iter().find(|o| o.is_concealed).unwrap();
     assert_eq!(cfa_blind_output.assignment.main_amount(), cfa_amount_blind);
     assert!(cfa_blind_output.is_concealed);
-    assert!(!cfa_blind_output.is_ours);
+    assert_eq!(cfa_blind_output.is_ours, Some(false));
     let cfa_change_amount: u64 = cfa_change_outputs
         .iter()
         .map(|o| o.assignment.main_amount())
         .sum();
     for o in &cfa_change_outputs {
         assert!(!o.is_concealed);
-        assert!(o.is_ours);
+        assert_eq!(o.is_ours, Some(true));
     }
     let cfa_sent_amount = cfa_amount_witness + cfa_amount_blind;
     let total_cfa_output: u64 = cfa_outputs.iter().map(|o| o.assignment.main_amount()).sum();
@@ -1585,13 +1624,19 @@ pub(super) fn inspect_send(
         .iter()
         .flat_map(|t| &t.outputs)
         .collect();
-    let nia_sent_outputs: Vec<_> = nia_outputs.iter().filter(|o| !o.is_ours).collect();
-    let nia_change_outputs: Vec<_> = nia_outputs.iter().filter(|o| o.is_ours).collect();
+    let nia_sent_outputs: Vec<_> = nia_outputs
+        .iter()
+        .filter(|o| o.is_ours == Some(false))
+        .collect();
+    let nia_change_outputs: Vec<_> = nia_outputs
+        .iter()
+        .filter(|o| o.is_ours == Some(true))
+        .collect();
     assert_eq!(nia_sent_outputs.len(), 1);
     assert!(!nia_change_outputs.is_empty());
     assert_eq!(nia_sent_outputs[0].assignment.main_amount(), AMOUNT_SMALL);
     assert!(nia_sent_outputs[0].is_concealed);
-    assert!(!nia_sent_outputs[0].is_ours);
+    assert_eq!(nia_sent_outputs[0].is_ours, Some(false));
     let total_nia_output: u64 = nia_outputs.iter().map(|o| o.assignment.main_amount()).sum();
     let total_nia_input: u64 = nia_inputs.iter().map(|i| i.assignment.main_amount()).sum();
     assert_eq!(total_nia_input, total_nia_output);
@@ -1616,20 +1661,26 @@ pub(super) fn inspect_send(
         .flat_map(|t| &t.outputs)
         .collect();
     assert_eq!(nia_2_outputs.len(), 2);
-    let nia_2_sent: Vec<_> = nia_2_outputs.iter().filter(|o| !o.is_ours).collect();
-    let nia_2_change: Vec<_> = nia_2_outputs.iter().filter(|o| o.is_ours).collect();
+    let nia_2_sent: Vec<_> = nia_2_outputs
+        .iter()
+        .filter(|o| o.is_ours == Some(false))
+        .collect();
+    let nia_2_change: Vec<_> = nia_2_outputs
+        .iter()
+        .filter(|o| o.is_ours == Some(true))
+        .collect();
     assert_eq!(nia_2_sent.len(), 1);
     assert_eq!(nia_2_change.len(), 1);
     assert_eq!(nia_2_sent[0].assignment.main_amount(), nia_2_amount);
     assert!(nia_2_sent[0].is_concealed);
-    assert!(!nia_2_sent[0].is_ours);
+    assert_eq!(nia_2_sent[0].is_ours, Some(false));
     let expected_nia_2_change = AMOUNT_SMALL - nia_2_amount;
     assert_eq!(
         nia_2_change[0].assignment.main_amount(),
         expected_nia_2_change
     );
     assert!(!nia_2_change[0].is_concealed);
-    assert!(nia_2_change[0].is_ours);
+    assert_eq!(nia_2_change[0].is_ours, Some(true));
     let nia_2_total_output: u64 = nia_2_outputs
         .iter()
         .map(|o| o.assignment.main_amount())

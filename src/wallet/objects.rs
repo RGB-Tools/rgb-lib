@@ -1166,36 +1166,6 @@ impl AssignmentsCollection {
     }
 }
 
-/// Type of RGB transition
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize, Serialize, EnumIter, DeriveActiveEnum)]
-#[sea_orm(rs_type = "u8", db_type = "TinyUnsigned")]
-pub enum TypeOfTransition {
-    /// Inflation transition (issuing new tokens)
-    #[sea_orm(num_value = 2)]
-    Inflate = 2,
-    /// Transfer transition (moving existing tokens)
-    #[sea_orm(num_value = 1)]
-    Transfer = 1,
-    /// Burn transition (burning existing tokens)
-    #[sea_orm(num_value = 3)]
-    Burn = 3,
-    /// Mint transition (minting assets backed by tokens locked on the external chain)
-    #[sea_orm(num_value = 4)]
-    Mint = 4,
-}
-
-impl TypeOfTransition {
-    #[cfg(feature = "_online")]
-    pub(crate) fn type_name(&self) -> &'static str {
-        match self {
-            Self::Inflate => "inflate",
-            Self::Transfer => "transfer",
-            Self::Burn => "burn",
-            Self::Mint => "mint",
-        }
-    }
-}
-
 // ────────────────────────────────────────────────────────────
 // Invoices, recipients & transport
 // ────────────────────────────────────────────────────────────
@@ -1925,81 +1895,6 @@ pub struct PsbtInspection {
     pub signature_count: u16,
     /// Transaction size in virtual bytes
     pub size_vbytes: u64,
-}
-
-/// Information about an RGB input being spent.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
-pub struct RgbInputInfo {
-    /// The input index in the transaction
-    pub vin: u32,
-    /// The assignment in input
-    pub assignment: Assignment,
-}
-
-/// Information about an RGB output destination.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
-pub struct RgbOutputInfo {
-    /// The output vout (if allocated to a witness output)
-    pub vout: Option<u32>,
-    /// The assignment in output
-    pub assignment: Assignment,
-    /// Whether this output is allocated to a concealed seal
-    pub is_concealed: bool,
-    /// Whether this output belongs to our wallet
-    pub is_ours: bool,
-}
-
-/// A global state entry committed in an RGB transition.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-pub enum TransitionGlobal {
-    /// Amount of newly issued supply, committed in inflate transitions
-    IssuedSupply(u64),
-    /// Amount of burned asset, committed in burn transitions
-    BurnedAsset(u64),
-    /// Amount of burned inflation rights, committed in burn transitions
-    BurnedInflation(u64),
-    /// Hex-encoded 32-byte burn reason, committed in burn transitions
-    BurnReason(String),
-}
-
-/// Information about an RGB transition.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
-pub struct RgbTransitionInfo {
-    /// The transition type
-    pub r#type: TypeOfTransition,
-    /// ID of the operation
-    pub opid: String,
-    /// Details of the transition inputs
-    pub inputs: Vec<RgbInputInfo>,
-    /// Details of the transition outputs
-    pub outputs: Vec<RgbOutputInfo>,
-    /// Global state entries committed in the transition
-    pub globals: Vec<TransitionGlobal>,
-}
-
-/// Information about an RGB operation.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
-pub struct RgbOperationInfo {
-    /// ID of the asset being operated on
-    pub asset_id: String,
-    /// Transitions
-    pub transitions: Vec<RgbTransitionInfo>,
-}
-
-/// Result of inspecting RGB consignments against a PSBT.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
-pub struct RgbInspection {
-    /// The close method used for the operation
-    pub close_method: CloseMethod,
-    /// The RGB commitment in hex encoded format
-    pub commitment_hex: String,
-    /// Details of each operation
-    pub operations: Vec<RgbOperationInfo>,
 }
 
 // ────────────────────────────────────────────────────────────

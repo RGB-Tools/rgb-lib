@@ -81,6 +81,7 @@ fn success() {
         .collect();
     assert_eq!(mint_transitions.len(), 1);
     assert_eq!(mint_transitions[0].opid, res.details.opid);
+    let mint_metadata = mint_transitions[0].metadata.clone();
     let bak_info_after = party.db_backup_info();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
     party.show_unspent_colorings("after mint");
@@ -99,6 +100,11 @@ fn success() {
     let mint = received_mint(&party).unwrap();
     assert_eq!(mint.opid, res.details.opid);
     assert_eq!(mint.amount, AMOUNT);
+    // the inspected mint commits to the external chain block the recipient expects the lock after
+    assert_eq!(
+        mint_metadata,
+        vec![TransitionMetadata::AfterBlock(mint.after_block)]
+    );
     assert_eq!(mint.evm_chain_id, ANVIL_CHAIN_ID);
     assert_eq!(
         mint.bridge_contract.to_lowercase(),

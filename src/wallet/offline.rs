@@ -2719,11 +2719,7 @@ pub trait WalletOffline: WalletBackup {
     ) -> Result<RgbInspection, Error> {
         // check request data validity
         let psbt = Psbt::from_str(&psbt)?;
-        if !PathBuf::from(&fascia_path).exists() {
-            return Err(Error::InvalidFilePath {
-                file_path: fascia_path,
-            });
-        }
+        check_file_exists(&fascia_path)?;
         let fascia =
             read_fascia(&PathBuf::from(&fascia_path)).map_err(|_| Error::InvalidFilePath {
                 file_path: fascia_path,
@@ -2731,8 +2727,7 @@ pub trait WalletOffline: WalletBackup {
 
         // verify the fascia's witness ID matches our PSBT's transaction ID
         let fascia_witness_id = fascia.witness_id();
-        let witness_id =
-            RgbTxid::from_str(&psbt.unsigned_tx.compute_txid().to_string()).expect("valid TXID");
+        let witness_id = psbt.unsigned_tx.compute_txid();
         if fascia_witness_id != witness_id {
             return Err(Error::RgbInspection {
                 details: format!(
@@ -2785,212 +2780,66 @@ pub trait WalletOffline: WalletBackup {
             }
         };
         for (contract_id, bundle) in fascia.bundles() {
-            // collect RGB inputs from stock
-            let mut opout_to_input_info: HashMap<Opout, RgbInputInfo> = HashMap::new();
-            let mut stock_input_opouts = HashSet::new();
+            // collect the RGB inputs allocated in stock to the spent outputs
+            let mut stock_inputs = HashMap::new();
             if let Ok(ass_map) =
                 stock.contract_assignments_for(*contract_id, prev_outputs.iter().copied())
             {
                 for (explicit_seal, opout_state_map) in ass_map {
                     let outpoint = explicit_seal.to_outpoint();
-                    if let Some((vin, _)) =
-                        psbt.unsigned_tx
-                            .input
-                            .iter()
-                            .enumerate()
-                            .find(|(_, input)| {
-                                input.previous_output.txid == outpoint.txid
-                                    && input.previous_output.vout == outpoint.vout
-                            })
-                    {
-                        for (opout, state) in opout_state_map {
-                            stock_input_opouts.insert(opout);
-                            let assignment = Assignment::from_opout_and_state(opout, &state);
-                            opout_to_input_info.insert(
-                                opout,
-                                RgbInputInfo {
-                                    vin: vin as u32,
-                                    assignment,
-                                },
-                            );
-                        }
+                    for (opout, state) in opout_state_map {
+                        let assignment = Assignment::from_opout_and_state(opout, &state);
+                        stock_inputs.insert(opout, (outpoint, assignment));
                     }
                 }
             }
 
-            // collect RGB inputs from bundle transitions
+            // safety check: ensure the bundle spends all the stock inputs, as the ones it doesn't
+            // spend would be lost (inputs missing in stock are detected when inspecting the bundle)
             let bundle_input_opouts: HashSet<_> = bundle
                 .known_transitions
                 .iter()
                 .flat_map(|KnownTransition { transition, .. }| transition.inputs())
                 .collect();
-
-            // safety check: ensure the stock opouts match the bundle inputs exactly
-            // catches inconsistencies that could indicate an outdated stock or malformed transfer
-            if stock_input_opouts != bundle_input_opouts {
-                let missing_in_stock: Vec<_> = bundle_input_opouts
-                    .difference(&stock_input_opouts)
-                    .collect();
-                let extra_in_stock: Vec<_> = stock_input_opouts
-                    .difference(&bundle_input_opouts)
-                    .collect();
-                let mut error_details = String::new();
-                if !missing_in_stock.is_empty() {
-                    error_details.push_str(&format!(
-                        "bundle declares {} input(s) not found in stock (outdated stock?): {:?}. ",
-                        missing_in_stock.len(),
-                        missing_in_stock
-                    ));
-                }
-                if !extra_in_stock.is_empty() {
-                    error_details.push_str(&format!(
-                        "stock contains {} input(s) not declared in bundle (malformed transfer?): {:?}",
-                        extra_in_stock.len(),
-                        extra_in_stock
-                    ));
-                }
+            let extra_in_stock: Vec<_> = stock_inputs
+                .keys()
+                .filter(|opout| !bundle_input_opouts.contains(opout))
+                .collect();
+            if !extra_in_stock.is_empty() {
                 return Err(Error::RgbInspection {
                     details: format!(
-                        "bundle for contract {}: input mismatch between stock and bundle. {}",
-                        contract_id, error_details
+                        "bundle for contract {contract_id}: stock contains {} input(s) not declared in bundle (malformed transfer?): {extra_in_stock:?}",
+                        extra_in_stock.len(),
                     ),
                 });
             }
 
             // inspect bundle transitions
-            let mut transitions = Vec::new();
-            for KnownTransition { transition, .. } in bundle.known_transitions.iter() {
-                // get transition kind
-                let kind = match transition.transition_type {
-                    TS_TRANSFER => TypeOfTransition::Transfer,
-                    TS_INFLATION => TypeOfTransition::Inflate,
-                    TS_BURN => TypeOfTransition::Burn,
-                    TS_MINT => TypeOfTransition::Mint,
-                    _ => {
-                        return Err(Error::RgbInspection {
-                            details: format!(
-                                "bundle for contract {}: unknown transition type: {}",
-                                contract_id, transition.transition_type
-                            ),
-                        });
+            let chain_net = stock.genesis(*contract_id)?.chain_net;
+            let asset_schema = AssetSchema::get_from_contract_id(*contract_id, &stock)?;
+            let is_ours = |seal: &BuilderSeal<GraphSeal>| {
+                Some(match seal {
+                    BuilderSeal::Revealed(seal) => {
+                        is_revealed_seal_ours(seal.txid, seal.vout.into_u32())
                     }
-                };
+                    BuilderSeal::Concealed(seal) => {
+                        stock.seal_of_secret(*seal).unwrap_or(None).is_some()
+                    }
+                })
+            };
+            let operation = bundle_info(
+                *contract_id,
+                asset_schema,
+                chain_net,
+                bundle,
+                &psbt.unsigned_tx,
+                true,
+                |opout| stock_inputs.get(&opout).cloned(),
+                is_ours,
+                |_| None,
+            )?;
 
-                // collect transition inputs
-                let mut transition_inputs = Vec::new();
-                for input_opout in transition.inputs() {
-                    if let Some(input_info) = opout_to_input_info.get(&input_opout) {
-                        transition_inputs.push(input_info.clone());
-                    }
-                }
-
-                // collect transition outputs
-                let mut transition_outputs = Vec::new();
-                for (ass_type, typed_assigns) in transition.assignments.iter() {
-                    for fungible_assignment in typed_assigns.as_fungible().iter() {
-                        let (vout, amount, is_concealed, is_ours) = match fungible_assignment.seal {
-                            BuilderSeal::Revealed(seal) => {
-                                let vout = seal.vout.into_u32();
-                                let is_ours = is_revealed_seal_ours(seal.txid, vout);
-                                let amount = fungible_assignment.state.as_u64();
-                                (Some(vout), amount, false, is_ours)
-                            }
-                            BuilderSeal::Concealed(seal) => {
-                                let is_ours = stock.seal_of_secret(seal).unwrap_or(None).is_some();
-                                let amount = fungible_assignment.state.as_u64();
-                                (None, amount, true, is_ours)
-                            }
-                        };
-                        let assignment = match *ass_type {
-                            OS_ASSET => Assignment::Fungible(amount),
-                            OS_INFLATION => Assignment::InflationRight(amount),
-                            OS_MINT => Assignment::MintRight,
-                            _ => continue,
-                        };
-                        transition_outputs.push(RgbOutputInfo {
-                            vout,
-                            assignment,
-                            is_concealed,
-                            is_ours,
-                        });
-                    }
-                    for structured_assignment in typed_assigns.as_structured().iter() {
-                        let (vout, is_concealed, is_ours) = match structured_assignment.seal {
-                            BuilderSeal::Revealed(seal) => {
-                                let vout = seal.vout.into_u32();
-                                let is_ours = is_revealed_seal_ours(seal.txid, vout);
-                                (Some(vout), false, is_ours)
-                            }
-                            BuilderSeal::Concealed(seal) => {
-                                let is_ours = stock.seal_of_secret(seal).unwrap_or(None).is_some();
-                                (None, true, is_ours)
-                            }
-                        };
-                        transition_outputs.push(RgbOutputInfo {
-                            vout,
-                            assignment: Assignment::NonFungible,
-                            is_concealed,
-                            is_ours,
-                        });
-                    }
-                }
-                // collect transition globals
-                let mut transition_globals = Vec::new();
-                for (global_type, values) in transition.globals.iter() {
-                    for value in values.iter() {
-                        let decode_amount = |name: &str| {
-                            Amount::from_strict_serialized(value.to_inner())
-                                .map(u64::from)
-                                .map_err(|e| Error::RgbInspection {
-                                    details: format!(
-                                        "bundle for contract {contract_id}: invalid {name} global: {e}"
-                                    ),
-                                })
-                        };
-                        let global = match *global_type {
-                            GS_ISSUED_SUPPLY => TransitionGlobal::IssuedSupply(decode_amount(
-                                RGB_GLOBAL_ISSUED_SUPPLY,
-                            )?),
-                            GS_BURNED_ASSET => TransitionGlobal::BurnedAsset(decode_amount(
-                                RGB_GLOBAL_BURNED_ASSET,
-                            )?),
-                            GS_BURNED_INFLATION => TransitionGlobal::BurnedInflation(
-                                decode_amount(RGB_GLOBAL_BURNED_INFLATION)?,
-                            ),
-                            GS_BURN_REASON => TransitionGlobal::BurnReason(
-                                BurnReason::from_strict_serialized(value.to_inner())
-                                    .map_err(|e| Error::RgbInspection {
-                                        details: format!(
-                                            "bundle for contract {contract_id}: invalid {RGB_GLOBAL_BURN_REASON} global: {e}"
-                                        ),
-                                    })?
-                                    .to_string(),
-                            ),
-                            _ => {
-                                return Err(Error::RgbInspection {
-                                    details: format!(
-                                        "bundle for contract {contract_id}: unknown global state type: {global_type}"
-                                    ),
-                                });
-                            }
-                        };
-                        transition_globals.push(global);
-                    }
-                }
-
-                transitions.push(RgbTransitionInfo {
-                    r#type: kind,
-                    opid: transition.id().to_string(),
-                    inputs: transition_inputs,
-                    outputs: transition_outputs,
-                    globals: transition_globals,
-                });
-            }
-
-            operations.push(RgbOperationInfo {
-                asset_id: contract_id.to_string(),
-                transitions,
-            });
+            operations.push(operation);
 
             messages.insert(
                 ProtocolId::from(*contract_id),
@@ -2998,52 +2847,19 @@ pub trait WalletOffline: WalletBackup {
             );
         }
 
-        // extract RGB commitment and determine close method
-        let tx = psbt
-            .clone()
-            .extract_tx()
-            .map_err(|e| Error::RgbInspection {
-                details: format!("failed to extract transaction: {e}"),
-            })?;
-        let commitment_output = tx
-            .output
-            .iter()
-            .find(|o| o.script_pubkey.is_p2tr() || o.script_pubkey.is_op_return())
-            .ok_or_else(|| Error::RgbInspection {
-                details: s!("no commitment output found"),
-            })?;
-        let close_method = if commitment_output.script_pubkey.is_op_return() {
-            CloseMethod::OpretFirst
-        } else {
-            CloseMethod::TapretFirst
-        };
-        let commitment_bytes = {
-            let script_bytes = commitment_output.script_pubkey.as_bytes();
-            if script_bytes.len() == 34 {
-                &script_bytes[2..]
-            } else {
-                return Err(Error::RgbInspection {
-                    details: s!("invalid commitment script length"),
-                });
-            }
-        };
-        let commitment_in_psbt = Commitment::copy_from_slice(commitment_bytes).unwrap();
-        let commitment_hex = hex::encode(commitment_bytes);
-
-        // verify commitment matches the one reconstructed from the fascia
+        // rebuild the MPC commitment of the fascia bundles and verify the PSBT commits to it, which
+        // ensures the PSBT commits to these bundles only
         let mut source = MultiSource::with_static_entropy(entropy);
         source.messages = MediumOrdMap::from_checked(messages);
         let merkle_tree = MerkleTree::try_commit(&source).expect("commit should succeed");
         let commitment = merkle_tree.commit_id();
-        if commitment != commitment_in_psbt {
-            return Err(Error::RgbInspection {
-                details: s!("commitment mismatch"),
-            });
-        }
+        let dbc_proof = &fascia.seal_witness().dbc_proof;
+        verify_witness_commitment(dbc_proof, &commitment, &psbt.unsigned_tx)?;
 
         Ok(RgbInspection {
-            close_method,
-            commitment_hex,
+            txid: witness_id.to_string(),
+            close_method: dbc_proof.method(),
+            commitment_hex: hex::encode(commitment.to_byte_array()),
             operations,
         })
     }
