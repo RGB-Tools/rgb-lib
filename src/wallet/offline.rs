@@ -153,8 +153,11 @@ pub trait WalletOffline: WalletBackup {
             None => rgb_allocations.as_deref().unwrap(),
         };
 
+        // exclude UTXOs reserved to be spent by a pending operation
+        let mut exclude_utxos = exclude_utxos.to_vec();
+        exclude_utxos.extend(self.get_reserved_colored_outpoints(txn)?);
         let mut allocatable =
-            self.get_available_allocations(unspents, exclude_utxos, max_allocations)?;
+            self.get_available_allocations(unspents, &exclude_utxos, max_allocations)?;
         allocatable.sort_by_key(|t| t.rgb_allocations.len() + t.pending_blinded as usize);
         match allocatable.first() {
             Some(mut selected) => {
@@ -1489,10 +1492,9 @@ pub trait WalletOffline: WalletBackup {
         let mut vanilla = self.get_btc_balance_for_keychain(KeychainKind::Internal)?;
         let colored = self.get_btc_balance_for_keychain(KeychainKind::External)?;
 
-        let reserved: HashSet<BdkOutPoint> = txn
-            .iter_reserved_txos()?
+        let reserved: HashSet<BdkOutPoint> = self
+            .get_reserved_vanilla_outpoints(txn)?
             .into_iter()
-            .map(BdkOutPoint::from)
             .collect();
         if !reserved.is_empty() {
             let reserved_sum: u64 = self
@@ -1671,7 +1673,17 @@ pub trait WalletOffline: WalletBackup {
         Ok(txn
             .iter_reserved_txos()?
             .into_iter()
+            .filter(|r| r.reserved_for_vanilla.is_some())
             .map(BdkOutPoint::from)
+            .collect())
+    }
+
+    fn get_reserved_colored_outpoints(&self, txn: &DbTxn) -> Result<Vec<Outpoint>, Error> {
+        Ok(txn
+            .iter_reserved_txos()?
+            .into_iter()
+            .filter(|r| r.reserved_for_colored.is_some())
+            .map(Outpoint::from)
             .collect())
     }
 

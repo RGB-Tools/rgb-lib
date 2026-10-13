@@ -395,7 +395,11 @@ fn begin_reservation_interactions() {
         .db_wallet_transaction_with_reserved_txos_by_txid(&psbt_txid)
         .expect("wallet_transaction should exist after dry_run=false begin");
     assert_eq!(wt.r#type, WalletTransactionType::CreateUtxos);
-    assert!(reservations.iter().all(|r| r.reserved_for == Some(wt.idx)));
+    assert!(
+        reservations
+            .iter()
+            .all(|r| r.reserved_for_vanilla == Some(wt.idx))
+    );
     let reserved_set: HashSet<(String, u32)> = reservations
         .iter()
         .map(|r| (r.txid.clone(), r.vout))

@@ -645,6 +645,7 @@ impl Wallet {
             &info_contents,
             TransferStatus::WaitingConfirmations,
             true,
+            &psbt,
         )?;
 
         self.update_backup_info(&txn, false)?;

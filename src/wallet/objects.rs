@@ -131,6 +131,15 @@ impl From<OutPoint> for Outpoint {
     }
 }
 
+impl From<DbReservedTxo> for Outpoint {
+    fn from(x: DbReservedTxo) -> Outpoint {
+        Outpoint {
+            txid: x.txid,
+            vout: x.vout,
+        }
+    }
+}
+
 impl From<DbTxo> for Outpoint {
     fn from(x: DbTxo) -> Outpoint {
         Outpoint {

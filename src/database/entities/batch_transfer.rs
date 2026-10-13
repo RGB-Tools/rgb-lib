@@ -52,6 +52,7 @@ impl PrimaryKeyTrait for PrimaryKey {
 #[derive(Copy, Clone, Debug, EnumIter)]
 pub enum Relation {
     AssetTransfer,
+    ReservedTxo,
 }
 
 impl ColumnTrait for Column {
@@ -74,6 +75,7 @@ impl RelationTrait for Relation {
     fn def(&self) -> RelationDef {
         match self {
             Self::AssetTransfer => Entity::has_many(super::asset_transfer::Entity).into(),
+            Self::ReservedTxo => Entity::has_many(super::reserved_txo::Entity).into(),
         }
     }
 }
@@ -81,6 +83,12 @@ impl RelationTrait for Relation {
 impl Related<super::asset_transfer::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::AssetTransfer.def()
+    }
+}
+
+impl Related<super::reserved_txo::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::ReservedTxo.def()
     }
 }
 

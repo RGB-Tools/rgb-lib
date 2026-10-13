@@ -238,7 +238,11 @@ fn begin_reservation_interactions() {
         .expect("should exist after begin");
     assert_eq!(wt.r#type, WalletTransactionType::SendBtc);
     // one reserved_txo per PSBT input, all pointing to that wt row
-    assert!(reservations.iter().all(|r| r.reserved_for == Some(wt.idx)));
+    assert!(
+        reservations
+            .iter()
+            .all(|r| r.reserved_for_vanilla == Some(wt.idx))
+    );
     // reservation set exactly matches PSBT inputs
     let reserved_set: HashSet<(String, u32)> = reservations
         .iter()
