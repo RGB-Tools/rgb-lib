@@ -711,6 +711,47 @@ fn multiple_receive_same_utxo() {
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
+fn no_receive_on_pending_send_input() {
+    initialize();
+
+    // wallets
+    let mut party = get_funded_noutxo_party!();
+    let mut rcv_party = get_funded_party!();
+
+    // issue an NIA asset on a UTXO with not enough bitcoins for a send
+    party.create_utxos(false, Some(1), Some(TINY_BTC_AMOUNT), FEE_RATE, None);
+    let asset = party.issue_asset_nia(None);
+
+    // create 1 UTXO with no allocations, to be used as additional bitcoin input
+    party.create_utxos(false, Some(1), Some(5000), FEE_RATE, None);
+
+    // begin a witness send, without ending it
+    let receive_data = rcv_party.witness_receive();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(1),
+            recipient_id: receive_data.recipient_id,
+            witness_data: Some(WitnessData {
+                amount_sat: 1000,
+                blinding: None,
+            }),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let send_result = party.send_begin_result(&recipient_map).unwrap();
+    let psbt = Psbt::from_str(&send_result.psbt).unwrap();
+    assert_eq!(psbt.unsigned_tx.input.len(), 2);
+
+    // the UTXO with no allocations is being spent by the pending send, so it can't be used to
+    // receive
+    let result = party.blind_receive_result();
+    assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
 fn invoice_new() {
     // schema IDs (for invoices)
     let mut cfa_sid = SCHEMA_ID_CFA.to_string();

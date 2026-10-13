@@ -3389,6 +3389,66 @@ fn insufficient_bitcoins() {
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
+fn pending_sends_no_shared_inputs() {
+    initialize();
+
+    // wallets
+    let mut party = get_funded_noutxo_party!();
+    let mut rcv_party = get_funded_party!();
+
+    // issue 2 NIA assets, each on a UTXO with not enough bitcoins for a send
+    party.create_utxos(false, Some(2), Some(TINY_BTC_AMOUNT), FEE_RATE, None);
+    let asset_1 = party.issue_asset_nia(None);
+    let asset_2 = party.issue_asset_nia(None);
+    let unspents = party.list_unspents(false);
+    let asset_outpoints: HashSet<Outpoint> = unspents
+        .iter()
+        .filter(|u| !u.rgb_allocations.is_empty())
+        .map(|u| u.utxo.outpoint.clone())
+        .collect();
+    assert_eq!(asset_outpoints.len(), 2);
+
+    // create 2 UTXOs with no allocations, to be used as additional bitcoin inputs
+    party.create_utxos(false, Some(2), Some(5000), FEE_RATE, None);
+
+    // begin a witness send for each asset, without ending them
+    let mut sends = vec![];
+    for asset in [&asset_1, &asset_2] {
+        let receive_data = rcv_party.witness_receive();
+        let recipient_map = HashMap::from([(
+            asset.asset_id.clone(),
+            vec![Recipient {
+                assignment: Assignment::Fungible(1),
+                recipient_id: receive_data.recipient_id,
+                witness_data: Some(WitnessData {
+                    amount_sat: 1000,
+                    blinding: None,
+                }),
+                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+            }],
+        )]);
+        let send_result = party.send_begin_result(&recipient_map).unwrap();
+        let psbt = Psbt::from_str(&send_result.psbt).unwrap();
+        let inputs: HashSet<Outpoint> = psbt
+            .unsigned_tx
+            .input
+            .iter()
+            .map(|i| Outpoint::from(i.previous_output))
+            .collect();
+        // each send needs an additional bitcoin input
+        assert!(inputs.iter().any(|o| !asset_outpoints.contains(o)));
+        sends.push((send_result, inputs));
+    }
+    let (_, inputs_1) = &sends[0];
+    let (_, inputs_2) = &sends[1];
+
+    // the 2 pending sends must not spend the same UTXO
+    assert!(inputs_1.is_disjoint(inputs_2));
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
 fn insufficient_allocations_fail() {
     initialize();
 
