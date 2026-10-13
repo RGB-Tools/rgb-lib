@@ -108,15 +108,20 @@ pub trait WalletOnline: WalletOffline {
         let pending_witness_scripts = self.reconcile_pending_witness(txn)?;
         self.update_db_colored_txos_from_bdk(txn, false, &pending_witness_scripts)?;
 
-        for input in tx.clone().input {
-            let txid = input.previous_output.txid.to_string();
-            let vout = input.previous_output.vout;
-            if let Some(db_txo) = txn.get_txo(&Outpoint { txid, vout })? {
+        let input_outpoints: Vec<Outpoint> = tx
+            .input
+            .iter()
+            .map(|i| Outpoint::from(i.previous_output))
+            .collect();
+        for outpoint in &input_outpoints {
+            if let Some(db_txo) = txn.get_txo(outpoint)? {
                 let mut db_txo: DbTxoActMod = db_txo.into();
                 db_txo.spent = ActiveValue::Set(true);
                 txn.update_txo(db_txo)?;
             }
         }
+        // the inputs are spent now, release the reservations of the pending transfer
+        txn.del_colored_reserved_txos_by_outpoints(&input_outpoints)?;
 
         Ok(tx)
     }
@@ -140,7 +145,28 @@ pub trait WalletOnline: WalletOffline {
             .map(|i| DbReservedTxoActMod {
                 txid: ActiveValue::Set(i.previous_output.txid.to_string()),
                 vout: ActiveValue::Set(i.previous_output.vout),
-                reserved_for: ActiveValue::Set(Some(wt_idx)),
+                reserved_for_vanilla: ActiveValue::Set(Some(wt_idx)),
+                ..Default::default()
+            })
+            .collect();
+        txn.set_reserved_txos(reservations)?;
+        Ok(())
+    }
+
+    fn reserve_colored_txos(
+        &self,
+        txn: &DbTxn,
+        psbt: &Psbt,
+        batch_transfer_idx: i32,
+    ) -> Result<(), Error> {
+        let reservations: Vec<DbReservedTxoActMod> = psbt
+            .unsigned_tx
+            .input
+            .iter()
+            .map(|i| DbReservedTxoActMod {
+                txid: ActiveValue::Set(i.previous_output.txid.to_string()),
+                vout: ActiveValue::Set(i.previous_output.vout),
+                reserved_for_colored: ActiveValue::Set(Some(batch_transfer_idx)),
                 ..Default::default()
             })
             .collect();
@@ -233,7 +259,10 @@ pub trait WalletOnline: WalletOffline {
 
         let mut utxos_to_create = num.unwrap_or(UTXO_NUM);
         if up_to {
-            let allocatable = self.get_available_allocations(unspents, &[], None)?.len();
+            let reserved = self.get_reserved_colored_outpoints(txn)?;
+            let allocatable = self
+                .get_available_allocations(unspents, &reserved, None)?
+                .len();
             // compare in usize since the count of allocatable UTXOs can exceed u8::MAX
             if allocatable >= utxos_to_create as usize {
                 return Err(Error::AllocationsAlreadyAvailable);
@@ -496,6 +525,7 @@ pub trait WalletOnline: WalletOffline {
     ) -> Result<DbBatchTransfer, Error> {
         self.set_hub_fail_status(batch_transfer.idx)?;
         self.clean_failed_witness_receives(txn, batch_transfer)?;
+        txn.del_reserved_txos_for_batch_transfer(batch_transfer.idx)?;
         let mut updated_batch_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
         updated_batch_transfer.status = ActiveValue::Set(TransferStatus::Failed);
         txn.update_batch_transfer(&mut updated_batch_transfer)
@@ -3062,6 +3092,7 @@ pub trait WalletOnline: WalletOffline {
         txid: String,
         info_contents: &InfoBatchTransfer,
         status: TransferStatus,
+        psbt: &Psbt,
     ) -> Result<i32, Error> {
         let batch_transfer = DbBatchTransferActMod {
             txid: ActiveValue::Set(Some(txid.clone())),
@@ -3073,6 +3104,15 @@ pub trait WalletOnline: WalletOffline {
             ..Default::default()
         };
         let batch_transfer_idx = txn.set_batch_transfer(batch_transfer)?;
+
+        // until the TX is broadcast, reserve all its inputs, including the ones with no
+        // allocations (e.g. added to pay the fee), so they can't be selected by other operations
+        if matches!(
+            status,
+            TransferStatus::Initiated | TransferStatus::WaitingCounterparty
+        ) {
+            self.reserve_colored_txos(txn, psbt, batch_transfer_idx)?;
+        }
 
         let mut change_utxo_idx: Option<i32> = None;
 
@@ -3283,6 +3323,7 @@ pub trait WalletOnline: WalletOffline {
         info_contents: &InfoBatchTransfer,
         status: TransferStatus,
         sync_tte_used: bool,
+        psbt: &Psbt,
     ) -> Result<i32, Error> {
         // in a send-to-oneself, the txid is shared between send and receive transfers; only the
         // outgoing batch transfer should be updated here, incoming ones must be ignored so the send
@@ -3331,7 +3372,7 @@ pub trait WalletOnline: WalletOffline {
             }
             Ok(existing.idx)
         } else {
-            self.save_transfers(txn, txid, info_contents, status)
+            self.save_transfers(txn, txid, info_contents, status, psbt)
         }
     }
 
@@ -3368,13 +3409,19 @@ pub trait WalletOnline: WalletOffline {
 
         let utxos = txn.get_unspent_txos(db_data.txos)?;
 
-        let unspents = txn.get_rgb_allocations(
+        let mut unspents = txn.get_rgb_allocations(
             utxos,
             Some(db_data.colorings),
             Some(db_data.batch_transfers),
             Some(db_data.asset_transfers),
             Some(db_data.transfers),
         )?;
+        // UTXOs reserved to be spent by a pending operation can't be used
+        let reserved: HashSet<Outpoint> = self
+            .get_reserved_colored_outpoints(txn)?
+            .into_iter()
+            .collect();
+        unspents.retain(|u| !reserved.contains(&u.utxo.outpoint()));
 
         #[cfg(test)]
         let input_unspents = mock_input_unspents(self, &unspents);
@@ -3481,6 +3528,7 @@ pub trait WalletOnline: WalletOffline {
                 txid,
                 &begin_operation_data.info_batch_transfer,
                 TransferStatus::Initiated,
+                &begin_operation_data.psbt,
             )?;
             begin_operation_data.batch_transfer_idx = Some(batch_transfer_idx);
         }
@@ -3500,7 +3548,7 @@ pub trait WalletOnline: WalletOffline {
     ) -> Result<i32, Error> {
         let mut runtime = self.rgb_runtime()?;
         self.broadcast_and_update_rgb(txn, &mut runtime, psbt, fascia)?;
-        self.update_or_save_transfers(txn, txid, info_contents, status, sync_tte_used)
+        self.update_or_save_transfers(txn, txid, info_contents, status, sync_tte_used, psbt)
     }
 
     fn send_begin_impl(
@@ -3786,6 +3834,7 @@ pub trait WalletOnline: WalletOffline {
                 &info_contents,
                 TransferStatus::WaitingCounterparty,
                 sync_tte_used,
+                signed_psbt,
             )?
         };
 

@@ -336,7 +336,7 @@ impl Wallet {
         let reserved_idxs: Vec<i32> = txn
             .iter_reserved_txos()?
             .into_iter()
-            .filter_map(|r| r.reserved_for)
+            .filter_map(|r| r.reserved_for_vanilla)
             .collect::<HashSet<_>>()
             .into_iter()
             .collect();

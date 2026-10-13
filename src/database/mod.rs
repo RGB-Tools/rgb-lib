@@ -564,6 +564,44 @@ impl DbTxn {
         Ok(())
     }
 
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub(crate) fn del_colored_reserved_txos_by_outpoints(
+        &self,
+        outpoints: &[Outpoint],
+    ) -> Result<(), Error> {
+        if outpoints.is_empty() {
+            return Ok(());
+        }
+        let mut condition = Condition::any();
+        for outpoint in outpoints {
+            condition = condition.add(
+                Condition::all()
+                    .add(reserved_txo::Column::Txid.eq(outpoint.txid.clone()))
+                    .add(reserved_txo::Column::Vout.eq(outpoint.vout)),
+            );
+        }
+        block_on(
+            ReservedTxo::delete_many()
+                .filter(reserved_txo::Column::ReservedForColored.is_not_null())
+                .filter(condition)
+                .exec(self.inner()),
+        )?;
+        Ok(())
+    }
+
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub(crate) fn del_reserved_txos_for_batch_transfer(
+        &self,
+        batch_transfer_idx: i32,
+    ) -> Result<(), Error> {
+        block_on(
+            ReservedTxo::delete_many()
+                .filter(reserved_txo::Column::ReservedForColored.eq(batch_transfer_idx))
+                .exec(self.inner()),
+        )?;
+        Ok(())
+    }
+
     pub(crate) fn del_txo(&self, idx: i32) -> Result<(), Error> {
         block_on(Txo::delete_by_id(idx).exec(self.inner()))?;
         Ok(())

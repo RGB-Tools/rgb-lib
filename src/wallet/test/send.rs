@@ -3439,11 +3439,47 @@ fn pending_sends_no_shared_inputs() {
         assert!(inputs.iter().any(|o| !asset_outpoints.contains(o)));
         sends.push((send_result, inputs));
     }
-    let (_, inputs_1) = &sends[0];
-    let (_, inputs_2) = &sends[1];
+    let (send_1, inputs_1) = &sends[0];
+    let (send_2, inputs_2) = &sends[1];
+    let batch_transfer_idx_1 = send_1.batch_transfer_idx.unwrap();
+    let batch_transfer_idx_2 = send_2.batch_transfer_idx.unwrap();
 
     // the 2 pending sends must not spend the same UTXO
     assert!(inputs_1.is_disjoint(inputs_2));
+
+    // all inputs of the pending sends are reserved for their batch transfer
+    let reserved_for = |party: &SinglesigParty, batch_transfer_idx: i32| -> HashSet<Outpoint> {
+        party
+            .db_reserved_txos()
+            .into_iter()
+            .filter(|r| r.reserved_for_colored == Some(batch_transfer_idx))
+            .map(Outpoint::from)
+            .collect()
+    };
+    assert_eq!(&reserved_for(&party, batch_transfer_idx_1), inputs_1);
+    assert_eq!(&reserved_for(&party, batch_transfer_idx_2), inputs_2);
+
+    // reserved UTXOs can't be used to receive
+    let result = party.blind_receive_result();
+    assert!(matches!(result, Err(Error::InsufficientAllocationSlots)));
+
+    // failing a pending send releases its reservations
+    assert!(party.fail_transfers_single(batch_transfer_idx_1));
+    assert!(reserved_for(&party, batch_transfer_idx_1).is_empty());
+    assert_eq!(&reserved_for(&party, batch_transfer_idx_2), inputs_2);
+
+    // broadcasting a pending send releases its reservations
+    let signed_psbt = party.wallet.sign_psbt(send_2.psbt.clone(), None).unwrap();
+    let txid_2 = party
+        .wallet
+        .send_end(party.online, signed_psbt)
+        .unwrap()
+        .txid;
+    assert_eq!(&reserved_for(&party, batch_transfer_idx_2), inputs_2);
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(Some(&asset_2.asset_id));
+    assert!(party.check_test_transfer_status_sender(&txid_2, TransferStatus::WaitingConfirmations));
+    assert!(party.db_reserved_txos().is_empty());
 }
 
 #[cfg(feature = "electrum")]
