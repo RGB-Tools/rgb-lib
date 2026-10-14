@@ -1940,53 +1940,20 @@ pub trait WalletOnline: WalletOffline {
 
     fn get_evm_reject_list(&self, contract: &EvmContract) -> Result<RejectList, Error> {
         let evm_client = self.checked_evm_client_for_chain(contract.chain_id)?;
-        let (reject_opouts, allow_opouts) = evm_client
-            .reject_list_entries(&contract.address)?
-            .decisions();
-        Ok(RejectList {
-            reject_opouts,
-            allow_opouts,
-        })
+        RejectList::from_evm(&evm_client, &contract.address)
     }
 
     fn get_url_reject_list(&self, reject_list_url: &str) -> Result<RejectList, Error> {
         let reject_list_client = RejectListClient::new(reject_list_url)?;
-        let list = reject_list_client.get_reject_list()?;
-        let reject_list = list.trim();
         // invalid lines are counted and reported once, as a list can be made of them
-        let mut opout_map = HashMap::new();
-        let mut invalid = 0;
-        for line in reject_list.lines() {
-            let (is_allow, opout_str) = line.strip_prefix("!").map_or((false, line), |s| (true, s));
-            match Opout::from_str(opout_str) {
-                Ok(opout) => {
-                    opout_map.insert(opout, is_allow);
-                }
-                Err(_) => invalid += 1,
-            }
-        }
+        let (reject_list, invalid) = RejectList::parse(&reject_list_client.get_reject_list()?);
         if invalid > 0 {
             warn!(
                 self.logger(),
                 "Ignoring {invalid} invalid opout(s) in reject list"
             );
         }
-        let (allow_opouts, reject_opouts) = opout_map.into_iter().fold(
-            (HashSet::new(), HashSet::new()),
-            |(mut allow, mut reject), (o, allowed)| {
-                if allowed {
-                    allow.insert(o);
-                } else {
-                    reject.insert(o);
-                }
-                (allow, reject)
-            },
-        );
-
-        Ok(RejectList {
-            reject_opouts,
-            allow_opouts,
-        })
+        Ok(reject_list)
     }
 
     fn extract_attachments(
@@ -2093,7 +2060,6 @@ pub trait WalletOnline: WalletOffline {
             Some(witness_id),
             &self.blockchain_resolver(),
             self.evm_rpc_urls(),
-            max_mint_scan_blocks(),
             &validation_config,
         )
         .map_err(|e| match e {
@@ -2782,7 +2748,7 @@ pub trait WalletOnline: WalletOffline {
             if let Some(source) = &source {
                 let reject_list = self.get_reject_list(source)?;
 
-                let to_reject = self.check_dag(
+                let to_reject = rejected_opouts(
                     validation_status
                         .dag_data_opt
                         .as_ref()
@@ -4786,46 +4752,6 @@ pub trait WalletOnline: WalletOffline {
         })
     }
 
-    fn check_dag(
-        &self,
-        dag_data: &OpoutsDagData,
-        reject_list: &RejectList,
-        check_opouts: &HashSet<Opout>,
-    ) -> Result<HashSet<Opout>, Error> {
-        let (dag, index) = dag_data;
-        let mut to_reject = HashSet::new();
-
-        // for each opout we are checking, traverse its ancestor chain
-        for check_opout in check_opouts {
-            let &opout_node = index.get(check_opout).ok_or(Error::Internal {
-                details: s!("opout not found in DAG"),
-            })?;
-
-            // traverse from this node to its ancestors, depth first
-            let mut stack = vec![opout_node];
-            let mut visited = HashSet::new();
-            while let Some(node) = stack.pop() {
-                if !visited.insert(node) {
-                    continue;
-                }
-                let node_opout = &dag[node];
-                // allow shields this path upward: do not traverse this branch further
-                if reject_list.allows(node_opout) {
-                    continue;
-                }
-                // encountering a reject node on an unshielded path: reject
-                if reject_list.rejects(node_opout) {
-                    to_reject.insert(*check_opout);
-                    break;
-                }
-                for (_edge, parent) in dag.parents(node).iter(dag) {
-                    stack.push(parent);
-                }
-            }
-        }
-        Ok(to_reject)
-    }
-
     #[allow(clippy::too_many_arguments)]
     fn prepare_rgb_psbt(
         &self,
@@ -5185,7 +5111,7 @@ pub trait WalletOnline: WalletOffline {
                     .get(&transfer_info.asset_info.contract_id)
                     .unwrap();
                 let asset_input_opouts = asset_opouts.keys().cloned().collect();
-                let to_reject = self.check_dag(&dag_data, &reject_list, &asset_input_opouts)?;
+                let to_reject = rejected_opouts(&dag_data, &reject_list, &asset_input_opouts)?;
                 if !to_reject.is_empty() {
                     warn!(
                         self.logger(),
@@ -7244,22 +7170,14 @@ pub trait WalletOnline: WalletOffline {
     /// The EVM RPC client configured for the chain with the given `chain_id`, checked to be
     /// connected to it.
     fn checked_evm_client_for_chain(&self, chain_id: u64) -> Result<EvmClient, Error> {
-        let Some(evm_rpc_url) = self.evm_rpc_url(chain_id) else {
-            error!(
-                self.logger(),
-                "No EVM RPC URL configured for chain ID {chain_id}"
-            );
-            return Err(Error::NoEvmRpcUrl { chain_id });
-        };
-        let evm_client = EvmClient::new(evm_rpc_url)?;
-        let actual = evm_client.evm_chain_id()?;
-        if actual != chain_id {
-            return Err(Error::EvmChainIdMismatch {
-                expected: chain_id,
-                actual,
-            });
-        }
-        Ok(evm_client)
+        checked_evm_client(self.evm_rpc_urls(), chain_id).inspect_err(|e| {
+            if let Error::NoEvmRpcUrl { .. } = e {
+                error!(
+                    self.logger(),
+                    "No EVM RPC URL configured for chain ID {chain_id}"
+                );
+            }
+        })
     }
 
     /// The reject list of a known asset.

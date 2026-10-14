@@ -53,7 +53,9 @@ use crate::wallet::utils::build_indexer;
 #[cfg(feature = "electrum")]
 use crate::{
     database::enums::{SCHEMA_ID_CFA, SCHEMA_ID_IFA, SCHEMA_ID_NIA, SCHEMA_ID_UDA},
-    no_wallet::{BundleFilter, inspect_consignment},
+    no_wallet::{
+        BundleFilter, inspect_consignment, validate_consignment, validation::terminal_opouts,
+    },
     utils::{get_account_data, recipient_id_from_script_buf, script_buf_from_recipient_id},
     wallet::{multisig::*, rust_only::*},
 };
@@ -616,4 +618,6 @@ mod send_btc;
 mod sign_psbt;
 #[cfg(feature = "electrum")]
 mod sync;
+#[cfg(feature = "electrum")]
+mod validate_consignment;
 mod witness_receive;

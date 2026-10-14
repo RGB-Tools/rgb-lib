@@ -69,6 +69,12 @@ jobs:
       - name: Test with no default features
         run: |
           cargo test --profile reldebug --no-default-features
+      - name: Test with the validation feature
+        run: |
+          cargo test --profile reldebug --no-default-features --features validation
+      - name: Test with indexer validation features
+        run: |
+          cargo test --profile reldebug --no-default-features --features bitcoind_validation,electrum_validation,esplora_validation
       - name: Test with wallet feature
         run: |
           cargo test --profile reldebug --no-default-features --features wallet

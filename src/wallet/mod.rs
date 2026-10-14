@@ -18,6 +18,13 @@ pub(crate) mod singlesig;
 pub(crate) mod test;
 
 pub use crate::database::enums::TypeOfTransition;
+#[cfg(feature = "_validation")]
+pub use crate::no_wallet::{BitcoindAuth, IndexerConfig, IndexerProtocol};
+#[cfg(feature = "validation")]
+pub use crate::no_wallet::{
+    ConsignmentValidation, ValidatedWitness, ValidationOptions, ValidationWarning,
+    WitnessValidationStatus,
+};
 pub use crate::no_wallet::{
     RgbInputInfo, RgbInspection, RgbOperationInfo, RgbOutputInfo, RgbTransitionInfo,
     TransitionGlobal, TransitionMetadata,
@@ -40,9 +47,9 @@ pub use objects::{
 };
 #[cfg(feature = "_online")]
 pub use objects::{
-    BitcoindAuth, BurnBeginResult, BurnDetails, IndexerConfig, IndexerProtocol, InflateBeginResult,
-    InflateDetails, MintBeginResult, MintDetails, OnlineOptions, OperationResult, RefreshFilter,
-    RefreshResult, RefreshTransferStatus, RefreshedTransfer, SendBeginResult, SendDetails,
+    BurnBeginResult, BurnDetails, InflateBeginResult, InflateDetails, MintBeginResult, MintDetails,
+    OnlineOptions, OperationResult, RefreshFilter, RefreshResult, RefreshTransferStatus,
+    RefreshedTransfer, SendBeginResult, SendDetails,
 };
 pub use offline::RgbWalletOpsOffline;
 #[cfg(feature = "_online")]
@@ -65,8 +72,7 @@ pub(crate) use objects::{
     AssetInfo, AssetSpend, BeginOperationData, BtcChange, CleanAckOutcome, FailTransfersOutcome,
     LocalRecipient, LocalRecipientData, LocalWitnessData, OnlineData, PrepareRgbPsbtResult,
     PrepareTransferPsbtResult, ProxyReceiveData, ReceiveMatcher, ReceiveMode,
-    ReceivedConsignmentMeta, RefreshResultTrait, RejectList, RejectListSource,
-    TryFailBatchTransferOutcome,
+    ReceivedConsignmentMeta, RefreshResultTrait, TryFailBatchTransferOutcome,
 };
 pub(crate) use objects::{
     InfoAssetTransfer, InfoBatchTransfer, IssueData, IssuedAssetDetails, LocalAssetData,
@@ -134,31 +140,6 @@ pub(crate) const MINT_FINALITY_GRACE_SECS: i64 = 24 * 60 * 60;
 /// chain for the lock.
 #[cfg(feature = "_online")]
 pub(crate) const MINT_AFTER_BLOCK_GRACE_SECS: i64 = 60 * 60;
-
-/// Maximum number of blocks, after the one a mint in the history of a received asset commits to
-/// (its `after_block`), in which the event confirming it is searched for. It is about 70 days on
-/// Ethereum, 11 on Base or Optimism and 37 hours on Arbitrum, at most 500 `eth_getLogs` calls per
-/// mint.
-///
-/// The `after_block` is chosen by whoever created the mint, so without a limit an untrusted
-/// consignment could make the scan go through the whole EVM chain (e.g. with `after_block` set to
-/// 0). A mint whose event is not found within the limit makes the consignment refused, so the
-/// limit needs to cover the time a minter may take to lock the funds after beginning the mint.
-///
-/// TODO: the limit will be set by each asset, with a global of the BFA schema (to be added in
-/// rgb-schemas): remove this hardcoded value then.
-#[cfg(feature = "_online")]
-pub(crate) const MAX_MINT_SCAN_BLOCKS: u64 = 500_000;
-
-/// Maximum number of blocks scanned for a mint event (see [`MAX_MINT_SCAN_BLOCKS`]).
-#[cfg(feature = "_online")]
-pub(crate) fn max_mint_scan_blocks() -> u64 {
-    #[cfg(test)]
-    if let Some(max_scan_blocks) = mock_max_mint_scan_blocks() {
-        return max_scan_blocks;
-    }
-    MAX_MINT_SCAN_BLOCKS
-}
 
 /// Maximum proof of work difficulty (leading zero bits) the wallet accepts to compute when posting
 /// a consignment; a proxy requiring more cannot be used to create transfers.

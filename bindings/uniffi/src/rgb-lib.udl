@@ -13,6 +13,10 @@ namespace rgb_lib {
 
   [Throws=RgbLibError]
   ConsignmentInspection inspect_consignment(string consignment_path, BundleFilter bundle_filter);
+
+  [Throws=RgbLibError]
+  ConsignmentValidation validate_consignment(string consignment_path,
+    IndexerConfig indexer_config, u8? min_confirmations, ValidationOptions options);
 };
 
 [Error, Remote]
@@ -32,6 +36,7 @@ interface RgbLibError {
   CannotProvideOutOfBandAck(string details);
   CannotProvideOutOfBandConsignment(string details);
   CannotUseSchemaOnMainnet(AssetSchema asset_schema);
+  ConsignmentRejected(sequence<string> opouts);
   ConsignmentValidationFailed(string details);
   Database(string details);
   DuplicateProxyAuthKey(string details);
@@ -128,6 +133,7 @@ interface RgbLibError {
   NoSupportedSchemas();
   NoValidTransportEndpoint();
   Offline();
+  OffchainTxidNotFound(string txid);
   OnlineNeeded();
   OperationExpired();
   OperationNotFound();
@@ -950,6 +956,44 @@ dictionary RgbGenesisInfo {
   string? details;
   u8 precision;
   sequence<RgbOutputInfo> outputs;
+};
+
+[Remote]
+dictionary ValidationOptions {
+  BitcoinNetwork bitcoin_network;
+  string? offchain_txid;
+  record<u64, string> evm_rpc_urls;
+};
+
+dictionary ConsignmentValidation {
+  string consignment_id;
+  boolean is_transfer;
+  string asset_id;
+  AssetSchema asset_schema;
+  u32? safe_height;
+  sequence<ValidatedWitness> witnesses;
+  sequence<ValidationWarning> warnings;
+};
+
+dictionary ValidatedWitness {
+  string txid;
+  WitnessValidationStatus status;
+  boolean from_consignment;
+};
+
+[Enum]
+interface WitnessValidationStatus {
+  Mined(u32 height, i64 timestamp);
+  Tentative();
+  Ignored();
+  Archived();
+};
+
+[Enum]
+interface ValidationWarning {
+  UnsafeHistory(sequence<string> txids);
+  InvalidSpvProof(string bundle_id, string txid);
+  Other(string details);
 };
 
 [Remote]

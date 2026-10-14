@@ -317,11 +317,13 @@ struct BlockHeader {
     /// Block number (hex).
     number: String,
     /// Block timestamp (hex, seconds since the Unix epoch).
+    #[cfg(feature = "_online")]
     #[serde(default)]
     timestamp: Option<String>,
 }
 
 /// Where a FundsIn event matching a mint was included on the external chain.
+#[cfg(feature = "_online")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct FundsInInclusion {
     /// Timestamp of the block the event was included in.
@@ -551,6 +553,7 @@ impl EvmClient {
 
     /// Where a FundsIn event confirming the mint of `amount` with operation `opid`, committing
     /// to `after_block`, was included, finalized or not, if any.
+    #[cfg(feature = "_online")]
     pub(crate) fn funds_in_inclusion(
         &self,
         contract: &EvmAddress,
@@ -580,6 +583,7 @@ impl EvmClient {
     }
 
     /// Timestamp of the block with the given number (`eth_getBlockByNumber`).
+    #[cfg(feature = "_online")]
     pub(crate) fn block_timestamp(&self, block: u64) -> Result<u64, Error> {
         let header: BlockHeader =
             self.rpc("eth_getBlockByNumber", (format!("0x{block:x}"), false))?;
@@ -765,6 +769,7 @@ impl EvmClient {
     /// The logs of the genesis block are requested to check the latter: some nodes (e.g. on the
     /// free plans of some providers) only serve the logs of recent blocks, which would make the
     /// confirmation of an older mint fail later, when receiving an asset.
+    #[cfg(feature = "_online")]
     pub(crate) fn check_mint_support(&self) -> Result<(), Error> {
         self.finalized_block_number()
             .map_err(|e| Error::InvalidEvmRpcUrl {
@@ -918,6 +923,7 @@ impl ResolveAnchor for BoundedAnchorResolver<'_> {
 ///
 /// As with a [`BoundedAnchorResolver`], each mint event is only scanned for the given number of
 /// blocks after the one the anchor commits to (`after_block`).
+#[cfg(feature = "_online")]
 pub(crate) struct ResumingAnchorResolver<'a> {
     client: &'a EvmClient,
     /// Last finalized block scanned without finding the event, by mint operation ID
@@ -929,6 +935,7 @@ pub(crate) struct ResumingAnchorResolver<'a> {
     exhausted: RefCell<HashSet<OpId>>,
 }
 
+#[cfg(feature = "_online")]
 impl<'a> ResumingAnchorResolver<'a> {
     pub(crate) fn new(
         client: &'a EvmClient,
@@ -955,6 +962,7 @@ impl<'a> ResumingAnchorResolver<'a> {
     }
 }
 
+#[cfg(feature = "_online")]
 impl ResolveAnchor for ResumingAnchorResolver<'_> {
     fn evm_chain_id(&self) -> Result<u64, AnchorResolverError> {
         self.client.evm_chain_id()
@@ -1020,6 +1028,7 @@ impl ResolveAnchor for ResumingAnchorResolver<'_> {
 /// already be confirmed, so they're resolved by a [`BoundedAnchorResolver`] instead. Both only
 /// scan the same number of blocks after the one the anchor commits to (`after_block`), which is
 /// chosen by whoever created the mint.
+#[cfg(feature = "_online")]
 pub(crate) struct MintAnchorResolver<'a> {
     terminal: ResumingAnchorResolver<'a>,
     history: BoundedAnchorResolver<'a>,
@@ -1027,6 +1036,7 @@ pub(crate) struct MintAnchorResolver<'a> {
     terminal_opids: &'a HashSet<OpId>,
 }
 
+#[cfg(feature = "_online")]
 impl<'a> MintAnchorResolver<'a> {
     pub(crate) fn new(
         client: &'a EvmClient,
@@ -1057,6 +1067,7 @@ impl<'a> MintAnchorResolver<'a> {
     }
 }
 
+#[cfg(feature = "_online")]
 impl ResolveAnchor for MintAnchorResolver<'_> {
     fn evm_chain_id(&self) -> Result<u64, AnchorResolverError> {
         self.terminal.evm_chain_id()
@@ -1844,6 +1855,7 @@ mod tests {
         ranges.iter().for_each(|r| r.assert());
     }
 
+    #[cfg(feature = "_online")]
     #[test]
     fn resuming_resolver() {
         let opid = OpId::from([0u8; 32]);
@@ -1918,6 +1930,7 @@ mod tests {
         assert!(resolver.is_exhausted(&opid));
     }
 
+    #[cfg(feature = "_online")]
     #[test]
     fn bounded_resolver() {
         let opid = OpId::from([0u8; 32]);
@@ -1970,6 +1983,7 @@ mod tests {
         assert!(!resolver.is_exhausted(&opid));
     }
 
+    #[cfg(feature = "_online")]
     #[test]
     fn mint_resolver() {
         let opid = OpId::from([0u8; 32]);

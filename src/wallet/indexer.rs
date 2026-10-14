@@ -40,25 +40,8 @@ impl std::ops::Deref for BitcoindClient {
     }
 }
 
-/// Status of the Bitcoin Core node indexes relevant to the wallet.
-#[cfg(feature = "bitcoind")]
-pub(crate) struct BitcoindIndexes {
-    pub(crate) txindex: bool,
-    pub(crate) block_filters: bool,
-}
-
 #[cfg(feature = "bitcoind")]
 impl BitcoindClient {
-    /// Which indexes the node maintains and has finished building.
-    pub(crate) fn indexes(&self) -> Result<BitcoindIndexes, IndexerError> {
-        let info = self.inner.get_index_info()?;
-        let synced = |status: Option<BitcoindIndexStatus>| matches!(status, Some(s) if s.synced);
-        Ok(BitcoindIndexes {
-            txindex: synced(info.txindex),
-            block_filters: synced(info.basic_block_filter_index),
-        })
-    }
-
     /// Bring the BDK wallet up to date with the Bitcoin Core node: apply the blocks since the
     /// wallet's last checkpoint (handling reorgs), then the mempool.
     ///

@@ -4,6 +4,11 @@
 
 use super::*;
 
+pub use crate::no_wallet::BitcoinNetwork;
+#[doc(hidden)]
+#[cfg(feature = "_validation")]
+pub use crate::no_wallet::validation::ChainResolver;
+
 const TIMESTAMP_FORMAT: &[time::format_description::BorrowedFormatItem] = time::macros::format_description!(
     "[year]-[month]-[day]T[hour repr:24]:[minute]:[second].[subsecond digits:3]+00"
 );
@@ -29,10 +34,6 @@ pub(crate) const KEYCHAIN_BTC: u8 = 0;
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) const INDEXER_STOP_GAP: usize = 20;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) const INDEXER_TIMEOUT: u64 = 10;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) const INDEXER_RETRIES: u8 = 3;
 #[cfg(feature = "electrum")]
 pub(crate) const INDEXER_BATCH_SIZE: usize = 5;
 #[cfg(feature = "esplora")]
@@ -60,111 +61,6 @@ where
         })
     } else {
         TOKIO_RUNTIME.block_on(future)
-    }
-}
-
-/// Supported Bitcoin networks.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
-pub enum BitcoinNetwork {
-    /// Bitcoin's mainnet
-    Mainnet,
-    /// Bitcoin's testnet3
-    Testnet,
-    /// Bitcoin's testnet4
-    Testnet4,
-    /// Bitcoin's default signet
-    Signet,
-    /// Bitcoin's regtest
-    Regtest,
-    /// Bitcoin's custom signet
-    SignetCustom,
-}
-
-impl BitcoinNetwork {
-    pub(crate) fn network_kind(&self) -> NetworkKind {
-        match self {
-            BitcoinNetwork::Mainnet => NetworkKind::Main,
-            _ => NetworkKind::Test,
-        }
-    }
-}
-
-impl fmt::Display for BitcoinNetwork {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{self:?}")
-    }
-}
-
-impl FromStr for BitcoinNetwork {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(match s.to_lowercase().as_str() {
-            "mainnet" | "bitcoin" => BitcoinNetwork::Mainnet,
-            "testnet" | "testnet3" => BitcoinNetwork::Testnet,
-            "testnet4" => BitcoinNetwork::Testnet4,
-            "regtest" => BitcoinNetwork::Regtest,
-            "signet" => BitcoinNetwork::Signet,
-            "signetcustom" => BitcoinNetwork::SignetCustom,
-            _ => {
-                return Err(Error::InvalidBitcoinNetwork {
-                    network: s.to_string(),
-                });
-            }
-        })
-    }
-}
-
-impl TryFrom<ChainNet> for BitcoinNetwork {
-    type Error = Error;
-
-    fn try_from(x: ChainNet) -> Result<Self, Self::Error> {
-        match x {
-            ChainNet::BitcoinMainnet => Ok(BitcoinNetwork::Mainnet),
-            ChainNet::BitcoinTestnet3 => Ok(BitcoinNetwork::Testnet),
-            ChainNet::BitcoinTestnet4 => Ok(BitcoinNetwork::Testnet4),
-            ChainNet::BitcoinSignet => Ok(BitcoinNetwork::Signet),
-            ChainNet::BitcoinRegtest => Ok(BitcoinNetwork::Regtest),
-            ChainNet::BitcoinSignetCustom => Ok(BitcoinNetwork::SignetCustom),
-            _ => Err(Error::UnsupportedLayer1 {
-                layer_1: x.layer1().to_string(),
-            }),
-        }
-    }
-}
-
-impl From<BitcoinNetwork> for bitcoin::Network {
-    fn from(x: BitcoinNetwork) -> bitcoin::Network {
-        match x {
-            BitcoinNetwork::Mainnet => bitcoin::Network::Bitcoin,
-            BitcoinNetwork::Testnet => bitcoin::Network::Testnet,
-            BitcoinNetwork::Testnet4 => bitcoin::Network::Testnet4,
-            BitcoinNetwork::Signet => bitcoin::Network::Signet,
-            BitcoinNetwork::Regtest => bitcoin::Network::Regtest,
-            BitcoinNetwork::SignetCustom => bitcoin::Network::Signet,
-        }
-    }
-}
-
-impl From<BitcoinNetwork> for NetworkKind {
-    fn from(x: BitcoinNetwork) -> Self {
-        match x {
-            BitcoinNetwork::Mainnet => Self::Main,
-            _ => Self::Test,
-        }
-    }
-}
-
-impl From<BitcoinNetwork> for ChainNet {
-    fn from(x: BitcoinNetwork) -> ChainNet {
-        match x {
-            BitcoinNetwork::Mainnet => ChainNet::BitcoinMainnet,
-            BitcoinNetwork::Testnet => ChainNet::BitcoinTestnet3,
-            BitcoinNetwork::Testnet4 => ChainNet::BitcoinTestnet4,
-            BitcoinNetwork::Signet => ChainNet::BitcoinSignet,
-            BitcoinNetwork::Regtest => ChainNet::BitcoinRegtest,
-            BitcoinNetwork::SignetCustom => ChainNet::BitcoinSignetCustom,
-        }
     }
 }
 
@@ -598,85 +494,21 @@ pub(crate) fn get_indexer_and_resolver(
     indexer_config: &IndexerConfig,
     bitcoin_network: BitcoinNetwork,
 ) -> Result<(Indexer, AnyResolver), Error> {
-    let invalid = |details: String| Error::InvalidIndexer { details };
-
+    #[cfg_attr(not(feature = "bitcoind"), allow(unused_mut))]
     let mut indexer = build_indexer(indexer_config)?;
     // this also checks connectivity (and credentials for bitcoind)
-    indexer
-        .block_hash(0)
-        .map_err(|e| invalid(unreachable_indexer_details(indexer_config, &e)))?;
+    indexer.block_hash(0).map_err(|e| Error::InvalidIndexer {
+        details: unreachable_indexer_details(indexer_config, &e),
+    })?;
+    #[allow(irrefutable_let_patterns)]
+    #[cfg(feature = "bitcoind")]
+    if let Indexer::Bitcoind(client) = &mut indexer {
+        client.block_filters = checked_bitcoind_indexes(&client.inner)?.block_filters;
+    }
 
-    let resolver = match &mut indexer {
-        #[cfg(feature = "bitcoind")]
-        Indexer::Bitcoind(client) => {
-            // RGB witnesses are looked up by TX ID alone, which needs a synced -txindex
-            let indexes = client.indexes()?;
-            if !indexes.txindex {
-                return Err(invalid(s!(
-                    "bitcoind has no synced transaction index (-txindex)"
-                )));
-            }
-            client.block_filters = indexes.block_filters;
-            let IndexerConfig::Bitcoind { url, auth } = indexer_config else {
-                unreachable!("build_indexer only returns a bitcoind indexer for a bitcoind config")
-            };
-            AnyResolver::bitcoind_blocking(url, auth.into()).map_err(invalid)?
-        }
-        #[cfg(feature = "electrum")]
-        Indexer::Electrum(_) => {
-            // the resolver opens its own connection, which can fail even if the indexer one
-            // succeeded
-            AnyResolver::electrum_blocking(indexer_config.url(), Some(electrum_config()))
-                .map_err(|e| invalid(e.to_string()))?
-        }
-        #[cfg(feature = "esplora")]
-        Indexer::Esplora(_) => AnyResolver::esplora_blocking(esplora_config(indexer_config.url()))
-            .expect("esplora_blocking wraps an infallible builder and always returns Ok"),
-    };
-
-    resolver
-        .check_chain_net(bitcoin_network.into())
-        .map_err(|e| invalid(e.to_string()))?;
+    let resolver = get_resolver(indexer_config, bitcoin_network)?;
 
     Ok((indexer, resolver))
-}
-
-/// Details for the [`Error::InvalidIndexer`] raised when the service at `indexer_config` cannot be
-/// reached or doesn't speak the configured protocol.
-#[cfg(feature = "_online")]
-fn unreachable_indexer_details(indexer_config: &IndexerConfig, err: &impl fmt::Display) -> String {
-    match indexer_config {
-        IndexerConfig::Bitcoind { .. } => format!("cannot connect to bitcoind: {err}"),
-        IndexerConfig::Electrum { .. } => s!("not a valid electrum server"),
-        IndexerConfig::Esplora { .. } => s!("not a valid esplora server"),
-    }
-}
-
-#[cfg(feature = "bitcoind")]
-impl From<&BitcoindAuth> for BitcoindRpcAuth {
-    fn from(auth: &BitcoindAuth) -> Self {
-        match auth {
-            BitcoindAuth::UserPass { username, password } => {
-                BitcoindRpcAuth::UserPass(username.clone(), password.clone())
-            }
-            BitcoindAuth::CookieFile { path } => BitcoindRpcAuth::CookieFile(PathBuf::from(path)),
-        }
-    }
-}
-
-#[cfg(feature = "electrum")]
-pub(crate) fn electrum_config() -> ElectrumConfig {
-    ConfigBuilder::new()
-        .retry(INDEXER_RETRIES)
-        .timeout(Some(Duration::from_secs(INDEXER_TIMEOUT)))
-        .build()
-}
-
-#[cfg(feature = "esplora")]
-pub(crate) fn esplora_config(indexer_url: &str) -> EsploraBuilder {
-    EsploraBuilder::new(indexer_url)
-        .max_retries(INDEXER_RETRIES.into())
-        .timeout(INDEXER_TIMEOUT)
 }
 
 /// Build the indexer client described by `indexer_config`.
@@ -1162,163 +994,24 @@ impl<'txn> RgbStock<'txn> {
     }
 }
 
-/// The wallet's on-chain witness resolver (the indexer-backed [`AnyResolver`]).
-#[doc(hidden)]
-#[cfg(feature = "_online")]
-pub struct ChainResolver<'a> {
-    pub(crate) inner: &'a AnyResolver,
-}
-
-#[cfg(feature = "_online")]
-impl ResolveWitness for ChainResolver<'_> {
-    fn resolve_witness(&self, witness_id: RgbTxid) -> Result<WitnessStatus, WitnessResolverError> {
-        #[cfg(test)]
-        if let Some((tx, height)) = mock_chain_tx(&witness_id.to_string()) {
-            let height = NonZeroU32::new(height).expect("mock block height cannot be 0");
-            let pos = WitnessPos::bitcoin(height, now().unix_timestamp())
-                .expect("current time is after the genesis block");
-            return Ok(WitnessStatus::Resolved(tx, WitnessOrd::Mined(pos)));
-        }
-        self.inner.resolve_witness(witness_id)
-    }
-    fn get_block_header(&self, height: NonZeroU32) -> Result<BlockHeader, WitnessResolverError> {
-        self.inner.get_block_header(height)
-    }
-    fn check_chain_net(&self, chain_net: ChainNet) -> Result<(), WitnessResolverError> {
-        self.inner.check_chain_net(chain_net)
-    }
-}
-
-/// Witness resolver looking up the witness with the given ID (if any) in the consignment, as it may
-/// not have been broadcast yet, and the other witnesses with the fallback chain resolver.
-#[cfg(feature = "_online")]
-pub(crate) struct OffchainResolver<'cons, 'r, R: ResolveWitness + ?Sized, const TRANSFER: bool> {
-    pub(crate) witness_id: Option<RgbTxid>,
-    pub(crate) consignment: &'cons Consignment<TRANSFER>,
-    pub(crate) fallback: &'r R,
-}
-
-#[cfg(feature = "_online")]
-impl<R: ResolveWitness + ?Sized, const TRANSFER: bool> ResolveWitness
-    for OffchainResolver<'_, '_, R, TRANSFER>
-{
-    fn resolve_witness(&self, witness_id: RgbTxid) -> Result<WitnessStatus, WitnessResolverError> {
-        if Some(witness_id) != self.witness_id {
-            #[cfg(test)]
-            if spv_only() {
-                return Err(WitnessResolverError::ResolverIssue(
-                    Some(witness_id),
-                    s!("witness TX lookup refused (mock)"),
-                ));
-            }
-            return self.fallback.resolve_witness(witness_id);
-        }
-        self.consignment
-            .bundled_witnesses()
-            .find(|bw| bw.witness_id() == witness_id)
-            .map(|p| p.tx.clone())
-            .map_or_else(
-                || self.fallback.resolve_witness(witness_id),
-                |tx| Ok(WitnessStatus::Resolved(tx, WitnessOrd::Tentative)),
-            )
-    }
-    fn get_block_header(&self, height: NonZeroU32) -> Result<BlockHeader, WitnessResolverError> {
-        // lets the SPV proofs carried by the consignment be verified via the indexer headers
-        self.fallback.get_block_header(height)
-    }
-    fn check_chain_net(&self, chain_net: ChainNet) -> Result<(), WitnessResolverError> {
-        self.fallback.check_chain_net(chain_net)
-    }
-}
-
-/// Validate the given consignment with the given validation config, resolving the witness with
-/// the given ID (if any) from the consignment itself, as it may not have been broadcast yet, and
-/// the other witnesses with the given chain resolver.
-///
-/// External anchors (mint events) are confirmed on the chain the asset's bridge lives on, through
-/// the EVM RPC URL configured for it in `evm_rpc_urls`, scanning for each mint event at most
-/// `max_mint_scan_blocks` blocks after the one it commits to.
-#[cfg(feature = "_online")]
-pub(crate) fn validate_consignment_internal<const TRANSFER: bool>(
-    consignment: &Consignment<TRANSFER>,
-    offchain_witness_id: Option<RgbTxid>,
-    chain_resolver: &(impl ResolveWitness + ?Sized),
-    evm_rpc_urls: &HashMap<u64, String>,
-    max_mint_scan_blocks: u64,
-    validation_config: &ValidationConfig,
-) -> Result<ValidConsignment<TRANSFER>, Error> {
-    let validation_error = |e: ValidationError| match e {
-        ValidationError::InvalidConsignment(e) => Error::ConsignmentValidationFailed {
-            details: e.to_string(),
-        },
-        ValidationError::ResolverError(e) => Error::Network {
-            details: e.to_string(),
-        },
-        e => Error::Internal {
-            details: format!("unexpected consignment validation error: {e}"),
-        },
-    };
-
-    let asset_schema = AssetSchema::try_from(consignment.schema_id())?;
-    // phase 1: everything that only depends on the consignment itself
-    let mut pending = consignment
-        .clone()
-        .validate_deterministic(&asset_schema.schema_rules(), validation_config)
-        .map_err(validation_error)?;
-
-    // phase 2: resolve what depends on the chains, then finalize. External anchors (mint events)
-    // live on the chain the asset's bridge contract is deployed on and cannot be resolved by the
-    // witness resolver: confirm them against that chain before resolving the witnesses
-    let anchors: Vec<ExternalAnchor> = pending.pending().unresolved_anchors().cloned().collect();
-    if !anchors.is_empty() {
-        if !asset_schema.supports_mint() {
-            return Err(Error::ConsignmentValidationFailed {
-                details: format!("{asset_schema} schema does not support external anchors"),
-            });
-        }
-        let bridge_location = BridgedFungibleAsset::bridge_location(consignment.genesis())
-            .map_err(|e| Error::Internal {
-                details: format!("unexpected bridge location error: {e}"),
-            })?;
-        let BridgeLocation::Evm(EvmContract { chain_id, .. }) = &bridge_location;
-        let evm_rpc_url = evm_rpc_urls.get(chain_id).ok_or(Error::NoEvmRpcUrl {
-            chain_id: *chain_id,
-        })?;
-        let evm_client = EvmClient::new(evm_rpc_url)?;
-        let bounded_resolver = BoundedAnchorResolver::new(&evm_client, max_mint_scan_blocks);
-        let anchor_resolver = CheckedAnchorResolver::with(&bounded_resolver, bridge_location)?;
-        for anchor in &anchors {
-            match pending.resolve_anchor(&anchor_resolver, anchor) {
-                // tell a mint that will never be confirmed from one that may still be
-                Err(AnchorResolverError::Unconfirmed(opid))
-                    if bounded_resolver.is_exhausted(&opid) =>
-                {
-                    return Err(Error::MintEventOutOfScanWindow {
-                        opid: opid.to_string(),
-                        max_scan_blocks: max_mint_scan_blocks,
-                    });
-                }
-                res => res?,
-            }
-        }
-    }
-
-    // then resolve the witnesses
-    let resolver = OffchainResolver {
-        witness_id: offchain_witness_id,
-        consignment,
-        fallback: chain_resolver,
-    };
-    pending
-        .pending()
-        .resolve_all(&resolver)
-        .map_err(validation_error)?;
-    Ok(pending.finalize())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "_online")]
+    #[test]
+    fn reject_list_parse() {
+        let opid = "a8a9fb2e43bd4d1d02c6c4c5e1a8dd4ce9a4f9ea1e04a4dd4a1d4bdd4b0c4c4d";
+        let rejected = Opout::from_str(&format!("{opid}/4000/0")).unwrap();
+        let allowed = Opout::from_str(&format!("{opid}/4000/1")).unwrap();
+        let list = format!("\n  {rejected} \n\t!{allowed}\t\n\n# a comment\n{opid}\n");
+        let (reject_list, invalid) = RejectList::parse(&list);
+        assert!(reject_list.rejects(&rejected));
+        assert!(!reject_list.allows(&rejected));
+        assert!(reject_list.allows(&allowed));
+        assert!(!reject_list.rejects(&allowed));
+        assert_eq!(invalid, 2);
+    }
 
     #[derive(Debug, Deserialize)]
     struct MandatoryField {

@@ -1,8 +1,7 @@
-//! No wallet.
+//! Consignment inspection.
 //!
-//! This module defines the methods that don't require a wallet (available without the `wallet`
-//! feature) and the objects they return, some of which are shared with wallet methods (e.g. the
-//! inspection ones).
+//! This module defines the consignment inspection, which doesn't require a wallet, and the objects
+//! it returns, some of which are shared with wallet methods (e.g. the PSBT inspection ones).
 
 use super::*;
 
@@ -321,16 +320,6 @@ fn consignment_inspection<const TRANSFER: bool>(
         genesis,
         witnesses,
     })
-}
-
-/// Check the file at the given path exists.
-pub(crate) fn check_file_exists(file_path: &str) -> Result<(), Error> {
-    if !Path::new(file_path).exists() {
-        return Err(Error::InvalidFilePath {
-            file_path: file_path.to_string(),
-        });
-    }
-    Ok(())
 }
 
 /// Verify the witness transaction commits to the given MPC commitment with the given DBC proof.
@@ -682,14 +671,14 @@ mod tests {
         std::fs::write(&file_path, b"not a consignment").unwrap();
         let result =
             inspect_consignment(file_path.to_string_lossy().to_string(), BundleFilter::All);
-        assert!(matches!(result, Err(Error::InvalidConsignment)));
+        assert_matches!(result, Err(Error::InvalidConsignment));
 
         // invalid witness TXID
         let result = inspect_consignment(
             file_path.to_string_lossy().to_string(),
             BundleFilter::Witness("invalid".to_string()),
         );
-        assert!(matches!(result, Err(Error::InvalidTxid)));
+        assert_matches!(result, Err(Error::InvalidTxid));
     }
 
     #[test]
@@ -728,18 +717,18 @@ mod tests {
 
         // type defined by the schema but not supported by rgb-lib
         let result = outputs(AssetSchema::Ifa, OS_LINK);
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(Error::RgbInspection { details })
                 if details == format!("ctx: currently unsupported assignment type: {OS_LINK}")
-        ));
+        );
 
         // type unknown to the schema
         let result = outputs(AssetSchema::Nia, OS_LINK);
-        assert!(matches!(
+        assert_matches!(
             result,
             Err(Error::RgbInspection { details })
                 if details == format!("ctx: unknown assignment type: {OS_LINK}")
-        ));
+        );
     }
 }

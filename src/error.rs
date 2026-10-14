@@ -86,6 +86,13 @@ pub enum Error {
         asset_schema: AssetSchema,
     },
 
+    /// The consignment has terminals rejected by the reject list of its asset
+    #[error("Consignment rejected by the reject list, rejected opouts: {opouts:?}")]
+    ConsignmentRejected {
+        /// The rejected terminal opouts
+        opouts: Vec<String>,
+    },
+
     /// The consignment failed validation
     #[error("Consignment validation failed: {details}")]
     ConsignmentValidationFailed {
@@ -632,7 +639,19 @@ pub enum Error {
     NoCosignersSupplied,
 
     /// No EVM RPC URL is configured for the chain the asset's bridge lives on (see
-    /// [`OnlineOptions::evm_rpc_urls`](crate::wallet::OnlineOptions::evm_rpc_urls))
+    #[cfg_attr(
+        feature = "_online",
+        doc = "[`OnlineOptions::evm_rpc_urls`](crate::wallet::OnlineOptions::evm_rpc_urls) or"
+    )]
+    #[cfg_attr(not(feature = "_online"), doc = "`OnlineOptions::evm_rpc_urls` or")]
+    #[cfg_attr(
+        feature = "validation",
+        doc = "[`ValidationOptions::evm_rpc_urls`](crate::no_wallet::ValidationOptions::evm_rpc_urls))"
+    )]
+    #[cfg_attr(
+        not(feature = "validation"),
+        doc = "`ValidationOptions::evm_rpc_urls`)"
+    )]
     #[error("No EVM RPC URL configured for chain ID {chain_id}")]
     NoEvmRpcUrl {
         /// Chain ID of the bridge contract, as committed in the asset's genesis
@@ -674,6 +693,13 @@ pub enum Error {
     /// Trying to perform an online operation with offline wallet
     #[error("Wallet is offline. Hint: call go_online")]
     Offline,
+
+    /// The provided offchain TXID is not the one of a witness transaction in the consignment
+    #[error("Offchain TXID {txid} not found in the consignment")]
+    OffchainTxidNotFound {
+        /// The offchain TXID
+        txid: String,
+    },
 
     /// The Online object is needed to perform this operation
     #[error("The Online object is needed to perform this operation")]
@@ -888,18 +914,18 @@ pub enum Error {
     WrongPassword,
 }
 
-#[cfg(feature = "wallet")]
+#[cfg(feature = "validation")]
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum IndexerError {
-    #[cfg(feature = "bitcoind")]
+    #[cfg(feature = "bitcoind_validation")]
     #[error("Bitcoind error: {0}")]
     Bitcoind(#[from] BitcoindRpcError),
 
-    #[cfg(feature = "electrum")]
+    #[cfg(feature = "electrum_validation")]
     #[error("Electrum error: {0}")]
     Electrum(#[from] ElectrumError),
 
-    #[cfg(feature = "esplora")]
+    #[cfg(feature = "esplora_validation")]
     #[error("Esplora error: {0}")]
     Esplora(#[from] EsploraError),
 }
@@ -1014,7 +1040,7 @@ impl From<bdk_wallet::bitcoin::psbt::PsbtParseError> for Error {
     }
 }
 
-#[cfg(feature = "wallet")]
+#[cfg(feature = "validation")]
 impl From<IndexerError> for Error {
     fn from(e: IndexerError) -> Self {
         Error::Indexer {
@@ -1023,7 +1049,7 @@ impl From<IndexerError> for Error {
     }
 }
 
-#[cfg(feature = "_online")]
+#[cfg(feature = "validation")]
 impl From<reqwest::Error> for Error {
     fn from(e: reqwest::Error) -> Self {
         Error::RestClientBuild {
@@ -1067,7 +1093,7 @@ impl From<psrgbt::MpcPsbtError> for InternalError {
     }
 }
 
-#[cfg(feature = "_online")]
+#[cfg(feature = "validation")]
 impl From<AnchorResolverError> for Error {
     fn from(e: AnchorResolverError) -> Self {
         match e {

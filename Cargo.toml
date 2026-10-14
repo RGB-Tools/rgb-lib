@@ -132,7 +132,8 @@ features = ["rustls"]
 default = ["wallet", "bitcoind", "electrum", "esplora", "bdk_file_store_migration", "rgb_fs_store_migration"]
 all = ["wallet", "bitcoind", "electrum", "esplora", "bdk_file_store_migration", "rgb_fs_store_migration"]
 # the wallet functionality; without it only the APIs that don't need a wallet (e.g. consignment
-# inspection) are available, pulling in just the RGB crates and few other lightweight dependencies
+# inspection, and validation with an indexer validation feature) are available, pulling in just the
+# RGB crates and few other lightweight dependencies
 wallet = [
     "dep:base64",
     "dep:bdk_wallet",
@@ -168,25 +169,44 @@ bdk_file_store_migration = ["wallet", "bdk_wallet/file_store"]
 # data moved into the rgb-lib DB; only needed to upgrade such wallets, so it can be turned off to
 # drop the legacy formats support of rgb-ops
 rgb_fs_store_migration = ["wallet", "rgb-ops/legacy"]
-# implied by each indexer feature, marking a build that can reach the network; it exists only to
-# avoid repeating the list of indexer features in cfgs and must not be enabled on its own
+# implied by each indexer feature, marking a build whose wallet can reach the network; it exists
+# only to avoid repeating the list of indexer features in cfgs and must not be enabled on its own
 _online = ["wallet"]
+# consignment validation with a witness resolver provided by the caller (not enabling the wallet
+# functionality nor any indexer): enable an indexer validation feature to validate with an indexer
+validation = ["reqwest"]
+# implied by each indexer validation feature, marking a build that can validate consignments
+# reaching the network; it exists only to avoid repeating the list of indexer validation features
+# in cfgs and must not be enabled on its own
+_validation = ["validation"]
+# support for an indexer, to use it with an online wallet (enabling the wallet functionality)
 bitcoind = [
     "_online",
+    "bitcoind_validation",
     "bdk_bitcoind_rpc",
-    "reqwest",
-    "rgb-ops/bitcoind_blocking",
 ]
 electrum = [
     "_online",
+    "electrum_validation",
     "bdk_electrum",
-    "reqwest",
-    "rgb-ops/electrum_blocking",
 ]
 esplora = [
     "_online",
+    "esplora_validation",
     "bdk_esplora",
-    "reqwest",
+]
+# support for an indexer, only to validate consignments (not enabling the wallet functionality)
+bitcoind_validation = [
+    "_validation",
+    "rgb-ops/bitcoind_blocking",
+]
+electrum_validation = [
+    "_validation",
+    "dep:rustls",
+    "rgb-ops/electrum_blocking",
+]
+esplora_validation = [
+    "_validation",
     "rgb-ops/esplora_blocking",
 ]
 camel_case = []

@@ -22,7 +22,17 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - uses: taiki-e/install-action@cargo-hack
       - name: Lint each feature in isolation
-        run: cargo hack clippy --workspace --all-targets --each-feature --exclude-features _online,default,all -- -D warnings
+        run: cargo hack clippy --workspace --all-targets --each-feature --exclude-features _online,_validation,default,all -- -D warnings
+      - name: Check docs of each feature in isolation
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: cargo hack doc --no-deps --each-feature --exclude-features _online,_validation,default,all
+      # the wallet without an indexer but with a validation one only builds what both need
+      - name: Lint the wallet feature with each validation feature
+        run: |
+          for feature in validation bitcoind_validation electrum_validation esplora_validation; do
+            cargo clippy --workspace --all-targets --no-default-features --features wallet,$feature -- -D warnings
+          done
       - name: Lint c-ffi bindings
         working-directory: ./bindings/c-ffi
         run: cargo clippy
