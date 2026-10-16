@@ -799,8 +799,8 @@ pub trait WalletOnline: WalletOffline {
         }
     }
 
-    // check that the total received amount of the type requested in the invoice satisfies the
-    // receive amount policy (a zero or missing amount means any amount)
+    // check that the received assignments are of the type requested in the invoice and that their
+    // total amount satisfies the receive amount policy (a zero or missing amount means any amount)
     fn received_matches_requested(
         requested: Option<&Assignment>,
         receive_amount_policy: ReceiveAmountPolicy,
@@ -809,19 +809,20 @@ pub trait WalletOnline: WalletOffline {
         let Some(requested) = requested else {
             return true;
         };
+        if *requested != Assignment::Any
+            && received
+                .iter()
+                .any(|a| std::mem::discriminant(a) != std::mem::discriminant(requested))
+        {
+            return false;
+        }
         let Some(requested_amt) = requested.requested_amount() else {
             return true;
         };
-        // only assignments of the requested type count, an overflow makes the sum missing
-        let received_amt = received
-            .iter()
-            .try_fold(0u64, |acc, a| match (requested, a) {
-                (Assignment::Fungible(_), Assignment::Fungible(amt))
-                | (Assignment::InflationRight(_), Assignment::InflationRight(amt)) => {
-                    acc.checked_add(*amt)
-                }
-                _ => Some(acc),
-            });
+        // types already match the requested one, an overflow makes the sum missing
+        let received_amt = received.iter().try_fold(0u64, |acc, a| {
+            acc.checked_add(a.requested_amount().unwrap_or(0))
+        });
         let Some(received_amt) = received_amt else {
             return false;
         };
