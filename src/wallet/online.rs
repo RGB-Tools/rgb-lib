@@ -799,6 +799,39 @@ pub trait WalletOnline: WalletOffline {
         }
     }
 
+    // check that the total received amount of the type requested in the invoice satisfies the
+    // receive amount policy (a zero or missing amount means any amount)
+    fn received_matches_requested(
+        requested: Option<&Assignment>,
+        receive_amount_policy: ReceiveAmountPolicy,
+        received: &[Assignment],
+    ) -> bool {
+        let Some(requested) = requested else {
+            return true;
+        };
+        let Some(requested_amt) = requested.requested_amount() else {
+            return true;
+        };
+        // only assignments of the requested type count, an overflow makes the sum missing
+        let received_amt = received
+            .iter()
+            .try_fold(0u64, |acc, a| match (requested, a) {
+                (Assignment::Fungible(_), Assignment::Fungible(amt))
+                | (Assignment::InflationRight(_), Assignment::InflationRight(amt)) => {
+                    acc.checked_add(*amt)
+                }
+                _ => Some(acc),
+            });
+        let Some(received_amt) = received_amt else {
+            return false;
+        };
+        match receive_amount_policy {
+            ReceiveAmountPolicy::NoCheck => true,
+            ReceiveAmountPolicy::Exact => received_amt == requested_amt,
+            ReceiveAmountPolicy::AtLeast => received_amt >= requested_amt,
+        }
+    }
+
     // extract the assignments in a single bundle that pay the recipient identified by
     // `known_concealed` (blind receives) or by the witness `vout` (witness receives)
     fn assignments_for_bundle(
@@ -1321,6 +1354,22 @@ pub trait WalletOnline: WalletOffline {
             error!(self.logger(), "Cannot find any receiving assignment");
             return self.refuse_consignment(txn, &mode, recipient_id, updated_batch_transfer);
         };
+        if !Self::received_matches_requested(
+            transfer.requested_assignment.as_ref(),
+            transfer
+                .receive_amount_policy
+                .unwrap_or(ReceiveAmountPolicy::NoCheck),
+            &receiving.values().cloned().collect::<Vec<_>>(),
+        ) {
+            error!(
+                self.logger(),
+                "Received assignments {:?} don't match the requested one {:?} ({:?})",
+                receiving.values(),
+                transfer.requested_assignment,
+                transfer.receive_amount_policy
+            );
+            return self.refuse_consignment(txn, &mode, recipient_id, updated_batch_transfer);
+        }
 
         if asset_schema == AssetSchema::Ifa {
             let url = if let Ok(ass) = txn.check_asset_exists(asset_id.clone()) {

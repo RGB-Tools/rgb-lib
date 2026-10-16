@@ -504,6 +504,10 @@ pub enum Error {
     #[error("Cannot allocate assets with zero allocations per UTXO")]
     NoMaxAllocationsPerUtxo,
 
+    /// A receive amount policy different from NoCheck requires an amount in the invoice
+    #[error("The receive amount policy requires an amount to be specified")]
+    NoReceiveAmount,
+
     /// Cannot create a wallet with no supported schemas
     #[error("Cannot create a wallet with no supported schemas")]
     NoSupportedSchemas,

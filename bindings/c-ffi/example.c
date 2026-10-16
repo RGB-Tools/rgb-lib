@@ -174,11 +174,13 @@ int main(int argc, char *argv[]) {
     printf("Assets: %s\n", assets_2);
 
     const char *assignment = "{\"Fungible\":77}";
+    const char *receive_amount_policy = "\"Exact\"";
     const char *transport_endpoints = "[\"rpc://127.0.0.1:3000/json-rpc\"]";
     char expiration_timestamp[32];
     sprintf(expiration_timestamp, "%lld", (long long)time(NULL) + 86400);
-    CResultString receive_data_res = rgblib_blind_receive(
-        wlt, NULL, assignment, expiration_timestamp, transport_endpoints, "1");
+    CResultString receive_data_res =
+        rgblib_blind_receive(wlt, NULL, assignment, receive_amount_policy,
+                             expiration_timestamp, transport_endpoints, "1");
     if (receive_data_res.result == Ok) {
         printf("Receive data: %s\n", receive_data_res.inner);
     } else {

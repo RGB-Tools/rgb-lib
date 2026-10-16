@@ -18,6 +18,7 @@ fn success() {
         .blind_receive(
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             expiration_timestamp,
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -45,6 +46,7 @@ fn success() {
         .blind_receive(
             Some(asset_nia_id.clone()),
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             expiration_timestamp,
             TRANSPORT_ENDPOINTS.clone(),
             min_confirmations,
@@ -66,6 +68,7 @@ fn success() {
         .blind_receive(
             Some(asset_uda_id.clone()),
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -83,6 +86,7 @@ fn success() {
         .blind_receive(
             Some(asset_cfa_id.clone()),
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -102,6 +106,7 @@ fn success() {
         .blind_receive(
             Some(asset_ifa_id.clone()),
             Assignment::Fungible(amount),
+            ReceiveAmountPolicy::NoCheck,
             expiration_timestamp,
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -131,6 +136,7 @@ fn success() {
         .blind_receive(
             Some(asset_nia_id.clone()),
             Assignment::Fungible(amount),
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -155,6 +161,7 @@ fn success() {
         .blind_receive(
             None,
             Assignment::Fungible(amount),
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -179,6 +186,7 @@ fn success() {
         .blind_receive(
             Some(asset_nia_id.clone()),
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -200,6 +208,7 @@ fn success() {
         .blind_receive(
             Some(asset_uda_id.clone()),
             Assignment::NonFungible,
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -221,6 +230,7 @@ fn success() {
         .blind_receive(
             Some(asset_uda_id.clone()),
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -242,6 +252,7 @@ fn success() {
         .blind_receive(
             Some(asset_ifa_id.clone()),
             Assignment::InflationRight(amount),
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -266,6 +277,7 @@ fn success() {
         .blind_receive(
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -278,10 +290,40 @@ fn success() {
     let transfer = party.get_test_transfer_recipient(&receive_data.recipient_id);
     assert_eq!(transfer.requested_assignment, Some(Assignment::Any));
 
+    // receive amount policy requiring an amount: any (no amount), NIA
+    let result = party.wallet.blind_receive(
+        Some(asset_nia_id.clone()),
+        Assignment::Any,
+        ReceiveAmountPolicy::Exact,
+        default_rcv_expiration(),
+        TRANSPORT_ENDPOINTS.clone(),
+        MIN_CONFIRMATIONS,
+    );
+    assert_matches!(result, Err(Error::NoReceiveAmount));
+
+    // receive amount policy is stored
+    let receive_data = party
+        .wallet
+        .blind_receive(
+            Some(asset_nia_id.clone()),
+            Assignment::Fungible(amount),
+            ReceiveAmountPolicy::AtLeast,
+            default_rcv_expiration(),
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+    let transfer = party.get_test_transfer_recipient(&receive_data.recipient_id);
+    assert_eq!(
+        transfer.receive_amount_policy,
+        Some(ReceiveAmountPolicy::AtLeast)
+    );
+
     // invalid assignment: non fungible, IFA schema
     let result = party.wallet.blind_receive(
         Some(asset_ifa_id.clone()),
         Assignment::NonFungible,
+        ReceiveAmountPolicy::NoCheck,
         default_rcv_expiration(),
         TRANSPORT_ENDPOINTS.clone(),
         MIN_CONFIRMATIONS,
@@ -301,6 +343,7 @@ fn success() {
     let result = party.wallet.blind_receive(
         None,
         Assignment::Any,
+        ReceiveAmountPolicy::NoCheck,
         default_rcv_expiration(),
         transport_endpoints.clone(),
         MIN_CONFIRMATIONS,
@@ -418,6 +461,7 @@ fn fail() {
         wallet.blind_receive(
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             transport_endpoints,
             MIN_CONFIRMATIONS,
@@ -446,6 +490,7 @@ fn fail() {
         .blind_receive(
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             (now().unix_timestamp() - 1) as u64,
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -457,6 +502,7 @@ fn fail() {
     let result = party.wallet.blind_receive(
         Some(s!("rgb1inexistent")),
         Assignment::Any,
+        ReceiveAmountPolicy::NoCheck,
         default_rcv_expiration(),
         TRANSPORT_ENDPOINTS.clone(),
         MIN_CONFIRMATIONS,
@@ -563,6 +609,7 @@ fn wrong_asset_fail() {
         .blind_receive(
             Some(asset_a.asset_id),
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,

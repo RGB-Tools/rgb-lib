@@ -435,7 +435,6 @@ pub(crate) fn test_go_online_options(indexer_url: Option<&str>) -> OnlineOptions
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) fn default_rcv_expiration() -> u64 {
     (now().unix_timestamp() + DURATION_RCV_TRANSFER as i64) as u64
 }

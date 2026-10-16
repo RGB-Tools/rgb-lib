@@ -138,7 +138,6 @@ const UNKNOWN_IDX: i32 = 9999;
 const TINY_BTC_AMOUNT: u32 = 330;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 const QUEUE_DEPTH_EXCEEDED: &str = "Work queue depth exceeded";
-#[cfg(any(feature = "electrum", feature = "esplora"))]
 const DURATION_RCV_TRANSFER: u32 = 86400;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 const DURATION_SEND_TRANSFER: u32 = 3600;

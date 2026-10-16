@@ -7,6 +7,7 @@ mod m20251215_124959_backup_info_update;
 mod m20260414_134758_add_reserved_txo;
 mod m20260625_121819_incoming_rework;
 mod m20260727_115821_add_bdk_tables;
+mod m20261016_120000_add_receive_amount_policy;
 
 pub struct Migrator;
 
@@ -21,6 +22,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260414_134758_add_reserved_txo::Migration),
             Box::new(m20260625_121819_incoming_rework::Migration),
             Box::new(m20260727_115821_add_bdk_tables::Migration),
+            Box::new(m20261016_120000_add_receive_amount_policy::Migration),
         ]
     }
 }

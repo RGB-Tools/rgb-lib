@@ -140,6 +140,26 @@ pub enum ColoringType {
     Change = 4,
 }
 
+/// Choice of policy to apply when receiving a transfer, based on the RGB amount.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize, EnumIter, DeriveActiveEnum,
+)]
+#[sea_orm(rs_type = "u8", db_type = "TinyUnsigned")]
+pub enum ReceiveAmountPolicy {
+    /// Any received amount will be accepted, regardless of the amount that has been specified in
+    /// the invoice
+    #[sea_orm(num_value = 1)]
+    NoCheck = 1,
+    /// If the received amount is different from the requested one the transfer will be refused.
+    /// This value is possible only when setting an amount into the invoice
+    #[sea_orm(num_value = 2)]
+    Exact = 2,
+    /// If the received amount is lower than the requested one the transfer will be refused. This
+    /// value is possible only when setting an amount into the invoice
+    #[sea_orm(num_value = 3)]
+    AtLeast = 3,
+}
+
 /// The type of an RGB recipient.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub enum RecipientTypeFull {
@@ -368,6 +388,14 @@ impl Assignment {
                     .expect("total inflation amount cannot exceed u64::MAX")
             }
             _ => unreachable!("when using this method we should know the assignment type"),
+        }
+    }
+
+    // the amount requested by an invoice, if any (a zero amount means any amount)
+    pub(crate) fn requested_amount(&self) -> Option<u64> {
+        match self {
+            Self::Fungible(amt) | Self::InflationRight(amt) if *amt > 0 => Some(*amt),
+            _ => None,
         }
     }
 

@@ -233,6 +233,27 @@ impl<'a> MultisigParty<'a> {
         self.signer.sign_psbt(psbt.to_string(), None).unwrap()
     }
 
+    pub(super) fn blind_receive_with_amount(
+        &mut self,
+        assignment: Assignment,
+        receive_amount_policy: ReceiveAmountPolicy,
+    ) -> ReceiveData {
+        let res = self
+            .multisig
+            .blind_receive(
+                self.online,
+                None,
+                assignment,
+                receive_amount_policy,
+                default_rcv_expiration(),
+                TRANSPORT_ENDPOINTS.clone(),
+                MIN_CONFIRMATIONS,
+            )
+            .unwrap();
+        op_counter_bump();
+        res
+    }
+
     fn sign_and_ack(&mut self, psbt: &str, op_idx: i32) -> OperationInfo {
         println!("sign and ack {op_idx} {}", self.data_dir());
         let signed = self.sign(psbt);
@@ -398,6 +419,7 @@ pub(super) trait MultisigOps: OfflineSigParty {
             online,
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -748,6 +770,7 @@ pub(super) trait MultisigOps: OfflineSigParty {
             online,
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,

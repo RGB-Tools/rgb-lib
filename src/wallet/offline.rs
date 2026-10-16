@@ -938,6 +938,7 @@ pub trait WalletOffline: WalletBackup {
         txn: &DbTxn,
         asset_id: Option<String>,
         assignment: Assignment,
+        receive_amount_policy: ReceiveAmountPolicy,
         expiration_timestamp: i64,
         transport_endpoints: Vec<String>,
         recipient_type: RecipientType,
@@ -1040,6 +1041,11 @@ pub trait WalletOffline: WalletBackup {
             (Assignment::Any, _) => Assignment::Any,
             _ => return Err(Error::InvalidAssignment),
         };
+        if receive_amount_policy != ReceiveAmountPolicy::NoCheck
+            && detected_assignment.requested_amount().is_none()
+        {
+            return Err(Error::NoReceiveAmount);
+        }
         let created_at = now().unix_timestamp();
         if expiration_timestamp < created_at {
             return Err(Error::InvalidExpiration);
@@ -1051,6 +1057,7 @@ pub trait WalletOffline: WalletBackup {
         Ok(ReceiveDataInternal {
             asset_id,
             detected_assignment,
+            receive_amount_policy,
             invoice_string,
             recipient_id,
             endpoints,
@@ -1094,6 +1101,9 @@ pub trait WalletOffline: WalletBackup {
                 receive_data_internal.recipient_type_full.clone(),
             )),
             invoice_string: ActiveValue::Set(Some(receive_data_internal.invoice_string.clone())),
+            receive_amount_policy: ActiveValue::Set(Some(
+                receive_data_internal.receive_amount_policy,
+            )),
             ..Default::default()
         };
         let transfer_idx = txn.set_transfer(transfer)?;
