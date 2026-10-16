@@ -766,7 +766,8 @@ impl Wallet {
     /// `receive_amount_policy` determines how the received amount is checked when accepting the
     /// transfer (see [`ReceiveAmountPolicy`]): [`ReceiveAmountPolicy::Exact`] and
     /// [`ReceiveAmountPolicy::AtLeast`] require an amount to be specified, otherwise an
-    /// [`Error::NoReceiveAmount`] is returned.
+    /// [`Error::NoReceiveAmount`] is returned. Received assignments of a type other than the
+    /// requested one are refused (unless [`Assignment::Any`] is requested).
     ///
     /// A UTXO holds at most one mint right of an asset: an invoice requesting one
     /// ([`Assignment::MintRight`]) blinds a UTXO that doesn't hold one and isn't due to receive
@@ -870,7 +871,8 @@ impl Wallet {
     /// `receive_amount_policy` determines how the received amount is checked when accepting the
     /// transfer (see [`ReceiveAmountPolicy`]): [`ReceiveAmountPolicy::Exact`] and
     /// [`ReceiveAmountPolicy::AtLeast`] require an amount to be specified, otherwise an
-    /// [`Error::NoReceiveAmount`] is returned.
+    /// [`Error::NoReceiveAmount`] is returned. Received assignments of a type other than the
+    /// requested one are refused (unless [`Assignment::Any`] is requested).
     ///
     /// An expiration UTC timestamp must be specified, which will set the expiration of the
     /// invoice and the transfer. An expiration more than [`MAX_EXPIRATION_SECS`] in the future is

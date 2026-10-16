@@ -1179,16 +1179,6 @@ fn received_matches_requested() {
     assert!(check(Some(InflationRight(5)), Exact, &[InflationRight(5)]));
     assert!(!check(Some(InflationRight(5)), Exact, &[InflationRight(4)]));
 
-    // only assignments of the requested type count towards the amount
-    assert!(check(
-        Some(Fungible(66)),
-        Exact,
-        &[Fungible(66), InflationRight(1)]
-    ));
-    assert!(!check(Some(Fungible(66)), Exact, &[InflationRight(66)]));
-    assert!(!check(Some(InflationRight(5)), AtLeast, &[Fungible(5)]));
-    assert!(check(Some(Fungible(66)), Whatever, &[InflationRight(66)]));
-
     // overflowing sum is refused
     assert!(!check(
         Some(Fungible(1)),
@@ -1200,5 +1190,45 @@ fn received_matches_requested() {
     for requested in [None, Some(Any), Some(Fungible(0))] {
         assert!(check(requested.clone(), Whatever, &[Fungible(1)]));
         assert!(check(requested, Exact, &[Fungible(2)]));
+    }
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn received_type_matches_requested() {
+    use Assignment::*;
+    use ReceiveAmountPolicy::{AtLeast, Exact, Whatever};
+
+    let check = |requested: Option<Assignment>, policy, received: &[Assignment]| {
+        Wallet::received_matches_requested(requested.as_ref(), policy, received)
+    };
+
+    // a received assignment of a type different from the requested one is refused, regardless
+    // of the policy and of the amount
+    for policy in [Whatever, Exact, AtLeast] {
+        assert!(!check(Some(Fungible(66)), policy, &[InflationRight(66)]));
+        assert!(!check(
+            Some(Fungible(66)),
+            policy,
+            &[Fungible(66), InflationRight(1)]
+        ));
+        assert!(!check(
+            Some(Fungible(66)),
+            policy,
+            &[Fungible(66), NonFungible]
+        ));
+        assert!(!check(Some(InflationRight(5)), policy, &[Fungible(5)]));
+        assert!(!check(Some(NonFungible), policy, &[Fungible(1)]));
+    }
+
+    // same type is accepted
+    assert!(check(Some(NonFungible), Whatever, &[NonFungible]));
+    assert!(check(Some(Fungible(0)), Whatever, &[Fungible(1)]));
+
+    // any assignment type is accepted when the invoice doesn't request one
+    for requested in [None, Some(Any)] {
+        assert!(check(requested.clone(), Whatever, &[InflationRight(1)]));
+        assert!(check(requested, Whatever, &[Fungible(1), NonFungible]));
     }
 }
