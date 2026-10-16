@@ -762,8 +762,11 @@ impl Wallet {
     /// An optional asset ID can be specified, which will be embedded in the invoice, resulting in
     /// the refusal of the transfer is the asset doesn't match.
     ///
-    /// An optional amount can be specified, which will be embedded in the invoice. It will not be
-    /// checked when accepting the transfer.
+    /// An optional amount can be specified, which will be embedded in the invoice. The
+    /// `receive_amount_policy` determines how the received amount is checked when accepting the
+    /// transfer (see [`ReceiveAmountPolicy`]): [`ReceiveAmountPolicy::Exact`] and
+    /// [`ReceiveAmountPolicy::AtLeast`] require an amount to be specified, otherwise an
+    /// [`Error::NoReceiveAmount`] is returned.
     ///
     /// A UTXO holds at most one mint right of an asset: an invoice requesting one
     /// ([`Assignment::MintRight`]) blinds a UTXO that doesn't hold one and isn't due to receive
@@ -816,6 +819,7 @@ impl Wallet {
         online: Option<Online>,
         asset_id: Option<String>,
         assignment: Assignment,
+        receive_amount_policy: ReceiveAmountPolicy,
         expiration_timestamp: u64,
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
@@ -834,6 +838,7 @@ impl Wallet {
             online,
             asset_id,
             assignment,
+            receive_amount_policy,
             expiration_timestamp as i64,
             transport_endpoints,
             RecipientType::Blind,
@@ -861,8 +866,11 @@ impl Wallet {
     /// An optional asset ID can be specified, which will be embedded in the invoice, resulting in
     /// the refusal of the transfer is the asset doesn't match.
     ///
-    /// An optional amount can be specified, which will be embedded in the invoice. It will not be
-    /// checked when accepting the transfer.
+    /// An optional amount can be specified, which will be embedded in the invoice. The
+    /// `receive_amount_policy` determines how the received amount is checked when accepting the
+    /// transfer (see [`ReceiveAmountPolicy`]): [`ReceiveAmountPolicy::Exact`] and
+    /// [`ReceiveAmountPolicy::AtLeast`] require an amount to be specified, otherwise an
+    /// [`Error::NoReceiveAmount`] is returned.
     ///
     /// An expiration UTC timestamp must be specified, which will set the expiration of the
     /// invoice and the transfer. An expiration more than [`MAX_EXPIRATION_SECS`] in the future is
@@ -929,6 +937,7 @@ impl Wallet {
         online: Option<Online>,
         asset_id: Option<String>,
         assignment: Assignment,
+        receive_amount_policy: ReceiveAmountPolicy,
         expiration_timestamp: u64,
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
@@ -948,6 +957,7 @@ impl Wallet {
             online,
             asset_id,
             assignment,
+            receive_amount_policy,
             expiration_timestamp as i64,
             transport_endpoints,
             RecipientType::Witness,

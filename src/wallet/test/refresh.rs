@@ -1001,6 +1001,7 @@ fn filter_with_waiting_safe_height() {
             Some(party_2.online),
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::Whatever,
             (now().unix_timestamp() + DURATION_RCV_TRANSFER as i64) as u64,
             TRANSPORT_ENDPOINTS.clone(),
             2,
@@ -1149,4 +1150,55 @@ fn ack_failure_no_duplicate_colorings() {
             spendable: 0,
         }
     );
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn received_matches_requested() {
+    use Assignment::*;
+    use ReceiveAmountPolicy::{AtLeast, Exact, Whatever};
+
+    let check = |requested: Option<Assignment>, policy, received: &[Assignment]| {
+        Wallet::received_matches_requested(requested.as_ref(), policy, received)
+    };
+
+    // fungible amounts, summed across assignments
+    for (received, whatever, exact, at_least) in [
+        (vec![Fungible(65)], true, false, false),
+        (vec![Fungible(66)], true, true, true),
+        (vec![Fungible(67)], true, false, true),
+        (vec![Fungible(33), Fungible(33)], true, true, true),
+    ] {
+        assert_eq!(check(Some(Fungible(66)), Whatever, &received), whatever);
+        assert_eq!(check(Some(Fungible(66)), Exact, &received), exact);
+        assert_eq!(check(Some(Fungible(66)), AtLeast, &received), at_least);
+    }
+
+    // inflation rights
+    assert!(check(Some(InflationRight(5)), Exact, &[InflationRight(5)]));
+    assert!(!check(Some(InflationRight(5)), Exact, &[InflationRight(4)]));
+
+    // only assignments of the requested type count towards the amount
+    assert!(check(
+        Some(Fungible(66)),
+        Exact,
+        &[Fungible(66), InflationRight(1)]
+    ));
+    assert!(!check(Some(Fungible(66)), Exact, &[InflationRight(66)]));
+    assert!(!check(Some(InflationRight(5)), AtLeast, &[Fungible(5)]));
+    assert!(check(Some(Fungible(66)), Whatever, &[InflationRight(66)]));
+
+    // overflowing sum is refused
+    assert!(!check(
+        Some(Fungible(1)),
+        AtLeast,
+        &[Fungible(u64::MAX), Fungible(1)]
+    ));
+
+    // no requested amount accepts anything
+    for requested in [None, Some(Any), Some(Fungible(0))] {
+        assert!(check(requested.clone(), Whatever, &[Fungible(1)]));
+        assert!(check(requested, Exact, &[Fungible(2)]));
+    }
 }

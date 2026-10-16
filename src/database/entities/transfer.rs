@@ -2,7 +2,7 @@
 
 use sea_orm::entity::prelude::*;
 
-use crate::database::enums::{Assignment, Encryption, RecipientTypeFull};
+use crate::database::enums::{Assignment, Encryption, ReceiveAmountPolicy, RecipientTypeFull};
 
 #[derive(Copy, Clone, Default, Debug, DeriveEntity)]
 pub struct Entity;
@@ -30,6 +30,7 @@ pub struct Model {
     pub invoice_expiration: Option<i64>,
     pub invoice_idx: Option<i32>,
     pub receive_dir: Option<String>,
+    pub receive_amount_policy: Option<ReceiveAmountPolicy>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
@@ -49,6 +50,7 @@ pub enum Column {
     InvoiceExpiration,
     InvoiceIdx,
     ReceiveDir,
+    ReceiveAmountPolicy,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DerivePrimaryKey)]
@@ -88,6 +90,7 @@ impl ColumnTrait for Column {
             Self::InvoiceExpiration => ColumnType::BigInteger.def().null(),
             Self::InvoiceIdx => ColumnType::Integer.def().null(),
             Self::ReceiveDir => ColumnType::String(StringLen::None).def().null(),
+            Self::ReceiveAmountPolicy => ColumnType::TinyUnsigned.def().null(),
         }
     }
 }

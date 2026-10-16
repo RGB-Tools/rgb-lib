@@ -1442,6 +1442,8 @@ pub struct ReceiveDataInternal {
     pub(crate) asset_id: Option<String>,
     /// Resolved assignment requested for this receive
     pub(crate) detected_assignment: Assignment,
+    /// Policy to apply to the received amount
+    pub(crate) receive_amount_policy: ReceiveAmountPolicy,
     /// The RGB invoice
     pub(crate) invoice_string: String,
     /// Recipient ID (blind or witness) encoded in the invoice

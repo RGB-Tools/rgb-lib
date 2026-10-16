@@ -1329,6 +1329,7 @@ pub trait WalletOffline: WalletBackup {
         #[cfg_attr(not(feature = "_online"), allow(unused_variables))] online: Option<Online>,
         asset_id: Option<String>,
         assignment: Assignment,
+        receive_amount_policy: ReceiveAmountPolicy,
         expiration_timestamp: i64,
         transport_endpoints: Vec<String>,
         recipient_type: RecipientType,
@@ -1515,6 +1516,11 @@ pub trait WalletOffline: WalletBackup {
         if let Some(state_name) = detected_assignment.state_name() {
             invoice_builder = invoice_builder.set_assignment_name(state_name);
         }
+        if receive_amount_policy != ReceiveAmountPolicy::Whatever
+            && detected_assignment.requested_amount().is_none()
+        {
+            return Err(Error::NoReceiveAmount);
+        }
         let created_at = now().unix_timestamp();
         if expiration_timestamp < created_at
             || expiration_timestamp > created_at + i64::from(MAX_EXPIRATION_SECS)
@@ -1627,6 +1633,7 @@ pub trait WalletOffline: WalletBackup {
         Ok(ReceiveDataInternal {
             asset_id,
             detected_assignment,
+            receive_amount_policy,
             invoice_string,
             recipient_id,
             endpoints,
@@ -1773,6 +1780,9 @@ pub trait WalletOffline: WalletBackup {
                 receive_data_internal.recipient_pubkey.clone(),
             )),
             recipient_encryption: ActiveValue::Set(receive_data_internal.encryption),
+            receive_amount_policy: ActiveValue::Set(Some(
+                receive_data_internal.receive_amount_policy,
+            )),
             ..Default::default()
         };
         let transfer_idx = txn.set_transfer(transfer)?;
