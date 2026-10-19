@@ -539,6 +539,11 @@ fn fail() {
     let mut empty_party = get_empty_party!();
     let result = empty_party.inflate_end_result(&signed_psbt);
     assert_matches!(result, Err(Error::UnknownTransfer { txid }) if txid == psbt_txid);
+    // - PSBT of another operation
+    let unsigned_psbt = party.burn_begin(&asset_ifa.asset_id, 1);
+    let signed_psbt = party.wallet.sign_psbt(unsigned_psbt, None).unwrap();
+    let result = party.inflate_end_result(&signed_psbt);
+    assert_matches!(result, Err(_));
 }
 
 #[cfg(feature = "electrum")]

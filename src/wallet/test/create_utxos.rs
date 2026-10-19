@@ -236,6 +236,23 @@ fn fail() {
     // output below dust limit
     let result = party.create_utxos_begin_result(false, Some(1), Some(1), FEE_RATE);
     assert!(matches!(result, Err(Error::OutputBelowDustLimit)));
+
+    // create_utxos_end with the PSBT of another operation
+    // - an RGB one
+    let asset = party.issue_asset_ifa(None, None, None);
+    let unsigned_psbt = party.burn_begin(&asset.asset_id, 1);
+    let signed_psbt = party.wallet.sign_psbt(unsigned_psbt, None).unwrap();
+    let result = party.wallet.create_utxos_end(party.online, signed_psbt);
+    assert_matches!(result, Err(_));
+    // - a vanilla one
+    let address = party.get_address();
+    let unsigned_psbt = party
+        .wallet
+        .send_btc_begin(party.online, address, 1000, FEE_RATE, false, false)
+        .unwrap();
+    let signed_psbt = party.wallet.sign_psbt(unsigned_psbt, None).unwrap();
+    let result = party.wallet.create_utxos_end(party.online, signed_psbt);
+    assert_matches!(result, Err(_));
 }
 
 // create UTXOs of size funds/256 + check UTXO_NUM are created

@@ -218,6 +218,30 @@ fn fail() {
     let mut wo_party = get_funded_noutxo_party(false, None);
     let result = wo_party.drain_to_result(&rcv_party.get_address());
     assert!(matches!(result, Err(Error::WatchOnly)));
+
+    // drain_to_end with the PSBT of another operation
+    // - an RGB one
+    party.create_utxos_default();
+    let asset = party.issue_asset_ifa(None, None, None);
+    let unsigned_psbt = party.burn_begin(&asset.asset_id, 1);
+    let signed_psbt = party.wallet.sign_psbt(unsigned_psbt, None).unwrap();
+    let result = party.wallet.drain_to_end(party.online, signed_psbt);
+    assert_matches!(result, Err(_));
+    // - a vanilla one
+    let unsigned_psbt = party
+        .wallet
+        .send_btc_begin(
+            party.online,
+            rcv_party.get_address(),
+            1000,
+            FEE_RATE,
+            false,
+            false,
+        )
+        .unwrap();
+    let signed_psbt = party.wallet.sign_psbt(unsigned_psbt, None).unwrap();
+    let result = party.wallet.drain_to_end(party.online, signed_psbt);
+    assert_matches!(result, Err(_));
 }
 
 #[cfg(feature = "electrum")]
