@@ -633,7 +633,7 @@ fn end_after_fail_or_end() {
     assert!(party.fail_transfers_single(batch_transfer_idx));
     assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Failed));
     let result = party.inflate_end_result(&signed_psbt);
-    assert!(result.is_err());
+    assert_matches!(result, Err(Error::CannotEndTransfer { txid: t }) if t == txid);
     assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Failed));
 
     // an ended inflation is not ended again
@@ -643,6 +643,6 @@ fn end_after_fail_or_end() {
     party.wait_for_refresh(None);
     assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
     let result = party.inflate_end_result(&signed_psbt);
-    assert!(result.is_err());
+    assert_matches!(result, Err(Error::CannotEndTransfer { txid: t }) if t == txid);
     assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
 }

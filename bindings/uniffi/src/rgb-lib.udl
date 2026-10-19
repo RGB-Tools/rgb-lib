@@ -18,6 +18,7 @@ interface RgbLibError {
   CannotChangeOnline();
   CannotCombinePsbts();
   CannotDeleteBatchTransfer();
+  CannotEndTransfer(string txid);
   CannotEstimateFees();
   CannotFailBatchTransfer();
   CannotFinalizePsbt();
