@@ -174,6 +174,28 @@ pub trait WalletOnline: WalletOffline {
         Ok(())
     }
 
+    /// Check that the PSBT being ended is of the given vanilla operation: an RGB operation (which
+    /// has a transfer directory) or another vanilla one (as recorded by a non-dry-run begin) would
+    /// be completed skipping its checks and steps.
+    fn check_vanilla_end(
+        &self,
+        txn: &DbTxn,
+        psbt: &Psbt,
+        r#type: WalletTransactionType,
+    ) -> Result<(), Error> {
+        let txid = psbt.unsigned_tx.compute_txid().to_string();
+        if self.get_transfer_dir(&txid).exists() {
+            return Err(Error::WrongOperation { txid });
+        }
+        if let Some((wallet_transaction, _)) =
+            txn.get_wallet_transaction_with_reserved_txos_by_txid(&txid)?
+            && wallet_transaction.r#type != r#type
+        {
+            return Err(Error::WrongOperation { txid });
+        }
+        Ok(())
+    }
+
     fn finalize_vanilla_wallet_transaction(
         &self,
         txn: &DbTxn,
@@ -347,6 +369,7 @@ pub trait WalletOnline: WalletOffline {
     }
 
     fn create_utxos_end_impl(&mut self, txn: &DbTxn, signed_psbt: &Psbt) -> Result<u8, Error> {
+        self.check_vanilla_end(txn, signed_psbt, WalletTransactionType::CreateUtxos)?;
         self.finalize_vanilla_wallet_transaction(
             txn,
             signed_psbt,
@@ -432,6 +455,7 @@ pub trait WalletOnline: WalletOffline {
         txn: &DbTxn,
         signed_psbt: &Psbt,
     ) -> Result<BdkTransaction, Error> {
+        self.check_vanilla_end(txn, signed_psbt, WalletTransactionType::Drain)?;
         self.finalize_vanilla_wallet_transaction(txn, signed_psbt, WalletTransactionType::Drain)?;
         let tx = self.broadcast_psbt(txn, signed_psbt)?;
         Ok(tx)
@@ -3785,6 +3809,12 @@ pub trait WalletOnline: WalletOffline {
         let (txid, transfer_dir, mut info_contents, mut fascia) =
             self.get_transfer_end_data(signed_psbt)?;
 
+        // the data must be of this operation: another one would be completed skipping its checks
+        // and steps
+        if !info_contents.is_operation(&TypeOfTransition::Transfer) {
+            return Err(Error::WrongOperation { txid });
+        }
+
         // for donations, embed the signed transaction in the consignment so also the recipient can
         // broadcast it
         if info_contents.donation {
@@ -3929,6 +3959,7 @@ pub trait WalletOnline: WalletOffline {
     }
 
     fn send_btc_end_impl(&mut self, txn: &DbTxn, signed_psbt: &Psbt) -> Result<String, Error> {
+        self.check_vanilla_end(txn, signed_psbt, WalletTransactionType::SendBtc)?;
         let tx = self.broadcast_psbt(txn, signed_psbt)?;
         self.finalize_vanilla_wallet_transaction(txn, signed_psbt, WalletTransactionType::SendBtc)?;
         Ok(tx.compute_txid().to_string())
@@ -4084,6 +4115,12 @@ pub trait WalletOnline: WalletOffline {
         let (txid, _transfer_dir, info_contents, fascia) =
             self.get_transfer_end_data(signed_psbt)?;
 
+        // the data must be of this operation: another one would be completed skipping its checks
+        // and steps
+        if !info_contents.is_operation(&TypeOfTransition::Inflate) {
+            return Err(Error::WrongOperation { txid });
+        }
+
         let batch_transfer_idx = self.finalize_transfer_end(
             txn,
             txid.clone(),
@@ -4232,6 +4269,12 @@ pub trait WalletOnline: WalletOffline {
         self.check_end_initiated(txn, signed_psbt)?;
         let (txid, _transfer_dir, info_contents, fascia) =
             self.get_transfer_end_data(signed_psbt)?;
+
+        // the data must be of this operation: another one would be completed skipping its checks
+        // and steps
+        if !info_contents.is_operation(&TypeOfTransition::Burn) {
+            return Err(Error::WrongOperation { txid });
+        }
 
         let batch_transfer_idx = self.finalize_transfer_end(
             txn,

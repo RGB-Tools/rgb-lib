@@ -723,6 +723,11 @@ impl OperationHandler for SendRgbHandler {
     fn extract_details(files: &[FileResponse]) -> Result<Self::Details, Error> {
         let fascia_path = extract_fascia_path(files)?;
         let info_batch_transfer = InfoBatchTransfer::extract_from_files(files)?;
+        if !info_batch_transfer.is_operation(&TypeOfTransition::Transfer) {
+            return Err(Error::MultisigUnexpectedData {
+                details: s!("operation data is not of a send"),
+            });
+        }
         Ok(SendDetails {
             fascia_path,
             min_confirmations: info_batch_transfer.min_confirmations,
@@ -792,6 +797,11 @@ impl OperationHandler for InflateHandler {
     fn extract_details(files: &[FileResponse]) -> Result<Self::Details, Error> {
         let fascia_path = extract_fascia_path(files)?;
         let info_batch_transfer = InfoBatchTransfer::extract_from_files(files)?;
+        if !info_batch_transfer.is_operation(&TypeOfTransition::Inflate) {
+            return Err(Error::MultisigUnexpectedData {
+                details: s!("operation data is not of an inflation"),
+            });
+        }
         if info_batch_transfer.transfers.len() != 1 {
             return Err(Error::MultisigUnexpectedData {
                 details: format!(
@@ -867,6 +877,11 @@ impl OperationHandler for BurnHandler {
     fn extract_details(files: &[FileResponse]) -> Result<Self::Details, Error> {
         let fascia_path = extract_fascia_path(files)?;
         let info_batch_transfer = InfoBatchTransfer::extract_from_files(files)?;
+        if !info_batch_transfer.is_operation(&TypeOfTransition::Burn) {
+            return Err(Error::MultisigUnexpectedData {
+                details: s!("operation data is not of a burn"),
+            });
+        }
         if info_batch_transfer.transfers.len() != 1 {
             return Err(Error::MultisigUnexpectedData {
                 details: format!(

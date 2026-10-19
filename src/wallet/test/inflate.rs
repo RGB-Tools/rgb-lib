@@ -542,8 +542,13 @@ fn fail() {
     // - PSBT of another operation
     let unsigned_psbt = party.burn_begin(&asset_ifa.asset_id, 1);
     let signed_psbt = party.wallet.sign_psbt(unsigned_psbt, None).unwrap();
+    let txid = Psbt::from_str(&signed_psbt)
+        .unwrap()
+        .unsigned_tx
+        .compute_txid()
+        .to_string();
     let result = party.inflate_end_result(&signed_psbt);
-    assert_matches!(result, Err(_));
+    assert_matches!(result, Err(Error::WrongOperation { txid: t }) if t == txid);
 }
 
 #[cfg(feature = "electrum")]

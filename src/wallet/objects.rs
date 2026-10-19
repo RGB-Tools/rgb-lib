@@ -1945,6 +1945,19 @@ pub struct InfoBatchTransfer {
     pub transfers: BTreeMap<String, InfoAssetTransfer>,
 }
 
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+impl InfoBatchTransfer {
+    /// Whether this is the data of an operation of the kind identified by the given main
+    /// transition, i.e. whether every transfer of the batch has it
+    pub(crate) fn is_operation(&self, main_transition: &TypeOfTransition) -> bool {
+        !self.transfers.is_empty()
+            && self
+                .transfers
+                .values()
+                .all(|t| &t.main_transition == main_transition)
+    }
+}
+
 pub type TransferEndData = (String, PathBuf, InfoBatchTransfer, Fascia);
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]

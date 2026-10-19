@@ -123,6 +123,7 @@ interface RgbLibError {
   WalletDirAlreadyExists(string path);
   WalletSettingMismatch(string setting, string expected, string provided);
   WatchOnly();
+  WrongOperation(string txid);
   WrongPassword();
 };
 

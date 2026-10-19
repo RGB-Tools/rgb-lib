@@ -674,6 +674,13 @@ pub enum Error {
     #[error("Operation not allowed on watch only wallet")]
     WatchOnly,
 
+    /// The PSBT belongs to a different kind of operation than the expected one
+    #[error("PSBT belongs to a different operation: {txid}")]
+    WrongOperation {
+        /// TXID of the PSBT
+        txid: String,
+    },
+
     /// The provided password is incorrect
     #[error("The provided password is incorrect")]
     WrongPassword,
