@@ -868,7 +868,7 @@ fn send_end_db_update_only_success() {
 
     let result = party
         .wallet
-        .send_end_db_update_only(party.online, signed_psbt)
+        .send_end_db_update_only(party.online, signed_psbt.clone())
         .unwrap();
 
     assert!(!result.txid.is_empty());
@@ -878,6 +878,12 @@ fn send_end_db_update_only_success() {
         party
             .check_test_transfer_status_sender(&result.txid, TransferStatus::WaitingConfirmations,)
     );
+
+    // a donation that has already been ended cannot be ended again
+    let result_again = party
+        .wallet
+        .send_end_db_update_only(party.online, signed_psbt);
+    assert!(result_again.is_err());
 }
 
 #[cfg(feature = "electrum")]

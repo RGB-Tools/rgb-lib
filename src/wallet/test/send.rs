@@ -9355,3 +9355,77 @@ fn invalid_proxy_consignment_bytes() {
     consignment_mock.assert();
     ack_mock.assert();
 }
+
+/// A send ended again (e.g. retried after a crash) is completed only while it's still in progress:
+/// one that has failed or already progressed must not be broadcast again nor have its status
+/// changed.
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn send_end_after_fail_or_end() {
+    initialize();
+
+    let amount: u64 = 66;
+
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+
+    let asset = party.issue_asset_nia(None);
+
+    // begin a send and sign its PSBT
+    let begin = |party: &mut SinglesigParty, rcv_party: &mut SinglesigParty, donation: bool| {
+        let receive_data = rcv_party.blind_receive();
+        let recipient_map = HashMap::from([(
+            asset.asset_id.clone(),
+            vec![Recipient {
+                assignment: Assignment::Fungible(amount),
+                recipient_id: receive_data.recipient_id.clone(),
+                witness_data: None,
+                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+            }],
+        )]);
+        let res = party
+            .wallet
+            .send_begin(
+                party.online,
+                recipient_map,
+                donation,
+                FEE_RATE,
+                MIN_CONFIRMATIONS,
+                default_send_expiration(),
+                false,
+            )
+            .unwrap();
+        party.wallet.sign_psbt(res.psbt, None).unwrap()
+    };
+
+    // a failed send is not ended again
+    let signed_psbt = begin(&mut party, &mut rcv_party, false);
+    let res = party
+        .wallet
+        .send_end(party.online, signed_psbt.clone())
+        .unwrap();
+    assert!(
+        party.check_test_transfer_status_sender(&res.txid, TransferStatus::WaitingCounterparty)
+    );
+    assert!(party.fail_transfers_single(res.batch_transfer_idx));
+    assert!(party.check_test_transfer_status_sender(&res.txid, TransferStatus::Failed));
+    let result = party.wallet.send_end(party.online, signed_psbt);
+    assert!(result.is_err());
+    assert!(party.check_test_transfer_status_sender(&res.txid, TransferStatus::Failed));
+
+    // an ended donation (which has progressed to waiting for confirmations) is not ended again
+    let signed_psbt = begin(&mut party, &mut rcv_party, true);
+    let res = party
+        .wallet
+        .send_end(party.online, signed_psbt.clone())
+        .unwrap();
+    assert!(
+        party.check_test_transfer_status_sender(&res.txid, TransferStatus::WaitingConfirmations)
+    );
+    let result = party.wallet.send_end(party.online, signed_psbt);
+    assert!(result.is_err());
+    assert!(
+        party.check_test_transfer_status_sender(&res.txid, TransferStatus::WaitingConfirmations)
+    );
+}
