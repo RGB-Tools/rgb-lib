@@ -618,6 +618,13 @@ fn fail() {
     let mut party_2 = get_empty_party!();
     let result = party_2.burn_end_result(&signed_psbt);
     assert_matches!(result, Err(Error::UnknownTransfer { txid }) if txid == psbt_txid);
+    // - PSBT of another operation
+    party.create_utxos(false, Some(2), None, FEE_RATE, None);
+    let asset_inflatable = party.issue_asset_ifa(None, Some(&[1]), None);
+    let unsigned_psbt = party.inflate_begin(&asset_inflatable.asset_id, &[1]);
+    let signed_psbt = party.wallet.sign_psbt(unsigned_psbt, None).unwrap();
+    let result = party.burn_end_result(&signed_psbt);
+    assert_matches!(result, Err(_));
 }
 
 #[cfg(feature = "electrum")]

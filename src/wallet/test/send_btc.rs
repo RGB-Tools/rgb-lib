@@ -141,6 +141,22 @@ fn fail() {
         true,
     );
     assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_OVER));
+
+    // send_btc_end with the PSBT of another operation
+    // - an RGB one
+    let asset = party.issue_asset_ifa(None, None, None);
+    let unsigned_psbt = party.burn_begin(&asset.asset_id, 1);
+    let signed_psbt = party.wallet.sign_psbt(unsigned_psbt, None).unwrap();
+    let result = party.wallet.send_btc_end(party.online, signed_psbt);
+    assert_matches!(result, Err(_));
+    // - a vanilla one
+    let unsigned_psbt = party
+        .wallet
+        .create_utxos_begin(party.online, false, Some(1), None, FEE_RATE, false, false)
+        .unwrap();
+    let signed_psbt = party.wallet.sign_psbt(unsigned_psbt, None).unwrap();
+    let result = party.wallet.send_btc_end(party.online, signed_psbt);
+    assert_matches!(result, Err(_));
 }
 
 #[cfg(feature = "electrum")]

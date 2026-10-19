@@ -889,6 +889,44 @@ fn send_end_db_update_only_success() {
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
+fn send_end_db_update_only_wrong_operation() {
+    initialize();
+
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+
+    // a non-donation send
+    let asset = party.issue_asset_ifa(None, None, None);
+    let receive_data = rcv_party.blind_receive();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(10),
+            recipient_id: receive_data.recipient_id.clone(),
+            witness_data: None,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let begin = party.send_begin_result(&recipient_map).unwrap();
+    let signed_psbt = party.wallet.sign_psbt(begin.psbt, None).unwrap();
+    let result = party
+        .wallet
+        .send_end_db_update_only(party.online, signed_psbt);
+    assert_matches!(result, Err(_));
+
+    // another operation
+    let asset = party.issue_asset_ifa(None, None, None);
+    let unsigned_psbt = party.burn_begin(&asset.asset_id, 1);
+    let signed_psbt = party.wallet.sign_psbt(unsigned_psbt, None).unwrap();
+    let result = party
+        .wallet
+        .send_end_db_update_only(party.online, signed_psbt);
+    assert_matches!(result, Err(_));
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
 fn send_end_db_update_only_unknown_transfer() {
     initialize();
 
