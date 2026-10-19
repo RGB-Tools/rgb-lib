@@ -9411,7 +9411,7 @@ fn send_end_after_fail_or_end() {
     assert!(party.fail_transfers_single(res.batch_transfer_idx));
     assert!(party.check_test_transfer_status_sender(&res.txid, TransferStatus::Failed));
     let result = party.wallet.send_end(party.online, signed_psbt);
-    assert!(result.is_err());
+    assert_matches!(result, Err(Error::CannotEndTransfer { txid }) if txid == res.txid);
     assert!(party.check_test_transfer_status_sender(&res.txid, TransferStatus::Failed));
 
     // an ended donation (which has progressed to waiting for confirmations) is not ended again
@@ -9424,7 +9424,7 @@ fn send_end_after_fail_or_end() {
         party.check_test_transfer_status_sender(&res.txid, TransferStatus::WaitingConfirmations)
     );
     let result = party.wallet.send_end(party.online, signed_psbt);
-    assert!(result.is_err());
+    assert_matches!(result, Err(Error::CannotEndTransfer { txid }) if txid == res.txid);
     assert!(
         party.check_test_transfer_status_sender(&res.txid, TransferStatus::WaitingConfirmations)
     );

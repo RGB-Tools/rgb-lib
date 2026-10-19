@@ -760,8 +760,17 @@ impl OperationHandler for SendRgbHandler {
         wallet: &mut MultisigWallet,
         combined_psbt: &Psbt,
     ) -> Result<String, Error> {
-        let res = wallet.send_end_impl(txn, combined_psbt)?;
-        Ok(res.txid)
+        match wallet.send_end_impl(txn, combined_psbt) {
+            Ok(res) => Ok(res.txid),
+            // the operation has already been executed locally and the transfer has since failed
+            // (as agreed through the hub transfer status) or progressed: there is nothing left to
+            // execute, and the operation must still be marked as processed so the sync can move
+            // past it. The transfer cannot have been failed by this cosigner before the operation
+            // got approved, as multisig begins are dry runs, saving nothing until the approved
+            // operation is executed
+            Err(Error::CannotEndTransfer { txid }) => Ok(txid),
+            Err(e) => Err(e),
+        }
     }
 
     fn reconstruct_transfer_directory(
@@ -827,8 +836,16 @@ impl OperationHandler for InflateHandler {
         wallet: &mut MultisigWallet,
         combined_psbt: &Psbt,
     ) -> Result<String, Error> {
-        let res = wallet.inflate_end_impl(txn, combined_psbt)?;
-        Ok(res.txid)
+        match wallet.inflate_end_impl(txn, combined_psbt) {
+            Ok(res) => Ok(res.txid),
+            // the operation has already been executed locally, which saved the transfer as
+            // progressed: there is nothing left to execute, and the operation must still be
+            // marked as processed so the sync can move past it. The transfer cannot have been
+            // failed by this cosigner before the operation got approved, as multisig begins are
+            // dry runs, saving nothing until the approved operation is executed
+            Err(Error::CannotEndTransfer { txid }) => Ok(txid),
+            Err(e) => Err(e),
+        }
     }
 
     fn reconstruct_transfer_directory(
@@ -894,8 +911,16 @@ impl OperationHandler for BurnHandler {
         wallet: &mut MultisigWallet,
         combined_psbt: &Psbt,
     ) -> Result<String, Error> {
-        let res = wallet.burn_end_impl(txn, combined_psbt)?;
-        Ok(res.txid)
+        match wallet.burn_end_impl(txn, combined_psbt) {
+            Ok(res) => Ok(res.txid),
+            // the operation has already been executed locally, which saved the transfer as
+            // progressed: there is nothing left to execute, and the operation must still be
+            // marked as processed so the sync can move past it. The transfer cannot have been
+            // failed by this cosigner before the operation got approved, as multisig begins are
+            // dry runs, saving nothing until the approved operation is executed
+            Err(Error::CannotEndTransfer { txid }) => Ok(txid),
+            Err(e) => Err(e),
+        }
     }
 
     fn reconstruct_transfer_directory(

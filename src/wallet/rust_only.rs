@@ -634,6 +634,8 @@ impl Wallet {
         let psbt = Psbt::from_str(&signed_psbt)?;
         let txn = self.database().begin_transaction()?;
 
+        self.check_end_initiated(&txn, &psbt)?;
+
         // this will also update the DB with the new UTXOs and BDK
         self.broadcast_psbt(&txn, &psbt)?;
 

@@ -883,7 +883,7 @@ fn send_end_db_update_only_success() {
     let result_again = party
         .wallet
         .send_end_db_update_only(party.online, signed_psbt);
-    assert!(result_again.is_err());
+    assert_matches!(result_again, Err(Error::CannotEndTransfer { txid }) if txid == result.txid);
 }
 
 #[cfg(feature = "electrum")]
