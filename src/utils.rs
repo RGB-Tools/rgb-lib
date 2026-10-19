@@ -1407,4 +1407,52 @@ mod tests {
         let rust_bitcoin_network = bitcoin::Network::from(network);
         assert_eq!(rust_bitcoin_network, bitcoin::Network::Signet);
     }
+
+    /// Start a mock electrum server that accepts a single connection, refusing any further one,
+    /// and answers the requests needed to check it can be reached, returning its URL.
+    #[cfg(feature = "electrum")]
+    fn start_single_connection_electrum_mock() -> String {
+        use std::io::{BufRead, BufReader};
+        use std::net::TcpListener;
+
+        const GENESIS_HEADER_HEX: &str = "0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a29ab5f49ffff001d1dac2b7c";
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock electrum");
+        let url = format!(
+            "tcp://{}",
+            listener.local_addr().expect("mock electrum addr")
+        );
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("mock electrum accept");
+            // close the listener before answering, so the next connection is refused
+            drop(listener);
+            let mut reader = BufReader::new(stream.try_clone().expect("clone mock stream"));
+            let mut line = String::new();
+            while reader.read_line(&mut line).unwrap_or(0) > 0 {
+                let req: serde_json::Value =
+                    serde_json::from_str(line.trim()).expect("parse mock electrum request");
+                let result = match req["method"].as_str() {
+                    Some("server.version") => s!(r#"["mock-electrum","1.6"]"#),
+                    Some("blockchain.block.header") => format!(r#""{GENESIS_HEADER_HEX}""#),
+                    _ => return,
+                };
+                let id = &req["id"];
+                if writeln!(stream, r#"{{"jsonrpc":"2.0","id":{id},"result":{result}}}"#).is_err() {
+                    return;
+                }
+                line.clear();
+            }
+        });
+        url
+    }
+
+    #[cfg(feature = "electrum")]
+    #[test]
+    fn get_indexer_and_resolver_resolver_connection_refused() {
+        // the indexer connects, then the resolver connection is refused
+        let url = start_single_connection_electrum_mock();
+        let result = get_indexer_and_resolver(&url, BitcoinNetwork::Regtest);
+        // Indexer is not Debug, so the Ok variant cannot be printed by assert_matches
+        assert!(matches!(result, Err(Error::InvalidIndexer { .. })));
+    }
 }
