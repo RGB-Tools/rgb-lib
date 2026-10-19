@@ -593,3 +593,56 @@ fn begin_end() {
     let bak_info_after = party.db_backup_info();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
 }
+
+/// An inflation ended again (e.g. retried after a crash) is completed only while it's still
+/// initiated: one that has failed or already been ended must not be broadcast again nor have its
+/// status changed.
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn end_after_fail_or_end() {
+    initialize();
+
+    let mut party = get_funded_party!();
+    let asset = party.issue_asset_ifa(None, Some(&[1000]), None);
+
+    // begin an inflation and sign its PSBT
+    let begin = |party: &mut SinglesigParty| {
+        let res = party
+            .wallet
+            .inflate_begin(
+                party.online,
+                asset.asset_id.clone(),
+                vec![1000],
+                FEE_RATE,
+                MIN_CONFIRMATIONS,
+                false,
+            )
+            .unwrap();
+        let signed_psbt = party.wallet.sign_psbt(res.psbt, None).unwrap();
+        let txid = Psbt::from_str(&signed_psbt)
+            .unwrap()
+            .unsigned_tx
+            .compute_txid()
+            .to_string();
+        (res.batch_transfer_idx.unwrap(), txid, signed_psbt)
+    };
+
+    // a failed inflation is not ended
+    let (batch_transfer_idx, txid, signed_psbt) = begin(&mut party);
+    assert!(party.fail_transfers_single(batch_transfer_idx));
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Failed));
+    let result = party.inflate_end_result(&signed_psbt);
+    assert!(result.is_err());
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Failed));
+
+    // an ended inflation is not ended again
+    let (_, txid, signed_psbt) = begin(&mut party);
+    party.inflate_end_result(&signed_psbt).unwrap();
+    mine(false);
+    party.wait_for_refresh(None);
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+    let result = party.inflate_end_result(&signed_psbt);
+    assert!(result.is_err());
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+}
