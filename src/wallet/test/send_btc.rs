@@ -147,16 +147,26 @@ fn fail() {
     let asset = party.issue_asset_ifa(None, None, None);
     let unsigned_psbt = party.burn_begin(&asset.asset_id, 1);
     let signed_psbt = party.wallet.sign_psbt(unsigned_psbt, None).unwrap();
+    let txid = Psbt::from_str(&signed_psbt)
+        .unwrap()
+        .unsigned_tx
+        .compute_txid()
+        .to_string();
     let result = party.wallet.send_btc_end(party.online, signed_psbt);
-    assert_matches!(result, Err(_));
+    assert_matches!(result, Err(Error::WrongOperation { txid: t }) if t == txid);
     // - a vanilla one
     let unsigned_psbt = party
         .wallet
         .create_utxos_begin(party.online, false, Some(1), None, FEE_RATE, false, false)
         .unwrap();
     let signed_psbt = party.wallet.sign_psbt(unsigned_psbt, None).unwrap();
+    let txid = Psbt::from_str(&signed_psbt)
+        .unwrap()
+        .unsigned_tx
+        .compute_txid()
+        .to_string();
     let result = party.wallet.send_btc_end(party.online, signed_psbt);
-    assert_matches!(result, Err(_));
+    assert_matches!(result, Err(Error::WrongOperation { txid: t }) if t == txid);
 }
 
 #[cfg(feature = "electrum")]

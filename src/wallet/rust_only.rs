@@ -635,11 +635,15 @@ impl Wallet {
         let txn = self.database().begin_transaction()?;
 
         self.check_end_initiated(&txn, &psbt)?;
+        let (txid, _, info_contents, _) = self.get_transfer_end_data(&psbt)?;
+        // the data must be of a donation send: another operation (including a non-donation send)
+        // would be completed skipping its checks and steps
+        if !info_contents.is_operation(&TypeOfTransition::Transfer) || !info_contents.donation {
+            return Err(Error::WrongOperation { txid });
+        }
 
         // this will also update the DB with the new UTXOs and BDK
         self.broadcast_psbt(&txn, &psbt)?;
-
-        let (txid, _, info_contents, _) = self.get_transfer_end_data(&psbt)?;
 
         let batch_transfer_idx = self.update_or_save_transfers(
             &txn,

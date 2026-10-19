@@ -623,8 +623,13 @@ fn fail() {
     let asset_inflatable = party.issue_asset_ifa(None, Some(&[1]), None);
     let unsigned_psbt = party.inflate_begin(&asset_inflatable.asset_id, &[1]);
     let signed_psbt = party.wallet.sign_psbt(unsigned_psbt, None).unwrap();
+    let txid = Psbt::from_str(&signed_psbt)
+        .unwrap()
+        .unsigned_tx
+        .compute_txid()
+        .to_string();
     let result = party.burn_end_result(&signed_psbt);
-    assert_matches!(result, Err(_));
+    assert_matches!(result, Err(Error::WrongOperation { txid: t }) if t == txid);
 }
 
 #[cfg(feature = "electrum")]

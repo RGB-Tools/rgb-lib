@@ -242,8 +242,13 @@ fn fail() {
     let asset = party.issue_asset_ifa(None, None, None);
     let unsigned_psbt = party.burn_begin(&asset.asset_id, 1);
     let signed_psbt = party.wallet.sign_psbt(unsigned_psbt, None).unwrap();
+    let txid = Psbt::from_str(&signed_psbt)
+        .unwrap()
+        .unsigned_tx
+        .compute_txid()
+        .to_string();
     let result = party.wallet.create_utxos_end(party.online, signed_psbt);
-    assert_matches!(result, Err(_));
+    assert_matches!(result, Err(Error::WrongOperation { txid: t }) if t == txid);
     // - a vanilla one
     let address = party.get_address();
     let unsigned_psbt = party
@@ -251,8 +256,13 @@ fn fail() {
         .send_btc_begin(party.online, address, 1000, FEE_RATE, false, false)
         .unwrap();
     let signed_psbt = party.wallet.sign_psbt(unsigned_psbt, None).unwrap();
+    let txid = Psbt::from_str(&signed_psbt)
+        .unwrap()
+        .unsigned_tx
+        .compute_txid()
+        .to_string();
     let result = party.wallet.create_utxos_end(party.online, signed_psbt);
-    assert_matches!(result, Err(_));
+    assert_matches!(result, Err(Error::WrongOperation { txid: t }) if t == txid);
 }
 
 // create UTXOs of size funds/256 + check UTXO_NUM are created
