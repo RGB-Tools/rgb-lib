@@ -2095,7 +2095,7 @@ pub trait WalletOffline: WalletBackup {
     /// and UTXOs, so the related rows are indexed by key once and looked up for each transfer.
     ///
     /// Transfers whose asset transfer is not in `asset_transfers` are skipped, so callers select
-    /// which transfers to return (by asset, TXID or `user_driven`) through the
+    /// which transfers to return (by asset, TXID, batch transfer or `user_driven`) through the
     /// asset transfers they pass in. The result is sorted by transfer index.
     ///
     /// Every `list_transfers` code path builds its result here, so a transfer looks the same
@@ -2150,16 +2150,19 @@ pub trait WalletOffline: WalletBackup {
         &self,
         txn: &DbTxn,
         asset_filter: AssetFilter,
-        txid: Option<String>,
+        scope: TransferScope,
     ) -> Result<Vec<Transfer>, Error> {
         let db_data = txn.get_db_data(false)?;
-        let batch_transfers: Vec<DbBatchTransfer> = match txid {
-            Some(txid) => db_data
+        let batch_transfers: Vec<DbBatchTransfer> = match scope {
+            TransferScope::All => db_data.batch_transfers,
+            TransferScope::Txid(txid) => db_data
                 .batch_transfers
                 .into_iter()
                 .filter(|b| b.txid.as_deref() == Some(txid.as_str()))
                 .collect(),
-            None => db_data.batch_transfers,
+            TransferScope::BatchTransfer(idx) => {
+                vec![txn.get_batch_transfer_or_fail(idx, &db_data.batch_transfers)?]
+            }
         };
         let batch_transfer_idxs: HashSet<i32> = batch_transfers.iter().map(|b| b.idx).collect();
         let asset_transfers: Vec<DbAssetTransfer> = db_data
@@ -2782,23 +2785,27 @@ pub trait RgbWalletOpsOffline: WalletOffline + WalletBackup {
 
     /// List the RGB [`Transfer`]s known to the wallet.
     ///
-    /// `asset_filter` selects transfers by asset. When a `txid` is provided, restrict the result to the
-    /// transfers committed by the on-chain transaction with that ID; an unknown `txid` yields an
-    /// empty list.
+    /// `asset_filter` selects transfers by asset and `scope` selects which transfers to consider:
+    /// - [`TransferScope::All`]: all transfers
+    /// - [`TransferScope::Txid`]: transfers committed by the on-chain transaction with the given
+    ///   ID; an unknown TXID yields an empty list
+    /// - [`TransferScope::BatchTransfer`]: transfers belonging to the batch transfer with the
+    ///   given index; an unknown index returns [`Error::BatchTransferNotFound`], while a known
+    ///   one with no user-driven transfers yields an empty list
     fn list_transfers(
         &self,
         asset_filter: AssetFilter,
-        txid: Option<String>,
+        scope: TransferScope,
     ) -> Result<Vec<Transfer>, Error> {
         info!(
             self.logger(),
-            "Listing transfers for filter '{:?}' and txid '{:?}'...", asset_filter, txid
+            "Listing transfers for filter '{:?}' and scope '{:?}'...", asset_filter, scope
         );
         let txn = self.database().begin_transaction()?;
         if let AssetFilter::Id(asset_id) = &asset_filter {
             txn.check_asset_exists(asset_id.clone())?;
         }
-        let transfers = self.list_transfers_impl(&txn, asset_filter, txid)?;
+        let transfers = self.list_transfers_impl(&txn, asset_filter, scope)?;
         txn.commit()?;
         info!(self.logger(), "List transfers completed");
         Ok(transfers)

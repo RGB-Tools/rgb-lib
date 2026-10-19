@@ -505,7 +505,7 @@ pub(crate) trait OfflineSigParty {
     #[cfg(feature = "electrum")]
     fn get_pending_blind_transfers(&self) -> Vec<Transfer> {
         self.wlt()
-            .list_transfers(AssetFilter::AnyOrNone, None)
+            .list_transfers(AssetFilter::AnyOrNone, TransferScope::All)
             .unwrap()
             .into_iter()
             .filter(|t| t.status.pending() && t.kind == TransferKind::ReceiveBlind)
@@ -657,26 +657,25 @@ pub(crate) trait OfflineSigParty {
             Some(a) => AssetFilter::Id(a.to_string()),
             None => AssetFilter::None,
         };
-        self.wlt().list_transfers(asset_filter, None)
+        self.wlt().list_transfers(asset_filter, TransferScope::All)
     }
 
     #[cfg(feature = "electrum")]
     fn list_transfers_filtered(
         &self,
         asset_filter: AssetFilter,
-        txid: Option<&str>,
+        scope: TransferScope,
     ) -> Vec<Transfer> {
-        self.list_transfers_filtered_result(asset_filter, txid)
+        self.list_transfers_filtered_result(asset_filter, scope)
             .unwrap()
     }
 
     fn list_transfers_filtered_result(
         &self,
         asset_filter: AssetFilter,
-        txid: Option<&str>,
+        scope: TransferScope,
     ) -> Result<Vec<Transfer>, Error> {
-        self.wlt()
-            .list_transfers(asset_filter, txid.map(|t| t.to_string()))
+        self.wlt().list_transfers(asset_filter, scope)
     }
 
     #[cfg(feature = "electrum")]

@@ -192,6 +192,20 @@ pub enum AssetFilter {
     Id(String),
 }
 
+/// Which transfers to list.
+///
+/// The TXID and the batch transfer index are mutually exclusive: a batch transfer has at most one
+/// TXID, while a TXID can be shared by several batch transfers (e.g. the receiver side of a send).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub enum TransferScope {
+    /// All transfers
+    All,
+    /// Transfers committed by the on-chain transaction with the given TXID
+    Txid(String),
+    /// Transfers belonging to the batch transfer with the given index
+    BatchTransfer(i32),
+}
+
 /// An asset media file.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
