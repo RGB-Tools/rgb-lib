@@ -20,6 +20,23 @@ pub(crate) const MAX_TRANSPORT_ENDPOINTS: usize = 3;
 
 pub(crate) const TRANSFER_DATA_FILE: &str = "transfer_data.txt";
 
+/// Group colorings by the asset transfer they belong to, each group ordered by index.
+pub(crate) fn group_colorings_by_asset_transfer(
+    colorings: Vec<DbColoring>,
+) -> HashMap<i32, Vec<DbColoring>> {
+    let mut colorings_by_asset_transfer: HashMap<i32, Vec<DbColoring>> = HashMap::new();
+    for coloring in colorings {
+        colorings_by_asset_transfer
+            .entry(coloring.asset_transfer_idx)
+            .or_default()
+            .push(coloring);
+    }
+    colorings_by_asset_transfer
+        .values_mut()
+        .for_each(|c| c.sort_by_key(|c| c.idx));
+    colorings_by_asset_transfer
+}
+
 pub trait WalletOffline: WalletBackup {
     fn bitcoin_network(&self) -> BitcoinNetwork {
         self.wallet_data().bitcoin_network
@@ -1952,26 +1969,21 @@ pub trait WalletOffline: WalletBackup {
         transfer: &DbTransfer,
         asset_transfer: &DbAssetTransfer,
         batch_transfer: &DbBatchTransfer,
-        txos: &[DbTxo],
-        colorings: &[DbColoring],
+        colorings_by_asset_transfer: &HashMap<i32, Vec<DbColoring>>,
+        txos: &HashMap<i32, DbTxo>,
     ) -> Result<TransferData, Error> {
-        let filtered_coloring = colorings
+        let colorings = colorings_by_asset_transfer
+            .get(&asset_transfer.idx)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        let assignments = colorings
             .iter()
-            .filter(|&c| c.asset_transfer_idx == asset_transfer.idx)
-            .cloned();
-
-        let assignments = filtered_coloring
-            .clone()
             .filter(|c| c.r#type != ColoringType::Input)
-            .map(|c| c.assignment)
+            .map(|c| c.assignment.clone())
             .collect();
 
         let kind = if batch_transfer.incoming {
-            if filtered_coloring.clone().count() > 0
-                && filtered_coloring
-                    .clone()
-                    .all(|c| c.r#type == ColoringType::Issue)
-            {
+            if !colorings.is_empty() && colorings.iter().all(|c| c.r#type == ColoringType::Issue) {
                 TransferKind::Issuance
             } else {
                 match transfer.recipient_type.as_ref().unwrap() {
@@ -1982,56 +1994,48 @@ pub trait WalletOffline: WalletBackup {
         } else if transfer.recipient_id.is_none() {
             // burn is the only outgoing transfer with no recipient
             TransferKind::Burn
-        } else if filtered_coloring
-            .clone()
-            .any(|c| c.r#type == ColoringType::Issue)
-        {
+        } else if colorings.iter().any(|c| c.r#type == ColoringType::Issue) {
             // inflation transfer is outgoing and connected to issue colorings
             TransferKind::Inflation
         } else {
             TransferKind::Send
         };
 
-        let txo_ids: Vec<i32> = filtered_coloring.clone().map(|c| c.txo_idx).collect();
-        let transfer_txos: Vec<DbTxo> = txos
+        // txos colored by this asset transfer, ordered by index
+        let mut transfer_txos: Vec<&DbTxo> = colorings
             .iter()
-            .filter(|&t| txo_ids.contains(&t.idx))
-            .cloned()
+            .filter_map(|c| txos.get(&c.txo_idx))
             .collect();
+        transfer_txos.sort_by_key(|t| t.idx);
+        transfer_txos.dedup_by_key(|t| t.idx);
         let receive_utxo = match &transfer.recipient_type {
             Some(RecipientTypeFull::Blind { unblinded_utxo }) => Some(unblinded_utxo.clone()),
             Some(RecipientTypeFull::Witness { vout }) => {
-                let received_txo_idx: Vec<i32> = filtered_coloring
-                    .clone()
+                let received_txo_idx: HashSet<i32> = colorings
+                    .iter()
                     // issue coloring from inflation is considered as received
                     .filter(|c| [ColoringType::Receive, ColoringType::Issue].contains(&c.r#type))
                     .map(|c| c.txo_idx)
                     .collect();
                 transfer_txos
-                    .clone()
-                    .into_iter()
-                    .filter(|t| received_txo_idx.contains(&t.idx) && t.vout == vout.unwrap())
+                    .iter()
+                    .find(|t| received_txo_idx.contains(&t.idx) && t.vout == vout.unwrap())
                     .map(|t| t.outpoint())
-                    .collect::<Vec<Outpoint>>()
-                    .first()
-                    .cloned()
             }
             _ => None,
         };
         let change_utxo = match kind {
             TransferKind::ReceiveBlind | TransferKind::ReceiveWitness => None,
             TransferKind::Send | TransferKind::Inflation | TransferKind::Burn => {
-                let change_txo_idx: Vec<i32> = filtered_coloring
+                let change_txo_idx: HashSet<i32> = colorings
+                    .iter()
                     .filter(|c| c.r#type == ColoringType::Change)
                     .map(|c| c.txo_idx)
                     .collect();
                 transfer_txos
-                    .into_iter()
-                    .filter(|t| change_txo_idx.contains(&t.idx))
+                    .iter()
+                    .find(|t| change_txo_idx.contains(&t.idx))
                     .map(|t| t.outpoint())
-                    .collect::<Vec<Outpoint>>()
-                    .first()
-                    .cloned()
             }
             TransferKind::Issuance => None,
         };
@@ -2084,6 +2088,64 @@ pub trait WalletOffline: WalletBackup {
         })
     }
 
+    /// Build the [`Transfer`]s for the given DB rows.
+    ///
+    /// A [`Transfer`] combines data from several tables: the transfer row holds the recipient,
+    /// its batch transfer the status and TXID, and its colorings and their TXOs the assignments
+    /// and UTXOs, so the related rows are indexed by key once and looked up for each transfer.
+    ///
+    /// Transfers whose asset transfer is not in `asset_transfers` are skipped, so callers select
+    /// which transfers to return (by asset, TXID or `user_driven`) through the
+    /// asset transfers they pass in. The result is sorted by transfer index.
+    ///
+    /// Every `list_transfers` code path builds its result here, so a transfer looks the same
+    /// whichever filter returned it.
+    fn build_transfers(
+        &self,
+        mut transfers: Vec<DbTransfer>,
+        asset_transfers: Vec<DbAssetTransfer>,
+        batch_transfers: Vec<DbBatchTransfer>,
+        colorings: Vec<DbColoring>,
+        txos: Vec<DbTxo>,
+        mut tte_data: HashMap<i32, Vec<(DbTransferTransportEndpoint, DbTransportEndpoint)>>,
+    ) -> Result<Vec<Transfer>, Error> {
+        let asset_transfers: HashMap<i32, DbAssetTransfer> =
+            asset_transfers.into_iter().map(|a| (a.idx, a)).collect();
+        let batch_transfers: HashMap<i32, DbBatchTransfer> =
+            batch_transfers.into_iter().map(|b| (b.idx, b)).collect();
+        let colorings_by_asset_transfer = group_colorings_by_asset_transfer(colorings);
+        let txos: HashMap<i32, DbTxo> = txos.into_iter().map(|t| (t.idx, t)).collect();
+
+        transfers.sort_by_key(|t| t.idx);
+        transfers
+            .into_iter()
+            .filter_map(|t| {
+                asset_transfers
+                    .get(&t.asset_transfer_idx)
+                    .map(|asset_transfer| (t, asset_transfer))
+            })
+            .map(|(t, asset_transfer)| {
+                let batch_transfer = batch_transfers
+                    .get(&asset_transfer.batch_transfer_idx)
+                    .expect("asset transfer should be connected to a batch transfer");
+                let td = self.get_transfer_data(
+                    &t,
+                    asset_transfer,
+                    batch_transfer,
+                    &colorings_by_asset_transfer,
+                    &txos,
+                )?;
+                let transport_endpoints = tte_data
+                    .remove(&t.idx)
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|(tte, ce)| ce.to_transfer_transport_endpoint(tte))
+                    .collect();
+                Ok(t.to_transfer(td, transport_endpoints))
+            })
+            .collect()
+    }
+
     fn list_transfers_impl(
         &self,
         txn: &DbTxn,
@@ -2091,52 +2153,35 @@ pub trait WalletOffline: WalletBackup {
         txid: Option<String>,
     ) -> Result<Vec<Transfer>, Error> {
         let db_data = txn.get_db_data(false)?;
-        let batch_transfer_idxs: Option<HashSet<i32>> = txid.map(|txid| {
-            db_data
+        let batch_transfers: Vec<DbBatchTransfer> = match txid {
+            Some(txid) => db_data
                 .batch_transfers
-                .iter()
+                .into_iter()
                 .filter(|b| b.txid.as_deref() == Some(txid.as_str()))
-                .map(|b| b.idx)
-                .collect()
-        });
-        let asset_transfer_ids: Vec<i32> = db_data
+                .collect(),
+            None => db_data.batch_transfers,
+        };
+        let batch_transfer_idxs: HashSet<i32> = batch_transfers.iter().map(|b| b.idx).collect();
+        let asset_transfers: Vec<DbAssetTransfer> = db_data
             .asset_transfers
-            .iter()
+            .into_iter()
             .filter(|t| match &asset_filter {
                 AssetFilter::AnyOrNone => true,
                 AssetFilter::None => t.asset_id.is_none(),
                 AssetFilter::Id(asset_id) => t.asset_id.as_ref() == Some(asset_id),
             })
-            .filter(|t| {
-                batch_transfer_idxs
-                    .as_ref()
-                    .is_none_or(|idxs| idxs.contains(&t.batch_transfer_idx))
-            })
+            .filter(|t| batch_transfer_idxs.contains(&t.batch_transfer_idx))
             .filter(|t| t.user_driven)
-            .map(|t| t.idx)
             .collect();
-        db_data
-            .transfers
-            .into_iter()
-            .filter(|t| asset_transfer_ids.contains(&t.asset_transfer_idx))
-            .map(|t| {
-                let (asset_transfer, batch_transfer) =
-                    t.related_transfers(&db_data.asset_transfers, &db_data.batch_transfers);
-                let td = self.get_transfer_data(
-                    &t,
-                    &asset_transfer,
-                    &batch_transfer,
-                    &db_data.txos,
-                    &db_data.colorings,
-                )?;
-                let tte_data = txn.get_transfer_transport_endpoints_data(t.idx)?;
-                let transport_endpoints = tte_data
-                    .iter()
-                    .map(|(tte, ce)| ce.to_transfer_transport_endpoint(tte))
-                    .collect();
-                Ok(t.to_transfer(td, transport_endpoints))
-            })
-            .collect()
+        let tte_data = txn.get_transport_endpoints_by_transfer(None)?;
+        self.build_transfers(
+            db_data.transfers,
+            asset_transfers,
+            batch_transfers,
+            db_data.colorings,
+            db_data.txos,
+            tte_data,
+        )
     }
 
     fn list_unspents_impl(

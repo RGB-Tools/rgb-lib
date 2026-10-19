@@ -10,6 +10,9 @@ use crate::database::entities::{
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use crate::database::entities::{batch_transfer, pending_witness_script, reserved_txo};
 
+/// Max number of values bound in a single `IN (...)` clause, well below SQLite's variable limit.
+const SQL_IN_CHUNK_SIZE: usize = 500;
+
 #[derive(Debug, Clone)]
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) struct DbAssetTransferData {
@@ -663,6 +666,7 @@ impl DbTxn {
         Ok(block_on(WalletTransaction::find().all(self.inner()))?)
     }
 
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
     pub(crate) fn get_transfer_transport_endpoints_data(
         &self,
         transfer_idx: i32,
@@ -677,6 +681,46 @@ impl DbTxn {
         .into_iter()
         .map(|(tte, ce)| (tte, ce.expect("should be connected")))
         .collect())
+    }
+
+    /// Get the transport endpoints of the given transfers (or of all transfers if `None`), grouped
+    /// by transfer index and ordered as [`Self::get_transfer_transport_endpoints_data`] does.
+    pub(crate) fn get_transport_endpoints_by_transfer(
+        &self,
+        transfer_idxs: Option<&[i32]>,
+    ) -> Result<HashMap<i32, Vec<(DbTransferTransportEndpoint, DbTransportEndpoint)>>, Error> {
+        let query = |idxs: Option<&[i32]>| {
+            let mut select = TransferTransportEndpoint::find();
+            if let Some(idxs) = idxs {
+                select = select.filter(
+                    transfer_transport_endpoint::Column::TransferIdx.is_in(idxs.iter().copied()),
+                );
+            }
+            block_on(
+                select
+                    .find_also_related(TransportEndpoint)
+                    .order_by_asc(transfer_transport_endpoint::Column::Idx)
+                    .all(self.inner()),
+            )
+        };
+        let rows = match transfer_idxs {
+            None => query(None)?,
+            Some(idxs) => {
+                let mut rows = vec![];
+                for chunk in idxs.chunks(SQL_IN_CHUNK_SIZE) {
+                    rows.extend(query(Some(chunk))?);
+                }
+                rows
+            }
+        };
+        let mut tte_data: HashMap<i32, Vec<_>> = HashMap::new();
+        for (tte, ce) in rows {
+            tte_data
+                .entry(tte.transfer_idx)
+                .or_default()
+                .push((tte, ce.expect("should be connected")));
+        }
+        Ok(tte_data)
     }
 
     pub(crate) fn get_db_data(&self, empty_transfers: bool) -> Result<DbData, Error> {

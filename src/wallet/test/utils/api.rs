@@ -53,14 +53,17 @@ pub(crate) trait OfflineSigParty {
         let db_data = self.db_data(false);
         let (asset_transfer, batch_transfer) =
             transfer.related_transfers(&db_data.asset_transfers, &db_data.batch_transfers);
+        let colorings =
+            crate::wallet::offline::group_colorings_by_asset_transfer(db_data.colorings);
+        let txos: HashMap<i32, DbTxo> = db_data.txos.into_iter().map(|t| (t.idx, t)).collect();
         let transfer_data = self
             .wlt()
             .get_transfer_data(
                 transfer,
                 &asset_transfer,
                 &batch_transfer,
-                &db_data.txos,
-                &db_data.colorings,
+                &colorings,
+                &txos,
             )
             .unwrap();
         println!(
@@ -525,14 +528,17 @@ pub(crate) trait OfflineSigParty {
         txn.commit().unwrap();
         let (asset_transfer, batch_transfer) =
             transfer.related_transfers(&db_data.asset_transfers, &db_data.batch_transfers);
+        let colorings =
+            crate::wallet::offline::group_colorings_by_asset_transfer(db_data.colorings);
+        let txos: HashMap<i32, DbTxo> = db_data.txos.into_iter().map(|t| (t.idx, t)).collect();
         let transfer_data = self
             .wlt()
             .get_transfer_data(
                 transfer,
                 &asset_transfer,
                 &batch_transfer,
-                &db_data.txos,
-                &db_data.colorings,
+                &colorings,
+                &txos,
             )
             .unwrap();
         (transfer_data, asset_transfer)
