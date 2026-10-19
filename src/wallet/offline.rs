@@ -2152,35 +2152,40 @@ pub trait WalletOffline: WalletBackup {
         asset_filter: AssetFilter,
         scope: TransferScope,
     ) -> Result<Vec<Transfer>, Error> {
-        let db_data = txn.get_db_data(false)?;
-        let batch_transfers: Vec<DbBatchTransfer> = match scope {
-            TransferScope::All => db_data.batch_transfers,
-            TransferScope::Txid(txid) => db_data
-                .batch_transfers
-                .into_iter()
-                .filter(|b| b.txid.as_deref() == Some(txid.as_str()))
-                .collect(),
+        // load only the rows related to the given batch transfers
+        let load_batch_transfers = |batch_transfers: Vec<DbBatchTransfer>| {
+            let db_data = txn.get_batch_transfers_db_data(batch_transfers, &asset_filter)?;
+            let transfer_idxs: Vec<i32> = db_data.transfers.iter().map(|t| t.idx).collect();
+            let tte_data = txn.get_transport_endpoints_by_transfer(Some(&transfer_idxs))?;
+            Ok::<_, Error>((db_data, tte_data))
+        };
+        let (db_data, tte_data) = match scope {
+            TransferScope::All => {
+                let mut db_data = txn.get_db_data(false)?;
+                db_data.asset_transfers.retain(|t| {
+                    t.user_driven
+                        && match &asset_filter {
+                            AssetFilter::AnyOrNone => true,
+                            AssetFilter::None => t.asset_id.is_none(),
+                            AssetFilter::Id(asset_id) => t.asset_id.as_ref() == Some(asset_id),
+                        }
+                });
+                (db_data, txn.get_transport_endpoints_by_transfer(None)?)
+            }
+            TransferScope::Txid(txid) => {
+                load_batch_transfers(txn.get_batch_transfers_by_txid(&txid)?)?
+            }
             TransferScope::BatchTransfer(idx) => {
-                vec![txn.get_batch_transfer_or_fail(idx, &db_data.batch_transfers)?]
+                let batch_transfer = txn
+                    .get_batch_transfer(idx)?
+                    .ok_or(Error::BatchTransferNotFound { idx })?;
+                load_batch_transfers(vec![batch_transfer])?
             }
         };
-        let batch_transfer_idxs: HashSet<i32> = batch_transfers.iter().map(|b| b.idx).collect();
-        let asset_transfers: Vec<DbAssetTransfer> = db_data
-            .asset_transfers
-            .into_iter()
-            .filter(|t| match &asset_filter {
-                AssetFilter::AnyOrNone => true,
-                AssetFilter::None => t.asset_id.is_none(),
-                AssetFilter::Id(asset_id) => t.asset_id.as_ref() == Some(asset_id),
-            })
-            .filter(|t| batch_transfer_idxs.contains(&t.batch_transfer_idx))
-            .filter(|t| t.user_driven)
-            .collect();
-        let tte_data = txn.get_transport_endpoints_by_transfer(None)?;
         self.build_transfers(
             db_data.transfers,
-            asset_transfers,
-            batch_transfers,
+            db_data.asset_transfers,
+            db_data.batch_transfers,
             db_data.colorings,
             db_data.txos,
             tte_data,
