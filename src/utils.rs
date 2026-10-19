@@ -581,9 +581,13 @@ pub(crate) fn get_indexer_and_resolver(
                 .retry(INDEXER_RETRIES)
                 .timeout(Some(Duration::from_secs(INDEXER_TIMEOUT)))
                 .build();
-            AnyResolver::electrum_blocking(indexer_url, Some(electrum_config)).expect(
-                "electrum_blocking uses the same config as build_indexer which already succeeded",
-            )
+            // the resolver opens its own connection, which can fail even if the indexer one
+            // succeeded
+            AnyResolver::electrum_blocking(indexer_url, Some(electrum_config)).map_err(|e| {
+                Error::InvalidIndexer {
+                    details: e.to_string(),
+                }
+            })?
         }
         #[cfg(feature = "esplora")]
         Indexer::Esplora(_) => {
