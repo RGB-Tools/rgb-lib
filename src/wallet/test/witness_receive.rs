@@ -18,6 +18,7 @@ fn success() {
         .witness_receive(
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             expiration_timestamp,
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -45,6 +46,7 @@ fn success() {
         .witness_receive(
             Some(asset_id.clone()),
             Assignment::Fungible(amount),
+            ReceiveAmountPolicy::NoCheck,
             expiration_timestamp,
             TRANSPORT_ENDPOINTS.clone(),
             min_confirmations,
@@ -88,6 +90,7 @@ fn success() {
     let result = party.wallet.witness_receive(
         None,
         Assignment::Any,
+        ReceiveAmountPolicy::NoCheck,
         default_rcv_expiration(),
         transport_endpoints.clone(),
         MIN_CONFIRMATIONS,
@@ -109,10 +112,30 @@ fn fail() {
         .witness_receive(
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             (now().unix_timestamp() - 1) as u64,
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
         )
         .unwrap_err();
     assert_matches!(result, Error::InvalidExpiration);
+
+    // receive amount policy requiring an amount, without an amount
+    for (assignment, receive_amount_policy) in [
+        (Assignment::Any, ReceiveAmountPolicy::Exact),
+        (Assignment::Any, ReceiveAmountPolicy::AtLeast),
+        (Assignment::Fungible(0), ReceiveAmountPolicy::Exact),
+    ] {
+        let result = wallet
+            .witness_receive(
+                None,
+                assignment,
+                receive_amount_policy,
+                default_rcv_expiration(),
+                TRANSPORT_ENDPOINTS.clone(),
+                MIN_CONFIRMATIONS,
+            )
+            .unwrap_err();
+        assert_matches!(result, Error::NoReceiveAmount);
+    }
 }

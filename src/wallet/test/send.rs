@@ -4776,6 +4776,105 @@ fn witness_fail_wrong_vout() {
     assert_eq!(rcv_transfer_data.status, TransferStatus::Failed);
 }
 
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn receive_amount_policy() {
+    initialize();
+
+    let amount: u64 = 66;
+
+    // wallets
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+
+    // issue
+    let asset = party.issue_asset_nia(None);
+
+    let receive = |wallet: &mut Wallet, blind: bool, receive_amount_policy: ReceiveAmountPolicy| {
+        let receive_fn = if blind {
+            Wallet::blind_receive
+        } else {
+            Wallet::witness_receive
+        };
+        receive_fn(
+            wallet,
+            None,
+            Assignment::Fungible(amount),
+            receive_amount_policy,
+            default_rcv_expiration(),
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap()
+        .recipient_id
+    };
+    let recipient = |recipient_id: &String, blind: bool, sent: u64| Recipient {
+        assignment: Assignment::Fungible(sent),
+        recipient_id: recipient_id.clone(),
+        witness_data: (!blind).then_some(WitnessData {
+            amount_sat: 1000,
+            blinding: None,
+        }),
+        transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+    };
+
+    // refused: exact underpaid (blind), exact overpaid (witness), at least underpaid (witness)
+    let exact_under = receive(&mut rcv_party.wallet, true, ReceiveAmountPolicy::Exact);
+    let exact_over = receive(&mut rcv_party.wallet, false, ReceiveAmountPolicy::Exact);
+    let at_least_under = receive(&mut rcv_party.wallet, false, ReceiveAmountPolicy::AtLeast);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![
+            recipient(&exact_under, true, amount - 1),
+            recipient(&exact_over, false, amount + 1),
+            recipient(&at_least_under, false, amount - 1),
+        ],
+    )]);
+    let txid = party.send_retry(&recipient_map);
+    assert!(!txid.is_empty());
+
+    // transfers progress to status Failed after a refresh
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(Some(&asset.asset_id));
+    for recipient_id in [&exact_under, &exact_over, &at_least_under] {
+        let rcv_transfer = rcv_party.get_test_transfer_recipient(recipient_id);
+        let (rcv_transfer_data, _) = rcv_party.get_test_transfer_data(&rcv_transfer);
+        assert_eq!(rcv_transfer_data.status, TransferStatus::Failed);
+    }
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Failed));
+
+    // accepted: exact (blind), at least overpaid (witness), whatever underpaid (witness)
+    let exact = receive(&mut rcv_party.wallet, true, ReceiveAmountPolicy::Exact);
+    let at_least_over = receive(&mut rcv_party.wallet, false, ReceiveAmountPolicy::AtLeast);
+    let whatever_under = receive(&mut rcv_party.wallet, false, ReceiveAmountPolicy::NoCheck);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![
+            recipient(&exact, true, amount),
+            recipient(&at_least_over, false, amount + 1),
+            recipient(&whatever_under, false, amount - 1),
+        ],
+    )]);
+    let txid = party.send_retry(&recipient_map);
+    assert!(!txid.is_empty());
+
+    // transfers settle
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(Some(&asset.asset_id));
+    mine(false);
+    rcv_party.wait_for_refresh(Some(&asset.asset_id));
+    party.wait_for_refresh(Some(&asset.asset_id));
+    for recipient_id in [&exact, &at_least_over, &whatever_under] {
+        let rcv_transfer = rcv_party.get_test_transfer_recipient(recipient_id);
+        let (rcv_transfer_data, _) = rcv_party.get_test_transfer_data(&rcv_transfer);
+        assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
+    }
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+    let balance = rcv_party.get_asset_balance(&asset.asset_id);
+    assert_eq!(balance.settled, amount * 3);
+}
+
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 fn min_confirmations_common(
     party: &mut SinglesigParty,
@@ -4801,6 +4900,7 @@ fn min_confirmations_common(
         .blind_receive(
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             min_confirmations,
@@ -4890,6 +4990,7 @@ fn min_confirmations_common(
         .blind_receive(
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             min_confirmations,
@@ -7027,6 +7128,7 @@ fn blinded_change_failed_xfer() {
         .blind_receive(
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             (now().unix_timestamp() + 1) as u64, // expire early so can fail
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -7169,6 +7271,7 @@ fn blinded_change_send_begin_only() {
         .blind_receive(
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             (now().unix_timestamp() + 1) as u64, // expire early so can fail
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -7313,6 +7416,7 @@ fn donation_recipient_nack() {
         .blind_receive(
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             (now().unix_timestamp() + 1) as u64, // expire early so can fail
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -8104,6 +8208,7 @@ fn unsafe_history_waits_for_safe_height() {
         .blind_receive(
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             (now().unix_timestamp() + DURATION_RCV_TRANSFER as i64) as u64,
             vec![],
             2,
@@ -8278,6 +8383,7 @@ fn out_of_band_success() {
         .blind_receive(
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
@@ -8288,6 +8394,7 @@ fn out_of_band_success() {
         .witness_receive(
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
@@ -8424,6 +8531,7 @@ fn out_of_band_fail() {
         .blind_receive(
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
@@ -8534,6 +8642,7 @@ fn out_of_band_fail() {
         .blind_receive(
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
@@ -8603,6 +8712,7 @@ fn out_of_band_fail() {
         .blind_receive(
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
@@ -8678,6 +8788,7 @@ fn out_of_band_media() {
         .blind_receive(
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
@@ -8688,6 +8799,7 @@ fn out_of_band_media() {
         .blind_receive(
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
@@ -8698,6 +8810,7 @@ fn out_of_band_media() {
         .blind_receive(
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
@@ -8813,6 +8926,7 @@ fn out_of_band_media_cleanup() {
         .blind_receive(
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
@@ -8991,6 +9105,7 @@ fn out_of_band_mixed_batch() {
         .blind_receive(
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
@@ -9112,6 +9227,7 @@ fn out_of_band_consignment_multiple_receives() {
         .blind_receive(
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
@@ -9122,6 +9238,7 @@ fn out_of_band_consignment_multiple_receives() {
         .blind_receive(
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,

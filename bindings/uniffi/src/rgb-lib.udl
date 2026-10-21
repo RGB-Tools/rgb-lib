@@ -94,6 +94,7 @@ interface RgbLibError {
   NoIssuanceAmounts();
   NoKeysSupplied();
   NoMaxAllocationsPerUtxo();
+  NoReceiveAmount();
   NoSupportedSchemas();
   NoValidTransportEndpoint();
   Offline();
@@ -123,6 +124,13 @@ interface RgbLibError {
   WalletSettingMismatch(string setting, string expected, string provided);
   WatchOnly();
   WrongPassword();
+};
+
+[Remote]
+enum ReceiveAmountPolicy {
+  "NoCheck",
+  "Exact",
+  "AtLeast",
 };
 
 [Remote]
@@ -844,12 +852,16 @@ interface Wallet {
 
   [Throws=RgbLibError]
   ReceiveData blind_receive(
-    string? asset_id, Assignment assignment, u64 expiration_timestamp,
+    string? asset_id, Assignment assignment,
+    ReceiveAmountPolicy receive_amount_policy,
+    u64 expiration_timestamp,
     sequence<string> transport_endpoints, u8 min_confirmations);
 
   [Throws=RgbLibError]
   ReceiveData witness_receive(
-    string? asset_id, Assignment assignment, u64 expiration_timestamp,
+    string? asset_id, Assignment assignment,
+    ReceiveAmountPolicy receive_amount_policy,
+    u64 expiration_timestamp,
     sequence<string> transport_endpoints, u8 min_confirmations);
 
   [Throws=RgbLibError]
@@ -1048,12 +1060,16 @@ interface MultisigWallet {
 
   [Throws=RgbLibError]
   ReceiveData blind_receive(
-    Online online, string? asset_id, Assignment assignment, u64 expiration_timestamp,
+    Online online, string? asset_id, Assignment assignment,
+    ReceiveAmountPolicy receive_amount_policy,
+    u64 expiration_timestamp,
     sequence<string> transport_endpoints, u8 min_confirmations);
 
   [Throws=RgbLibError]
   ReceiveData witness_receive(
-    Online online, string? asset_id, Assignment assignment, u64 expiration_timestamp,
+    Online online, string? asset_id, Assignment assignment,
+    ReceiveAmountPolicy receive_amount_policy,
+    u64 expiration_timestamp,
     sequence<string> transport_endpoints, u8 min_confirmations);
 
   [Throws=RgbLibError]

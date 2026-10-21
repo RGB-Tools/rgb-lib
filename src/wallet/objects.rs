@@ -1355,6 +1355,7 @@ pub struct ReceiveData {
 pub struct ReceiveDataInternal {
     pub(crate) asset_id: Option<String>,
     pub(crate) detected_assignment: Assignment,
+    pub(crate) receive_amount_policy: ReceiveAmountPolicy,
     pub(crate) invoice_string: String,
     pub(crate) recipient_id: String,
     pub(crate) endpoints: Vec<String>,

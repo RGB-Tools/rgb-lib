@@ -1097,6 +1097,7 @@ impl<T: OfflineSigParty<W = Wallet>> SinglesigWalletParty for T {
             .blind_receive(
                 asset_id,
                 Assignment::Any,
+                ReceiveAmountPolicy::NoCheck,
                 expiration.unwrap_or_else(default_rcv_expiration),
                 TRANSPORT_ENDPOINTS.clone(),
                 MIN_CONFIRMATIONS,
@@ -1109,6 +1110,7 @@ impl<T: OfflineSigParty<W = Wallet>> SinglesigWalletParty for T {
         self.wlt_mut().blind_receive(
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -1125,6 +1127,7 @@ impl<T: OfflineSigParty<W = Wallet>> SinglesigWalletParty for T {
             .blind_receive(
                 None,
                 Assignment::Any,
+                ReceiveAmountPolicy::NoCheck,
                 expiration.unwrap_or_else(default_rcv_expiration),
                 transport_endpoints,
                 MIN_CONFIRMATIONS,
@@ -1264,6 +1267,7 @@ impl<T: OfflineSigParty<W = Wallet>> SinglesigWalletParty for T {
             .witness_receive(
                 None,
                 Assignment::Any,
+                ReceiveAmountPolicy::NoCheck,
                 default_rcv_expiration(),
                 TRANSPORT_ENDPOINTS.clone(),
                 MIN_CONFIRMATIONS,

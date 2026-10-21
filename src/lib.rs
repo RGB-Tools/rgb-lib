@@ -116,7 +116,8 @@ pub use rgbstd::{
 
 pub use crate::{
     database::enums::{
-        AssetSchema, Assignment, TransferStatus, TransportType, WalletTransactionType,
+        AssetSchema, Assignment, ReceiveAmountPolicy, TransferStatus, TransportType,
+        WalletTransactionType,
     },
     error::Error,
     utils::{BitcoinNetwork, block_on},

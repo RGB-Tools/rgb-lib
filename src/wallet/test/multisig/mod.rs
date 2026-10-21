@@ -426,8 +426,19 @@ fn success() {
 
     println!("\n=== blind receive new asset (singlesig → wlt_1) ===");
     let nia_asset_2 = singlesig_wlt.issue_asset_nia(None);
-    let receive_data = wlt_1.blind_receive();
+    let receive_data = wlt_1.blind_receive_with_amount(
+        Assignment::Fungible(AMOUNT_SMALL),
+        ReceiveAmountPolicy::Exact,
+    );
     sync_wallets_full(&mut [&mut wlt_2, &mut wlt_3]);
+    // the receive amount policy is propagated to the other cosigners
+    for wlt in [&wlt_1, &wlt_2, &wlt_3] {
+        let transfer = wlt.get_test_transfer_recipient(&receive_data.recipient_id);
+        assert_eq!(
+            transfer.receive_amount_policy,
+            Some(ReceiveAmountPolicy::Exact)
+        );
+    }
     let recipient_map = HashMap::from([(
         nia_asset_2.asset_id.clone(),
         vec![Recipient {
@@ -1075,6 +1086,7 @@ fn fail() {
             wlt_1.online,
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
@@ -1087,6 +1099,7 @@ fn fail() {
             wlt_1.online,
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::NoCheck,
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
@@ -1401,6 +1414,7 @@ fn offline() {
         fake_online,
         None,
         Assignment::Any,
+        ReceiveAmountPolicy::NoCheck,
         default_rcv_expiration(),
         vec![],
         0,
@@ -1474,6 +1488,7 @@ fn offline() {
         fake_online,
         None,
         Assignment::Any,
+        ReceiveAmountPolicy::NoCheck,
         default_rcv_expiration(),
         vec![],
         0,

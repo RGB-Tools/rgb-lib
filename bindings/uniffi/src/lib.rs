@@ -8,8 +8,8 @@ use std::{
 };
 
 use rgb_lib::{
-    AssetSchema, Assignment as RgbLibAssignment, CloseMethod, Error as RgbLibError, TransferStatus,
-    TransportType, WalletTransactionType,
+    AssetSchema, Assignment as RgbLibAssignment, CloseMethod, Error as RgbLibError,
+    ReceiveAmountPolicy, TransferStatus, TransportType, WalletTransactionType,
     keys::{Keys, WitnessVersion},
     utils::BitcoinNetwork,
     wallet::{
@@ -1015,6 +1015,7 @@ impl Wallet {
         &self,
         asset_id: Option<String>,
         assignment: Assignment,
+        receive_amount_policy: ReceiveAmountPolicy,
         expiration_timestamp: u64,
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
@@ -1022,6 +1023,7 @@ impl Wallet {
         self._get_wallet().blind_receive(
             asset_id,
             assignment.into(),
+            receive_amount_policy,
             expiration_timestamp,
             transport_endpoints,
             min_confirmations,
@@ -1032,6 +1034,7 @@ impl Wallet {
         &self,
         asset_id: Option<String>,
         assignment: Assignment,
+        receive_amount_policy: ReceiveAmountPolicy,
         expiration_timestamp: u64,
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
@@ -1039,6 +1042,7 @@ impl Wallet {
         self._get_wallet().witness_receive(
             asset_id,
             assignment.into(),
+            receive_amount_policy,
             expiration_timestamp,
             transport_endpoints,
             min_confirmations,
@@ -1550,6 +1554,7 @@ impl MultisigWallet {
         online: Online,
         asset_id: Option<String>,
         assignment: Assignment,
+        receive_amount_policy: ReceiveAmountPolicy,
         expiration_timestamp: u64,
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
@@ -1558,6 +1563,7 @@ impl MultisigWallet {
             online,
             asset_id,
             assignment.into(),
+            receive_amount_policy,
             expiration_timestamp,
             transport_endpoints,
             min_confirmations,
@@ -1569,6 +1575,7 @@ impl MultisigWallet {
         online: Online,
         asset_id: Option<String>,
         assignment: Assignment,
+        receive_amount_policy: ReceiveAmountPolicy,
         expiration_timestamp: u64,
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
@@ -1577,6 +1584,7 @@ impl MultisigWallet {
             online,
             asset_id,
             assignment.into(),
+            receive_amount_policy,
             expiration_timestamp,
             transport_endpoints,
             min_confirmations,
