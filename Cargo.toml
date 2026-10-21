@@ -24,13 +24,13 @@ bdk_wallet = { version = "=3.2.0", optional = true, default-features = false, fe
     "keys-bip39",
     "std",
 ] }
-bdk_bitcoind_rpc = { version = "0.22.0", optional = true, default-features = false, features = [
+bdk_bitcoind_rpc = { version = "0.22.1", optional = true, default-features = false, features = [
     "std",
 ] }
-bdk_electrum = { version = "0.24.0", optional = true, default-features = false, features = [
+bdk_electrum = { version = "0.24.1", optional = true, default-features = false, features = [
     "use-rustls",
 ] }
-bdk_esplora = { version = "0.22.2", optional = true, default-features = false, features = [
+bdk_esplora = { version = "0.22.3", optional = true, default-features = false, features = [
     "blocking-https-rustls",
 ] }
 chacha20poly1305 = { version = "0.11.0", optional = true, default-features = false, features = [
@@ -47,7 +47,7 @@ tokio = { version = "1", optional = true, default-features = false }
 hex = { version = "0.4.3", default-features = false, features = [
     "alloc",
 ] }
-rand = { version = "0.10.1", optional = true, default-features = false, features = [
+rand = { version = "0.10.3", optional = true, default-features = false, features = [
     "thread_rng",
 ] }
 reqwest = { version = "0.13", optional = true, default-features = false, features = [
@@ -60,13 +60,13 @@ rustls = { version = "0.23", optional = true, default-features = false }
 scrypt = { version = "0.12.0", optional = true, default-features = false, features = [
     "phc",
 ] }
-sea-orm = { version = "2.0.1", optional = true, default-features = false, features = [
+sea-orm = { version = "2.0.4", optional = true, default-features = false, features = [
     "macros",
     "runtime-tokio-rustls",
     "sqlx-sqlite",
     "with-json",
 ] }
-sea-query = { version = "1.0.1", optional = true }
+sea-query = { version = "1.0.2", optional = true }
 serde = { version = "^1.0", default-features = false, features = [
     "derive",
 ] }
@@ -78,13 +78,13 @@ slog-async = { version = "2.8.0", optional = true, default-features = false }
 slog-term = { version = "2.9.2", optional = true, default-features = false }
 tempfile = { version = "3.27.0", optional = true, default-features = false }
 thiserror = { version = "2.0", default-features = false }
-time = { version = "0.3.52", optional = true, default-features = false }
+time = { version = "0.3.55", optional = true, default-features = false }
 file-format = { version = "0.29.0", optional = true, default-features = false, features = [
     "reader",
 ] }
 url = { version = "2.5", optional = true, default-features = false }
 walkdir = { version = "2.5.0", optional = true, default-features = false }
-zip = { version = "8.6.0", optional = true, default-features = false, features = [
+zip = { version = "9.0.5", optional = true, default-features = false, features = [
     "zstd",
 ] }
 
