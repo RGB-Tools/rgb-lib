@@ -390,7 +390,11 @@ fn get_zip_archive(zip_path: &PathBuf) -> Result<ZipArchive<fs::File>, Error> {
 
 fn get_fingerprint_from_zip(zip_path: &PathBuf) -> Result<String, Error> {
     let archive = get_zip_archive(zip_path)?;
-    let fingerprint = archive.name_for_index(0).unwrap_or_default();
+    let fingerprint = archive
+        .name_for_index(0)
+        .transpose()
+        .map_err(InternalError::from)?
+        .unwrap_or_default();
     Ok(fingerprint.to_string().replace("/", ""))
 }
 
@@ -402,7 +406,7 @@ pub(crate) fn unzip(zip_path: &PathBuf, path_out: &Path, logger: &Logger) -> Res
             Some(path) => path_out.join(path),
             None => continue,
         };
-        if file.name().ends_with('/') {
+        if file.is_dir() {
             debug!(logger, "creating directory {i} as {}", outpath.display());
             fs::create_dir_all(&outpath)?;
         } else {
