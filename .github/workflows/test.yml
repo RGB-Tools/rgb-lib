@@ -11,7 +11,7 @@ env:
 
 jobs:
   test_and_coverage:
-    timeout-minutes: 45
+    timeout-minutes: 60
     runs-on: ubuntu-latest
 
     steps:
@@ -47,6 +47,13 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           rustflags: ""
+      - name: Test with bitcoind feature
+        run: |
+          cargo test --profile reldebug --no-default-features --features bitcoind get_fee_estimation::success_bitcoind -- --ignored
+          SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features bitcoind go_online::fail
+          SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features bitcoind go_online::bitcoind
+          SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features bitcoind send::min_confirmations_bitcoind
+          SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features bitcoind send::min_relay_fee_bitcoind
       - name: Test with electrum feature
         run: |
           cargo test --profile reldebug --no-default-features --features electrum get_fee_estimation::success_electrum -- --ignored
@@ -62,6 +69,15 @@ jobs:
       - name: Test with no default features
         run: |
           cargo test --profile reldebug --no-default-features
+      - name: Test with the validation feature
+        run: |
+          cargo test --profile reldebug --no-default-features --features validation
+      - name: Test with indexer validation features
+        run: |
+          cargo test --profile reldebug --no-default-features --features bitcoind_validation,electrum_validation,esplora_validation
+      - name: Test with wallet feature
+        run: |
+          cargo test --profile reldebug --no-default-features --features wallet
 
   test_doc:
     timeout-minutes: 30

@@ -109,7 +109,7 @@ fn success() {
         assert!(transfer.expiration_timestamp.is_none());
         assert!(transfer.transport_endpoints.is_empty());
         assert!(transfer.invoice_string.is_none());
-        assert!(transfer.consignment_path.is_some());
+        assert!(transfer.consignment_path.is_none());
     }
     assert_eq!(recipient_id_set.len(), inflation_amounts.len());
     assert_eq!(receive_utxo_set.len(), inflation_amounts.len());
@@ -142,6 +142,9 @@ fn success() {
         vec![Recipient {
             assignment: Assignment::Fungible(total_issued),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -177,15 +180,18 @@ fn success() {
         .sum::<u64>();
     assert_eq!(sum, total_inflatable - total_inflated);
 
-    // after a refresh the receiver waits for the broadcast while the sender progresses to
-    // WaitingConfirmations
+    // transfers progress to status WaitingConfirmations after a refresh (v1.0: the recipient's ACK
+    // releases the TX, which it then decrypts and broadcasts)
     rcv_party.wait_for_refresh(None);
     let rcv_transfer = rcv_party.get_test_transfer_recipient(&receive_data.recipient_id);
     let (rcv_transfer_data, _rcv_asset_transfer) = rcv_party.get_test_transfer_data(&rcv_transfer);
     party.wait_for_refresh(Some(&asset.asset_id));
     let (transfer, _, _) = party.get_test_transfer_sender(&txid);
     let (transfer_data, _) = party.get_test_transfer_data(&transfer);
-    assert_eq!(rcv_transfer_data.status, TransferStatus::WaitingBroadcast);
+    assert_eq!(
+        rcv_transfer_data.status,
+        TransferStatus::WaitingConfirmations
+    );
     assert_eq!(transfer_data.status, TransferStatus::WaitingConfirmations);
 
     // asset has been received correctly
@@ -304,6 +310,9 @@ fn success() {
         vec![Recipient {
             assignment: Assignment::Fungible(remaining_inflatable),
             recipient_id: receive_data_2.recipient_id.clone(),
+            public_key: Some(receive_data_2.public_key.clone()),
+            expiration_timestamp: Some(receive_data_2.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -453,6 +462,9 @@ fn fail() {
         vec![Recipient {
             assignment: Assignment::Fungible(1),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -489,17 +501,17 @@ fn fail() {
     let result = party_nia.inflate_begin_result(&asset_ifa.asset_id, &[1]);
     assert_matches!(result, Err(Error::UnsupportedSchema { asset_schema: _ }));
     // - inflation not supported
-    let asset_nia = party.issue_asset_nia(None);
-    let asset_cfa = party.issue_asset_cfa(None, None);
-    let asset_uda = party.issue_asset_uda(None, None, vec![]);
-    let unsupported_asset_ids = [
-        (asset_nia.asset_id, AssetSchema::Nia),
-        (asset_cfa.asset_id, AssetSchema::Cfa),
-        (asset_uda.asset_id, AssetSchema::Uda),
-    ];
-    for (asset_id, schema) in unsupported_asset_ids {
-        let inflation_amounts = vec![200, 42];
-        let result = party.inflate_result(&asset_id, &inflation_amounts);
+    party.create_utxos_default(); // more UTXOs to have free allocation slots
+    for schema in AssetSchema::iter() {
+        let supported = match schema {
+            AssetSchema::Ifa => true,
+            AssetSchema::Nia | AssetSchema::Uda | AssetSchema::Cfa | AssetSchema::Bfa => false,
+        };
+        if supported {
+            continue;
+        }
+        let asset_id = party.issue_asset_of_schema(schema);
+        let result = party.inflate_result(&asset_id, &[200, 42]);
         assert_matches!(result, Err(Error::UnsupportedInflation { asset_schema }) if asset_schema == schema);
     }
     // - inflation amounts (none, zero)
@@ -539,6 +551,16 @@ fn fail() {
     let mut empty_party = get_empty_party!();
     let result = empty_party.inflate_end_result(&signed_psbt);
     assert_matches!(result, Err(Error::UnknownTransfer { txid }) if txid == psbt_txid);
+    // - PSBT of another operation
+    let unsigned_psbt = party.burn_begin(&asset_ifa.asset_id, 1, None);
+    let signed_psbt = party.wallet.sign_psbt(unsigned_psbt, None).unwrap();
+    let txid = Psbt::from_str(&signed_psbt)
+        .unwrap()
+        .unsigned_tx
+        .compute_txid()
+        .to_string();
+    let result = party.inflate_end_result(&signed_psbt);
+    assert_matches!(result, Err(Error::WrongOperation { txid: t }) if t == txid);
 }
 
 #[cfg(feature = "electrum")]
@@ -592,4 +614,111 @@ fn begin_end() {
     party.wallet.inflate_end(party.online, signed_psbt).unwrap();
     let bak_info_after = party.db_backup_info();
     assert!(bak_info_after.last_operation_timestamp > bak_info_before.last_operation_timestamp);
+}
+
+/// when `dry_run` is `false`, `inflate_begin` persists the operation to DB as `Initiated` with
+/// `consignment_hash` set to `None`, which will never change since Inflation doesn't produce a
+/// consignment; `inflate_end` must still complete and settle correctly
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn no_dry_run() {
+    initialize();
+
+    let mut party = get_funded_party!();
+    let asset = party.issue_asset_ifa(None, Some(&[1000]), None);
+
+    let inflation_amount = 500;
+    let res = party
+        .wallet
+        .inflate_begin(
+            party.online,
+            asset.asset_id.clone(),
+            vec![inflation_amount],
+            FEE_RATE,
+            MIN_CONFIRMATIONS,
+            false,
+        )
+        .unwrap();
+    let batch_transfer_idx = res.batch_transfer_idx.unwrap();
+
+    let signed_psbt = party.wallet.sign_psbt(res.psbt, None).unwrap();
+    let end_res = party.wallet.inflate_end(party.online, signed_psbt).unwrap();
+    assert_eq!(end_res.batch_transfer_idx, batch_transfer_idx);
+
+    // settle
+    mine(false);
+    assert!(party.refresh_asset(&asset.asset_id));
+
+    let total_issued = AMOUNT + inflation_amount;
+    let balance = party.get_asset_balance(&asset.asset_id);
+    assert_eq!(
+        balance,
+        Balance {
+            settled: total_issued,
+            future: total_issued,
+            spendable: total_issued,
+        }
+    );
+
+    let transfers = party.list_transfers(Some(&asset.asset_id));
+    let transfer = transfers.last().unwrap();
+    assert_eq!(transfer.status, TransferStatus::Settled);
+    assert_eq!(transfer.kind, TransferKind::Inflation);
+    assert_eq!(transfer.txid.as_ref().unwrap(), &end_res.txid);
+    // inflation never produces a consignment; consignment_hash correctly stays None
+    assert!(transfer.consignment_path.is_none());
+}
+
+/// An inflation ended again (e.g. retried after a crash) is completed only while it's still
+/// initiated: one that has failed or already been ended must not be broadcast again nor have its
+/// status changed.
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn end_after_fail_or_end() {
+    initialize();
+
+    let mut party = get_funded_party!();
+    let asset = party.issue_asset_ifa(None, Some(&[1000]), None);
+
+    // begin an inflation and sign its PSBT
+    let begin = |party: &mut SinglesigParty| {
+        let res = party
+            .wallet
+            .inflate_begin(
+                party.online,
+                asset.asset_id.clone(),
+                vec![1000],
+                FEE_RATE,
+                MIN_CONFIRMATIONS,
+                false,
+            )
+            .unwrap();
+        let signed_psbt = party.wallet.sign_psbt(res.psbt, None).unwrap();
+        let txid = Psbt::from_str(&signed_psbt)
+            .unwrap()
+            .unsigned_tx
+            .compute_txid()
+            .to_string();
+        (res.batch_transfer_idx.unwrap(), txid, signed_psbt)
+    };
+
+    // a failed inflation is not ended
+    let (batch_transfer_idx, txid, signed_psbt) = begin(&mut party);
+    assert!(party.fail_transfers_single(batch_transfer_idx));
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Failed));
+    let result = party.inflate_end_result(&signed_psbt);
+    assert_matches!(result, Err(Error::CannotEndTransfer { txid: t }) if t == txid);
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Failed));
+
+    // an ended inflation is not ended again
+    let (_, txid, signed_psbt) = begin(&mut party);
+    party.inflate_end_result(&signed_psbt).unwrap();
+    mine(false);
+    party.wait_for_refresh(None);
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+    let result = party.inflate_end_result(&signed_psbt);
+    assert_matches!(result, Err(Error::CannotEndTransfer { txid: t }) if t == txid);
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
 }

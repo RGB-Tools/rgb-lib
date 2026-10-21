@@ -338,7 +338,12 @@ pub(crate) fn zip_dir(
     } else {
         path_in
     };
-    for entry in WalkDir::new(path_in) {
+    // a legacy RGB store migration that crashed between retiring the legacy store and deleting it
+    // can leave the retired copy behind: skip its whole subtree, the DB holds its data
+    let entry_iterator = WalkDir::new(path_in)
+        .into_iter()
+        .filter_entry(|e| !e.path().ends_with(RGB_RUNTIME_DELETING_DIR));
+    for entry in entry_iterator {
         let entry = entry.map_err(std::io::Error::from)?;
         let path = entry.path();
         let name = path.strip_prefix(prefix).map_err(InternalError::from)?;
@@ -385,7 +390,11 @@ fn get_zip_archive(zip_path: &PathBuf) -> Result<ZipArchive<fs::File>, Error> {
 
 fn get_fingerprint_from_zip(zip_path: &PathBuf) -> Result<String, Error> {
     let archive = get_zip_archive(zip_path)?;
-    let fingerprint = archive.name_for_index(0).unwrap_or_default();
+    let fingerprint = archive
+        .name_for_index(0)
+        .transpose()
+        .map_err(InternalError::from)?
+        .unwrap_or_default();
     Ok(fingerprint.to_string().replace("/", ""))
 }
 
@@ -397,7 +406,7 @@ pub(crate) fn unzip(zip_path: &PathBuf, path_out: &Path, logger: &Logger) -> Res
             Some(path) => path_out.join(path),
             None => continue,
         };
-        if file.name().ends_with('/') {
+        if file.is_dir() {
             debug!(logger, "creating directory {i} as {}", outpath.display());
             fs::create_dir_all(&outpath)?;
         } else {

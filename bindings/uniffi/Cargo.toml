@@ -21,6 +21,7 @@ default = ["uniffi/cli"]
 
 [dependencies]
 rgb-lib = { version = "0.3.0-beta.7", path = "../../", features = [
+    "bitcoind",
     "electrum",
     "esplora",
 ] }

@@ -4,22 +4,8 @@ use super::*;
 use regex::RegexSet;
 #[cfg(feature = "electrum")]
 use std::io::Write;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 use std::time::{Duration, Instant};
-
-/// Panic if the given expression doesn't match the provided pattern, logging the unexpected result
-#[macro_export]
-macro_rules! assert_matches {
-    ($expression:expr, $pattern:pat $(if $guard:expr)? $(,)?) => {{
-        #[allow(unreachable_patterns)]
-        match $expression {
-            $pattern $(if $guard)? => {},
-            _ => {
-                panic!("received unexpected result: {}", format!("{:?}", $expression));
-            }
-        }
-    }};
-}
 
 /// A data dir of its own for a test that doesn't call `initialize()`.
 ///
@@ -112,12 +98,12 @@ impl PrivateDataDir {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn join_with_sep(parts: &[&str]) -> String {
     parts.join(MAIN_SEPARATOR_STR)
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn get_current_time() -> u128 {
     let now = std::time::SystemTime::now();
     now.duration_since(std::time::UNIX_EPOCH)
@@ -130,7 +116,7 @@ pub(crate) fn get_restore_dir_string() -> String {
     join_with_sep(&RESTORE_DIR_PARTS)
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn get_test_data_dir_string() -> String {
     join_with_sep(&TEST_DATA_DIR_PARTS)
 }
@@ -144,12 +130,12 @@ pub(crate) fn get_restore_dir_path<P: AsRef<Path>>(last: Option<P>) -> PathBuf {
     path
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn get_test_data_dir_path() -> PathBuf {
     PathBuf::from(get_test_data_dir_string())
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn create_test_data_dir() -> PathBuf {
     let test_data_dir = get_test_data_dir_path();
     if !test_data_dir.exists() {
@@ -175,7 +161,7 @@ pub(crate) fn get_test_wallet_with_keys(keys: &Keys) -> Wallet {
 }
 
 // return a wallet for testing
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn get_test_wallet_with_net(
     private_keys: bool,
     max_allocations_per_utxo: Option<u32>,
@@ -247,7 +233,7 @@ fn get_test_wallet_raw_in(
     wallet
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 // return a regtest wallet for testing
 pub(crate) fn get_test_wallet(private_keys: bool, max_allocations_per_utxo: Option<u32>) -> Wallet {
     get_test_wallet_with_net(
@@ -269,7 +255,7 @@ pub(crate) fn get_funded_party_p2wpkh() -> SinglesigParty {
     party
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn get_empty_wallet(
     private_keys: bool,
     indexer_url: Option<String>,
@@ -281,7 +267,7 @@ pub(crate) fn get_empty_wallet(
     (wallet, online)
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn get_funded_noutxo_wallet(
     private_keys: bool,
     indexer_url: Option<String>,
@@ -291,7 +277,7 @@ pub(crate) fn get_funded_noutxo_wallet(
     (wallet, online)
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn get_funded_party(private_keys: bool, indexer_url: Option<String>) -> SinglesigParty {
     let (wallet, online) = get_funded_noutxo_wallet(private_keys, indexer_url);
     let mut party = party!(wallet, online);
@@ -299,13 +285,13 @@ pub(crate) fn get_funded_party(private_keys: bool, indexer_url: Option<String>) 
     party
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn get_empty_party(private_keys: bool, indexer_url: Option<String>) -> SinglesigParty {
     let (wallet, online) = get_empty_wallet(private_keys, indexer_url);
     party!(wallet, online)
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn get_funded_noutxo_party(
     private_keys: bool,
     indexer_url: Option<String>,
@@ -314,12 +300,12 @@ pub(crate) fn get_funded_noutxo_party(
     party!(wallet, online)
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn send_to_address(address: String) {
     send_sats_to_address(address, None);
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn send_sats_to_address(address: String, sats: Option<u64>) {
     let amt = BdkAmount::from_sat(sats.unwrap_or(100_000_000));
     let btc_str = amt.to_string_in(Denomination::Bitcoin);
@@ -353,7 +339,7 @@ pub(crate) fn send_sats_to_address(address: String, sats: Option<u64>) {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn fund_wallet(address: String) {
     send_to_address(address);
     mine(false);
@@ -392,7 +378,7 @@ pub(crate) fn print_unspents(unspents: &[Unspent], msg: &str) {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn wait_for_function<F>(mut func: F, timeout_secs: u8, interval_ms: u16) -> bool
 where
     F: FnMut() -> bool,
@@ -426,21 +412,267 @@ pub(crate) fn get_proxy_client(proxy_url: Option<&str>) -> ProxyClient {
     ProxyClient::new(proxy_url.unwrap_or(PROXY_URL)).unwrap()
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) fn test_go_online_options(indexer_url: Option<&str>) -> OnlineOptions {
-    OnlineOptions {
-        indexer_url: indexer_url.unwrap_or(DEFAULT_INDEXER_URL).to_string(),
-        skip_consistency_check: true,
-        vanilla_sync_lookback: INDEXER_SYNC_LOOKBACK as u32,
+/// Post a consignment file to the invoice of `recipient_id` (with pubkey `recipient_pk`) acting as
+/// a sender with a fresh key, returning the sender key and the transfer ID.
+#[cfg(feature = "electrum")]
+pub(crate) fn post_test_consignment(
+    proxy_client: &ProxyClient,
+    recipient_id: &str,
+    recipient_pk: &str,
+    consignment_path: &Path,
+    consignment_hash: &str,
+) -> (ed25519_dalek::SigningKey, String) {
+    let sender_sk = gen_ed25519();
+    let sender_pk = hex::encode(sender_sk.verifying_key().to_bytes());
+    let invoice_id = invoice_id(recipient_id, recipient_pk);
+    let transfer_id = transfer_id(&invoice_id, &sender_pk);
+    let blob_hash = hash_file(consignment_path).unwrap();
+    let digest = sha256_digest(
+        post_consignment_message(&transfer_id, consignment_hash, &blob_hash).as_bytes(),
+    );
+    let data = PostConsignmentData {
+        invoice_id,
+        transfer_id: transfer_id.clone(),
+        sender_transport_endpoint: PROXY_ENDPOINT.clone(),
+        sender_pk,
+        consignment_hash: consignment_hash.to_string(),
+        batch: false,
+        signature: hex::encode(sign_ed25519(&sender_sk, &digest)),
+    };
+    let res = proxy_client
+        .post_consignment(
+            &data,
+            consignment_path,
+            &now().unix_timestamp().to_string(),
+            "0",
+        )
+        .unwrap();
+    assert_eq!(res.result, Some(true), "{:?}", res.error);
+    (sender_sk, transfer_id)
+}
+
+/// Post a media file for a transfer created with [`post_test_consignment`].
+#[cfg(feature = "electrum")]
+pub(crate) fn post_test_media(
+    proxy_client: &ProxyClient,
+    sender_sk: &ed25519_dalek::SigningKey,
+    transfer_id: &str,
+    media_id: &str,
+    media_path: &Path,
+) {
+    let blob_hash = hash_file(media_path).unwrap();
+    let digest = sha256_digest(post_media_message(transfer_id, media_id, &blob_hash).as_bytes());
+    let res = proxy_client
+        .post_media(
+            transfer_id,
+            media_id,
+            media_path,
+            &hex::encode(sign_ed25519(sender_sk, &digest)),
+        )
+        .unwrap();
+    assert_eq!(res.result, Some(true), "{:?}", res.error);
+}
+
+#[cfg(feature = "bitcoind")]
+pub(crate) fn bitcoind_pass_auth() -> BitcoindAuth {
+    BitcoindAuth::UserPass {
+        username: BITCOIND_USER.to_string(),
+        password: BITCOIND_PASSWORD.to_string(),
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+// the no-filters node authenticates via its cookie file (exported by regtest.sh) so both auth
+// methods get coverage
+#[cfg(feature = "bitcoind")]
+pub(crate) fn bitcoind_cookie_auth() -> BitcoindAuth {
+    BitcoindAuth::CookieFile {
+        path: join_with_sep(&["tests", "tmp_srv", "bitcoind_no_filters.cookie"]),
+    }
+}
+
+#[cfg(feature = "_online")]
+pub(crate) fn test_indexer_config(indexer_url: &str) -> IndexerConfig {
+    let url = indexer_url.to_string();
+    #[cfg(feature = "bitcoind")]
+    if [BITCOIND_URL, BITCOIND_NO_TXINDEX_URL].contains(&indexer_url) {
+        return IndexerConfig::Bitcoind {
+            url,
+            auth: bitcoind_pass_auth(),
+        };
+    }
+    #[cfg(feature = "bitcoind")]
+    if indexer_url == BITCOIND_NO_FILTERS_URL {
+        return IndexerConfig::Bitcoind {
+            url,
+            auth: bitcoind_cookie_auth(),
+        };
+    }
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    if indexer_url == ESPLORA_URL {
+        return IndexerConfig::Esplora { url };
+    }
+    #[cfg(feature = "electrum")]
+    return IndexerConfig::Electrum { url };
+    #[cfg(all(feature = "esplora", not(feature = "electrum")))]
+    return IndexerConfig::Esplora { url };
+    #[cfg(all(
+        feature = "bitcoind",
+        not(any(feature = "electrum", feature = "esplora"))
+    ))]
+    return IndexerConfig::Bitcoind {
+        url,
+        auth: bitcoind_pass_auth(),
+    };
+}
+
+#[cfg(feature = "_online")]
+pub(crate) fn test_go_online_options(indexer_url: Option<&str>) -> OnlineOptions {
+    OnlineOptions {
+        indexer_config: test_indexer_config(indexer_url.unwrap_or(DEFAULT_INDEXER_URL)),
+        skip_consistency_check: true,
+        vanilla_sync_lookback: INDEXER_SYNC_LOOKBACK as u32,
+        failed_witness_receive_grace_secs: FAILED_WITNESS_RECEIVE_GRACE_SECS,
+        proxy_auth_keys: HashMap::new(),
+        evm_rpc_urls: HashMap::from([(
+            super::super::ANVIL_CHAIN_ID,
+            super::super::EVM_RPC_URL.to_string(),
+        )]),
+    }
+}
+
+#[cfg(feature = "_online")]
 pub(crate) fn default_rcv_expiration() -> u64 {
     (now().unix_timestamp() + DURATION_RCV_TRANSFER as i64) as u64
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn default_send_expiration() -> u64 {
     (now().unix_timestamp() + DURATION_SEND_TRANSFER as i64) as u64
+}
+
+// proxy that forwards every call to the real one, except ACK posts and gets that receive an
+// unparsable response while `fail_ack` is set; it also returns how many times a consignment
+// has been requested
+#[cfg(feature = "electrum")]
+pub(crate) fn failing_ack_proxy(
+    fail_ack: Arc<AtomicBool>,
+) -> (mockito::ServerGuard, mockito::Mock, Arc<AtomicUsize>) {
+    let consignment_gets = Arc::new(AtomicUsize::new(0));
+    let gets = Arc::clone(&consignment_gets);
+    let mut server = mockito::Server::new();
+    let mock = server
+        .mock("POST", "/json-rpc")
+        .with_body_from_request(move |req| {
+            let body = req.body().unwrap().clone();
+            let body_str = String::from_utf8_lossy(&body);
+            if body_str.contains("\"consignment.get\"") {
+                gets.fetch_add(1, Ordering::Relaxed);
+            }
+            if fail_ack.load(Ordering::Relaxed)
+                && (body_str.contains("\"ack.post\"") || body_str.contains("\"ack.get\""))
+            {
+                return b"not valid json".to_vec();
+            }
+            forward_to_proxy(req, body)
+        })
+        .expect_at_least(1)
+        .create();
+    (server, mock, consignment_gets)
+}
+
+// proxy that forwards every call to the real one, except transfer lists that receive an
+// unparsable response while `fail_list` is set
+#[cfg(feature = "electrum")]
+pub(crate) fn failing_list_proxy(
+    fail_list: Arc<AtomicBool>,
+) -> (mockito::ServerGuard, mockito::Mock) {
+    let mut server = mockito::Server::new();
+    let mock = server
+        .mock("POST", "/json-rpc")
+        .with_body_from_request(move |req| {
+            let body = req.body().unwrap().clone();
+            if fail_list.load(Ordering::Relaxed)
+                && String::from_utf8_lossy(&body).contains("\"transfer.list\"")
+            {
+                return b"not valid json".to_vec();
+            }
+            forward_to_proxy(req, body)
+        })
+        .expect_at_least(1)
+        .create();
+    (server, mock)
+}
+
+// proxy that forwards every call to the real one, except the calls starting a new transfer
+// (invoice.prepare, consignment.post and ack.prepare) that are refused as by a draining proxy
+#[cfg(feature = "electrum")]
+pub(crate) fn draining_proxy(draining: Arc<AtomicBool>) -> (mockito::ServerGuard, mockito::Mock) {
+    let mut server = mockito::Server::new();
+    let mock = server
+        .mock("POST", "/json-rpc")
+        .with_body_from_request(move |req| {
+            let body = req.body().unwrap().clone();
+            let body_str = String::from_utf8_lossy(&body);
+            // consignment.post is a multipart call, so its method name is not quoted
+            if draining.load(Ordering::Relaxed)
+                && ["invoice.prepare", "consignment.post", "ack.prepare"]
+                    .iter()
+                    .any(|m| body_str.contains(m))
+            {
+                return br#"{"jsonrpc":"2.0","id":null,"error":{"code":-115,"message":"Server draining"}}"#.to_vec();
+            }
+            forward_to_proxy(req, body)
+        })
+        .expect_at_least(1)
+        .create();
+    (server, mock)
+}
+
+// proxy that forwards every call to the real one, advertising `max_media` in server.info (not
+// advertising any while it's 0, which a proxy cannot set)
+#[cfg(feature = "electrum")]
+pub(crate) fn max_media_proxy(
+    max_media: Arc<AtomicUsize>,
+) -> (mockito::ServerGuard, mockito::Mock) {
+    let mut server = mockito::Server::new();
+    let mock = server
+        .mock("POST", "/json-rpc")
+        .with_body_from_request(move |req| {
+            let body = req.body().unwrap().clone();
+            let is_info = String::from_utf8_lossy(&body).contains("\"server.info\"");
+            let res = forward_to_proxy(req, body);
+            if !is_info {
+                return res;
+            }
+            let mut res: serde_json::Value = serde_json::from_slice(&res).unwrap();
+            let result = res["result"].as_object_mut().unwrap();
+            match max_media.load(Ordering::Relaxed) {
+                0 => result.remove("max_media"),
+                max => result.insert(s!("max_media"), max.to_string().into()),
+            };
+            serde_json::to_vec(&res).unwrap()
+        })
+        .expect_at_least(1)
+        .create();
+    (server, mock)
+}
+
+// forward a request received by a mock proxy to the real one, returning its response body
+#[cfg(feature = "electrum")]
+fn forward_to_proxy(req: &mockito::Request, body: Vec<u8>) -> Vec<u8> {
+    let content_type = req.header(CONTENT_TYPE)[0].clone();
+    // the blocking client cannot run inside mockito's async runtime
+    std::thread::spawn(move || {
+        RestClient::new()
+            .post(PROXY_URL)
+            .header(CONTENT_TYPE, content_type)
+            .body(body)
+            .send()
+            .unwrap()
+            .bytes()
+            .unwrap()
+            .to_vec()
+    })
+    .join()
+    .unwrap()
 }

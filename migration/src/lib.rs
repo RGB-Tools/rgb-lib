@@ -7,6 +7,11 @@ mod m20251215_124959_backup_info_update;
 mod m20260414_134758_add_reserved_txo;
 mod m20260625_121819_incoming_rework;
 mod m20260727_115821_add_bdk_tables;
+mod m20261006_093003_add_pending_witness_indexes;
+mod m20261013_111428_reserved_txo_colored;
+mod m20261013_141856_add_rgb_storage_tables;
+mod m20261013_142324_proxy_v1;
+mod m20261013_142840_asset_transfer_transition;
 
 pub struct Migrator;
 
@@ -21,6 +26,11 @@ impl MigratorTrait for Migrator {
             Box::new(m20260414_134758_add_reserved_txo::Migration),
             Box::new(m20260625_121819_incoming_rework::Migration),
             Box::new(m20260727_115821_add_bdk_tables::Migration),
+            Box::new(m20261006_093003_add_pending_witness_indexes::Migration),
+            Box::new(m20261013_111428_reserved_txo_colored::Migration),
+            Box::new(m20261013_141856_add_rgb_storage_tables::Migration),
+            Box::new(m20261013_142324_proxy_v1::Migration),
+            Box::new(m20261013_142840_asset_transfer_transition::Migration),
         ]
     }
 }

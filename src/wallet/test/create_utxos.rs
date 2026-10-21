@@ -111,6 +111,9 @@ fn up_to_allocation_checks() {
             vec![Recipient {
                 assignment: Assignment::Fungible(amount),
                 recipient_id: receive_data.recipient_id.clone(),
+                public_key: Some(receive_data.public_key.clone()),
+                expiration_timestamp: Some(receive_data.expiration_timestamp),
+                encryption: Encryption::Optional,
                 witness_data: None,
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
             }],
@@ -236,6 +239,33 @@ fn fail() {
     // output below dust limit
     let result = party.create_utxos_begin_result(false, Some(1), Some(1), FEE_RATE);
     assert!(matches!(result, Err(Error::OutputBelowDustLimit)));
+
+    // create_utxos_end with the PSBT of another operation
+    // - an RGB one
+    let asset = party.issue_asset_ifa(None, None, None);
+    let unsigned_psbt = party.burn_begin(&asset.asset_id, 1, None);
+    let signed_psbt = party.wallet.sign_psbt(unsigned_psbt, None).unwrap();
+    let txid = Psbt::from_str(&signed_psbt)
+        .unwrap()
+        .unsigned_tx
+        .compute_txid()
+        .to_string();
+    let result = party.wallet.create_utxos_end(party.online, signed_psbt);
+    assert_matches!(result, Err(Error::WrongOperation { txid: t }) if t == txid);
+    // - a vanilla one
+    let address = party.get_address();
+    let unsigned_psbt = party
+        .wallet
+        .send_btc_begin(party.online, address, 1000, FEE_RATE, false, false)
+        .unwrap();
+    let signed_psbt = party.wallet.sign_psbt(unsigned_psbt, None).unwrap();
+    let txid = Psbt::from_str(&signed_psbt)
+        .unwrap()
+        .unsigned_tx
+        .compute_txid()
+        .to_string();
+    let result = party.wallet.create_utxos_end(party.online, signed_psbt);
+    assert_matches!(result, Err(Error::WrongOperation { txid: t }) if t == txid);
 }
 
 // create UTXOs of size funds/256 + check UTXO_NUM are created
@@ -395,7 +425,11 @@ fn begin_reservation_interactions() {
         .db_wallet_transaction_with_reserved_txos_by_txid(&psbt_txid)
         .expect("wallet_transaction should exist after dry_run=false begin");
     assert_eq!(wt.r#type, WalletTransactionType::CreateUtxos);
-    assert!(reservations.iter().all(|r| r.reserved_for == Some(wt.idx)));
+    assert!(
+        reservations
+            .iter()
+            .all(|r| r.reserved_for_vanilla == Some(wt.idx))
+    );
     let reserved_set: HashSet<(String, u32)> = reservations
         .iter()
         .map(|r| (r.txid.clone(), r.vout))

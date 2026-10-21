@@ -1,7 +1,21 @@
 services:
   bitcoind:
     image: registry.gitlab.com/hashbeam/docker/bitcoind:30.2
+    command: "-fallbackfee=0.0002 -blockfilterindex=1"
+    ports:
+      - 18443:18443
+  bitcoind_no_filters:
+    image: registry.gitlab.com/hashbeam/docker/bitcoind:30.2
+    profiles: ['tests']
     command: "-fallbackfee=0.0002"
+    ports:
+      - 18444:18443
+  bitcoind_no_txindex:
+    image: registry.gitlab.com/hashbeam/docker/bitcoind:30.2
+    profiles: ['tests']
+    command: "-fallbackfee=0.0002 -txindex=0"
+    ports:
+      - 18445:18443
   electrs:
     image: registry.gitlab.com/hashbeam/docker/electrs:0.11.0
     ports:
@@ -45,11 +59,23 @@ services:
       - 50004:50001
       - 8094:80
   proxy:
-    image: ghcr.io/rgb-tools/rgb-proxy-server:0.3.0
+    image: ghcr.io/rgb-tools/rgb-proxy-server:0.4.0
+    environment:
+      # disable the proof of work, to keep it off during the many transfers of a test run
+      MAX_POW_DIFFICULTY: 0
     ports:
       - 3000:3000
+  proxy-auth:
+    image: ghcr.io/rgb-tools/rgb-proxy-server:0.4.0
+    profiles: ['tests']
+    environment:
+      MAX_POW_DIFFICULTY: 0
+      # pubkey of the PROXY_AUTH_SEED used by the tests
+      PROXY_AUTH_PUBKEYS: 0738ae88b5bfc7f915b809937573aa51d3bf00cce2edb5795b99f682d4065f07
+    ports:
+      - 3003:3000
   proxy-mod-proto:
-    image: ghcr.io/rgb-tools/rgb-proxy-server:0.1.0
+    image: ghcr.io/rgb-tools/rgb-proxy-server:0.3.0
     profiles: ['tests']
     ports:
       - 3001:3000
@@ -59,6 +85,8 @@ services:
       dockerfile: ./Dockerfile.modified-api
     image: rgb-proxy-server:modified-api
     profiles: ['tests']
+    environment:
+      MAX_POW_DIFFICULTY: 0
     ports:
       - 3002:3000
   reject-lists:
@@ -87,12 +115,24 @@ services:
     depends_on:
       - bitcoind_signet_custom
   rgb-multisig-hub:
-    image: ghcr.io/rgb-tools/rgb-multisig-hub:0.1.1
+    image: ghcr.io/rgb-tools/rgb-multisig-hub:0.1.2
     ports:
       - 8141:3001
     volumes:
       - hub:/srv/data
       - ./hub/config.toml:/srv/data/config.toml:ro
+  anvil:
+    image: ghcr.io/foundry-rs/foundry:latest
+    profiles: ['tests']
+    command: >
+      anvil
+      --host 0.0.0.0
+      --port 8545
+      --chain-id 31337
+      --block-time 2
+    network_mode: host
+    volumes:
+      - ./contracts:/contracts:ro
 
 
 volumes:

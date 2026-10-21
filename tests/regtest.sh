@@ -44,10 +44,11 @@ LISTS_DIR="${CWD}/lists"
 HUB_DIR="${CWD}/hub"
 COMPOSE_FPATH="${CWD}/compose.yaml"
 COMPOSE="$COMPOSE -f ${COMPOSE_FPATH}"
-EXPOSED_PORTS=(3000 50001) # see compose.yaml for the exposed ports
+EXPOSED_PORTS=(3000 18443 50001) # see compose.yaml for the exposed ports
 TIMEOUT=100
 
 BCLI="$COMPOSE exec -T -u blits bitcoind bitcoin-cli -regtest"
+BCLI_NO_FILTERS="$COMPOSE exec -T -u blits bitcoind_no_filters bitcoin-cli -regtest"
 BCLI_SIGNET="$COMPOSE exec -T -u blits bitcoind_signet_custom bitcoin-cli -signet"
 BCLI_ESPLORA="$COMPOSE exec -T esplora cli"
 
@@ -55,12 +56,16 @@ _prepare_bitcoin_funds() {
     $BCLI createwallet miner
     mine 111
     if [ -n "$TESTS" ]; then
+        $BCLI_NO_FILTERS createwallet miner
+        $BCLI_NO_FILTERS -rpcwallet=miner -generate 111 >/dev/null
+        # export the no-filters node cookie for tests using cookie file auth
+        $COMPOSE cp bitcoind_no_filters:/srv/app/.bitcoin/regtest/.cookie "${TMP_DIR}/bitcoind_no_filters.cookie"
+        $BCLI_SIGNET createwallet miner
+        $BCLI_SIGNET -rpcwallet=miner generatetoaddress 1 "$($BCLI_SIGNET getnewaddress)" 100000000
         $BCLI_ESPLORA createwallet miner
         # connect the 2 bitcoind services
         $BCLI addnode "esplora:18444" "add"
         $BCLI_ESPLORA addnode "bitcoind:18444" "add"
-        $BCLI_SIGNET createwallet miner
-        $BCLI_SIGNET -rpcwallet=miner generatetoaddress 1 "$($BCLI_SIGNET getnewaddress)" 100000000
     fi
 }
 
@@ -124,13 +129,21 @@ _wait_for_proxy() {
     done
 }
 
+_wait_for_anvil() {
+    # wait for anvil to be ready to accept RPC requests
+    start_time=$(date +%s)
+    until $COMPOSE logs anvil |grep -q 'Listening on'; do
+        current_time=$(date +%s)
+        if [ $((current_time - start_time)) -gt $TIMEOUT ]; then
+            echo "Timeout waiting for anvil to start"
+            $COMPOSE logs anvil
+            exit 1
+        fi
+        sleep 1
+    done
+}
+
 stop_services() {
-    # cleanly stop the version 0.1.0 RGB proxy server
-    local proxy_mod_proto
-    proxy_mod_proto="$($COMPOSE ps -q proxy-mod-proto)"
-    if [ -n "$proxy_mod_proto" ] && docker ps -q --no-trunc | grep -q "$proxy_mod_proto"; then
-        $COMPOSE exec proxy-mod-proto pkill -f '^node'
-    fi
     # bring all services down
     $COMPOSE --profile '*' down -v --remove-orphans
 }
@@ -142,8 +155,8 @@ _start_services() {
         mkdir -p $TMP_DIR $LISTS_DIR
     fi
     for port in "${EXPOSED_PORTS[@]}"; do
-        if [ -n "$(ss -HOant "sport = :$port")" ]; then
-            ss -Oant "sport = :$port"
+        if [ -n "$(ss -HOlnt "sport = :$port")" ]; then
+            ss -Olnt "sport = :$port"
             _die "port $port is already bound, services can't be started"
         fi
     done
@@ -154,7 +167,7 @@ prepare_tests_environment() {
     TESTS=1
 
     COMPOSE="$COMPOSE --profile tests"
-    EXPOSED_PORTS+=(3001 3002 50002 50003 50004 50005 8094 8140 8141)
+    EXPOSED_PORTS+=(3001 3002 3003 18444 18445 50002 50003 50004 50005 8094 8140 8141 8545)
 
     PROXY_MOD_PROTO="proxy-mod-proto"
     PROXY_MOD_API="proxy-mod-api"
@@ -170,6 +183,10 @@ prepare_tests_environment() {
     _start_services
 
     _wait_for_bitcoind bitcoind
+
+    _wait_for_bitcoind bitcoind_no_filters
+
+    _wait_for_bitcoind bitcoind_no_txindex
 
     _wait_for_bitcoind bitcoind_signet_custom
 
@@ -190,6 +207,10 @@ prepare_tests_environment() {
     _wait_for_proxy $PROXY_MOD_PROTO
 
     _wait_for_proxy $PROXY_MOD_API
+
+    _wait_for_proxy proxy-auth
+
+    _wait_for_anvil
 }
 
 prepare_bindings_examples_environment() {

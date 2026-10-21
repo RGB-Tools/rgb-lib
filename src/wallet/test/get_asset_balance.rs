@@ -110,6 +110,9 @@ fn transfer_balances() {
         asset_1.asset_id.clone(),
         vec![Recipient {
             recipient_id: receive_data_fail.recipient_id.clone(),
+            public_key: Some(receive_data_fail.public_key.clone()),
+            expiration_timestamp: Some(receive_data_fail.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             assignment: Assignment::Fungible(amount_1),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -160,6 +163,9 @@ fn transfer_balances() {
         asset_1.asset_id.clone(),
         vec![Recipient {
             recipient_id: receive_data_1.recipient_id.clone(),
+            public_key: Some(receive_data_1.public_key.clone()),
+            expiration_timestamp: Some(receive_data_1.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             assignment: Assignment::Fungible(amount_1),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -200,6 +206,9 @@ fn transfer_balances() {
         asset_2.asset_id.clone(),
         vec![Recipient {
             recipient_id: receive_data_fail.recipient_id.clone(),
+            public_key: Some(receive_data_fail.public_key.clone()),
+            expiration_timestamp: Some(receive_data_fail.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             assignment: Assignment::Fungible(AMOUNT * 3),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -210,6 +219,7 @@ fn transfer_balances() {
         fungible: 1332,
         non_fungible: false,
         inflation: 0,
+        mint: 0,
     };
     assert_matches!(result, Err(Error::InsufficientAssignments { asset_id, available }) if asset_id == asset_2.asset_id && available == assignments_collection );
     // fail + delete blind receive
@@ -243,7 +253,7 @@ fn transfer_balances() {
     assert_eq!(transfers_recv.len(), 1);
     assert_eq!(
         transfers_recv.last().unwrap().status,
-        TransferStatus::WaitingBroadcast
+        TransferStatus::WaitingConfirmations
     );
     let expected_balance_1 = Balance {
         settled: 0,
@@ -295,6 +305,9 @@ fn transfer_balances() {
         asset_1.asset_id.clone(),
         vec![Recipient {
             recipient_id: receive_data_2.recipient_id.clone(),
+            public_key: Some(receive_data_2.public_key.clone()),
+            expiration_timestamp: Some(receive_data_2.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             assignment: Assignment::Fungible(amount_2),
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
@@ -351,7 +364,7 @@ fn transfer_balances() {
     assert_eq!(transfers_recv.len(), 2);
     assert_eq!(
         transfers_recv.last().unwrap().status,
-        TransferStatus::WaitingBroadcast
+        TransferStatus::WaitingConfirmations
     );
     let expected_balance = Balance {
         settled: amount_1,
@@ -399,6 +412,9 @@ fn transfer_balances() {
         asset_1.asset_id.clone(),
         vec![Recipient {
             recipient_id: receive_data_3.recipient_id.clone(),
+            public_key: Some(receive_data_3.public_key.clone()),
+            expiration_timestamp: Some(receive_data_3.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: Some(WitnessData {
                 amount_sat: 1000,
                 blinding: None,
@@ -416,6 +432,7 @@ fn transfer_balances() {
             FEE_RATE,
             MIN_CONFIRMATIONS,
             default_send_expiration(),
+            Some(PROXY_ENDPOINT.clone()),
         )
         .unwrap();
 

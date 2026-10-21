@@ -16,7 +16,8 @@ pub struct Model {
     pub idx: i32,
     pub txid: String,
     pub vout: u32,
-    pub reserved_for: Option<i32>,
+    pub reserved_for_vanilla: Option<i32>,
+    pub reserved_for_colored: Option<i32>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
@@ -24,7 +25,8 @@ pub enum Column {
     Idx,
     Txid,
     Vout,
-    ReservedFor,
+    ReservedForVanilla,
+    ReservedForColored,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DerivePrimaryKey)]
@@ -41,6 +43,7 @@ impl PrimaryKeyTrait for PrimaryKey {
 
 #[derive(Copy, Clone, Debug, EnumIter)]
 pub enum Relation {
+    BatchTransfer,
     WalletTransaction,
 }
 
@@ -51,7 +54,8 @@ impl ColumnTrait for Column {
             Self::Idx => ColumnType::Integer.def(),
             Self::Txid => ColumnType::String(StringLen::None).def(),
             Self::Vout => ColumnType::BigInteger.def(),
-            Self::ReservedFor => ColumnType::Integer.def().null(),
+            Self::ReservedForVanilla => ColumnType::Integer.def().null(),
+            Self::ReservedForColored => ColumnType::Integer.def().null(),
         }
     }
 }
@@ -59,11 +63,21 @@ impl ColumnTrait for Column {
 impl RelationTrait for Relation {
     fn def(&self) -> RelationDef {
         match self {
+            Self::BatchTransfer => Entity::belongs_to(super::batch_transfer::Entity)
+                .from(Column::ReservedForColored)
+                .to(super::batch_transfer::Column::Idx)
+                .into(),
             Self::WalletTransaction => Entity::belongs_to(super::wallet_transaction::Entity)
-                .from(Column::ReservedFor)
+                .from(Column::ReservedForVanilla)
                 .to(super::wallet_transaction::Column::Idx)
                 .into(),
         }
+    }
+}
+
+impl Related<super::batch_transfer::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::BatchTransfer.def()
     }
 }
 

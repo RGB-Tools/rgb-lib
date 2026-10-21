@@ -58,24 +58,43 @@ pub struct Online {
     pub id: u64,
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub struct OnlineData {
     pub(crate) id: u64,
-    pub(crate) indexer_url: String,
+    pub(crate) indexer_config: IndexerConfig,
     pub(crate) indexer: Indexer,
     pub(crate) resolver: AnyResolver,
+    // EVM JSON-RPC endpoints by EIP-155 chain ID (see OnlineOptions::evm_rpc_urls)
+    pub(crate) evm_rpc_urls: HashMap<u64, String>,
     pub(crate) hub_client: Option<MultisigHubClient>,
     pub(crate) user_role: Option<UserRole>,
     pub(crate) vanilla_sync_lookback: u32,
+    pub(crate) failed_witness_receive_grace_secs: u32,
+    // Ed25519 keys authenticating calls to proxies with proxy-level authentication enabled, by
+    // proxy URL (see OnlineOptions::proxy_auth_keys)
+    pub(crate) proxy_auth_keys: HashMap<String, ed25519_dalek::SigningKey>,
+}
+
+#[cfg(feature = "_online")]
+impl OnlineData {
+    /// Signature authenticating a call to the proxy at `proxy_url`, if a key has been configured
+    /// for it. The proxy verifies the Ed25519 signature of the SHA-256 digest of `message` against
+    /// its configured pubkeys.
+    pub(crate) fn proxy_auth_signature(&self, proxy_url: &str, message: &str) -> Option<String> {
+        self.proxy_auth_keys.get(proxy_url).map(|sk| {
+            let digest = sha256_digest(message.as_bytes());
+            hex::encode(sign_ed25519(sk, &digest))
+        })
+    }
 }
 
 /// Options for the [`Wallet::go_online`] and [`MultisigWallet::go_online`] methods.
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct OnlineOptions {
-    /// URL of the indexer to use
-    pub indexer_url: String,
+    /// Indexer the wallet should use
+    pub indexer_config: IndexerConfig,
     /// Whether to skip the consistency check when going online.
     ///
     /// Setting this to false runs a check on UTXOs (BDK vs rgb-lib DB), assets (RGB vs rgb-lib DB)
@@ -88,6 +107,50 @@ pub struct OnlineOptions {
     /// Number of addresses before the last used (or last revealed if none) address to sync when
     /// doing an automatic FastSync for the vanilla keychain
     pub vanilla_sync_lookback: u32,
+    /// Number of seconds, after a witness receive has failed, during which its script keeps being
+    /// synced by FastSync for the colored keychain.
+    ///
+    /// The counterparty may broadcast its TX even if the receive has failed (e.g. if it was refused
+    /// after the counterparty had already broadcast, or the counterparty ignored the refusal), in
+    /// which case the BTC paid to the script is detected and becomes available as an ordinary UTXO.
+    /// A longer grace period detects late payments for longer, at the cost of adding the scripts of
+    /// recently failed witness receives to each FastSync. A payment arriving after the grace period
+    /// is only detected by a FullSync or a FullScan. Setting this to 0 stops syncing the script as
+    /// soon as the receive fails.
+    pub failed_witness_receive_grace_secs: u32,
+    /// Keys used to authenticate calls to proxies that require proxy-level authentication.
+    ///
+    /// A proxy can be started with a list of Ed25519 pubkeys, in which case its
+    /// `recipientid.prepare` (reserving a recipient ID when receiving) and `ack.prepare`
+    /// (registering a transfer when sending) calls must be signed with one of the corresponding
+    /// private keys.
+    ///
+    /// Maps a transport endpoint (e.g. `rpc://host/json-rpc`) to the hex-encoded 32-byte Ed25519
+    /// seed to sign calls to that proxy with. The keys are kept in memory only, they are neither
+    /// persisted nor backed up. Going online again replaces any previously set keys.
+    ///
+    /// This is a standing credential that identifies the wallet to a proxy across every operation
+    /// processed there, not a per-operation secret: it's supplied fresh each time the wallet goes
+    /// online and can be rotated freely, so the wallet never retains it for longer than the caller
+    /// chooses to keep supplying it, and it can be evicted once nothing pending still needs it.
+    ///
+    /// Because `refresh` processes pending transfers using the keys supplied when going online, the
+    /// caller must keep supplying a correct key for all endpoints that any pending transfer relies
+    /// on: a wrong or missing key for such an endpoint can make `refresh` fail to process it.
+    pub proxy_auth_keys: HashMap<String, String>,
+    /// EVM JSON-RPC endpoints to be used for mint operations on bridged assets, by the EIP-155
+    /// chain ID of the chain they are connected to.
+    ///
+    /// A bridged asset commits to the chain its bridge contract lives on: minting it, or
+    /// receiving a mint of it, needs an endpoint for that chain and fails with
+    /// [`Error::NoEvmRpcUrl`] if none is configured. Going online checks each endpoint answers,
+    /// is on the chain it is configured for and serves the latest finalized block and the logs of
+    /// the whole chain history (as mints in the history of a received asset can be from any time),
+    /// failing with an [`Error::InvalidEvmRpcUrl`] otherwise: nodes keeping only the logs of
+    /// recent blocks (e.g. on the free plans of some providers) are not supported.
+    ///
+    /// Only used when the wallet supports the [`AssetSchema::Bfa`] schema.
+    pub evm_rpc_urls: HashMap<u64, String>,
 }
 
 // ────────────────────────────────────────────────────────────
@@ -114,6 +177,15 @@ impl From<OutPoint> for Outpoint {
     fn from(x: OutPoint) -> Outpoint {
         Outpoint {
             txid: x.txid.to_string(),
+            vout: x.vout,
+        }
+    }
+}
+
+impl From<DbReservedTxo> for Outpoint {
+    fn from(x: DbReservedTxo) -> Outpoint {
+        Outpoint {
+            txid: x.txid,
             vout: x.vout,
         }
     }
@@ -695,6 +767,82 @@ impl AssetIFA {
     }
 }
 
+/// A Bridged Fungible Asset.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct AssetBFA {
+    /// ID of the asset
+    pub asset_id: String,
+    /// Ticker of the asset
+    pub ticker: String,
+    /// Name of the asset
+    pub name: String,
+    /// Details of the asset
+    pub details: Option<String>,
+    /// Precision, also known as divisibility, of the asset
+    pub precision: u8,
+    /// Initial issued supply
+    pub initial_supply: u64,
+    /// Timestamp of asset genesis
+    pub timestamp: i64,
+    /// Timestamp of asset import
+    pub added_at: i64,
+    /// Current balance of the asset
+    pub balance: Balance,
+    /// Asset media attachment
+    pub media: Option<Media>,
+    /// Reject list URL
+    pub reject_list_url: Option<String>,
+}
+
+impl AssetBFA {
+    pub(crate) fn get_asset_details(
+        txn: &DbTxn,
+        wallet: &(impl WalletOffline + ?Sized),
+        asset: &DbAsset,
+        transfers: Option<Vec<DbTransfer>>,
+        asset_transfers: Option<Vec<DbAssetTransfer>>,
+        batch_transfers: Option<Vec<DbBatchTransfer>>,
+        colorings: Option<Vec<DbColoring>>,
+        txos: Option<Vec<DbTxo>>,
+        medias: Option<Vec<DbMedia>>,
+    ) -> Result<AssetBFA, Error> {
+        let media = {
+            let medias = if let Some(m) = medias {
+                m
+            } else {
+                txn.iter_media()?
+            };
+            medias
+                .iter()
+                .find(|m| Some(m.idx) == asset.media_idx)
+                .map(|m| Media::from_db_media(m, wallet.media_dir()))
+        };
+        let balance = txn.get_asset_balance(
+            asset.id.clone(),
+            transfers,
+            asset_transfers,
+            batch_transfers,
+            colorings,
+            txos,
+        )?;
+        let initial_supply = asset.initial_supply.parse::<u64>().unwrap();
+        Ok(AssetBFA {
+            asset_id: asset.id.clone(),
+            ticker: asset.ticker.clone().unwrap(),
+            name: asset.name.clone(),
+            details: asset.details.clone(),
+            precision: asset.precision,
+            initial_supply,
+            timestamp: asset.timestamp,
+            added_at: asset.added_at,
+            balance,
+            media,
+            reject_list_url: asset.reject_list_url.clone(),
+        })
+    }
+}
+
 /// List of RGB assets, grouped by asset schema.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
@@ -707,6 +855,8 @@ pub struct Assets {
     pub cfa: Option<Vec<AssetCFA>>,
     /// List of IFA assets
     pub ifa: Option<Vec<AssetIFA>>,
+    /// List of BFA assets
+    pub bfa: Option<Vec<AssetBFA>>,
 }
 
 pub(crate) trait IssuedAssetDetails: Sized {
@@ -773,6 +923,17 @@ impl IssuedAssetDetails for AssetIFA {
     }
 }
 
+impl IssuedAssetDetails for AssetBFA {
+    fn from_issuance(
+        txn: &DbTxn,
+        wallet: &(impl WalletOffline + ?Sized),
+        asset: &DbAsset,
+        _issue_data: &IssueData,
+    ) -> Result<Self, Error> {
+        Self::get_asset_details(txn, wallet, asset, None, None, None, None, None, None)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct LocalAssetData {
     pub(crate) asset_id: String,
@@ -795,7 +956,7 @@ pub struct LocalAssetData {
 pub struct IssueData {
     pub(crate) asset_data: LocalAssetData,
     pub(crate) valid_contract: ValidContract,
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) contract_path: PathBuf,
     pub(crate) issue_utxos: HashMap<i32, Vec<Assignment>>,
 }
@@ -814,9 +975,11 @@ pub struct AssignmentsCollection {
     pub non_fungible: bool,
     /// Inflation right assignments
     pub inflation: u64,
+    /// Mint right assignments
+    pub mint: u64,
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl AssignmentsCollection {
     fn add_fungible(&mut self, amt: u64) {
         self.fungible = self
@@ -836,6 +999,13 @@ impl AssignmentsCollection {
             .expect("total inflation amount cannot exceed u64::MAX");
     }
 
+    fn add_mint(&mut self) {
+        self.mint = self
+            .mint
+            .checked_add(1)
+            .expect("total mint rights cannot exceed u64::MAX");
+    }
+
     pub(crate) fn add_opout_state(&mut self, opout: &Opout, state: &AllocatedState) {
         match state {
             AllocatedState::Amount(amt) if opout.ty == OS_ASSET => {
@@ -846,6 +1016,9 @@ impl AssignmentsCollection {
             }
             AllocatedState::Data(_) => {
                 self.add_non_fungible();
+            }
+            AllocatedState::Void if opout.ty == OS_MINT => {
+                self.add_mint();
             }
             _ => {}
         }
@@ -865,6 +1038,7 @@ impl AssignmentsCollection {
                 needed.inflation.saturating_sub(self.inflation) > 0
             }
             (AllocatedState::Data(_), _) => needed.non_fungible && !self.non_fungible,
+            (AllocatedState::Void, OS_MINT) => needed.mint.saturating_sub(self.mint) > 0,
             _ => false,
         }
     }
@@ -880,6 +1054,10 @@ impl AssignmentsCollection {
                 .inflation
                 .checked_sub(needed.inflation)
                 .expect("selected inputs must cover outputs"),
+            mint: self
+                .mint
+                .checked_sub(needed.mint)
+                .expect("selected inputs must cover outputs"),
         }
     }
 
@@ -893,29 +1071,10 @@ impl AssignmentsCollection {
         if self.inflation < needed.inflation {
             return false;
         }
-        true
-    }
-}
-
-/// Type of RGB transition
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize, Serialize)]
-pub enum TypeOfTransition {
-    /// Inflation transition (issuing new tokens)
-    Inflate,
-    /// Transfer transition (moving existing tokens)
-    Transfer,
-    /// Burn transition (burning existing tokens)
-    Burn,
-}
-
-impl TypeOfTransition {
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
-    pub(crate) fn type_name(&self) -> &'static str {
-        match self {
-            Self::Inflate => "inflate",
-            Self::Transfer => "transfer",
-            Self::Burn => "burn",
+        if self.mint < needed.mint {
+            return false;
         }
+        true
     }
 }
 
@@ -979,6 +1138,22 @@ pub struct Recipient {
     pub assignment: Assignment,
     /// Transport endpoints
     pub transport_endpoints: Vec<String>,
+    /// Recipient's Ed25519 public key (hex-encoded), taken from the invoice `pk` field.
+    ///
+    /// Required when `transport_endpoints` is not empty: a proxy transfer needs it to encrypt data
+    /// for, and verify the ACK from, the recipient. Ignored for the out-of-band exchange (empty
+    /// `transport_endpoints`), where no proxy is involved and the consignment and ACK are exchanged
+    /// by other means.
+    pub public_key: Option<String>,
+    /// The recipient's consignment/media encryption preference, taken from the invoice `enc` field.
+    /// This is not a choice of the sender, who must honor it.
+    pub encryption: Encryption,
+    /// The invoice expiration (UNIX timestamp, seconds), taken from the invoice.
+    ///
+    /// Required when `transport_endpoints` is not empty: the transfer cannot be created after it
+    /// and the operation expiration needs to leave the time to detect the ACK and broadcast the TX
+    /// before it. Ignored for the out-of-band exchange (empty `transport_endpoints`).
+    pub expiration_timestamp: Option<u64>,
 }
 
 /// The information needed to receive RGB assets in witness mode.
@@ -1103,10 +1278,31 @@ impl Invoice {
                     }
                 }
             }
+            Some(AssetSchema::Bfa) => {
+                match (decoded.assignment_state, assignment_name.as_deref()) {
+                    (Some(InvoiceState::Amount(v)), Some(RGB_STATE_ASSET_OWNER)) => {
+                        Assignment::Fungible(v.value())
+                    }
+                    (None, Some(RGB_STATE_ASSET_OWNER)) => Assignment::Fungible(0),
+                    (Some(InvoiceState::Void) | None, Some(RGB_STATE_MINT_RIGHT)) => {
+                        Assignment::MintRight
+                    }
+                    (Some(InvoiceState::Amount(_)), None) => Assignment::Any,
+                    (None, None) => Assignment::Any,
+                    (_, _) => {
+                        return Err(Error::InvalidInvoice {
+                            details: s!("invalid assignment"),
+                        });
+                    }
+                }
+            }
         };
         let recipient_id = decoded.beneficiary.to_string();
         let transport_endpoints: Vec<String> =
             decoded.transports.iter().map(|t| t.to_string()).collect();
+        // rgb-ops parses the invoice's public key into a 64-char hex string
+        let public_key = decoded.public_key;
+        let encryption = Encryption::from(decoded.encryption);
 
         let layer_1 = decoded.beneficiary.layer1();
         let network = match layer_1 {
@@ -1129,6 +1325,8 @@ impl Invoice {
                 expiration_timestamp: decoded.expiry.map(|t| t as u64),
                 transport_endpoints,
                 network,
+                public_key,
+                encryption,
                 unknown_query_params: decoded.unknown_query.into_iter().collect(),
             },
         })
@@ -1165,6 +1363,10 @@ pub struct InvoiceData {
     pub expiration_timestamp: Option<u64>,
     /// Transport endpoints
     pub transport_endpoints: Vec<String>,
+    /// Recipient's Ed25519 public key (hex-encoded), from the invoice `pk` field (if present)
+    pub public_key: Option<String>,
+    /// Consignment/media encryption preference, from the invoice `enc` field
+    pub encryption: Encryption,
     /// Unknown query parameters carried by the invoice
     pub unknown_query_params: HashMap<String, String>,
 }
@@ -1226,6 +1428,8 @@ pub enum TransferKind {
     Inflation,
     /// A burn transfer
     Burn,
+    /// A mint transfer, bringing in assets backed by tokens locked on the external chain
+    Mint,
 }
 
 #[derive(Debug, Clone)]
@@ -1274,11 +1478,16 @@ pub struct Transfer {
     pub change_utxo: Option<Outpoint>,
     /// Expiration of the transfer
     pub expiration_timestamp: Option<u64>,
-    /// Transport endpoints for the transfer
+    /// Recipient transport endpoints for the transfer
     pub transport_endpoints: Vec<TransferTransportEndpoint>,
+    /// Sender transport endpoint for the transfer
+    pub sender_transport_endpoint: Option<String>,
     /// Invoice string of the incoming transfer
     pub invoice_string: Option<String>,
-    /// Consignment path
+    /// Path of the consignment file for the operation, when one is produced: the contract for
+    /// issuances, the consignment sent for outgoing transfers, the one received for incoming
+    /// transfers and the burn one generated for third-party verification; `None` for inflations and
+    /// for incoming transfers still waiting for the counterparty
     pub consignment_path: Option<String>,
     /// Path of the unsigned PSBT produced by the `_begin` step, when available
     pub psbt_path: Option<String>,
@@ -1289,6 +1498,7 @@ impl DbTransfer {
         &self,
         td: TransferData,
         transport_endpoints: Vec<TransferTransportEndpoint>,
+        sender_transport_endpoint: Option<String>,
     ) -> Transfer {
         Transfer {
             idx: self.idx,
@@ -1305,6 +1515,7 @@ impl DbTransfer {
             change_utxo: td.change_utxo,
             expiration_timestamp: td.expiration_timestamp.map(|t| t as u64),
             transport_endpoints,
+            sender_transport_endpoint,
             invoice_string: self.invoice_string.clone(),
             consignment_path: td.consignment_path,
             psbt_path: td.psbt_path,
@@ -1349,20 +1560,41 @@ pub struct ReceiveData {
     pub expiration_timestamp: u64,
     /// Batch transfer idx
     pub batch_transfer_idx: i32,
+    /// Recipient's Ed25519 public key (hex-encoded), as embedded in the invoice
+    pub public_key: String,
 }
 
 #[derive(Debug, Clone)]
 pub struct ReceiveDataInternal {
+    /// ID of the asset this receive is for, if any
     pub(crate) asset_id: Option<String>,
+    /// Resolved assignment requested for this receive
     pub(crate) detected_assignment: Assignment,
+    /// The RGB invoice
     pub(crate) invoice_string: String,
+    /// Recipient ID (blind or witness) encoded in the invoice
     pub(crate) recipient_id: String,
+    /// Transport endpoints, empty for the out-of-band exchange
     pub(crate) endpoints: Vec<String>,
+    /// Creation timestamp (UTC unix seconds)
     pub(crate) created_at: i64,
+    /// Invoice expiration timestamp (UTC unix seconds)
     pub(crate) expiration_timestamp: i64,
+    /// Blind vs witness recipient, with its type-specific data
     pub(crate) recipient_type_full: RecipientTypeFull,
+    /// Blind seal, set only for a blind receive
     pub(crate) blind_seal: Option<GraphSeal>,
+    /// Script pubkey, set only for a witness receive
     pub(crate) script_pubkey: Option<ScriptBuf>,
+    /// Recipient's per-operation Ed25519 secret seed (raw 32 bytes)
+    pub(crate) operation_secret_key: Vec<u8>,
+    /// Recipient's Ed25519 public key (raw 32 bytes), embedded in the invoice
+    pub(crate) recipient_pubkey: Vec<u8>,
+    /// Consignment/media encryption preference advertised in the invoice
+    pub(crate) encryption: Encryption,
+    /// For a blind receive reserved on proxies, the invoice expiration plus the longest retention
+    /// grace among them, until which a transfer to the invoice can still be downloaded
+    pub(crate) retention_deadline: Option<i64>,
 }
 
 // ────────────────────────────────────────────────────────────
@@ -1577,71 +1809,13 @@ pub struct PsbtInspection {
     pub size_vbytes: u64,
 }
 
-/// Information about an RGB input being spent.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
-pub struct RgbInputInfo {
-    /// The input index in the transaction
-    pub vin: u32,
-    /// The assignment in input
-    pub assignment: Assignment,
-}
-
-/// Information about an RGB output destination.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
-pub struct RgbOutputInfo {
-    /// The output vout (if allocated to a witness output)
-    pub vout: Option<u32>,
-    /// The assignment in output
-    pub assignment: Assignment,
-    /// Whether this output is allocated to a concealed seal
-    pub is_concealed: bool,
-    /// Whether this output belongs to our wallet
-    pub is_ours: bool,
-}
-
-/// Information about an RGB transition.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
-pub struct RgbTransitionInfo {
-    /// The transition type
-    pub r#type: TypeOfTransition,
-    /// Details of the transition inputs
-    pub inputs: Vec<RgbInputInfo>,
-    /// Details of the transition outputs
-    pub outputs: Vec<RgbOutputInfo>,
-}
-
-/// Information about an RGB operation.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
-pub struct RgbOperationInfo {
-    /// ID of the asset being operated on
-    pub asset_id: String,
-    /// Transitions
-    pub transitions: Vec<RgbTransitionInfo>,
-}
-
-/// Result of inspecting RGB consignments against a PSBT.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
-pub struct RgbInspection {
-    /// The close method used for the operation
-    pub close_method: CloseMethod,
-    /// The RGB commitment in hex encoded format
-    pub commitment_hex: String,
-    /// Details of each operation
-    pub operations: Vec<RgbOperationInfo>,
-}
-
 // ────────────────────────────────────────────────────────────
-// Send, inflate, burn & refresh operations
+// Send, inflate, burn, mint & refresh operations
 // ────────────────────────────────────────────────────────────
 
 /// The result of a burn begin operation.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct BurnBeginResult {
     /// PSBT to inspect and sign
@@ -1654,20 +1828,22 @@ pub struct BurnBeginResult {
 
 /// Details for burn operations.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct BurnDetails {
-    /// Path to fascia file for inspection
+    /// Path to the strict-encoded fascia file, for inspection
     pub fascia_path: String,
     /// Minimum confirmations for the operation
     pub min_confirmations: u8,
     /// Entropy used for the merkle tree construction operation
     pub entropy: u64,
+    /// Hex-encoded 32-byte reason committed in the burn transition, if any
+    pub burn_reason: Option<String>,
 }
 
 /// The result of an inflate begin operation.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct InflateBeginResult {
     /// PSBT to inspect and sign
@@ -1680,10 +1856,10 @@ pub struct InflateBeginResult {
 
 /// Details for inflate operations.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct InflateDetails {
-    /// Path to fascia file for inspection
+    /// Path to the strict-encoded fascia file, for inspection
     pub fascia_path: String,
     /// Minimum confirmations for the operation
     pub min_confirmations: u8,
@@ -1691,9 +1867,54 @@ pub struct InflateDetails {
     pub entropy: u64,
 }
 
+/// The result of a mint begin operation.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg(feature = "_online")]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct MintBeginResult {
+    /// PSBT to inspect and sign
+    pub psbt: String,
+    /// Batch transfer idx
+    pub batch_transfer_idx: i32,
+    /// Operation details
+    pub details: MintDetails,
+}
+
+/// Details for mint operations.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg(feature = "_online")]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct MintDetails {
+    /// Path to fascia file for inspection
+    pub fascia_path: String,
+    /// Minimum confirmations for the operation
+    pub min_confirmations: u8,
+    /// Entropy used for the merkle tree construction operation
+    pub entropy: u64,
+    /// ID of the mint operation
+    pub opid: String,
+}
+
+/// A mint received by the wallet, as checked by it: what its sender has to lock on the external
+/// chain for the mint to complete.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct ReceivedMint {
+    /// ID of the mint operation, which the lock has to commit to
+    pub opid: String,
+    /// Amount minted, which the lock has to match
+    pub amount: u64,
+    /// External chain block the lock has to follow
+    pub after_block: u64,
+    /// EIP-155 chain ID of the EVM chain the asset's bridge contract lives on
+    pub evm_chain_id: u64,
+    /// Address of the asset's bridge contract, where the lock has to be made
+    pub bridge_contract: String,
+}
+
 /// The result of a send begin operation.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct SendBeginResult {
     /// PSBT to inspect and sign
@@ -1706,10 +1927,10 @@ pub struct SendBeginResult {
 
 /// Details for send operations.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct SendDetails {
-    /// Path to fascia file for inspection
+    /// Path to the strict-encoded fascia file, for inspection
     pub fascia_path: String,
     /// Minimum confirmations for the operation
     pub min_confirmations: u8,
@@ -1721,7 +1942,7 @@ pub struct SendDetails {
 
 /// The result of an operation.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct OperationResult {
     /// ID of the transaction
@@ -1734,7 +1955,7 @@ pub struct OperationResult {
 
 /// The pending status of a [`Transfer`] (eligible for refresh).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub enum RefreshTransferStatus {
     /// Waiting for the counterparty to take action
     WaitingCounterparty,
@@ -1746,7 +1967,7 @@ pub enum RefreshTransferStatus {
     WaitingConfirmations,
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl TryFrom<TransferStatus> for RefreshTransferStatus {
     type Error = &'static str;
 
@@ -1763,7 +1984,7 @@ impl TryFrom<TransferStatus> for RefreshTransferStatus {
 
 /// A transfer refresh filter.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct RefreshFilter {
     /// Transfer status
@@ -1774,7 +1995,7 @@ pub struct RefreshFilter {
 
 /// A refreshed transfer
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct RefreshedTransfer {
     /// The updated transfer status, if it has changed
@@ -1784,15 +2005,15 @@ pub struct RefreshedTransfer {
 }
 
 /// The result of a refresh operation
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub type RefreshResult = HashMap<i32, RefreshedTransfer>;
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) trait RefreshResultTrait {
     fn transfers_changed(&self) -> bool;
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl RefreshResultTrait for RefreshResult {
     fn transfers_changed(&self) -> bool {
         self.values().any(|rt| rt.updated_status.is_some())
@@ -1834,22 +2055,34 @@ pub enum LocalRecipientData {
     Witness(LocalWitnessData),
 }
 
-impl LocalRecipientData {
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
-    pub(crate) fn vout(&self) -> Option<u32> {
-        match &self {
-            LocalRecipientData::Blind(_) => None,
-            LocalRecipientData::Witness(d) => Some(d.vout),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct LocalRecipient {
+    /// Recipient ID (blind or witness) encoded in the invoice
     pub recipient_id: String,
+    /// Blind vs witness recipient, with its type-specific data
     pub local_recipient_data: LocalRecipientData,
+    /// Assignment being sent to this recipient
     pub assignment: Assignment,
+    /// Transport endpoints, empty for the out-of-band exchange
     pub transport_endpoints: Vec<LocalTransportEndpoint>,
+    /// Recipient's Ed25519 public key (bytes) from the invoice, empty for the out-of-band exchange
+    pub public_key: Vec<u8>,
+    /// Recipient's encryption preference, from the invoice
+    pub encryption: Encryption,
+    /// Invoice expiration (UTC unix seconds), from the invoice, `None` for the out-of-band exchange
+    #[serde(default)]
+    pub invoice_expiration: Option<i64>,
+}
+
+#[cfg(feature = "_online")]
+impl LocalRecipient {
+    /// The IDs of the invoice and of the transfer to it on the proxy, given the hex-encoded pubkey
+    /// of the sender operation.
+    pub(crate) fn proxy_ids(&self, sender_pk_hex: &str) -> (String, String) {
+        let invoice_id = invoice_id(&self.recipient_id, &hex::encode(&self.public_key));
+        let transfer_id = transfer_id(&invoice_id, sender_pk_hex);
+        (invoice_id, transfer_id)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -1888,6 +2121,7 @@ pub struct AssetSpend {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AssetInfo {
     pub contract_id: ContractId,
+    pub schema: AssetSchema,
     pub reject_list_url: Option<String>,
 }
 
@@ -1909,77 +2143,182 @@ pub struct InfoAssetTransfer {
     pub main_transition: TypeOfTransition,
     pub beneficiaries_blinded: Vec<SecretSeal>,
     pub beneficiaries_witness: Vec<ExplicitSeal<RgbTxid>>,
+    pub burn_reason: Option<BurnReason>,
+    pub after_block: Option<u64>,
+}
+
+impl InfoAssetTransfer {
+    /// OpIds of the transitions to explicitly request when consigning from `fascia`: a burn has no
+    /// beneficiary, so its transition is selected by OpId, while the others are selected by their
+    /// beneficiaries
+    pub(crate) fn requested_opids(&self, fascia: &Fascia) -> Vec<OpId> {
+        if self.main_transition != TypeOfTransition::Burn {
+            return vec![];
+        }
+        fascia
+            .bundles()
+            .get(&self.asset_info.contract_id)
+            .map(|bundle| {
+                bundle
+                    .known_transitions
+                    .iter()
+                    .filter(|kt| kt.transition.transition_type == TS_BURN)
+                    .map(|kt| kt.opid)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct InfoBatchTransfer {
+    /// New Bitcoin output created by this transfer to hold RGB change, if any
     pub btc_change: Option<BtcChange>,
+    /// Pre-existing UTXO used to hold RGB change, if no new change output was created
     pub change_utxo_outpoint: Option<Outpoint>,
+    /// Allocations other than the ones being sent, moved as a side effect of spending a UTXO they
+    /// shared with a sent asset
     pub extra_allocations: HashMap<String, HashMap<OutPoint, Vec<Assignment>>>,
+    /// Whether this is a donation (broadcast without waiting for the recipients' ACK)
     pub donation: bool,
+    /// Number of confirmations required before the transfer is considered settled
     pub min_confirmations: u8,
+    /// Expiration timestamp (UTC unix seconds), if any
     pub expiration_timestamp: Option<i64>,
+    /// Creation timestamp (UTC unix seconds)
     pub created_at: i64,
+    /// Entropy used for the committment
     pub entropy: u64,
+    /// Per-asset transfer info, keyed by asset ID
     pub transfers: BTreeMap<String, InfoAssetTransfer>,
+    /// Sender's proxy endpoint (where recipients post their ACK to and fetch the signed TX from);
+    /// `None` for donations and non-counterparty operations
+    pub sender_transport_endpoint: Option<String>,
+    /// Sender's per-operation Ed25519 secret seed (raw 32 bytes); shared across all recipients
+    pub operation_secret_key: Option<Vec<u8>>,
+}
+
+#[cfg(feature = "_online")]
+impl InfoBatchTransfer {
+    /// Whether this is the data of an operation of the kind identified by the given main
+    /// transition, i.e. whether every transfer of the batch has it
+    pub(crate) fn is_operation(&self, main_transition: &TypeOfTransition) -> bool {
+        !self.transfers.is_empty()
+            && self
+                .transfers
+                .values()
+                .all(|t| &t.main_transition == main_transition)
+    }
 }
 
 pub type TransferEndData = (String, PathBuf, InfoBatchTransfer, Fascia);
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub struct BeginOperationData {
     pub psbt: Psbt,
     pub transfer_dir: PathBuf,
     pub info_batch_transfer: InfoBatchTransfer,
     pub batch_transfer_idx: Option<i32>,
+    pub opid: Option<String>,
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub enum PrepareRgbPsbtResult {
     Retry,
     Success(Box<BeginOperationData>),
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub enum PrepareTransferPsbtResult {
     Retry,
     Success(Box<BeginOperationData>),
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ReceivedConsignmentMeta {
-    pub txid: String,
-    pub vout: Option<u32>,
+    #[serde(default)]
+    pub proxy_url: Option<String>,
+    #[serde(default)]
+    pub transfer_id: Option<String>,
+    pub sender_transport_endpoint: String,
+    pub sender_pubkey: String,
+    pub consignment_hash: String,
+    pub batch: bool,
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+/// The sender proxy's response to `ack.clean`, requested before failing an outgoing operation.
+#[cfg(feature = "_online")]
+#[derive(Debug)]
+pub enum CleanAckOutcome {
+    /// the signed TXs were revoked: nothing can be released anymore
+    Revoked,
+    /// the TX was already released to a recipient, who may still broadcast it
+    Released,
+    /// the proxy doesn't know the operation: it was never registered (send_end not completed),
+    /// or the proxy lost it (e.g. it dropped its data), in which case whether the TX was
+    /// released cannot be known
+    Unknown,
+}
+
+#[cfg(feature = "_online")]
 pub enum TryFailBatchTransferOutcome {
     Failed,
     Refreshed,
+    /// the transfer was not failed: the released signed TX could not be revoked (ack.clean
+    /// denied), or the sender proxy no longer knows the operation and it has not expired yet
+    Denied,
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub struct FailTransfersOutcome {
     pub transfers_changed: bool,
     pub cannot_fail: bool,
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub enum ReceiveMode {
-    Proxy { proxy_url: String },
+    Proxy(ProxyReceiveData),
     OutOfBand { media_file_paths: Vec<String> },
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) enum ReceiveMatcher {
+/// Proxy-only context needed to receive (and decrypt) a consignment via a proxy server.
+///
+/// These fields only make sense for the proxy exchange: the sender's public key and the
+/// recipient's encryption preference drive the ECDH decryption of the consignment/media/TX, and
+/// the sender proxy endpoint + consignment hash are needed to sign and post the ACK. Out-of-band
+/// exchange bypasses the proxy entirely (no key exchange, integrity covered by the plaintext hash),
+/// so it carries none of this.
+#[cfg(feature = "_online")]
+#[derive(Clone)]
+pub struct ProxyReceiveData {
+    /// endpoint the consignment was downloaded from
+    pub(crate) proxy_url: String,
+    /// ID of the transfer on the proxies
+    pub(crate) transfer_id: String,
+    /// sender's proxy endpoint (HTTP URL), where the ACK is posted
+    pub(crate) sender_proxy: String,
+    /// sender's Ed25519 public key (hex), used to derive the shared secret for decryption
+    pub(crate) sender_pubkey: String,
+    /// hash of the (plaintext) consignment, signed into the ACK and used for blob verification
+    pub(crate) consignment_hash: String,
+    /// recipient's encryption preference for this operation
+    pub(crate) recipient_encryption: Encryption,
+    /// whether the operation is a batch (multiple recipients)
+    pub(crate) batch: bool,
+}
+
+#[cfg(feature = "_online")]
+pub enum ReceiveMatcher {
     Blind(SecretSeal),
-    Witness(ScriptBuf),
+    /// the script paid and, when known (proxy exchange), the blinding of the seal
+    /// (`v1.0-changes-spec.md` A.11)
+    Witness(ScriptBuf, Option<u64>),
 }
 
 impl DbTransfer {
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
-    pub(crate) fn receive_matcher(&self) -> Result<ReceiveMatcher, Error> {
+    #[cfg(feature = "_online")]
+    pub(crate) fn receive_matcher(&self, blinding: Option<u64>) -> Result<ReceiveMatcher, Error> {
         let recipient_id = self
             .recipient_id
             .clone()
@@ -2000,20 +2339,28 @@ impl DbTransfer {
             RecipientTypeFull::Witness { .. } => {
                 let script_pubkey = script_buf_from_recipient_id(recipient_id)?
                     .expect("witness recipient ID should yield a script");
-                Ok(ReceiveMatcher::Witness(script_pubkey))
+                Ok(ReceiveMatcher::Witness(script_pubkey, blinding))
             }
         }
     }
 }
 
 #[cfg(test)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 mod tests {
     use super::*;
     use sea_orm::Iterable;
 
     #[test]
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
+    fn display_indexer_protocol() {
+        assert_eq!(IndexerProtocol::Bitcoind.to_string(), "Bitcoind");
+        assert_eq!(IndexerProtocol::Electrum.to_string(), "Electrum");
+        assert_eq!(IndexerProtocol::Esplora.to_string(), "Esplora");
+    }
+
+    #[test]
+    #[cfg(feature = "_online")]
     fn refresh_transfer_status_matches_waiting() {
         for status in TransferStatus::iter() {
             assert_eq!(

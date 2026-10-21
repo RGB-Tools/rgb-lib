@@ -27,55 +27,27 @@ pub struct ColoringInfo {
 /// Map of contract ID and list of its beneficiaries
 pub type AssetBeneficiariesMap = BTreeMap<ContractId, Vec<BuilderSeal<GraphSeal>>>;
 
-/// Indexer protocol
-#[derive(Debug, Clone)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-pub enum IndexerProtocol {
-    /// An indexer implementing the electrum protocol
-    Electrum,
-    /// An indexer implementing the esplora protocol
-    Esplora,
-}
-
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-impl fmt::Display for IndexerProtocol {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{self:?}")
-    }
-}
-
-/// Return the indexer protocol for the provided URL.
-/// An error is raised if the provided indexer URL is invalid or if the service is for the wrong
-/// network or doesn't have the required functionality.
-///
-/// <div class="warning">This method is meant for special usage and is normally not needed, use
-/// it only if you know what you're doing</div>
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-pub fn check_indexer_url(
-    indexer_url: &str,
-    bitcoin_network: BitcoinNetwork,
-) -> Result<IndexerProtocol, Error> {
-    let (indexer, _) = get_indexer_and_resolver(indexer_url, bitcoin_network)?;
-    let indexer_protocol = match indexer {
-        #[cfg(feature = "electrum")]
-        Indexer::Electrum(_) => IndexerProtocol::Electrum,
-        #[cfg(feature = "esplora")]
-        Indexer::Esplora(_) => IndexerProtocol::Esplora,
-    };
-
-    Ok(indexer_protocol)
-}
-
 /// Check whether the provided URL points to a valid proxy.
 /// An error is raised if the provided proxy URL is invalid or if the service is running an
 /// unsupported protocol version.
 ///
 /// <div class="warning">This method is meant for special usage and is normally not needed, use
 /// it only if you know what you're doing</div>
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub fn check_proxy_url(proxy_url: &str) -> Result<(), Error> {
-    check_proxy(proxy_url)
+    check_proxy(proxy_url).map(|_| ())
 }
+
+/// Load an RGB fascia from the file at the provided path.
+///
+/// <div class="warning">This method is meant for special usage and is normally not needed, use
+/// it only if you know what you're doing</div>
+pub fn load_fascia(path: &Path) -> Result<Fascia, Error> {
+    read_fascia(path)
+}
+
+#[cfg(feature = "validation")]
+pub use crate::no_wallet::validate_consignment_with_resolver;
 
 /// Rust-only APIs of the wallet.
 impl Wallet {
@@ -116,7 +88,8 @@ impl Wallet {
             *psbt = Psbt::from_unsigned_tx(transaction).unwrap();
         }
 
-        let runtime = self.rgb_runtime()?;
+        let txn = self.database().begin_transaction()?;
+        let stock = self.rgb_stock(&txn)?;
 
         let prev_outputs = psbt
             .unsigned_tx
@@ -130,20 +103,18 @@ impl Wallet {
         let assignment_name = FieldName::from(RGB_STATE_ASSET_OWNER);
 
         for (contract_id, asset_coloring_info) in coloring_info.asset_info_map.clone() {
-            let schema =
-                AssetSchema::get_from_contract_id(contract_id, &runtime).map_err(|_| {
-                    Error::AssetNotFound {
-                        asset_id: contract_id.to_string(),
-                    }
-                })?;
+            let schema = AssetSchema::get_from_contract_id(contract_id, &stock).map_err(|_| {
+                Error::AssetNotFound {
+                    asset_id: contract_id.to_string(),
+                }
+            })?;
 
-            let mut asset_transition_builder =
-                runtime.transition_builder(contract_id, "transfer")?;
+            let mut asset_transition_builder = stock.transition_builder(contract_id, "transfer")?;
 
             let mut asset_available_amt: u64 = 0;
             let mut uda_state = None;
             for (_, opout_state_map) in
-                runtime.contract_assignments_for(contract_id, prev_outputs.iter().copied())?
+                stock.contract_assignments_for(contract_id, prev_outputs.iter().copied())?
             {
                 for (opout, state) in opout_state_map {
                     if let AllocatedState::Amount(amt) = &state {
@@ -192,7 +163,7 @@ impl Wallet {
                 beneficiaries.push(seal);
 
                 match schema {
-                    AssetSchema::Nia | AssetSchema::Cfa | AssetSchema::Ifa => {
+                    AssetSchema::Nia | AssetSchema::Cfa | AssetSchema::Ifa | AssetSchema::Bfa => {
                         asset_transition_builder = asset_transition_builder.add_fungible_state(
                             assignment_name.clone(),
                             seal,
@@ -254,6 +225,7 @@ impl Wallet {
         psbt.set_as_unmodifiable();
         let fascia = psbt.rgb_commit().map_err(InternalError::from)?;
 
+        txn.commit()?;
         info!(self.logger(), "Color PSBT completed");
         Ok((fascia, asset_beneficiaries))
     }
@@ -272,8 +244,9 @@ impl Wallet {
 
         let witness_txid = psbt.get_txid();
 
-        let mut runtime = self.rgb_runtime()?;
-        runtime.consume_fascia(fascia, None)?;
+        let txn = self.database().begin_transaction()?;
+        let mut stock = self.rgb_stock(&txn)?;
+        stock.consume_fascia(fascia, None)?;
 
         let mut transfers = vec![];
         for (contract_id, beneficiaries) in asset_beneficiaries {
@@ -290,19 +263,28 @@ impl Wallet {
                     }
                 };
             }
-            transfers.push(runtime.transfer(
+            let (consignment, spv_proofs) = stock.transfer(
                 contract_id,
                 beneficiaries_witness,
                 beneficiaries_blinded,
                 Some(witness_txid),
-            )?);
+                self.spv_resolver(),
+            )?;
+            stock.store_spv_proofs(spv_proofs)?;
+            transfers.push(consignment);
         }
 
+        txn.commit()?;
         info!(self.logger(), "Color PSBT and consume completed");
         Ok(transfers)
     }
 
-    /// Create consignments for a PSBT created with the [`send_begin`](Wallet::send_begin) method.
+    /// Create consignments for a PSBT created with the
+    #[cfg_attr(
+        feature = "_online",
+        doc = "[`send_begin`](Wallet::send_begin) method."
+    )]
+    #[cfg_attr(not(feature = "_online"), doc = "`send_begin` method.")]
     ///
     /// <div class="warning">This method is meant for special usage and is normally not needed, use
     /// it only if you know what you're doing</div>
@@ -311,7 +293,9 @@ impl Wallet {
 
         let psbt = Psbt::from_str(&psbt)?;
         let (_, transfer_dir, info_contents, fascia) = self.get_transfer_end_data(&psbt)?;
-        self.gen_consignments(&fascia, &info_contents.transfers, &transfer_dir)?;
+        let txn = self.database().begin_transaction()?;
+        self.gen_consignments(&txn, &fascia, &info_contents.transfers, &transfer_dir)?;
+        txn.commit()?;
 
         info!(self.logger(), "Create consignments completed");
         Ok(())
@@ -324,7 +308,7 @@ impl Wallet {
     ///
     /// <div class="warning">This method is meant for special usage and is normally not needed, use
     /// it only if you know what you're doing</div>
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub fn accept_transfer_consignment(
         &mut self,
         online: Online,
@@ -349,36 +333,34 @@ impl Wallet {
             "Got consignment for asset with {} schema", asset_schema
         );
 
-        let mut runtime = self.rgb_runtime()?;
+        let txn = self.database().begin_transaction()?;
+        let mut stock = self.rgb_stock(&txn)?;
 
         let graph_seal = GraphSeal::with_blinded_vout(vout, blinding);
-        runtime.store_secret_seal(graph_seal)?;
-
-        let resolver = OffchainResolver {
-            witness_id,
-            consignment: &consignment,
-            fallback: self.blockchain_resolver(),
-        };
+        stock.store_secret_seal(graph_seal)?;
 
         debug!(self.logger(), "Validating consignment...");
-        let asset_schema: AssetSchema = consignment.schema_id().try_into()?;
-        let trusted_typesystem = asset_schema.types();
         let validation_config = ValidationConfig {
             chain_net: self.chain_net(),
-            trusted_typesystem,
             ..Default::default()
         };
-        let valid_consignment = match consignment.clone().validate(&resolver, &validation_config) {
+        let valid_consignment = match validate_consignment_internal(
+            &consignment,
+            Some(witness_id),
+            &self.blockchain_resolver(),
+            self.evm_rpc_urls(),
+            &validation_config,
+        ) {
             Ok(consignment) => consignment,
-            Err(ValidationError::InvalidConsignment(e)) => {
-                error!(self.logger(), "Consignment is invalid: {}", e);
+            Err(Error::ConsignmentValidationFailed { details }) => {
+                error!(self.logger(), "Consignment is invalid: {}", details);
                 return Err(Error::InvalidConsignment);
             }
-            Err(ValidationError::ResolverError(e)) => {
-                warn!(self.logger(), "Network error during consignment validation");
-                return Err(Error::Network {
-                    details: e.to_string(),
-                });
+            Err(e) => {
+                if let Error::Network { .. } = e {
+                    warn!(self.logger(), "Network error during consignment validation");
+                }
+                return Err(e);
             }
         };
         let validity = valid_consignment.validation_status().validity();
@@ -386,19 +368,25 @@ impl Wallet {
 
         let valid_contract = valid_consignment.clone().into_valid_contract();
         let media_digests = self
-            .extract_attachments(&valid_contract, asset_schema)
+            .extract_attachments(&stock, &valid_contract, asset_schema)?
             .iter()
             .map(|a| hex::encode(a.digest))
             .collect::<HashSet<_>>();
-        runtime
-            .import_contract(valid_contract, self.blockchain_resolver())
+        stock
+            .import_contract(valid_contract, &self.blockchain_resolver())
             .expect("failure importing validated contract");
 
         let received_rgb_assignments =
             self.extract_received_assignments(&consignment, witness_id, Some(vout), None);
 
-        runtime.accept_transfer(valid_consignment, &resolver)?;
+        let resolver = OffchainResolver {
+            witness_id: Some(witness_id),
+            consignment: &consignment,
+            fallback: &self.blockchain_resolver(),
+        };
+        stock.accept_transfer(valid_consignment, &resolver)?;
 
+        txn.commit()?;
         info!(self.logger(), "Accept transfer completed");
         Ok((
             consignment,
@@ -417,8 +405,10 @@ impl Wallet {
         witness_ord: Option<WitnessOrd>,
     ) -> Result<(), Error> {
         info!(self.logger(), "Consuming fascia...");
-        self.rgb_runtime()?
+        let txn = self.database().begin_transaction()?;
+        self.rgb_stock(&txn)?
             .consume_fascia(fascia.clone(), witness_ord)?;
+        txn.commit()?;
         info!(self.logger(), "Consume fascia completed");
         Ok(())
     }
@@ -427,7 +417,7 @@ impl Wallet {
     ///
     /// <div class="warning">This method is meant for special usage and is normally not needed, use
     /// it only if you know what you're doing</div>
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub fn get_tx_height(&self, online: Online, txid: String) -> Result<Option<u32>, Error> {
         info!(self.logger(), "Getting TX height...");
         self.check_online(online)?;
@@ -440,7 +430,7 @@ impl Wallet {
     ///
     /// <div class="warning">This method is meant for special usage and is normally not needed, use
     /// it only if you know what you're doing</div>
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub fn update_witnesses(
         &self,
         online: Online,
@@ -449,11 +439,13 @@ impl Wallet {
     ) -> Result<UpdateRes, Error> {
         info!(self.logger(), "Updating witnesses...");
         self.check_online(online)?;
-        let update_res = self.rgb_runtime()?.update_witnesses(
-            self.blockchain_resolver(),
+        let txn = self.database().begin_transaction()?;
+        let update_res = self.rgb_stock(&txn)?.update_witnesses(
+            &self.blockchain_resolver(),
             after_height,
             force_witnesses,
         )?;
+        txn.commit()?;
         info!(self.logger(), "Update witnesses completed");
         Ok(update_res)
     }
@@ -467,8 +459,10 @@ impl Wallet {
         witness_id: RgbTxid,
         witness_ord: WitnessOrd,
     ) -> Result<(), Error> {
-        let mut runtime = self.rgb_runtime()?;
-        runtime.upsert_witness(witness_id, witness_ord)?;
+        let txn = self.database().begin_transaction()?;
+        let mut stock = self.rgb_stock(&txn)?;
+        stock.upsert_witness(witness_id, witness_ord)?;
+        txn.commit()?;
         Ok(())
     }
 
@@ -476,7 +470,7 @@ impl Wallet {
     ///
     /// <div class="warning">This method is meant for special usage and is normally not needed, use
     /// it only if you know what you're doing</div>
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub fn save_new_asset(
         &self,
         online: Online,
@@ -485,33 +479,29 @@ impl Wallet {
     ) -> Result<(), Error> {
         info!(self.logger(), "Saving new asset...");
         self.check_online(online)?;
-        let runtime = self.rgb_runtime()?;
+        let txn = self.database().begin_transaction()?;
+        let stock = self.rgb_stock(&txn)?;
 
         let contract_id = consignment.contract_id();
 
         let witness_id = RgbTxid::from_str(&offchain_txid).map_err(|_| Error::InvalidTxid)?;
-        let resolver = OffchainResolver {
-            witness_id,
-            consignment: &consignment,
-            fallback: self.blockchain_resolver(),
-        };
         let asset_schema: AssetSchema = consignment.schema_id().try_into()?;
-        let trusted_typesystem = asset_schema.types();
         let validation_config = ValidationConfig {
             chain_net: self.chain_net(),
-            trusted_typesystem,
             ..Default::default()
         };
-        let valid_transfer = consignment
-            .clone()
-            .validate(&resolver, &validation_config)
-            .expect("valid consignment");
+        let valid_transfer = validate_consignment_internal(
+            &consignment,
+            Some(witness_id),
+            &self.blockchain_resolver(),
+            self.evm_rpc_urls(),
+            &validation_config,
+        )?;
         let valid_contract = valid_transfer.clone().into_valid_contract();
 
-        let txn = self.database().begin_transaction()?;
         self.save_new_asset_internal(
             &txn,
-            &runtime,
+            &stock,
             contract_id,
             asset_schema,
             valid_contract,
@@ -529,7 +519,7 @@ impl Wallet {
     ///
     /// <div class="warning">This method is meant for special usage, for most cases the method
     /// <code>list_unspents</code> is sufficient</div>
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub fn list_unspents_vanilla(
         &mut self,
         online: Online,
@@ -602,7 +592,7 @@ impl Wallet {
                 &txn.iter_tokens()?,
                 &txn.iter_token_medias()?,
             ),
-            AssetSchema::Nia | AssetSchema::Cfa | AssetSchema::Ifa => None,
+            AssetSchema::Nia | AssetSchema::Cfa | AssetSchema::Ifa | AssetSchema::Bfa => None,
         };
         let medias = self.get_asset_medias(&txn, asset.media_idx, token)?;
         txn.commit()?;
@@ -623,7 +613,7 @@ impl Wallet {
     ///
     /// <div class="warning">This method is meant for special usage and is normally not needed, use
     /// it only if you know what you're doing</div>
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub fn send_end_db_update_only(
         &mut self,
         online: Online,
@@ -634,17 +624,26 @@ impl Wallet {
         let psbt = Psbt::from_str(&signed_psbt)?;
         let txn = self.database().begin_transaction()?;
 
+        self.check_end_initiated(&txn, &psbt)?;
+        let (txid, transfer_dir, info_contents, _) = self.get_transfer_end_data(&psbt)?;
+        // the data must be of a donation send: another operation (including a non-donation send)
+        // would be completed skipping its checks and steps
+        if !info_contents.is_operation(&TypeOfTransition::Transfer) || !info_contents.donation {
+            return Err(Error::WrongOperation { txid });
+        }
+
         // this will also update the DB with the new UTXOs and BDK
         self.broadcast_psbt(&txn, &psbt)?;
 
-        let (txid, _, info_contents, _) = self.get_transfer_end_data(&psbt)?;
-
+        let consignment_hashes = self.consignment_hashes(&transfer_dir, &info_contents)?;
         let batch_transfer_idx = self.update_or_save_transfers(
             &txn,
             txid.clone(),
             &info_contents,
             TransferStatus::WaitingConfirmations,
+            &consignment_hashes,
             true,
+            &psbt,
         )?;
 
         self.update_backup_info(&txn, false)?;
@@ -656,18 +655,5 @@ impl Wallet {
             batch_transfer_idx,
             entropy: info_contents.entropy,
         })
-    }
-}
-
-#[cfg(test)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-mod tests {
-    use super::*;
-
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
-    #[test]
-    fn display_indexer_protocol() {
-        assert_eq!(IndexerProtocol::Electrum.to_string(), "Electrum");
-        assert_eq!(IndexerProtocol::Esplora.to_string(), "Esplora");
     }
 }

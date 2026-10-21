@@ -1,8 +1,10 @@
 #[cfg(feature = "electrum")]
 use std::ffi::OsString;
+#[cfg(all(feature = "electrum", feature = "rgb_fs_store_migration"))]
+use std::fs::File;
 #[cfg(feature = "electrum")]
-use std::sync::atomic::{AtomicU64, Ordering};
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+#[cfg(feature = "_online")]
 use std::{
     process::{Command, Stdio},
     sync::{Once, RwLock},
@@ -10,12 +12,12 @@ use std::{
 };
 
 use std::cell::RefCell;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 use std::path::MAIN_SEPARATOR_STR;
 
 #[cfg(feature = "electrum")]
 use amplify::set;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 use bdk_wallet::bitcoin::Denomination;
 use bdk_wallet::descriptor::ExtendedDescriptor;
 #[cfg(feature = "electrum")]
@@ -27,21 +29,36 @@ use once_cell::sync::Lazy;
 use rgbstd::stl::{EmbeddedMedia as RgbEmbeddedMedia, ProofOfReserves as RgbProofOfReserves};
 use serde_json::Value;
 use serial_test::parallel;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 use serial_test::serial;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 use time::OffsetDateTime;
 
 use super::*;
 
 #[cfg(feature = "electrum")]
+use crate::encryption::ENC_VERSION;
+#[cfg(feature = "electrum")]
 use crate::keys::Keys;
+#[cfg(all(feature = "electrum", feature = "rgb_fs_store_migration"))]
+use crate::keys::restore_keys;
+#[cfg(all(feature = "electrum", feature = "rgb_fs_store_migration"))]
+use crate::utils::{RGB_RUNTIME_DELETING_DIR, RGB_RUNTIME_DIR};
+#[cfg(feature = "_online")]
+use crate::wallet::online::*;
 #[cfg(feature = "electrum")]
 use crate::wallet::rust_only::check_proxy_url;
-#[cfg(all(feature = "esplora", not(feature = "electrum")))]
-use crate::wallet::rust_only::*;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-use crate::wallet::{online::*, rust_only::check_indexer_url, utils::build_indexer};
+use crate::wallet::utils::build_indexer;
+#[cfg(feature = "electrum")]
+use crate::{
+    database::enums::{SCHEMA_ID_CFA, SCHEMA_ID_IFA, SCHEMA_ID_NIA, SCHEMA_ID_UDA},
+    no_wallet::{
+        BundleFilter, inspect_consignment, validate_consignment, validation::terminal_opouts,
+    },
+    utils::{get_account_data, recipient_id_from_script_buf, script_buf_from_recipient_id},
+    wallet::{multisig::*, rust_only::*},
+};
 use crate::{
     keys::generate_keys,
     utils::{
@@ -50,18 +67,19 @@ use crate::{
     },
     wallet::{backup::*, core::*, offline::*, singlesig::*},
 };
-#[cfg(feature = "electrum")]
-use crate::{
-    utils::{
-        RGB_RUNTIME_DIR, get_account_data, recipient_id_from_script_buf,
-        script_buf_from_recipient_id,
-    },
-    wallet::{multisig::*, rust_only::*},
-};
 
 const PROXY_HOST: &str = "127.0.0.1:3000/json-rpc";
 static PROXY_ENDPOINT: Lazy<String> = Lazy::new(|| format!("rpc://{PROXY_HOST}"));
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
+const EVM_RPC_URL: &str = "http://127.0.0.1:8545";
+/// EIP-155 chain ID of the anvil node (its default one, see tests/compose.yaml)
+#[cfg(feature = "_online")]
+const ANVIL_CHAIN_ID: u64 = 31337;
+/// Blocks to mine on anvil for the latest block to become finalized: two epochs of its default
+/// 32 slots
+#[cfg(feature = "electrum")]
+const EVM_FINALITY_DEPTH: u64 = 64;
+#[cfg(feature = "_online")]
 const TEST_DATA_DIR_PARTS: [&str; 2] = ["tests", "tmp_srv"];
 const NOSRV_DATA_DIR_PARTS: [&str; 2] = ["tests", "tmp_nosrv"];
 const PASSWORD: &str = "password";
@@ -73,13 +91,34 @@ const MAX_ALLOCATIONS_PER_UTXO: u32 = 5;
 const PROXY_HOST_MOD_API: &str = "127.0.0.1:3002/json-rpc";
 #[cfg(feature = "electrum")]
 const PROXY_HOST_MOD_PROTO: &str = "127.0.0.1:3001/json-rpc";
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 const PROXY_URL: &str = "http://127.0.0.1:3000/json-rpc";
 #[cfg(feature = "electrum")]
 const PROXY_URL_MOD_API: &str = "http://127.0.0.1:3002/json-rpc";
 #[cfg(feature = "electrum")]
 const PROXY_URL_MOD_PROTO: &str = "http://127.0.0.1:3001/json-rpc";
+#[cfg(feature = "electrum")]
+const PROXY_HOST_AUTH: &str = "127.0.0.1:3003/json-rpc";
+#[cfg(feature = "electrum")]
+const PROXY_URL_AUTH: &str = "http://127.0.0.1:3003/json-rpc";
+#[cfg(feature = "electrum")]
+static PROXY_ENDPOINT_AUTH: Lazy<String> = Lazy::new(|| format!("rpc://{PROXY_HOST_AUTH}"));
+// Ed25519 key pair authenticating calls to the proxy-auth service (see tests/compose.yaml)
+#[cfg(feature = "electrum")]
+const PROXY_AUTH_SEED: &str = "c01959890b0f215ff37637c58762a4eab0a2ec8be09c6a8436034c8f34b1c07e";
+#[cfg(feature = "electrum")]
+const PROXY_AUTH_PUBKEY: &str = "0738ae88b5bfc7f915b809937573aa51d3bf00cce2edb5795b99f682d4065f07";
 static TRANSPORT_ENDPOINTS: Lazy<Vec<String>> = Lazy::new(|| vec![PROXY_ENDPOINT.clone()]);
+#[cfg(feature = "bitcoind")]
+const BITCOIND_URL: &str = "http://127.0.0.1:18443";
+#[cfg(feature = "bitcoind")]
+const BITCOIND_NO_FILTERS_URL: &str = "http://127.0.0.1:18444";
+#[cfg(feature = "bitcoind")]
+const BITCOIND_NO_TXINDEX_URL: &str = "http://127.0.0.1:18445";
+#[cfg(feature = "bitcoind")]
+const BITCOIND_USER: &str = "user";
+#[cfg(feature = "bitcoind")]
+const BITCOIND_PASSWORD: &str = "default_password";
 #[cfg(feature = "electrum")]
 const ELECTRUM_URL: &str = "127.0.0.1:50001";
 #[cfg(feature = "electrum")]
@@ -96,21 +135,23 @@ const MULTISIG_HUB_URL: &str = "http://127.0.0.1:8141";
 const LISTS_DIR_PARTS: [&str; 2] = ["tests", "lists"];
 #[cfg(feature = "electrum")]
 const HUB_DIR_PARTS: [&str; 2] = ["tests", "hub"];
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 const TICKER: &str = "TICKER";
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 const NAME: &str = "asset name";
 #[cfg(feature = "electrum")]
 const DETAILS: &str = "details with ℧nicode characters";
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 const PRECISION: u8 = 7;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 const AMOUNT: u64 = 666;
 #[cfg(feature = "electrum")]
 const AMOUNT_INFLATION: u64 = 400;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 const AMOUNT_SMALL: u64 = 66;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "electrum")]
+const BURN_REASON: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+#[cfg(feature = "_online")]
 const FEE_RATE: u64 = 2;
 #[cfg(feature = "electrum")]
 const FILE_STR: &str = "README.md";
@@ -133,24 +174,47 @@ const FAKE_TXID: &str = "e5a3e577309df31bd606f48049049d2e1e02b048206ba232944fcc0
 #[cfg(feature = "electrum")]
 const FAKE_OUTPOINT: &str = "e5a3e577309df31bd606f48049049d2e1e02b048206ba232944fcc053a176ccb:0";
 #[cfg(feature = "electrum")]
+const FAKE_EVM_ADDRESS: &str = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+#[cfg(feature = "electrum")]
+const FAKE_PUBKEY: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+#[cfg(feature = "electrum")]
+const FAKE_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+#[cfg(feature = "electrum")]
 const UNKNOWN_IDX: i32 = 9999;
 #[cfg(feature = "electrum")]
 const TINY_BTC_AMOUNT: u32 = 330;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 const QUEUE_DEPTH_EXCEEDED: &str = "Work queue depth exceeded";
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 const DURATION_RCV_TRANSFER: u32 = 86400;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 const DURATION_SEND_TRANSFER: u32 = 3600;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) const INDEXER_SYNC_LOOKBACK: usize = 20;
+#[cfg(feature = "_online")]
+pub(crate) const FAILED_WITNESS_RECEIVE_GRACE_SECS: u32 = 604800;
 
 #[cfg(all(feature = "esplora", not(feature = "electrum")))]
 const DEFAULT_INDEXER_URL: &str = ESPLORA_URL;
+#[cfg(all(
+    feature = "bitcoind",
+    not(any(feature = "electrum", feature = "esplora"))
+))]
+const DEFAULT_INDEXER_URL: &str = BITCOIND_URL;
 #[cfg(feature = "electrum")]
 const DEFAULT_INDEXER_URL: &str = ELECTRUM_URL;
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "electrum")]
+const INVALID_INDEXER_MSG: &str = "not a valid electrum server";
+#[cfg(all(feature = "esplora", not(feature = "electrum")))]
+const INVALID_INDEXER_MSG: &str = "not a valid esplora server";
+#[cfg(all(
+    feature = "bitcoind",
+    not(any(feature = "electrum", feature = "esplora"))
+))]
+const INVALID_INDEXER_MSG: &str = "cannot connect to bitcoind";
+
+#[cfg(feature = "_online")]
 static INIT: Once = Once::new();
 
 thread_local! {
@@ -160,17 +224,26 @@ thread_local! {
     pub(crate) static MOCK_TOKEN_DATA: RefCell<Vec<TokenData>> = const { RefCell::new(vec![]) };
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 thread_local! {
     pub(crate) static MOCK_CHECK_FEE_RATE: RefCell<Vec<bool>> = const { RefCell::new(vec![]) };
     pub(crate) static MOCK_INPUT_UNSPENTS: RefCell<Vec<LocalUnspent>> = const { RefCell::new(vec![]) };
     pub(crate) static MOCK_SKIP_BUILD_DAG: RefCell<Option<()>> = const { RefCell::new(None) };
-    pub(crate) static MOCK_VOUT: RefCell<Option<u32>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_SPV_ONLY: RefCell<bool> = const { RefCell::new(false) };
+    pub(crate) static MOCK_CHAIN_TXS: RefCell<HashMap<String, (BdkTransaction, u32)>> = RefCell::new(HashMap::new());
     pub(crate) static MOCK_LOCAL_VERSION: RefCell<Option<String>> = const { RefCell::new(None) };
     pub(crate) static MOCK_SEND_END_CRASH: RefCell<Option<()>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_STRIP_TERMINALS: RefCell<Option<()>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_CLOCK_SKEW_MARGIN: RefCell<Option<u32>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_RETENTION_GRACE: RefCell<Option<u32>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_MIN_RETENTION_GRACE: RefCell<Option<u32>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_CONFIRMATION_MARGIN: RefCell<Option<u32>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_MINT_LOCK_WINDOW: RefCell<Option<u32>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_MINT_AFTER_BLOCK_GRACE: RefCell<Option<i64>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_MAX_MINT_SCAN_BLOCKS: RefCell<Option<u64>> = const { RefCell::new(None) };
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub fn initialize() {
     INIT.call_once(|| {
         if std::env::var("SKIP_INIT").is_ok() {
@@ -191,9 +264,10 @@ pub fn initialize() {
     });
 }
 
+/// Recreate a test service from scratch, dropping its data: its container and, if any, the named
+/// volumes it persists to.
 #[cfg(feature = "electrum")]
-pub fn restart_multisig_hub() {
-    let service_name = "rgb-multisig-hub";
+fn recreate_service(service_name: &str, volumes: &[&str]) {
     let cmd_base = vec![s!("-f"), ["tests", "compose.yaml"].join(MAIN_SEPARATOR_STR)];
     let mut cmd = cmd_base.clone();
     cmd.extend([
@@ -210,16 +284,18 @@ pub fn restart_multisig_hub() {
         .arg("compose")
         .args(&cmd)
         .output()
-        .expect("failed to remove hub service");
-    Command::new("docker")
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .stdout(Stdio::null())
-        .arg("volume")
-        .arg("rm")
-        .arg("tests_hub")
-        .output()
-        .expect("failed to remove hub volume");
+        .unwrap_or_else(|_| panic!("failed to remove {service_name} service"));
+    for volume in volumes {
+        Command::new("docker")
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .stdout(Stdio::null())
+            .arg("volume")
+            .arg("rm")
+            .arg(volume)
+            .output()
+            .unwrap_or_else(|_| panic!("failed to remove {volume} volume"));
+    }
     let mut cmd = cmd_base.clone();
     cmd.extend([s!("up"), s!("-d"), service_name.to_string()]);
     Command::new("docker")
@@ -229,11 +305,31 @@ pub fn restart_multisig_hub() {
         .arg("compose")
         .args(&cmd)
         .output()
-        .expect("failed to start hub service");
+        .unwrap_or_else(|_| panic!("failed to start {service_name} service"));
+}
+
+#[cfg(feature = "electrum")]
+pub fn restart_multisig_hub() {
+    recreate_service("rgb-multisig-hub", &["tests_hub"]);
+}
+
+/// Reset the proxy, dropping all its data (reservations, consignments and operations), and wait
+/// for it to serve requests again.
+#[cfg(feature = "electrum")]
+pub fn reset_proxy() {
+    recreate_service("proxy", &[]);
+    let start = Instant::now();
+    while check_proxy_url(PROXY_URL).is_err() {
+        assert!(
+            start.elapsed() < Duration::from_secs(60),
+            "timeout waiting for the proxy to restart"
+        );
+        std::thread::sleep(Duration::from_millis(500));
+    }
 }
 
 // the get_*_wallet! macros can be called with no arguments to use defaults
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 macro_rules! get_empty_party {
     ($i: expr) => {
         get_empty_party(true, Some($i))
@@ -243,7 +339,7 @@ macro_rules! get_empty_party {
     };
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 macro_rules! get_funded_noutxo_party {
     ($i: expr) => {
         get_funded_noutxo_party(true, Some($i))
@@ -253,7 +349,7 @@ macro_rules! get_funded_noutxo_party {
     };
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 macro_rules! get_funded_party {
     ($i: expr) => {
         get_funded_party(true, Some($i))
@@ -290,7 +386,7 @@ pub fn mock_token_data(token_data: TokenData) -> TokenData {
     })
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub fn mock_input_unspents<W: WalletOnline + ?Sized>(
     wallet: &W,
     unspents: &[LocalUnspent],
@@ -325,7 +421,7 @@ pub fn mock_chain_net<W: WalletOffline + ?Sized>(wallet: &W) -> ChainNet {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub fn mock_local_version(version: &str) -> String {
     let mock = MOCK_LOCAL_VERSION.take();
     if let Some(mock) = mock {
@@ -336,7 +432,7 @@ pub fn mock_local_version(version: &str) -> String {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub fn skip_check_fee_rate() -> bool {
     MOCK_CHECK_FEE_RATE.with_borrow_mut(|mock| {
         if mock.is_empty() {
@@ -348,7 +444,7 @@ pub fn skip_check_fee_rate() -> bool {
     })
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub fn skip_build_dag() -> bool {
     if MOCK_SKIP_BUILD_DAG.take().is_none() {
         false
@@ -358,7 +454,78 @@ pub fn skip_build_dag() -> bool {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
+pub fn mock_chain_tx(txid: &str) -> Option<(BdkTransaction, u32)> {
+    MOCK_CHAIN_TXS.with_borrow(|m| m.get(txid).cloned())
+}
+
+#[cfg(feature = "_online")]
+pub fn spv_only() -> bool {
+    let spv_only = MOCK_SPV_ONLY.with_borrow(|s| *s);
+    if spv_only {
+        println!("refusing witness TX lookup (mock)");
+    }
+    spv_only
+}
+
+#[cfg(feature = "_online")]
+pub fn strip_terminals() -> bool {
+    if MOCK_STRIP_TERMINALS.take().is_none() {
+        false
+    } else {
+        println!("stripping consignment terminals (mock)");
+        true
+    }
+}
+
+/// Clock skew margin (seconds) to use instead of `PROXY_CLOCK_SKEW_MARGIN_SECS`, if set.
+#[cfg(feature = "_online")]
+pub fn mock_clock_skew_margin() -> Option<u32> {
+    MOCK_CLOCK_SKEW_MARGIN.with_borrow(|m| *m)
+}
+
+/// Minimum time (seconds) left on the invoice of a mint to use instead of
+/// `MIN_MINT_LOCK_WINDOW_SECS`, if set.
+#[cfg(feature = "_online")]
+pub fn mock_mint_lock_window() -> Option<u32> {
+    MOCK_MINT_LOCK_WINDOW.with_borrow(|m| *m)
+}
+
+/// Time (seconds) the block a received mint commits to may precede the invoice to use instead of
+/// `MINT_AFTER_BLOCK_GRACE_SECS`, if set.
+#[cfg(feature = "_online")]
+pub fn mock_mint_after_block_grace() -> Option<i64> {
+    MOCK_MINT_AFTER_BLOCK_GRACE.with_borrow(|m| *m)
+}
+
+/// Maximum number of blocks scanned for the event of a received mint to use instead of
+/// `MAX_MINT_SCAN_BLOCKS`, if set.
+#[cfg(feature = "_online")]
+pub fn mock_max_mint_scan_blocks() -> Option<u64> {
+    MOCK_MAX_MINT_SCAN_BLOCKS.with_borrow(|m| *m)
+}
+
+/// Sender proxy retention grace (seconds) to use instead of the one advertised by the proxy, if
+/// set.
+#[cfg(feature = "_online")]
+pub fn mock_retention_grace() -> Option<u32> {
+    MOCK_RETENTION_GRACE.with_borrow(|m| *m)
+}
+
+/// Minimum sender proxy retention grace (seconds) to use instead of
+/// `MIN_SENDER_RETENTION_GRACE_SECS`, if set.
+#[cfg(feature = "_online")]
+pub fn mock_min_retention_grace() -> Option<u32> {
+    MOCK_MIN_RETENTION_GRACE.with_borrow(|m| *m)
+}
+
+/// Confirmation margin (seconds) to use instead of `CONFIRMATION_MARGIN_SECS`, if set.
+#[cfg(feature = "_online")]
+pub fn mock_confirmation_margin() -> Option<u32> {
+    MOCK_CONFIRMATION_MARGIN.with_borrow(|m| *m)
+}
+
+#[cfg(feature = "_online")]
 pub fn mock_send_end_crash() -> bool {
     if MOCK_SEND_END_CRASH.take().is_none() {
         false
@@ -368,22 +535,12 @@ pub fn mock_send_end_crash() -> bool {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-pub fn mock_vout(vout: Option<u32>) -> Option<u32> {
-    let mock = MOCK_VOUT.take();
-    if mock.is_some() {
-        println!("mocking vout");
-        assert_ne!(mock, vout);
-        mock
-    } else {
-        vout
-    }
-}
-
 // test utilities
 #[macro_use]
 mod utils;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "electrum")]
+pub(crate) use utils::anvil::*;
+#[cfg(feature = "_online")]
 pub(crate) use utils::chain::*;
 pub(crate) use utils::{api::*, helpers::*};
 
@@ -394,6 +551,8 @@ mod backup;
 mod blind_receive;
 #[cfg(feature = "electrum")]
 mod burn;
+#[cfg(feature = "_online")]
+mod check_indexer_url;
 #[cfg(feature = "electrum")]
 mod create_utxos;
 #[cfg(feature = "electrum")]
@@ -410,14 +569,20 @@ mod get_asset_balance;
 mod get_asset_metadata;
 #[cfg(feature = "electrum")]
 mod get_btc_balance;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 mod get_fee_estimation;
 mod get_wallet_data;
 mod get_wallet_dir;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 mod go_online;
 #[cfg(feature = "electrum")]
 mod inflate;
+#[cfg(feature = "electrum")]
+mod inspect_consignment;
+#[cfg(feature = "electrum")]
+mod inspect_rgb_transfer;
+#[cfg(feature = "electrum")]
+mod issue_asset_bfa;
 #[cfg(feature = "electrum")]
 mod issue_asset_cfa;
 #[cfg(feature = "electrum")]
@@ -436,18 +601,23 @@ mod list_transfers;
 #[cfg(feature = "electrum")]
 mod list_unspents;
 mod load;
+#[cfg(all(feature = "electrum", feature = "rgb_fs_store_migration"))]
+mod migrate;
+mod mint;
 #[cfg(feature = "electrum")]
 mod multisig;
 mod new;
 #[cfg(feature = "electrum")]
 mod refresh;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "electrum")]
 mod rust_only;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 mod send;
 #[cfg(feature = "electrum")]
 mod send_btc;
 mod sign_psbt;
 #[cfg(feature = "electrum")]
 mod sync;
+#[cfg(feature = "electrum")]
+mod validate_consignment;
 mod witness_receive;
