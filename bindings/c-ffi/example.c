@@ -199,7 +199,7 @@ int main(int argc, char *argv[]) {
     printf("Fee estimation: %s\n", fee_res.inner);
 
     CResultString transfers_res =
-        rgblib_list_transfers(wlt, "\"AnyOrNone\"", NULL);
+        rgblib_list_transfers(wlt, "\"AnyOrNone\"", "\"All\"");
     if (transfers_res.result == Err) {
         printf("ERR: %s\n", transfers_res.inner);
         return EXIT_FAILURE;
