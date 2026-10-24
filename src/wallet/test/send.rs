@@ -2976,6 +2976,86 @@ fn recipient_refuses_tampered_consignment() {
     );
 }
 
+/// A consignment paying someone else, posted to the invoice of the recipient (which anyone can do,
+/// the invoice being public), pays the recipient nothing, so it's refused.
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn recipient_refuses_consignment_not_paying_it() {
+    initialize();
+
+    let amount: u64 = 66;
+
+    // wallets
+    let mut party = get_funded_party!();
+    let mut rcv_party_1 = get_funded_party!();
+    let mut rcv_party_2 = get_funded_party!();
+
+    // issue
+    let asset = party.issue_asset_nia(None);
+
+    // send to rcv_party_1 and settle
+    let receive_data_1 = rcv_party_1.blind_receive();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![blind_recipient(
+            &receive_data_1,
+            Assignment::Fungible(amount),
+        )],
+    )]);
+    let txid = party.send_retry(&recipient_map);
+    assert!(!txid.is_empty());
+    rcv_party_1.wait_for_refresh(None);
+    party.wait_for_refresh(Some(&asset.asset_id));
+    mine(false);
+    rcv_party_1.wait_for_refresh(Some(&asset.asset_id));
+    party.wait_for_refresh(Some(&asset.asset_id));
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+
+    // post the same consignment to the invoice of rcv_party_2 (which advertises cleartext, so the
+    // consignment can be posted as is)
+    let receive_data_2 = rcv_party_2
+        .wallet
+        .blind_receive(
+            Some(rcv_party_2.online),
+            None,
+            Assignment::Any,
+            default_rcv_expiration(),
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+            Some(Encryption::Unsupported),
+        )
+        .unwrap();
+    let consignment_path = party
+        .wallet
+        .get_send_consignment_path(&asset.asset_id, &txid);
+    let (_, transfer_id) = post_test_consignment(
+        &get_proxy_client(None),
+        &receive_data_2.recipient_id,
+        &receive_data_2.public_key,
+        &consignment_path,
+        &hash_bytes_hex(&std::fs::read(&consignment_path).unwrap()),
+    );
+
+    // rcv_party_2 downloads the consignment and refuses it, receiving nothing: the consignment is
+    // genuine, carries the hash it's posted with, comes from a valid sender key and is of a schema
+    // the any-asset invoice accepts, so the only check left to refuse it is the one looking for a
+    // terminal paying the recipient (the refusal reason isn't observable otherwise, as the NACK
+    // finds no operation on the sender proxy)
+    rcv_party_2.wait_for_refresh(None);
+    let transfer = rcv_party_2.get_test_transfer_recipient(&receive_data_2.recipient_id);
+    assert_eq!(transfer.proxy_transfer_id, Some(transfer_id));
+    assert!(rcv_party_2.check_test_transfer_status_recipient(
+        &receive_data_2.recipient_id,
+        TransferStatus::Failed
+    ));
+    assert!(rcv_party_2.list_unspents(false).iter().all(|u| {
+        u.rgb_allocations
+            .iter()
+            .all(|a| a.asset_id.as_ref() != Some(&asset.asset_id))
+    }));
+}
+
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
