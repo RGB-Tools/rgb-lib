@@ -224,6 +224,7 @@ thread_local! {
     pub(crate) static MOCK_SPAM_RECIPIENT_ASSIGNMENTS: RefCell<Option<(u16, u64)>> = const { RefCell::new(None) };
     pub(crate) static MOCK_SPAM_HIDDEN_SPENDS: RefCell<Option<()>> = const { RefCell::new(None) };
     pub(crate) static MOCK_HUB_ACCEPT_PENDING: RefCell<Option<()>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_ACCEPT_MULTIPLE_ALLOCATIONS: RefCell<bool> = const { RefCell::new(false) };
     pub(crate) static MOCK_MAX_UTXO_ASSET_ALLOCATIONS: RefCell<Option<usize>> = const { RefCell::new(None) };
     pub(crate) static MOCK_CLOCK_SKEW_MARGIN: RefCell<Option<u32>> = const { RefCell::new(None) };
     pub(crate) static MOCK_RETENTION_GRACE: RefCell<Option<u32>> = const { RefCell::new(None) };
@@ -549,6 +550,14 @@ pub fn mock_spam_hidden_spends(psbt: &mut Psbt, transition: &Transition) {
         )
         .unwrap();
     }
+}
+
+// whether to accept consignments paying an invoice more than one allocation, as the tests filling
+// UTXOs with allocations (see `mock_spam_recipient_assignments`) need; unlike the mocks taken by
+// their first use, it stays set for the whole test, as filling UTXOs takes several receives
+#[cfg(feature = "_online")]
+pub fn accept_multiple_allocations() -> bool {
+    MOCK_ACCEPT_MULTIPLE_ALLOCATIONS.with_borrow(|a| *a)
 }
 
 /// Maximum number of allocations of an asset a UTXO can hold to use instead of

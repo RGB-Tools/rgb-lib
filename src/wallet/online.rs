@@ -2772,7 +2772,10 @@ pub trait WalletOnline: WalletOffline {
         // an invoice is paid by a single allocation: a sender never needs more, as amounts can
         // always be merged, while each extra allocation weighs on the receiving UTXO (spending it
         // moves all of its allocations, which a bundle limits)
-        if receiving.len() != 1 {
+        let single_allocation = receiving.len() == 1;
+        #[cfg(test)]
+        let single_allocation = single_allocation || accept_multiple_allocations();
+        if !single_allocation {
             error!(
                 self.logger(),
                 "Consignment pays this recipient {} allocations, refusing it",
@@ -4126,11 +4129,31 @@ pub trait WalletOnline: WalletOffline {
         Ok(refresh_result)
     }
 
+    /// The number of allocations of an asset the inputs of an operation with the given main
+    /// transition can hold: the ones a bundle can spend (see [`MAX_UTXO_ASSET_ALLOCATIONS`]), but
+    /// one for a burn, as it can't return change: its inputs are first split by another transition
+    /// of the bundle, whose output the burn spends, adding an entry to the input map.
+    ///
+    /// [`MAX_UTXO_ASSET_ALLOCATIONS`]: crate::wallet::offline::MAX_UTXO_ASSET_ALLOCATIONS
+    fn max_input_allocations(main_transition: &TypeOfTransition) -> usize {
+        match main_transition {
+            TypeOfTransition::Burn => max_utxo_asset_allocations() - 1,
+            _ => max_utxo_asset_allocations(),
+        }
+    }
+
+    /// Select the UTXOs holding the assignments of the asset needed by an operation, adding them
+    /// to `selected`, which tracks the ones selected for all the assets of the operation: a UTXO
+    /// that would take the allocations of an asset held by them past `max_allocations` (see
+    /// [`Self::max_input_allocations`]) is skipped. If skipping UTXOs leaves too few assignments,
+    /// the selection is retried from the UTXOs with the most, so the fewest are selected.
     fn select_rgb_inputs(
         &self,
         asset_id: String,
         assignments_needed: &AssignmentsCollection,
         unspents: Vec<LocalUnspent>,
+        selected: &mut SelectedInputs,
+        max_allocations: usize,
     ) -> Result<AssetSpend, Error> {
         // the sum of the given amount of the settled allocations of the asset held by the given
         // UTXO, which the selection collects: the allocations of other assets don't count, as
@@ -4148,8 +4171,6 @@ pub trait WalletOnline: WalletOffline {
             self.logger(),
             "Selecting inputs for asset '{}'...", asset_id
         );
-        let mut input_outpoints: Vec<Outpoint> = Vec::new();
-
         let mut mut_unspents = unspents;
 
         // sort unspents first by inflation rights amount, then main amount
@@ -4160,14 +4181,67 @@ pub trait WalletOnline: WalletOffline {
             mut_unspents.sort_by_cached_key(|u| asset_sum(u, Assignment::main_amount));
         }
 
+        // the UTXOs selected for the other assets, to start over from when retrying
+        let selected_before = selected.clone();
+        let (mut asset_spend, skipped) = self.select_rgb_inputs_pass(
+            &asset_id,
+            assignments_needed,
+            &mut_unspents,
+            selected,
+            max_allocations,
+        );
+        // the UTXOs selected first (e.g. the ones with the smallest amounts) may have taken the
+        // place of a UTXO with enough assignments: retry from the ones with the most
+        if skipped && !asset_spend.assignments_collected.enough(assignments_needed) {
+            debug!(
+                self.logger(),
+                "Retrying input selection for asset '{}' from the largest UTXOs", asset_id
+            );
+            *selected = selected_before;
+            mut_unspents.reverse();
+            (asset_spend, _) = self.select_rgb_inputs_pass(
+                &asset_id,
+                assignments_needed,
+                &mut_unspents,
+                selected,
+                max_allocations,
+            );
+        }
+        if !asset_spend.assignments_collected.enough(assignments_needed) {
+            return Err(Error::InsufficientAssignments {
+                asset_id,
+                available: asset_spend.assignments_collected,
+            });
+        }
+
+        debug!(
+            self.logger(),
+            "Asset input assignments {:?}", asset_spend.assignments_collected
+        );
+        Ok(asset_spend)
+    }
+
+    /// A pass of `select_rgb_inputs`, selecting from `unspents` in their order, adding the UTXOs
+    /// selected to `selected` and stopping once they hold the assignments needed. Also returns
+    /// whether a UTXO was skipped for holding too many allocations.
+    fn select_rgb_inputs_pass(
+        &self,
+        asset_id: &str,
+        assignments_needed: &AssignmentsCollection,
+        unspents: &[LocalUnspent],
+        selected: &mut SelectedInputs,
+        max_allocations: usize,
+    ) -> (AssetSpend, bool) {
+        let mut input_outpoints = Vec::new();
         let mut assignments_collected = AssignmentsCollection::default();
         let mut input_btc_amt: u64 = 0;
-        for unspent in mut_unspents {
+        let mut skipped = false;
+        for unspent in unspents {
             // get spendable allocations for the required asset
-            let asset_allocations: Vec<LocalRgbAllocation> = unspent
+            let asset_allocations: Vec<&LocalRgbAllocation> = unspent
                 .rgb_allocations
-                .into_iter()
-                .filter(|a| a.asset_id == Some(asset_id.clone()) && a.status.settled())
+                .iter()
+                .filter(|a| a.asset_id.as_deref() == Some(asset_id) && a.status.settled())
                 .collect();
 
             // skip UTXOs with no allocations
@@ -4198,8 +4272,21 @@ pub trait WalletOnline: WalletOffline {
             {
                 needed = true;
             }
+
             // skip UTXOs with no needed allocations
             if !needed {
+                continue;
+            }
+
+            // skip UTXOs that would make the operation move more allocations of an asset than
+            // a bundle can spend
+            if !selected.select(unspent, max_allocations) {
+                debug!(
+                    self.logger(),
+                    "Skipping UTXO {} as it adds too many allocations",
+                    unspent.utxo.outpoint()
+                );
+                skipped = true;
                 continue;
             }
 
@@ -4223,22 +4310,15 @@ pub trait WalletOnline: WalletOffline {
                 break;
             }
         }
-        if !assignments_collected.enough(assignments_needed) {
-            return Err(Error::InsufficientAssignments {
-                asset_id,
-                available: assignments_collected,
-            });
-        }
 
-        debug!(
-            self.logger(),
-            "Asset input assignments {:?}", assignments_collected
-        );
-        Ok(AssetSpend {
-            input_outpoints,
-            assignments_collected,
-            input_btc_amt,
-        })
+        (
+            AssetSpend {
+                input_outpoints,
+                assignments_collected,
+                input_btc_amt,
+            },
+            skipped,
+        )
     }
 
     fn prepare_psbt(
@@ -5892,6 +5972,8 @@ pub trait WalletOnline: WalletOffline {
                         asset_id.clone(),
                         &assignments_needed,
                         input_unspents.to_vec(),
+                        &mut SelectedInputs::default(),
+                        Self::max_input_allocations(&transfer_info.main_transition),
                     )?;
                     transfer_info_map = BTreeMap::from([(
                         asset_id.clone(),
@@ -6147,7 +6229,11 @@ pub trait WalletOnline: WalletOffline {
         let mut invoices_checked = false;
 
         Ok(loop {
-            for asset_id in recipient_map.keys() {
+            // the inputs selected for all the assets, which are spent together, selected for one
+            // asset after the other in a stable order (by asset ID), as the selection for an asset
+            // depends on the UTXOs selected for the ones before
+            let mut selected = SelectedInputs::default();
+            for asset_id in assets_data.keys() {
                 let (asset_info, original_assignments_needed) =
                     assets_data.get(asset_id).unwrap().clone();
                 let assignments_needed =
@@ -6162,6 +6248,8 @@ pub trait WalletOnline: WalletOffline {
                     asset_id.clone(),
                     &assignments_needed,
                     input_unspents.clone(),
+                    &mut selected,
+                    Self::max_input_allocations(&TypeOfTransition::Transfer),
                 )?;
 
                 let transfer_info = InfoAssetTransfer {
@@ -6625,6 +6713,8 @@ pub trait WalletOnline: WalletOffline {
             asset_id.clone(),
             &assignments_needed,
             input_unspents.clone(),
+            &mut SelectedInputs::default(),
+            Self::max_input_allocations(&TypeOfTransition::Inflate),
         )?;
 
         let chainnet: ChainNet = self.bitcoin_network().into();
@@ -6805,6 +6895,8 @@ pub trait WalletOnline: WalletOffline {
             asset_id.clone(),
             &assignments_needed,
             input_unspents.clone(),
+            &mut SelectedInputs::default(),
+            Self::max_input_allocations(&TypeOfTransition::Burn),
         )?;
 
         let contract_id = ContractId::from_str(&asset_id).expect("invalid contract ID");
