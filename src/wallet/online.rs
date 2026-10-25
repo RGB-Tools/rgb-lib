@@ -4,6 +4,9 @@
 
 use super::*;
 
+/// Signed TX of an outgoing transfer, saved to broadcast it once the transfer is accepted
+const SIGNED_TX_FILE: &str = "signed.tx";
+/// Signed PSBT of an outgoing transfer, saved instead of its TX by previous versions
 const SIGNED_PSBT_FILE: &str = "signed.psbt";
 /// Signed TX released to a recipient, saved to broadcast it again until the broadcast deadline
 const RECEIVED_SIGNED_TX_FILE: &str = "rcv_signed.tx";
@@ -478,12 +481,19 @@ pub trait WalletOnline: WalletOffline {
     }
 
     fn broadcast_psbt(&mut self, txn: &DbTxn, signed_psbt: &Psbt) -> Result<BdkTransaction, Error> {
-        let tx = self.broadcast_tx(
-            signed_psbt
-                .clone()
-                .extract_tx()
-                .map_err(InternalError::from)?,
-        )?;
+        let tx = signed_psbt
+            .clone()
+            .extract_tx()
+            .map_err(InternalError::from)?;
+        self.broadcast_signed_tx(txn, tx)
+    }
+
+    fn broadcast_signed_tx(
+        &mut self,
+        txn: &DbTxn,
+        tx: BdkTransaction,
+    ) -> Result<BdkTransaction, Error> {
+        let tx = self.broadcast_tx(tx)?;
 
         // apply the broadcast TX into BDK directly so its outputs are immediately visible
         // (revealed change SPKs match without needing a wallet sync)
@@ -613,10 +623,10 @@ pub trait WalletOnline: WalletOffline {
         &mut self,
         txn: &DbTxn,
         stock: &mut RgbStock<'_>,
-        signed_psbt: &Psbt,
+        signed_tx: BdkTransaction,
         fascia: Fascia,
     ) -> Result<BdkTransaction, Error> {
-        let tx = self.broadcast_psbt(txn, signed_psbt)?;
+        let tx = self.broadcast_signed_tx(txn, signed_tx)?;
         stock.consume_fascia(fascia, None)?;
         Ok(tx)
     }
@@ -1351,13 +1361,8 @@ pub trait WalletOnline: WalletOffline {
         let Some(txid) = &batch_transfer.txid else {
             return Ok(false);
         };
-        let psbt = self.get_signed_psbt(&self.get_transfer_dir(txid))?;
-        let inputs: HashSet<BdkOutPoint> = psbt
-            .unsigned_tx
-            .input
-            .iter()
-            .map(|i| i.previous_output)
-            .collect();
+        let tx = self.get_signed_tx(&self.get_transfer_dir(txid))?;
+        let inputs: HashSet<BdkOutPoint> = tx.input.iter().map(|i| i.previous_output).collect();
         Ok(self.bdk_wallet().transactions().any(|wallet_tx| {
             wallet_tx.chain_position.is_confirmed()
                 && wallet_tx.tx_node.txid.to_string() != *txid
@@ -1370,10 +1375,23 @@ pub trait WalletOnline: WalletOffline {
         }))
     }
 
-    fn get_signed_psbt(&self, transfer_dir: &Path) -> Result<Psbt, Error> {
-        let psbt_file = transfer_dir.join(SIGNED_PSBT_FILE);
-        let psbt_str = fs::read_to_string(psbt_file)?;
-        Ok(Psbt::from_str(&psbt_str)?)
+    /// The signed TX of an outgoing transfer, read from its signed PSBT for a transfer created by
+    /// a previous version.
+    fn get_signed_tx(&self, transfer_dir: &Path) -> Result<BdkTransaction, Error> {
+        let tx_file = transfer_dir.join(SIGNED_TX_FILE);
+        if tx_file.exists() {
+            let invalid = |e: String| Error::Internal {
+                details: format!("invalid signed TX: {e}"),
+            };
+            let tx_bytes = hex::decode(fs::read_to_string(tx_file)?.trim())
+                .map_err(|e| invalid(e.to_string()))?;
+            return bdk_wallet::bitcoin::consensus::encode::deserialize(&tx_bytes)
+                .map_err(|e| invalid(e.to_string()));
+        }
+        let psbt_str = fs::read_to_string(transfer_dir.join(SIGNED_PSBT_FILE))?;
+        Ok(Psbt::from_str(&psbt_str)?
+            .extract_tx()
+            .map_err(InternalError::from)?)
     }
 
     /// Verify a downloaded blob against its expected plaintext hash, first decrypting it with the
@@ -3533,10 +3551,10 @@ pub trait WalletOnline: WalletOffline {
             .as_ref()
             .expect("batch transfer should have a TXID");
         let transfer_dir = self.get_transfers_dir().join(txid);
-        let signed_psbt = self.get_signed_psbt(&transfer_dir)?;
+        let signed_tx = self.get_signed_tx(&transfer_dir)?;
         let mut stock = self.rgb_stock(txn)?;
         let fascia = read_fascia(&transfer_dir.join(FASCIA_FILE))?;
-        self.broadcast_and_update_rgb(txn, &mut stock, &signed_psbt, fascia)?;
+        self.broadcast_and_update_rgb(txn, &mut stock, signed_tx, fascia)?;
         let mut updated_batch_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
         updated_batch_transfer.status = ActiveValue::Set(TransferStatus::WaitingConfirmations);
 
@@ -6098,7 +6116,8 @@ pub trait WalletOnline: WalletOffline {
         sync_tte_used: bool,
     ) -> Result<i32, Error> {
         let mut stock = self.rgb_stock(txn)?;
-        self.broadcast_and_update_rgb(txn, &mut stock, psbt, fascia)?;
+        let signed_tx = psbt.clone().extract_tx().map_err(InternalError::from)?;
+        self.broadcast_and_update_rgb(txn, &mut stock, signed_tx, fascia)?;
         self.update_or_save_transfers(
             txn,
             txid,
@@ -6390,8 +6409,12 @@ pub trait WalletOnline: WalletOffline {
 
         self.gen_consignments(txn, &fascia, &info_contents.transfers, &transfer_dir)?;
 
-        let psbt_out = transfer_dir.join(SIGNED_PSBT_FILE);
-        atomic_write(&psbt_out, signed_psbt.to_string().as_bytes())?;
+        // only the TX is needed to broadcast it, and is smaller than the PSBT, which carries all of
+        // the RGB data
+        atomic_write(
+            &transfer_dir.join(SIGNED_TX_FILE),
+            hex::encode(&tx_bytes).as_bytes(),
+        )?;
 
         // sender operation key (one per operation, shared across all recipients)
         let seed: [u8; 32] = info_contents

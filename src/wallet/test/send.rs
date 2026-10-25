@@ -12811,6 +12811,58 @@ fn utxo_allocations_limit_across_assets_y_first() {
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
+fn broadcast_legacy_signed_psbt() {
+    initialize();
+
+    let amount: u64 = 66;
+
+    // wallets
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+
+    // issue
+    let asset = party.issue_asset_nia(None);
+    let asset_id = asset.asset_id.as_str();
+
+    // send, keeping the signed PSBT
+    let receive_data = rcv_party.blind_receive();
+    let recipient_map = blind_recipient_map(asset_id, &receive_data, Assignment::Fungible(amount));
+    let begin = party.send_begin_result(&recipient_map).unwrap();
+    let signed_psbt = party.wallet.sign_psbt(begin.psbt, None).unwrap();
+    let txid = party
+        .wallet
+        .send_end(party.online, signed_psbt.clone())
+        .unwrap()
+        .txid;
+
+    // the signed TX is saved to broadcast it, not the signed PSBT
+    let transfer_dir = party.wallet.get_transfer_dir(&txid);
+    let signed_tx_path = transfer_dir.join("signed.tx");
+    let signed_psbt_path = transfer_dir.join("signed.psbt");
+    assert!(signed_tx_path.exists());
+    assert!(!signed_psbt_path.exists());
+
+    // a transfer created by a previous version, which saved the signed PSBT, is still broadcast
+    fs::remove_file(&signed_tx_path).unwrap();
+    fs::write(&signed_psbt_path, &signed_psbt).unwrap();
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(Some(asset_id));
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::WaitingConfirmations));
+    mine(false);
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(Some(asset_id));
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+    assert!(
+        rcv_party.check_test_transfer_status_recipient(
+            &receive_data.recipient_id,
+            TransferStatus::Settled
+        )
+    );
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
 fn batch_send_keeps_allocations_on_inputs_selected_for_other_assets() {
     initialize();
 
