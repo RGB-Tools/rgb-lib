@@ -1398,7 +1398,7 @@ pub struct TransferData {
     pub(crate) assignments: Vec<Assignment>,
     pub(crate) txid: Option<String>,
     pub(crate) receive_utxo: Option<Outpoint>,
-    pub(crate) change_utxo: Option<Outpoint>,
+    pub(crate) change_utxos: Vec<Outpoint>,
     pub(crate) created_at: i64,
     pub(crate) updated_at: i64,
     pub(crate) expiration_timestamp: Option<i64>,
@@ -1411,7 +1411,7 @@ pub struct AssetTransferColoringInfo<'a> {
     pub(crate) assignments: Vec<Assignment>,
     pub(crate) all_issue: bool,
     pub(crate) any_issue: bool,
-    pub(crate) change_utxo: Option<Outpoint>,
+    pub(crate) change_utxos: Vec<Outpoint>,
     pub(crate) receive_candidates: Vec<&'a DbTxo>,
 }
 
@@ -1426,12 +1426,14 @@ impl<'a> AssetTransferColoringInfo<'a> {
         let all_issue =
             !colorings.is_empty() && colorings.iter().all(|c| c.r#type == ColoringType::Issue);
         let any_issue = colorings.iter().any(|c| c.r#type == ColoringType::Issue);
-        let change_utxo = colorings
+        let mut change_txos: Vec<&DbTxo> = colorings
             .iter()
             .filter(|c| c.r#type == ColoringType::Change)
             .filter_map(|c| txos.get(&c.txo_idx))
-            .min_by_key(|t| t.idx)
-            .map(|t| t.outpoint());
+            .collect();
+        change_txos.sort_by_key(|t| t.idx);
+        change_txos.dedup_by_key(|t| t.idx);
+        let change_utxos = change_txos.into_iter().map(|t| t.outpoint()).collect();
         let receive_candidates = colorings
             .iter()
             // issue coloring from inflation is considered as received
@@ -1442,7 +1444,7 @@ impl<'a> AssetTransferColoringInfo<'a> {
             assignments,
             all_issue,
             any_issue,
-            change_utxo,
+            change_utxos,
             receive_candidates,
         }
     }
@@ -1474,8 +1476,8 @@ pub struct Transfer {
     pub recipient_id: Option<String>,
     /// UTXO of an incoming transfer
     pub receive_utxo: Option<Outpoint>,
-    /// Change UTXO of an outgoing transfer
-    pub change_utxo: Option<Outpoint>,
+    /// UTXOs receiving the RGB change of an outgoing transfer, as it can be spread over several
+    pub change_utxos: Vec<Outpoint>,
     /// Expiration of the transfer
     pub expiration_timestamp: Option<u64>,
     /// Recipient transport endpoints for the transfer
@@ -1512,7 +1514,7 @@ impl DbTransfer {
             txid: td.txid,
             recipient_id: self.recipient_id.clone(),
             receive_utxo: td.receive_utxo,
-            change_utxo: td.change_utxo,
+            change_utxos: td.change_utxos,
             expiration_timestamp: td.expiration_timestamp.map(|t| t as u64),
             transport_endpoints,
             sender_transport_endpoint,
@@ -2134,6 +2136,8 @@ pub struct InfoAssetTransfer {
     pub original_assignments_needed: AssignmentsCollection,
     pub assignments_needed: AssignmentsCollection,
     pub assignments_spent: HashMap<OutPoint, Vec<Assignment>>,
+    /// Where each allocation of the change of the asset goes
+    pub change_destinations: Vec<(Assignment, ChangeDestination)>,
     pub main_transition: TypeOfTransition,
     pub beneficiaries_blinded: Vec<SecretSeal>,
     pub beneficiaries_witness: Vec<ExplicitSeal<RgbTxid>>,
@@ -2163,15 +2167,22 @@ impl InfoAssetTransfer {
     }
 }
 
+/// Where an allocation moved to the RGB change of an operation goes.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
+pub enum ChangeDestination {
+    /// The new Bitcoin output created by the operation to hold RGB change
+    BtcChange,
+    /// A pre-existing UTXO
+    Utxo(Outpoint),
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct InfoBatchTransfer {
     /// New Bitcoin output created by this transfer to hold RGB change, if any
     pub btc_change: Option<BtcChange>,
-    /// Pre-existing UTXO used to hold RGB change, if no new change output was created
-    pub change_utxo_outpoint: Option<Outpoint>,
     /// Allocations other than the ones being sent, moved as a side effect of spending a UTXO they
-    /// shared with a sent asset
-    pub extra_allocations: HashMap<String, HashMap<OutPoint, Vec<Assignment>>>,
+    /// shared with a sent asset, by asset ID and spent outpoint, each with where it goes
+    pub extra_allocations: HashMap<String, HashMap<OutPoint, Vec<(Assignment, ChangeDestination)>>>,
     /// Whether this is a donation (broadcast without waiting for the recipients' ACK)
     pub donation: bool,
     /// Number of confirmations required before the transfer is considered settled
@@ -2341,7 +2352,9 @@ impl SelectedInputs {
             .iter()
             .filter(|a| a.held())
             // an allocation without an asset ID is due from a receive of an asset not known yet,
-            // which makes its UTXO unspendable (see `get_input_unspents`)
+            // which makes its UTXO unspendable (see `get_input_unspents`); a UTXO used as change
+            // gets checked when the receive gets its asset, counting the change (see
+            // `count_utxo_taken_slots`)
             .filter_map(|a| a.asset_id.as_deref())
         {
             *held.entry(asset_id).or_default() += 1;
@@ -2376,6 +2389,96 @@ impl SelectedInputs {
         }
         self.outpoints.insert(outpoint);
         true
+    }
+}
+
+/// A destination of the RGB change of an operation, with the slots left on it.
+#[cfg(feature = "_online")]
+#[derive(Clone, Debug)]
+struct ChangeSlot {
+    destination: ChangeDestination,
+    /// the outpoint of a pre-existing UTXO, parsed once, as a seal is built on it for each
+    /// allocation it receives
+    outpoint: Option<OutPoint>,
+    /// the allocations it can still receive
+    free: usize,
+    /// the allocations of each asset it holds or is due to receive
+    assets: HashMap<String, usize>,
+}
+
+/// The destinations the RGB change of an operation can go to, in order of preference: the new
+/// Bitcoin output of its TX, if any, then pre-existing UTXOs. A destination receives allocations up
+/// to the ones allowed per UTXO, counting the ones it holds or is due to receive and the slots
+/// reserved by its unpaid invoices, and as long as it doesn't hold more allocations of an asset
+/// than a bundle can spend. Each allocation is placed on its own, so the change is spread over as
+/// many destinations as needed.
+#[cfg(feature = "_online")]
+#[derive(Clone, Debug, Default)]
+pub struct ChangeSlots {
+    slots: Vec<ChangeSlot>,
+    max_asset_allocations: usize,
+}
+
+#[cfg(feature = "_online")]
+impl ChangeSlots {
+    /// The destinations of the change of an operation, with or without a new Bitcoin output for
+    /// it, then the given pre-existing UTXOs, in order of preference, each allowed to hold
+    /// `max_allocations` allocations and `max_asset_allocations` of each asset.
+    pub(crate) fn new(
+        btc_change: bool,
+        utxos: &[LocalUnspent],
+        max_allocations: usize,
+        max_asset_allocations: usize,
+    ) -> Self {
+        let mut slots = vec![];
+        if btc_change {
+            slots.push(ChangeSlot {
+                destination: ChangeDestination::BtcChange,
+                outpoint: None,
+                free: max_allocations,
+                assets: HashMap::new(),
+            });
+        }
+        for utxo in utxos {
+            let held: Vec<&LocalRgbAllocation> =
+                utxo.rgb_allocations.iter().filter(|a| a.held()).collect();
+            let taken = held.len() + utxo.pending_blinded as usize;
+            let free = max_allocations.saturating_sub(taken);
+            if free == 0 {
+                continue;
+            }
+            let mut assets: HashMap<String, usize> = HashMap::new();
+            // allocations of a receive whose asset isn't known yet only count towards the total;
+            // the receive checks the per-asset limit once its asset is known, counting any
+            // change too (see `count_utxo_taken_slots`)
+            for asset_id in held.iter().filter_map(|a| a.asset_id.clone()) {
+                *assets.entry(asset_id).or_default() += 1;
+            }
+            slots.push(ChangeSlot {
+                destination: ChangeDestination::Utxo(utxo.utxo.outpoint()),
+                outpoint: Some(utxo.utxo.clone().into()),
+                free,
+                assets,
+            });
+        }
+        Self {
+            slots,
+            max_asset_allocations,
+        }
+    }
+
+    /// Take the slot for an allocation of the asset with ID `asset_id` on the first destination
+    /// that can receive it, returning it, with the parsed outpoint of a pre-existing UTXO, or
+    /// `None` if no destination can.
+    pub(crate) fn take(&mut self, asset_id: &str) -> Option<(ChangeDestination, Option<OutPoint>)> {
+        let max_asset_allocations = self.max_asset_allocations;
+        let slot = self.slots.iter_mut().find(|s| {
+            s.free > 0
+                && s.assets.get(asset_id).copied().unwrap_or_default() < max_asset_allocations
+        })?;
+        slot.free -= 1;
+        *slot.assets.entry(asset_id.to_string()).or_default() += 1;
+        Some((slot.destination.clone(), slot.outpoint))
     }
 }
 

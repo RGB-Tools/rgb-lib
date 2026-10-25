@@ -518,6 +518,19 @@ pub(crate) fn single_colored_utxo_allocations(party: &mut SinglesigParty) -> Vec
     colored[0].rgb_allocations.clone()
 }
 
+/// The number of allocations of the UTXO at `outpoint` of `party`, if unspent.
+#[cfg(feature = "electrum")]
+pub(crate) fn utxo_num_allocations(
+    party: &mut SinglesigParty,
+    outpoint: &Outpoint,
+) -> Option<usize> {
+    party
+        .list_unspents(true)
+        .iter()
+        .find(|u| u.utxo.outpoint == *outpoint)
+        .map(|u| u.rgb_allocations.len())
+}
+
 /// Whether an asset of the given schema supports the given assignment.
 #[cfg(feature = "electrum")]
 pub(crate) fn schema_supports_assignment(schema: AssetSchema, assignment: &Assignment) -> bool {

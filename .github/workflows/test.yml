@@ -62,6 +62,7 @@ jobs:
           SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features electrum send::min_relay_fee_electrum
           SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features electrum send::utxo_allocations_limit_across_inputs_full -- --ignored
           SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features electrum send::send_many_allocations_full -- --ignored
+          SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features electrum send::change_utxo_allocations_limit_full -- --ignored
       - name: Test with esplora feature
         run: |
           cargo test --profile reldebug --no-default-features --features esplora get_fee_estimation::success_esplora -- --ignored

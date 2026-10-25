@@ -19,12 +19,12 @@ fn assert_burn_unspents(
         .count();
     assert_eq!(zero_count, 0);
 
-    // when there's change, the change_utxo must hold exactly the change allocation (no Fungible(0))
+    // when there's change, the change UTXO must hold exactly the change allocation (no Fungible(0))
     if let Some((outpoint, amount)) = expected_change {
         let change_unspent = unspents
             .iter()
             .find(|u| &u.utxo.outpoint == outpoint)
-            .expect("change_utxo missing from list_unspents");
+            .expect("change UTXO missing from list_unspents");
         let asset_assignments: Vec<&Assignment> = change_unspent
             .rgb_allocations
             .iter()
@@ -117,7 +117,7 @@ fn success() {
     assert_eq!(transfer.txid.as_ref().unwrap(), &res.txid);
     assert!(transfer.recipient_id.is_none());
     assert!(transfer.receive_utxo.is_none());
-    assert!(transfer.change_utxo.is_some());
+    assert!(!transfer.change_utxos.is_empty());
     assert!(transfer.expiration_timestamp.is_none());
     assert!(transfer.transport_endpoints.is_empty());
     assert!(transfer.invoice_string.is_none());
@@ -164,10 +164,11 @@ fn success() {
         Validity::Valid
     );
 
+    let [change_utxo]: [Outpoint; 1] = transfer.change_utxos.clone().try_into().unwrap();
     assert_burn_unspents(
         &mut party,
         &asset.asset_id,
-        transfer.change_utxo.as_ref().map(|o| (o, burn_change)),
+        Some((&change_utxo, burn_change)),
     );
 
     // inflate using all the default inflation rights, producing a new Fungible allocation
@@ -259,12 +260,13 @@ fn success() {
     assert_eq!(transfer.txid.as_ref().unwrap(), &res_burn_2.txid);
     assert!(transfer.recipient_id.is_none());
     assert!(transfer.receive_utxo.is_none());
-    assert!(transfer.change_utxo.is_some());
+    assert!(!transfer.change_utxos.is_empty());
 
+    let [change_utxo]: [Outpoint; 1] = transfer.change_utxos.clone().try_into().unwrap();
     assert_burn_unspents(
         &mut party,
         &asset.asset_id,
-        transfer.change_utxo.as_ref().map(|o| (o, burn_change_2)),
+        Some((&change_utxo, burn_change_2)),
     );
 
     // send all
@@ -359,13 +361,13 @@ fn success() {
     let (transfer_data, _) = party.get_test_transfer_data(&transfer);
     assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
     assert_eq!(transfer_data.status, TransferStatus::Settled);
-    assert_eq!(transfer_data.change_utxo, None);
+    assert!(transfer_data.change_utxos.is_empty());
 
     let asset_metadata = rcv_party.get_asset_metadata(&asset.asset_id);
     assert_eq!(asset_metadata.initial_supply, initial_supply);
 
     // check there's no change (sent all)
-    assert!(transfer_data.change_utxo.is_none());
+    assert!(transfer_data.change_utxos.is_empty());
 
     // the receiving wallet now holds all remaining assets: burn part of them, then burn the rest
     rcv_party.create_utxos_default();
@@ -412,13 +414,11 @@ fn success() {
     );
     assert_eq!(rcv_burn_transfer.txid.as_ref().unwrap(), &res_rcv_burn.txid);
 
+    let [change_utxo]: [Outpoint; 1] = rcv_burn_transfer.change_utxos.clone().try_into().unwrap();
     assert_burn_unspents(
         &mut rcv_party,
         &asset.asset_id,
-        rcv_burn_transfer
-            .change_utxo
-            .as_ref()
-            .map(|o| (o, rcv_remaining)),
+        Some((&change_utxo, rcv_remaining)),
     );
 
     // burn everything from the receiving wallet
@@ -462,9 +462,9 @@ fn success() {
         rcv_burn_all_transfer.txid.as_ref().unwrap(),
         &res_rcv_burn_all.txid
     );
-    // nothing left to burn: no fungible change, no change_utxo
+    // nothing left to burn: no fungible change, no change UTXOs
     assert_eq!(rcv_burn_all_transfer.assignments, vec![]);
-    assert!(rcv_burn_all_transfer.change_utxo.is_none());
+    assert!(rcv_burn_all_transfer.change_utxos.is_empty());
     assert_burn_unspents(&mut rcv_party, &asset.asset_id, None);
 }
 

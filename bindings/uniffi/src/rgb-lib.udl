@@ -635,7 +635,7 @@ dictionary Transfer {
   string? txid;
   string? recipient_id;
   Outpoint? receive_utxo;
-  Outpoint? change_utxo;
+  sequence<Outpoint> change_utxos;
   u64? expiration_timestamp;
   sequence<TransferTransportEndpoint> transport_endpoints;
   string? sender_transport_endpoint;

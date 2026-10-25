@@ -4454,35 +4454,54 @@ pub trait WalletOnline: WalletOffline {
         }
     }
 
-    fn get_change_seal(
+    /// The pre-existing UTXOs that can receive the RGB change of an operation spending the UTXOs
+    /// at `input_outpoints`, in order of preference, as [`Self::get_utxo`] picks them: empty ones
+    /// first, then the ones due to receive allocations (keeping the others spendable), each by
+    /// fewest slots taken. The inputs and the UTXOs spent by pending operations are excluded.
+    fn get_change_utxos(
         &self,
         txn: &DbTxn,
-        btc_change: &Option<BtcChange>,
-        change_outpoint_option: &mut Option<BdkOutPoint>,
         input_outpoints: &[Outpoint],
         unspents: &[LocalUnspent],
-    ) -> Result<BlindSeal<TxPtr>, Error> {
-        Ok(if let Some(btc_change) = btc_change {
-            GraphSeal::new_random_vout(btc_change.vout)
-        } else {
-            let change_outpoint = match change_outpoint_option {
-                Some(change_outpoint) => *change_outpoint,
-                None => {
-                    let change_utxo =
-                        self.get_utxo(txn, input_outpoints, Some(unspents), true, None)?;
-                    debug!(
-                        self.logger(),
-                        "Change outpoint '{}'",
-                        change_utxo.outpoint().to_string()
-                    );
-                    // parsed once, as a seal is built on it for each allocation moved to the
-                    // change
-                    *change_outpoint_option.insert(BdkOutPoint::from(change_utxo))
-                }
+    ) -> Result<Vec<LocalUnspent>, Error> {
+        let mut exclude_utxos = input_outpoints.to_vec();
+        exclude_utxos.extend(self.get_reserved_colored_outpoints(txn)?);
+        let mut utxos = self.get_available_allocations(unspents, &exclude_utxos, Some(u32::MAX))?;
+        utxos.sort_by_key(|u| {
+            let rank = if u.rgb_allocations.is_empty() {
+                0
+            } else if u.rgb_allocations.iter().any(|a| a.future()) {
+                1
+            } else {
+                2
             };
-            let blind_seal = self.get_blind_seal(change_outpoint).transmutate();
-            GraphSeal::from(blind_seal)
-        })
+            (rank, u.rgb_allocations.len() + u.pending_blinded as usize)
+        });
+        Ok(utxos)
+    }
+
+    /// Take the slot for an allocation of the asset with ID `asset_id` moved to the RGB change on
+    /// a destination that can receive it (see [`ChangeSlots`]), returning it with the seal for it.
+    fn take_change_seal(
+        &self,
+        change_slots: &mut ChangeSlots,
+        btc_change: &Option<BtcChange>,
+        asset_id: &str,
+    ) -> Result<(ChangeDestination, BlindSeal<TxPtr>), Error> {
+        let (destination, outpoint) = change_slots
+            .take(asset_id)
+            .ok_or(Error::InsufficientAllocationSlots)?;
+        debug!(
+            self.logger(),
+            "Change destination for an allocation of asset '{asset_id}': {destination:?}"
+        );
+        let seal = match outpoint {
+            Some(outpoint) => GraphSeal::from(self.get_blind_seal(outpoint).transmutate()),
+            None => GraphSeal::new_random_vout(
+                btc_change.as_ref().ok_or(InternalError::Unexpected)?.vout,
+            ),
+        };
+        Ok((destination, seal))
     }
 
     fn check_dag(
@@ -4537,8 +4556,6 @@ pub trait WalletOnline: WalletOffline {
         rejected: &mut HashSet<Opout>,
         reject_lists: &mut HashMap<String, RejectList>,
     ) -> Result<PrepareRgbPsbtResult, Error> {
-        let mut change_outpoint_option = None;
-
         let prev_outputs = psbt
             .unsigned_tx
             .input
@@ -4548,6 +4565,18 @@ pub trait WalletOnline: WalletOffline {
 
         let input_outpoints: Vec<Outpoint> =
             prev_outputs.iter().map(|o| Outpoint::from(*o)).collect();
+
+        // the RGB change goes to the BTC change output, if any, then to pre-existing UTXOs, as many
+        // as needed to keep each within the allocations allowed per UTXO, counting the slots
+        // reserved by their unpaid invoices, which would otherwise be refused once paid, and the
+        // allocations of an asset a bundle can spend
+        let change_utxos = self.get_change_utxos(txn, &input_outpoints, &unspents)?;
+        let mut change_slots = ChangeSlots::new(
+            btc_change.is_some(),
+            &change_utxos,
+            self.max_allocations_per_utxo() as usize,
+            max_utxo_asset_allocations(),
+        );
 
         let mut asset_beneficiaries = bmap![];
         let mut extra_state = HashMap::<ContractId, Vec<(OutPoint, Opout, AllocatedState)>>::new();
@@ -4687,21 +4716,28 @@ pub trait WalletOnline: WalletOffline {
 
             if change != AssignmentsCollection::default() {
                 transfer_info.change = change.clone();
-                let seal = self.get_change_seal(
-                    txn,
-                    &btc_change,
-                    &mut change_outpoint_option,
-                    &input_outpoints,
-                    unspents.as_slice(),
-                )?;
                 let mut change_outputs = vec![];
                 if change.fungible > 0 {
-                    change_outputs.push((OS_ASSET, Amount::from(change.fungible).into()));
+                    change_outputs.push((
+                        OS_ASSET,
+                        Amount::from(change.fungible).into(),
+                        Assignment::Fungible(change.fungible),
+                    ));
                 }
                 if change.inflation > 0 {
-                    change_outputs.push((OS_INFLATION, Amount::from(change.inflation).into()));
+                    change_outputs.push((
+                        OS_INFLATION,
+                        Amount::from(change.inflation).into(),
+                        Assignment::InflationRight(change.inflation),
+                    ));
                 }
-                for (ty, state) in change_outputs {
+                for (ty, state, assignment) in change_outputs {
+                    // each allocation of the change takes its own slot
+                    let (destination, seal) =
+                        self.take_change_seal(&mut change_slots, &btc_change, asset_id)?;
+                    transfer_info
+                        .change_destinations
+                        .push((assignment, destination));
                     // a main transition that takes this type as input but can't assign it (e.g.
                     // a burn) can't return change. Its inputs are first split by a transition in
                     // the same bundle, which assigns the change to the change seal and what the
@@ -4848,8 +4884,10 @@ pub trait WalletOnline: WalletOffline {
             }
         }
 
-        let mut extra_allocations: HashMap<String, HashMap<OutPoint, Vec<Assignment>>> =
-            HashMap::new();
+        let mut extra_allocations: HashMap<
+            String,
+            HashMap<OutPoint, Vec<(Assignment, ChangeDestination)>>,
+        > = HashMap::new();
         // a UTXO may hold many allocations, each moved by its own transition: push them all at
         // once, as pushing them one by one rewrites the consumers of the contract every time
         let mut extra_transitions = vec![];
@@ -4867,13 +4905,8 @@ pub trait WalletOnline: WalletOffline {
                         .clone(),
                 };
                 let assignment = Assignment::from_opout_and_state(opout, &state);
-                let seal = self.get_change_seal(
-                    txn,
-                    &btc_change,
-                    &mut change_outpoint_option,
-                    &input_outpoints,
-                    unspents.as_slice(),
-                )?;
+                let (destination, seal) =
+                    self.take_change_seal(&mut change_slots, &btc_change, &cid.to_string())?;
                 extra_builder = extra_builder
                     .add_input(opout, state.clone())?
                     .add_owned_state_raw(opout.ty, seal, state)?;
@@ -4883,7 +4916,7 @@ pub trait WalletOnline: WalletOffline {
                     .or_default()
                     .entry(outpoint)
                     .or_default()
-                    .push(assignment);
+                    .push((assignment, destination));
                 extra_transitions.push(extra_transition);
             }
         }
@@ -4992,7 +5025,6 @@ pub trait WalletOnline: WalletOffline {
         // save batch transfer data to file (for operation finalization)
         let info_batch_transfer = InfoBatchTransfer {
             btc_change,
-            change_utxo_outpoint: change_outpoint_option.map(Outpoint::from),
             extra_allocations,
             donation,
             min_confirmations,
@@ -5253,43 +5285,47 @@ pub trait WalletOnline: WalletOffline {
         }))
     }
 
+    /// The index of the TXO receiving the RGB change at `destination`, saving the new Bitcoin
+    /// output of the TX with ID `txid` if needed, and caching the indexes in `change_utxo_idxs`.
     fn get_change_utxo_idx(
         &self,
         txn: &DbTxn,
         txid: &str,
         info_contents: &InfoBatchTransfer,
-        change_utxo_idx: &mut Option<i32>,
+        destination: &ChangeDestination,
+        change_utxo_idxs: &mut HashMap<ChangeDestination, i32>,
     ) -> Result<i32, Error> {
-        if let Some(idx) = *change_utxo_idx {
-            return Ok(idx);
+        if let Some(idx) = change_utxo_idxs.get(destination) {
+            return Ok(*idx);
         }
-        let idx = if let Some(btc_change) = &info_contents.btc_change {
-            match txn.get_txo(&Outpoint {
-                txid: txid.to_string(),
-                vout: btc_change.vout,
-            })? {
-                Some(txo) => txo.idx,
-                None => {
-                    let db_utxo = DbTxoActMod {
-                        txid: ActiveValue::Set(txid.to_string()),
-                        vout: ActiveValue::Set(btc_change.vout),
-                        btc_amount: ActiveValue::Set(btc_change.amount.to_string()),
-                        spent: ActiveValue::Set(false),
-                        exists: ActiveValue::Set(false),
-                        pending_witness: ActiveValue::Set(false),
-                        ..Default::default()
-                    };
-                    txn.set_txo(db_utxo)?
+        let idx = match destination {
+            ChangeDestination::BtcChange => {
+                let btc_change = info_contents
+                    .btc_change
+                    .as_ref()
+                    .expect("change to the BTC change output");
+                match txn.get_txo(&Outpoint {
+                    txid: txid.to_string(),
+                    vout: btc_change.vout,
+                })? {
+                    Some(txo) => txo.idx,
+                    None => {
+                        let db_utxo = DbTxoActMod {
+                            txid: ActiveValue::Set(txid.to_string()),
+                            vout: ActiveValue::Set(btc_change.vout),
+                            btc_amount: ActiveValue::Set(btc_change.amount.to_string()),
+                            spent: ActiveValue::Set(false),
+                            exists: ActiveValue::Set(false),
+                            pending_witness: ActiveValue::Set(false),
+                            ..Default::default()
+                        };
+                        txn.set_txo(db_utxo)?
+                    }
                 }
             }
-        } else {
-            let outpoint = info_contents
-                .change_utxo_outpoint
-                .as_ref()
-                .expect("change utxo source");
-            txn.get_txo(outpoint)?.expect("should exist").idx
+            ChangeDestination::Utxo(outpoint) => txn.get_txo(outpoint)?.expect("should exist").idx,
         };
-        *change_utxo_idx = Some(idx);
+        change_utxo_idxs.insert(destination.clone(), idx);
         Ok(idx)
     }
 
@@ -5352,7 +5388,7 @@ pub trait WalletOnline: WalletOffline {
             self.reserve_colored_txos(txn, psbt, batch_transfer_idx)?;
         }
 
-        let mut change_utxo_idx: Option<i32> = None;
+        let mut change_utxo_idxs: HashMap<ChangeDestination, i32> = HashMap::new();
 
         for (asset_id, transfer_info) in info_contents.transfers.iter() {
             // hash of the plaintext consignment for this asset, if already generated: a non-dry-run
@@ -5397,36 +5433,18 @@ pub trait WalletOnline: WalletOffline {
                     txn.set_coloring(db_coloring)?;
                 }
             }
-            if transfer_info.change.fungible > 0 {
+            for (assignment, destination) in &transfer_info.change_destinations {
                 let db_coloring = DbColoringActMod {
                     txo_idx: ActiveValue::Set(self.get_change_utxo_idx(
                         txn,
                         &txid,
                         info_contents,
-                        &mut change_utxo_idx,
+                        destination,
+                        &mut change_utxo_idxs,
                     )?),
                     asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
                     r#type: ActiveValue::Set(ColoringType::Change),
-                    assignment: ActiveValue::Set(Assignment::Fungible(
-                        transfer_info.change.fungible,
-                    )),
-                    ..Default::default()
-                };
-                txn.set_coloring(db_coloring)?;
-            }
-            if transfer_info.change.inflation > 0 {
-                let db_coloring = DbColoringActMod {
-                    txo_idx: ActiveValue::Set(self.get_change_utxo_idx(
-                        txn,
-                        &txid,
-                        info_contents,
-                        &mut change_utxo_idx,
-                    )?),
-                    asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
-                    r#type: ActiveValue::Set(ColoringType::Change),
-                    assignment: ActiveValue::Set(Assignment::InflationRight(
-                        transfer_info.change.inflation,
-                    )),
+                    assignment: ActiveValue::Set(assignment.clone()),
                     ..Default::default()
                 };
                 txn.set_coloring(db_coloring)?;
@@ -5569,7 +5587,7 @@ pub trait WalletOnline: WalletOffline {
                         txn.set_txo(new_db_utxo)?
                     }
                 };
-                for assignment in assignments {
+                for (assignment, destination) in assignments {
                     let db_coloring = DbColoringActMod {
                         txo_idx: ActiveValue::Set(input_idx),
                         asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
@@ -5583,7 +5601,8 @@ pub trait WalletOnline: WalletOffline {
                             txn,
                             &txid,
                             info_contents,
-                            &mut change_utxo_idx,
+                            destination,
+                            &mut change_utxo_idxs,
                         )?),
                         asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
                         r#type: ActiveValue::Set(ColoringType::Change),
@@ -6281,6 +6300,7 @@ pub trait WalletOnline: WalletOffline {
                     original_assignments_needed,
                     assignments_needed,
                     assignments_spent: HashMap::new(),
+                    change_destinations: vec![],
                     main_transition,
                     beneficiaries_blinded: vec![],
                     beneficiaries_witness: vec![],
@@ -6788,6 +6808,7 @@ pub trait WalletOnline: WalletOffline {
             original_assignments_needed: assignments_needed.clone(),
             assignments_needed,
             assignments_spent: HashMap::new(),
+            change_destinations: vec![],
             main_transition: TypeOfTransition::Inflate,
             beneficiaries_blinded: vec![],
             beneficiaries_witness: vec![],
@@ -6936,6 +6957,7 @@ pub trait WalletOnline: WalletOffline {
             original_assignments_needed: assignments_needed.clone(),
             assignments_needed,
             assignments_spent: HashMap::new(),
+            change_destinations: vec![],
             main_transition: TypeOfTransition::Burn,
             beneficiaries_blinded: vec![],
             beneficiaries_witness: vec![],

@@ -64,7 +64,7 @@ fn success() {
     let mut updated_at = None;
     let mut recipient_id_set = HashSet::new();
     let mut receive_utxo_set = HashSet::new();
-    let mut change_utxo = None;
+    let mut change_utxos = None;
     let mut inflation_rights_sorted = inflation_rights;
     inflation_rights_sorted.sort();
     let inflation_change = inflation_rights_sorted.iter().take(2).sum::<u64>() - total_inflated;
@@ -100,11 +100,11 @@ fn success() {
         recipient_id_set.insert(&transfer.recipient_id);
         assert!(transfer.receive_utxo.is_some());
         receive_utxo_set.insert(&transfer.receive_utxo);
-        assert!(transfer.change_utxo.is_some());
-        if change_utxo.is_none() {
-            change_utxo = transfer.change_utxo.clone();
+        assert!(!transfer.change_utxos.is_empty());
+        if change_utxos.is_none() {
+            change_utxos = Some(transfer.change_utxos.clone());
         } else {
-            assert_eq!(change_utxo, transfer.change_utxo)
+            assert_eq!(change_utxos.as_ref(), Some(&transfer.change_utxos))
         }
         assert!(transfer.expiration_timestamp.is_none());
         assert!(transfer.transport_endpoints.is_empty());
@@ -253,7 +253,7 @@ fn success() {
     let (transfer_data, _) = party.get_test_transfer_data(&transfer);
     assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
     assert_eq!(transfer_data.status, TransferStatus::Settled);
-    assert_eq!(transfer_data.change_utxo, None);
+    assert!(transfer_data.change_utxos.is_empty());
 
     let asset_metadata = rcv_party.get_asset_metadata(&asset.asset_id);
     assert_eq!(asset_metadata.initial_supply, initial_supply);
@@ -264,7 +264,7 @@ fn success() {
     );
 
     // check there's no change (sent all)
-    assert!(transfer_data.change_utxo.is_none());
+    assert!(transfer_data.change_utxos.is_empty());
 
     // exhaust all inflation rights by doing a last call to inflate
     party.create_utxos_default();
