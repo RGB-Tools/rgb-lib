@@ -4908,6 +4908,8 @@ pub trait WalletOnline: WalletOffline {
 
         psbt.set_rgb_close_method(CloseMethod::OpretFirst);
         let fascia = psbt.rgb_commit().map_err(InternalError::from)?;
+        strip_rgb_data(psbt);
+        check_psbt_parsable(psbt)?;
         fs::create_dir_all(&transfer_dir)?;
         write_fascia(&transfer_dir.join(FASCIA_FILE), &fascia)?;
 
@@ -6409,8 +6411,7 @@ pub trait WalletOnline: WalletOffline {
 
         self.gen_consignments(txn, &fascia, &info_contents.transfers, &transfer_dir)?;
 
-        // only the TX is needed to broadcast it, and is smaller than the PSBT, which carries all of
-        // the RGB data
+        // only the TX is needed to broadcast it
         atomic_write(
             &transfer_dir.join(SIGNED_TX_FILE),
             hex::encode(&tx_bytes).as_bytes(),

@@ -218,6 +218,8 @@ impl Wallet {
         psbt.set_rgb_close_method(CloseMethod::OpretFirst);
         psbt.set_as_unmodifiable();
         let fascia = psbt.rgb_commit().map_err(InternalError::from)?;
+        strip_rgb_data(psbt);
+        check_psbt_parsable(psbt)?;
 
         txn.commit()?;
         info!(self.logger(), "Color PSBT completed");

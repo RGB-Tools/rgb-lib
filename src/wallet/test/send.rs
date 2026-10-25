@@ -12796,6 +12796,70 @@ fn utxo_allocations_limit_across_assets_impl(x_first: bool) {
 
 #[cfg(feature = "electrum")]
 #[test]
+#[ignore = "should be executed alone for performance reasons"]
+#[parallel]
+fn send_many_allocations_full() {
+    initialize();
+
+    // UTXOs are filled by paying invoices many allocations
+    MOCK_ACCEPT_MULTIPLE_ALLOCATIONS.replace(true);
+
+    // many allocations on a single UTXO, each one moved by its own transition when the UTXO is
+    // spent: with at least 104 bytes (input and consumer entry) for each of them, the RGB data
+    // would exceed the MAX_VEC_SIZE bytes the global map of a PSBT can take to be parsed back
+    let spam: (u16, u64) = (40_000, 1);
+    let amount: u64 = 50_000;
+
+    // wallets
+    let mut party = get_funded_party!();
+    // allowing as many allocations per UTXO as a bundle can spend
+    let mut rcv_party = get_funded_noutxo_party!();
+    rcv_party.set_max_allocations_per_utxo(u32::MAX);
+    let mut rcv_party_2 = get_funded_party!();
+
+    // prepare UTXOs
+    rcv_party.create_utxos(false, Some(1), None, FEE_RATE, None);
+
+    // issue
+    let asset = party.issue_asset_nia(Some(&[AMOUNT + amount]));
+    let asset_id = asset.asset_id.as_str();
+
+    // fill the victim's UTXO
+    let receive_data = rcv_party.blind_receive();
+    MOCK_SPAM_RECIPIENT_ASSIGNMENTS.replace(Some(spam));
+    send_to_blind_and_settle(
+        &mut party,
+        &mut rcv_party,
+        asset_id,
+        &receive_data,
+        Assignment::Fungible(amount),
+    );
+    assert!(MOCK_SPAM_RECIPIENT_ASSIGNMENTS.take().is_none());
+    assert_eq!(
+        single_colored_utxo_allocations(&mut rcv_party).len(),
+        spam.0 as usize + 1
+    );
+
+    // sending from it works, as the RGB data are removed from the PSBT once committed: the
+    // allocation sent is the one needed, all the others are moved to the change
+    let receive_data = rcv_party_2.blind_receive();
+    send_to_blind_and_settle(
+        &mut rcv_party,
+        &mut rcv_party_2,
+        asset_id,
+        &receive_data,
+        Assignment::Fungible(1),
+    );
+    assert_eq!(rcv_party_2.get_asset_balance(asset_id).settled, 1);
+    assert_eq!(rcv_party.get_asset_balance(asset_id).spendable, amount - 1);
+    assert_eq!(
+        single_colored_utxo_allocations(&mut rcv_party).len(),
+        spam.0 as usize
+    );
+}
+
+#[cfg(feature = "electrum")]
+#[test]
 #[parallel]
 fn utxo_allocations_limit_across_assets_x_first() {
     utxo_allocations_limit_across_assets_impl(true);

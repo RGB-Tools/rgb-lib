@@ -288,6 +288,8 @@ use hkdf::Hkdf;
 #[cfg(feature = "_online")]
 use hmac::{Mac, SimpleHmac};
 #[cfg(feature = "wallet")]
+use psrgbt::{PSBT_MPC_PREFIX, PSBT_OPRET_PREFIX, PSBT_RGB_PREFIX, PSBT_TAPRET_PREFIX};
+#[cfg(feature = "wallet")]
 use psrgbt::{RgbOutExt, RgbPsbtExt};
 #[cfg(feature = "wallet")]
 use rand::{RngExt, TryRng, distr::Alphanumeric, rngs::SysRng};
@@ -446,6 +448,8 @@ use crate::utils::INDEXER_PARALLEL_REQUESTS;
 use crate::utils::INDEXER_STOP_GAP;
 #[cfg(feature = "_online")]
 use crate::utils::write_fascia;
+#[cfg(feature = "wallet")]
+use crate::utils::{check_psbt_parsable, strip_rgb_data};
 #[cfg(feature = "bitcoind")]
 use crate::wallet::BitcoindClient;
 #[cfg(feature = "_online")]

@@ -77,7 +77,10 @@ fn success() {
             .iter()
             .any(|o| o.script_pubkey.is_op_return())
     );
-    assert!(!psbt.proprietary.is_empty());
+    // the RGB data are removed once committed
+    assert!(psbt.proprietary.is_empty());
+    assert!(psbt.inputs.iter().all(|i| i.proprietary.is_empty()));
+    assert!(psbt.outputs.iter().all(|o| o.proprietary.is_empty()));
     let vout = vout + 1;
 
     // check fascia
@@ -388,7 +391,10 @@ fn color_psbt_uda() {
             .iter()
             .any(|o| o.script_pubkey.is_op_return())
     );
-    assert!(!psbt.proprietary.is_empty());
+    // the RGB data are removed once committed
+    assert!(psbt.proprietary.is_empty());
+    assert!(psbt.inputs.iter().all(|i| i.proprietary.is_empty()));
+    assert!(psbt.outputs.iter().all(|o| o.proprietary.is_empty()));
     assert!(
         psbt.unsigned_tx
             .output
