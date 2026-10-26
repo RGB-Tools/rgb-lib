@@ -12143,7 +12143,6 @@ fn proxy_max_media() {
 
 #[cfg(feature = "electrum")]
 #[test]
-#[ignore = "the allocations of batched assets on inputs selected for another are lost"]
 #[parallel]
 fn batch_send_keeps_allocations_on_inputs_selected_for_other_assets() {
     initialize();
@@ -12258,6 +12257,23 @@ fn batch_send_keeps_allocations_on_inputs_selected_for_other_assets() {
         let (transfer_data, _) = party.get_test_transfer_data(transfer);
         assert_eq!(transfer_data.status, TransferStatus::Settled);
     }
+
+    // the A consignment carries only the A transition, spending the A on U: the A on C is moved
+    // by an extra transition it doesn't carry, so the recipient doesn't learn about it
+    let consignment_path = party
+        .wallet
+        .get_send_consignment_path(&asset_a.asset_id, &txid);
+    let consignment = RgbTransfer::load_file(consignment_path).unwrap();
+    let witness_bundle = consignment
+        .bundled_witnesses()
+        .find(|bw| bw.witness_id().to_string() == txid)
+        .unwrap();
+    let known_transitions = &witness_bundle.bundle.known_transitions;
+    assert_eq!(known_transitions.len(), 1);
+    let main_opid = known_transitions[0].opid;
+    let opids: HashSet<_> = witness_bundle.bundle.input_map.values().copied().collect();
+    assert!(opids.len() > 1);
+    assert!(opids.contains(&main_opid));
 
     // the A on C, spent as an input of the B transition only, must be moved to the change
     assert_eq!(

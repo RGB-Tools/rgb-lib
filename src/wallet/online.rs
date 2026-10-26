@@ -4465,12 +4465,18 @@ pub trait WalletOnline: WalletOffline {
         }
 
         for (id, state) in stock.assignments_by_contract(prev_outputs.clone())? {
-            if transfer_info_map.contains_key(&id.to_string()) {
-                continue;
-            }
-            let entry = extra_state.entry(id).or_default();
+            // the allocations of an asset of the batch on the inputs selected for it are moved by
+            // its transitions, the ones on the inputs selected for another asset are moved by
+            // extra transitions instead, which its consignment doesn't carry, so that the
+            // recipients don't learn about them and their history
+            let asset_utxos = transfer_info_map
+                .get(&id.to_string())
+                .map(|t| &t.asset_spend.input_outpoints);
             for (explicit_seal, opout_state_map) in state {
-                entry.extend(
+                if asset_utxos.is_some_and(|u| u.contains(&explicit_seal.to_outpoint().into())) {
+                    continue;
+                }
+                extra_state.entry(id).or_default().extend(
                     opout_state_map
                         .into_iter()
                         .map(|(o, s)| (explicit_seal.to_outpoint(), o, s)),
