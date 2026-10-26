@@ -551,17 +551,7 @@ fn bundle_output(
     let TxPtr::Txid(txid) = seal.txid else {
         return None;
     };
-    let assignment = match assigns {
-        TypedAssigns::Fungible(vec) => {
-            let amount = vec.get(opout.no as usize)?.as_revealed()?.1.as_u64();
-            match opout.ty {
-                OS_ASSET => Assignment::Fungible(amount),
-                OS_INFLATION => Assignment::InflationRight(amount),
-                _ => return None,
-            }
-        }
-        _ => return None,
-    };
+    let assignment = Assignment::from_typed_assigns(opout.ty, assigns, opout.no)?;
     Some((OutPoint::new(txid, seal.vout.into_u32()), assignment))
 }
 

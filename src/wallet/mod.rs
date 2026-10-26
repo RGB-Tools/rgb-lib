@@ -64,8 +64,9 @@ pub(crate) use indexer::Indexer;
 pub(crate) use objects::{
     AssetInfo, AssetSpend, BeginOperationData, BtcChange, CleanAckOutcome, ConsignmentPayment,
     FailTransfersOutcome, LocalRecipient, LocalRecipientData, LocalWitnessData, OnlineData,
-    PrepareRgbPsbtResult, PrepareTransferPsbtResult, ProxyReceiveData, ReceiveMatcher, ReceiveMode,
-    ReceivedConsignmentMeta, RefreshResultTrait, RejectList, TryFailBatchTransferOutcome,
+    PaymentSeal, PrepareRgbPsbtResult, PrepareTransferPsbtResult, ProxyReceiveData, ReceiveMatcher,
+    ReceiveMode, ReceivedConsignmentMeta, RefreshResultTrait, RejectList,
+    TryFailBatchTransferOutcome,
 };
 pub(crate) use objects::{
     AssetTransferColoringInfo, InfoAssetTransfer, InfoBatchTransfer, IssueData, IssuedAssetDetails,

@@ -1693,15 +1693,14 @@ pub trait WalletOnline: WalletOffline {
         &self,
         consignment: &RgbTransfer,
         witness_id: RgbTxid,
-        vout: Option<u32>,
-        known_concealed: Option<SecretSeal>,
+        payment_seal: PaymentSeal,
     ) -> HashMap<Opout, Assignment> {
         match consignment
             .bundles
             .iter()
             .find(|bundle| bundle.witness_id() == witness_id)
         {
-            Some(bundle) => self.assignments_for_bundle(bundle, vout, known_concealed),
+            Some(bundle) => self.assignments_for_bundle(bundle, payment_seal),
             None => HashMap::new(),
         }
     }
@@ -1748,17 +1747,12 @@ pub trait WalletOnline: WalletOffline {
     where
         'c: 'a,
     {
-        let known_concealed = match matcher {
-            ReceiveMatcher::Blind(secret_seal) => Some(*secret_seal),
-            ReceiveMatcher::Witness(..) => None,
-        };
         consignment.bundles.iter().flat_map(move |witness_bundle| {
-            // the vouts paid by this bundle, `None` for concealed seals, which are matched on
-            // presence alone
-            let mut vouts: Vec<Option<u32>> = vec![];
-            let mut push_vout = |vout: Option<u32>| {
-                if !vouts.contains(&vout) {
-                    vouts.push(vout);
+            // the seals at which this bundle pays the recipient
+            let mut payment_seals: Vec<PaymentSeal> = vec![];
+            let mut push_payment_seal = |payment_seal: PaymentSeal| {
+                if !payment_seals.contains(&payment_seal) {
+                    payment_seals.push(payment_seal);
                 }
             };
             let seals = witness_bundle
@@ -1769,11 +1763,9 @@ pub trait WalletOnline: WalletOffline {
                 .flat_map(|typed_assigns| typed_assigns.seals());
             match matcher {
                 ReceiveMatcher::Blind(secret_seal) => {
-                    if seals
-                        .into_iter()
-                        .any(|seal| *seal == BuilderSeal::Concealed(*secret_seal))
-                    {
-                        push_vout(None);
+                    let payment_seal = PaymentSeal::Concealed(*secret_seal);
+                    if seals.into_iter().any(|seal| payment_seal.matches(seal)) {
+                        push_payment_seal(payment_seal);
                     }
                 }
                 ReceiveMatcher::Witness(script_pubkey, blinding) => {
@@ -1802,92 +1794,50 @@ pub trait WalletOnline: WalletOffline {
                             .get(vout as usize)
                             .is_some_and(|out| out.script_pubkey == *script_pubkey)
                         {
-                            push_vout(Some(vout));
+                            push_payment_seal(PaymentSeal::WitnessVout(vout));
                         }
                     }
                 }
             }
 
-            vouts.into_iter().filter_map(move |vout| {
-                let mut receiving =
-                    self.assignments_for_bundle(witness_bundle, vout, known_concealed);
+            payment_seals.into_iter().filter_map(move |payment_seal| {
+                let mut receiving = self.assignments_for_bundle(witness_bundle, payment_seal);
                 receiving.retain(|opout, _| !spent.contains(opout));
                 (!receiving.is_empty()).then_some(ConsignmentPayment {
                     bundle: witness_bundle,
-                    vout,
+                    payment_seal,
                     receiving,
                 })
             })
         })
     }
 
-    // extract the assignments in a single bundle that pay the recipient identified by
-    // `known_concealed` (blind receives) or by the witness `vout` (witness receives)
+    // extract the assignments in a single bundle that pay the recipient at `payment_seal`
     fn assignments_for_bundle(
         &self,
         bundle: &WitnessBundle,
-        vout: Option<u32>,
-        known_concealed: Option<SecretSeal>,
+        payment_seal: PaymentSeal,
     ) -> HashMap<Opout, Assignment> {
         let mut received = HashMap::new();
         for KnownTransition { transition, opid } in bundle.bundle.known_transitions.iter() {
             for (ass_type, typed_assigns) in transition.assignments.iter() {
                 for (no, fungible_assignment) in typed_assigns.as_fungible().iter().enumerate() {
+                    if !payment_seal.matches(&fungible_assignment.seal) {
+                        continue;
+                    }
                     let opout = Opout::new(*opid, *ass_type, no as u16);
-                    if let BuilderSeal::Concealed(seal) = fungible_assignment.seal
-                        && Some(seal) == known_concealed
+                    if let Some(assignment) =
+                        Assignment::from_fungible(*ass_type, fungible_assignment.state.as_u64())
                     {
-                        match *ass_type {
-                            OS_ASSET => {
-                                received.insert(
-                                    opout,
-                                    Assignment::Fungible(fungible_assignment.state.as_u64()),
-                                );
-                            }
-                            OS_INFLATION => {
-                                received.insert(
-                                    opout,
-                                    Assignment::InflationRight(fungible_assignment.state.as_u64()),
-                                );
-                            }
-                            _ => {}
-                        }
-                    };
-                    if let BuilderSeal::Revealed(seal) = fungible_assignment.seal
-                        && seal.txid == TxPtr::WitnessTx
-                        && Some(seal.vout.into_u32()) == vout
-                    {
-                        match *ass_type {
-                            OS_ASSET => {
-                                received.insert(
-                                    opout,
-                                    Assignment::Fungible(fungible_assignment.state.as_u64()),
-                                );
-                            }
-                            OS_INFLATION => {
-                                received.insert(
-                                    opout,
-                                    Assignment::InflationRight(fungible_assignment.state.as_u64()),
-                                );
-                            }
-                            _ => {}
-                        }
-                    };
+                        received.insert(opout, assignment);
+                    }
                 }
                 for (no, structured_assignment) in typed_assigns.as_structured().iter().enumerate()
                 {
-                    let opout = Opout::new(*opid, *ass_type, no as u16);
-                    if let BuilderSeal::Concealed(seal) = structured_assignment.seal
-                        && Some(seal) == known_concealed
-                    {
+                    if payment_seal.matches(&structured_assignment.seal) {
+                        let opout = Opout::new(*opid, *ass_type, no as u16);
                         received.insert(opout, Assignment::NonFungible);
                     }
-                    if let BuilderSeal::Revealed(seal) = structured_assignment.seal
-                        && seal.txid == TxPtr::WitnessTx
-                        && Some(seal.vout.into_u32()) == vout
-                    {
-                        received.insert(opout, Assignment::NonFungible);
-                    };
                 }
             }
         }
@@ -2729,9 +2679,11 @@ pub trait WalletOnline: WalletOffline {
         }
         let ConsignmentPayment {
             bundle: paying_bundle,
-            vout,
+            payment_seal,
             receiving,
         } = payments.remove(0);
+        // for witness receives, the vout of the bundle witness TX being paid
+        let vout = payment_seal.vout();
         let witness_id = paying_bundle.witness_id();
         let txid = witness_id.to_string();
 

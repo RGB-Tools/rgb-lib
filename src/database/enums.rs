@@ -471,9 +471,8 @@ pub enum Assignment {
 impl Assignment {
     pub(crate) fn from_opout_and_state(opout: Opout, state: &AllocatedState) -> Self {
         match state {
-            AllocatedState::Amount(amt) if opout.ty == OS_ASSET => Self::Fungible(amt.as_u64()),
-            AllocatedState::Amount(amt) if opout.ty == OS_INFLATION => {
-                Self::InflationRight(amt.as_u64())
+            AllocatedState::Amount(amt) => {
+                Self::from_fungible(opout.ty, amt.as_u64()).unwrap_or_else(|| unreachable!())
             }
             AllocatedState::Data(_) => Self::NonFungible,
             _ => unreachable!(),
@@ -592,6 +591,16 @@ impl Nullable for Assignment {
 }
 
 impl Assignment {
+    /// The assignment of the given fungible `amount` of type `ty`, `None` for assignment types
+    /// unknown to the supported schemas.
+    pub(crate) fn from_fungible(ty: AssignmentType, amount: u64) -> Option<Self> {
+        match ty {
+            OS_ASSET => Some(Self::Fungible(amount)),
+            OS_INFLATION => Some(Self::InflationRight(amount)),
+            _ => None,
+        }
+    }
+
     /// Get the assignment at the given index of the given typed assignments, returning `None` for
     /// assignment types unknown to the supported schemas.
     pub(crate) fn from_typed_assigns<Seal: ExposedSeal>(
@@ -602,12 +611,7 @@ impl Assignment {
         let no = no as usize;
         match typed_assigns {
             TypedAssigns::Fungible(assigns) => {
-                let amount = assigns.get(no)?.state.as_u64();
-                match ty {
-                    OS_ASSET => Some(Self::Fungible(amount)),
-                    OS_INFLATION => Some(Self::InflationRight(amount)),
-                    _ => None,
-                }
+                Self::from_fungible(ty, assigns.get(no)?.state.as_u64())
             }
             TypedAssigns::Structured(assigns) => match ty {
                 OS_ASSET => assigns.get(no).map(|_| Self::NonFungible),

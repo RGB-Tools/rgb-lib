@@ -378,8 +378,11 @@ impl Wallet {
             .import_contract(valid_contract, &self.blockchain_resolver())
             .expect("failure importing validated contract");
 
-        let received_rgb_assignments =
-            self.extract_received_assignments(&consignment, witness_id, Some(vout), None);
+        let received_rgb_assignments = self.extract_received_assignments(
+            &consignment,
+            witness_id,
+            PaymentSeal::WitnessVout(vout),
+        );
 
         stock.accept_transfer(valid_consignment, &resolver)?;
 
