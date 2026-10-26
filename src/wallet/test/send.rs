@@ -12140,3 +12140,132 @@ fn proxy_max_media() {
         TransferStatus::WaitingConfirmations
     ));
 }
+
+#[cfg(feature = "electrum")]
+#[test]
+#[ignore = "the allocations of batched assets on inputs selected for another are lost"]
+#[parallel]
+fn batch_send_keeps_allocations_on_inputs_selected_for_other_assets() {
+    initialize();
+
+    let amount_a_sent: u64 = 100;
+    let amount_a_received: u64 = 10;
+    let amount_b_sent: u64 = 50;
+    let amount_a_change = AMOUNT - amount_a_sent;
+
+    // wallets
+    let mut party = get_funded_noutxo_party!();
+    let mut rcv_party = get_funded_party!();
+    party.create_utxos(false, Some(1), None, FEE_RATE, None);
+
+    // the settled amounts of the asset with ID `asset_id` held by each UTXO holding it
+    let utxo_amounts = |party: &mut SinglesigParty, asset_id: &str| -> HashMap<Outpoint, u64> {
+        party
+            .list_unspents(true)
+            .into_iter()
+            .filter_map(|u| {
+                let amount: u64 = u
+                    .rgb_allocations
+                    .iter()
+                    .filter(|a| a.asset_id.as_deref() == Some(asset_id) && a.settled)
+                    .map(|a| a.assignment.main_amount())
+                    .sum();
+                (amount > 0).then_some((u.utxo.outpoint, amount))
+            })
+            .collect()
+    };
+
+    // issue assets A and B on the only colorable UTXO
+    let asset_a = party.issue_asset_nia(None);
+    let asset_b = party.issue_asset_nia(None);
+
+    // send some A, which moves B with the A change to a single UTXO C
+    let receive_data = rcv_party.blind_receive();
+    let recipient_map = HashMap::from([(
+        asset_a.asset_id.clone(),
+        vec![blind_recipient(
+            &receive_data,
+            Assignment::Fungible(amount_a_sent),
+        )],
+    )]);
+    let txid = party.send_retry(&recipient_map);
+    assert!(!txid.is_empty());
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(Some(&asset_a.asset_id));
+    mine(false);
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(Some(&asset_a.asset_id));
+
+    // receive a little A on a different UTXO U
+    party.create_utxos(false, Some(2), None, FEE_RATE, None);
+    let receive_data = party.blind_receive();
+    let recipient_map = HashMap::from([(
+        asset_a.asset_id.clone(),
+        vec![blind_recipient(
+            &receive_data,
+            Assignment::Fungible(amount_a_received),
+        )],
+    )]);
+    let txid = rcv_party.send_retry(&recipient_map);
+    assert!(!txid.is_empty());
+    party.wait_for_refresh(None);
+    rcv_party.wait_for_refresh(Some(&asset_a.asset_id));
+    mine(false);
+    party.wait_for_refresh(None);
+    rcv_party.wait_for_refresh(Some(&asset_a.asset_id));
+
+    // check the layout: C holds A and B, U holds a little A only
+    let amounts_a = utxo_amounts(&mut party, &asset_a.asset_id);
+    let amounts_b = utxo_amounts(&mut party, &asset_b.asset_id);
+    assert_eq!(amounts_a.len(), 2);
+    assert_eq!(amounts_b.len(), 1);
+    let (utxo_c, _) = amounts_b.iter().next().unwrap();
+    assert_eq!(amounts_a.get(utxo_c), Some(&amount_a_change));
+    assert!(amounts_a.values().any(|a| *a == amount_a_received));
+    assert_eq!(
+        party.get_asset_balance(&asset_a.asset_id).settled,
+        amount_a_change + amount_a_received
+    );
+
+    // send A and B together: A is selected from U, B from C
+    let receive_data_a = rcv_party.blind_receive();
+    let receive_data_b = rcv_party.blind_receive();
+    let recipient_map = HashMap::from([
+        (
+            asset_a.asset_id.clone(),
+            vec![blind_recipient(
+                &receive_data_a,
+                Assignment::Fungible(amount_a_received),
+            )],
+        ),
+        (
+            asset_b.asset_id.clone(),
+            vec![blind_recipient(
+                &receive_data_b,
+                Assignment::Fungible(amount_b_sent),
+            )],
+        ),
+    ]);
+    let txid = party.send_retry(&recipient_map);
+    assert!(!txid.is_empty());
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(None);
+    mine(false);
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(None);
+    let (transfers, _, _) = party.get_test_transfers_sender(&txid);
+    for transfer in transfers.values().flatten() {
+        let (transfer_data, _) = party.get_test_transfer_data(transfer);
+        assert_eq!(transfer_data.status, TransferStatus::Settled);
+    }
+
+    // the A on C, spent as an input of the B transition only, must be moved to the change
+    assert_eq!(
+        party.get_asset_balance(&asset_a.asset_id).settled,
+        amount_a_change
+    );
+    assert_eq!(
+        party.get_asset_balance(&asset_b.asset_id).settled,
+        AMOUNT - amount_b_sent
+    );
+}
