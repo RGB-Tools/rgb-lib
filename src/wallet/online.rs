@@ -4266,25 +4266,29 @@ pub trait WalletOnline: WalletOffline {
         &self,
         txn: &DbTxn,
         btc_change: &Option<BtcChange>,
-        change_utxo_option: &mut Option<DbTxo>,
+        change_outpoint_option: &mut Option<BdkOutPoint>,
         input_outpoints: &[Outpoint],
         unspents: &[LocalUnspent],
     ) -> Result<BlindSeal<TxPtr>, Error> {
         Ok(if let Some(btc_change) = btc_change {
             GraphSeal::new_random_vout(btc_change.vout)
         } else {
-            if change_utxo_option.is_none() {
-                let change_utxo =
-                    self.get_utxo(txn, input_outpoints, Some(unspents), true, None)?;
-                debug!(
-                    self.logger(),
-                    "Change outpoint '{}'",
-                    change_utxo.outpoint().to_string()
-                );
-                *change_utxo_option = Some(change_utxo);
-            }
-            let change_utxo = change_utxo_option.clone().unwrap();
-            let blind_seal = self.get_blind_seal(change_utxo).transmutate();
+            let change_outpoint = match change_outpoint_option {
+                Some(change_outpoint) => *change_outpoint,
+                None => {
+                    let change_utxo =
+                        self.get_utxo(txn, input_outpoints, Some(unspents), true, None)?;
+                    debug!(
+                        self.logger(),
+                        "Change outpoint '{}'",
+                        change_utxo.outpoint().to_string()
+                    );
+                    // parsed once, as a seal is built on it for each allocation moved to the
+                    // change
+                    *change_outpoint_option.insert(BdkOutPoint::from(change_utxo))
+                }
+            };
+            let blind_seal = self.get_blind_seal(change_outpoint).transmutate();
             GraphSeal::from(blind_seal)
         })
     }
@@ -4341,7 +4345,7 @@ pub trait WalletOnline: WalletOffline {
         rejected: &mut HashSet<Opout>,
         reject_lists: &mut HashMap<String, RejectList>,
     ) -> Result<PrepareRgbPsbtResult, Error> {
-        let mut change_utxo_option = None;
+        let mut change_outpoint_option = None;
 
         let prev_outputs = psbt
             .unsigned_tx
@@ -4353,7 +4357,6 @@ pub trait WalletOnline: WalletOffline {
         let input_outpoints: Vec<Outpoint> =
             prev_outputs.iter().map(|o| Outpoint::from(*o)).collect();
 
-        let mut all_transitions: HashMap<ContractId, Vec<Transition>> = HashMap::new();
         let mut asset_beneficiaries = bmap![];
         let mut extra_state = HashMap::<ContractId, Vec<(OutPoint, Opout, AllocatedState)>>::new();
         let mut input_opouts: HashMap<ContractId, HashMap<Opout, AllocatedState>> = HashMap::new();
@@ -4495,7 +4498,7 @@ pub trait WalletOnline: WalletOffline {
                 let seal = self.get_change_seal(
                     txn,
                     &btc_change,
-                    &mut change_utxo_option,
+                    &mut change_outpoint_option,
                     &input_outpoints,
                     unspents.as_slice(),
                 )?;
@@ -4578,10 +4581,6 @@ pub trait WalletOnline: WalletOffline {
                         Amount::from(needed).into(),
                     ));
                 }
-                all_transitions
-                    .entry(transfer_info.asset_info.contract_id)
-                    .or_default()
-                    .push(side_transition.clone());
                 psbt.push_rgb_transition(side_transition)
                     .map_err(InternalError::from)?;
             }
@@ -4627,10 +4626,6 @@ pub trait WalletOnline: WalletOffline {
                 let transition = mock_spam_recipient_assignments(transition);
                 #[cfg(test)]
                 mock_spam_hidden_spends(psbt, &transition);
-                all_transitions
-                    .entry(transfer_info.asset_info.contract_id)
-                    .or_default()
-                    .push(transition.clone());
                 psbt.push_rgb_transition(transition)
                     .map_err(InternalError::from)?;
             } else if main_used {
@@ -4663,16 +4658,27 @@ pub trait WalletOnline: WalletOffline {
 
         let mut extra_allocations: HashMap<String, HashMap<OutPoint, Vec<Assignment>>> =
             HashMap::new();
+        // a UTXO may hold many allocations, each moved by its own transition: push them all at
+        // once, as pushing them one by one rewrites the consumers of the contract every time
+        let mut extra_transitions = vec![];
         for (cid, opout_state_map) in extra_state {
             let schema = stock.contract_schema(cid)?;
+            // getting a builder from the stock loads the contract schema rules: get one per
+            // transition type and clone it for each allocation
+            let mut builders: HashMap<TransitionType, TransitionBuilder> = HashMap::new();
             for (outpoint, opout, state) in opout_state_map {
                 let transition_type = schema.default_transition_for_assignment(&opout.ty);
-                let mut extra_builder = stock.transition_builder_raw(cid, transition_type)?;
+                let mut extra_builder = match builders.entry(transition_type) {
+                    Entry::Occupied(entry) => entry.get().clone(),
+                    Entry::Vacant(entry) => entry
+                        .insert(stock.transition_builder_raw(cid, transition_type)?)
+                        .clone(),
+                };
                 let assignment = Assignment::from_opout_and_state(opout, &state);
                 let seal = self.get_change_seal(
                     txn,
                     &btc_change,
-                    &mut change_utxo_option,
+                    &mut change_outpoint_option,
                     &input_outpoints,
                     unspents.as_slice(),
                 )?;
@@ -4680,20 +4686,17 @@ pub trait WalletOnline: WalletOffline {
                     .add_input(opout, state.clone())?
                     .add_owned_state_raw(opout.ty, seal, state)?;
                 let extra_transition = extra_builder.complete_transition()?;
-                all_transitions
-                    .entry(cid)
-                    .or_default()
-                    .push(extra_transition.clone());
                 extra_allocations
                     .entry(cid.to_string())
                     .or_default()
                     .entry(outpoint)
                     .or_default()
                     .push(assignment);
-                psbt.push_rgb_transition(extra_transition)
-                    .map_err(InternalError::from)?;
+                extra_transitions.push(extra_transition);
             }
         }
+        psbt.push_rgb_transitions(extra_transitions)
+            .map_err(InternalError::from)?;
 
         let opreturn_index = psbt
             .unsigned_tx
@@ -4710,15 +4713,6 @@ pub trait WalletOnline: WalletOffline {
         opreturn_output
             .set_mpc_entropy(entropy)
             .map_err(InternalError::from)?;
-
-        for (cid, transitions) in &all_transitions {
-            for transition in transitions {
-                for opout in transition.inputs() {
-                    psbt.set_rgb_contract_consumer(*cid, opout, transition.id())
-                        .map_err(InternalError::from)?;
-                }
-            }
-        }
 
         psbt.set_rgb_close_method(CloseMethod::OpretFirst);
         let fascia = psbt.rgb_commit().map_err(InternalError::from)?;
@@ -4804,7 +4798,7 @@ pub trait WalletOnline: WalletOffline {
         // save batch transfer data to file (for operation finalization)
         let info_batch_transfer = InfoBatchTransfer {
             btc_change,
-            change_utxo_outpoint: change_utxo_option.as_ref().map(|utxo| utxo.outpoint()),
+            change_utxo_outpoint: change_outpoint_option.map(Outpoint::from),
             extra_allocations,
             donation,
             min_confirmations,

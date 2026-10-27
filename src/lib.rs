@@ -183,7 +183,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(feature = "_online")]
 use std::{
     cmp::{max, min},
-    collections::hash_map::DefaultHasher,
+    collections::hash_map::{DefaultHasher, Entry},
     hash::Hasher,
     num::NonZeroU32,
 };

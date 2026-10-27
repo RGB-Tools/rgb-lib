@@ -209,11 +209,8 @@ impl Wallet {
                 .map_err(InternalError::from)?;
         }
 
-        for (contract_id, transition) in all_transitions {
-            for opout in transition.inputs() {
-                psbt.set_rgb_contract_consumer(contract_id, opout, transition.id())
-                    .map_err(InternalError::from)?;
-            }
+        // pushing a transition also sets it as the consumer of all of its inputs
+        for transition in all_transitions.into_values() {
             psbt.push_rgb_transition(transition)
                 .map_err(InternalError::from)?;
         }
