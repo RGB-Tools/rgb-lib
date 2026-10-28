@@ -5916,6 +5916,8 @@ fn witness_multiple_assets_success() {
         ),
     ]);
     party.create_utxos(false, None, None, FEE_RATE, None);
+    // no blocks until the transfers have been checked in status WaitingConfirmations
+    let guard = stop_mining();
     let txid = party.send_retry(&recipient_map);
     assert!(!txid.is_empty());
 
@@ -6050,6 +6052,7 @@ fn witness_multiple_assets_success() {
     });
 
     // transfers progress to status Settled after tx mining + refresh
+    drop(guard);
     mine(false);
     // check receiver transfers
     rcv_party.wait_for_refresh(None);
@@ -6134,6 +6137,8 @@ fn witness_multiple_assets_success() {
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
+    // no blocks until the transfer has been checked in status WaitingConfirmations
+    let guard = stop_mining();
     let txid = party.send_retry(&recipient_map);
     assert!(!txid.is_empty());
 
@@ -6179,6 +6184,7 @@ fn witness_multiple_assets_success() {
     );
 
     // transfers progress to status Settled after tx mining + refresh
+    drop(guard);
     mine(false);
     rcv_party.wait_for_refresh(None);
     party.wait_for_refresh(None);
