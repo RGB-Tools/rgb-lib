@@ -823,6 +823,7 @@ dictionary RgbInputInfo {
 dictionary RgbOutputInfo {
   string? txid;
   u32? vout;
+  u64? blinding;
   Assignment assignment;
   boolean is_concealed;
   string? recipient_id;
@@ -843,6 +844,8 @@ enum TypeOfTransition {
   "Inflate",
   "Transfer",
   "Burn",
+  "TransferInflation",
+  "TransferLink",
 };
 
 [Remote]

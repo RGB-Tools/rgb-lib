@@ -410,6 +410,7 @@ impl From<RgbInputInfo> for RgbLibRgbInputInfo {
 pub struct RgbOutputInfo {
     pub txid: Option<String>,
     pub vout: Option<u32>,
+    pub blinding: Option<u64>,
     pub assignment: Assignment,
     pub is_concealed: bool,
     pub recipient_id: Option<String>,
@@ -421,6 +422,7 @@ impl From<RgbLibRgbOutputInfo> for RgbOutputInfo {
         Self {
             txid: orig.txid,
             vout: orig.vout,
+            blinding: orig.blinding,
             assignment: orig.assignment.into(),
             is_concealed: orig.is_concealed,
             recipient_id: orig.recipient_id,
@@ -434,6 +436,7 @@ impl From<RgbOutputInfo> for RgbLibRgbOutputInfo {
         Self {
             txid: orig.txid,
             vout: orig.vout,
+            blinding: orig.blinding,
             assignment: orig.assignment.into(),
             is_concealed: orig.is_concealed,
             recipient_id: orig.recipient_id,

@@ -219,7 +219,6 @@ thread_local! {
     pub(crate) static MOCK_CHAIN_TXS: RefCell<HashMap<String, (BdkTransaction, u32)>> = RefCell::new(HashMap::new());
     pub(crate) static MOCK_LOCAL_VERSION: RefCell<Option<String>> = const { RefCell::new(None) };
     pub(crate) static MOCK_SEND_END_CRASH: RefCell<Option<()>> = const { RefCell::new(None) };
-    pub(crate) static MOCK_STRIP_TERMINALS: RefCell<Option<()>> = const { RefCell::new(None) };
     pub(crate) static MOCK_CLOCK_SKEW_MARGIN: RefCell<Option<u32>> = const { RefCell::new(None) };
     pub(crate) static MOCK_RETENTION_GRACE: RefCell<Option<u32>> = const { RefCell::new(None) };
     pub(crate) static MOCK_MIN_RETENTION_GRACE: RefCell<Option<u32>> = const { RefCell::new(None) };
@@ -449,16 +448,6 @@ pub fn spv_only() -> bool {
         println!("refusing witness TX lookup (mock)");
     }
     spv_only
-}
-
-#[cfg(feature = "_online")]
-pub fn strip_terminals() -> bool {
-    if MOCK_STRIP_TERMINALS.take().is_none() {
-        false
-    } else {
-        println!("stripping consignment terminals (mock)");
-        true
-    }
 }
 
 /// Clock skew margin (seconds) to use instead of `PROXY_CLOCK_SKEW_MARGIN_SECS`, if set.

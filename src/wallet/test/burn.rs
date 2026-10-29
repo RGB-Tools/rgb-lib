@@ -124,11 +124,10 @@ fn success() {
     assert!(transfer.consignment_path.is_some());
 
     // check the burn consignment: it carries the burn transition (with the committed reason) and
-    // no terminal, and it validates from the point of view of a third party that doesn't know the
-    // asset
+    // it's the terminal operation, and it validates from the point of view of a third party that
+    // doesn't know the asset
     let consignment_path = transfer.consignment_path.as_ref().unwrap();
     let consignment = RgbTransfer::load_file(consignment_path).unwrap();
-    assert!(consignment.terminals.is_empty());
     let burn_transitions: Vec<_> = consignment
         .bundles
         .iter()
@@ -136,6 +135,10 @@ fn success() {
         .filter(|kt| kt.transition.transition_type == TS_BURN)
         .collect();
     assert_eq!(burn_transitions.len(), 1);
+    assert_eq!(
+        consignment.terminal_ops(),
+        BTreeSet::from([burn_transitions[0].opid])
+    );
     let burn_reason_type = InflatableFungibleAsset::schema().global_type(RGB_GLOBAL_BURN_REASON);
     let burn_reason = burn_transitions[0]
         .transition

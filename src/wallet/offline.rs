@@ -2635,8 +2635,7 @@ pub trait WalletOffline: WalletBackup {
         let mut stock = self.rgb_stock(txn)?;
         for (asset_id, transfer_info) in transfer_info_map {
             let contract_id = transfer_info.asset_info.contract_id;
-            #[allow(unused_mut)]
-            let (mut consignment, spv_proofs) = stock.transfer_from_fascia(
+            let (consignment, spv_proofs) = stock.transfer_from_fascia(
                 contract_id,
                 transfer_info.beneficiaries_witness.clone(),
                 transfer_info.beneficiaries_blinded.clone(),
@@ -2645,10 +2644,6 @@ pub trait WalletOffline: WalletBackup {
                 self.spv_resolver(),
             )?;
             stock.store_spv_proofs(spv_proofs)?;
-            #[cfg(all(test, feature = "_online"))]
-            if strip_terminals() {
-                consignment.terminals = Default::default();
-            }
             let asset_transfer_dir = self.get_asset_transfer_dir(transfer_dir, asset_id);
             fs::create_dir_all(&asset_transfer_dir)?;
             let consignment_path = self.get_send_consignment_path_impl(asset_transfer_dir);

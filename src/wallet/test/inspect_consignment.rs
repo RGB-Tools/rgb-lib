@@ -105,14 +105,21 @@ fn success() {
         transition.inputs[0].assignment,
         Assignment::Fungible(AMOUNT)
     );
-    // outputs: the two terminals and the change
+    // outputs: the two recipients' and the change, all of the terminal operation
     assert_eq!(transition.outputs.len(), 3);
     assert!(transition.outputs.iter().all(|o| o.is_ours.is_none()));
+    assert!(
+        transition
+            .outputs
+            .iter()
+            .all(|o| o.is_terminal == Some(true))
+    );
     let blind_output = transition.outputs.iter().find(|o| o.is_concealed).unwrap();
     assert_eq!(blind_output.assignment, Assignment::Fungible(amount_blind));
     assert_eq!(blind_output.vout, None);
     assert_eq!(blind_output.is_terminal, Some(true));
     assert_eq!(blind_output.txid, None);
+    assert_eq!(blind_output.blinding, None);
     assert_eq!(
         blind_output.recipient_id.as_ref(),
         Some(&receive_data_blind.recipient_id)
@@ -127,10 +134,26 @@ fn success() {
     assert_eq!(witness_output.is_terminal, Some(true));
     assert_eq!(witness_output.txid.as_ref(), Some(&txid_1));
     assert_eq!(witness_output.recipient_id, None);
+    // the blinding is the one of the witness seal in the consignment
+    let witness_vout = witness_output.vout.unwrap();
+    let witness_seal_blinding = consignment.bundles[0]
+        .bundle
+        .known_transitions
+        .iter()
+        .flat_map(|kt| kt.transition.assignments.values())
+        .flat_map(|typed_assigns| typed_assigns.seals())
+        .find_map(|seal| match seal {
+            BuilderSeal::Revealed(seal) if seal.vout.into_u32() == witness_vout => {
+                Some(seal.blinding)
+            }
+            _ => None,
+        });
+    assert!(witness_seal_blinding.is_some());
+    assert_eq!(witness_output.blinding, witness_seal_blinding);
     let change_output = transition
         .outputs
         .iter()
-        .find(|o| o.is_terminal == Some(false))
+        .find(|o| o.assignment == Assignment::Fungible(AMOUNT - amount_blind - amount_witness))
         .unwrap();
     assert!(!change_output.is_concealed);
     assert_eq!(change_output.txid.as_ref(), Some(&txid_1));

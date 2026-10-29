@@ -280,6 +280,55 @@ fn check_operation_expiration(expiration_timestamp: i64) -> Result<(), Error> {
     Ok(())
 }
 
+/// The assignments of a type an operation moves with a transition of the type's default type,
+/// beside its main transition (see [`add_or_side_output`]).
+#[derive(Default)]
+struct SideTransfer {
+    /// The inputs to spend
+    inputs: Vec<(Opout, AllocatedState)>,
+    /// The outputs to assign
+    outputs: Vec<(BuilderSeal<GraphSeal>, AllocatedState)>,
+    /// Set when the main transition can't assign this type but still spends it (a burn), and there
+    /// is change: the output of this transition that the main transition then spends, as its seal
+    /// and amount. The other outputs are the change.
+    split: Option<(GraphSeal, u64)>,
+}
+
+/// The amount of `state`, 0 for a state that isn't an amount (e.g. a UDA token).
+fn state_amount(state: &AllocatedState) -> u64 {
+    match state {
+        AllocatedState::Amount(amt) => amt.as_u64(),
+        _ => 0,
+    }
+}
+
+/// Assign `state` of type `ty` to `seal` with the main transition built by `builder`, if it can
+/// assign the type, otherwise with the transition of the type's default type in `side_transfers`.
+///
+/// `main_assignment_types` are all the types the main transition can assign: one for a transfer,
+/// two for an inflation (assets and inflation rights), none for a burn, whose change is assigned by
+/// side transitions. `main_used` is set when the main transition assigns the state.
+fn add_or_side_output(
+    builder: TransitionBuilder,
+    main_assignment_types: &HashSet<AssignmentType>,
+    main_used: &mut bool,
+    side_transfers: &mut BTreeMap<AssignmentType, SideTransfer>,
+    ty: AssignmentType,
+    seal: BuilderSeal<GraphSeal>,
+    state: AllocatedState,
+) -> Result<TransitionBuilder, Error> {
+    if main_assignment_types.contains(&ty) {
+        *main_used = true;
+        return Ok(builder.add_owned_state_raw(ty, seal, state)?);
+    }
+    side_transfers
+        .entry(ty)
+        .or_default()
+        .outputs
+        .push((seal, state));
+    Ok(builder)
+}
+
 /// Interpret an error returned by the sender proxy to `ack.get`, requested while waiting for the
 /// recipients' ACKs.
 ///
@@ -1657,58 +1706,74 @@ pub trait WalletOnline: WalletOffline {
         }
     }
 
-    /// Locate the consignment terminal paying this recipient.
-    ///
-    /// Returns the terminal witness bundle and, for witness receives, the vout being paid.
-    ///
-    /// The bundle and vout returned here together identify the one payment destination the transfer
-    /// waits on and credits from. A consignment declaring more than one such destination for this
-    /// recipient - a different witness TXID (so a different bundle), or a different vout of the
-    /// same TXID - is refused instead of resolved arbitrarily: `terminals` is counterparty-supplied
-    /// data, it is read before validation, and its iteration order (by bundle ID) carries no
-    /// meaning, so picking one of several genuinely different destinations would credit an
-    /// unpredictable one of them. Several terminal seals defined on the same vout of the same
-    /// bundle are a different matter (see the dedup in `push_match` below): that is one
-    /// destination described more than once, not several to choose between.
-    fn find_terminal_bundle<'c>(
-        &self,
-        consignment: &'c RgbTransfer,
-        matcher: &ReceiveMatcher,
-    ) -> Option<(&'c WitnessBundle, Option<u32>)> {
-        let mut matches: Vec<(&'c WitnessBundle, Option<u32>)> = vec![];
-        let mut push_match = |witness_bundle: &'c WitnessBundle, vout: Option<u32>| {
-            // several revealed seals of one bundle can be defined on the same witness output - one
-            // per assignment, e.g. two assignment types paying this recipient, differing only by
-            // blinding - so keying on bundle + vout counts them as the single payment they are,
-            // instead of tripping the ambiguity check below
-            //
-            // a no-op for concealed seals, which are matched on presence alone and push `None` once
-            // per bundle
-            if !matches.iter().any(|(wb, v)| {
-                wb.bundle.bundle_id() == witness_bundle.bundle.bundle_id() && *v == vout
-            }) {
-                matches.push((witness_bundle, vout));
-            }
-        };
+    /// The outputs spent within the consignment by its known transitions. The bundle input maps
+    /// can't be used instead: the validation only checks their entries for the known transitions,
+    /// so a sender could list as spent by a transition missing from the consignment any output,
+    /// e.g. to hide assignments paying this recipient. The inputs of a known transition are
+    /// checked by the validation instead, which also requires the witness TX to close their seals,
+    /// so only this wallet can spend an output paying it.
+    fn known_spent_opouts(consignment: &RgbTransfer) -> BTreeSet<Opout> {
+        consignment
+            .bundles
+            .iter()
+            .flat_map(|wb| wb.bundle.known_transitions.iter())
+            .flat_map(|kt| kt.transition.inputs.iter().copied())
+            .collect()
+    }
 
-        for (bundle_id, seals) in consignment.terminals.iter() {
-            // this lookup happens before validation, so a bundle a terminal references is not
-            // yet guaranteed to be present and is simply skipped here: validation later refuses
-            // the consignment over it
-            let Some(witness_bundle) = consignment
-                .bundles
-                .iter()
-                .find(|wb| wb.bundle.bundle_id() == *bundle_id)
-            else {
-                continue;
+    /// Locate the destinations at which the consignment pays this recipient: each is a bundle and,
+    /// for witness receives, a vout of its witness TX, with the assignments to the recipient's seal
+    /// that are unspent within the consignment. What is received must be unspent within the
+    /// consignment: only this wallet can spend it, so a consignment spending it is not paying this
+    /// wallet.
+    ///
+    /// The spent outputs are the inputs of the known transitions (see `known_spent_opouts`), which
+    /// only the validation checks, so the result can be trusted only for a consignment that went
+    /// through it.
+    ///
+    /// Several assignments to the same vout of the same bundle are one destination paid more than
+    /// once (e.g. two assignment types paying this recipient, differing only by blinding). Callers
+    /// refuse a consignment paying this recipient at more than one destination - a different
+    /// witness TXID (so a different bundle), or a different vout of the same TXID - as a transfer
+    /// waits on and credits from a single one.
+    ///
+    /// `spent` are the consignment's spent outputs (see `known_spent_opouts`), which callers
+    /// matching several transfers against a consignment compute once.
+    fn find_payments<'c, 'a>(
+        &'a self,
+        consignment: &'c RgbTransfer,
+        matcher: &'a ReceiveMatcher,
+        spent: &'a BTreeSet<Opout>,
+    ) -> impl Iterator<Item = ConsignmentPayment<'c>> + 'a
+    where
+        'c: 'a,
+    {
+        let known_concealed = match matcher {
+            ReceiveMatcher::Blind(secret_seal) => Some(*secret_seal),
+            ReceiveMatcher::Witness(..) => None,
+        };
+        consignment.bundles.iter().flat_map(move |witness_bundle| {
+            // the vouts paid by this bundle, `None` for concealed seals, which are matched on
+            // presence alone
+            let mut vouts: Vec<Option<u32>> = vec![];
+            let mut push_vout = |vout: Option<u32>| {
+                if !vouts.contains(&vout) {
+                    vouts.push(vout);
+                }
             };
+            let seals = witness_bundle
+                .bundle
+                .known_transitions
+                .iter()
+                .flat_map(|kt| kt.transition.assignments.values())
+                .flat_map(|typed_assigns| typed_assigns.seals());
             match matcher {
                 ReceiveMatcher::Blind(secret_seal) => {
                     if seals
                         .into_iter()
-                        .any(|seal| seal == BuilderSeal::Concealed(*secret_seal))
+                        .any(|seal| *seal == BuilderSeal::Concealed(*secret_seal))
                     {
-                        push_match(witness_bundle, None);
+                        push_vout(None);
                     }
                 }
                 ReceiveMatcher::Witness(script_pubkey, blinding) => {
@@ -1717,7 +1782,7 @@ pub trait WalletOnline: WalletOffline {
                         // a witness receive is matched by the scriptPubKey at the vout the seal
                         // names, which a concealed seal does not expose - it belongs to the blind
                         // arm above
-                        let BuilderSeal::Revealed(seal) = seal else {
+                        let BuilderSeal::Revealed(seal) = *seal else {
                             continue;
                         };
                         // only a seal closed by this bundle's own witness TX is a payment made by
@@ -1737,23 +1802,23 @@ pub trait WalletOnline: WalletOffline {
                             .get(vout as usize)
                             .is_some_and(|out| out.script_pubkey == *script_pubkey)
                         {
-                            push_match(witness_bundle, Some(vout));
+                            push_vout(Some(vout));
                         }
                     }
                 }
             }
-        }
 
-        if matches.len() > 1 {
-            error!(
-                self.logger(),
-                "Consignment declares {} terminal payments to this recipient, refusing it as \
-                 ambiguous",
-                matches.len()
-            );
-            return None;
-        }
-        matches.into_iter().next()
+            vouts.into_iter().filter_map(move |vout| {
+                let mut receiving =
+                    self.assignments_for_bundle(witness_bundle, vout, known_concealed);
+                receiving.retain(|opout, _| !spent.contains(opout));
+                (!receiving.is_empty()).then_some(ConsignmentPayment {
+                    bundle: witness_bundle,
+                    vout,
+                    receiving,
+                })
+            })
+        })
     }
 
     // extract the assignments in a single bundle that pay the recipient identified by
@@ -1942,8 +2007,8 @@ pub trait WalletOnline: WalletOffline {
         let validation_config = ValidationConfig {
             chain_net: self.chain_net(),
             // the reject list has already been checked when the consignment was received, so no
-            // caller of this method needs the opouts DAG, which would only bloat the saved file
-            build_opouts_dag: false,
+            // caller of this method needs the operations DAG, which would only bloat the saved file
+            build_ops_dag: false,
             safe_height,
         };
         let resolver = OffchainResolver {
@@ -2607,19 +2672,8 @@ pub trait WalletOnline: WalletOffline {
             }
         }
 
-        // a transfer consignment must declare the terminals it pays
-        if consignment.terminals.is_empty() {
-            error!(self.logger(), "Consignment declares no terminals");
-            return self.refuse_consignment(
-                txn,
-                &mode,
-                &recipient_id,
-                &recipient_seed,
-                updated_batch_transfer,
-            );
-        }
-
-        // locate the terminal paying us
+        // locate the payment to us (with the proxy exchange, the seal blinding is derived from the
+        // keys of both parties)
         let blinding = match &mode {
             ReceiveMode::Proxy(data) => {
                 let seed: [u8; 32] =
@@ -2647,12 +2701,24 @@ pub trait WalletOnline: WalletOffline {
             ReceiveMode::OutOfBand { .. } => None,
         };
         let matcher = transfer.receive_matcher(blinding)?;
-        let Some((terminal_bundle, vout)) = self.find_terminal_bundle(&consignment, &matcher)
-        else {
-            error!(
-                self.logger(),
-                "Cannot find a consignment terminal paying this recipient"
-            );
+        // the payment is located before the validation, which needs its witness TX as it may not
+        // have been broadcast yet, but the outputs spent within the consignment, which it's located
+        // with, are only checked by the validation: it's credited only once that passes
+        let spent = Self::known_spent_opouts(&consignment);
+        let mut payments: Vec<_> = self.find_payments(&consignment, &matcher, &spent).collect();
+        if payments.len() != 1 {
+            if payments.is_empty() {
+                error!(
+                    self.logger(),
+                    "Cannot find any unspent assignment paying this recipient"
+                );
+            } else {
+                error!(
+                    self.logger(),
+                    "Consignment pays this recipient at {} destinations, refusing it as ambiguous",
+                    payments.len()
+                );
+            }
             return self.refuse_consignment(
                 txn,
                 &mode,
@@ -2660,20 +2726,21 @@ pub trait WalletOnline: WalletOffline {
                 &recipient_seed,
                 updated_batch_transfer,
             );
-        };
-        let witness_id = terminal_bundle.witness_id();
+        }
+        let ConsignmentPayment {
+            bundle: paying_bundle,
+            vout,
+            receiving,
+        } = payments.remove(0);
+        let witness_id = paying_bundle.witness_id();
         let txid = witness_id.to_string();
-        let known_concealed = match matcher {
-            ReceiveMatcher::Blind(secret_seal) => Some(secret_seal),
-            ReceiveMatcher::Witness(..) => None,
-        };
 
         // validate consignment
         debug!(self.logger(), "Validating consignment...");
         let safe_height = NonZeroU32::new(self.safe_height(batch_transfer.min_confirmations)?);
         let validation_config = ValidationConfig {
             chain_net: self.chain_net(),
-            build_opouts_dag: asset_schema.supports_reject_list(),
+            build_ops_dag: asset_schema.supports_reject_list(),
             safe_height,
         };
         let resolver = OffchainResolver {
@@ -2713,18 +2780,6 @@ pub trait WalletOnline: WalletOffline {
         let validity = validation_status.validity();
         debug!(self.logger(), "Consignment validity: {:?}", validity);
 
-        let receiving = self.assignments_for_bundle(terminal_bundle, vout, known_concealed);
-        if receiving.is_empty() {
-            error!(self.logger(), "Cannot find any receiving assignment");
-            return self.refuse_consignment(
-                txn,
-                &mode,
-                &recipient_id,
-                &recipient_seed,
-                updated_batch_transfer,
-            );
-        };
-
         if asset_schema.supports_reject_list() {
             let url = if let Ok(ass) = txn.check_asset_exists(asset_id.clone()) {
                 ass.reject_list_url
@@ -2739,9 +2794,9 @@ pub trait WalletOnline: WalletOffline {
 
                 let to_reject = self.check_dag(
                     validation_status
-                        .dag_data_opt
+                        .ops_dag
                         .as_ref()
-                        .expect("build_opouts_dag is set for schemas supporting a reject list"),
+                        .expect("build_ops_dag is set for schemas supporting a reject list"),
                     &reject_list,
                     &receiving.clone().into_keys().collect(),
                 )?;
@@ -2866,7 +2921,7 @@ pub trait WalletOnline: WalletOffline {
             }
         }
 
-        let donation_tx = Self::donation_signed_tx(&terminal_bundle.tx);
+        let donation_tx = Self::donation_signed_tx(&paying_bundle.tx);
 
         self.ack_consignment(
             txn,
@@ -2894,12 +2949,7 @@ pub trait WalletOnline: WalletOffline {
 
         let asset_id = consignment.contract_id().to_string();
 
-        if consignment.terminals.is_empty() {
-            return Err(Error::CannotProvideOutOfBandConsignment {
-                details: s!("the provided consignment declares no terminals"),
-            });
-        }
-
+        let spent = Self::known_spent_opouts(&consignment);
         let mut matches = vec![];
         for batch_transfer in &db_data.batch_transfers {
             // skip non-incoming transfers and transfers that are not waiting for a counterparty
@@ -2923,9 +2973,16 @@ pub trait WalletOnline: WalletOffline {
                 continue;
             }
 
-            // check if a consignment terminal pays this transfer
+            // check if a consignment bundle pays this transfer: this only selects the transfers
+            // the consignment may be for, any payment is enough, as each one selected is then
+            // processed by process_received_consignment, which refuses the consignment unless it
+            // pays the transfer at exactly one destination
             let matcher = transfer.receive_matcher(None)?;
-            if self.find_terminal_bundle(&consignment, &matcher).is_some() {
+            if self
+                .find_payments(&consignment, &matcher, &spent)
+                .next()
+                .is_some()
+            {
                 matches.push((
                     batch_transfer.clone(),
                     asset_transfer.clone(),
@@ -3047,12 +3104,15 @@ pub trait WalletOnline: WalletOffline {
             }
         }
 
-        let matcher = transfer.receive_matcher(None)?;
-        let terminal_bundle = self
-            .find_terminal_bundle(&valid_consignment, &matcher)
-            .map(|(terminal_bundle, _)| terminal_bundle);
-        let signed_tx = terminal_bundle
-            .and_then(|terminal_bundle| Self::donation_signed_tx(&terminal_bundle.tx));
+        // the paying bundle is the one committed by the witness TX saved when the consignment was
+        // accepted: matching the consignment again could yield another one, as the seal blinding
+        // a proxy witness receive was matched with isn't known here
+        let paying_bundle = valid_consignment
+            .bundles
+            .iter()
+            .find(|bundle| bundle.witness_id().to_string() == txid);
+        let signed_tx =
+            paying_bundle.and_then(|paying_bundle| Self::donation_signed_tx(&paying_bundle.tx));
         let mut updated_batch_transfer: DbBatchTransferActMod = batch_transfer.clone().into();
         let tte_data = txn.get_transfer_transport_endpoints_data(transfer.idx)?;
         let mode = if tte_data.is_empty() {
@@ -4211,37 +4271,43 @@ pub trait WalletOnline: WalletOffline {
 
     fn check_dag(
         &self,
-        dag_data: &OpoutsDagData,
+        ops_dag: &OpsDag,
         reject_list: &RejectList,
         check_opouts: &HashSet<Opout>,
     ) -> Result<HashSet<Opout>, Error> {
-        let (dag, index) = dag_data;
         let mut to_reject = HashSet::new();
 
         // for each opout we are checking, traverse its ancestor chain
-        for check_opout in check_opouts {
-            let &opout_node = index.get(check_opout).ok_or(Error::Internal {
+        'check: for check_opout in check_opouts {
+            // allow shields this path upward: do not traverse this branch further
+            if reject_list.allows(check_opout) {
+                continue;
+            }
+            // encountering a reject opout on an unshielded path: reject
+            if reject_list.rejects(check_opout) {
+                to_reject.insert(*check_opout);
+                continue;
+            }
+            let op_node = ops_dag.op_node(&check_opout.op).ok_or(Error::Internal {
                 details: s!("opout not found in DAG"),
             })?;
 
-            // traverse from this node to its ancestors, depth first
-            let mut stack = vec![opout_node];
+            // traverse from the operation creating it to its ancestors, depth first, checking the
+            // opouts each operation spends
+            let mut stack = vec![op_node];
             let mut visited = HashSet::new();
             while let Some(node) = stack.pop() {
                 if !visited.insert(node) {
                     continue;
                 }
-                let node_opout = &dag[node];
-                // allow shields this path upward: do not traverse this branch further
-                if reject_list.allows(node_opout) {
-                    continue;
-                }
-                // encountering a reject node on an unshielded path: reject
-                if reject_list.rejects(node_opout) {
-                    to_reject.insert(*check_opout);
-                    break;
-                }
-                for (_edge, parent) in dag.parents(node).iter(dag) {
+                for (spent_opout, parent) in ops_dag.spent_opouts(node) {
+                    if reject_list.allows(&spent_opout) {
+                        continue;
+                    }
+                    if reject_list.rejects(&spent_opout) {
+                        to_reject.insert(*check_opout);
+                        continue 'check;
+                    }
                     stack.push(parent);
                 }
             }
@@ -4298,10 +4364,8 @@ pub trait WalletOnline: WalletOffline {
             }
 
             // sort by state globally (smaller to bigger)
-            all_opout_state_vec.sort_by_key(|(_, _, state)| match state {
-                AllocatedState::Amount(amt) => amt.as_u64(),
-                _ => 0, // non-amount states sorted first
-            });
+            // (non-amount states first)
+            all_opout_state_vec.sort_by_key(|(_, _, state)| state_amount(state));
 
             let mut inputs_added = AssignmentsCollection::default();
             let mut uda_state = None;
@@ -4309,6 +4373,22 @@ pub trait WalletOnline: WalletOffline {
                 transfer_info.asset_info.contract_id,
                 transfer_info.main_transition.clone().type_name(),
             )?;
+            // the main transition only takes some assignment types as inputs and assignments:
+            // the others are moved by a transition of their default type in the same bundle
+            let schema = stock.contract_schema(transfer_info.asset_info.contract_id)?;
+            let main_schema = &schema
+                .transitions
+                .get(&asset_transition_builder.transition_type())
+                .expect("main transition missing from the schema")
+                .transition_schema;
+            let main_input_types: HashSet<AssignmentType> =
+                main_schema.inputs.keys().copied().collect();
+            let main_assignment_types: HashSet<AssignmentType> =
+                main_schema.assignments.keys().copied().collect();
+            let mut main_inputs = vec![];
+            // whether the main transition assigns or records any state
+            let mut main_used = false;
+            let mut side_transfers: BTreeMap<AssignmentType, SideTransfer> = BTreeMap::new();
             for (outpoint, opout, state) in all_opout_state_vec {
                 let mut should_add_as_input = !rejected.contains(&opout);
                 if should_add_as_input {
@@ -4334,8 +4414,15 @@ pub trait WalletOnline: WalletOffline {
                     .push(Assignment::from_opout_and_state(opout, &state));
                 // there can be only a single state when contract is UDA
                 uda_state = Some(state.clone());
-                asset_transition_builder =
-                    asset_transition_builder.add_input(opout, state.clone())?;
+                if main_input_types.contains(&opout.ty) {
+                    main_inputs.push((opout, state.clone()));
+                } else {
+                    side_transfers
+                        .entry(opout.ty)
+                        .or_default()
+                        .inputs
+                        .push((opout, state.clone()));
+                }
                 input_opouts
                     .entry(transfer_info.asset_info.contract_id)
                     .or_default()
@@ -4351,15 +4438,20 @@ pub trait WalletOnline: WalletOffline {
                             continue;
                         }
                         seal = self.get_beneficiary_seal(&recipient.local_recipient_data);
-                        asset_transition_builder = asset_transition_builder.add_fungible_state(
-                            RGB_STATE_ASSET_OWNER,
+                        asset_transition_builder = add_or_side_output(
+                            asset_transition_builder,
+                            &main_assignment_types,
+                            &mut main_used,
+                            &mut side_transfers,
+                            OS_ASSET,
                             seal,
-                            *amt,
+                            Amount::from(*amt).into(),
                         )?;
                     }
                     Assignment::NonFungible => {
                         if let AllocatedState::Data(state) = uda_state.clone().unwrap() {
                             seal = self.get_beneficiary_seal(&recipient.local_recipient_data);
+                            main_used = true;
                             asset_transition_builder = asset_transition_builder
                                 .add_data(RGB_STATE_ASSET_OWNER, seal, Allocation::from(state))
                                 .map_err(Error::from)?;
@@ -4372,10 +4464,14 @@ pub trait WalletOnline: WalletOffline {
                             continue;
                         }
                         seal = self.get_beneficiary_seal(&recipient.local_recipient_data);
-                        asset_transition_builder = asset_transition_builder.add_fungible_state(
-                            RGB_STATE_INFLATION_ALLOWANCE,
+                        asset_transition_builder = add_or_side_output(
+                            asset_transition_builder,
+                            &main_assignment_types,
+                            &mut main_used,
+                            &mut side_transfers,
+                            OS_INFLATION,
                             seal,
-                            *amt,
+                            Amount::from(*amt).into(),
                         )?;
                     }
                     _ => unreachable!(),
@@ -4395,26 +4491,101 @@ pub trait WalletOnline: WalletOffline {
                     &input_outpoints,
                     unspents.as_slice(),
                 )?;
+                let mut change_outputs = vec![];
                 if change.fungible > 0 {
-                    asset_transition_builder = asset_transition_builder.add_fungible_state(
-                        RGB_STATE_ASSET_OWNER,
-                        seal,
-                        change.fungible,
-                    )?;
+                    change_outputs.push((OS_ASSET, Amount::from(change.fungible).into()));
                 }
                 if change.inflation > 0 {
-                    asset_transition_builder = asset_transition_builder.add_fungible_state(
-                        RGB_STATE_INFLATION_ALLOWANCE,
-                        seal,
-                        change.inflation,
+                    change_outputs.push((OS_INFLATION, Amount::from(change.inflation).into()));
+                }
+                for (ty, state) in change_outputs {
+                    // a main transition that takes this type as input but can't assign it (e.g.
+                    // a burn) can't return change. Its inputs are first split by a transition in
+                    // the same bundle, which assigns the change to the change seal and what the
+                    // main transition needs to a seal on an outpoint this TX spends. The main
+                    // transition then spends that output
+                    if !main_assignment_types.contains(&ty) && main_input_types.contains(&ty) {
+                        let side = side_transfers.entry(ty).or_default();
+                        if side.split.is_none() {
+                            let (split_inputs, rest): (Vec<_>, Vec<_>) =
+                                main_inputs.into_iter().partition(|(o, _)| o.ty == ty);
+                            main_inputs = rest;
+                            // the split inputs hold the change and what the main transition needs
+                            let inputs_amount: u64 =
+                                split_inputs.iter().map(|(_, s)| state_amount(s)).sum();
+                            let needed = inputs_amount
+                                .checked_sub(state_amount(&state))
+                                .ok_or(InternalError::Unexpected)?;
+                            side.inputs.extend(split_inputs);
+                            let split_seal =
+                                GraphSeal::rand_from(psbt.unsigned_tx.input[0].previous_output);
+                            side.split = Some((split_seal, needed));
+                            side.outputs.push((
+                                BuilderSeal::Revealed(split_seal),
+                                Amount::from(needed).into(),
+                            ));
+                        }
+                    }
+                    asset_transition_builder = add_or_side_output(
+                        asset_transition_builder,
+                        &main_assignment_types,
+                        &mut main_used,
+                        &mut side_transfers,
+                        ty,
+                        BuilderSeal::Revealed(seal),
+                        state,
                     )?;
                 }
             };
+
+            // the transitions moving the assignment types the main transition doesn't, before
+            // the main one, which may spend the output of a split
+            for (ty, side) in side_transfers {
+                let transition_type = schema.default_transition_for_assignment(&ty);
+                if side.outputs.is_empty() {
+                    return Err(Error::Internal {
+                        details: format!("not enough outputs to move assignments of type {ty}"),
+                    });
+                }
+                let mut side_builder = stock.transition_builder_raw(
+                    transfer_info.asset_info.contract_id,
+                    transition_type,
+                )?;
+                for (opout, state) in side.inputs {
+                    side_builder = side_builder.add_input(opout, state)?;
+                }
+                for (seal, state) in side.outputs {
+                    side_builder = side_builder.add_owned_state_raw(ty, seal, state)?;
+                }
+                let side_transition = side_builder.complete_transition()?;
+                if let Some((split_seal, needed)) = side.split
+                    && let Some(no) = side_transition.assignments.get(&ty).and_then(|a| {
+                        a.as_fungible()
+                            .iter()
+                            .position(|a| a.revealed_seal() == Some(split_seal))
+                    })
+                {
+                    main_inputs.push((
+                        Opout::new(side_transition.id(), ty, no as u16),
+                        Amount::from(needed).into(),
+                    ));
+                }
+                all_transitions
+                    .entry(transfer_info.asset_info.contract_id)
+                    .or_default()
+                    .push(side_transition.clone());
+                psbt.push_rgb_transition(side_transition)
+                    .map_err(InternalError::from)?;
+            }
+            for (opout, state) in main_inputs {
+                asset_transition_builder = asset_transition_builder.add_input(opout, state)?;
+            }
 
             // add necessary globals/metadata to transition
             match transfer_info.main_transition {
                 TypeOfTransition::Inflate => {
                     let inflation = transfer_info.original_assignments_needed.inflation;
+                    main_used = true;
                     asset_transition_builder = asset_transition_builder
                         .add_global_state(RGB_GLOBAL_ISSUED_SUPPLY, Amount::from(inflation))
                         .unwrap()
@@ -4426,6 +4597,7 @@ pub trait WalletOnline: WalletOffline {
                 }
                 TypeOfTransition::Burn => {
                     let burn = transfer_info.original_assignments_needed.fungible;
+                    main_used = true;
                     asset_transition_builder = asset_transition_builder
                         .add_global_state(RGB_GLOBAL_BURNED_ASSET, Amount::from(burn))
                         .unwrap();
@@ -4437,13 +4609,23 @@ pub trait WalletOnline: WalletOffline {
                 _ => {}
             }
 
-            let transition = asset_transition_builder.complete_transition()?;
-            all_transitions
-                .entry(transfer_info.asset_info.contract_id)
-                .or_default()
-                .push(transition.clone());
-            psbt.push_rgb_transition(transition)
-                .map_err(InternalError::from)?;
+            // a transition must spend something: the main transition is left out when it spends
+            // nothing and does nothing (e.g. a transfer of rights only, which side transitions
+            // move), while one assigning or recording state without spending anything would
+            // create it from nothing
+            if asset_transition_builder.has_inputs() {
+                let transition = asset_transition_builder.complete_transition()?;
+                all_transitions
+                    .entry(transfer_info.asset_info.contract_id)
+                    .or_default()
+                    .push(transition.clone());
+                psbt.push_rgb_transition(transition)
+                    .map_err(InternalError::from)?;
+            } else if main_used {
+                return Err(Error::Internal {
+                    details: s!("main transition assigning or recording state without inputs"),
+                });
+            }
             asset_beneficiaries.insert(asset_id.clone(), beneficiaries);
         }
 
@@ -4565,7 +4747,7 @@ pub trait WalletOnline: WalletOffline {
             };
 
             if should_build_dag {
-                let (_, dag_data, _) = stock.transfer_from_fascia_with_dag(
+                let (_, ops_dag, _) = stock.transfer_from_fascia_with_dag(
                     transfer_info.asset_info.contract_id,
                     transfer_info.beneficiaries_witness.clone(),
                     transfer_info.beneficiaries_blinded.clone(),
@@ -4584,7 +4766,7 @@ pub trait WalletOnline: WalletOffline {
                     .get(&transfer_info.asset_info.contract_id)
                     .unwrap();
                 let asset_input_opouts = asset_opouts.keys().cloned().collect();
-                let to_reject = self.check_dag(&dag_data, reject_list, &asset_input_opouts)?;
+                let to_reject = self.check_dag(&ops_dag, reject_list, &asset_input_opouts)?;
                 if !to_reject.is_empty() {
                     warn!(
                         self.logger(),
@@ -5123,6 +5305,9 @@ pub trait WalletOnline: WalletOffline {
                         None,
                         recipient.assignment,
                     ),
+                    TypeOfTransition::TransferInflation | TypeOfTransition::TransferLink => {
+                        unreachable!("rights transfers are not the main transition of an operation")
+                    }
                 };
 
                 let recipient_pubkey = if recipient.public_key.is_empty() {

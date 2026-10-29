@@ -724,7 +724,7 @@ dependencies = [
  "regex",
  "rustc-hash",
  "shlex",
- "syn 2.0.119",
+ "syn 3.0.9",
 ]
 
 [[package]]
@@ -3225,9 +3225,9 @@ dependencies = [
 
 [[package]]
 name = "rgb-aluvm"
-version = "0.11.2-rc.1"
+version = "0.11.2-rc.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21de8dc75b4ce90dffe66cff585053e9f5d2abe6436589c95e6308f0605195f4"
+checksum = "4b78fedbfaec4a68039a203ec33e8833be53a74c29d57f859bec1733ba50469d"
 dependencies = [
  "amplify",
  "baid64",
@@ -3244,9 +3244,9 @@ dependencies = [
 
 [[package]]
 name = "rgb-ascii-armor"
-version = "1.0.5"
+version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b3a739537822793adce1f9539bb3fae3d54a16f409e8353ac85281bdfcec078"
+checksum = "14d91be12a8f72d4b0b0afc4be8ed837649c58229a35ee43fb608c30ade63acd"
 dependencies = [
  "amplify",
  "baid64",
@@ -3257,9 +3257,9 @@ dependencies = [
 
 [[package]]
 name = "rgb-consensus"
-version = "0.11.2-rc.1"
+version = "0.11.2-rc.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd5d6c21f60f24976d8b983b6b5925cd87a4865af8ad6d965d45360518bbfd24"
+checksum = "450f12427716cce58e2b5ecf2b32a5551d9d90d5a670504ae79cd42ce15a26de"
 dependencies = [
  "amplify",
  "baid64",
@@ -3284,9 +3284,9 @@ dependencies = [
 
 [[package]]
 name = "rgb-invoicing"
-version = "0.11.2-rc.1"
+version = "0.11.2-rc.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76692ae2017e3b4789d2539dcf483b5e5e9f4468030d9ffb619aabeab7cd43b4"
+checksum = "536cdbcb88a9503b6810799714f5fa9195c56476b41e9480af8173d11c9f7b33"
 dependencies = [
  "amplify",
  "baid64",
@@ -3364,9 +3364,9 @@ dependencies = [
 
 [[package]]
 name = "rgb-ops"
-version = "0.11.2-rc.1"
+version = "0.11.2-rc.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0b0b332a32be0e41ce328d534d559e67a0add6381d250bdc188e44eb8777ca7"
+checksum = "33b258717fe6ae3d008f04996d162b10f12e14e287adbbe0bc44dd6d8da20d57"
 dependencies = [
  "amplify",
  "baid64",
@@ -3388,9 +3388,9 @@ dependencies = [
 
 [[package]]
 name = "rgb-psbt-utils"
-version = "0.11.2-rc.1"
+version = "0.11.2-rc.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16167fb6520c432702b42dbc6344c94573ff8873082386c129718a66bcb535ce"
+checksum = "9e7c47eb29264ed6a3bf47d1f535fee1510df6d74a9d2890d94793759d2ddd34"
 dependencies = [
  "amplify",
  "getrandom 0.3.4",
@@ -3402,9 +3402,9 @@ dependencies = [
 
 [[package]]
 name = "rgb-schemas"
-version = "0.11.2-rc.1"
+version = "0.11.2-rc.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "480f3d71e0f1b23b3c75b59255d62de178259e074f4a74410c330c734f52246f"
+checksum = "cb7e4f3e7b61939d22f105e4a9f34e3d68a612e995bf69dc71f4355067d2c34c"
 dependencies = [
  "amplify",
  "rgb-aluvm",
@@ -3414,9 +3414,9 @@ dependencies = [
 
 [[package]]
 name = "rgb-strict-encoding"
-version = "1.0.5"
+version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43cf06a3afea7b29f92f279a5fabb39215d1287f796a8d1a75ce77dd4f807fd4"
+checksum = "37ae05007406dbf411ad79debab06ca8e142449f65443d0c9b20f01d11cec593"
 dependencies = [
  "amplify",
  "bitcoin",
@@ -3427,9 +3427,9 @@ dependencies = [
 
 [[package]]
 name = "rgb-strict-encoding-derive"
-version = "1.0.5"
+version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "473d4bc563f8db593abf7213f82fafc5bc667125f2c39222cd66ead369e60421"
+checksum = "c03ab63c54d58c0064505372bc94722a6bfe8e1a79669d693a4c8af322ff9a81"
 dependencies = [
  "amplify_syn",
  "heck 0.5.0",
@@ -3440,9 +3440,9 @@ dependencies = [
 
 [[package]]
 name = "rgb-strict-types"
-version = "1.0.5"
+version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5efea5be04a66a22f96580fb8c7fd9558f7c5d74039c096bb024e4f325f4529a"
+checksum = "8bac2b3084d65f5c6c5595b4554c2b0156f8d7b71bbabed86b1069f6d2800e49"
 dependencies = [
  "amplify",
  "baid64",
@@ -4505,7 +4505,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",

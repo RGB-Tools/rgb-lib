@@ -7,7 +7,7 @@ pub(crate) const SCHEMA_ID_UDA: &str =
 pub(crate) const SCHEMA_ID_CFA: &str =
     "rgb:sch:JgqK5hJX9YBT4osCV7VcW_iLTcA5csUCnLzvaKTTrNY#mars-house-friend";
 pub(crate) const SCHEMA_ID_IFA: &str =
-    "rgb:sch:Y2a6SW4rY3gRwLE40OxILhwOyL2FR9ppte790oLbIe0#athena-paul-horizon";
+    "rgb:sch:A2n9kPNWtXUqwQJyXfY8yGHKyEPZgvrNYYYPGhXawOk#graph-salute-retro";
 
 /// The schema of an asset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
@@ -627,6 +627,12 @@ pub enum TypeOfTransition {
     Transfer,
     /// Burn transition (burning existing tokens)
     Burn,
+    /// Transfer of inflation rights, by a transition of its own in the bundle of an operation, as
+    /// the main transition of the operation (e.g. a transfer) can't move them
+    TransferInflation,
+    /// Transfer of link rights, by a transition of its own in the bundle of an operation, as the
+    /// main transition of the operation (e.g. a transfer) can't move them
+    TransferLink,
 }
 
 impl TypeOfTransition {
@@ -636,6 +642,8 @@ impl TypeOfTransition {
             Self::Inflate => "inflate",
             Self::Transfer => "transfer",
             Self::Burn => "burn",
+            Self::TransferInflation => "transferInflation",
+            Self::TransferLink => "transferLink",
         }
     }
 }
@@ -648,6 +656,8 @@ impl TryFrom<TransitionType> for TypeOfTransition {
             TS_TRANSFER => Self::Transfer,
             TS_INFLATION => Self::Inflate,
             TS_BURN => Self::Burn,
+            TS_TRANSFER_INFLATION => Self::TransferInflation,
+            TS_TRANSFER_LINK => Self::TransferLink,
             _ => return Err(()),
         })
     }

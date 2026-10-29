@@ -2301,6 +2301,17 @@ pub enum ReceiveMatcher {
     Witness(ScriptBuf, Option<u64>),
 }
 
+/// A destination at which a consignment pays this recipient, see `find_payments`.
+#[cfg(feature = "_online")]
+pub struct ConsignmentPayment<'c> {
+    /// the bundle paying the recipient
+    pub(crate) bundle: &'c WitnessBundle,
+    /// for witness receives, the vout of the bundle witness TX being paid
+    pub(crate) vout: Option<u32>,
+    /// the assignments received, unspent within the consignment
+    pub(crate) receiving: HashMap<Opout, Assignment>,
+}
+
 impl DbTransfer {
     #[cfg(feature = "_online")]
     pub(crate) fn receive_matcher(&self, blinding: Option<u64>) -> Result<ReceiveMatcher, Error> {

@@ -62,9 +62,9 @@ pub(crate) use indexer::BitcoindClient;
 pub(crate) use indexer::Indexer;
 #[cfg(feature = "_online")]
 pub(crate) use objects::{
-    AssetInfo, AssetSpend, BeginOperationData, BtcChange, CleanAckOutcome, FailTransfersOutcome,
-    LocalRecipient, LocalRecipientData, LocalWitnessData, OnlineData, PrepareRgbPsbtResult,
-    PrepareTransferPsbtResult, ProxyReceiveData, ReceiveMatcher, ReceiveMode,
+    AssetInfo, AssetSpend, BeginOperationData, BtcChange, CleanAckOutcome, ConsignmentPayment,
+    FailTransfersOutcome, LocalRecipient, LocalRecipientData, LocalWitnessData, OnlineData,
+    PrepareRgbPsbtResult, PrepareTransferPsbtResult, ProxyReceiveData, ReceiveMatcher, ReceiveMode,
     ReceivedConsignmentMeta, RefreshResultTrait, RejectList, TryFailBatchTransferOutcome,
 };
 pub(crate) use objects::{

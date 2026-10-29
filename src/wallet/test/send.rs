@@ -11393,56 +11393,6 @@ fn out_of_band_consignment_multiple_receives() {
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
-fn fail_no_terminals() {
-    initialize();
-
-    let amount: u64 = 66;
-
-    // wallets
-    let mut party = get_funded_party!();
-    let mut rcv_party = get_funded_party!();
-
-    // issue
-    let asset = party.issue_asset_nia(None);
-
-    // send, stripping the terminals from the generated consignment
-    let receive_data = rcv_party.blind_receive();
-    let recipient_map = HashMap::from([(
-        asset.asset_id.clone(),
-        vec![Recipient {
-            assignment: Assignment::Fungible(amount),
-            recipient_id: receive_data.recipient_id.clone(),
-            witness_data: None,
-            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
-            public_key: Some(receive_data.public_key.clone()),
-            expiration_timestamp: Some(receive_data.expiration_timestamp),
-            encryption: Encryption::Optional,
-        }],
-    )]);
-    println!("setting MOCK_STRIP_TERMINALS");
-    MOCK_STRIP_TERMINALS.replace(Some(()));
-    let txid = party.send_retry(&recipient_map);
-    assert!(!txid.is_empty());
-
-    // the receiver refuses the consignment and both sides end up Failed
-    rcv_party.wait_for_refresh(None);
-    let rcv_transfer = rcv_party.get_test_transfer_recipient(&receive_data.recipient_id);
-    let (rcv_transfer_data, _) = rcv_party.get_test_transfer_data(&rcv_transfer);
-    assert_eq!(rcv_transfer_data.status, TransferStatus::Failed);
-
-    party.wait_for_refresh(Some(&asset.asset_id));
-    let batch_transfers = party.db_batch_transfers_filtered(&txid);
-    let batch_transfer = batch_transfers.first().unwrap();
-    let asset_transfer = party.get_test_asset_transfer(batch_transfer.idx);
-    for transfer in party.db_transfers_filtered(asset_transfer.idx) {
-        let (transfer_data, _) = party.get_test_transfer_data(&transfer);
-        assert_eq!(transfer_data.status, TransferStatus::Failed);
-    }
-}
-
-#[cfg(feature = "electrum")]
-#[test]
-#[parallel]
 fn proxy_auth() {
     initialize();
 

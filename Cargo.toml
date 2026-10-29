@@ -90,17 +90,17 @@ zip = { version = "9.4.1", optional = true, default-features = false, features =
 
 # RGB-related deps
 amplify = { version = "=4.8.1", default-features = false }
-rgb-invoicing = { version = "0.11.2-rc.1", default-features = false }
-rgb-psbt-utils = { version = "0.11.2-rc.1", optional = true, default-features = false }
-rgb-schemas = { version = "0.11.2-rc.1", default-features = false }
-rgb-ops = { version = "0.11.2-rc.1", default-features = false, features = [
+rgb-invoicing = { version = "0.11.2-rc.2", default-features = false }
+rgb-psbt-utils = { version = "0.11.2-rc.2", optional = true, default-features = false }
+rgb-schemas = { version = "0.11.2-rc.2", default-features = false }
+rgb-ops = { version = "0.11.2-rc.2", default-features = false, features = [
     "fs",
     "serde",
 ] }
-rgb-strict-encoding = { version = "1.0.5", default-features = false, features = [
+rgb-strict-encoding = { version = "1.0.6", default-features = false, features = [
     "bitcoin",
 ] }
-rgb-strict-types = { version = "1.0.5", default-features = false }
+rgb-strict-types = { version = "1.0.6", default-features = false }
 
 [dev-dependencies]
 biscuit-auth = { version = "6.0.0", default-features = false, features = [
