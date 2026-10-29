@@ -7,6 +7,8 @@ fn success() {
     initialize();
 
     let amount: u64 = 66;
+    // allow operations expiring within seconds
+    MOCK_CLOCK_SKEW_MARGIN.replace(Some(1));
     let expiration_secs = 60i64;
 
     // wallets
@@ -2991,6 +2993,8 @@ fn recipient_operation_expired() {
     let receive_data_1 = rcv_party_1.blind_receive();
     let receive_data_2 = rcv_party_2.blind_receive();
     // batch send (2 recipients) with a short operation expiration
+    // allow operations expiring within seconds
+    MOCK_CLOCK_SKEW_MARGIN.replace(Some(1));
     let expiration = (now().unix_timestamp() + 20) as u64;
     let recipient_map = HashMap::from([(
         asset.asset_id.clone(),
@@ -3265,6 +3269,8 @@ fn fail_before_ack_revokes_operation() {
     initialize();
 
     let amount: u64 = 66;
+    // allow the short operation expiration below
+    MOCK_CLOCK_SKEW_MARGIN.replace(Some(5));
 
     let mut party = get_funded_party!();
     let mut rcv_party = get_funded_party!();
@@ -3676,6 +3682,19 @@ fn fail() {
         FEE_RATE,
         MIN_CONFIRMATIONS,
         far_expiration(),
+        Some(PROXY_ENDPOINT.clone()),
+        false,
+    );
+    assert_matches!(result, Err(Error::InvalidExpiration));
+
+    // operation expiration: must leave at least the clock skew margin
+    let result = party.wallet.send_begin(
+        party.online,
+        recipient_map_with_expiration(Some(receive_data.expiration_timestamp)),
+        false,
+        FEE_RATE,
+        MIN_CONFIRMATIONS,
+        now().unix_timestamp() as u64 + PROXY_CLOCK_SKEW_MARGIN_SECS as u64 - 60,
         Some(PROXY_ENDPOINT.clone()),
         false,
     );
@@ -10538,7 +10557,9 @@ fn out_of_band_fail() {
     ));
 
     // provide_out_of_band_ack on an expired transfer
-    let expiration_secs: u64 = 1;
+    // allow operations expiring within seconds
+    MOCK_CLOCK_SKEW_MARGIN.replace(Some(1));
+    let expiration_secs: u64 = 2;
     let receive_expiring = rcv_party
         .wallet
         .blind_receive(
@@ -11456,6 +11477,8 @@ fn recipient_waits_broadcast_deadline() {
     MOCK_RETENTION_GRACE.replace(Some(retention_grace));
     MOCK_MIN_RETENTION_GRACE.replace(Some(0));
     MOCK_CONFIRMATION_MARGIN.replace(Some(confirmation_margin));
+    // allow the short operation expiration below
+    MOCK_CLOCK_SKEW_MARGIN.replace(Some(5));
 
     let mut party = get_funded_party!();
     let mut rcv_party_1 = get_funded_party!();
@@ -11559,6 +11582,8 @@ fn recipient_fails_unconfirmed_past_deadline() {
     MOCK_RETENTION_GRACE.replace(Some(retention_grace));
     MOCK_MIN_RETENTION_GRACE.replace(Some(0));
     MOCK_CONFIRMATION_MARGIN.replace(Some(confirmation_margin));
+    // allow the short operation expiration below
+    MOCK_CLOCK_SKEW_MARGIN.replace(Some(5));
 
     let mut party = get_funded_party!();
     let mut rcv_party = get_funded_party!();
@@ -11717,6 +11742,8 @@ fn hostile_sender_proxy_expiration_can_be_failed() {
     let retention_grace: u32 = 5;
     MOCK_RETENTION_GRACE.replace(Some(retention_grace));
     MOCK_MIN_RETENTION_GRACE.replace(Some(0));
+    // allow the short operation expiration below
+    MOCK_CLOCK_SKEW_MARGIN.replace(Some(5));
 
     let mut party = get_funded_party!();
     let mut rcv_party_1 = get_funded_party!();

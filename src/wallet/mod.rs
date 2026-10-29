@@ -100,6 +100,10 @@ pub const MAX_EXPIRATION_SECS: u32 = 10 * 365 * 24 * 60 * 60;
 /// Margin, in seconds, by which a deadline must have passed on the local clock before
 /// the corresponding proxy deadline is considered to have passed as well. It matches the
 /// tolerance the proxy applies to timestamps.
+///
+/// The docs of `send_begin` and `send_init` state, in minutes, the operation expiration
+/// requirements following from it (this margin, [`INVOICE_EXPIRATION_MARGIN_SECS`] and their sum):
+/// update them along with it.
 #[cfg(feature = "_online")]
 pub(crate) const PROXY_CLOCK_SKEW_MARGIN_SECS: u32 = 300;
 

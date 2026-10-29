@@ -954,12 +954,14 @@ impl Wallet {
     /// refreshing) to the [`TransferStatus::Settled`] status.
     ///
     /// An expiration UTC timestamp must be specified, which will set the expiration of the
-    /// transfer. This should be set to the same value specified by the recipient's invoice, so
-    /// that sender and recipient enforce the same deadline; once it passes, the recipient is
-    /// allowed to fail the transfer and the sender will avoid broadcasting it even if a late ACK is
-    /// received. In case of a batch transfer, set it to the minimum (earliest) expiration across
-    /// the recipients' invoices. An expiration more than [`MAX_EXPIRATION_SECS`] in the future is
-    /// refused.
+    /// transfer: once it passes, the sender will avoid broadcasting it even if a late ACK is
+    /// received. It must be at least 5 minutes in the future, the clock skew the proxy tolerates
+    /// on timestamps, so that it cannot already be past on the sender proxy's clock. For
+    /// recipients with transport endpoints, it must also be at least 10 minutes (twice that
+    /// tolerance) before the earliest of their invoice expirations, so the TX can only be released
+    /// while they are still waiting for it, even with skewed clocks: their invoices therefore need
+    /// at least 15 minutes left. It must not be more than [`MAX_EXPIRATION_SECS`] in the future.
+    /// [`Error::InvalidExpiration`] is returned otherwise.
     ///
     /// The `sender_transport_endpoint` is the sender's own proxy, where recipients post their ACK
     /// and the signed transaction is released. It is required when at least one recipient has
