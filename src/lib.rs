@@ -554,7 +554,7 @@ use crate::{
     },
     wallet::{
         AssetFilter, Balance, LocalRgbAllocation, LocalUnspent, NUM_KNOWN_SCHEMAS, Outpoint,
-        WalletDescriptors,
+        RGB_STATE_ASSET_OWNER, RGB_STATE_INFLATION_ALLOWANCE, WalletDescriptors,
     },
 };
 #[cfg(all(test, feature = "wallet"))]

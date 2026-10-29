@@ -104,6 +104,17 @@ fn success() {
     assert_eq!(tte_data.len(), transport_endpoints.len());
 }
 
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn schema_assignment_combinations() {
+    initialize();
+
+    let mut party = get_funded_party!();
+
+    check_receive_schema_assignment_combinations(&mut party, Wallet::witness_receive);
+}
+
 #[test]
 #[parallel]
 fn fail() {

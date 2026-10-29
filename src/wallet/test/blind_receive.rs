@@ -101,7 +101,7 @@ fn success() {
     assert_eq!(invoice_data.asset_schema, Some(AssetSchema::Cfa));
 
     // asset id is set (IFA) + amount
-    party.create_utxos_default(); // more UTXOs to have free alocation slots
+    party.create_utxos_default(); // more UTXOs to have free allocation slots
     let asset_ifa = party.issue_asset_ifa(None, None, None);
     let asset_ifa_id = asset_ifa.asset_id;
     let expiration_timestamp = (now().unix_timestamp() + expiration_secs) as u64;
@@ -337,6 +337,19 @@ fn success() {
     let transfer = party.get_test_transfer_recipient(&result.unwrap().recipient_id);
     let tte_data = party.db_transfer_transport_endpoints_data(transfer.idx);
     assert_eq!(tte_data.len(), transport_endpoints.len());
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn schema_assignment_combinations() {
+    initialize();
+
+    let mut party = get_funded_party!();
+    // more UTXOs to have free allocation slots for the issuances and the blind receives
+    party.create_utxos(false, Some(UTXO_NUM * 3), None, FEE_RATE, None);
+
+    check_receive_schema_assignment_combinations(&mut party, Wallet::blind_receive);
 }
 
 #[cfg(feature = "electrum")]

@@ -505,12 +505,10 @@ fn supported_schemas() {
     let asset_nia = party_nia.issue_asset_nia(Some(&[AMOUNT]));
 
     // issue a different schema asset, should fail
-    let result = party_nia.issue_asset_cfa_result(Some(&[AMOUNT]), None);
-    assert_matches!(result, Err(Error::UnsupportedSchema { asset_schema: _ }));
-    let result = party_nia.issue_asset_ifa_result(Some(&[AMOUNT]), None, None);
-    assert_matches!(result, Err(Error::UnsupportedSchema { asset_schema: _ }));
-    let result = party_nia.issue_asset_uda_result(None, None, vec![]);
-    assert_matches!(result, Err(Error::UnsupportedSchema { asset_schema: _ }));
+    for schema in AssetSchema::iter().filter(|s| *s != AssetSchema::Nia) {
+        let result = party_nia.issue_asset_of_schema_result(schema);
+        assert_matches!(result, Err(Error::UnsupportedSchema { asset_schema }) if asset_schema == schema);
+    }
 
     // recipient wallet (UDA schema supported)
     let keys_rcv = generate_keys(bitcoin_network, WitnessVersion::Taproot);

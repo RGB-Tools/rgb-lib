@@ -115,6 +115,64 @@ impl AssetSchema {
         }
     }
 
+    /// Whether the schema has state the given concrete `assignment` can refer to.
+    ///
+    /// [`Assignment::Any`] is not a concrete assignment, so it is never supported.
+    pub(crate) fn supports_assignment(&self, assignment: &Assignment) -> bool {
+        match assignment {
+            Assignment::Fungible(_) => match self {
+                Self::Nia | Self::Cfa | Self::Ifa => true,
+                Self::Uda => false,
+            },
+            Assignment::NonFungible => match self {
+                Self::Uda => true,
+                Self::Nia | Self::Cfa | Self::Ifa => false,
+            },
+            Assignment::InflationRight(_) => match self {
+                Self::Ifa => true,
+                Self::Nia | Self::Uda | Self::Cfa => false,
+            },
+            Assignment::Any => false,
+        }
+    }
+
+    /// What a request for [`Assignment::Any`] of the schema refers to: the only kind of state it
+    /// can be requested for, or [`Assignment::Any`] itself if there is more than one.
+    pub(crate) fn any_assignment(&self) -> Assignment {
+        match self {
+            Self::Nia | Self::Cfa => Assignment::Fungible(0),
+            Self::Uda => Assignment::NonFungible,
+            Self::Ifa => Assignment::Any,
+        }
+    }
+
+    /// Whether the schema can carry a reject list.
+    #[cfg(feature = "_online")]
+    pub(crate) fn supports_reject_list(&self) -> bool {
+        match self {
+            Self::Ifa => true,
+            Self::Nia | Self::Uda | Self::Cfa => false,
+        }
+    }
+
+    /// Whether the schema supports inflation.
+    #[cfg(feature = "_online")]
+    pub(crate) fn supports_inflation(&self) -> bool {
+        match self {
+            Self::Ifa => true,
+            Self::Nia | Self::Uda | Self::Cfa => false,
+        }
+    }
+
+    /// Whether the schema supports burning.
+    #[cfg(feature = "_online")]
+    pub(crate) fn supports_burn(&self) -> bool {
+        match self {
+            Self::Ifa => true,
+            Self::Nia | Self::Uda | Self::Cfa => false,
+        }
+    }
+
     pub(crate) fn import_schema_definition(&self, stock: &mut RgbStock<'_>) -> Result<(), Error> {
         stock.import_schema_definition(self.schema_definition())
     }
@@ -397,6 +455,7 @@ pub enum WalletTransactionType {
 
 /// An RGB assignment.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+#[cfg_attr(all(test, feature = "wallet"), derive(EnumIter))]
 pub enum Assignment {
     /// Fungible value in RGB units (not considering precision)
     Fungible(u64),
@@ -438,6 +497,15 @@ impl Assignment {
                     .expect("total inflation amount cannot exceed u64::MAX")
             }
             _ => unreachable!("when using this method we should know the assignment type"),
+        }
+    }
+
+    /// The name of the contract state the assignment refers to, if it is a concrete one.
+    pub(crate) fn state_name(&self) -> Option<&'static str> {
+        match self {
+            Self::Fungible(_) | Self::NonFungible => Some(RGB_STATE_ASSET_OWNER),
+            Self::InflationRight(_) => Some(RGB_STATE_INFLATION_ALLOWANCE),
+            Self::Any => None,
         }
     }
 
@@ -596,6 +664,9 @@ mod tests {
             let schema_id = asset_schema.into();
             let asset_schema_from_schema_id = AssetSchema::from_schema_id(schema_id).unwrap();
             assert_eq!(asset_schema, asset_schema_from_schema_id);
+            // the constants match the compiled schemata
+            #[cfg(feature = "_online")]
+            assert_eq!(asset_schema.schema_rules().schema_id(), schema_id);
         }
 
         // unknown

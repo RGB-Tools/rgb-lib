@@ -500,18 +500,14 @@ fn fail() {
     let mut party_nia = party!(wallet_nia, online_nia);
     let result = party_nia.inflate_begin_result(&asset_ifa.asset_id, &[1]);
     assert_matches!(result, Err(Error::UnsupportedSchema { asset_schema: _ }));
-    // - inflation not supported
-    let asset_nia = party.issue_asset_nia(None);
-    let asset_cfa = party.issue_asset_cfa(None, None);
-    let asset_uda = party.issue_asset_uda(None, None, vec![]);
-    let unsupported_asset_ids = [
-        (asset_nia.asset_id, AssetSchema::Nia),
-        (asset_cfa.asset_id, AssetSchema::Cfa),
-        (asset_uda.asset_id, AssetSchema::Uda),
-    ];
-    for (asset_id, schema) in unsupported_asset_ids {
-        let inflation_amounts = vec![200, 42];
-        let result = party.inflate_result(&asset_id, &inflation_amounts);
+    // - inflation not supported (the match is exhaustive, so that a new schema has to be sorted)
+    for schema in AssetSchema::iter() {
+        match schema {
+            AssetSchema::Ifa => continue,
+            AssetSchema::Nia | AssetSchema::Uda | AssetSchema::Cfa => {}
+        }
+        let asset_id = party.issue_asset_of_schema(schema);
+        let result = party.inflate_result(&asset_id, &[200, 42]);
         assert_matches!(result, Err(Error::UnsupportedInflation { asset_schema }) if asset_schema == schema);
     }
     // - inflation amounts (none, zero)

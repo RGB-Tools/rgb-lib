@@ -1076,31 +1076,25 @@ pub trait WalletOffline: WalletBackup {
             invoice_builder = invoice_builder.add_transports(transports).unwrap();
         }
         let detected_assignment = match (&assignment, schema) {
-            (
-                Assignment::Fungible(amt),
-                Some(AssetSchema::Nia) | Some(AssetSchema::Cfa) | Some(AssetSchema::Ifa) | None,
-            ) => {
-                invoice_builder = invoice_builder.set_amount_raw(*amt);
-                invoice_builder = invoice_builder.set_assignment_name(RGB_STATE_ASSET_OWNER);
-                assignment
+            (Assignment::Any, Some(schema)) => schema.any_assignment(),
+            (Assignment::Any, None) => Assignment::Any,
+            (_, Some(schema)) if !schema.supports_assignment(&assignment) => {
+                return Err(Error::InvalidAssignment);
             }
-            (Assignment::Any, Some(AssetSchema::Nia) | Some(AssetSchema::Cfa)) => {
-                invoice_builder = invoice_builder.set_assignment_name(RGB_STATE_ASSET_OWNER);
-                Assignment::Fungible(0)
-            }
-            (Assignment::NonFungible | Assignment::Any, Some(AssetSchema::Uda)) => {
-                invoice_builder = invoice_builder.set_assignment_name(RGB_STATE_ASSET_OWNER);
-                Assignment::NonFungible
-            }
-            (Assignment::InflationRight(amt), Some(AssetSchema::Ifa)) => {
-                invoice_builder = invoice_builder.set_amount_raw(*amt);
-                invoice_builder =
-                    invoice_builder.set_assignment_name(RGB_STATE_INFLATION_ALLOWANCE);
-                assignment
-            }
-            (Assignment::Any, _) => Assignment::Any,
-            _ => return Err(Error::InvalidAssignment),
+            (_, Some(_)) | (Assignment::Fungible(_), None) => assignment.clone(),
+            // without a schema only an amount can be requested
+            (_, None) => return Err(Error::InvalidAssignment),
         };
+        // the amount comes from the request, so it's left open when narrowing down "any"
+        match &assignment {
+            Assignment::Fungible(amt) | Assignment::InflationRight(amt) => {
+                invoice_builder = invoice_builder.set_amount_raw(*amt);
+            }
+            Assignment::NonFungible | Assignment::Any => {}
+        }
+        if let Some(state_name) = detected_assignment.state_name() {
+            invoice_builder = invoice_builder.set_assignment_name(state_name);
+        }
         let created_at = now().unix_timestamp();
         if expiration_timestamp < created_at
             || expiration_timestamp > created_at + i64::from(MAX_EXPIRATION_SECS)
@@ -1409,38 +1403,40 @@ pub trait WalletOffline: WalletBackup {
             } else {
                 initial_supply
             };
-        let token = if matches!(asset.schema, AssetSchema::Uda) {
-            let medias = txn.iter_media()?;
-            let tokens = txn.iter_tokens()?;
-            let token_medias = txn.iter_token_medias()?;
-            if let Some(token_light) =
-                self.get_asset_token(asset.idx, &medias, &tokens, &token_medias)
-            {
-                let mut token = Token {
-                    index: token_light.index,
-                    ticker: token_light.ticker,
-                    name: token_light.name,
-                    details: token_light.details,
-                    embedded_media: None,
-                    media: token_light.media,
-                    attachments: token_light.attachments,
-                    reserves: None,
-                };
-                if token_light.embedded_media || token_light.reserves {
-                    let stock = self.rgb_stock(txn)?;
-                    let contract_id = ContractId::from_str(&asset_id).expect("invalid contract ID");
-                    let contract = stock.contract_wrapper::<UniqueDigitalAsset>(contract_id)?;
-                    let uda_token =
-                        Token::from_token_data(&contract.token_data(), self.media_dir());
-                    token.embedded_media = uda_token.embedded_media;
-                    token.reserves = uda_token.reserves;
+        let token = match asset.schema {
+            AssetSchema::Uda => {
+                let medias = txn.iter_media()?;
+                let tokens = txn.iter_tokens()?;
+                let token_medias = txn.iter_token_medias()?;
+                if let Some(token_light) =
+                    self.get_asset_token(asset.idx, &medias, &tokens, &token_medias)
+                {
+                    let mut token = Token {
+                        index: token_light.index,
+                        ticker: token_light.ticker,
+                        name: token_light.name,
+                        details: token_light.details,
+                        embedded_media: None,
+                        media: token_light.media,
+                        attachments: token_light.attachments,
+                        reserves: None,
+                    };
+                    if token_light.embedded_media || token_light.reserves {
+                        let stock = self.rgb_stock(txn)?;
+                        let contract_id =
+                            ContractId::from_str(&asset_id).expect("invalid contract ID");
+                        let contract = stock.contract_wrapper::<UniqueDigitalAsset>(contract_id)?;
+                        let uda_token =
+                            Token::from_token_data(&contract.token_data(), self.media_dir());
+                        token.embedded_media = uda_token.embedded_media;
+                        token.reserves = uda_token.reserves;
+                    }
+                    Some(token)
+                } else {
+                    None
                 }
-                Some(token)
-            } else {
-                None
             }
-        } else {
-            None
+            AssetSchema::Nia | AssetSchema::Cfa | AssetSchema::Ifa => None,
         };
 
         Ok(Metadata {

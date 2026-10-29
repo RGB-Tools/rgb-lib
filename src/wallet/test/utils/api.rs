@@ -1060,6 +1060,13 @@ pub(crate) trait SinglesigWalletParty {
         reject_list_url: Option<String>,
     ) -> Result<AssetIFA, Error>;
 
+    /// Issue an asset of the given schema with default parameters, returning its ID.
+    #[cfg(feature = "electrum")]
+    fn issue_asset_of_schema(&mut self, schema: AssetSchema) -> String;
+
+    #[cfg(feature = "electrum")]
+    fn issue_asset_of_schema_result(&mut self, schema: AssetSchema) -> Result<String, Error>;
+
     fn issue_asset_nia(&mut self, amounts: Option<&[u64]>) -> AssetNIA;
 
     fn issue_asset_nia_result(&mut self, amounts: Option<&[u64]>) -> Result<AssetNIA, Error>;
@@ -1205,6 +1212,21 @@ impl<T: OfflineSigParty<W = Wallet>> SinglesigWalletParty for T {
             inflation_amounts,
             reject_list_url,
         )
+    }
+
+    #[cfg(feature = "electrum")]
+    fn issue_asset_of_schema(&mut self, schema: AssetSchema) -> String {
+        self.issue_asset_of_schema_result(schema).unwrap()
+    }
+
+    #[cfg(feature = "electrum")]
+    fn issue_asset_of_schema_result(&mut self, schema: AssetSchema) -> Result<String, Error> {
+        Ok(match schema {
+            AssetSchema::Nia => self.issue_asset_nia_result(None)?.asset_id,
+            AssetSchema::Uda => self.issue_asset_uda_result(None, None, vec![])?.asset_id,
+            AssetSchema::Cfa => self.issue_asset_cfa_result(None, None)?.asset_id,
+            AssetSchema::Ifa => self.issue_asset_ifa_result(None, None, None)?.asset_id,
+        })
     }
 
     fn issue_asset_nia(&mut self, amounts: Option<&[u64]>) -> AssetNIA {

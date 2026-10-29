@@ -452,6 +452,108 @@ pub(crate) fn send_and_settle(
     txid
 }
 
+/// Whether an asset of the given schema supports the given assignment.
+#[cfg(feature = "electrum")]
+pub(crate) fn schema_supports_assignment(schema: AssetSchema, assignment: &Assignment) -> bool {
+    match schema {
+        AssetSchema::Nia | AssetSchema::Cfa => matches!(assignment, Assignment::Fungible(_)),
+        AssetSchema::Uda => matches!(assignment, Assignment::NonFungible),
+        AssetSchema::Ifa => matches!(
+            assignment,
+            Assignment::Fungible(_) | Assignment::InflationRight(_)
+        ),
+    }
+}
+
+/// The assignment a receive request ends up with for an asset of the given schema (`None` when no
+/// asset is specified), or `None` if the request is invalid.
+#[cfg(feature = "electrum")]
+fn expected_receive_assignment(
+    schema: Option<AssetSchema>,
+    assignment: &Assignment,
+) -> Option<Assignment> {
+    match (schema, assignment) {
+        // without an asset only an amount can be requested
+        (None, Assignment::Fungible(_) | Assignment::Any) => Some(assignment.clone()),
+        (None, _) => None,
+        // "any" is narrowed down to the schema's assignment, if it has only one
+        (Some(AssetSchema::Nia | AssetSchema::Cfa), Assignment::Any) => {
+            Some(Assignment::Fungible(0))
+        }
+        (Some(AssetSchema::Uda), Assignment::Any) => Some(Assignment::NonFungible),
+        (Some(AssetSchema::Ifa), Assignment::Any) => Some(Assignment::Any),
+        (Some(schema), _) if schema_supports_assignment(schema, assignment) => {
+            Some(assignment.clone())
+        }
+        (Some(_), _) => None,
+    }
+}
+
+/// A receive API of the wallet, i.e. [`Wallet::blind_receive`] or [`Wallet::witness_receive`].
+#[cfg(feature = "electrum")]
+pub(crate) type ReceiveFn = fn(
+    &mut Wallet,
+    Option<Online>,
+    Option<String>,
+    Assignment,
+    u64,
+    Vec<String>,
+    u8,
+    Option<Encryption>,
+) -> Result<ReceiveData, Error>;
+
+/// Request, with the given receive API, every assignment kind for no asset and for an asset of
+/// each schema, checking that either the request is refused as invalid or the invoice and the
+/// transfer carry the expected assignment.
+#[cfg(feature = "electrum")]
+pub(crate) fn check_receive_schema_assignment_combinations(
+    party: &mut SinglesigParty,
+    receive: ReceiveFn,
+) {
+    let amount = 66;
+    // issue all the assets upfront, as blind receives take up allocation slots
+    let mut schemas: Vec<(Option<AssetSchema>, Option<String>)> = vec![(None, None)];
+    for schema in AssetSchema::iter() {
+        schemas.push((Some(schema), Some(party.issue_asset_of_schema(schema))));
+    }
+    // all the assignment kinds, with an amount where they have one
+    let assignments: Vec<Assignment> = Assignment::iter()
+        .map(|a| match a {
+            Assignment::Fungible(_) => Assignment::Fungible(amount),
+            Assignment::InflationRight(_) => Assignment::InflationRight(amount),
+            Assignment::NonFungible | Assignment::Any => a,
+        })
+        .collect();
+    for (schema, asset_id) in schemas {
+        for assignment in &assignments {
+            let result = receive(
+                &mut party.wallet,
+                Some(party.online),
+                asset_id.clone(),
+                assignment.clone(),
+                default_rcv_expiration(),
+                TRANSPORT_ENDPOINTS.clone(),
+                MIN_CONFIRMATIONS,
+                None,
+            );
+            let context = format!("schema {schema:?}, assignment {assignment:?}");
+            let Some(expected) = expected_receive_assignment(schema, assignment) else {
+                assert_matches!(result, Err(Error::InvalidAssignment));
+                continue;
+            };
+            let receive_data = result.unwrap_or_else(|e| panic!("{context}: {e:?}"));
+            let invoice = Invoice::new(receive_data.invoice.clone())
+                .unwrap_or_else(|e| panic!("{context}: {e:?}: {}", receive_data.invoice));
+            let invoice_data = invoice.invoice_data();
+            assert_eq!(invoice_data.asset_schema, schema, "{context}");
+            assert_eq!(invoice_data.asset_id, asset_id, "{context}");
+            assert_eq!(invoice_data.assignment, expected, "{context}");
+            let transfer = party.get_test_transfer_recipient(&receive_data.recipient_id);
+            assert_eq!(transfer.requested_assignment, Some(expected), "{context}");
+        }
+    }
+}
+
 #[cfg(feature = "electrum")]
 pub(crate) fn get_proxy_client(proxy_url: Option<&str>) -> ProxyClient {
     ProxyClient::new(proxy_url.unwrap_or(PROXY_URL)).unwrap()
