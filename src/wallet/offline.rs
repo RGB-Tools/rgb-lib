@@ -19,6 +19,32 @@ pub(crate) const MAX_TRANSPORT_ENDPOINTS: usize = 3;
 
 pub(crate) const TRANSFER_DATA_FILE: &str = "transfer_data.txt";
 
+/// The maximum length of a confined collection, given an accessor returning it from a bundle.
+const fn bundle_confinement_max<
+    C: amplify::confinement::Collection,
+    const MIN: usize,
+    const MAX: usize,
+>(
+    _: fn(&TransitionBundle) -> &Confined<C, MIN, MAX>,
+) -> usize {
+    MAX
+}
+
+/// Maximum number of allocations of an asset a UTXO can hold and still be spent: spending it moves
+/// all of them as inputs of the bundle of the asset, which spends at most as many opouts as its
+/// input map can hold (all assignment types together)
+pub(crate) const MAX_UTXO_ASSET_ALLOCATIONS: usize =
+    bundle_confinement_max(|b: &TransitionBundle| &b.input_map);
+
+/// Maximum number of allocations of an asset a UTXO can hold (see [`MAX_UTXO_ASSET_ALLOCATIONS`]).
+pub(crate) fn max_utxo_asset_allocations() -> usize {
+    #[cfg(all(test, feature = "_online"))]
+    if let Some(max_allocations) = mock_max_utxo_asset_allocations() {
+        return max_allocations;
+    }
+    MAX_UTXO_ASSET_ALLOCATIONS
+}
+
 pub trait WalletOffline: WalletBackup {
     fn bitcoin_network(&self) -> BitcoinNetwork {
         self.wallet_data().bitcoin_network
@@ -113,8 +139,14 @@ pub trait WalletOffline: WalletBackup {
             .iter_mut()
             .for_each(|u| u.rgb_allocations.retain(|a| !a.status.failed()));
         let max_allocs = max_allocations.unwrap_or_else(|| {
+            // a UTXO can't be given more allocations than it can hold and still be spent, whatever
+            // the setting (counting them all, an upper bound for the ones of each asset)
+            let max_per_utxo = Ord::min(
+                self.max_allocations_per_utxo(),
+                u32::try_from(max_utxo_asset_allocations()).unwrap_or(u32::MAX),
+            );
             // guaranteed > 0; guard here too to avoid future regression
-            self.max_allocations_per_utxo()
+            max_per_utxo
                 .checked_sub(1)
                 .expect("max allocations per UTXO must be greater than 0")
         });

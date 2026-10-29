@@ -2301,6 +2301,19 @@ pub enum ReceiveMatcher {
     Witness(ScriptBuf, Option<u64>),
 }
 
+/// The allocation slots taken on a UTXO receiving a consignment, besides the ones of the transfer
+/// it pays.
+#[cfg(feature = "_online")]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct TakenSlots {
+    /// allocations of the asset received held or due
+    pub(crate) asset: usize,
+    /// allocations of any asset held or due, including the ones of the asset received
+    pub(crate) all: usize,
+    /// other unpaid invoices, each due to receive an allocation of any asset
+    pub(crate) invoices: usize,
+}
+
 /// The seal at which a consignment pays this recipient: a concealed one (blind receives) or one
 /// revealed on a vout of the bundle witness TX (witness receives), never both.
 #[cfg(feature = "_online")]

@@ -204,6 +204,12 @@ pub enum ColoringType {
 }
 
 #[cfg(feature = "wallet")]
+impl ColoringType {
+    /// The types of the colorings assigning allocations to a TXO (the others spend them).
+    pub(crate) const INCOMING: [Self; 3] = [Self::Receive, Self::Change, Self::Issue];
+}
+
+#[cfg(feature = "wallet")]
 /// The type of an RGB recipient.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub enum RecipientTypeFull {

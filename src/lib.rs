@@ -386,8 +386,6 @@ use schemata::{
 use scrypt::{Params, phc::Salt, scrypt};
 #[cfg(all(test, feature = "wallet"))]
 use sea_orm::IntoActiveValue;
-#[cfg(feature = "_online")]
-use sea_orm::RelationTrait;
 #[cfg(feature = "wallet")]
 use sea_orm::{
     ActiveValue, ColumnTrait, ConnectOptions, Database, DatabaseConnection, DatabaseTransaction,
@@ -395,6 +393,8 @@ use sea_orm::{
     QueryOrder, QueryResult, QuerySelect, TransactionTrait, TryGetError, TryGetable, TryIntoModel,
     sea_query::{Alias, Condition, Expr, ExprTrait, Func, OnConflict, SimpleExpr},
 };
+#[cfg(feature = "_online")]
+use sea_orm::{PaginatorTrait, RelationTrait};
 #[cfg(feature = "wallet")]
 use serde::Deserializer;
 #[cfg(feature = "wallet")]
@@ -451,10 +451,10 @@ use crate::wallet::BitcoindClient;
 #[cfg(feature = "_online")]
 #[cfg(test)]
 use crate::wallet::test::{
-    mock_chain_tx, mock_clock_skew_margin, mock_confirmation_margin, mock_input_unspents,
-    mock_local_version, mock_min_retention_grace, mock_retention_grace, mock_send_end_crash,
-    mock_spam_hidden_spends, mock_spam_recipient_assignments, skip_build_dag, skip_check_fee_rate,
-    spv_only,
+    mock_chain_tx, mock_clock_skew_margin, mock_confirmation_margin, mock_hub_accept_pending,
+    mock_input_unspents, mock_local_version, mock_max_utxo_asset_allocations,
+    mock_min_retention_grace, mock_retention_grace, mock_send_end_crash, mock_spam_hidden_spends,
+    mock_spam_recipient_assignments, skip_build_dag, skip_check_fee_rate, spv_only,
 };
 #[cfg(feature = "_online")]
 use crate::{

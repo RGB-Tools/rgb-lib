@@ -65,7 +65,7 @@ pub(crate) use objects::{
     AssetInfo, AssetSpend, BeginOperationData, BtcChange, CleanAckOutcome, ConsignmentPayment,
     FailTransfersOutcome, LocalRecipient, LocalRecipientData, LocalWitnessData, OnlineData,
     PaymentSeal, PrepareRgbPsbtResult, PrepareTransferPsbtResult, ProxyReceiveData, ReceiveMatcher,
-    ReceiveMode, ReceivedConsignmentMeta, RefreshResultTrait, RejectList,
+    ReceiveMode, ReceivedConsignmentMeta, RefreshResultTrait, RejectList, TakenSlots,
     TryFailBatchTransferOutcome,
 };
 pub(crate) use objects::{
@@ -78,6 +78,8 @@ pub(crate) use offline::TRANSFER_DATA_FILE;
 #[cfg(feature = "rgb_fs_store_migration")]
 pub(crate) use offline::TRANSFERS_DIR;
 pub(crate) use offline::WalletOffline;
+#[cfg(feature = "_online")]
+pub(crate) use offline::max_utxo_asset_allocations;
 #[cfg(feature = "_online")]
 pub(crate) use online::WalletOnline;
 

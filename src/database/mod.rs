@@ -138,12 +138,7 @@ pub(crate) struct DbBatchTransferData {
 
 impl DbColoring {
     pub(crate) fn incoming(&self) -> bool {
-        [
-            ColoringType::Receive,
-            ColoringType::Change,
-            ColoringType::Issue,
-        ]
-        .contains(&self.r#type)
+        ColoringType::INCOMING.contains(&self.r#type)
     }
 }
 
@@ -202,6 +197,35 @@ impl DbTransfer {
             .map(|invoice| invoice.transports == vec![])
             .unwrap_or(false)
     }
+}
+
+/// The number of unpaid blind invoices on each UTXO: incoming transfers waiting for the
+/// counterparty without colorings yet. As an invoice is paid by a single allocation, each one
+/// reserves a slot on its UTXO until it's paid (and its coloring counts instead) or fails, which
+/// keeps counting it when its consignment's colorings get rolled back after an ACK.
+fn unpaid_invoice_utxos<'a>(
+    transfers: &'a [DbTransfer],
+    asset_transfers: &[DbAssetTransfer],
+    batch_transfers: &[DbBatchTransfer],
+    colorings: &[DbColoring],
+) -> HashMap<&'a Outpoint, u32> {
+    let colored: HashSet<i32> = colorings.iter().map(|c| c.asset_transfer_idx).collect();
+    transfers
+        .iter()
+        .filter_map(|t| match &t.recipient_type {
+            Some(RecipientTypeFull::Blind { unblinded_utxo }) => {
+                let (_, bt) = t.related_transfers(asset_transfers, batch_transfers);
+                (bt.incoming
+                    && bt.status.waiting_counterparty()
+                    && !colored.contains(&t.asset_transfer_idx))
+                .then_some(unblinded_utxo)
+            }
+            _ => None,
+        })
+        .fold(HashMap::new(), |mut acc, utxo| {
+            *acc.entry(utxo).or_insert(0) += 1;
+            acc
+        })
 }
 
 impl DbTxo {
@@ -779,6 +803,78 @@ impl DbTxn {
         )?)
     }
 
+    /// The number of allocations of the asset with ID `asset_id`, or of any asset if `None`, the
+    /// TXO with index `txo_idx` holds or is due to receive (receives, changes and issuances), from
+    /// transfers that haven't failed, other than the asset transfer with index
+    /// `exclude_asset_transfer_idx`, counted by the DB without loading the colorings.
+    #[cfg(feature = "_online")]
+    pub(crate) fn count_txo_incoming_colorings(
+        &self,
+        txo_idx: i32,
+        asset_id: Option<&str>,
+        exclude_asset_transfer_idx: i32,
+    ) -> Result<usize, Error> {
+        let mut query = Coloring::find()
+            .join(JoinType::InnerJoin, coloring::Relation::AssetTransfer.def())
+            .join(
+                JoinType::InnerJoin,
+                asset_transfer::Relation::BatchTransfer.def(),
+            )
+            .filter(coloring::Column::TxoIdx.eq(txo_idx))
+            .filter(coloring::Column::Type.is_in(ColoringType::INCOMING))
+            .filter(coloring::Column::AssetTransferIdx.ne(exclude_asset_transfer_idx))
+            .filter(batch_transfer::Column::Status.ne(TransferStatus::Failed));
+        if let Some(asset_id) = asset_id {
+            query = query.filter(asset_transfer::Column::AssetId.eq(asset_id));
+        }
+        Ok(block_on(query.count(self.inner()))? as usize)
+    }
+
+    /// The number of unpaid blind invoices on the UTXO at `outpoint`, other than the one of the
+    /// transfer with index `exclude_transfer_idx`: incoming transfers waiting for the
+    /// counterparty without colorings yet, each reserving the slot of the single allocation that
+    /// pays it (see `unpaid_invoice_utxos`).
+    #[cfg(feature = "_online")]
+    pub(crate) fn count_utxo_unpaid_invoices(
+        &self,
+        outpoint: &Outpoint,
+        exclude_transfer_idx: i32,
+    ) -> Result<usize, Error> {
+        let waiting: Vec<DbTransfer> = block_on(
+            Transfer::find()
+                .join(JoinType::InnerJoin, transfer::Relation::AssetTransfer.def())
+                .join(
+                    JoinType::InnerJoin,
+                    asset_transfer::Relation::BatchTransfer.def(),
+                )
+                .filter(batch_transfer::Column::Incoming.eq(true))
+                .filter(batch_transfer::Column::Status.eq(TransferStatus::WaitingCounterparty))
+                .filter(transfer::Column::Idx.ne(exclude_transfer_idx))
+                .all(self.inner()),
+        )?;
+        // the recipient type is stored as JSON, so the UTXO is matched here
+        let on_utxo: Vec<i32> = waiting
+            .iter()
+            .filter(|t| {
+                matches!(&t.recipient_type,
+                    Some(RecipientTypeFull::Blind { unblinded_utxo }) if unblinded_utxo == outpoint)
+            })
+            .map(|t| t.asset_transfer_idx)
+            .collect();
+        if on_utxo.is_empty() {
+            return Ok(0);
+        }
+        let colored: HashSet<i32> = block_on(
+            Coloring::find()
+                .filter(coloring::Column::AssetTransferIdx.is_in(on_utxo.clone()))
+                .all(self.inner()),
+        )?
+        .into_iter()
+        .map(|c| c.asset_transfer_idx)
+        .collect();
+        Ok(on_utxo.iter().filter(|i| !colored.contains(i)).count())
+    }
+
     pub(crate) fn get_txo(&self, outpoint: &Outpoint) -> Result<Option<DbTxo>, Error> {
         Ok(block_on(
             Txo::find()
@@ -1220,19 +1316,8 @@ impl DbTxn {
         let colorings = colorings.map(Ok).unwrap_or_else(|| self.iter_colorings())?;
         let transfers = transfers.map(Ok).unwrap_or_else(|| self.iter_transfers())?;
 
-        let pending_blinded_utxos = transfers
-            .iter()
-            .filter_map(|t| match &t.recipient_type {
-                Some(RecipientTypeFull::Blind { unblinded_utxo }) => {
-                    let (_, bt) = t.related_transfers(&asset_transfers, &batch_transfers);
-                    (bt.incoming && bt.status.waiting_counterparty()).then_some(unblinded_utxo)
-                }
-                _ => None,
-            })
-            .fold(HashMap::new(), |mut acc, utxo| {
-                *acc.entry(utxo).or_insert(0) += 1;
-                acc
-            });
+        let pending_blinded_utxos =
+            unpaid_invoice_utxos(&transfers, &asset_transfers, &batch_transfers, &colorings);
 
         utxos
             .iter()

@@ -868,6 +868,10 @@ pub trait WalletOnline: WalletOffline {
     }
 
     fn set_hub_accept_status(&self, _batch_transfer_idx: i32) -> Result<Option<bool>, Error> {
+        #[cfg(test)]
+        if mock_hub_accept_pending() {
+            return Ok(None);
+        }
         Ok(Some(true))
     }
 
@@ -1862,6 +1866,34 @@ pub trait WalletOnline: WalletOffline {
         })
     }
 
+    /// The slots taken on the TXO at `outpoint`, if known and unspent, besides the ones of the
+    /// transfer with index `transfer_idx` (of the asset transfer with index `asset_transfer_idx`):
+    /// the allocations of the asset with ID `asset_id` and of all assets it holds or is due to
+    /// receive from transfers that haven't failed, and its other unpaid invoices, each due to
+    /// receive an allocation of any asset. The allocations of the transfer itself are excluded, as
+    /// its consignment can be processed again once they're saved (e.g. by a watch-only multisig
+    /// wallet, which waits for the cosigners to decide before ACKing it).
+    fn count_utxo_taken_slots(
+        &self,
+        txn: &DbTxn,
+        outpoint: &Outpoint,
+        asset_id: &str,
+        transfer_idx: i32,
+        asset_transfer_idx: i32,
+    ) -> Result<TakenSlots, Error> {
+        let Some(txo) = txn.get_txo(outpoint)? else {
+            return Ok(TakenSlots::default());
+        };
+        if txo.spent {
+            return Ok(TakenSlots::default());
+        }
+        Ok(TakenSlots {
+            asset: txn.count_txo_incoming_colorings(txo.idx, Some(asset_id), asset_transfer_idx)?,
+            all: txn.count_txo_incoming_colorings(txo.idx, None, asset_transfer_idx)?,
+            invoices: txn.count_utxo_unpaid_invoices(outpoint, transfer_idx)?,
+        })
+    }
+
     // extract the assignments in a single bundle that pay the recipient at `payment_seal`
     fn assignments_for_bundle(
         &self,
@@ -2745,6 +2777,68 @@ pub trait WalletOnline: WalletOffline {
                 self.logger(),
                 "Consignment pays this recipient {} allocations, refusing it",
                 receiving.len()
+            );
+            return self.refuse_consignment(
+                txn,
+                &mode,
+                &recipient_id,
+                &recipient_seed,
+                updated_batch_transfer,
+            );
+        }
+
+        // a UTXO holding more allocations of the asset than a bundle can spend would be frozen,
+        // as spending it requires moving all of them, and one holding more allocations than the
+        // wallet allows per UTXO goes against its setting: refuse a consignment that would cause
+        // either (e.g. paying a UTXO the change of a send has just filled up). This is intended
+        // even when some of the allocations counted are still pending, as their transfers settling
+        // would take the UTXO past the limit, while waiting to know whether they fail would leave
+        // this transfer pending. The other unpaid invoices on the UTXO count too, each for the
+        // single allocation that pays it, as they were handed out with a slot reserved for it;
+        // this also keeps counting a transfer whose colorings were rolled back after its ACK
+        let receive_outpoint = match &transfer.recipient_type {
+            Some(RecipientTypeFull::Blind { unblinded_utxo }) => unblinded_utxo.clone(),
+            Some(RecipientTypeFull::Witness { .. }) => Outpoint {
+                txid: txid.clone(),
+                vout: vout.ok_or(InternalError::Unexpected)?,
+            },
+            _ => return Err(InternalError::Unexpected.into()),
+        };
+        let taken = self.count_utxo_taken_slots(
+            txn,
+            &receive_outpoint,
+            &asset_id,
+            transfer.idx,
+            asset_transfer.idx,
+        )?;
+        let max_per_utxo = self.max_allocations_per_utxo() as usize;
+        if taken.all + taken.invoices + receiving.len() > max_per_utxo {
+            error!(
+                self.logger(),
+                "Consignment pays {} allocation(s) to a UTXO already holding {} and with {} other \
+                 unpaid invoice(s), exceeding the {max_per_utxo} allowed per UTXO",
+                receiving.len(),
+                taken.all,
+                taken.invoices,
+            );
+            return self.refuse_consignment(
+                txn,
+                &mode,
+                &recipient_id,
+                &recipient_seed,
+                updated_batch_transfer,
+            );
+        }
+        if taken.asset + taken.invoices + receiving.len() > max_utxo_asset_allocations() {
+            error!(
+                self.logger(),
+                "Consignment pays {} allocation(s) of the asset to a UTXO already holding {} and \
+                 with {} other unpaid invoice(s), exceeding the {} a UTXO can hold and still be \
+                 spent",
+                receiving.len(),
+                taken.asset,
+                taken.invoices,
+                max_utxo_asset_allocations()
             );
             return self.refuse_consignment(
                 txn,

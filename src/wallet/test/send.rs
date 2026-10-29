@@ -12210,6 +12210,352 @@ fn receive_hidden_multiple_allocations_refused() {
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
+fn utxo_freeze_limit() {
+    initialize();
+
+    // a low limit, to check it with a few allocations
+    let max_allocations: usize = 2;
+    MOCK_MAX_UTXO_ASSET_ALLOCATIONS.replace(Some(max_allocations));
+    let amount: u64 = 100;
+
+    // wallets
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_noutxo_party!();
+    let mut rcv_party_2 = get_funded_party!();
+
+    // prepare UTXOs
+    rcv_party.create_utxos(false, Some(1), None, FEE_RATE, None);
+
+    // issue
+    let asset = party.issue_asset_nia(Some(&[AMOUNT]));
+    let asset_id = asset.asset_id.as_str();
+
+    // paying the only UTXO of the receiver up to the limit is accepted
+    for _ in 0..max_allocations {
+        send_and_settle(
+            &mut party,
+            &mut rcv_party,
+            asset_id,
+            Assignment::Fungible(amount),
+        );
+    }
+    assert_eq!(
+        single_colored_utxo_allocations(&mut rcv_party).len(),
+        max_allocations
+    );
+
+    // no invoice can be made for one allocation more
+    assert_matches!(
+        rcv_party.blind_receive_result(),
+        Err(Error::InsufficientAllocationSlots)
+    );
+
+    // paying it one allocation more, through an invoice made with a higher limit, is refused
+    MOCK_MAX_UTXO_ASSET_ALLOCATIONS.replace(Some(max_allocations + 1));
+    let receive_data = rcv_party.blind_receive();
+    MOCK_MAX_UTXO_ASSET_ALLOCATIONS.replace(Some(max_allocations));
+    send_to_blind_refused(
+        &mut party,
+        &mut rcv_party,
+        asset_id,
+        &receive_data,
+        Assignment::Fungible(amount),
+    );
+    assert_eq!(
+        single_colored_utxo_allocations(&mut rcv_party).len(),
+        max_allocations
+    );
+
+    // and the UTXO can be spent
+    let total = amount * max_allocations as u64;
+    assert_eq!(rcv_party.get_asset_balance(asset_id).spendable, total);
+    send_and_settle(
+        &mut rcv_party,
+        &mut rcv_party_2,
+        asset_id,
+        Assignment::Fungible(total),
+    );
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn receive_max_allocations_per_utxo() {
+    initialize();
+
+    let max_allocations: u32 = 3;
+    let amount: u64 = 100;
+
+    // wallets
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_noutxo_party!();
+    rcv_party.set_max_allocations_per_utxo(max_allocations);
+
+    // prepare UTXOs
+    rcv_party.create_utxos(false, Some(1), None, FEE_RATE, None);
+
+    // issue
+    let asset = party.issue_asset_nia(Some(&[AMOUNT]));
+    let asset_id = asset.asset_id.as_str();
+
+    // the only UTXO of the receiver is filled up to the limit, the last slot by an invoice
+    for _ in 0..max_allocations - 1 {
+        send_and_settle(
+            &mut party,
+            &mut rcv_party,
+            asset_id,
+            Assignment::Fungible(amount),
+        );
+    }
+    let receive_data = rcv_party.blind_receive();
+    assert_matches!(
+        rcv_party.blind_receive_result(),
+        Err(Error::InsufficientAllocationSlots)
+    );
+
+    // paying the invoice once the setting has been lowered is refused
+    rcv_party.set_max_allocations_per_utxo(max_allocations - 1);
+    send_to_blind_refused(
+        &mut party,
+        &mut rcv_party,
+        asset_id,
+        &receive_data,
+        Assignment::Fungible(amount),
+    );
+    assert_eq!(
+        single_colored_utxo_allocations(&mut rcv_party).len(),
+        max_allocations as usize - 1
+    );
+
+    // with the setting raised again, the last slot can be paid
+    rcv_party.set_max_allocations_per_utxo(max_allocations);
+    send_and_settle(
+        &mut party,
+        &mut rcv_party,
+        asset_id,
+        Assignment::Fungible(amount),
+    );
+    assert_eq!(
+        single_colored_utxo_allocations(&mut rcv_party).len(),
+        max_allocations as usize
+    );
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn receive_counts_unpaid_invoices() {
+    initialize();
+
+    let max_allocations: u32 = 3;
+    let amount: u64 = 100;
+
+    // wallets
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_noutxo_party!();
+    rcv_party.set_max_allocations_per_utxo(max_allocations);
+
+    // prepare UTXOs
+    rcv_party.create_utxos(false, Some(1), None, FEE_RATE, None);
+
+    // issue
+    let asset = party.issue_asset_nia(Some(&[AMOUNT]));
+    let asset_id = asset.asset_id.as_str();
+
+    // the only UTXO of the receiver holds an allocation and two unpaid invoices
+    send_and_settle(
+        &mut party,
+        &mut rcv_party,
+        asset_id,
+        Assignment::Fungible(amount),
+    );
+    let receive_data_1 = rcv_party.blind_receive();
+    let receive_data_2 = rcv_party.blind_receive();
+    let receive_utxo = |party: &SinglesigParty, receive_data: &ReceiveData| {
+        let transfer = party.get_test_transfer_recipient(&receive_data.recipient_id);
+        party.get_test_transfer_data(&transfer).0.receive_utxo
+    };
+    assert_eq!(
+        receive_utxo(&rcv_party, &receive_data_1),
+        receive_utxo(&rcv_party, &receive_data_2)
+    );
+
+    // with the setting lowered, paying the second invoice is refused, as the first one still holds
+    // its slot
+    rcv_party.set_max_allocations_per_utxo(max_allocations - 1);
+    send_to_blind_refused(
+        &mut party,
+        &mut rcv_party,
+        asset_id,
+        &receive_data_2,
+        Assignment::Fungible(amount),
+    );
+
+    // the refused invoice freed its slot, so the first one is paid
+    send_to_blind_and_settle(
+        &mut party,
+        &mut rcv_party,
+        asset_id,
+        &receive_data_1,
+        Assignment::Fungible(amount),
+    );
+    assert_eq!(
+        single_colored_utxo_allocations(&mut rcv_party).len(),
+        max_allocations as usize - 1
+    );
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn receive_processed_again_counted_once() {
+    initialize();
+
+    let max_allocations: u32 = 2;
+    let amount: u64 = 100;
+
+    // wallets
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_noutxo_party!();
+    rcv_party.set_max_allocations_per_utxo(max_allocations);
+
+    // prepare UTXOs
+    rcv_party.create_utxos(false, Some(1), None, FEE_RATE, None);
+
+    // issue
+    let asset = party.issue_asset_nia(Some(&[AMOUNT]));
+    let asset_id = asset.asset_id.as_str();
+
+    // the only UTXO of the receiver holds an allocation and an invoice taking its last slot
+    send_and_settle(
+        &mut party,
+        &mut rcv_party,
+        asset_id,
+        Assignment::Fungible(amount),
+    );
+    let receive_data = rcv_party.blind_receive();
+
+    // the consignment paying the invoice is processed but not ACKed, as by a watch-only multisig
+    // wallet while the cosigners haven't decided yet: the transfer keeps waiting for the
+    // counterparty, with its allocation saved
+    let recipient_map = blind_recipient_map(asset_id, &receive_data, Assignment::Fungible(amount));
+    let txid = party.send_result(&recipient_map).unwrap().txid;
+    MOCK_HUB_ACCEPT_PENDING.replace(Some(()));
+    let refresh_result = rcv_party.refresh_result(None, &[]).unwrap();
+    assert!(refresh_result.values().all(|r| r.failure.is_none()));
+    assert!(MOCK_HUB_ACCEPT_PENDING.take().is_none());
+    assert!(rcv_party.check_test_transfer_status_recipient(
+        &receive_data.recipient_id,
+        TransferStatus::WaitingCounterparty
+    ));
+
+    // processing it again doesn't count the saved allocation on top of the one it pays
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(None);
+    mine(false);
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(None);
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+    assert!(
+        rcv_party.check_test_transfer_status_recipient(
+            &receive_data.recipient_id,
+            TransferStatus::Settled
+        )
+    );
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn utxo_freeze_concurrent_receives() {
+    initialize();
+
+    // a UTXO can hold a single allocation: either transfer fits on it, both together don't
+    // (the limit is lowered once the invoices are made, as it would prevent the second one)
+    MOCK_MAX_UTXO_ASSET_ALLOCATIONS.replace(Some(2));
+    let amount: u64 = 50;
+
+    // wallets
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_noutxo_party!();
+
+    // prepare UTXOs
+    rcv_party.create_utxos(false, Some(1), None, FEE_RATE, None);
+
+    // issue, on two UTXOs, so that two transfers can be pending at the same time
+    let asset = party.issue_asset_nia(Some(&[AMOUNT, AMOUNT]));
+    let asset_id = asset.asset_id.as_str();
+
+    // two invoices on the victim's only UTXO
+    let receive_data_1 = rcv_party.blind_receive();
+    let receive_data_2 = rcv_party.blind_receive();
+    let rcv_transfer_1 = rcv_party.get_test_transfer_recipient(&receive_data_1.recipient_id);
+    let rcv_transfer_2 = rcv_party.get_test_transfer_recipient(&receive_data_2.recipient_id);
+    assert_eq!(
+        rcv_party
+            .get_test_transfer_data(&rcv_transfer_1)
+            .0
+            .receive_utxo,
+        rcv_party
+            .get_test_transfer_data(&rcv_transfer_2)
+            .0
+            .receive_utxo
+    );
+
+    // both transfers are sent before the victim refreshes
+    let mut txids = vec![];
+    for receive_data in [&receive_data_1, &receive_data_2] {
+        let recipient_map =
+            blind_recipient_map(asset_id, receive_data, Assignment::Fungible(amount));
+        txids.push(party.send_result(&recipient_map).unwrap().txid);
+    }
+    assert_ne!(txids[0], txids[1]);
+
+    // the victim processes both in the same refresh: the unpaid invoice of the other one counts
+    // against the first one, which is refused, freeing the slot for the second one, accepted
+    MOCK_MAX_UTXO_ASSET_ALLOCATIONS.replace(Some(1));
+    rcv_party.refresh_result(None, &[]).unwrap();
+    let statuses: Vec<TransferStatus> = [&receive_data_1, &receive_data_2]
+        .iter()
+        .map(|rd| {
+            let transfer = rcv_party.get_test_transfer_recipient(&rd.recipient_id);
+            rcv_party.get_test_transfer_data(&transfer).0.status
+        })
+        .collect();
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|s| **s == TransferStatus::WaitingConfirmations)
+            .count(),
+        1
+    );
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|s| **s == TransferStatus::Failed)
+            .count(),
+        1
+    );
+
+    // the accepted transfer settles, the refused one fails for the sender too
+    party.wait_for_refresh(Some(asset_id));
+    mine(false);
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(Some(asset_id));
+    let (accepted, refused) = if statuses[0] == TransferStatus::Failed {
+        (1, 0)
+    } else {
+        (0, 1)
+    };
+    assert!(party.check_test_transfer_status_sender(&txids[accepted], TransferStatus::Settled));
+    assert!(party.check_test_transfer_status_sender(&txids[refused], TransferStatus::Failed));
+    assert_eq!(single_colored_utxo_allocations(&mut rcv_party).len(), 1);
+    assert_eq!(rcv_party.get_asset_balance(asset_id).settled, amount);
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
 fn batch_send_keeps_allocations_on_inputs_selected_for_other_assets() {
     initialize();
 

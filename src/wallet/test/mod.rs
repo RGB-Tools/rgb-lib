@@ -223,6 +223,8 @@ thread_local! {
     pub(crate) static MOCK_SEND_END_CRASH: RefCell<Option<()>> = const { RefCell::new(None) };
     pub(crate) static MOCK_SPAM_RECIPIENT_ASSIGNMENTS: RefCell<Option<(u16, u64)>> = const { RefCell::new(None) };
     pub(crate) static MOCK_SPAM_HIDDEN_SPENDS: RefCell<Option<()>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_HUB_ACCEPT_PENDING: RefCell<Option<()>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_MAX_UTXO_ASSET_ALLOCATIONS: RefCell<Option<usize>> = const { RefCell::new(None) };
     pub(crate) static MOCK_CLOCK_SKEW_MARGIN: RefCell<Option<u32>> = const { RefCell::new(None) };
     pub(crate) static MOCK_RETENTION_GRACE: RefCell<Option<u32>> = const { RefCell::new(None) };
     pub(crate) static MOCK_MIN_RETENTION_GRACE: RefCell<Option<u32>> = const { RefCell::new(None) };
@@ -547,6 +549,20 @@ pub fn mock_spam_hidden_spends(psbt: &mut Psbt, transition: &Transition) {
         )
         .unwrap();
     }
+}
+
+/// Maximum number of allocations of an asset a UTXO can hold to use instead of
+/// `MAX_UTXO_ASSET_ALLOCATIONS`, if set.
+#[cfg(feature = "_online")]
+pub fn mock_max_utxo_asset_allocations() -> Option<usize> {
+    MOCK_MAX_UTXO_ASSET_ALLOCATIONS.with_borrow(|m| *m)
+}
+
+// simulate a multisig hub where the cosigners haven't decided on a received transfer yet, as a
+// watch-only wallet sees it: the transfer isn't ACKed and keeps waiting for the counterparty
+#[cfg(feature = "_online")]
+pub fn mock_hub_accept_pending() -> bool {
+    MOCK_HUB_ACCEPT_PENDING.take().is_some()
 }
 
 #[cfg(feature = "_online")]

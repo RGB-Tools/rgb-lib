@@ -1290,6 +1290,13 @@ impl SinglesigParty {
         self.blind_receive_result().unwrap()
     }
 
+    /// Change the max number of allocations per UTXO, as reopening the wallet with another
+    /// setting would.
+    #[cfg(feature = "electrum")]
+    pub(crate) fn set_max_allocations_per_utxo(&mut self, max_allocations_per_utxo: u32) {
+        self.wallet.internals.wallet_data.max_allocations_per_utxo = max_allocations_per_utxo;
+    }
+
     #[cfg(feature = "electrum")]
     pub(crate) fn blind_receive_asset_expiry(
         &mut self,
