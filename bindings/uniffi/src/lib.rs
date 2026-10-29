@@ -23,13 +23,14 @@ use rgb_lib::{
         BlockTime, BtcBalance, BurnBeginResult, BurnDetails, Cosigner as CosignerData,
         DatabaseType, EmbeddedMedia, HubInfo, IndexerConfig as RgbLibIndexerConfig,
         IndexerProtocol, InflateBeginResult, InflateDetails, InitOperationResult,
-        Invoice as RgbLibInvoice, InvoiceData as RgbLibInvoiceData, Media, Metadata, MultisigKeys,
-        MultisigOnlineOptions, MultisigVotingStatus as RgbLibMultisigVotingStatus,
-        MultisigWallet as RgbLibMultisigWallet, Online, OnlineOptions as RgbLibOnlineOptions,
-        Operation as RgbLibOperation, OperationInfo as RgbLibOperationInfo, OperationResult,
-        Outpoint, PendingVanillaTx, ProofOfReserves, PsbtInputInfo, PsbtInspection, PsbtOutputInfo,
-        ReceiveData, Recipient as RgbLibRecipient, RecipientInfo as RgbLibRecipientInfo,
-        RecipientType, RefreshFilter, RefreshTransferStatus, RefreshedTransfer,
+        Invoice as RgbLibInvoice, InvoiceData as RgbLibInvoiceData, LinkBeginResult, LinkDetails,
+        Media, Metadata, MultisigKeys, MultisigOnlineOptions,
+        MultisigVotingStatus as RgbLibMultisigVotingStatus, MultisigWallet as RgbLibMultisigWallet,
+        Online, OnlineOptions as RgbLibOnlineOptions, Operation as RgbLibOperation,
+        OperationInfo as RgbLibOperationInfo, OperationResult, Outpoint, PendingVanillaTx,
+        ProofOfReserves, PsbtInputInfo, PsbtInspection, PsbtOutputInfo, ReceiveData,
+        Recipient as RgbLibRecipient, RecipientInfo as RgbLibRecipientInfo, RecipientType,
+        RefreshFilter, RefreshTransferStatus, RefreshedTransfer,
         RespondToOperation as RgbLibRespondToOperation, RgbAllocation as RgbLibRgbAllocation,
         RgbInputInfo as RgbLibRgbInputInfo, RgbInspection as RgbLibRgbInspection,
         RgbOperationInfo as RgbLibRgbOperationInfo, RgbOutputInfo as RgbLibRgbOutputInfo,
@@ -169,6 +170,7 @@ pub enum Assignment {
     Fungible { amount: u64 },
     NonFungible,
     InflationRight { amount: u64 },
+    LinkRight,
     Any,
 }
 impl From<RgbLibAssignment> for Assignment {
@@ -177,6 +179,7 @@ impl From<RgbLibAssignment> for Assignment {
             RgbLibAssignment::Fungible(amount) => Assignment::Fungible { amount },
             RgbLibAssignment::NonFungible => Assignment::NonFungible,
             RgbLibAssignment::InflationRight(amount) => Assignment::InflationRight { amount },
+            RgbLibAssignment::LinkRight => Assignment::LinkRight,
             RgbLibAssignment::Any => Assignment::Any,
         }
     }
@@ -187,6 +190,7 @@ impl From<Assignment> for RgbLibAssignment {
             Assignment::Fungible { amount } => RgbLibAssignment::Fungible(amount),
             Assignment::NonFungible => RgbLibAssignment::NonFungible,
             Assignment::InflationRight { amount } => RgbLibAssignment::InflationRight(amount),
+            Assignment::LinkRight => RgbLibAssignment::LinkRight,
             Assignment::Any => RgbLibAssignment::Any,
         }
     }
@@ -450,6 +454,7 @@ pub enum TransitionGlobal {
     BurnedAsset { amount: u64 },
     BurnedInflation { amount: u64 },
     BurnReason { reason: String },
+    LinkedToContract { contract_id: String },
 }
 impl From<RgbLibTransitionGlobal> for TransitionGlobal {
     fn from(orig: RgbLibTransitionGlobal) -> Self {
@@ -462,6 +467,9 @@ impl From<RgbLibTransitionGlobal> for TransitionGlobal {
                 TransitionGlobal::BurnedInflation { amount }
             }
             RgbLibTransitionGlobal::BurnReason(reason) => TransitionGlobal::BurnReason { reason },
+            RgbLibTransitionGlobal::LinkedToContract(contract_id) => {
+                TransitionGlobal::LinkedToContract { contract_id }
+            }
         }
     }
 }
@@ -476,6 +484,9 @@ impl From<TransitionGlobal> for RgbLibTransitionGlobal {
                 RgbLibTransitionGlobal::BurnedInflation(amount)
             }
             TransitionGlobal::BurnReason { reason } => RgbLibTransitionGlobal::BurnReason(reason),
+            TransitionGlobal::LinkedToContract { contract_id } => {
+                RgbLibTransitionGlobal::LinkedToContract(contract_id)
+            }
         }
     }
 }
@@ -1585,6 +1596,7 @@ impl Wallet {
             .issue_asset_cfa(name, details, precision, amounts, file_path)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn issue_asset_ifa(
         &self,
         ticker: String,
@@ -1593,6 +1605,9 @@ impl Wallet {
         amounts: Vec<u64>,
         inflation_amounts: Vec<u64>,
         reject_list_url: Option<String>,
+        link_right: bool,
+        linked_from_contract: Option<String>,
+        skip_contract_checks: bool,
     ) -> Result<AssetIFA, RgbLibError> {
         self._get_wallet().issue_asset_ifa(
             ticker,
@@ -1601,7 +1616,59 @@ impl Wallet {
             amounts,
             inflation_amounts,
             reject_list_url,
+            link_right,
+            linked_from_contract,
+            skip_contract_checks,
         )
+    }
+
+    fn link(
+        &self,
+        online: Online,
+        asset_id: String,
+        linked_to_contract: String,
+        fee_rate: u64,
+        min_confirmations: u8,
+        skip_contract_checks: bool,
+    ) -> Result<OperationResult, RgbLibError> {
+        self._get_wallet().link(
+            online,
+            asset_id,
+            linked_to_contract,
+            fee_rate,
+            min_confirmations,
+            skip_contract_checks,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn link_begin(
+        &self,
+        online: Online,
+        asset_id: String,
+        linked_to_contract: String,
+        fee_rate: u64,
+        min_confirmations: u8,
+        skip_contract_checks: bool,
+        dry_run: bool,
+    ) -> Result<LinkBeginResult, RgbLibError> {
+        self._get_wallet().link_begin(
+            online,
+            asset_id,
+            linked_to_contract,
+            fee_rate,
+            min_confirmations,
+            skip_contract_checks,
+            dry_run,
+        )
+    }
+
+    fn link_end(
+        &self,
+        online: Online,
+        signed_psbt: String,
+    ) -> Result<OperationResult, RgbLibError> {
+        self._get_wallet().link_end(online, signed_psbt)
     }
 
     fn list_assets(&self, filter_asset_schemas: Vec<AssetSchema>) -> Result<Assets, RgbLibError> {

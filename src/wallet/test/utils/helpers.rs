@@ -429,6 +429,23 @@ pub(crate) fn blind_recipient(receive_data: &ReceiveData, assignment: Assignment
     }
 }
 
+/// A recipient of the given `assignment` paying the witness receive described by `receive_data`,
+/// with the given witness amount, no blinding and the same defaults as [`blind_recipient`].
+#[cfg(feature = "electrum")]
+pub(crate) fn witness_recipient(
+    receive_data: &ReceiveData,
+    assignment: Assignment,
+    amount_sat: u64,
+) -> Recipient {
+    Recipient {
+        witness_data: Some(WitnessData {
+            amount_sat,
+            blinding: None,
+        }),
+        ..blind_recipient(receive_data, assignment)
+    }
+}
+
 /// Build a recipient map sending the given `assignment` of the asset with ID `asset_id` to the
 /// blind receive described by `receive_data`.
 #[cfg(feature = "electrum")]
@@ -531,6 +548,91 @@ pub(crate) fn utxo_num_allocations(
         .map(|u| u.rgb_allocations.len())
 }
 
+/// Issue an IFA asset with its link right, linked from the contract with ID `linked_from`, if
+/// given, and with the given reject list URL.
+#[cfg(feature = "electrum")]
+pub(crate) fn issue_asset_ifa_link(
+    party: &mut SinglesigParty,
+    linked_from: Option<String>,
+    reject_list_url: Option<String>,
+) -> AssetIFA {
+    party
+        .wallet
+        .issue_asset_ifa(
+            TICKER.to_string(),
+            NAME.to_string(),
+            PRECISION,
+            vec![AMOUNT],
+            vec![],
+            reject_list_url,
+            true,
+            linked_from,
+            false,
+        )
+        .unwrap()
+}
+
+/// Issue an IFA asset with its link right, plus the IFA contract replacing it, issued linked from
+/// it: the pair a link needs, as the contract to link to has to be known to the wallet and to
+/// point back at the linking one.
+#[cfg(feature = "electrum")]
+pub(crate) fn issue_asset_ifa_link_pair(party: &mut SinglesigParty) -> (AssetIFA, AssetIFA) {
+    let asset = issue_asset_ifa_link(party, None, None);
+    let replacement = issue_asset_ifa_link(party, Some(asset.asset_id.clone()), None);
+    (asset, replacement)
+}
+
+/// The number of allocations of the link right of the asset with the given ID held by the given
+/// party.
+#[cfg(feature = "electrum")]
+pub(crate) fn link_rights(party: &mut SinglesigParty, asset_id: &str) -> usize {
+    party
+        .list_unspents(false)
+        .iter()
+        .flat_map(|u| u.rgb_allocations.iter())
+        .filter(|a| {
+            a.asset_id.as_deref() == Some(asset_id) && a.assignment == Assignment::LinkRight
+        })
+        .count()
+}
+
+/// The outpoints of the unspent UTXOs of the given wallet holding the link right of the given
+/// asset, according to its stock, which also knows about the ones rgb-lib doesn't track: at most
+/// one is expected, a list lets the tests check that.
+#[cfg(feature = "electrum")]
+pub(crate) fn link_right_outpoints(wallet: &Wallet, asset_id: &str) -> Vec<OutPoint> {
+    let contract_id = ContractId::from_str(asset_id).unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let outpoints: Vec<OutPoint> = txn
+        .get_unspent_txos(vec![])
+        .unwrap()
+        .into_iter()
+        .map(OutPoint::from)
+        .collect();
+    let stock = wallet.rgb_stock(&txn).unwrap();
+    let mut link_right_outpoints = vec![];
+    for (seal, opout_state_map) in stock
+        .contract_assignments_for(contract_id, outpoints)
+        .unwrap()
+    {
+        if opout_state_map.keys().any(|opout| opout.ty == OS_LINK) {
+            link_right_outpoints.push(seal.to_outpoint());
+        }
+    }
+    txn.commit().unwrap();
+    link_right_outpoints
+}
+
+/// The TXID of the given PSBT.
+#[cfg(feature = "electrum")]
+pub(crate) fn psbt_txid(psbt: &str) -> String {
+    Psbt::from_str(psbt)
+        .unwrap()
+        .unsigned_tx
+        .compute_txid()
+        .to_string()
+}
+
 /// Whether an asset of the given schema supports the given assignment.
 #[cfg(feature = "electrum")]
 pub(crate) fn schema_supports_assignment(schema: AssetSchema, assignment: &Assignment) -> bool {
@@ -539,7 +641,7 @@ pub(crate) fn schema_supports_assignment(schema: AssetSchema, assignment: &Assig
         AssetSchema::Uda => matches!(assignment, Assignment::NonFungible),
         AssetSchema::Ifa => matches!(
             assignment,
-            Assignment::Fungible(_) | Assignment::InflationRight(_)
+            Assignment::Fungible(_) | Assignment::InflationRight(_) | Assignment::LinkRight
         ),
     }
 }
@@ -600,7 +702,7 @@ pub(crate) fn check_receive_schema_assignment_combinations(
         .map(|a| match a {
             Assignment::Fungible(_) => Assignment::Fungible(amount),
             Assignment::InflationRight(_) => Assignment::InflationRight(amount),
-            Assignment::NonFungible | Assignment::Any => a,
+            Assignment::NonFungible | Assignment::LinkRight | Assignment::Any => a,
         })
         .collect();
     for (schema, asset_id) in schemas {

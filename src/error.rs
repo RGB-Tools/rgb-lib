@@ -65,6 +65,10 @@ pub enum Error {
     #[error("The given PSBT cannot be finalized")]
     CannotFinalizePsbt,
 
+    /// An asset cannot be linked to itself
+    #[error("An asset cannot be linked to itself")]
+    CannotLinkToItself,
+
     /// An out-of-band ACK cannot be provided for this transfer
     #[error("Cannot provide out-of-band ACK: {details}")]
     CannotProvideOutOfBandAck {
@@ -262,6 +266,13 @@ pub enum Error {
     #[error("Invalid content signature")]
     InvalidContentSignature,
 
+    /// The provided contract ID is invalid
+    #[error("Invalid contract ID: {contract_id}")]
+    InvalidContractId {
+        /// The invalid contract ID
+        contract_id: String,
+    },
+
     /// The provided cosigner is invalid
     #[error("Invalid cosigner: {details}")]
     InvalidCosigner {
@@ -335,6 +346,15 @@ pub enum Error {
     /// The provided invoice is invalid
     #[error("Invalid invoice: {details}")]
     InvalidInvoice {
+        /// Error details
+        details: String,
+    },
+
+    /// The contract that is linked from or to cannot be linked
+    #[error("Contract {contract_id} cannot be linked: {details}")]
+    InvalidLinkedContract {
+        /// The contract ID
+        contract_id: String,
         /// Error details
         details: String,
     },
@@ -704,6 +724,13 @@ pub enum Error {
     #[error("Transfer ID in use")]
     TransferIDInUse,
 
+    /// The contract that is linked from or to is not known to the wallet
+    #[error("Contract {contract_id} is not known to the wallet")]
+    UnknownLinkedContract {
+        /// The contract ID
+        contract_id: String,
+    },
+
     /// The detected RGB schema is unknown
     #[error("Unknown RGB schema: {schema_id}")]
     UnknownRgbSchema {
@@ -744,6 +771,13 @@ pub enum Error {
     UnsupportedLayer1 {
         /// Layer 1
         layer_1: String,
+    },
+
+    /// The schema doesn't support link transitions
+    #[error("Link not supported")]
+    UnsupportedLink {
+        /// Asset schema
+        asset_schema: AssetSchema,
     },
 
     /// The given schema is not supported

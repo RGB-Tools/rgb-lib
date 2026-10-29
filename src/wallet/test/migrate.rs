@@ -362,3 +362,69 @@ fn legacy_send_end() {
         assert_matches!(result, Err(Error::CannotEndTransfer { txid: t }) if t == txid);
     }
 }
+
+/// The migration recording outgoing transfer transitions identifies the ones made before it:
+/// a burn by its transfer with no recipient, an inflation by its issue colorings, a send
+/// otherwise.
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn asset_transfer_transition_backfill() {
+    initialize();
+
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+
+    // a send, an inflation and a burn
+    let asset = party.issue_asset_ifa(None, Some(&[AMOUNT]), None);
+    send_and_settle(
+        &mut party,
+        &mut rcv_party,
+        &asset.asset_id,
+        Assignment::Fungible(10),
+    );
+    party.inflate(&asset.asset_id, &[1]);
+    mine(false);
+    assert!(party.refresh_asset(&asset.asset_id));
+    party.burn(&asset.asset_id, 1, None);
+    let kinds = |party: &OfflineSinglesigParty| -> Vec<TransferKind> {
+        party
+            .list_transfers(Some(&asset.asset_id))
+            .into_iter()
+            .map(|t| t.kind)
+            .collect()
+    };
+    let wallet_data = party.wallet.get_wallet_data();
+    let keys = party.wallet.get_keys();
+    let db_path = party.wallet.get_wallet_dir().join(RGB_LIB_DB_NAME);
+    // offline, as the wallet reopened later, to share `kinds`
+    let party = offline_party!(party.wallet);
+    let kinds_before = kinds(&party);
+    for kind in [
+        TransferKind::Send,
+        TransferKind::Inflation,
+        TransferKind::Burn,
+    ] {
+        assert!(kinds_before.contains(&kind), "{kind:?} missing");
+    }
+    drop(party);
+
+    // take the DB back to before the migration
+    let db = block_on(sea_orm::Database::connect(format!(
+        "sqlite:{}?mode=rw",
+        db_path.display()
+    )))
+    .unwrap();
+    for statement in [
+        "ALTER TABLE asset_transfer DROP COLUMN transition_type",
+        "DELETE FROM seaql_migrations \
+         WHERE version = 'm20261020_142840_asset_transfer_transition'",
+    ] {
+        block_on(sea_orm::ConnectionTrait::execute_unprepared(&db, statement)).unwrap();
+    }
+    block_on(db.close()).unwrap();
+
+    // the migration, applied when opening the wallet, backfills the same transfer kinds
+    let party = offline_party!(Wallet::new(wallet_data, keys).unwrap());
+    assert_eq!(kinds(&party), kinds_before);
+}

@@ -209,6 +209,7 @@ thread_local! {
     pub(crate) static MOCK_CHAIN_NET: RefCell<Option<ChainNet>> = const { RefCell::new(None) };
     pub(crate) static MOCK_CONTRACT_DATA: RefCell<Vec<Attachment>> = const { RefCell::new(vec![]) };
     pub(crate) static MOCK_CONTRACT_DETAILS: RefCell<Option<String>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_IFA_LINK_RIGHT: RefCell<Option<BuilderSeal<BlindSeal<RgbTxid>>>> = const { RefCell::new(None) };
     pub(crate) static MOCK_TOKEN_DATA: RefCell<Vec<TokenData>> = const { RefCell::new(vec![]) };
 }
 
@@ -346,6 +347,11 @@ macro_rules! get_funded_party {
     () => {
         get_funded_party(true, None)
     };
+}
+
+/// Seal the genesis of the next IFA asset issued assigns a link right to, if set.
+pub fn mock_ifa_link_right() -> Option<BuilderSeal<BlindSeal<RgbTxid>>> {
+    MOCK_IFA_LINK_RIGHT.take()
 }
 
 pub fn mock_asset_terms<W: WalletOffline + ?Sized>(
@@ -636,6 +642,8 @@ mod issue_asset_ifa;
 mod issue_asset_nia;
 #[cfg(feature = "electrum")]
 mod issue_asset_uda;
+#[cfg(feature = "electrum")]
+mod link;
 #[cfg(feature = "electrum")]
 mod list_assets;
 #[cfg(feature = "electrum")]

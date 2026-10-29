@@ -29,6 +29,7 @@ interface RgbLibError {
   CannotEstimateFees();
   CannotFailBatchTransfer();
   CannotFinalizePsbt();
+  CannotLinkToItself();
   CannotProvideOutOfBandAck(string details);
   CannotProvideOutOfBandConsignment(string details);
   CannotUseIfaOnMainnet();
@@ -61,6 +62,7 @@ interface RgbLibError {
   InvalidColoringInfo(string details);
   InvalidConsignment();
   InvalidContentSignature();
+  InvalidContractId(string contract_id);
   InvalidCosigner(string details);
   InvalidDetails(string details);
   InvalidElectrum(string details);
@@ -73,6 +75,7 @@ interface RgbLibError {
   InvalidFingerprint();
   InvalidIndexer(string details);
   InvalidInvoice(string details);
+  InvalidLinkedContract(string contract_id, string details);
   InvalidMnemonic(string details);
   InvalidMultisigThreshold(u8 required, u8 total);
   InvalidName(string details);
@@ -141,12 +144,14 @@ interface RgbLibError {
   TooManySignaturesInPsbt();
   TransferIDDeleted();
   TransferIDInUse();
+  UnknownLinkedContract(string contract_id);
   UnknownRgbSchema(string schema_id);
   UnknownTransfer(string txid);
   UnsupportedBackupVersion(string version);
   UnsupportedBurn(AssetSchema asset_schema);
   UnsupportedInflation(AssetSchema asset_schema);
   UnsupportedLayer1(string layer_1);
+  UnsupportedLink(AssetSchema asset_schema);
   UnsupportedSchema(AssetSchema asset_schema);
   UnsupportedTransportType();
   UnsupportedWalletManifestVersion(string version);
@@ -383,6 +388,7 @@ interface Assignment {
   Fungible(u64 amount);
   NonFungible();
   InflationRight(u64 amount);
+  LinkRight();
   Any();
 };
 
@@ -391,6 +397,7 @@ dictionary AssignmentsCollection {
   u64 fungible;
   boolean non_fungible;
   u64 inflation;
+  boolean link;
 };
 
 dictionary InvoiceData {
@@ -454,6 +461,8 @@ dictionary Metadata {
   string? details;
   Token? token;
   string? reject_list_url;
+  string? linked_from_contract;
+  string? linked_to_contract;
 };
 
 [Remote]
@@ -565,6 +574,7 @@ enum TransferKind {
   "Send",
   "Inflation",
   "Burn",
+  "Link",
 };
 
 [Remote]
@@ -731,6 +741,20 @@ dictionary InflateBeginResult {
 };
 
 [Remote]
+dictionary LinkDetails {
+  string fascia_path;
+  u8 min_confirmations;
+  u64 entropy;
+};
+
+[Remote]
+dictionary LinkBeginResult {
+  string psbt;
+  i32? batch_transfer_idx;
+  LinkDetails details;
+};
+
+[Remote]
 dictionary SendDetails {
   string fascia_path;
   u8 min_confirmations;
@@ -844,6 +868,7 @@ enum TypeOfTransition {
   "Inflate",
   "Transfer",
   "Burn",
+  "Link",
   "TransferInflation",
   "TransferLink",
 };
@@ -860,6 +885,7 @@ interface TransitionGlobal {
   BurnedAsset(u64 amount);
   BurnedInflation(u64 amount);
   BurnReason(string reason);
+  LinkedToContract(string contract_id);
 };
 
 [Enum]
@@ -1089,7 +1115,21 @@ interface Wallet {
   [Throws=RgbLibError]
   AssetIFA issue_asset_ifa(
     string ticker, string name, u8 precision, sequence<u64> amounts,
-    sequence<u64> inflation_amounts, string? reject_list_url);
+    sequence<u64> inflation_amounts, string? reject_list_url, boolean link_right,
+    string? linked_from_contract, boolean skip_contract_checks);
+
+  [Throws=RgbLibError]
+  OperationResult link(
+    Online online, string asset_id, string linked_to_contract, u64 fee_rate,
+    u8 min_confirmations, boolean skip_contract_checks);
+
+  [Throws=RgbLibError]
+  LinkBeginResult link_begin(
+    Online online, string asset_id, string linked_to_contract, u64 fee_rate,
+    u8 min_confirmations, boolean skip_contract_checks, boolean dry_run);
+
+  [Throws=RgbLibError]
+  OperationResult link_end(Online online, string signed_psbt);
 
   [Throws=RgbLibError]
   Assets list_assets(sequence<AssetSchema> filter_asset_schemas);

@@ -3064,6 +3064,102 @@ fn recipient_refuses_consignment_not_paying_it() {
     }));
 }
 
+/// A link right can be assigned to any UTXO by the genesis of an asset, which needs no witness: it
+/// ends up on a UTXO of a wallet which doesn't initially track it as it doesn't know the asset and,
+/// once known, moves it along when spending the UTXO, tracking it from then on. If the UTXO is
+/// spent before the wallet knows the asset, the link right is lost.
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn link_right_on_wallet_utxo() {
+    initialize();
+
+    let amount: u64 = 66;
+
+    // wallets
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+
+    // issue an asset whose genesis assigns a link right to a UTXO of the recipient (an issuer can
+    // target any UTXO it knows of, e.g. one it created with an earlier witness transfer): here it's
+    // the same UTXO of a blind receive, read from the recipient's DB, so that the recipient gets
+    // the asset on it and then spends it when sending the asset back
+    let receive_data = rcv_party.blind_receive();
+    let transfer = rcv_party.get_test_transfer_recipient(&receive_data.recipient_id);
+    let Some(RecipientTypeFull::Blind { unblinded_utxo }) = transfer.recipient_type else {
+        panic!("blind receive expected");
+    };
+    let receive_outpoint = OutPoint::from(unblinded_utxo);
+    MOCK_IFA_LINK_RIGHT.replace(Some(party.wallet.get_builder_seal(receive_outpoint)));
+    let asset = party.issue_asset_ifa(None, None, None);
+
+    // send to the blind receive and settle
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(amount),
+            recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
+            witness_data: None,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid = party.send_retry(&recipient_map);
+    assert!(!txid.is_empty());
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(Some(&asset.asset_id));
+    mine(false);
+    rcv_party.wait_for_refresh(Some(&asset.asset_id));
+    party.wait_for_refresh(Some(&asset.asset_id));
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+
+    // the link right is on the UTXO of the blind receive
+    assert_eq!(
+        link_right_outpoints(&rcv_party.wallet, &asset.asset_id),
+        vec![receive_outpoint]
+    );
+
+    // spending the UTXO moves the link right along, to another UTXO
+    let receive_data_back = party.blind_receive();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(amount),
+            recipient_id: receive_data_back.recipient_id.clone(),
+            public_key: Some(receive_data_back.public_key.clone()),
+            expiration_timestamp: Some(receive_data_back.expiration_timestamp),
+            encryption: Encryption::Optional,
+            witness_data: None,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid = rcv_party.send_retry(&recipient_map);
+    assert!(!txid.is_empty());
+    party.wait_for_refresh(None);
+    rcv_party.wait_for_refresh(Some(&asset.asset_id));
+    mine(false);
+    party.wait_for_refresh(Some(&asset.asset_id));
+    rcv_party.wait_for_refresh(Some(&asset.asset_id));
+    assert!(rcv_party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+    let link_right_outpoints = link_right_outpoints(&rcv_party.wallet, &asset.asset_id);
+    assert_eq!(link_right_outpoints.len(), 1);
+    assert_ne!(link_right_outpoints[0], receive_outpoint);
+    let link_right_unspent = rcv_party
+        .list_unspents(false)
+        .into_iter()
+        .find(|u| OutPoint::from(u.utxo.outpoint.clone()) == link_right_outpoints[0])
+        .unwrap();
+    assert!(
+        link_right_unspent
+            .rgb_allocations
+            .iter()
+            .any(|a| a.asset_id.as_ref() == Some(&asset.asset_id)
+                && a.assignment == Assignment::LinkRight)
+    );
+}
+
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]

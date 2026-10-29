@@ -904,7 +904,7 @@ impl OperationHandler for BurnHandler {
                 .transfers
                 .values()
                 .next()
-                .and_then(|transfer| transfer.burn_reason)
+                .and_then(|transfer| transfer.main_transition.burn_reason())
                 .map(|burn_reason| burn_reason.to_string()),
         })
     }
@@ -1495,6 +1495,9 @@ impl MultisigWallet {
             amounts,
             inflation_amounts,
             reject_list_url,
+            false,
+            None,
+            false,
         )?;
         let res = self.upload_and_process_issuance(&txn, &issue_data, vec![])?;
         txn.commit()?;

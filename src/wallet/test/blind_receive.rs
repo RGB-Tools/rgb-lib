@@ -1081,6 +1081,19 @@ fn invoice_new() {
     let invoice_data = invoice.invoice_data;
     assert_eq!(invoice_data.assignment, Assignment::InflationRight(0));
 
+    // no state, linkRight
+    let invoice_str = format!("rgb:~/{ifa_sid}/~/{blinded}?assignment_name=linkRight");
+    let invoice = Invoice::new(invoice_str.to_owned()).unwrap();
+    let invoice_data = invoice.invoice_data;
+    assert_eq!(invoice_data.assignment, Assignment::LinkRight);
+
+    // invalid invoice (IFA amount, linkRight)
+    let invoice_str = format!("rgb:~/{ifa_sid}/{amount_str}/{blinded}?assignment_name=linkRight");
+    let result = Invoice::new(invoice_str.to_owned());
+    assert!(
+        matches!(result, Err(Error::InvalidInvoice { details: d }) if d == "invalid assignment")
+    );
+
     // amount, no name
     let invoice_str = format!("rgb:~/{ifa_sid}/~/{blinded}");
     let invoice = Invoice::new(invoice_str.to_owned()).unwrap();

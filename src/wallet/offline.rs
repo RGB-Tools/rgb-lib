@@ -45,6 +45,17 @@ pub(crate) fn max_utxo_asset_allocations() -> usize {
     MAX_UTXO_ASSET_ALLOCATIONS
 }
 
+/// The ID of the contract a contract `link` (e.g. [`LinkableSchemaWrapper::link_from`]) points
+/// to, if any.
+pub(crate) fn contract_link(
+    link: Result<Option<ContractId>, LinkError>,
+) -> Result<Option<String>, Error> {
+    link.map(|contract_id| contract_id.map(|c| c.to_string()))
+        .map_err(|e| Error::Internal {
+            details: format!("invalid contract link: {e}"),
+        })
+}
+
 pub trait WalletOffline: WalletBackup {
     fn bitcoin_network(&self) -> BitcoinNetwork {
         self.wallet_data().bitcoin_network
@@ -87,6 +98,61 @@ pub trait WalletOffline: WalletBackup {
         if !self.supports_schema(asset_schema) {
             return Err(Error::UnsupportedSchema {
                 asset_schema: *asset_schema,
+            });
+        }
+        Ok(())
+    }
+
+    /// Return the contract that is linked from or to, which the wallet needs to know to check
+    /// the link: a contract it knows has been validated, against its network as well, and the
+    /// wallet has the data needed by the checks.
+    fn check_linked_contract_known(
+        &self,
+        txn: &DbTxn,
+        contract_id: &ContractId,
+    ) -> Result<DbAsset, Error> {
+        txn.get_asset(contract_id.to_string())?
+            .ok_or_else(|| Error::UnknownLinkedContract {
+                contract_id: contract_id.to_string(),
+            })
+    }
+
+    /// Check the contract is linked from at issuance time: its schema needs to support links
+    /// and it needs to be unlinked, otherwise it can never link to the contract being issued.
+    fn check_linked_from_contract(
+        &self,
+        txn: &DbTxn,
+        linked_from_contract: &ContractId,
+    ) -> Result<(), Error> {
+        let asset = self.check_linked_contract_known(txn, linked_from_contract)?;
+        if !asset.schema.supports_link() {
+            return Err(Error::InvalidLinkedContract {
+                contract_id: asset.id,
+                details: format!("schema {} doesn't support links", asset.schema),
+            });
+        }
+        if let Some(linked_to_contract) = asset.linked_to_contract {
+            return Err(Error::InvalidLinkedContract {
+                contract_id: asset.id,
+                details: format!("it's already linked to contract {linked_to_contract}"),
+            });
+        }
+        Ok(())
+    }
+
+    /// Check the contract that is being linked to: it needs to have been issued linked from the
+    /// linking contract, so that the two contracts point at each other.
+    fn check_linked_to_contract(
+        &self,
+        txn: &DbTxn,
+        linked_to_contract: &ContractId,
+        asset_id: &str,
+    ) -> Result<(), Error> {
+        let asset = self.check_linked_contract_known(txn, linked_to_contract)?;
+        if asset.linked_from_contract.as_deref() != Some(asset_id) {
+            return Err(Error::InvalidLinkedContract {
+                contract_id: asset.id,
+                details: format!("it has not been issued linked from contract {asset_id}"),
             });
         }
         Ok(())
@@ -569,6 +635,7 @@ pub trait WalletOffline: WalletBackup {
             max_supply: None,
             known_circulating_supply: None,
             reject_list_url: None,
+            linked_from_contract: None,
             token: None,
             timestamp: valid_contract.genesis.timestamp,
             added_at: created_at,
@@ -714,6 +781,7 @@ pub trait WalletOffline: WalletBackup {
             max_supply: None,
             known_circulating_supply: None,
             reject_list_url: None,
+            linked_from_contract: None,
             token: Some(Token::from_token_data(&token_data, self.media_dir())),
             timestamp: valid_contract.genesis.timestamp,
             added_at: created_at,
@@ -823,6 +891,7 @@ pub trait WalletOffline: WalletBackup {
             max_supply: None,
             known_circulating_supply: None,
             reject_list_url: None,
+            linked_from_contract: None,
             token: None,
             timestamp: valid_contract.genesis.timestamp,
             added_at: created_at,
@@ -846,10 +915,25 @@ pub trait WalletOffline: WalletBackup {
         amounts: Vec<u64>,
         inflation_amounts: Vec<u64>,
         reject_list_url: Option<String>,
+        link_right: bool,
+        linked_from_contract: Option<String>,
+        skip_contract_checks: bool,
     ) -> Result<IssueData, Error> {
         let asset_schema = &AssetSchema::Ifa;
 
         self.check_schema_support(asset_schema)?;
+
+        let linked_from_contract = linked_from_contract
+            .map(|contract_id| {
+                ContractId::from_str(&contract_id)
+                    .map_err(|_| Error::InvalidContractId { contract_id })
+            })
+            .transpose()?;
+        if let Some(linked_from_contract) = &linked_from_contract
+            && !skip_contract_checks
+        {
+            self.check_linked_from_contract(txn, linked_from_contract)?;
+        }
 
         let settled = self.get_total_issue_amount(&amounts, true)?;
         let inflation_amt = self.get_total_inflation_amount(&inflation_amounts, settled)?;
@@ -942,6 +1026,30 @@ pub trait WalletOffline: WalletBackup {
                 .expect("invalid global state data");
         }
 
+        if link_right {
+            let utxo = self.get_utxo(txn, &exclude_outpoints, Some(&unspents), false, Some(0))?;
+            exclude_outpoints.push(utxo.outpoint());
+            issue_utxos
+                .entry(utxo.idx)
+                .or_default()
+                .push(Assignment::LinkRight);
+            builder = builder
+                .add_rights(RGB_STATE_LINK_RIGHT, self.get_builder_seal(utxo))
+                .expect("invalid link right");
+        }
+        if let Some(linked_from_contract) = &linked_from_contract {
+            builder = builder
+                .add_global_state(RGB_GLOBAL_LINKED_FROM_CONTRACT, *linked_from_contract)
+                .expect("invalid global state data");
+        }
+
+        #[cfg(test)]
+        if let Some(seal) = mock_ifa_link_right() {
+            builder = builder
+                .add_rights(RGB_STATE_LINK_RIGHT, seal)
+                .expect("invalid link right");
+        }
+
         debug!(self.logger(), "Issuing: {issue_utxos:?}");
 
         let (asset_id, _contract_path, valid_contract) = self.issue_contract(builder)?;
@@ -958,6 +1066,7 @@ pub trait WalletOffline: WalletBackup {
             max_supply: Some(max_supply),
             known_circulating_supply: Some(settled),
             reject_list_url,
+            linked_from_contract: linked_from_contract.map(|c| c.to_string()),
             token: None,
             timestamp: valid_contract.genesis.timestamp,
             added_at: created_at,
@@ -1122,6 +1231,7 @@ pub trait WalletOffline: WalletBackup {
             Assignment::Fungible(amt) | Assignment::InflationRight(amt) => {
                 invoice_builder = invoice_builder.set_amount_raw(*amt);
             }
+            Assignment::LinkRight => invoice_builder = invoice_builder.set_void(),
             Assignment::NonFungible | Assignment::Any => {}
         }
         if let Some(state_name) = detected_assignment.state_name() {
@@ -1483,6 +1593,8 @@ pub trait WalletOffline: WalletBackup {
             details: asset.details,
             token,
             reject_list_url: asset.reject_list_url,
+            linked_from_contract: asset.linked_from_contract,
+            linked_to_contract: asset.linked_to_contract,
         })
     }
 
@@ -1529,6 +1641,8 @@ pub trait WalletOffline: WalletBackup {
             ticker: ActiveValue::Set(asset_data.ticker.clone()),
             timestamp: ActiveValue::Set(asset_data.timestamp),
             reject_list_url: ActiveValue::Set(asset_data.reject_list_url.clone()),
+            linked_from_contract: ActiveValue::Set(asset_data.linked_from_contract.clone()),
+            linked_to_contract: ActiveValue::Set(None),
         };
         let idx = txn.set_asset(db_asset.clone())?;
         db_asset.idx = ActiveValue::Set(idx);
@@ -1716,6 +1830,7 @@ pub trait WalletOffline: WalletBackup {
                     max_supply: None,
                     known_circulating_supply: None,
                     reject_list_url: None,
+                    linked_from_contract: None,
                     token: None,
                     timestamp,
                     added_at,
@@ -1746,6 +1861,7 @@ pub trait WalletOffline: WalletBackup {
                     max_supply: None,
                     known_circulating_supply: None,
                     reject_list_url: None,
+                    linked_from_contract: None,
                     token: Some(token_full),
                     timestamp,
                     added_at,
@@ -1773,6 +1889,7 @@ pub trait WalletOffline: WalletBackup {
                     max_supply: None,
                     known_circulating_supply: None,
                     reject_list_url: None,
+                    linked_from_contract: None,
                     token: None,
                     timestamp,
                     added_at,
@@ -1799,6 +1916,7 @@ pub trait WalletOffline: WalletBackup {
                     initial_supply
                 };
                 let reject_list_url = contract.reject_list_url().map(|u| u.to_string());
+                let linked_from_contract = contract_link(contract.link_from())?;
                 LocalAssetData {
                     asset_id: contract_id.to_string(),
                     name,
@@ -1811,6 +1929,7 @@ pub trait WalletOffline: WalletBackup {
                     max_supply: Some(max_supply),
                     known_circulating_supply: Some(known_circulating_supply),
                     reject_list_url,
+                    linked_from_contract,
                     token: None,
                     timestamp,
                     added_at,
@@ -2137,14 +2256,21 @@ pub trait WalletOffline: WalletBackup {
                     RecipientTypeFull::Witness { .. } => TransferKind::ReceiveWitness,
                 }
             }
-        } else if transfer.recipient_id.is_none() {
-            // burn is the only outgoing transfer with no recipient
-            TransferKind::Burn
-        } else if coloring_info.any_issue {
-            // inflation transfer is outgoing and connected to issue colorings
-            TransferKind::Inflation
         } else {
-            TransferKind::Send
+            match asset_transfer
+                .transition_type
+                .expect("outgoing asset transfers record their transition")
+            {
+                // the recorded type is the one of the operation's MainTransition, which is never a
+                // transfer of rights (rights are moved by side transitions, and an operation moving
+                // only rights is recorded as a Transfer), so they map to sends
+                TypeOfTransition::Transfer
+                | TypeOfTransition::TransferInflation
+                | TypeOfTransition::TransferLink => TransferKind::Send,
+                TypeOfTransition::Inflate => TransferKind::Inflation,
+                TypeOfTransition::Burn => TransferKind::Burn,
+                TypeOfTransition::Link => TransferKind::Link,
+            }
         };
 
         let receive_utxo = match &transfer.recipient_type {
@@ -2161,33 +2287,38 @@ pub trait WalletOffline: WalletBackup {
             TransferKind::ReceiveBlind | TransferKind::ReceiveWitness | TransferKind::Issuance => {
                 vec![]
             }
-            TransferKind::Send | TransferKind::Inflation | TransferKind::Burn => {
-                coloring_info.change_utxos.clone()
-            }
+            TransferKind::Send
+            | TransferKind::Inflation
+            | TransferKind::Burn
+            | TransferKind::Link => coloring_info.change_utxos.clone(),
         };
 
-        let consignment_path = match (&kind, batch_transfer.status) {
-            (TransferKind::Send | TransferKind::Burn, _) => Some(self.send_consignment_path(
-                &asset_transfer.asset_id.clone().unwrap(),
-                &batch_transfer.txid.clone().unwrap(),
-            )),
+        let consignment_path = match &kind {
+            TransferKind::Send | TransferKind::Burn | TransferKind::Link => {
+                Some(self.send_consignment_path(
+                    &asset_transfer.asset_id.clone().unwrap(),
+                    &batch_transfer.txid.clone().unwrap(),
+                ))
+            }
             // no consignment is produced for an inflation, which has no counterparty
-            (TransferKind::Inflation, _) => None,
-            (
-                TransferKind::ReceiveBlind | TransferKind::ReceiveWitness,
-                TransferStatus::WaitingCounterparty,
-            ) => None,
-            (TransferKind::ReceiveBlind | TransferKind::ReceiveWitness, _) => {
+            TransferKind::Inflation => None,
+            TransferKind::ReceiveBlind | TransferKind::ReceiveWitness => {
                 Some(self.get_receive_consignment_path(&transfer.recipient_id.clone().unwrap()))
             }
-            (TransferKind::Issuance, _) => {
+            TransferKind::Issuance => {
                 Some(self.get_issue_consignment_path(&asset_transfer.asset_id.clone().unwrap()))
             }
         }
+        // a consignment is only reported if it's on disk, as the PSBT is: a transfer still waiting
+        // for the counterparty has received none yet, and one that failed before that never will
+        .filter(|p| p.exists())
         .map(|p| p.to_string_lossy().to_string());
 
         let psbt_path = match &kind {
-            TransferKind::Send | TransferKind::Inflation | TransferKind::Burn => batch_transfer
+            TransferKind::Send
+            | TransferKind::Inflation
+            | TransferKind::Burn
+            | TransferKind::Link => batch_transfer
                 .txid
                 .as_ref()
                 .map(|txid| self.get_transfer_dir(txid).join(UNSIGNED_PSBT_FILE))

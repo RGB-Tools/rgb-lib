@@ -317,6 +317,9 @@ fn fail() {
         vec![AMOUNT],
         vec![],
         None,
+        false,
+        None,
+        false,
     );
     assert!(matches!(result, Err(Error::InvalidTicker { details: m }) if m == EMPTY_MSG));
 
@@ -328,6 +331,9 @@ fn fail() {
         vec![AMOUNT],
         vec![],
         None,
+        false,
+        None,
+        false,
     );
     assert!(matches!(result, Err(Error::InvalidTicker { details: m }) if m == IDENT_TOO_LONG_MSG));
 
@@ -339,6 +345,9 @@ fn fail() {
         vec![AMOUNT],
         vec![],
         None,
+        false,
+        None,
+        false,
     );
     assert!(
         matches!(result, Err(Error::InvalidTicker { details: m }) if m == "ticker needs to be all uppercase")
@@ -353,6 +362,9 @@ fn fail() {
         vec![AMOUNT],
         vec![],
         None,
+        false,
+        None,
+        false,
     );
     assert!(
         matches!(result, Err(Error::InvalidTicker { details: m }) if m == IDENT_NOT_ASCII_MSG
@@ -368,6 +380,9 @@ fn fail() {
         vec![AMOUNT],
         vec![],
         None,
+        false,
+        None,
+        false,
     );
     assert!(
         matches!(result, Err(Error::InvalidTicker { details: m }) if m == IDENT_NOT_ASCII_MSG
@@ -383,6 +398,9 @@ fn fail() {
         vec![AMOUNT],
         vec![],
         None,
+        false,
+        None,
+        false,
     );
     assert!(
         matches!(result, Err(Error::InvalidTicker { details: m }) if m == IDENT_NOT_START_MSG
@@ -397,6 +415,9 @@ fn fail() {
         vec![AMOUNT],
         vec![],
         None,
+        false,
+        None,
+        false,
     );
     assert!(matches!(result, Err(Error::InvalidName { details: m }) if m == EMPTY_MSG));
 
@@ -408,6 +429,9 @@ fn fail() {
         vec![AMOUNT],
         vec![],
         None,
+        false,
+        None,
+        false,
     );
     assert!(matches!(result, Err(Error::InvalidName { details: m }) if m == IDENT_TOO_LONG_MSG));
 
@@ -420,6 +444,9 @@ fn fail() {
         vec![AMOUNT],
         vec![],
         None,
+        false,
+        None,
+        false,
     );
     assert!(
         matches!(result, Err(Error::InvalidName { details: m }) if m == IDENT_NOT_ASCII_MSG
@@ -434,6 +461,9 @@ fn fail() {
         vec![AMOUNT],
         vec![],
         None,
+        false,
+        None,
+        false,
     );
     assert!(matches!(
         result,
