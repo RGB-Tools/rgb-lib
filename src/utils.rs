@@ -1094,10 +1094,11 @@ impl<'txn> RgbStock<'txn> {
         contract_id: ContractId,
         outputs: impl AsRef<[OutputSeal]>,
         secret_seals: impl AsRef<[SecretSeal]>,
+        opids: impl IntoIterator<Item = OpId>,
         fascia: &Fascia,
     ) -> Result<(RgbTransfer, OpoutsDagData, RetrievedSpvProofs), Error> {
         self.stock
-            .transfer_from_fascia_with_dag(contract_id, outputs, secret_seals, [], fascia, None)
+            .transfer_from_fascia_with_dag(contract_id, outputs, secret_seals, opids, fascia, None)
             .map_err(Error::from)
     }
 

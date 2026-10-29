@@ -722,3 +722,76 @@ fn end_after_fail_or_end() {
     assert_matches!(result, Err(Error::CannotEndTransfer { txid: t }) if t == txid);
     assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
 }
+
+/// An inflation doesn't spend the inflation rights rejected by the asset's reject list: it selects
+/// other inputs to make up for them, failing if there aren't enough.
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn ifa_reject_list() {
+    initialize();
+
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+
+    let list_name = "reject_inflate.list";
+    write_opouts_to_reject_list(list_name, &[]);
+    let asset = party.issue_asset_ifa(
+        Some(&[AMOUNT]),
+        Some(&[AMOUNT_INFLATION]),
+        Some(format!("http://localhost:8140/lists/{list_name}")),
+    );
+
+    // the receiver gets two inflation rights, the first of which is then rejected
+    let inflation_rejected = 60;
+    let inflation_allowed = 40;
+    let txid_rejected = send_and_settle(
+        &mut party,
+        &mut rcv_party,
+        &asset.asset_id,
+        Assignment::InflationRight(inflation_rejected),
+    );
+    send_and_settle(
+        &mut party,
+        &mut rcv_party,
+        &asset.asset_id,
+        Assignment::InflationRight(inflation_allowed),
+    );
+    let opouts = rcv_party.extract_opouts_from_transfer(&asset.asset_id, &txid_rejected);
+    assert_eq!(opouts.len(), 1);
+    write_opouts_to_reject_list(list_name, &[opouts[0].to_string()]);
+
+    // an inflation only the rejected right could cover fails
+    let result = rcv_party.inflate_result(&asset.asset_id, &[inflation_allowed + 1]);
+    assert_matches!(
+        result,
+        Err(Error::InsufficientAssignments { asset_id: ref t, .. }) if t == &asset.asset_id
+    );
+
+    // an inflation the allowed right covers spends it, leaving the rejected one out
+    let inflation_amount = 30;
+    let res = rcv_party.inflate(&asset.asset_id, &[inflation_amount]);
+    mine(false);
+    assert!(rcv_party.refresh_asset(&asset.asset_id));
+    assert!(rcv_party.check_test_transfer_status_sender(&res.txid, TransferStatus::Settled));
+    let allocations: Vec<Assignment> = rcv_party
+        .list_unspents(false)
+        .iter()
+        .flat_map(|u| &u.rgb_allocations)
+        .filter(|a| a.asset_id.as_deref() == Some(&asset.asset_id))
+        .map(|a| a.assignment.clone())
+        .collect();
+    let mut inflation_rights: Vec<u64> = allocations
+        .iter()
+        .filter_map(|a| match a {
+            Assignment::InflationRight(amt) => Some(*amt),
+            _ => None,
+        })
+        .collect();
+    inflation_rights.sort();
+    assert_eq!(
+        inflation_rights,
+        vec![inflation_allowed - inflation_amount, inflation_rejected]
+    );
+    assert!(allocations.contains(&Assignment::Fungible(inflation_amount)));
+}

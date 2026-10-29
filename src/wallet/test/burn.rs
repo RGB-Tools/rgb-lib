@@ -465,6 +465,72 @@ fn success() {
     assert_burn_unspents(&mut rcv_party, &asset.asset_id, None);
 }
 
+/// A burn doesn't spend the allocations rejected by the asset's reject list: it selects other
+/// inputs to make up for them, failing if there aren't enough.
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn ifa_reject_list() {
+    initialize();
+
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+
+    let list_name = "reject_burn.list";
+    write_opouts_to_reject_list(list_name, &[]);
+    let asset = party.issue_asset_ifa(
+        Some(&[AMOUNT]),
+        None,
+        Some(format!("http://localhost:8140/lists/{list_name}")),
+    );
+
+    // the receiver gets two allocations, the first of which is then rejected
+    let amount_rejected = 60;
+    let amount_allowed = 40;
+    let txid_rejected = send_and_settle(
+        &mut party,
+        &mut rcv_party,
+        &asset.asset_id,
+        Assignment::Fungible(amount_rejected),
+    );
+    send_and_settle(
+        &mut party,
+        &mut rcv_party,
+        &asset.asset_id,
+        Assignment::Fungible(amount_allowed),
+    );
+    let opouts = rcv_party.extract_opouts_from_transfer(&asset.asset_id, &txid_rejected);
+    assert_eq!(opouts.len(), 1);
+    write_opouts_to_reject_list(list_name, &[opouts[0].to_string()]);
+
+    // a burn only the rejected allocation could cover fails
+    let result = rcv_party.burn_result(&asset.asset_id, amount_allowed + 1, Some(BURN_REASON));
+    assert_matches!(
+        result,
+        Err(Error::InsufficientAssignments { asset_id: ref t, .. }) if t == &asset.asset_id
+    );
+
+    // a burn the allowed allocation covers spends it, leaving the rejected one out
+    let burn_amount = 30;
+    let res = rcv_party.burn(&asset.asset_id, burn_amount, Some(BURN_REASON));
+    mine(false);
+    assert!(rcv_party.refresh_asset(&asset.asset_id));
+    let transfers = rcv_party.list_transfers(Some(&asset.asset_id));
+    let transfer = transfers.last().unwrap();
+    assert_eq!(transfer.kind, TransferKind::Burn);
+    assert_eq!(transfer.status, TransferStatus::Settled);
+    assert_eq!(transfer.txid.as_ref().unwrap(), &res.txid);
+    let mut amounts: Vec<u64> = rcv_party
+        .list_unspents(false)
+        .iter()
+        .flat_map(|u| &u.rgb_allocations)
+        .filter(|a| a.asset_id.as_deref() == Some(&asset.asset_id))
+        .map(|a| a.assignment.main_amount())
+        .collect();
+    amounts.sort();
+    assert_eq!(amounts, vec![amount_allowed - burn_amount, amount_rejected]);
+}
+
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]

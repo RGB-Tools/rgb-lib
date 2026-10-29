@@ -414,6 +414,44 @@ pub(crate) fn write_opouts_to_reject_list(filename: &str, opouts: &[String]) {
     }
 }
 
+/// A recipient of the given `assignment` paying the blind receive described by `receive_data`,
+/// with optional encryption and the default transport endpoints.
+#[cfg(feature = "electrum")]
+pub(crate) fn blind_recipient(receive_data: &ReceiveData, assignment: Assignment) -> Recipient {
+    Recipient {
+        assignment,
+        recipient_id: receive_data.recipient_id.clone(),
+        public_key: Some(receive_data.public_key.clone()),
+        expiration_timestamp: Some(receive_data.expiration_timestamp),
+        encryption: Encryption::Optional,
+        witness_data: None,
+        transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+    }
+}
+
+/// Send the given `assignment` of the asset with ID `asset_id` from `sender` to a new blind receive
+/// of `receiver`, then settle the transfer, returning its TXID.
+#[cfg(feature = "electrum")]
+pub(crate) fn send_and_settle(
+    sender: &mut SinglesigParty,
+    receiver: &mut SinglesigParty,
+    asset_id: &str,
+    assignment: Assignment,
+) -> String {
+    let receive_data = receiver.blind_receive();
+    let recipient_map = HashMap::from([(
+        asset_id.to_string(),
+        vec![blind_recipient(&receive_data, assignment)],
+    )]);
+    let txid = sender.send_retry(&recipient_map);
+    receiver.wait_for_refresh(None);
+    sender.wait_for_refresh(None);
+    mine(false);
+    receiver.wait_for_refresh(None);
+    sender.wait_for_refresh(None);
+    txid
+}
+
 #[cfg(feature = "electrum")]
 pub(crate) fn get_proxy_client(proxy_url: Option<&str>) -> ProxyClient {
     ProxyClient::new(proxy_url.unwrap_or(PROXY_URL)).unwrap()

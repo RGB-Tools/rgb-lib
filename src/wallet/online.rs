@@ -1816,41 +1816,26 @@ pub trait WalletOnline: WalletOffline {
         received
     }
 
-    fn get_reject_list(
-        &self,
-        reject_list_url: &str,
-    ) -> Result<(HashSet<Opout>, HashSet<Opout>), Error> {
+    fn get_reject_list(&self, reject_list_url: &str) -> Result<RejectList, Error> {
         let reject_list_client = RejectListClient::new(reject_list_url)?;
         let list = reject_list_client.get_reject_list()?;
-        let reject_list = list.trim();
-        let mut opout_map = HashMap::with_capacity(reject_list.lines().count());
-        for line in reject_list.lines() {
+        // invalid lines are counted and reported once, as a list can contain many
+        let mut reject_list = RejectList::default();
+        let mut invalid = 0;
+        for line in list.trim().lines() {
             let (is_allow, opout_str) = line.strip_prefix("!").map_or((false, line), |s| (true, s));
-            let opout = match Opout::from_str(opout_str) {
-                Ok(o) => o,
-                Err(_) => {
-                    warn!(
-                        self.logger(),
-                        "Ignoring invalid opout in reject list: {line}"
-                    );
-                    continue;
-                }
-            };
-            opout_map.insert(opout, is_allow);
+            match Opout::from_str(opout_str) {
+                Ok(opout) => reject_list.insert(opout, is_allow),
+                Err(_) => invalid += 1,
+            }
         }
-        let (allow_opouts, reject_opouts) = opout_map.into_iter().fold(
-            (HashSet::new(), HashSet::new()),
-            |(mut allow, mut reject), (o, allowed)| {
-                if allowed {
-                    allow.insert(o);
-                } else {
-                    reject.insert(o);
-                }
-                (allow, reject)
-            },
-        );
-
-        Ok((reject_opouts, allow_opouts))
+        if invalid > 0 {
+            warn!(
+                self.logger(),
+                "Ignoring {invalid} invalid opout(s) in reject list"
+            );
+        }
+        Ok(reject_list)
     }
 
     fn extract_attachments(
@@ -2744,15 +2729,14 @@ pub trait WalletOnline: WalletOffline {
                 )
             };
             if let Some(url) = &url {
-                let (reject_opouts, allow_opouts) = self.get_reject_list(url)?;
+                let reject_list = self.get_reject_list(url)?;
 
                 let to_reject = self.check_dag(
                     validation_status
                         .dag_data_opt
                         .as_ref()
                         .expect("build_opouts_dag is set for schemas supporting a reject list"),
-                    &reject_opouts,
-                    &allow_opouts,
+                    &reject_list,
                     &receiving.clone().into_keys().collect(),
                 )?;
 
@@ -4239,8 +4223,7 @@ pub trait WalletOnline: WalletOffline {
     fn check_dag(
         &self,
         dag_data: &OpoutsDagData,
-        reject_opouts: &HashSet<Opout>,
-        allow_opouts: &HashSet<Opout>,
+        reject_list: &RejectList,
         check_opouts: &HashSet<Opout>,
     ) -> Result<HashSet<Opout>, Error> {
         let (dag, index) = dag_data;
@@ -4261,11 +4244,11 @@ pub trait WalletOnline: WalletOffline {
                 }
                 let node_opout = &dag[node];
                 // allow shields this path upward: do not traverse this branch further
-                if allow_opouts.contains(node_opout) {
+                if reject_list.allows(node_opout) {
                     continue;
                 }
                 // encountering a reject node on an unshielded path: reject
-                if reject_opouts.contains(node_opout) {
+                if reject_list.rejects(node_opout) {
                     to_reject.insert(*check_opout);
                     break;
                 }
@@ -4293,6 +4276,7 @@ pub trait WalletOnline: WalletOffline {
         sender_transport_endpoint: Option<String>,
         operation_secret_key: Option<Vec<u8>>,
         rejected: &mut HashSet<Opout>,
+        reject_lists: &mut HashMap<String, RejectList>,
     ) -> Result<PrepareRgbPsbtResult, Error> {
         let mut change_utxo_option = None;
 
@@ -4573,8 +4557,10 @@ pub trait WalletOnline: WalletOffline {
             transfer_info.beneficiaries_blinded = beneficiaries_blinded;
             transfer_info.beneficiaries_witness = beneficiaries_witness;
 
-            let should_build_dag = transfer_info.main_transition == TypeOfTransition::Transfer
-                && transfer_info.asset_info.reject_list_url.is_some();
+            // every operation is checked, so that none spends a rejected allocation: a recipient
+            // would refuse it, and an operation with no recipient (an inflation or a burn) would
+            // carry rejected history
+            let should_build_dag = transfer_info.asset_info.reject_list_url.is_some();
 
             #[cfg(test)]
             let should_build_dag = if skip_build_dag() {
@@ -4588,21 +4574,22 @@ pub trait WalletOnline: WalletOffline {
                     transfer_info.asset_info.contract_id,
                     transfer_info.beneficiaries_witness.clone(),
                     transfer_info.beneficiaries_blinded.clone(),
+                    transfer_info.requested_opids(&fascia),
                     &fascia,
                 )?;
 
-                let (reject_opouts, allow_opouts) = self
-                    .get_reject_list(transfer_info.asset_info.reject_list_url.as_ref().unwrap())?;
+                // a list is fetched once per operation, so that its retries don't download it
+                // again and all decide on the same version of it
+                let url = transfer_info.asset_info.reject_list_url.as_ref().unwrap();
+                if !reject_lists.contains_key(url) {
+                    reject_lists.insert(url.clone(), self.get_reject_list(url)?);
+                }
+                let reject_list = &reject_lists[url];
                 let asset_opouts = input_opouts
                     .get(&transfer_info.asset_info.contract_id)
                     .unwrap();
                 let asset_input_opouts = asset_opouts.keys().cloned().collect();
-                let to_reject = self.check_dag(
-                    &dag_data,
-                    &reject_opouts,
-                    &allow_opouts,
-                    &asset_input_opouts,
-                )?;
+                let to_reject = self.check_dag(&dag_data, reject_list, &asset_input_opouts)?;
                 if !to_reject.is_empty() {
                     warn!(
                         self.logger(),
@@ -5381,6 +5368,75 @@ pub trait WalletOnline: WalletOffline {
         Ok(transfer_dir)
     }
 
+    /// Prepare the PSBT of an operation on a single asset (an inflation or a burn),
+    /// retrying, as a send does, without the inputs found rejected by the asset's reject list:
+    /// more inputs are then selected to make up for them, failing if there aren't enough.
+    ///
+    /// Such an operation has no counterparty, so it has no expiration, sender proxy or operation
+    /// key.
+    #[allow(clippy::too_many_arguments)]
+    fn prepare_single_asset_psbt(
+        &mut self,
+        txn: &DbTxn,
+        transfer_info: InfoAssetTransfer,
+        transfer_dir: PathBuf,
+        unspents: Vec<LocalUnspent>,
+        input_unspents: &[LocalUnspent],
+        witness_recipients: &Vec<(ScriptBuf, u64)>,
+        fee_rate_checked: FeeRate,
+        min_confirmations: u8,
+        stock: &mut RgbStock<'_>,
+        dry_run: bool,
+    ) -> Result<BeginOperationData, Error> {
+        let asset_id = transfer_info.asset_info.contract_id.to_string();
+        let mut rejected = HashSet::new();
+        let mut reject_lists = HashMap::new();
+        let mut transfer_info_map = BTreeMap::from([(asset_id.clone(), transfer_info.clone())]);
+        loop {
+            match self.prepare_transfer_psbt(
+                txn,
+                &mut transfer_info_map,
+                transfer_dir.clone(),
+                false,
+                unspents.clone(),
+                input_unspents,
+                witness_recipients,
+                fee_rate_checked,
+                min_confirmations,
+                None,
+                None,
+                None,
+                stock,
+                &mut rejected,
+                &mut reject_lists,
+                dry_run,
+            )? {
+                PrepareTransferPsbtResult::Retry => {
+                    // start over from the original transfer info, with the assignments needed
+                    // increased by the rejected ones
+                    let assignments_needed =
+                        transfer_info_map[&asset_id].assignments_needed.clone();
+                    let asset_spend = self.select_rgb_inputs(
+                        asset_id.clone(),
+                        &assignments_needed,
+                        input_unspents.to_vec(),
+                    )?;
+                    transfer_info_map = BTreeMap::from([(
+                        asset_id.clone(),
+                        InfoAssetTransfer {
+                            asset_spend,
+                            assignments_needed,
+                            ..transfer_info.clone()
+                        },
+                    )]);
+                }
+                PrepareTransferPsbtResult::Success(begin_operation_data) => {
+                    return Ok(*begin_operation_data);
+                }
+            }
+        }
+    }
+
     fn prepare_transfer_psbt(
         &mut self,
         txn: &DbTxn,
@@ -5397,6 +5453,7 @@ pub trait WalletOnline: WalletOffline {
         operation_secret_key: Option<Vec<u8>>,
         stock: &mut RgbStock<'_>,
         rejected: &mut HashSet<Opout>,
+        reject_lists: &mut HashMap<String, RejectList>,
         dry_run: bool,
     ) -> Result<PrepareTransferPsbtResult, Error> {
         // prepare BDK PSBT
@@ -5432,6 +5489,7 @@ pub trait WalletOnline: WalletOffline {
             sender_transport_endpoint,
             operation_secret_key,
             rejected,
+            reject_lists,
         )? {
             PrepareRgbPsbtResult::Retry => return Ok(PrepareTransferPsbtResult::Retry),
             PrepareRgbPsbtResult::Success(begin_operation_data) => begin_operation_data,
@@ -5752,6 +5810,7 @@ pub trait WalletOnline: WalletOffline {
         let transfer_dir = self.setup_transfer_directory(receive_ids)?;
 
         let mut rejected = HashSet::new();
+        let mut reject_lists = HashMap::new();
         let mut transfer_info_map: BTreeMap<String, InfoAssetTransfer> = BTreeMap::new();
         let mut invoices_checked = false;
 
@@ -5855,6 +5914,7 @@ pub trait WalletOnline: WalletOffline {
                 Some(operation_secret_key.clone()),
                 &mut stock,
                 &mut rejected,
+                &mut reject_lists,
                 dry_run,
             )? {
                 PrepareTransferPsbtResult::Retry => continue,
@@ -6295,39 +6355,23 @@ pub trait WalletOnline: WalletOffline {
             beneficiaries_witness: vec![],
             burn_reason: None,
         };
-        let mut transfer_info_map: BTreeMap<String, InfoAssetTransfer> =
-            BTreeMap::from([(asset_id.clone(), transfer_info)]);
-
         let receive_ids: Vec<String> = local_recipients
             .iter()
             .map(|lr| lr.recipient_id.clone())
             .collect();
         let transfer_dir = self.setup_transfer_directory(receive_ids)?;
 
-        let mut rejected = HashSet::new();
-        Ok(
-            match self.prepare_transfer_psbt(
-                txn,
-                &mut transfer_info_map,
-                transfer_dir.clone(),
-                false,
-                unspents,
-                &input_unspents,
-                &witness_recipients,
-                fee_rate_checked,
-                min_confirmations,
-                None,
-                None,
-                None,
-                &mut stock,
-                &mut rejected,
-                dry_run,
-            )? {
-                PrepareTransferPsbtResult::Retry => {
-                    unreachable!("inflate transition has no retry logic")
-                }
-                PrepareTransferPsbtResult::Success(begin_operation_data) => *begin_operation_data,
-            },
+        self.prepare_single_asset_psbt(
+            txn,
+            transfer_info,
+            transfer_dir,
+            unspents,
+            &input_unspents,
+            &witness_recipients,
+            fee_rate_checked,
+            min_confirmations,
+            &mut stock,
+            dry_run,
         )
     }
 
@@ -6492,39 +6536,23 @@ pub trait WalletOnline: WalletOffline {
             beneficiaries_witness: vec![],
             burn_reason,
         };
-        let mut transfer_info_map: BTreeMap<String, InfoAssetTransfer> =
-            BTreeMap::from([(asset_id.clone(), transfer_info)]);
-
         let receive_ids: Vec<String> = local_recipients
             .iter()
             .map(|lr| lr.recipient_id.clone())
             .collect();
         let transfer_dir = self.setup_transfer_directory(receive_ids)?;
 
-        let mut rejected = HashSet::new();
-        Ok(
-            match self.prepare_transfer_psbt(
-                txn,
-                &mut transfer_info_map,
-                transfer_dir.clone(),
-                false,
-                unspents,
-                &input_unspents,
-                &witness_recipients,
-                fee_rate_checked,
-                min_confirmations,
-                None,
-                None,
-                None,
-                &mut stock,
-                &mut rejected,
-                dry_run,
-            )? {
-                PrepareTransferPsbtResult::Retry => {
-                    unreachable!("burn transition has no retry logic")
-                }
-                PrepareTransferPsbtResult::Success(begin_operation_data) => *begin_operation_data,
-            },
+        self.prepare_single_asset_psbt(
+            txn,
+            transfer_info,
+            transfer_dir,
+            unspents,
+            &input_unspents,
+            &witness_recipients,
+            fee_rate_checked,
+            min_confirmations,
+            &mut stock,
+            dry_run,
         )
     }
 

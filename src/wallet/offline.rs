@@ -2639,29 +2639,12 @@ pub trait WalletOffline: WalletBackup {
         let mut stock = self.rgb_stock(txn)?;
         for (asset_id, transfer_info) in transfer_info_map {
             let contract_id = transfer_info.asset_info.contract_id;
-            // a burn has no beneficiary, so its transition is selected explicitly by OpId
-            let opids: Vec<OpId> = if transfer_info.main_transition == TypeOfTransition::Burn {
-                fascia
-                    .bundles()
-                    .get(&contract_id)
-                    .map(|bundle| {
-                        bundle
-                            .known_transitions
-                            .iter()
-                            .filter(|kt| kt.transition.transition_type == TS_BURN)
-                            .map(|kt| kt.opid)
-                            .collect()
-                    })
-                    .unwrap_or_default()
-            } else {
-                vec![]
-            };
             #[allow(unused_mut)]
             let (mut consignment, spv_proofs) = stock.transfer_from_fascia(
                 contract_id,
                 transfer_info.beneficiaries_witness.clone(),
                 transfer_info.beneficiaries_blinded.clone(),
-                opids,
+                transfer_info.requested_opids(fascia),
                 fascia,
                 self.spv_resolver(),
             )?;
