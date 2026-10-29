@@ -429,6 +429,70 @@ pub(crate) fn blind_recipient(receive_data: &ReceiveData, assignment: Assignment
     }
 }
 
+/// Build a recipient map sending the given `assignment` of the asset with ID `asset_id` to the
+/// blind receive described by `receive_data`.
+#[cfg(feature = "electrum")]
+pub(crate) fn blind_recipient_map(
+    asset_id: &str,
+    receive_data: &ReceiveData,
+    assignment: Assignment,
+) -> HashMap<String, Vec<Recipient>> {
+    HashMap::from([(
+        asset_id.to_string(),
+        vec![blind_recipient(receive_data, assignment)],
+    )])
+}
+
+/// Send the given `assignment` of the asset with ID `asset_id` from `sender` to the blind receive
+/// of `receiver` described by `receive_data`, then settle the transfer, returning its TXID.
+#[cfg(feature = "electrum")]
+pub(crate) fn send_to_blind_and_settle(
+    sender: &mut SinglesigParty,
+    receiver: &mut SinglesigParty,
+    asset_id: &str,
+    receive_data: &ReceiveData,
+    assignment: Assignment,
+) -> String {
+    let recipient_map = blind_recipient_map(asset_id, receive_data, assignment);
+    let txid = sender.send_retry(&recipient_map);
+    receiver.wait_for_refresh(None);
+    sender.wait_for_refresh(None);
+    mine(false);
+    receiver.wait_for_refresh(None);
+    sender.wait_for_refresh(None);
+    assert!(sender.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+    assert!(
+        receiver.check_test_transfer_status_recipient(
+            &receive_data.recipient_id,
+            TransferStatus::Settled
+        )
+    );
+    txid
+}
+
+/// Send the given `assignment` of the asset with ID `asset_id` from `sender` to the blind receive
+/// of `receiver` described by `receive_data`, and have `receiver` refuse the transfer.
+#[cfg(feature = "electrum")]
+pub(crate) fn send_to_blind_refused(
+    sender: &mut SinglesigParty,
+    receiver: &mut SinglesigParty,
+    asset_id: &str,
+    receive_data: &ReceiveData,
+    assignment: Assignment,
+) {
+    let recipient_map = blind_recipient_map(asset_id, receive_data, assignment);
+    let txid = sender.send_result(&recipient_map).unwrap().txid;
+    receiver.wait_for_refresh(None);
+    assert!(
+        receiver.check_test_transfer_status_recipient(
+            &receive_data.recipient_id,
+            TransferStatus::Failed
+        )
+    );
+    sender.wait_for_refresh(Some(asset_id));
+    assert!(sender.check_test_transfer_status_sender(&txid, TransferStatus::Failed));
+}
+
 /// Send the given `assignment` of the asset with ID `asset_id` from `sender` to a new blind receive
 /// of `receiver`, then settle the transfer, returning its TXID.
 #[cfg(feature = "electrum")]
@@ -439,17 +503,19 @@ pub(crate) fn send_and_settle(
     assignment: Assignment,
 ) -> String {
     let receive_data = receiver.blind_receive();
-    let recipient_map = HashMap::from([(
-        asset_id.to_string(),
-        vec![blind_recipient(&receive_data, assignment)],
-    )]);
-    let txid = sender.send_retry(&recipient_map);
-    receiver.wait_for_refresh(None);
-    sender.wait_for_refresh(None);
-    mine(false);
-    receiver.wait_for_refresh(None);
-    sender.wait_for_refresh(None);
-    txid
+    send_to_blind_and_settle(sender, receiver, asset_id, &receive_data, assignment)
+}
+
+/// The allocations held by the only colored UTXO of `party`.
+#[cfg(feature = "electrum")]
+pub(crate) fn single_colored_utxo_allocations(party: &mut SinglesigParty) -> Vec<RgbAllocation> {
+    let unspents = party.list_unspents(true);
+    let colored: Vec<&Unspent> = unspents
+        .iter()
+        .filter(|u| !u.rgb_allocations.is_empty())
+        .collect();
+    assert_eq!(colored.len(), 1);
+    colored[0].rgb_allocations.clone()
 }
 
 /// Whether an asset of the given schema supports the given assignment.

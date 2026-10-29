@@ -12105,6 +12105,111 @@ fn proxy_max_media() {
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
+fn receive_multiple_allocations_refused() {
+    initialize();
+
+    let amount_1: u64 = 100;
+    let amount_2: u64 = 50;
+    // the second send pays its invoice 2 allocations: 1 of the requested amount minus 1, plus 1
+    let spam: (u16, u64) = (1, 1);
+
+    // wallets
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_noutxo_party!();
+    let mut rcv_party_2 = get_funded_party!();
+
+    // prepare UTXOs
+    rcv_party.create_utxos(false, Some(1), None, FEE_RATE, None);
+
+    // issue
+    let asset = party.issue_asset_nia(Some(&[AMOUNT]));
+    let asset_id = asset.asset_id.as_str();
+
+    // a send paying the invoice a single allocation is accepted
+    let receive_data_1 = rcv_party.blind_receive();
+    send_to_blind_and_settle(
+        &mut party,
+        &mut rcv_party,
+        asset_id,
+        &receive_data_1,
+        Assignment::Fungible(amount_1),
+    );
+
+    // a send paying the invoice more than one allocation is refused
+    let receive_data_2 = rcv_party.blind_receive();
+    MOCK_SPAM_RECIPIENT_ASSIGNMENTS.replace(Some(spam));
+    send_to_blind_refused(
+        &mut party,
+        &mut rcv_party,
+        asset_id,
+        &receive_data_2,
+        Assignment::Fungible(amount_2),
+    );
+    assert!(MOCK_SPAM_RECIPIENT_ASSIGNMENTS.take().is_none());
+
+    // the sender gets its allocation back, the receiving UTXO only holds the first allocation
+    assert_eq!(
+        party.get_asset_balance(asset_id).spendable,
+        AMOUNT - amount_1
+    );
+    assert_eq!(rcv_party.get_asset_balance(asset_id).spendable, amount_1);
+    assert_eq!(single_colored_utxo_allocations(&mut rcv_party).len(), 1);
+
+    // and it can be spent
+    let receive_data_3 = rcv_party_2.blind_receive();
+    send_to_blind_and_settle(
+        &mut rcv_party,
+        &mut rcv_party_2,
+        asset_id,
+        &receive_data_3,
+        Assignment::Fungible(amount_1),
+    );
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn receive_hidden_multiple_allocations_refused() {
+    initialize();
+
+    let amount: u64 = 50;
+    // the send pays its invoice 3 allocations, listing the 2 extra ones as spent in the bundle
+    // input map, by a transition the consignment doesn't carry
+    let spam: (u16, u64) = (2, 1);
+
+    // wallets
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+
+    // issue
+    let asset = party.issue_asset_nia(Some(&[AMOUNT]));
+    let asset_id = asset.asset_id.as_str();
+
+    // the extra allocations are counted, as only the inputs of the known transitions are spent
+    let receive_data = rcv_party.blind_receive();
+    MOCK_SPAM_RECIPIENT_ASSIGNMENTS.replace(Some(spam));
+    MOCK_SPAM_HIDDEN_SPENDS.replace(Some(()));
+    send_to_blind_refused(
+        &mut party,
+        &mut rcv_party,
+        asset_id,
+        &receive_data,
+        Assignment::Fungible(amount),
+    );
+    assert!(MOCK_SPAM_RECIPIENT_ASSIGNMENTS.take().is_none());
+    assert!(MOCK_SPAM_HIDDEN_SPENDS.take().is_none());
+
+    // the sender gets its allocation back, the receiver doesn't get the asset
+    assert_eq!(party.get_asset_balance(asset_id).spendable, AMOUNT);
+    assert_matches!(
+        rcv_party.get_asset_balance_result(asset_id),
+        Err(Error::AssetNotFound { .. })
+    );
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
 fn batch_send_keeps_allocations_on_inputs_selected_for_other_assets() {
     initialize();
 

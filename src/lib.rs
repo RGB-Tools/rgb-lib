@@ -453,7 +453,8 @@ use crate::wallet::BitcoindClient;
 use crate::wallet::test::{
     mock_chain_tx, mock_clock_skew_margin, mock_confirmation_margin, mock_input_unspents,
     mock_local_version, mock_min_retention_grace, mock_retention_grace, mock_send_end_crash,
-    skip_build_dag, skip_check_fee_rate, spv_only,
+    mock_spam_hidden_spends, mock_spam_recipient_assignments, skip_build_dag, skip_check_fee_rate,
+    spv_only,
 };
 #[cfg(feature = "_online")]
 use crate::{

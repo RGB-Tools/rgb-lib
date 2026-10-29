@@ -29,6 +29,8 @@ use once_cell::sync::Lazy;
 use regex::RegexSet;
 #[cfg(feature = "electrum")]
 use rgbstd::stl::{EmbeddedMedia as RgbEmbeddedMedia, ProofOfReserves as RgbProofOfReserves};
+#[cfg(feature = "_online")]
+use rgbstd::{Assign, RevealedValue, TypedAssigns};
 use serde_json::Value;
 use serial_test::parallel;
 #[cfg(feature = "_online")]
@@ -219,6 +221,8 @@ thread_local! {
     pub(crate) static MOCK_CHAIN_TXS: RefCell<HashMap<String, (BdkTransaction, u32)>> = RefCell::new(HashMap::new());
     pub(crate) static MOCK_LOCAL_VERSION: RefCell<Option<String>> = const { RefCell::new(None) };
     pub(crate) static MOCK_SEND_END_CRASH: RefCell<Option<()>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_SPAM_RECIPIENT_ASSIGNMENTS: RefCell<Option<(u16, u64)>> = const { RefCell::new(None) };
+    pub(crate) static MOCK_SPAM_HIDDEN_SPENDS: RefCell<Option<()>> = const { RefCell::new(None) };
     pub(crate) static MOCK_CLOCK_SKEW_MARGIN: RefCell<Option<u32>> = const { RefCell::new(None) };
     pub(crate) static MOCK_RETENTION_GRACE: RefCell<Option<u32>> = const { RefCell::new(None) };
     pub(crate) static MOCK_MIN_RETENTION_GRACE: RefCell<Option<u32>> = const { RefCell::new(None) };
@@ -474,6 +478,75 @@ pub fn mock_min_retention_grace() -> Option<u32> {
 #[cfg(feature = "_online")]
 pub fn mock_confirmation_margin() -> Option<u32> {
     MOCK_CONFIRMATION_MARGIN.with_borrow(|m| *m)
+}
+
+// simulate a sender spamming the recipient with allocations: add the requested number of
+// assignments of the given amount to the (blinded) recipient seal of a transition, taking their
+// total from the recipient assignment, so the recipient receives that many allocations plus one
+// (the transition is changed once complete, as its builder refuses to assign twice to a seal)
+#[cfg(feature = "_online")]
+pub fn mock_spam_recipient_assignments(mut transition: Transition) -> Transition {
+    let Some((num, amount)) = MOCK_SPAM_RECIPIENT_ASSIGNMENTS.take() else {
+        return transition;
+    };
+    println!("mocking {num} additional recipient assignments of amount {amount}");
+    let Some(TypedAssigns::Fungible(assignments)) = transition.assignments.get_mut(&OS_ASSET)
+    else {
+        panic!("transition has no fungible assignments");
+    };
+    let (idx, seal, recipient_amount) = assignments
+        .iter()
+        .enumerate()
+        .find_map(|(i, a)| match a.seal {
+            BuilderSeal::Concealed(seal) => Some((i, seal, a.state.as_u64())),
+            BuilderSeal::Revealed(_) => None,
+        })
+        .unwrap();
+    let spam_total = (num as u64)
+        .checked_mul(amount)
+        .expect("spam total overflows u64");
+    assert!(recipient_amount > spam_total);
+    assignments.get_mut(idx).unwrap().state = RevealedValue::new(recipient_amount - spam_total);
+    for _ in 0..num {
+        assignments
+            .push(Assign {
+                seal: BuilderSeal::Concealed(seal),
+                state: RevealedValue::new(amount),
+            })
+            .unwrap();
+    }
+    transition
+}
+
+// simulate a sender hiding the allocations it spams the recipient with (see
+// `mock_spam_recipient_assignments`) by listing them as spent in the bundle input map, by a
+// transition the consignment doesn't carry: add an input map entry to the PSBT for each recipient
+// assignment of the transition but the first one
+#[cfg(feature = "_online")]
+pub fn mock_spam_hidden_spends(psbt: &mut Psbt, transition: &Transition) {
+    if MOCK_SPAM_HIDDEN_SPENDS.take().is_none() {
+        return;
+    }
+    let Some(TypedAssigns::Fungible(assignments)) = transition.assignments.get(&OS_ASSET) else {
+        panic!("transition has no fungible assignments");
+    };
+    let opid = transition.id();
+    let hidden: Vec<u16> = assignments
+        .iter()
+        .enumerate()
+        .filter(|(_, a)| matches!(a.seal, BuilderSeal::Concealed(_)))
+        .skip(1)
+        .map(|(no, _)| no as u16)
+        .collect();
+    println!("mocking {} hidden recipient assignments", hidden.len());
+    for no in hidden {
+        psbt.set_rgb_contract_consumer(
+            transition.contract_id,
+            Opout::new(opid, OS_ASSET, no),
+            OpId::from([0xaa; 32]),
+        )
+        .unwrap();
+    }
 }
 
 #[cfg(feature = "_online")]
