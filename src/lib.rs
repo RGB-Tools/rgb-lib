@@ -364,6 +364,7 @@ use rgbstd::{Assign, VoidState, assignments::AssignVec};
 #[cfg(feature = "_online")]
 use rgbstd::{
     contract::FilterIncludeAll,
+    daggy::NodeIndex,
     indexers::AnyResolver,
     validation::{OpsDag, SchemaRules, ValidationConfig, ValidationError, Validity, Warning},
 };

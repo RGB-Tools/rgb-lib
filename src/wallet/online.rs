@@ -343,6 +343,56 @@ fn check_get_ack_error(err: JsonRpcError) -> Result<(), Error> {
     }
 }
 
+/// Whether the history of the operation at `start` in the given `ops_dag` has an opout the given
+/// reject list rejects along a path no opout it allows shields.
+///
+/// The answer depends on the operation only, not on the opout the walk started from, so the
+/// answer for each operation walked is kept in `rejected`, where a walk sharing part of the
+/// history stops: checking many opouts with a common history walks it once rather than once per
+/// opout.
+fn history_rejected(
+    ops_dag: &OpsDag,
+    reject_list: &RejectList,
+    start: NodeIndex,
+    rejected: &mut HashMap<NodeIndex, bool>,
+) -> bool {
+    // depth first, settling an operation once all the operations it spends from are settled (the
+    // DAG has no cycles)
+    let mut stack = vec![start];
+    while let Some(&node) = stack.last() {
+        if rejected.contains_key(&node) {
+            stack.pop();
+            continue;
+        }
+        let base = stack.len();
+        let mut node_rejected = false;
+        for (spent_opout, parent) in ops_dag.spent_opouts(node) {
+            // allow shields this path upward: do not traverse this branch further
+            if reject_list.allows(&spent_opout) {
+                continue;
+            }
+            // encountering a reject opout, or a history having one, on an unshielded path: reject
+            if reject_list.rejects(&spent_opout) || rejected.get(&parent) == Some(&true) {
+                node_rejected = true;
+                break;
+            }
+            if !rejected.contains_key(&parent) {
+                stack.push(parent);
+            }
+        }
+        if node_rejected {
+            // the operations pushed aren't needed to settle this one anymore
+            stack.truncate(base);
+        } else if stack.len() > base {
+            // settle the operations it spends from first, then come back to it
+            continue;
+        }
+        rejected.insert(node, node_rejected);
+        stack.pop();
+    }
+    rejected[&start]
+}
+
 pub trait WalletOnline: WalletOffline {
     fn blockchain_resolver(&self) -> ChainResolver<'_> {
         ChainResolver {
@@ -4228,9 +4278,11 @@ pub trait WalletOnline: WalletOffline {
         check_opouts: &HashSet<Opout>,
     ) -> Result<HashSet<Opout>, Error> {
         let mut to_reject = HashSet::new();
+        // shared by the walks, so that a history common to several opouts is walked once
+        let mut rejected = HashMap::new();
 
         // for each opout we are checking, traverse its ancestor chain
-        'check: for check_opout in check_opouts {
+        for check_opout in check_opouts {
             // allow shields this path upward: do not traverse this branch further
             if reject_list.allows(check_opout) {
                 continue;
@@ -4244,24 +4296,10 @@ pub trait WalletOnline: WalletOffline {
                 details: s!("opout not found in DAG"),
             })?;
 
-            // traverse from the operation creating it to its ancestors, depth first, checking the
-            // opouts each operation spends
-            let mut stack = vec![op_node];
-            let mut visited = HashSet::new();
-            while let Some(node) = stack.pop() {
-                if !visited.insert(node) {
-                    continue;
-                }
-                for (spent_opout, parent) in ops_dag.spent_opouts(node) {
-                    if reject_list.allows(&spent_opout) {
-                        continue;
-                    }
-                    if reject_list.rejects(&spent_opout) {
-                        to_reject.insert(*check_opout);
-                        continue 'check;
-                    }
-                    stack.push(parent);
-                }
+            // traverse from the operation creating it to its ancestors, checking the opouts each
+            // operation spends
+            if history_rejected(ops_dag, reject_list, op_node, &mut rejected) {
+                to_reject.insert(*check_opout);
             }
         }
         Ok(to_reject)
@@ -7008,5 +7046,107 @@ mod tests {
         assert!(!broadcast_deadline_passed_beyond_skew_margin(&transfer));
         assert!(!expired_beyond_skew_margin(&transfer));
         assert!(!incoming_expired(&transfer, now));
+    }
+
+    // the history of an operation in the given DAG, checked against the reject list with a fresh
+    // walk, as each check opout was before the walks shared their answers
+    fn history_rejected_unshared(
+        ops_dag: &OpsDag,
+        reject_list: &RejectList,
+        start: NodeIndex,
+    ) -> bool {
+        let mut stack = vec![start];
+        let mut visited = HashSet::new();
+        while let Some(node) = stack.pop() {
+            if !visited.insert(node) {
+                continue;
+            }
+            for (spent_opout, parent) in ops_dag.spent_opouts(node) {
+                if reject_list.allows(&spent_opout) {
+                    continue;
+                }
+                if reject_list.rejects(&spent_opout) {
+                    return true;
+                }
+                stack.push(parent);
+            }
+        }
+        false
+    }
+
+    // walks sharing their answers decide as walks starting afresh, whatever their order, on random
+    // DAGs with shared histories and random reject lists
+    #[test]
+    fn history_rejected_matches_unshared_walks() {
+        // xorshift, deterministic so that a failure can be reproduced
+        let mut seed = 0x2545_f491_4f6c_dd1d_u64;
+        let mut next = |bound: u64| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % bound
+        };
+        let op = |i: u64| {
+            let mut id = [0u8; 32];
+            id[..8].copy_from_slice(&i.to_le_bytes());
+            OpId::from(id)
+        };
+        let (mut rejected_count, mut not_rejected_count) = (0, 0);
+        for _ in 0..1000 {
+            let op_count = 1 + next(40);
+            let mut ops_dag = OpsDag::new();
+            let mut reject_list = RejectList::default();
+            // each operation spends opouts of earlier ones, so the DAG has no cycles, often enough
+            // for histories to be shared and to have several paths between two operations, some
+            // operations spending more opouts of the same one
+            let density = 1 + next(4);
+            for i in 0..op_count {
+                ops_dag.register_op(op(i));
+                for j in 0..i {
+                    for no in 0..3 {
+                        if next(3 * i + 1) >= density {
+                            continue;
+                        }
+                        let input = Opout::new(op(j), AssignmentType::with(4000), no);
+                        match next(10) {
+                            0 => {
+                                reject_list.reject_opouts.insert(input);
+                            }
+                            1 => {
+                                reject_list.allow_opouts.insert(input);
+                            }
+                            2 if next(4) == 0 => {
+                                reject_list.reject_opouts.insert(input);
+                                reject_list.allow_opouts.insert(input);
+                            }
+                            _ => {}
+                        }
+                        ops_dag.connect_input(input, op(i));
+                    }
+                }
+            }
+
+            let mut starts: Vec<NodeIndex> = (0..op_count)
+                .map(|i| ops_dag.op_node(&op(i)).unwrap())
+                .collect();
+            for i in (1..starts.len()).rev() {
+                starts.swap(i, next(i as u64 + 1) as usize);
+            }
+            let mut rejected = HashMap::new();
+            for start in starts {
+                let expected = history_rejected_unshared(&ops_dag, &reject_list, start);
+                assert_eq!(
+                    history_rejected(&ops_dag, &reject_list, start, &mut rejected),
+                    expected
+                );
+                if expected {
+                    rejected_count += 1;
+                } else {
+                    not_rejected_count += 1;
+                }
+            }
+        }
+        // both decisions are exercised
+        assert!(rejected_count > 1000 && not_rejected_count > 1000);
     }
 }
