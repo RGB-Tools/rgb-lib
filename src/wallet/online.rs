@@ -5385,8 +5385,8 @@ pub trait WalletOnline: WalletOffline {
     /// (script and amount) to add to the TX for a witness recipient, which gets the given `vout`.
     /// A recipient with no transport endpoints uses the out-of-band exchange.
     ///
-    /// The checks that need no network come first, so that an invalid recipient is refused without
-    /// contacting its transport endpoints.
+    /// Whether the transport endpoints are usable is left to the caller, as it contacts them (see
+    /// `check_recipients_transport_endpoints`).
     fn parse_recipient(
         &self,
         recipient: &Recipient,
@@ -5408,7 +5408,7 @@ pub trait WalletOnline: WalletOffline {
         // a proxy recipient needs a usable transport endpoint, its Ed25519 public key (to encrypt
         // data for it and verify its ACK) and an invoice expiration (after which a transfer to it
         // cannot be created), while the out-of-band exchange has no use for any of them
-        let (mut transport_endpoints, public_key, recipient_vk, invoice_expiration) =
+        let (transport_endpoints, public_key, recipient_vk, invoice_expiration) =
             if recipient.transport_endpoints.is_empty() {
                 if !self.supports_out_of_band_exchange() {
                     return Err(Error::UnsupportedTransportType);
@@ -5506,18 +5506,6 @@ pub trait WalletOnline: WalletOffline {
             }
         };
 
-        // checked last, as it contacts the transport endpoints
-        if !transport_endpoints.is_empty() {
-            for transport_endpoint in &mut transport_endpoints {
-                transport_endpoint.usable = check_proxy(&transport_endpoint.endpoint).is_ok();
-            }
-            if !transport_endpoints.iter().any(|t| t.usable) {
-                return Err(Error::InvalidTransportEndpoints {
-                    details: s!("no valid transport endpoints"),
-                });
-            }
-        }
-
         Ok((
             LocalRecipient {
                 recipient_id: recipient.recipient_id.clone(),
@@ -5530,6 +5518,31 @@ pub trait WalletOnline: WalletOffline {
             },
             witness_output,
         ))
+    }
+
+    /// Mark which transport endpoints of the given recipients (parsed by `parse_recipient`) are
+    /// usable, contacting each distinct endpoint once, however many recipients share it, and refuse
+    /// a proxy recipient with none.
+    fn check_recipients_transport_endpoints<'a>(
+        recipients: impl IntoIterator<Item = &'a mut LocalRecipient>,
+    ) -> Result<(), Error> {
+        let mut usable_endpoints: HashMap<String, bool> = HashMap::new();
+        for local_recipient in recipients {
+            if local_recipient.transport_endpoints.is_empty() {
+                continue;
+            }
+            for transport_endpoint in &mut local_recipient.transport_endpoints {
+                transport_endpoint.usable = *usable_endpoints
+                    .entry(transport_endpoint.endpoint.clone())
+                    .or_insert_with(|| check_proxy(&transport_endpoint.endpoint).is_ok());
+            }
+            if !local_recipient.transport_endpoints.iter().any(|t| t.usable) {
+                return Err(Error::InvalidTransportEndpoints {
+                    details: s!("no valid transport endpoints"),
+                });
+            }
+        }
+        Ok(())
     }
 
     fn setup_transfer_directory(&self, receive_ids: Vec<String>) -> Result<PathBuf, Error> {
@@ -5837,6 +5850,10 @@ pub trait WalletOnline: WalletOffline {
         {
             return Err(Error::InvalidExpiration);
         }
+
+        // whether the transport endpoints are usable is checked once all the recipients have
+        // passed the checks that need no network
+        Self::check_recipients_transport_endpoints(local_recipients.values_mut().flatten())?;
 
         let receive_ids: Vec<String> = recipient_map
             .values()
