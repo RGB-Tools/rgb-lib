@@ -3958,34 +3958,17 @@ pub trait WalletOnline: WalletOffline {
         assignments_needed: &AssignmentsCollection,
         unspents: Vec<LocalUnspent>,
     ) -> Result<AssetSpend, Error> {
-        // sort unspents by the sum of main amounts
-        fn cmp_localunspent_allocation_sum(a: &LocalUnspent, b: &LocalUnspent) -> cmp::Ordering {
-            let a_sum: u64 = a
+        // the sum of the given amount of the settled allocations of the asset held by the given
+        // UTXO, which the selection collects: the allocations of other assets don't count, as
+        // their amounts may not fit together in a u64, while the ones of a single asset do
+        let asset_sum = |unspent: &LocalUnspent, amount: fn(&Assignment) -> u64| -> u64 {
+            unspent
                 .rgb_allocations
                 .iter()
-                .map(|a| a.assignment.main_amount())
-                .sum();
-            let b_sum: u64 = b
-                .rgb_allocations
-                .iter()
-                .map(|a| a.assignment.main_amount())
-                .sum();
-            a_sum.cmp(&b_sum)
-        }
-        // sort unspents by the sum of inflation right amounts
-        fn cmp_localunspent_inflation_sum(a: &LocalUnspent, b: &LocalUnspent) -> cmp::Ordering {
-            let a_sum: u64 = a
-                .rgb_allocations
-                .iter()
-                .map(|a| a.assignment.inflation_amount())
-                .sum();
-            let b_sum: u64 = b
-                .rgb_allocations
-                .iter()
-                .map(|a| a.assignment.inflation_amount())
-                .sum();
-            a_sum.cmp(&b_sum)
-        }
+                .filter(|a| a.asset_id.as_ref() == Some(&asset_id) && a.status.settled())
+                .map(|a| amount(&a.assignment))
+                .sum()
+        };
 
         debug!(
             self.logger(),
@@ -3997,10 +3980,10 @@ pub trait WalletOnline: WalletOffline {
 
         // sort unspents first by inflation rights amount, then main amount
         if assignments_needed.inflation > 0 {
-            mut_unspents.sort_by(cmp_localunspent_inflation_sum);
+            mut_unspents.sort_by_cached_key(|u| asset_sum(u, Assignment::inflation_amount));
         }
         if assignments_needed.fungible > 0 {
-            mut_unspents.sort_by(cmp_localunspent_allocation_sum);
+            mut_unspents.sort_by_cached_key(|u| asset_sum(u, Assignment::main_amount));
         }
 
         let mut assignments_collected = AssignmentsCollection::default();

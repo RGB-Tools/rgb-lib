@@ -169,6 +169,9 @@ pub use crate::{
     utils::{BitcoinNetwork, block_on},
 };
 
+// `cmp::Ordering` is qualified, as the crate also imports `sync::atomic::Ordering`
+#[cfg(feature = "esplora")]
+use std::cmp;
 #[cfg(all(test, feature = "electrum"))]
 use std::io::{BufRead, BufReader};
 #[cfg(all(test, feature = "electrum"))]
@@ -179,7 +182,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(feature = "_online")]
 use std::{
-    cmp::{self, max, min},
+    cmp::{max, min},
     collections::hash_map::DefaultHasher,
     hash::Hasher,
     num::NonZeroU32,
