@@ -28,6 +28,10 @@ thiserror = { version = "2.0", default-features = false }
 [build-dependencies]
 cbindgen = "0.29"
 
+[profile.release]
+# make overflow bugs fail loudly instead of producing wrong amounts, as rgb-lib does
+overflow-checks = true
+
 [workspace]
 
 [features]

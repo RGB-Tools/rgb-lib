@@ -37,4 +37,8 @@ aws-lc-rs = { version = "1.17", default-features = false, features = [
     "bindgen",
 ] }
 
+[profile.release]
+# make overflow bugs fail loudly instead of producing wrong amounts, as rgb-lib does
+overflow-checks = true
+
 [workspace]
