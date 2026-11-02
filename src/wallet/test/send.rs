@@ -12285,3 +12285,55 @@ fn batch_send_keeps_allocations_on_inputs_selected_for_other_assets() {
         AMOUNT - amount_b_sent
     );
 }
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn other_assets_amounts_past_u64() {
+    initialize();
+
+    // wallets
+    let mut party = get_funded_noutxo_party!();
+    let mut rcv_party = get_funded_party!();
+    party.create_utxos(false, Some(1), None, FEE_RATE, None);
+
+    // issue 2 assets to the same UTXO, with amounts that don't fit a u64 together
+    let asset = party.issue_asset_nia(Some(&[u64::MAX]));
+    let asset_extra = party.issue_asset_cfa(Some(&[u64::MAX]), None);
+    let unspents: Vec<Unspent> = party
+        .list_unspents(true)
+        .into_iter()
+        .filter(|u| !u.rgb_allocations.is_empty())
+        .collect();
+    assert_eq!(unspents.len(), 1);
+    assert_eq!(unspents.first().unwrap().rgb_allocations.len(), 2);
+
+    // send with another UTXO available so that UTXOs are sorted for input selection:
+    // sorting sums all allocations, which overflows if assets are not tracked separately
+    party.create_utxos(false, Some(1), None, FEE_RATE, None);
+    let receive_data = rcv_party.blind_receive();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![blind_recipient(&receive_data, Assignment::Fungible(AMOUNT))],
+    )]);
+    let txid = party.send_retry(&recipient_map);
+    assert!(!txid.is_empty());
+
+    // settle the transfers
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(Some(&asset.asset_id));
+    mine(false);
+    rcv_party.wait_for_refresh(Some(&asset.asset_id));
+    party.wait_for_refresh(Some(&asset.asset_id));
+
+    // check the final balances
+    assert_eq!(
+        party.get_asset_balance(&asset.asset_id).settled,
+        u64::MAX - AMOUNT
+    );
+    assert_eq!(
+        party.get_asset_balance(&asset_extra.asset_id).settled,
+        u64::MAX
+    );
+    assert_eq!(rcv_party.get_asset_balance(&asset.asset_id).settled, AMOUNT);
+}
