@@ -283,6 +283,9 @@ impl From<Outpoint> for OutPoint {
 ///
 /// This structure is used both for RGB assets and BTC balances (in sats). When used for a BTC
 /// balance it can be used both for the vanilla wallet and the colored wallet.
+///
+/// An RGB balance exceeding `u64::MAX` (e.g. a future balance including pending incoming transfers
+/// that double-spend each other) is capped to `u64::MAX`.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct Balance {

@@ -1085,18 +1085,22 @@ impl DbTxn {
             .filter(|a| a.asset_id == Some(asset_id.clone()))
             .collect();
 
-        let settled: u64 = ass_allocations
+        // the amounts are summed as u128, as pending transfers may double-spend each other (e.g.
+        // incoming ones with conflicting TXs not broadcast yet) and allocations of assets with no
+        // fixed supply may exceed a u64 together (but not a u128); balances are then capped to
+        // u64::MAX
+        let settled: u128 = ass_allocations
             .iter()
             .filter(|a| a.settled())
-            .map(|a| a.assignment.main_amount())
+            .map(|a| u128::from(a.assignment.main_amount()))
             .sum();
 
-        let allocations_pending_incoming: u64 = ass_allocations
+        let allocations_pending_incoming: u128 = ass_allocations
             .iter()
             .filter(|a| !a.txo_spent && a.incoming && a.status.pending())
-            .map(|a| a.assignment.main_amount())
+            .map(|a| u128::from(a.assignment.main_amount()))
             .sum();
-        let witness_pending: u64 = transfers
+        let witness_pending: u128 = transfers
             .iter()
             .filter(|t| matches!(t.recipient_type, Some(RecipientTypeFull::Witness { .. })))
             .filter_map(|t| {
@@ -1106,30 +1110,29 @@ impl DbTxn {
                     if at.asset_id.unwrap() != asset_id {
                         return None;
                     }
-                    Some(
+                    Some(u128::from(
                         t.requested_assignment
                             .as_ref()
                             .map(|a| a.main_amount())
                             .unwrap_or(0),
-                    )
+                    ))
                 } else {
                     None
                 }
             })
             .sum();
-        let ass_pending_incoming = allocations_pending_incoming
-            .checked_add(witness_pending)
-            .expect("total pending incoming amount cannot exceed u64::MAX");
-        let ass_pending_outgoing: u64 = ass_allocations
+        let ass_pending_incoming = allocations_pending_incoming + witness_pending;
+        let ass_pending_outgoing: u128 = ass_allocations
             .iter()
             .filter(|a| !a.incoming && a.status.pending())
-            .map(|a| a.assignment.main_amount())
+            .map(|a| u128::from(a.assignment.main_amount()))
             .sum();
-        let ass_pending: i128 = ass_pending_incoming as i128 - ass_pending_outgoing as i128;
 
-        let future = settled as i128 + ass_pending;
+        let future = (settled + ass_pending_incoming)
+            .checked_sub(ass_pending_outgoing)
+            .expect("pending outgoing cannot exceed available balance");
 
-        let unspendable: u64 = txos_allocations
+        let unspendable: u128 = txos_allocations
             .into_iter()
             .filter(|u| {
                 // unspent
@@ -1150,12 +1153,11 @@ impl DbTxn {
             })
             .collect::<Vec<LocalUnspent>>()
             .iter()
-            .map(|u| {
+            .flat_map(|u| {
                 u.rgb_allocations
                     .iter()
                     .filter(|a| a.asset_id == Some(asset_id.clone()) && a.settled())
-                    .map(|a| a.assignment.main_amount())
-                    .sum::<u64>()
+                    .map(|a| u128::from(a.assignment.main_amount()))
             })
             .sum();
 
@@ -1163,11 +1165,11 @@ impl DbTxn {
             .checked_sub(unspendable)
             .expect("unspendable allocations are a subset of settled ones");
 
+        let capped = |amount: u128| u64::try_from(amount).unwrap_or(u64::MAX);
         Ok(Balance {
-            settled,
-            future: u64::try_from(future)
-                .expect("pending outgoing cannot exceed available balance"),
-            spendable,
+            settled: capped(settled),
+            future: capped(future),
+            spendable: capped(spendable),
         })
     }
 
