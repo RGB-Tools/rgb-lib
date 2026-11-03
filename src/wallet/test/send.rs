@@ -12539,6 +12539,16 @@ fn receive_processed_again_counted_once() {
             TransferStatus::Settled
         )
     );
+
+    // the allocation is saved once
+    assert_eq!(
+        single_colored_utxo_allocations(&mut rcv_party).len(),
+        max_allocations as usize
+    );
+    assert_eq!(
+        rcv_party.get_asset_balance(asset_id).settled,
+        amount * max_allocations as u64
+    );
 }
 
 #[cfg(feature = "electrum")]

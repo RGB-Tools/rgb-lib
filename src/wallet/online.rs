@@ -3031,6 +3031,10 @@ pub trait WalletOnline: WalletOffline {
             }
             _ => return Err(InternalError::Unexpected.into()),
         };
+        // a consignment can be processed again once its colorings are saved (e.g. by a watch-only
+        // multisig wallet, while the cosigners haven't decided on it): replace them instead of
+        // saving them twice
+        txn.del_coloring(asset_transfer.idx)?;
         for assignment in receiving.into_values() {
             let db_coloring = DbColoringActMod {
                 txo_idx: ActiveValue::Set(utxo_idx),
