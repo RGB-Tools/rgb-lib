@@ -355,7 +355,12 @@ impl Wallet {
     /// List the pending vanilla transactions that have reserved TXOs in the wallet.
     ///
     /// A vanilla transaction becomes "pending" when the caller invokes a vanilla `_begin` method
-    /// (e.g. [`send_btc_begin`](Wallet::send_btc_begin)) with `dry_run = false`. The reserved
+    #[cfg_attr(
+        feature = "_online",
+        doc = "(e.g. [`send_btc_begin`](Wallet::send_btc_begin))"
+    )]
+    #[cfg_attr(not(feature = "_online"), doc = "(e.g. `send_btc_begin`)")]
+    /// with `dry_run = false`. The reserved
     /// TXOs are freed when the matching `_end` method is called or via
     /// [`abort_pending_vanilla_tx`](Wallet::abort_pending_vanilla_tx).
     pub fn list_pending_vanilla_txs(&self) -> Result<Vec<PendingVanillaTx>, Error> {
@@ -518,7 +523,9 @@ impl Wallet {
     /// `amounts` cannot exceed the maximum `u64` value.
     ///
     /// If `link_right` is true, a link right is issued, on a separate UTXO, which can be spent
-    /// once to link to another contract (see [`link`](Wallet::link)).
+    /// once to link to another contract (see
+    #[cfg_attr(feature = "_online", doc = "[`link`](Wallet::link)).")]
+    #[cfg_attr(not(feature = "_online"), doc = "`link`).")]
     ///
     /// The optional `linked_from_contract` is the ID of the contract this is linked from. The
     /// wallet needs to know it, to check it can link to the contract being issued: its schema
@@ -563,11 +570,16 @@ impl Wallet {
     /// the provided EIP-155 `chain_id`, then return it.
     ///
     /// The initial supply is zero: assets enter circulation via mint operations (see
-    /// [`mint_begin`](Wallet::mint_begin)), backed by tokens locked on the bridge contract.
+    #[cfg_attr(feature = "_online", doc = "[`mint_begin`](Wallet::mint_begin)),")]
+    #[cfg_attr(not(feature = "_online"), doc = "`mint_begin`),")]
+    /// backed by tokens locked on the bridge contract.
     ///
     /// The bridge location (chain ID and contract address) is committed in the asset's genesis
     /// and cannot be changed afterwards: mint operations and their validation use the EVM RPC
-    /// endpoint configured for that chain (see [`OnlineOptions::evm_chains`]), checking it is
+    /// endpoint configured for that chain (see
+    #[cfg_attr(feature = "_online", doc = "[`OnlineOptions::evm_chains`]),")]
+    #[cfg_attr(not(feature = "_online"), doc = "`OnlineOptions::evm_chains`),")]
+    /// checking it is
     /// actually on it.
     ///
     /// If a `reject_list_address` is provided, the asset commits to the reject list kept by the
@@ -578,7 +590,9 @@ impl Wallet {
     /// as a separate allocation (on a separate UTXO that needs to be already available).
     ///
     /// If `link_right` is true, a link right is issued, on a separate UTXO, which can be spent
-    /// once to link to another contract (see [`link`](Wallet::link)).
+    /// once to link to another contract (see
+    #[cfg_attr(feature = "_online", doc = "[`link`](Wallet::link)).")]
+    #[cfg_attr(not(feature = "_online"), doc = "`link`).")]
     ///
     /// The optional `linked_from_contract` is the ID of the contract this is linked from. The
     /// wallet needs to know it, to check it can link to the contract being issued: its schema
@@ -648,8 +662,20 @@ impl Wallet {
     /// `rpcs://example.com`).
     /// Providing an empty list selects the out-of-band exchange: the invoice carries no transport
     /// endpoints and the consignment and ACK are exchanged out-of-band (see
-    /// [`provide_out_of_band_consignment`](Wallet::provide_out_of_band_consignment) and
-    /// [`provide_out_of_band_ack`](Wallet::provide_out_of_band_ack)), without using automated
+    #[cfg_attr(
+        feature = "_online",
+        doc = "[`provide_out_of_band_consignment`](Wallet::provide_out_of_band_consignment) and"
+    )]
+    #[cfg_attr(
+        not(feature = "_online"),
+        doc = "`provide_out_of_band_consignment` and"
+    )]
+    #[cfg_attr(
+        feature = "_online",
+        doc = "[`provide_out_of_band_ack`](Wallet::provide_out_of_band_ack)),"
+    )]
+    #[cfg_attr(not(feature = "_online"), doc = "`provide_out_of_band_ack`),")]
+    /// without using automated
     /// transport endpoints.
     ///
     /// The `min_confirmations` number determines the minimum number of confirmations needed for
@@ -719,8 +745,20 @@ impl Wallet {
     /// `rpcs://example.com`).
     /// Providing an empty list selects the out-of-band exchange: the invoice carries no transport
     /// endpoints and the consignment and ACK are exchanged out-of-band (see
-    /// [`provide_out_of_band_consignment`](Wallet::provide_out_of_band_consignment) and
-    /// [`provide_out_of_band_ack`](Wallet::provide_out_of_band_ack)), without using automated
+    #[cfg_attr(
+        feature = "_online",
+        doc = "[`provide_out_of_band_consignment`](Wallet::provide_out_of_band_consignment) and"
+    )]
+    #[cfg_attr(
+        not(feature = "_online"),
+        doc = "`provide_out_of_band_consignment` and"
+    )]
+    #[cfg_attr(
+        feature = "_online",
+        doc = "[`provide_out_of_band_ack`](Wallet::provide_out_of_band_ack)),"
+    )]
+    #[cfg_attr(not(feature = "_online"), doc = "`provide_out_of_band_ack`),")]
+    /// without using automated
     /// transport endpoints.
     ///
     /// The `min_confirmations` number determines the minimum number of confirmations needed for

@@ -18,6 +18,12 @@ pub(crate) mod singlesig;
 pub(crate) mod test;
 
 pub use crate::database::enums::TypeOfTransition;
+#[cfg(feature = "_validation")]
+pub use crate::no_wallet::{BitcoindAuth, IndexerConfig, IndexerProtocol};
+pub use crate::no_wallet::{
+    ConsignmentValidation, ValidatedWitness, ValidationOptions, ValidationWarning,
+    WitnessValidationStatus,
+};
 pub use crate::no_wallet::{
     RgbInputInfo, RgbInspection, RgbOperationInfo, RgbOutputInfo, RgbTransitionInfo,
     TransitionGlobal, TransitionMetadata,
@@ -40,10 +46,9 @@ pub use objects::{
 };
 #[cfg(feature = "_online")]
 pub use objects::{
-    BitcoindAuth, BurnBeginResult, BurnDetails, EvmChain, IndexerConfig, IndexerProtocol,
-    InflateBeginResult, InflateDetails, LinkBeginResult, LinkDetails, MintBeginResult, MintDetails,
-    OnlineOptions, OperationResult, RefreshFilter, RefreshResult, RefreshTransferStatus,
-    RefreshedTransfer, SendBeginResult, SendDetails,
+    BurnBeginResult, BurnDetails, EvmChain, InflateBeginResult, InflateDetails, LinkBeginResult,
+    LinkDetails, MintBeginResult, MintDetails, OnlineOptions, OperationResult, RefreshFilter,
+    RefreshResult, RefreshTransferStatus, RefreshedTransfer, SendBeginResult, SendDetails,
 };
 pub use offline::RgbWalletOpsOffline;
 #[cfg(feature = "_online")]
@@ -67,8 +72,8 @@ pub(crate) use objects::{
     CleanAckOutcome, ConsignmentPayment, ExtraAllocations, FailTransfersOutcome, LocalRecipient,
     LocalRecipientData, LocalWitnessData, MainTransition, OnlineData, PaymentSeal,
     PendingMintLocks, PrepareRgbPsbtResult, PrepareTransferPsbtResult, ProxyReceiveData,
-    ReceiveMatcher, ReceiveMode, ReceivedConsignmentMeta, RefreshResultTrait, RejectList,
-    RejectListSource, SelectedInputs, SentMint, TakenSlots, TryFailBatchTransferOutcome,
+    ReceiveMatcher, ReceiveMode, ReceivedConsignmentMeta, RefreshResultTrait, SelectedInputs,
+    SentMint, TakenSlots, TryFailBatchTransferOutcome,
 };
 pub(crate) use objects::{
     AssetTransferColoringInfo, InfoAssetTransfer, InfoBatchTransfer, IssueData, IssuedAssetDetails,

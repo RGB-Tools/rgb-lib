@@ -8,40 +8,42 @@ use std::{
 };
 
 use rgb_lib::{
-    AssetSchema, Assignment as RgbLibAssignment, CloseMethod, Encryption, Error as RgbLibError,
-    TransferStatus, TransportType, WalletTransactionType,
+    AssetSchema, Assignment as RgbLibAssignment, BitcoinNetwork, CloseMethod, Encryption,
+    Error as RgbLibError, TransferStatus, TransportType, WalletTransactionType,
     keys::{Keys, WitnessVersion},
     no_wallet::{
         BundleFilter as RgbLibBundleFilter, ConsignmentInspection as RgbLibConsignmentInspection,
         RgbGenesisInfo as RgbLibRgbGenesisInfo, RgbMediaInfo,
         TransitionMetadata as RgbLibTransitionMetadata,
     },
-    utils::BitcoinNetwork,
     wallet::{
         Address as RgbLibAddress, AssetBFA, AssetCFA, AssetFilter as RgbLibAssetFilter, AssetIFA,
         AssetNIA, AssetUDA, Assets, AssignmentsCollection, Balance,
         BitcoindAuth as RgbLibBitcoindAuth, BlockTime, BtcBalance, BurnBeginResult, BurnDetails,
-        Cosigner as CosignerData, DatabaseType, EmbeddedMedia, EvmChain, HubInfo,
-        IndexerConfig as RgbLibIndexerConfig, IndexerProtocol, InflateBeginResult, InflateDetails,
-        InitOperationResult, Invoice as RgbLibInvoice, InvoiceData as RgbLibInvoiceData,
-        LinkBeginResult, LinkDetails, Media, Metadata, MintBeginResult, MintDetails, MultisigKeys,
-        MultisigOnlineOptions, MultisigVotingStatus as RgbLibMultisigVotingStatus,
-        MultisigWallet as RgbLibMultisigWallet, Online, OnlineOptions as RgbLibOnlineOptions,
-        Operation as RgbLibOperation, OperationInfo as RgbLibOperationInfo, OperationResult,
-        Outpoint, PendingVanillaTx, ProofOfReserves, PsbtInputInfo, PsbtInspection, PsbtOutputInfo,
-        ReceiveData, ReceivedMint, Recipient as RgbLibRecipient,
-        RecipientInfo as RgbLibRecipientInfo, RecipientType, RefreshFilter, RefreshTransferStatus,
-        RefreshedTransfer, RespondToOperation as RgbLibRespondToOperation,
-        RgbAllocation as RgbLibRgbAllocation, RgbInputInfo as RgbLibRgbInputInfo,
-        RgbInspection as RgbLibRgbInspection, RgbOperationInfo as RgbLibRgbOperationInfo,
-        RgbOutputInfo as RgbLibRgbOutputInfo, RgbTransitionInfo as RgbLibRgbTransitionInfo,
-        RgbWalletOpsOffline, RgbWalletOpsOnline, SendBeginResult, SendDetails, SinglesigKeys,
-        SyncKeychain as RgbLibSyncKeychain, SyncOptions as RgbLibSyncOptions, SyncStrategy, Token,
-        TokenLight, Transaction, TransactionType, Transfer as RgbLibTransfer, TransferKind,
+        ConsignmentValidation as RgbLibConsignmentValidation, Cosigner as CosignerData,
+        DatabaseType, EmbeddedMedia, EvmChain, HubInfo, IndexerConfig as RgbLibIndexerConfig,
+        IndexerProtocol, InflateBeginResult, InflateDetails, InitOperationResult,
+        Invoice as RgbLibInvoice, InvoiceData as RgbLibInvoiceData, LinkBeginResult, LinkDetails,
+        Media, Metadata, MintBeginResult, MintDetails, MultisigKeys, MultisigOnlineOptions,
+        MultisigVotingStatus as RgbLibMultisigVotingStatus, MultisigWallet as RgbLibMultisigWallet,
+        Online, OnlineOptions as RgbLibOnlineOptions, Operation as RgbLibOperation,
+        OperationInfo as RgbLibOperationInfo, OperationResult, Outpoint, PendingVanillaTx,
+        ProofOfReserves, PsbtInputInfo, PsbtInspection, PsbtOutputInfo, ReceiveData, ReceivedMint,
+        Recipient as RgbLibRecipient, RecipientInfo as RgbLibRecipientInfo, RecipientType,
+        RefreshFilter, RefreshTransferStatus, RefreshedTransfer,
+        RespondToOperation as RgbLibRespondToOperation, RgbAllocation as RgbLibRgbAllocation,
+        RgbInputInfo as RgbLibRgbInputInfo, RgbInspection as RgbLibRgbInspection,
+        RgbOperationInfo as RgbLibRgbOperationInfo, RgbOutputInfo as RgbLibRgbOutputInfo,
+        RgbTransitionInfo as RgbLibRgbTransitionInfo, RgbWalletOpsOffline, RgbWalletOpsOnline,
+        SendBeginResult, SendDetails, SinglesigKeys, SyncKeychain as RgbLibSyncKeychain,
+        SyncOptions as RgbLibSyncOptions, SyncStrategy, Token, TokenLight, Transaction,
+        TransactionType, Transfer as RgbLibTransfer, TransferKind,
         TransferScope as RgbLibTransferScope, TransferTransportEndpoint,
         TransitionGlobal as RgbLibTransitionGlobal, TransportEndpoint as RgbLibTransportEndpoint,
-        TypeOfTransition, Unspent as RgbLibUnspent, UserRole, Utxo, Wallet as RgbLibWallet,
-        WalletData, WalletDescriptors, WitnessData,
+        TypeOfTransition, Unspent as RgbLibUnspent, UserRole, Utxo,
+        ValidatedWitness as RgbLibValidatedWitness, ValidationOptions,
+        ValidationWarning as RgbLibValidationWarning, Wallet as RgbLibWallet, WalletData,
+        WalletDescriptors, WitnessData, WitnessValidationStatus as RgbLibWitnessValidationStatus,
     },
 };
 
@@ -200,6 +202,84 @@ impl From<Assignment> for RgbLibAssignment {
         }
     }
 }
+pub struct ConsignmentValidation {
+    pub consignment_id: String,
+    pub is_transfer: bool,
+    pub asset_id: String,
+    pub asset_schema: AssetSchema,
+    pub safe_height: Option<u32>,
+    pub witnesses: Vec<ValidatedWitness>,
+    pub warnings: Vec<ValidationWarning>,
+}
+impl From<RgbLibConsignmentValidation> for ConsignmentValidation {
+    fn from(orig: RgbLibConsignmentValidation) -> Self {
+        Self {
+            consignment_id: orig.consignment_id,
+            is_transfer: orig.is_transfer,
+            asset_id: orig.asset_id,
+            asset_schema: orig.asset_schema,
+            safe_height: orig.safe_height,
+            witnesses: orig.witnesses.into_iter().map(|w| w.into()).collect(),
+            warnings: orig.warnings.into_iter().map(|w| w.into()).collect(),
+        }
+    }
+}
+
+pub struct ValidatedWitness {
+    pub txid: String,
+    pub status: WitnessValidationStatus,
+    pub from_consignment: bool,
+}
+impl From<RgbLibValidatedWitness> for ValidatedWitness {
+    fn from(orig: RgbLibValidatedWitness) -> Self {
+        Self {
+            txid: orig.txid,
+            status: orig.status.into(),
+            from_consignment: orig.from_consignment,
+        }
+    }
+}
+
+// temporary solution needed because the UDL Enum and Remote attributes are incompatible with each other
+pub enum WitnessValidationStatus {
+    Mined { height: u32, timestamp: i64 },
+    Tentative,
+    Ignored,
+    Archived,
+}
+impl From<RgbLibWitnessValidationStatus> for WitnessValidationStatus {
+    fn from(orig: RgbLibWitnessValidationStatus) -> Self {
+        match orig {
+            RgbLibWitnessValidationStatus::Mined { height, timestamp } => {
+                WitnessValidationStatus::Mined { height, timestamp }
+            }
+            RgbLibWitnessValidationStatus::Tentative => WitnessValidationStatus::Tentative,
+            RgbLibWitnessValidationStatus::Ignored => WitnessValidationStatus::Ignored,
+            RgbLibWitnessValidationStatus::Archived => WitnessValidationStatus::Archived,
+        }
+    }
+}
+
+// temporary solution needed because the UDL Enum and Remote attributes are incompatible with each other
+pub enum ValidationWarning {
+    UnsafeHistory { txids: Vec<String> },
+    InvalidSpvProof { bundle_id: String, txid: String },
+    Other { details: String },
+}
+impl From<RgbLibValidationWarning> for ValidationWarning {
+    fn from(orig: RgbLibValidationWarning) -> Self {
+        match orig {
+            RgbLibValidationWarning::UnsafeHistory { txids } => {
+                ValidationWarning::UnsafeHistory { txids }
+            }
+            RgbLibValidationWarning::InvalidSpvProof { bundle_id, txid } => {
+                ValidationWarning::InvalidSpvProof { bundle_id, txid }
+            }
+            RgbLibValidationWarning::Other { details } => ValidationWarning::Other { details },
+        }
+    }
+}
+
 pub struct InvoiceData {
     pub recipient_id: String,
     pub asset_schema: Option<AssetSchema>,
@@ -1146,6 +1226,23 @@ fn inspect_consignment(
 ) -> Result<ConsignmentInspection, RgbLibError> {
     rgb_lib::no_wallet::inspect_consignment(consignment_path, bundle_filter.into())
         .map(|i| i.into())
+}
+
+fn validate_consignment(
+    consignment_path: String,
+    indexer_config: IndexerConfig,
+    evm_rpc_urls: HashMap<u64, String>,
+    min_confirmations: Option<u8>,
+    options: ValidationOptions,
+) -> Result<ConsignmentValidation, RgbLibError> {
+    rgb_lib::no_wallet::validate_consignment(
+        &consignment_path,
+        &indexer_config.into(),
+        &evm_rpc_urls,
+        min_confirmations,
+        &options,
+    )
+    .map(|v| v.into())
 }
 
 struct RecipientInfo {

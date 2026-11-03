@@ -1,19 +1,5 @@
 use super::*;
 
-/// Panic if the given expression doesn't match the provided pattern, logging the unexpected result
-#[macro_export]
-macro_rules! assert_matches {
-    ($expression:expr, $pattern:pat $(if $guard:expr)? $(,)?) => {{
-        #[allow(unreachable_patterns)]
-        match $expression {
-            $pattern $(if $guard)? => {},
-            _ => {
-                panic!("received unexpected result: {}", format!("{:?}", $expression));
-            }
-        }
-    }};
-}
-
 /// A data dir of its own for a test that doesn't call `initialize()`.
 ///
 /// `initialize()` runs `regtest.sh prepare_tests_environment`, which wipes the shared

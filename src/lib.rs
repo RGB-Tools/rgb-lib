@@ -4,7 +4,15 @@
 //! A library to manage wallets for RGB assets.
 //!
 //! ## Wallet
-//! The main components of the library are the [`wallet::Wallet`] and [`wallet::MultisigWallet`].
+//! The main components of the library are the
+#![cfg_attr(
+    feature = "wallet",
+    doc = "[`wallet::Wallet`] and [`wallet::MultisigWallet`]."
+)]
+#![cfg_attr(
+    not(feature = "wallet"),
+    doc = "`wallet::Wallet` and `wallet::MultisigWallet`."
+)]
 //!
 //! They allow to create and operate RGB wallets that can issue and operate on NIA, CFA, IFA, BFA
 //! and UDA assets. The library also manages UTXOs and asset allocations.
@@ -32,8 +40,15 @@
 //!
 //! ## Features
 //! The wallet functionality requires the `wallet` feature (enabled by default and by all the
-//! indexer features). Without it the library only provides the APIs that don't need a wallet,
-//! like [`no_wallet::inspect_consignment`], depending on few crates other than the RGB ones.
+//! indexer features: `bitcoind`, `electrum` and `esplora`). Without it the library only provides
+//! the APIs that don't need a wallet, like [`no_wallet::inspect_consignment`] and
+//! [`no_wallet::validate_consignment_with_resolver`] (consignment validation with resolvers
+//! provided by the caller, for witnesses, mints and reject lists), depending on few crates other
+//! than the RGB ones and on no network client. Validating with an indexer, like
+//! `no_wallet::validate_consignment`, requires an indexer validation feature
+//! (`bitcoind_validation`, `electrum_validation` or `esplora_validation`, enabled by the
+//! corresponding indexer feature), which adds the indexer client and an HTTP client (to confirm
+//! mints and read reject lists), without enabling the `wallet` feature.
 //!
 //! ## Errors
 //! Errors are handled with the crate `thiserror`.
@@ -72,7 +87,9 @@
 //! ```
 //!
 //! ### Load an existing RGB singlesig wallet
-//! [`wallet::Wallet::new`] records the wallet settings in the wallet directory, so an existing
+#![cfg_attr(feature = "wallet", doc = "[`wallet::Wallet::new`]")]
+#![cfg_attr(not(feature = "wallet"), doc = "`wallet::Wallet::new`")]
+//! records the wallet settings in the wallet directory, so an existing
 //! wallet can be re-opened with just its location, its master fingerprint and its mnemonic.
 //! Passing no mnemonic loads the wallet in watch-only mode.
 //! ```
@@ -120,8 +137,40 @@ compile_error!(
     "the `_online` feature cannot be enabled on its own: enable one of `bitcoind`, `electrum` or \
      `esplora` instead"
 );
+// the `_validation` feature is implied by each indexer validation feature and stands for "this
+// build can validate consignments reaching the network": enabling it on its own leaves no indexer
+// to talk to
+#[cfg(all(
+    feature = "_validation",
+    not(any(
+        feature = "bitcoind_validation",
+        feature = "electrum_validation",
+        feature = "esplora_validation"
+    ))
+))]
+compile_error!(
+    "the `_validation` feature cannot be enabled on its own: enable one of \
+     `bitcoind_validation`, `electrum_validation` or `esplora_validation` instead"
+);
 
-#[cfg(feature = "_online")]
+// defined here, rather than with the wallet test helpers, to be available to the tests of every
+// feature set
+/// Panic if the given expression doesn't match the provided pattern, logging the unexpected result
+#[cfg(test)]
+#[macro_export]
+macro_rules! assert_matches {
+    ($expression:expr, $pattern:pat $(if $guard:expr)? $(,)?) => {{
+        #[allow(unreachable_patterns)]
+        match $expression {
+            $pattern $(if $guard)? => {},
+            _ => {
+                panic!("received unexpected result: {}", format!("{:?}", $expression));
+            }
+        }
+    }};
+}
+
+#[cfg(feature = "_validation")]
 pub(crate) mod api;
 #[cfg(feature = "wallet")]
 pub(crate) mod database;
@@ -156,83 +205,79 @@ pub use rgbstd::{
     persistence::{RetrievedSpvProofs, UpdateRes},
     schema::SchemaId,
     txout::CloseMethod,
+    validation::{ResolveWitness, WitnessResolverError, WitnessStatus},
     vm::WitnessOrd,
+};
+pub use rgbstd::{
+    Opout,
+    containers::{ClaimResolverError, LockId, ResolveClaim},
+    stl::{BridgeLocation, EvmAddress, EvmContract},
+    validation::Claim,
 };
 
 pub use crate::{
     database::enums::{AssetSchema, Assignment, TypeOfTransition},
     error::Error,
+    no_wallet::BitcoinNetwork,
 };
 #[cfg(feature = "wallet")]
 pub use crate::{
     database::enums::{Encryption, TransferStatus, TransportType, WalletTransactionType},
-    utils::{BitcoinNetwork, block_on},
+    utils::block_on,
 };
 
+#[cfg(feature = "_validation")]
+use std::cell::{Cell, RefCell};
 // `cmp::Ordering` is qualified, as the crate also imports `sync::atomic::Ordering`
 #[cfg(feature = "esplora")]
 use std::cmp;
-#[cfg(all(test, feature = "electrum"))]
-use std::io::{BufRead, BufReader};
-#[cfg(all(test, feature = "electrum"))]
-use std::net::TcpListener;
 #[cfg(all(test, unix, feature = "wallet"))]
 use std::os::unix::fs::PermissionsExt;
+#[cfg(any(feature = "wallet", feature = "bitcoind_validation"))]
+use std::path::PathBuf;
 #[cfg(all(test, feature = "wallet"))]
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(feature = "_online")]
 use std::{
-    cell::{Cell, RefCell},
     cmp::{max, min},
     collections::hash_map::{DefaultHasher, Entry},
     hash::Hasher,
-    num::NonZeroU32,
 };
-use std::{collections::HashMap, fmt, path::Path, str::FromStr};
 #[cfg(feature = "wallet")]
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
+    collections::{BTreeMap, BTreeSet},
     fs,
     hash::Hash,
-    io::{self, Read, Write},
+    io::{self, Write},
     panic,
-    path::PathBuf,
     sync::{Arc, LazyLock, Mutex},
-    time::Duration,
 };
+use std::{
+    collections::{HashMap, HashSet},
+    fmt,
+    num::NonZeroU32,
+    path::Path,
+    str::FromStr,
+};
+#[cfg(any(feature = "wallet", feature = "_validation"))]
+use std::{io::Read, time::Duration};
 
 #[cfg(test)]
 use amplify::confinement::NonEmptyVec;
-use amplify::{ByteArray, Wrapper};
+use amplify::{ByteArray, Wrapper, s};
 #[cfg(feature = "wallet")]
 use amplify::{
     Bytes32, bmap,
     confinement::{Confined, MediumOrdMap},
-    s,
 };
 #[cfg(feature = "_online")]
 use base64::{Engine as _, engine::general_purpose};
 #[cfg(feature = "bitcoind")]
-use bdk_bitcoind_rpc::{
-    Emitter as BitcoindEmitter,
-    bip158::FilterIter as BitcoindFilterIter,
-    bitcoincore_rpc::{
-        Auth as BitcoindRpcAuth, Client as BitcoindRpcClient, Error as BitcoindRpcError, RpcApi,
-        json::IndexStatus as BitcoindIndexStatus, jsonrpc::Error as BitcoindJsonRpcError,
-    },
-};
+use bdk_bitcoind_rpc::{Emitter as BitcoindEmitter, bip158::FilterIter as BitcoindFilterIter};
 #[cfg(feature = "electrum")]
-use bdk_electrum::{
-    BdkElectrumClient,
-    electrum_client::{Client as ElectrumClient, ElectrumApi, Error as ElectrumError, Param},
-};
+use bdk_electrum::BdkElectrumClient;
 #[cfg(feature = "esplora")]
-use bdk_esplora::{
-    EsploraExt,
-    esplora_client::{
-        BlockingClient as EsploraClient, Builder as EsploraBuilder, Error as EsploraError,
-    },
-};
+use bdk_esplora::EsploraExt;
 #[cfg(feature = "_online")]
 use bdk_wallet::Update;
 #[cfg(all(test, feature = "wallet"))]
@@ -269,7 +314,6 @@ use bdk_wallet::{
 #[cfg(feature = "_online")]
 use bdk_wallet::{
     bitcoin::{
-        block::Header as BlockHeader,
         blockdata::fee_rate::FeeRate,
         hashes::{HashEngine, sha256},
     },
@@ -295,9 +339,11 @@ use psrgbt::{RgbOutExt, RgbPsbtExt};
 #[cfg(feature = "wallet")]
 use rand::{RngExt, TryRng, distr::Alphanumeric, rngs::SysRng};
 #[cfg(feature = "_online")]
+use reqwest::blocking::multipart;
+#[cfg(feature = "_validation")]
 use reqwest::{
     StatusCode,
-    blocking::{Client as RestClient, Response, multipart},
+    blocking::{Client as RestClient, Response},
     header::CONTENT_TYPE,
 };
 #[cfg(feature = "wallet")]
@@ -313,9 +359,25 @@ use rgbstd::SecretSeal;
 use rgbstd::containers::legacy::ConsignmentV0;
 #[cfg(feature = "rgb_fs_store_migration")]
 use rgbstd::contract::{KnownState, OpWitness, OutputAssignment};
+#[cfg(feature = "_validation")]
+use rgbstd::indexers::AnyResolver;
+#[cfg(feature = "bitcoind")]
+use rgbstd::indexers::bitcoind_blocking::bitcoincore_rpc::jsonrpc::Error as BitcoindJsonRpcError;
+#[cfg(feature = "bitcoind_validation")]
+use rgbstd::indexers::bitcoind_blocking::bitcoincore_rpc::{
+    Auth as BitcoindRpcAuth, Client as BitcoindRpcClient, Error as BitcoindRpcError, RpcApi,
+    json::IndexStatus as BitcoindIndexStatus,
+};
 #[cfg(feature = "electrum")]
+use rgbstd::indexers::electrum_blocking::electrum_client::Param;
+#[cfg(feature = "electrum_validation")]
 use rgbstd::indexers::electrum_blocking::electrum_client::{
-    Config as ElectrumConfig, ConfigBuilder,
+    Client as ElectrumClient, Config as ElectrumConfig, ConfigBuilder, ElectrumApi,
+    Error as ElectrumError,
+};
+#[cfg(feature = "esplora_validation")]
+use rgbstd::indexers::esplora_blocking::esplora_client::{
+    BlockingClient as EsploraClient, Builder as EsploraBuilder, Error as EsploraError,
 };
 #[cfg(feature = "rgb_fs_store_migration")]
 use rgbstd::persistence::LegacyFsStore;
@@ -323,7 +385,7 @@ use rgbstd::persistence::LegacyFsStore;
 use rgbstd::{
     Allocation, BundleId, Identity, Layer1, OutputSeal, OwnedFraction, RevealedData, TokenIndex,
     Vout,
-    containers::{SealWitness, SpvProof, ValidConsignment},
+    containers::{SealWitness, SpvProof},
     contract::{
         AllocatedState, ContractBuilder, ContractData, FilteredContractState, LinkError,
         LinkableSchemaWrapper, SchemaWrapper, TransitionBuilder,
@@ -340,48 +402,36 @@ use rgbstd::{
         mpc::{MerkleTree, Message, MultiSource, ProtocolId},
     },
     stl::{
-        BridgeLocation, EmbeddedMedia as RgbEmbeddedMedia, EvmAddress, EvmContract, MediaType,
-        ProofOfReserves as RgbProofOfReserves, RejectListLocation, RejectListUrl,
+        EmbeddedMedia as RgbEmbeddedMedia, MediaType, ProofOfReserves as RgbProofOfReserves,
         RicardianContract, Ticker,
     },
     txout::ExplicitSeal,
-    validation::{
-        ResolveWitness, SchemaDefinition, WitnessOrdProvider, WitnessResolverError, WitnessStatus,
-    },
+    validation::{SchemaDefinition, WitnessOrdProvider},
     vm::WitnessPos,
 };
 use rgbstd::{
     Amount, AssignmentType, Assignments, ChainNet, ExposedSeal, Genesis, GlobalStateType,
-    GraphSeal, KnownTransition, OpId, Operation as _, Opout, Precision, Schema, Transition,
+    GraphSeal, KnownTransition, OpId, Operation as _, Precision, Schema, Transition,
     TransitionBundle, TransitionType, TypedAssigns,
-    bitcoin::{OutPoint, Transaction as BdkTransaction, Txid},
+    bitcoin::{OutPoint, Transaction as BdkTransaction, Txid, block::Header as BlockHeader},
     containers::{
-        BuilderSeal, Consignment, LoadError, UniversalFile, ValidContract, ValidTransfer,
+        BuilderSeal, CheckedClaimResolver, Consignment, LoadError, PendingConsignment,
+        UniversalFile, ValidConsignment, ValidContract, ValidTransfer,
     },
     contract::IssuerWrapper,
+    daggy::NodeIndex,
     rgbcore::{commit_verify::mpc::Commitment, dbc::Proof as _},
     stl::{
-        AssetSpec, Attachment, BlockNumber, BurnReason, ContractTerms, Details, Name, TokenData,
-        UnicodeTicker,
+        AssetSpec, Attachment, BlockNumber, BurnReason, ContractTerms, Details, Name,
+        RejectListLocation, RejectListUrl, TokenData, UnicodeTicker,
     },
     txout::{BlindSeal, SealTxid, TxPtr, TxoSeal},
-    validation::DbcProof,
+    validation::{DbcProof, OpsDag, SchemaRules, ValidationConfig, ValidationError, Warning},
 };
 #[cfg(test)]
 use rgbstd::{Assign, VoidState, assignments::AssignVec};
 #[cfg(feature = "_online")]
-use rgbstd::{
-    containers::{
-        CheckedClaimResolver, ClaimResolverError, LockId, PendingConsignment, ResolveClaim,
-    },
-    contract::FilterIncludeAll,
-    daggy::NodeIndex,
-    indexers::AnyResolver,
-    validation::{
-        Claim, OpsDag, SchemaRules, Status as ValidationStatus, ValidationConfig, ValidationError,
-        Validity, Warning,
-    },
-};
+use rgbstd::{contract::FilterIncludeAll, validation::Validity};
 #[cfg(feature = "wallet")]
 use schemata::IfaWrapper;
 #[cfg(feature = "_online")]
@@ -392,10 +442,10 @@ use schemata::{
 };
 use schemata::{
     GS_BURN_REASON, GS_BURNED_ASSET, GS_BURNED_INFLATION, GS_DETAILS, GS_ISSUED_SUPPLY,
-    GS_LINKED_TO_CONTRACT, GS_NAME, GS_NOMINAL, GS_PRECISION, GS_TERMS, GS_TICKER, GS_TOKENS,
-    MS_ALLOWED_INFLATION, MS_BEFORE_BLOCK, OS_ASSET, OS_INFLATION, OS_LINK, OS_MINT, TS_BURN,
-    TS_INFLATION, TS_LINK, TS_MINT, TS_PROPAGATE, TS_TRANSFER, TS_TRANSFER_INFLATION,
-    TS_TRANSFER_LINK,
+    GS_LINKED_TO_CONTRACT, GS_NAME, GS_NOMINAL, GS_PRECISION, GS_REJECT_LIST, GS_REJECT_LIST_URL,
+    GS_TERMS, GS_TICKER, GS_TOKENS, MS_ALLOWED_INFLATION, MS_BEFORE_BLOCK, OS_ASSET, OS_INFLATION,
+    OS_LINK, OS_MINT, TS_BURN, TS_INFLATION, TS_LINK, TS_MINT, TS_PROPAGATE, TS_TRANSFER,
+    TS_TRANSFER_INFLATION, TS_TRANSFER_LINK,
 };
 #[cfg(feature = "wallet")]
 use scrypt::{Params, phc::Salt, scrypt};
@@ -451,6 +501,29 @@ use x25519_dalek::{PublicKey as X25519Public, StaticSecret as X25519Secret};
 #[cfg(feature = "wallet")]
 use zip::{ZipArchive, ZipWriter, write::SimpleFileOptions};
 
+#[cfg(feature = "_online")]
+use crate::api::evm::MintLockStatus;
+#[cfg(feature = "_validation")]
+use crate::api::{
+    evm::{EvmClient, MintClaimResolver},
+    reject_list::RejectListClient,
+};
+#[cfg(feature = "_validation")]
+use crate::error::IndexerError;
+#[cfg(feature = "bitcoind")]
+use crate::no_wallet::validation::checked_bitcoind_indexes;
+#[cfg(feature = "electrum")]
+use crate::no_wallet::validation::electrum_config;
+#[cfg(feature = "esplora")]
+use crate::no_wallet::validation::esplora_config;
+#[cfg(feature = "_online")]
+use crate::no_wallet::validation::{
+    ChainResolver, ClaimResolution, OffchainResolver, PendingClaims, RejectList, RejectListSource,
+    RemoteRejectListResolver, ResolveRejectList, check_reject_list, genesis_reject_list_source,
+    get_resolver, pending_claims, rejected_opouts, resolve_claims, resolve_witnesses,
+    unreachable_indexer_details, validate_consignment_internal, validate_deterministic,
+    validate_with_claims,
+};
 #[cfg(feature = "wallet")]
 use crate::no_wallet::{bundle_info, check_file_exists, verify_witness_commitment};
 #[cfg(feature = "electrum")]
@@ -477,7 +550,6 @@ use crate::wallet::test::{
 #[cfg(feature = "_online")]
 use crate::{
     api::{
-        evm::{EvmClient, MintClaimResolver, MintLockStatus},
         multisig_hub::{
             FileMetadata, FileSource, FileType, InfoResponse, MultisigHubClient,
             OPERATION_TYPES_REQUIRING_SEED, OperationResponse, OperationStatus, OperationType,
@@ -490,7 +562,6 @@ use crate::{
             post_consignment_message, post_media_message, pow_difficulty_required,
             prepare_ack_auth_message, prepare_invoice_auth_message, transfer_retrieved_message,
         },
-        reject_list::RejectListClient,
     },
     database::entities::{
         pending_witness_script::Model as DbPendingWitnessScript,
@@ -502,15 +573,12 @@ use crate::{
         encrypt_blob, encrypt_to_tempfile, invoice_id, sign_ed25519, solve_pow, transfer_id,
         verify_ed25519, verifying_key_from_bytes,
     },
-    error::IndexerError,
+    no_wallet::{BitcoindAuth, IndexerConfig},
     utils::{
-        ChainResolver, OffchainResolver, check_proxy, detect_indexer, get_indexer_and_resolver,
-        hash_file, proxy_max_media, proxy_retention_grace, script_buf_from_recipient_id,
-        validate_consignment_internal,
+        check_proxy, detect_indexer, get_indexer_and_resolver, hash_file, proxy_max_media,
+        proxy_retention_grace, script_buf_from_recipient_id,
     },
-    wallet::{
-        AssignmentsCollection, BitcoindAuth, Indexer, IndexerConfig, multisig::RespondToOperation,
-    },
+    wallet::{AssignmentsCollection, Indexer, multisig::RespondToOperation},
 };
 #[cfg(feature = "wallet")]
 use crate::{
@@ -577,6 +645,9 @@ use crate::{
         RGB_STATE_MINT_RIGHT, WalletDescriptors,
     },
 };
+// the mock electrum server of the validation tests, shared with the wallet ones
+#[cfg(all(test, feature = "electrum"))]
+use crate::no_wallet::validation::tests::start_single_connection_electrum_mock;
 #[cfg(all(test, feature = "wallet"))]
 use crate::{
     keys::generate_keys,
@@ -585,6 +656,15 @@ use crate::{
         mock_token_data,
     },
 };
+// for the mock electrum server of the validation tests
+#[cfg(all(test, feature = "electrum_validation"))]
+use std::{
+    io::{BufRead, BufReader},
+    net::TcpListener,
+};
+// the wallet imports it already
+#[cfg(all(test, feature = "electrum_validation", not(feature = "wallet")))]
+use std::io::Write;
 
 pub(crate) const RGB_GLOBAL_BURNED_ASSET: &str = "burnedAsset";
 pub(crate) const RGB_GLOBAL_BURNED_INFLATION: &str = "burnedInflation";

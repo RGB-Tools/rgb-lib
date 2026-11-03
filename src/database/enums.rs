@@ -118,6 +118,32 @@ impl AssetSchema {
             Assignment::Any => false,
         }
     }
+
+    pub(crate) fn schema_rules(&self) -> SchemaRules {
+        match self {
+            Self::Nia => NonInflatableAsset::schema_rules(),
+            Self::Uda => UniqueDigitalAsset::schema_rules(),
+            Self::Cfa => CollectibleFungibleAsset::schema_rules(),
+            Self::Ifa => InflatableFungibleAsset::schema_rules(),
+            Self::Bfa => BridgedFungibleAsset::schema_rules(),
+        }
+    }
+
+    /// Whether the schema can carry a reject list.
+    pub(crate) fn supports_reject_list(&self) -> bool {
+        match self {
+            Self::Bfa | Self::Ifa => true,
+            Self::Nia | Self::Uda | Self::Cfa => false,
+        }
+    }
+
+    /// Whether the schema supports mint operations.
+    pub(crate) fn supports_mint(&self) -> bool {
+        match self {
+            Self::Bfa => true,
+            Self::Nia | Self::Uda | Self::Cfa | Self::Ifa => false,
+        }
+    }
 }
 
 #[cfg(feature = "wallet")]
@@ -131,17 +157,6 @@ impl AssetSchema {
     ) -> Result<Self, Error> {
         let schema_id = stock.genesis(contract_id)?.schema_id;
         Self::from_schema_id(schema_id)
-    }
-
-    #[cfg(feature = "_online")]
-    pub(crate) fn schema_rules(&self) -> SchemaRules {
-        match self {
-            Self::Nia => NonInflatableAsset::schema_rules(),
-            Self::Uda => UniqueDigitalAsset::schema_rules(),
-            Self::Cfa => CollectibleFungibleAsset::schema_rules(),
-            Self::Ifa => InflatableFungibleAsset::schema_rules(),
-            Self::Bfa => BridgedFungibleAsset::schema_rules(),
-        }
     }
 
     pub(crate) fn schema_definition(&self) -> SchemaDefinition {
@@ -171,15 +186,6 @@ impl AssetSchema {
         }
     }
 
-    /// Whether the schema can carry a reject list.
-    #[cfg(feature = "_online")]
-    pub(crate) fn supports_reject_list(&self) -> bool {
-        match self {
-            Self::Bfa | Self::Ifa => true,
-            Self::Nia | Self::Uda | Self::Cfa => false,
-        }
-    }
-
     /// Whether the schema supports inflation.
     #[cfg(feature = "_online")]
     pub(crate) fn supports_inflation(&self) -> bool {
@@ -203,15 +209,6 @@ impl AssetSchema {
         match self {
             Self::Ifa | Self::Bfa => true,
             Self::Nia | Self::Uda | Self::Cfa => false,
-        }
-    }
-
-    /// Whether the schema supports mint operations.
-    #[cfg(feature = "_online")]
-    pub(crate) fn supports_mint(&self) -> bool {
-        match self {
-            Self::Bfa => true,
-            Self::Nia | Self::Uda | Self::Cfa | Self::Ifa => false,
         }
     }
     pub(crate) fn import_schema_definition(&self, stock: &mut RgbStock<'_>) -> Result<(), Error> {
@@ -769,7 +766,6 @@ mod tests {
             let asset_schema_from_schema_id = AssetSchema::from_schema_id(schema_id).unwrap();
             assert_eq!(asset_schema, asset_schema_from_schema_id);
             // the constants match the compiled schemata
-            #[cfg(feature = "_online")]
             assert_eq!(asset_schema.schema_rules().schema_id(), schema_id);
         }
 

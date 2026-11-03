@@ -778,6 +778,172 @@ fn bfa_success() {
     assert_burn_unspents(&mut rcv_party, &asset.asset_id, None);
 }
 
+/// The standalone validation of a burn consignment refuses it when the reject list rejects the
+/// burned allocations, directly or through their history: a burn is the terminal operation of its
+/// consignment, so the reject list check walks from its inputs (and its change, if any). Here the
+/// allocations get rejected after being burned, as happens when a theft is reported late, so the
+/// burns themselves succeed and only their validation is refused (the sender-side check at burn
+/// time is tested by `ifa_reject_list`).
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn ifa_reject_list_burn() {
+    initialize();
+
+    fn validate(consignment_path: &str) -> Result<ConsignmentValidation, Error> {
+        validate_consignment(
+            consignment_path,
+            &IndexerConfig::Electrum {
+                url: ELECTRUM_URL.to_string(),
+            },
+            &HashMap::new(),
+            None,
+            &ValidationOptions {
+                bitcoin_network: BitcoinNetwork::Regtest,
+                offchain_txid: None,
+            },
+        )
+    }
+
+    fn burn_consignment(
+        party: &SinglesigParty,
+        asset_id: &str,
+        txid: &str,
+    ) -> (String, RgbTransfer) {
+        let transfers = party.list_transfers(Some(asset_id));
+        let transfer = transfers
+            .iter()
+            .find(|t| t.kind == TransferKind::Burn && t.txid.as_deref() == Some(txid))
+            .expect("burn transfer not found");
+        let path = transfer.consignment_path.clone().unwrap();
+        let consignment = RgbTransfer::load_file(&path).unwrap();
+        (path, consignment)
+    }
+
+    // the burn transition of a burn consignment, the terminal operation, and its inputs
+    fn burn_transition(consignment: &RgbTransfer) -> (OpId, Vec<Opout>) {
+        let burns: Vec<_> = consignment
+            .bundles
+            .iter()
+            .flat_map(|wb| wb.bundle.known_transitions.iter())
+            .filter(|kt| kt.transition.transition_type == TS_BURN)
+            .collect();
+        assert_eq!(burns.len(), 1);
+        assert_eq!(consignment.terminal_ops(), BTreeSet::from([burns[0].opid]));
+        (
+            burns[0].opid,
+            burns[0].transition.inputs().into_iter().collect(),
+        )
+    }
+    let list_name = "burn_reject.list";
+    write_opouts_to_reject_list(list_name, &[]);
+
+    let mut issuer = get_funded_party!();
+    let mut party_a = get_funded_party!();
+    let mut party_b = get_funded_party!();
+
+    let asset = issuer.issue_asset_ifa(
+        Some(&[AMOUNT]),
+        None,
+        Some(format!("http://localhost:8140/lists/{list_name}")),
+    );
+
+    // the issuer pays the two parties from the single issuance allocation
+    let amt = 60;
+    let mut txids = vec![];
+    for party in [&mut party_a, &mut party_b] {
+        txids.push(send_and_settle(
+            &mut issuer,
+            party,
+            &asset.asset_id,
+            Assignment::Fungible(amt),
+        ));
+    }
+    let opout_a = party_a.extract_opouts_from_transfer(&asset.asset_id, &txids[0])[0];
+    let opout_b = party_b.extract_opouts_from_transfer(&asset.asset_id, &txids[1])[0];
+    // the issuance allocation, spent by the first send: an ancestor of both parties' allocations
+    let first_send = RgbTransfer::load_file(
+        issuer
+            .wallet
+            .get_send_consignment_path(&asset.asset_id, &txids[0]),
+    )
+    .unwrap();
+    let issuance_opout = first_send
+        .bundles
+        .iter()
+        .next()
+        .unwrap()
+        .bundle
+        .known_transitions
+        .iter()
+        .next()
+        .unwrap()
+        .transition
+        .inputs()
+        .into_iter()
+        .next()
+        .unwrap();
+    assert_ne!(opout_b, issuance_opout);
+
+    // while nothing is rejected, party A burns its allocation in full and party B burns part of
+    // its allocation: a burn has no outputs, so this takes 2 transitions in the same bundle, a
+    // transfer splitting the allocation into the part to burn and the rest, and the burn of the
+    // former
+    party_a.create_utxos_default();
+    let burn_a = party_a.burn(&asset.asset_id, amt, Some(BURN_REASON));
+    party_b.create_utxos_default();
+    let burn_b = party_b.burn(&asset.asset_id, amt / 2, Some(BURN_REASON));
+    mine(false);
+    assert!(party_a.refresh_asset(&asset.asset_id));
+    assert!(party_b.refresh_asset(&asset.asset_id));
+    let (path_a, consignment_a) = burn_consignment(&party_a, &asset.asset_id, &burn_a.txid);
+    let (path_b, consignment_b) = burn_consignment(&party_b, &asset.asset_id, &burn_b.txid);
+    let (_, inputs_a) = burn_transition(&consignment_a);
+    assert_eq!(inputs_a, vec![opout_a]);
+    let (_, inputs_b) = burn_transition(&consignment_b);
+    assert_eq!(inputs_b.len(), 1);
+    let burned_b = inputs_b[0];
+    let split_b = consignment_b
+        .bundles
+        .iter()
+        .flat_map(|wb| wb.bundle.known_transitions.iter())
+        .find(|kt| kt.opid == burned_b.op)
+        .unwrap();
+    assert_eq!(split_b.transition.transition_type, TS_TRANSFER);
+    assert_eq!(
+        split_b.transition.inputs().into_iter().collect::<Vec<_>>(),
+        vec![opout_b]
+    );
+    assert_eq!(
+        split_b
+            .transition
+            .assignments
+            .get(&OS_ASSET)
+            .unwrap()
+            .len_u16(),
+        2
+    );
+    validate(&path_a).unwrap();
+    validate(&path_b).unwrap();
+
+    // 1. the issuer rejects the allocation party A burned
+    write_opouts_to_reject_list(list_name, &[opout_a.to_string()]);
+
+    // the burn consignment of party A spends a rejected opout, so it's refused
+    let result = validate(&path_a);
+    assert_matches!(result, Err(Error::ConsignmentRejected { opouts }) if opouts == vec![opout_a.to_string()]);
+    validate(&path_b).unwrap();
+    // 2. the issuer rejects the issuance allocation instead, tainting the history of both burns:
+    // the input of party A's, the input of party B's (the burned part of its split, whose other
+    // part the burn consignment doesn't prove)
+    write_opouts_to_reject_list(list_name, &[issuance_opout.to_string()]);
+
+    let result = validate(&path_a);
+    assert_matches!(result, Err(Error::ConsignmentRejected { opouts }) if opouts == vec![opout_a.to_string()]);
+    let result = validate(&path_b);
+    assert_matches!(result, Err(Error::ConsignmentRejected { opouts }) if opouts == vec![burned_b.to_string()]);
+}
+
 /// A burn doesn't spend the allocations rejected by the asset's reject list: it selects other
 /// inputs to make up for them, failing if there aren't enough.
 #[cfg(feature = "electrum")]

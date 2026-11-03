@@ -279,7 +279,12 @@ impl Wallet {
         Ok(transfers)
     }
 
-    /// Create consignments for a PSBT created with the [`send_begin`](Wallet::send_begin) method.
+    /// Create consignments for a PSBT created with the
+    #[cfg_attr(
+        feature = "_online",
+        doc = "[`send_begin`](Wallet::send_begin) method."
+    )]
+    #[cfg_attr(not(feature = "_online"), doc = "`send_begin` method.")]
     ///
     /// <div class="warning">This method is meant for special usage and is normally not needed, use
     /// it only if you know what you're doing</div>
@@ -297,6 +302,11 @@ impl Wallet {
     }
 
     /// Accept an RGB transfer using a consignment received out-of-band.
+    ///
+    /// The consignment is validated as a received one is when refreshing, its claims (mint locks)
+    /// required to be confirmed already, and the assignments it pays to the given vout of the TX
+    /// with the given ID are checked against the reject list of the asset (if any): an
+    /// [`Error::ConsignmentRejected`] is returned if any of them is rejected.
     ///
     /// Returns the consignment, the received assignments and the hex-encoded digests of the media
     /// attachments defined in the consignment.
@@ -334,32 +344,34 @@ impl Wallet {
         let graph_seal = GraphSeal::with_blinded_vout(vout, blinding);
         stock.store_secret_seal(graph_seal)?;
 
+        // validated as a refresh validates a received consignment, its claims (mint locks)
+        // confirmed right away as there's no transfer to keep waiting for them
         debug!(self.logger(), "Validating consignment...");
-        let validation_config = ValidationConfig {
-            chain_net: self.chain_net(),
-            ..Default::default()
-        };
-        let valid_consignment = match validate_consignment_internal(
+        let validation_config = self.received_validation_config(asset_schema, None);
+        let pending = validate_with_claims(
             &consignment,
-            Some(witness_id),
-            &self.blockchain_resolver(),
-            self.evm_rpc_urls(),
+            ClaimResolution::Evm(self.evm_rpc_urls()),
             &validation_config,
-        ) {
-            Ok(consignment) => consignment,
-            Err(Error::ConsignmentValidationFailed { details }) => {
-                error!(self.logger(), "Consignment is invalid: {}", details);
-                return Err(Error::InvalidConsignment);
-            }
-            Err(e) => {
-                if let Error::Network { .. } = e {
-                    warn!(self.logger(), "Network error during consignment validation");
-                }
-                return Err(e);
-            }
+        )
+        .map_err(|e| self.received_validation_error(e))?;
+        let received_rgb_assignments = self.extract_received_assignments(
+            &consignment,
+            witness_id,
+            PaymentSeal::WitnessVout(vout),
+        );
+        // the paying witness TX may not have been broadcast yet, the others must be on-chain
+        let resolver = OffchainResolver {
+            witness_id: Some(witness_id),
+            consignment: &consignment,
+            fallback: &self.blockchain_resolver(),
         };
-        let validity = valid_consignment.validation_status().validity();
-        debug!(self.logger(), "Consignment validity: {:?}", validity);
+        let valid_consignment = self.check_received_consignment(
+            pending,
+            &resolver,
+            asset_schema,
+            &received_rgb_assignments,
+            true,
+        )?;
 
         let valid_contract = valid_consignment.clone().into_valid_contract();
         let media_digests = self
@@ -371,17 +383,6 @@ impl Wallet {
             .import_contract(valid_contract, &self.blockchain_resolver())
             .expect("failure importing validated contract");
 
-        let received_rgb_assignments = self.extract_received_assignments(
-            &consignment,
-            witness_id,
-            PaymentSeal::WitnessVout(vout),
-        );
-
-        let resolver = OffchainResolver {
-            witness_id: Some(witness_id),
-            consignment: &consignment,
-            fallback: &self.blockchain_resolver(),
-        };
         stock.accept_transfer(valid_consignment, &resolver)?;
 
         txn.commit()?;
@@ -492,7 +493,7 @@ impl Wallet {
             &consignment,
             Some(witness_id),
             &self.blockchain_resolver(),
-            self.evm_rpc_urls(),
+            ClaimResolution::Evm(self.evm_rpc_urls()),
             &validation_config,
         )?;
         let valid_contract = valid_transfer.clone().into_valid_contract();

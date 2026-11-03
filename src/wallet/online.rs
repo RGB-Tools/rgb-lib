@@ -269,10 +269,6 @@ fn invoice_expiration_margin() -> u32 {
     INVOICE_EXPIRATION_MARGIN_SECS
 }
 
-/// A received consignment that passed validation and the checks on what it pays the recipient:
-/// the validated consignment, its validation status and the assignments received.
-type CheckedConsignment = (ValidTransfer, ValidationStatus, HashMap<Opout, Assignment>);
-
 /// The RPC URLs of the given EVM chains, by chain ID.
 fn evm_rpc_urls(evm_chains: &HashMap<u64, EvmChain>) -> HashMap<u64, String> {
     evm_chains
@@ -379,54 +375,36 @@ fn check_get_ack_error(err: JsonRpcError) -> Result<(), Error> {
     }
 }
 
-/// Whether the history of the operation at `start` in the given `ops_dag` has an opout the given
-/// reject list rejects along a path no opout it allows shields.
-///
-/// The answer depends on the operation only, not on the opout the walk started from, so the
-/// answer for each operation walked is kept in `rejected`, where a walk sharing part of the
-/// history stops: checking many opouts with a common history walks it once rather than once per
-/// opout.
-fn history_rejected(
-    ops_dag: &OpsDag,
-    reject_list: &RejectList,
-    start: NodeIndex,
-    rejected: &mut HashMap<NodeIndex, bool>,
-) -> bool {
-    // depth first, settling an operation once all the operations it spends from are settled (the
-    // DAG has no cycles)
-    let mut stack = vec![start];
-    while let Some(&node) = stack.last() {
-        if rejected.contains_key(&node) {
-            stack.pop();
-            continue;
+/// The wallet's reject list resolver: the one of the standalone validation, logging what the
+/// user may need to act on.
+#[doc(hidden)]
+pub struct WalletRejectListResolver<'a> {
+    inner: RemoteRejectListResolver<'a>,
+    logger: &'a Logger,
+}
+
+impl ResolveRejectList for WalletRejectListResolver<'_> {
+    fn get_reject_list(&self, source: &RejectListSource) -> Result<RejectList, Error> {
+        let (reject_list, invalid) =
+            self.inner
+                .get_reject_list_counting(source)
+                .inspect_err(|e| {
+                    if let Error::NoEvmRpcUrl { chain_id } = e {
+                        error!(
+                            self.logger,
+                            "No EVM RPC URL configured for chain ID {chain_id}"
+                        );
+                    }
+                })?;
+        // invalid lines are counted and reported once, as a list can contain many
+        if invalid > 0 {
+            warn!(
+                self.logger,
+                "Ignoring {invalid} invalid opout(s) in reject list"
+            );
         }
-        let base = stack.len();
-        let mut node_rejected = false;
-        for (spent_opout, parent) in ops_dag.spent_opouts(node) {
-            // allow shields this path upward: do not traverse this branch further
-            if reject_list.allows(&spent_opout) {
-                continue;
-            }
-            // encountering a reject opout, or a history having one, on an unshielded path: reject
-            if reject_list.rejects(&spent_opout) || rejected.get(&parent) == Some(&true) {
-                node_rejected = true;
-                break;
-            }
-            if !rejected.contains_key(&parent) {
-                stack.push(parent);
-            }
-        }
-        if node_rejected {
-            // the operations pushed aren't needed to settle this one anymore
-            stack.truncate(base);
-        } else if stack.len() > base {
-            // settle the operations it spends from first, then come back to it
-            continue;
-        }
-        rejected.insert(node, node_rejected);
-        stack.pop();
+        Ok(reject_list)
     }
-    rejected[&start]
 }
 
 pub trait WalletOnline: WalletOffline {
@@ -2153,44 +2131,15 @@ pub trait WalletOnline: WalletOffline {
         received
     }
 
-    fn get_reject_list(&self, source: &RejectListSource) -> Result<RejectList, Error> {
-        match source {
-            RejectListSource::Url(url) => self.get_url_reject_list(url),
-            RejectListSource::Evm(contract) => self.get_evm_reject_list(contract),
+    fn reject_list_resolver(&self) -> WalletRejectListResolver<'_> {
+        WalletRejectListResolver {
+            // going online checks the chain of every configured EVM RPC endpoint
+            inner: RemoteRejectListResolver {
+                evm_rpc_urls: self.evm_rpc_urls(),
+                evm_chains_checked: true,
+            },
+            logger: self.logger(),
         }
-    }
-
-    fn get_evm_reject_list(&self, contract: &EvmContract) -> Result<RejectList, Error> {
-        let evm_client = self.evm_client_for_chain(contract.chain_id)?;
-        let (reject_opouts, allow_opouts) = evm_client
-            .reject_list_entries(&contract.address)?
-            .decisions();
-        Ok(RejectList {
-            reject_opouts,
-            allow_opouts,
-        })
-    }
-
-    fn get_url_reject_list(&self, reject_list_url: &str) -> Result<RejectList, Error> {
-        let reject_list_client = RejectListClient::new(reject_list_url)?;
-        let list = reject_list_client.get_reject_list()?;
-        // invalid lines are counted and reported once, as a list can contain many
-        let mut reject_list = RejectList::default();
-        let mut invalid = 0;
-        for line in list.trim().lines() {
-            let (is_allow, opout_str) = line.strip_prefix("!").map_or((false, line), |s| (true, s));
-            match Opout::from_str(opout_str) {
-                Ok(opout) => reject_list.insert(opout, is_allow),
-                Err(_) => invalid += 1,
-            }
-        }
-        if invalid > 0 {
-            warn!(
-                self.logger(),
-                "Ignoring {invalid} invalid opout(s) in reject list"
-            );
-        }
-        Ok(reject_list)
     }
 
     fn extract_attachments(
@@ -2296,7 +2245,7 @@ pub trait WalletOnline: WalletOffline {
             &consignment,
             Some(witness_id),
             &self.blockchain_resolver(),
-            self.evm_rpc_urls(),
+            ClaimResolution::Evm(self.evm_rpc_urls()),
             &validation_config,
         )
         .map_err(|e| match e {
@@ -2883,109 +2832,88 @@ pub trait WalletOnline: WalletOffline {
         }
     }
 
-    /// The reject list a contract declares, read off it the way its `schema` requires.
-    ///
-    /// Only for the schemas [`AssetSchema::supports_reject_list`] accepts.
-    fn reject_list_for_schema(
-        schema: AssetSchema,
-        contract_data: ContractData<FilteredContractState>,
-    ) -> Option<RejectListSource> {
-        match schema {
-            AssetSchema::Bfa => BfaWrapper::with(contract_data)
-                .reject_list()
-                .map(RejectListSource::from),
-            AssetSchema::Ifa => IfaWrapper::with(contract_data)
-                .reject_list_url()
-                .map(|u| RejectListSource::Url(u.to_string())),
-            AssetSchema::Nia | AssetSchema::Uda | AssetSchema::Cfa => {
-                unreachable!("{schema} does not support a reject list")
+    /// The config to validate a consignment received by this wallet, of an asset with the given
+    /// schema, reporting the witnesses mined above `safe_height` (if any) in a warning: the
+    /// operations DAG is built if the schema supports a reject list, to check the assignments
+    /// received against it (see `check_received_consignment`).
+    fn received_validation_config(
+        &self,
+        asset_schema: AssetSchema,
+        safe_height: Option<NonZeroU32>,
+    ) -> ValidationConfig {
+        ValidationConfig {
+            chain_net: self.chain_net(),
+            build_ops_dag: asset_schema.supports_reject_list(),
+            safe_height,
+        }
+    }
+
+    /// Map an error validating a consignment received by this wallet, logging it: an invalid
+    /// consignment is reported as an [`Error::InvalidConsignment`], to be refused.
+    fn received_validation_error(&self, e: Error) -> Error {
+        match e {
+            Error::ConsignmentValidationFailed { details } => {
+                error!(self.logger(), "Consignment is invalid: {}", details);
+                Error::InvalidConsignment
+            }
+            e => {
+                if let Error::Network { .. } = e {
+                    warn!(self.logger(), "Network error during consignment validation");
+                }
+                e
             }
         }
     }
 
-    /// Phase 2 of the validation of a received consignment, followed by the check of the
-    /// assignments it pays this recipient (see `find_payments`) against the reject list of its
-    /// asset. Returns the validated consignment, its validation status and the assignments
-    /// received, or `None` if the consignment must be refused.
-    #[allow(clippy::too_many_arguments)]
+    /// Phase 2 of the validation of a consignment received by this wallet (validated with the
+    /// config given by `received_validation_config`), followed, if `with_reject_list`, by the
+    /// check of the assignments it pays this recipient against the reject list of its asset.
+    ///
+    /// The consignment must be refused if an [`Error::InvalidConsignment`] or an
+    /// [`Error::ConsignmentRejected`] is returned.
     fn check_received_consignment<R: ResolveWitness>(
         &self,
-        txn: &DbTxn,
-        stock: &RgbStock<'_>,
-        mut pending: PendingConsignment<true>,
+        pending: PendingConsignment<true>,
         resolver: &R,
         asset_schema: AssetSchema,
-        asset_id: &str,
-        receiving: HashMap<Opout, Assignment>,
-        check_reject_list: bool,
-    ) -> Result<Option<CheckedConsignment>, Error> {
-        // phase 2: resolve the witnesses and finalize, which requires all the witnesses and
-        // claims to be resolved by now
-        let valid_consignment = match pending.pending().resolve_all(resolver) {
-            Ok(()) => pending.finalize(),
-            Err(ValidationError::InvalidConsignment(e)) => {
-                error!(self.logger(), "Consignment is invalid: {}", e);
-                return Ok(None);
-            }
-            Err(ValidationError::ResolverError(e)) => {
-                warn!(self.logger(), "Network error during consignment validation");
-                return Err(Error::Network {
-                    details: e.to_string(),
-                });
-            }
-            Err(e) => {
-                return Err(Error::Internal {
-                    details: format!("unexpected consignment validation error: {e}"),
-                });
-            }
-        };
-        let validation_status = valid_consignment.validation_status().clone();
+        receiving: &HashMap<Opout, Assignment>,
+        with_reject_list: bool,
+    ) -> Result<ValidTransfer, Error> {
+        // phase 2: resolve the witnesses and finalize, which requires all the claims
+        // to be resolved by now
+        let valid_consignment =
+            resolve_witnesses(pending, resolver).map_err(|e| self.received_validation_error(e))?;
+        let validation_status = valid_consignment.validation_status();
+        debug!(
+            self.logger(),
+            "Consignment validity: {:?}",
+            validation_status.validity()
+        );
 
-        let validity = validation_status.validity();
-        debug!(self.logger(), "Consignment validity: {:?}", validity);
-
-        if check_reject_list && asset_schema.supports_reject_list() {
-            // the DB only records reject list URLs, while a BFA one can be an EVM contract
-            let known_asset = txn.check_asset_exists(asset_id.to_string());
-            let source = match (asset_schema, known_asset) {
-                (AssetSchema::Ifa, Ok(ass)) => ass.reject_list_url.map(RejectListSource::Url),
-                (AssetSchema::Ifa, Err(_))
-                | (AssetSchema::Bfa | AssetSchema::Nia | AssetSchema::Uda | AssetSchema::Cfa, _) => {
-                    Self::reject_list_for_schema(
-                        asset_schema,
-                        stock.consignment_data(&valid_consignment)?,
-                    )
-                }
-            };
-            if let Some(source) = &source {
-                let reject_list = self.get_reject_list(source)?;
-
-                let to_reject = self.check_dag(
-                    validation_status
-                        .ops_dag
-                        .as_ref()
-                        .expect("build_ops_dag is set for schemas supporting a reject list"),
-                    &reject_list,
-                    &receiving.clone().into_keys().collect(),
-                )?;
-
-                if !to_reject.is_empty() {
+        if with_reject_list && asset_schema.supports_reject_list() {
+            check_reject_list(
+                asset_schema,
+                valid_consignment.genesis(),
+                validation_status.ops_dag.as_ref(),
+                Some(&self.reject_list_resolver()),
+                &receiving.keys().copied().collect(),
+            )
+            .inspect_err(|e| {
+                if let Error::ConsignmentRejected { opouts } = e {
                     error!(
                         self.logger(),
                         "Found {} opout(s) that must be rejected",
-                        to_reject.len()
-                    );
-                    return Ok(None);
-                } else {
-                    info!(
-                        self.logger(),
-                        "Didn't find any opout(s) that should be rejected"
+                        opouts.len()
                     );
                 }
-            }
+            })?;
+            info!(
+                self.logger(),
+                "Didn't find any opout(s) that should be rejected"
+            );
         }
 
-        Ok(Some((valid_consignment, validation_status, receiving)))
+        Ok(valid_consignment)
     }
 
     /// Whether a received mint pays what the invoice requests, if it requests anything: the lock
@@ -3204,30 +3132,24 @@ pub trait WalletOnline: WalletOffline {
         // validate consignment
         debug!(self.logger(), "Validating consignment...");
         let safe_height = NonZeroU32::new(self.safe_height(batch_transfer.min_confirmations)?);
-        let validation_config = ValidationConfig {
-            chain_net: self.chain_net(),
-            build_ops_dag: asset_schema.supports_reject_list(),
-            safe_height,
-        };
-        let rules = asset_schema.schema_rules();
-        // phase 1: everything that only depends on the consignment itself
+        let validation_config = self.received_validation_config(asset_schema, safe_height);
+        // phase 1: everything that only depends on the consignment itself, then the external
+        // claims (mint locks) to confirm before resolving the witnesses
         #[cfg(test)]
         count_received_consignment_validation();
-        let mut pending = match consignment
-            .clone()
-            .validate_deterministic(&rules, &validation_config)
-        {
-            Ok(pending) => pending,
-            Err(ValidationError::InvalidConsignment(e)) => {
-                error!(self.logger(), "Consignment is invalid: {}", e);
-                refuse!();
-            }
-            Err(e) => {
-                return Err(Error::Internal {
-                    details: format!("unexpected consignment validation error: {e}"),
-                });
-            }
-        };
+        let pending_and_claims =
+            validate_deterministic(&consignment, asset_schema, &validation_config).and_then(
+                |mut pending| {
+                    let claims = pending_claims(&mut pending, asset_schema)?;
+                    Ok((pending, claims))
+                },
+            );
+        let (mut pending, pending_claims) =
+            match pending_and_claims.map_err(|e| self.received_validation_error(e)) {
+                Ok(pending_and_claims) => pending_and_claims,
+                Err(Error::InvalidConsignment) => refuse!(),
+                Err(e) => return Err(e),
+            };
 
         // locate the payment to us, now that the consignment structure has been validated
         let spent = Self::known_spent_opouts(&consignment);
@@ -3272,11 +3194,6 @@ pub trait WalletOnline: WalletOffline {
             refuse!();
         }
 
-        // claims (mint locks) live on the chain the asset's bridge contract is
-        // deployed on and cannot be resolved by the witness resolver: they're confirmed against
-        // that chain before resolving the witnesses
-        let claims: Vec<Claim> = pending.pending().unresolved_claims().cloned().collect();
-
         // the mint paying this recipient, if any, is refused before it's checked, so that no lock
         // is made for it (see get_received_mint): by a wallet that doesn't accept mints; when
         // exchanged out-of-band, as mints are only sent through proxies (see mint_begin) and an
@@ -3305,10 +3222,13 @@ pub trait WalletOnline: WalletOffline {
                 );
                 refuse!();
             }
-            let claim = claims
-                .iter()
-                .find(|Claim::Lock { opid, .. }| *opid == paying_opid)
-                .cloned();
+            let claim = pending_claims.as_ref().and_then(|pending_claims| {
+                pending_claims
+                    .claims
+                    .iter()
+                    .find(|Claim::Lock { opid, .. }| *opid == paying_opid)
+                    .cloned()
+            });
             let minted = claim.as_ref().map(|Claim::Lock { amount, .. }| *amount);
             let received = receiving.values().map(|a| a.main_amount()).sum::<u64>();
             if minted != Some(received) || receiving.keys().any(|opout| opout.op != paying_opid) {
@@ -3428,29 +3348,17 @@ pub trait WalletOnline: WalletOffline {
         };
 
         let mut bridge_circulating_supply = None;
-        if !claims.is_empty() {
-            // only bridged (BFA) assets are expected to carry claims
-            if !asset_schema.supports_mint() {
-                error!(
-                    self.logger(),
-                    "Consignment has pending claims but its schema does not support minting"
-                );
-                refuse!();
-            }
-
-            // the bridge location is an immutable genesis global naming the chain the mint
-            // events live on: the RPC endpoint configured for that chain is checked to actually
-            // be on it before being asked about the claims. A missing or misconfigured endpoint
-            // is a local issue, not one with the consignment: keep it and retry at the next
-            // refresh, without blocking the other transfers, until the transfer expires or, once
-            // the mint has been checked (when it no longer expires by a timestamp), until its
+        if let Some(PendingClaims {
+            bridge_location,
+            claims,
+        }) = pending_claims
+        {
+            // the RPC endpoint configured for the chain the mint locks live on is checked to
+            // actually be on it before being asked about the claims. A missing or misconfigured
+            // endpoint is a local issue, not one with the consignment: keep it and retry at the
+            // next refresh, without blocking the other transfers, until the transfer expires or,
+            // once the mint has been checked (when it no longer expires by a timestamp), until its
             // lock is found expired
-            let bridge_location = BridgedFungibleAsset::bridge_location(
-                pending.consignment().genesis(),
-            )
-            .map_err(|e| Error::Internal {
-                details: format!("unexpected bridge location error: {e}"),
-            })?;
             let BridgeLocation::Evm(EvmContract { chain_id, address }) = &bridge_location;
             let (chain_id, address) = (*chain_id, *address);
             received_mint = paying_claim.as_ref().map(|claim| {
@@ -3502,27 +3410,16 @@ pub trait WalletOnline: WalletOffline {
             // as of the latest finalized block of the external chain, included before the block
             // it commits to. A mint whose lock wasn't is refused right away, as it will never be
             // confirmed
-            let mut unconfirmed = vec![];
-            for claim in &claims {
-                match pending.resolve_claim(&claim_resolver, claim) {
-                    Ok(()) => {}
-                    Err(ClaimResolverError::Unconfirmed(_)) => {
-                        let Claim::Lock {
-                            opid, before_block, ..
-                        } = claim;
-                        if mint_resolver.is_expired(opid) {
-                            let e = Error::MintLockExpired {
-                                opid: opid.to_string(),
-                                before_block: *before_block,
-                            };
-                            error!(self.logger(), "{e}");
-                            refuse!();
-                        }
-                        unconfirmed.push(*opid)
-                    }
-                    Err(e) => return Err(e.into()),
+            let unconfirmed = match resolve_claims(&mut pending, &claim_resolver, &claims, |opid| {
+                mint_resolver.is_expired(opid)
+            }) {
+                Ok(unconfirmed) => unconfirmed,
+                Err(e @ Error::MintLockExpired { .. }) => {
+                    error!(self.logger(), "{e}");
+                    refuse!();
                 }
-            }
+                Err(e) => return Err(e),
+            };
 
             let paying_opid = paying_claim.as_ref().map(|Claim::Lock { opid, .. }| *opid);
             if let Some(opid) = &paying_opid
@@ -3605,18 +3502,18 @@ pub trait WalletOnline: WalletOffline {
                                 details: format!("unexpected claim resolution error: {e}"),
                             })?;
                     }
-                    let checked = self.check_received_consignment(
-                        txn,
-                        &stock,
+                    let valid_consignment = match self.check_received_consignment(
                         assumed,
                         &resolver,
                         asset_schema,
-                        &asset_id,
-                        receiving.clone(),
+                        &receiving,
                         !committed_mint,
-                    )?;
-                    let Some((valid_consignment, _, _)) = checked else {
-                        refuse!();
+                    ) {
+                        Ok(valid_consignment) => valid_consignment,
+                        Err(Error::InvalidConsignment | Error::ConsignmentRejected { .. }) => {
+                            refuse!()
+                        }
+                        Err(e) => return Err(e),
                     };
                     // the media of an unknown asset is fetched now rather than at settlement, as
                     // the recipient proxy may delete it before then, the mint being waited for past
@@ -3670,19 +3567,18 @@ pub trait WalletOnline: WalletOffline {
         }
 
         // phase 2 and the checks on what the consignment pays
-        let checked = self.check_received_consignment(
-            txn,
-            &stock,
+        let valid_consignment = match self.check_received_consignment(
             pending,
             &resolver,
             asset_schema,
-            &asset_id,
-            receiving,
+            &receiving,
             !committed_mint,
-        )?;
-        let Some((valid_consignment, validation_status, receiving)) = checked else {
-            refuse!();
+        ) {
+            Ok(valid_consignment) => valid_consignment,
+            Err(Error::InvalidConsignment | Error::ConsignmentRejected { .. }) => refuse!(),
+            Err(e) => return Err(e),
         };
+        let validation_status = valid_consignment.validation_status().clone();
         if let Some(received_mint) = &received_mint {
             self.save_received_mint(&recipient_id, received_mint)?;
         }
@@ -5288,40 +5184,6 @@ pub trait WalletOnline: WalletOffline {
         Ok((destination, seal))
     }
 
-    fn check_dag(
-        &self,
-        ops_dag: &OpsDag,
-        reject_list: &RejectList,
-        check_opouts: &HashSet<Opout>,
-    ) -> Result<HashSet<Opout>, Error> {
-        let mut to_reject = HashSet::new();
-        // shared by the walks, so that a history common to several opouts is walked once
-        let mut rejected = HashMap::new();
-
-        // for each opout we are checking, traverse its ancestor chain
-        for check_opout in check_opouts {
-            // allow shields this path upward: do not traverse this branch further
-            if reject_list.allows(check_opout) {
-                continue;
-            }
-            // encountering a reject opout on an unshielded path: reject
-            if reject_list.rejects(check_opout) {
-                to_reject.insert(*check_opout);
-                continue;
-            }
-            let op_node = ops_dag.op_node(&check_opout.op).ok_or(Error::Internal {
-                details: s!("opout not found in DAG"),
-            })?;
-
-            // traverse from the operation creating it to its ancestors, checking the opouts each
-            // operation spends
-            if history_rejected(ops_dag, reject_list, op_node, &mut rejected) {
-                to_reject.insert(*check_opout);
-            }
-        }
-        Ok(to_reject)
-    }
-
     #[allow(clippy::too_many_arguments)]
     fn prepare_rgb_psbt(
         &self,
@@ -5856,8 +5718,10 @@ pub trait WalletOnline: WalletOffline {
             // every operation is checked, so that none spends a rejected allocation: a recipient
             // would refuse it, and an operation with no recipient (an inflation or a burn) would
             // carry rejected history
-            let reject_list_source =
-                self.asset_reject_list_source(stock, &transfer_info.asset_info)?;
+            let reject_list_source = genesis_reject_list_source(
+                transfer_info.asset_info.schema,
+                &stock.genesis(transfer_info.asset_info.contract_id)?,
+            )?;
             let should_build_dag = reject_list_source.is_some();
 
             #[cfg(test)]
@@ -5880,7 +5744,7 @@ pub trait WalletOnline: WalletOffline {
                 // again and all decide on the same version of it
                 let source = reject_list_source.unwrap();
                 if !reject_lists.contains_key(&source) {
-                    let reject_list = self.get_reject_list(&source)?;
+                    let reject_list = self.reject_list_resolver().get_reject_list(&source)?;
                     reject_lists.insert(source.clone(), reject_list);
                 }
                 let reject_list = &reject_lists[&source];
@@ -5888,7 +5752,7 @@ pub trait WalletOnline: WalletOffline {
                     .get(&transfer_info.asset_info.contract_id)
                     .unwrap();
                 let asset_input_opouts = asset_opouts.keys().cloned().collect();
-                let to_reject = self.check_dag(&ops_dag, reject_list, &asset_input_opouts)?;
+                let to_reject = rejected_opouts(&ops_dag, reject_list, &asset_input_opouts)?;
                 if !to_reject.is_empty() {
                     warn!(
                         self.logger(),
@@ -8094,27 +7958,6 @@ pub trait WalletOnline: WalletOffline {
         EvmClient::new(evm_rpc_url)
     }
 
-    /// The reject list of a known asset.
-    ///
-    /// The DB only records reject list URLs: a BFA reject list, which can be an EVM contract, is
-    /// read off the contract instead.
-    fn asset_reject_list_source(
-        &self,
-        stock: &RgbStock<'_>,
-        asset_info: &AssetInfo,
-    ) -> Result<Option<RejectListSource>, Error> {
-        Ok(match asset_info.schema {
-            AssetSchema::Bfa => stock
-                .contract_wrapper::<BridgedFungibleAsset>(asset_info.contract_id)?
-                .reject_list()
-                .map(RejectListSource::from),
-            AssetSchema::Ifa | AssetSchema::Nia | AssetSchema::Uda | AssetSchema::Cfa => asset_info
-                .reject_list_url
-                .clone()
-                .map(RejectListSource::Url),
-        })
-    }
-
     fn mint_begin_impl(
         &mut self,
         txn: &DbTxn,
@@ -8815,107 +8658,5 @@ mod tests {
         assert!(!broadcast_deadline_passed_beyond_skew_margin(&transfer));
         assert!(!expired_beyond_skew_margin(&transfer));
         assert!(!incoming_expired(&transfer, now));
-    }
-
-    // the history of an operation in the given DAG, checked against the reject list with a fresh
-    // walk, as each check opout was before the walks shared their answers
-    fn history_rejected_unshared(
-        ops_dag: &OpsDag,
-        reject_list: &RejectList,
-        start: NodeIndex,
-    ) -> bool {
-        let mut stack = vec![start];
-        let mut visited = HashSet::new();
-        while let Some(node) = stack.pop() {
-            if !visited.insert(node) {
-                continue;
-            }
-            for (spent_opout, parent) in ops_dag.spent_opouts(node) {
-                if reject_list.allows(&spent_opout) {
-                    continue;
-                }
-                if reject_list.rejects(&spent_opout) {
-                    return true;
-                }
-                stack.push(parent);
-            }
-        }
-        false
-    }
-
-    // walks sharing their answers decide as walks starting afresh, whatever their order, on random
-    // DAGs with shared histories and random reject lists
-    #[test]
-    fn history_rejected_matches_unshared_walks() {
-        // xorshift, deterministic so that a failure can be reproduced
-        let mut seed = 0x2545_f491_4f6c_dd1d_u64;
-        let mut next = |bound: u64| {
-            seed ^= seed << 13;
-            seed ^= seed >> 7;
-            seed ^= seed << 17;
-            seed % bound
-        };
-        let op = |i: u64| {
-            let mut id = [0u8; 32];
-            id[..8].copy_from_slice(&i.to_le_bytes());
-            OpId::from(id)
-        };
-        let (mut rejected_count, mut not_rejected_count) = (0, 0);
-        for _ in 0..1000 {
-            let op_count = 1 + next(40);
-            let mut ops_dag = OpsDag::new();
-            let mut reject_list = RejectList::default();
-            // each operation spends opouts of earlier ones, so the DAG has no cycles, often enough
-            // for histories to be shared and to have several paths between two operations, some
-            // operations spending more opouts of the same one
-            let density = 1 + next(4);
-            for i in 0..op_count {
-                ops_dag.register_op(op(i));
-                for j in 0..i {
-                    for no in 0..3 {
-                        if next(3 * i + 1) >= density {
-                            continue;
-                        }
-                        let input = Opout::new(op(j), AssignmentType::with(4000), no);
-                        match next(10) {
-                            0 => {
-                                reject_list.reject_opouts.insert(input);
-                            }
-                            1 => {
-                                reject_list.allow_opouts.insert(input);
-                            }
-                            2 if next(4) == 0 => {
-                                reject_list.reject_opouts.insert(input);
-                                reject_list.allow_opouts.insert(input);
-                            }
-                            _ => {}
-                        }
-                        ops_dag.connect_input(input, op(i));
-                    }
-                }
-            }
-
-            let mut starts: Vec<NodeIndex> = (0..op_count)
-                .map(|i| ops_dag.op_node(&op(i)).unwrap())
-                .collect();
-            for i in (1..starts.len()).rev() {
-                starts.swap(i, next(i as u64 + 1) as usize);
-            }
-            let mut rejected = HashMap::new();
-            for start in starts {
-                let expected = history_rejected_unshared(&ops_dag, &reject_list, start);
-                assert_eq!(
-                    history_rejected(&ops_dag, &reject_list, start, &mut rejected),
-                    expected
-                );
-                if expected {
-                    rejected_count += 1;
-                } else {
-                    not_rejected_count += 1;
-                }
-            }
-        }
-        // both decisions are exercised
-        assert!(rejected_count > 1000 && not_rejected_count > 1000);
     }
 }

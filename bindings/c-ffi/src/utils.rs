@@ -1070,6 +1070,28 @@ pub(crate) fn sync(
     Ok(())
 }
 
+pub(crate) fn validate_consignment(
+    consignment_path: *const c_char,
+    indexer_config: *const c_char,
+    evm_rpc_urls: *const c_char,
+    min_confirmations: *const c_char,
+    options: *const c_char,
+) -> Result<String, Error> {
+    let consignment_path = ptr_to_string(consignment_path);
+    let indexer_config: IndexerConfig = serde_json::from_str(&ptr_to_string(indexer_config))?;
+    let evm_rpc_urls: HashMap<u64, String> = serde_json::from_str(&ptr_to_string(evm_rpc_urls))?;
+    let min_confirmations = convert_optional_number(min_confirmations)?;
+    let options: ValidationOptions = serde_json::from_str(&ptr_to_string(options))?;
+    let res = rgb_lib::no_wallet::validate_consignment(
+        &consignment_path,
+        &indexer_config,
+        &evm_rpc_urls,
+        min_confirmations,
+        &options,
+    )?;
+    Ok(serde_json::to_string(&res)?)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn witness_receive(
     wallet: &COpaqueStruct,
