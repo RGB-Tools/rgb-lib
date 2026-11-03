@@ -30,9 +30,9 @@ use rgb_lib::{
         RgbWalletOpsOffline, RgbWalletOpsOnline, SendBeginResult, SendDetails, SinglesigKeys,
         SyncKeychain as RgbLibSyncKeychain, SyncOptions as RgbLibSyncOptions, SyncStrategy, Token,
         TokenLight, Transaction, TransactionType, Transfer as RgbLibTransfer, TransferKind,
-        TransferTransportEndpoint, TransportEndpoint as RgbLibTransportEndpoint, TypeOfTransition,
-        Unspent as RgbLibUnspent, UserRole, Utxo, Wallet as RgbLibWallet, WalletData,
-        WalletDescriptors, WitnessData,
+        TransferScope as RgbLibTransferScope, TransferTransportEndpoint,
+        TransportEndpoint as RgbLibTransportEndpoint, TypeOfTransition, Unspent as RgbLibUnspent,
+        UserRole, Utxo, Wallet as RgbLibWallet, WalletData, WalletDescriptors, WitnessData,
     },
 };
 
@@ -83,6 +83,24 @@ impl From<AssetFilter> for RgbLibAssetFilter {
             AssetFilter::AnyOrNone => RgbLibAssetFilter::AnyOrNone,
             AssetFilter::None => RgbLibAssetFilter::None,
             AssetFilter::Id { asset_id } => RgbLibAssetFilter::Id(asset_id),
+        }
+    }
+}
+
+// temporary solution needed because the UDL Enum and Remote attributes are incompatible with each other
+pub enum TransferScope {
+    All,
+    Txid { txid: String },
+    BatchTransfer { batch_transfer_idx: i32 },
+}
+impl From<TransferScope> for RgbLibTransferScope {
+    fn from(orig: TransferScope) -> Self {
+        match orig {
+            TransferScope::All => RgbLibTransferScope::All,
+            TransferScope::Txid { txid } => RgbLibTransferScope::Txid(txid),
+            TransferScope::BatchTransfer { batch_transfer_idx } => {
+                RgbLibTransferScope::BatchTransfer(batch_transfer_idx)
+            }
         }
     }
 }
@@ -1315,11 +1333,11 @@ impl Wallet {
     fn list_transfers(
         &self,
         asset_filter: AssetFilter,
-        txid: Option<String>,
+        scope: TransferScope,
     ) -> Result<Vec<Transfer>, RgbLibError> {
         Ok(self
             ._get_wallet()
-            .list_transfers(asset_filter.into(), txid)?
+            .list_transfers(asset_filter.into(), scope.into())?
             .into_iter()
             .map(|t| t.into())
             .collect())
@@ -1764,11 +1782,11 @@ impl MultisigWallet {
     fn list_transfers(
         &self,
         asset_filter: AssetFilter,
-        txid: Option<String>,
+        scope: TransferScope,
     ) -> Result<Vec<Transfer>, RgbLibError> {
         Ok(self
             ._get_wallet()
-            .list_transfers(asset_filter.into(), txid)?
+            .list_transfers(asset_filter.into(), scope.into())?
             .into_iter()
             .map(|t| t.into())
             .collect())

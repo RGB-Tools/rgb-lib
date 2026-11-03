@@ -629,12 +629,16 @@ pub(crate) fn list_transactions(
 pub(crate) fn list_transfers(
     wallet: &COpaqueStruct,
     asset_filter: *const c_char,
-    txid: *const c_char,
+    scope: *const c_char,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let asset_filter: AssetFilter = serde_json::from_str(&ptr_to_string(asset_filter))?;
-    let txid = convert_optional_string(txid);
-    let res = wallet.list_transfers(asset_filter, txid)?;
+    // a NULL scope lists all transfers
+    let scope: TransferScope = match convert_optional_string(scope) {
+        Some(scope) => serde_json::from_str(&scope)?,
+        None => TransferScope::All,
+    };
+    let res = wallet.list_transfers(asset_filter, scope)?;
     Ok(serde_json::to_string(&res)?)
 }
 

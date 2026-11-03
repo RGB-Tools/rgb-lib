@@ -339,6 +339,13 @@ interface AssetFilter {
 };
 
 [Enum]
+interface TransferScope {
+  All();
+  Txid(string txid);
+  BatchTransfer(i32 batch_transfer_idx);
+};
+
+[Enum]
 interface Assignment {
   Fungible(u64 amount);
   NonFungible();
@@ -961,7 +968,7 @@ interface Wallet {
   sequence<Transaction> list_transactions(Online? online, boolean skip_sync);
 
   [Throws=RgbLibError]
-  sequence<Transfer> list_transfers(AssetFilter asset_filter, string? txid);
+  sequence<Transfer> list_transfers(AssetFilter asset_filter, TransferScope scope);
 
   [Throws=RgbLibError]
   sequence<Unspent> list_unspents(
@@ -1127,7 +1134,7 @@ interface MultisigWallet {
   sequence<Transaction> list_transactions(Online? online, boolean skip_sync);
 
   [Throws=RgbLibError]
-  sequence<Transfer> list_transfers(AssetFilter asset_filter, string? txid);
+  sequence<Transfer> list_transfers(AssetFilter asset_filter, TransferScope scope);
 
   [Throws=RgbLibError]
   sequence<Unspent> list_unspents(

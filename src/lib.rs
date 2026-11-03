@@ -295,13 +295,10 @@ use crate::{
         proxy::{GetConsignmentResponse, ProxyClient},
         reject_list::RejectListClient,
     },
-    database::{
-        DbData,
-        entities::{
-            pending_witness_script::Model as DbPendingWitnessScript,
-            reserved_txo::ActiveModel as DbReservedTxoActMod,
-            wallet_transaction::ActiveModel as DbWalletTransactionActMod,
-        },
+    database::entities::{
+        pending_witness_script::Model as DbPendingWitnessScript,
+        reserved_txo::ActiveModel as DbReservedTxoActMod,
+        wallet_transaction::ActiveModel as DbWalletTransactionActMod,
     },
     error::IndexerError,
     utils::{
@@ -312,7 +309,7 @@ use crate::{
 };
 use crate::{
     database::{
-        DbTxn, RgbLibDatabase,
+        DbData, DbTxn, RgbLibDatabase, TransportEndpointsByTransfer,
         entities::{
             asset::{ActiveModel as DbAssetActMod, Model as DbAsset},
             asset_transfer::{ActiveModel as DbAssetTransferActMod, Model as DbAssetTransfer},
@@ -336,6 +333,7 @@ use crate::{
             wallet_transaction::Model as DbWalletTransaction,
         },
         enums::{ColoringType, RecipientTypeFull},
+        group_colorings_by_asset_transfer,
     },
     error::InternalError,
     keys::{Keys, WitnessVersion},
@@ -347,8 +345,8 @@ use crate::{
         hash_bytes_hex, load_rgb_runtime, now, parse_address_str, setup_logger, str_to_xpub,
     },
     wallet::{
-        Balance, LocalRgbAllocation, LocalUnspent, NUM_KNOWN_SCHEMAS, Outpoint, SCHEMA_ID_CFA,
-        SCHEMA_ID_IFA, SCHEMA_ID_NIA, SCHEMA_ID_UDA, WalletDescriptors,
+        AssetFilter, Balance, LocalRgbAllocation, LocalUnspent, NUM_KNOWN_SCHEMAS, Outpoint,
+        SCHEMA_ID_CFA, SCHEMA_ID_IFA, SCHEMA_ID_NIA, SCHEMA_ID_UDA, WalletDescriptors,
     },
 };
 #[cfg(test)]

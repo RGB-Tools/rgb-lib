@@ -4,11 +4,26 @@ pub(crate) mod entities;
 use super::*;
 
 use crate::database::entities::{
-    asset, coloring, media, prelude::*, transfer_transport_endpoint, transport_endpoint, txo,
-    wallet_transaction,
+    asset, asset_transfer, batch_transfer, coloring, media, prelude::*, transfer,
+    transfer_transport_endpoint, transport_endpoint, txo, wallet_transaction,
 };
 #[cfg(any(feature = "electrum", feature = "esplora"))]
-use crate::database::entities::{batch_transfer, pending_witness_script, reserved_txo};
+use crate::database::entities::{pending_witness_script, reserved_txo};
+
+/// Max number of values bound in a single `IN (...)` clause, well below SQLite's variable limit.
+const SQL_IN_CHUNK_SIZE: usize = 500;
+
+/// Run `query` on chunks of `idxs` (to be used in an `IN (...)` clause) and collect the results.
+fn select_in_chunks<T>(
+    idxs: &[i32],
+    query: impl Fn(&[i32]) -> Result<Vec<T>, DbErr>,
+) -> Result<Vec<T>, Error> {
+    let mut rows = vec![];
+    for chunk in idxs.chunks(SQL_IN_CHUNK_SIZE) {
+        rows.extend(query(chunk)?);
+    }
+    Ok(rows)
+}
 
 #[derive(Debug, Clone)]
 #[cfg(any(feature = "electrum", feature = "esplora"))]
@@ -107,12 +122,33 @@ impl DbColoring {
     }
 }
 
+/// Transport endpoints grouped by transfer index.
+pub(crate) type TransportEndpointsByTransfer =
+    HashMap<i32, Vec<(DbTransferTransportEndpoint, DbTransportEndpoint)>>;
+
 pub struct DbData {
     pub(crate) batch_transfers: Vec<DbBatchTransfer>,
     pub(crate) asset_transfers: Vec<DbAssetTransfer>,
     pub(crate) transfers: Vec<DbTransfer>,
     pub(crate) colorings: Vec<DbColoring>,
     pub(crate) txos: Vec<DbTxo>,
+}
+
+/// Group colorings by the asset transfer they belong to, each group ordered by index.
+pub(crate) fn group_colorings_by_asset_transfer(
+    colorings: Vec<DbColoring>,
+) -> HashMap<i32, Vec<DbColoring>> {
+    let mut colorings_by_asset_transfer: HashMap<i32, Vec<DbColoring>> = HashMap::new();
+    for coloring in colorings {
+        colorings_by_asset_transfer
+            .entry(coloring.asset_transfer_idx)
+            .or_default()
+            .push(coloring);
+    }
+    colorings_by_asset_transfer
+        .values_mut()
+        .for_each(|c| c.sort_by_key(|c| c.idx));
+    colorings_by_asset_transfer
 }
 
 impl DbTransfer {
@@ -543,7 +579,10 @@ impl DbTxn {
         Ok(block_on(BackupInfo::find().one(self.inner()))?)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    pub(crate) fn get_batch_transfer(&self, idx: i32) -> Result<Option<DbBatchTransfer>, Error> {
+        Ok(block_on(BatchTransfer::find_by_id(idx).one(self.inner()))?)
+    }
+
     pub(crate) fn get_batch_transfers_by_txid(
         &self,
         txid: &str,
@@ -663,6 +702,7 @@ impl DbTxn {
         Ok(block_on(WalletTransaction::find().all(self.inner()))?)
     }
 
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
     pub(crate) fn get_transfer_transport_endpoints_data(
         &self,
         transfer_idx: i32,
@@ -677,6 +717,114 @@ impl DbTxn {
         .into_iter()
         .map(|(tte, ce)| (tte, ce.expect("should be connected")))
         .collect())
+    }
+
+    /// Get the transport endpoints of the given transfers, grouped by transfer index and ordered
+    /// by transfer transport endpoint index.
+    pub(crate) fn get_transport_endpoints_by_transfer(
+        &self,
+        transfer_idxs: &[i32],
+    ) -> Result<TransportEndpointsByTransfer, Error> {
+        let rows = select_in_chunks(transfer_idxs, |chunk| {
+            block_on(
+                TransferTransportEndpoint::find()
+                    .filter(
+                        transfer_transport_endpoint::Column::TransferIdx
+                            .is_in(chunk.iter().copied()),
+                    )
+                    .find_also_related(TransportEndpoint)
+                    .order_by_asc(transfer_transport_endpoint::Column::Idx)
+                    .all(self.inner()),
+            )
+        })?;
+        let mut tte_data: HashMap<i32, Vec<_>> = HashMap::new();
+        for (tte, ce) in rows {
+            tte_data
+                .entry(tte.transfer_idx)
+                .or_default()
+                .push((tte, ce.expect("should be connected")));
+        }
+        Ok(tte_data)
+    }
+
+    /// Get the DB rows (and transport endpoints) needed to build the user-driven transfers
+    /// matching `asset_filter`, restricted to the given batch transfers if provided.
+    pub(crate) fn get_transfers_db_data(
+        &self,
+        batch_transfer_idxs: Option<&[i32]>,
+        asset_filter: &AssetFilter,
+    ) -> Result<(DbData, TransportEndpointsByTransfer), Error> {
+        let select = AssetTransfer::find().filter(asset_transfer::Column::UserDriven.eq(true));
+        let select = match asset_filter {
+            AssetFilter::AnyOrNone => select,
+            AssetFilter::None => select.filter(asset_transfer::Column::AssetId.is_null()),
+            AssetFilter::Id(asset_id) => {
+                select.filter(asset_transfer::Column::AssetId.eq(asset_id.as_str()))
+            }
+        };
+        let asset_transfers = match batch_transfer_idxs {
+            None => block_on(select.all(self.inner()))?,
+            Some(idxs) => select_in_chunks(idxs, |chunk| {
+                block_on(
+                    select
+                        .clone()
+                        .filter(
+                            asset_transfer::Column::BatchTransferIdx.is_in(chunk.iter().copied()),
+                        )
+                        .all(self.inner()),
+                )
+            })?,
+        };
+        let mut batch_transfer_idxs: Vec<i32> = asset_transfers
+            .iter()
+            .map(|a| a.batch_transfer_idx)
+            .collect();
+        batch_transfer_idxs.sort_unstable();
+        batch_transfer_idxs.dedup();
+        let batch_transfers = select_in_chunks(&batch_transfer_idxs, |chunk| {
+            block_on(
+                BatchTransfer::find()
+                    .filter(batch_transfer::Column::Idx.is_in(chunk.iter().copied()))
+                    .all(self.inner()),
+            )
+        })?;
+        let asset_transfer_idxs: Vec<i32> = asset_transfers.iter().map(|a| a.idx).collect();
+        let transfers = select_in_chunks(&asset_transfer_idxs, |chunk| {
+            block_on(
+                Transfer::find()
+                    .filter(transfer::Column::AssetTransferIdx.is_in(chunk.iter().copied()))
+                    .all(self.inner()),
+            )
+        })?;
+        let colorings = select_in_chunks(&asset_transfer_idxs, |chunk| {
+            block_on(
+                Coloring::find()
+                    .filter(coloring::Column::AssetTransferIdx.is_in(chunk.iter().copied()))
+                    .all(self.inner()),
+            )
+        })?;
+        let mut txo_idxs: Vec<i32> = colorings.iter().map(|c| c.txo_idx).collect();
+        txo_idxs.sort_unstable();
+        txo_idxs.dedup();
+        let txos = select_in_chunks(&txo_idxs, |chunk| {
+            block_on(
+                Txo::find()
+                    .filter(txo::Column::Idx.is_in(chunk.iter().copied()))
+                    .all(self.inner()),
+            )
+        })?;
+        let transfer_idxs: Vec<i32> = transfers.iter().map(|t| t.idx).collect();
+        let tte_data = self.get_transport_endpoints_by_transfer(&transfer_idxs)?;
+        Ok((
+            DbData {
+                batch_transfers,
+                asset_transfers,
+                transfers,
+                colorings,
+                txos,
+            },
+            tte_data,
+        ))
     }
 
     pub(crate) fn get_db_data(&self, empty_transfers: bool) -> Result<DbData, Error> {

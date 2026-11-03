@@ -1211,6 +1211,17 @@ impl TryFrom<RgbTransport> for TransportEndpoint {
 // Transfers
 // ────────────────────────────────────────────────────────────
 
+/// Which transfers to list.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub enum TransferScope {
+    /// All transfers
+    All,
+    /// Transfers committed by the on-chain transaction with the given TXID
+    Txid(String),
+    /// Transfers belonging to the batch transfer with the given index
+    BatchTransfer(i32),
+}
+
 /// The type of an RGB transfer.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub enum TransferKind {
@@ -1242,6 +1253,48 @@ pub struct TransferData {
     pub(crate) expiration_timestamp: Option<i64>,
     pub(crate) consignment_path: Option<String>,
     pub(crate) psbt_path: Option<String>,
+}
+
+/// Data derived from an asset transfer's colorings, shared by every transfer connected to it.
+pub struct AssetTransferColoringInfo<'a> {
+    pub(crate) assignments: Vec<Assignment>,
+    pub(crate) all_issue: bool,
+    pub(crate) any_issue: bool,
+    pub(crate) change_utxo: Option<Outpoint>,
+    pub(crate) receive_candidates: Vec<&'a DbTxo>,
+}
+
+impl<'a> AssetTransferColoringInfo<'a> {
+    /// Build from `colorings` (all belonging to a single asset transfer) and their `txos`.
+    pub(crate) fn new(colorings: &[DbColoring], txos: &'a HashMap<i32, DbTxo>) -> Self {
+        let assignments = colorings
+            .iter()
+            .filter(|c| c.r#type != ColoringType::Input)
+            .map(|c| c.assignment.clone())
+            .collect();
+        let all_issue =
+            !colorings.is_empty() && colorings.iter().all(|c| c.r#type == ColoringType::Issue);
+        let any_issue = colorings.iter().any(|c| c.r#type == ColoringType::Issue);
+        let change_utxo = colorings
+            .iter()
+            .filter(|c| c.r#type == ColoringType::Change)
+            .filter_map(|c| txos.get(&c.txo_idx))
+            .min_by_key(|t| t.idx)
+            .map(|t| t.outpoint());
+        let receive_candidates = colorings
+            .iter()
+            // issue coloring from inflation is considered as received
+            .filter(|c| [ColoringType::Receive, ColoringType::Issue].contains(&c.r#type))
+            .filter_map(|c| txos.get(&c.txo_idx))
+            .collect();
+        Self {
+            assignments,
+            all_issue,
+            any_issue,
+            change_utxo,
+            receive_candidates,
+        }
+    }
 }
 
 /// An RGB transfer.

@@ -50,19 +50,7 @@ pub(crate) trait OfflineSigParty {
             .filter(|t| t.recipient_id.as_deref() == Some(recipient_id));
         let transfer = recipient_transfers.next().unwrap();
         assert!(recipient_transfers.next().is_none());
-        let db_data = self.db_data(false);
-        let (asset_transfer, batch_transfer) =
-            transfer.related_transfers(&db_data.asset_transfers, &db_data.batch_transfers);
-        let transfer_data = self
-            .wlt()
-            .get_transfer_data(
-                transfer,
-                &asset_transfer,
-                &batch_transfer,
-                &db_data.txos,
-                &db_data.colorings,
-            )
-            .unwrap();
+        let (transfer_data, _) = self.get_test_transfer_data(transfer);
         println!(
             "receive with recipient_id {} is in status {:?}",
             recipient_id, transfer_data.status
@@ -502,7 +490,7 @@ pub(crate) trait OfflineSigParty {
     #[cfg(feature = "electrum")]
     fn get_pending_blind_transfers(&self) -> Vec<Transfer> {
         self.wlt()
-            .list_transfers(AssetFilter::AnyOrNone, None)
+            .list_transfers(AssetFilter::AnyOrNone, TransferScope::All)
             .unwrap()
             .into_iter()
             .filter(|t| t.status.pending() && t.kind == TransferKind::ReceiveBlind)
@@ -525,15 +513,17 @@ pub(crate) trait OfflineSigParty {
         txn.commit().unwrap();
         let (asset_transfer, batch_transfer) =
             transfer.related_transfers(&db_data.asset_transfers, &db_data.batch_transfers);
+        let mut colorings: Vec<DbColoring> = db_data
+            .colorings
+            .into_iter()
+            .filter(|c| c.asset_transfer_idx == asset_transfer.idx)
+            .collect();
+        colorings.sort_by_key(|c| c.idx);
+        let txos: HashMap<i32, DbTxo> = db_data.txos.into_iter().map(|t| (t.idx, t)).collect();
+        let coloring_info = AssetTransferColoringInfo::new(&colorings, &txos);
         let transfer_data = self
             .wlt()
-            .get_transfer_data(
-                transfer,
-                &asset_transfer,
-                &batch_transfer,
-                &db_data.txos,
-                &db_data.colorings,
-            )
+            .get_transfer_data(transfer, &asset_transfer, &batch_transfer, &coloring_info)
             .unwrap();
         (transfer_data, asset_transfer)
     }
@@ -651,26 +641,25 @@ pub(crate) trait OfflineSigParty {
             Some(a) => AssetFilter::Id(a.to_string()),
             None => AssetFilter::None,
         };
-        self.wlt().list_transfers(asset_filter, None)
+        self.wlt().list_transfers(asset_filter, TransferScope::All)
     }
 
     #[cfg(feature = "electrum")]
     fn list_transfers_filtered(
         &self,
         asset_filter: AssetFilter,
-        txid: Option<&str>,
+        scope: TransferScope,
     ) -> Vec<Transfer> {
-        self.list_transfers_filtered_result(asset_filter, txid)
+        self.list_transfers_filtered_result(asset_filter, scope)
             .unwrap()
     }
 
     fn list_transfers_filtered_result(
         &self,
         asset_filter: AssetFilter,
-        txid: Option<&str>,
+        scope: TransferScope,
     ) -> Result<Vec<Transfer>, Error> {
-        self.wlt()
-            .list_transfers(asset_filter, txid.map(|t| t.to_string()))
+        self.wlt().list_transfers(asset_filter, scope)
     }
 
     #[cfg(feature = "electrum")]

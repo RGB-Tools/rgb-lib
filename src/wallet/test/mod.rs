@@ -132,7 +132,6 @@ const MIN_CONFIRMATIONS: u8 = 1;
 const FAKE_TXID: &str = "e5a3e577309df31bd606f48049049d2e1e02b048206ba232944fcc053a176ccb";
 #[cfg(feature = "electrum")]
 const FAKE_OUTPOINT: &str = "e5a3e577309df31bd606f48049049d2e1e02b048206ba232944fcc053a176ccb:0";
-#[cfg(feature = "electrum")]
 const UNKNOWN_IDX: i32 = 9999;
 #[cfg(feature = "electrum")]
 const TINY_BTC_AMOUNT: u32 = 330;
