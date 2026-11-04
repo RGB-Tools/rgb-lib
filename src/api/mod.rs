@@ -1,5 +1,5 @@
 pub(crate) mod multisig_hub;
-pub(crate) mod proxy;
+pub mod proxy;
 pub(crate) mod reject_list;
 
 use super::*;
