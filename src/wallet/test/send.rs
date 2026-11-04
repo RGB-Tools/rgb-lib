@@ -168,6 +168,35 @@ fn success() {
     assert!(rcv_transfer_data.updated_at > rcv_updated_at);
     assert!(transfer_data.updated_at > updated_at);
 
+    // Contract exports never contain transfer history, and history-bearing input is rejected.
+    let exported_contract = party
+        .wallet
+        .export_asset_contract(asset.asset_id.clone())
+        .unwrap();
+    assert!(exported_contract.bundles.is_empty());
+    assert!(exported_contract.terminals.is_empty());
+    let transfer_consignment = RgbTransfer::load_file(
+        party
+            .wallet
+            .get_send_consignment_path(&asset.asset_id, &txid),
+    )
+    .unwrap();
+    assert!(!transfer_consignment.bundles.is_empty());
+    let contract_with_history = RgbContract {
+        version: transfer_consignment.version,
+        transfer: false,
+        terminals: Default::default(),
+        genesis: transfer_consignment.genesis,
+        bundles: transfer_consignment.bundles,
+        schema: transfer_consignment.schema,
+        types: transfer_consignment.types,
+        scripts: transfer_consignment.scripts,
+    };
+    let result = rcv_party
+        .wallet
+        .import_asset_contract(contract_with_history, vec![]);
+    assert_matches!(result, Err(Error::InvalidConsignment));
+
     // change is unspent once transfer is Settled
     let unspents = party.list_unspents(true);
     let change_unspent = unspents
