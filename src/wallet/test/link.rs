@@ -146,6 +146,74 @@ fn success() {
     );
 }
 
+/// A BFA asset can be issued with its link right too, which its holder can spend to link the
+/// asset to another contract, leaving its mint rights untouched.
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn bfa_success() {
+    initialize();
+
+    let mut party = get_funded_party!();
+    // more UTXOs for the issuances, each taking one for the link right
+    party.create_utxos_default();
+
+    // the contract the asset is linked from, which has to support links and be unlinked
+    let linked_from = issue_asset_ifa_link(&mut party, None, None).asset_id;
+
+    // issue with the link right
+    let asset = party
+        .wallet
+        .issue_asset_bfa(
+            TICKER.to_string(),
+            NAME.to_string(),
+            PRECISION,
+            1,
+            ANVIL_CHAIN_ID,
+            FAKE_EVM_ADDRESS.to_string(),
+            None,
+            true,
+            Some(linked_from.clone()),
+            false,
+        )
+        .unwrap();
+    let metadata = party.get_asset_metadata(&asset.asset_id);
+    assert_eq!(metadata.linked_from_contract, Some(linked_from.clone()));
+    assert_eq!(metadata.linked_to_contract, None);
+    assert_eq!(link_rights(&mut party, &asset.asset_id), 1);
+    let issuance = party.list_transfers(Some(&asset.asset_id));
+    assert!(issuance[0].assignments.contains(&Assignment::LinkRight));
+    assert!(issuance[0].assignments.contains(&Assignment::MintRight));
+
+    // the contract to link to, which has to have been issued linked from this asset
+    let linked_to = issue_asset_ifa_link(&mut party, Some(asset.asset_id.clone()), None).asset_id;
+
+    // link, spending the link right
+    let res = link_result(&mut party, &asset.asset_id, &linked_to).unwrap();
+    mine(false);
+    assert!(party.refresh_asset(&asset.asset_id));
+    let transfer = party
+        .list_transfers(Some(&asset.asset_id))
+        .into_iter()
+        .find(|t| t.txid.as_ref() == Some(&res.txid))
+        .unwrap();
+    assert_eq!(transfer.kind, TransferKind::Link);
+    assert_eq!(transfer.status, TransferStatus::Settled);
+    assert_eq!(link_rights(&mut party, &asset.asset_id), 0);
+    let mint_rights = party
+        .list_unspents(false)
+        .iter()
+        .flat_map(|u| u.rgb_allocations.iter())
+        .filter(|a| {
+            a.asset_id.as_deref() == Some(&asset.asset_id) && a.assignment == Assignment::MintRight
+        })
+        .count();
+    assert_eq!(mint_rights, 1);
+    let metadata = party.get_asset_metadata(&asset.asset_id);
+    assert_eq!(metadata.linked_from_contract, Some(linked_from));
+    assert_eq!(metadata.linked_to_contract, Some(linked_to));
+}
+
 /// The link right can be sent beside other assignments, here to a witness recipient, while some
 /// assets go to a blind one: the link right is moved by a transfer of link rights beside the
 /// transfer moving the amount.
@@ -275,6 +343,35 @@ fn fail() {
     );
     // issuance: contract the asset is linked from cannot link (its schema has no link right)
     let result = issue_linked_from(&mut party, &asset_nia.asset_id);
+    assert_matches!(
+        result,
+        Err(Error::InvalidLinkedContract { ref contract_id, .. })
+            if contract_id == &asset_nia.asset_id
+    );
+
+    // a BFA issuance can be linked from a contract too, and checks it the same way
+    let issue_bfa_linked_from = |party: &mut SinglesigParty, linked_from: &str| {
+        party.wallet.issue_asset_bfa(
+            TICKER.to_string(),
+            NAME.to_string(),
+            PRECISION,
+            1,
+            ANVIL_CHAIN_ID,
+            FAKE_EVM_ADDRESS.to_string(),
+            None,
+            true,
+            Some(linked_from.to_string()),
+            false,
+        )
+    };
+    let result = issue_bfa_linked_from(&mut party, "invalid");
+    assert_matches!(result, Err(Error::InvalidContractId { contract_id }) if contract_id == "invalid");
+    let result = issue_bfa_linked_from(&mut party, &unknown_contract);
+    assert_matches!(
+        result,
+        Err(Error::UnknownLinkedContract { ref contract_id }) if contract_id == &unknown_contract
+    );
+    let result = issue_bfa_linked_from(&mut party, &asset_nia.asset_id);
     assert_matches!(
         result,
         Err(Error::InvalidLinkedContract { ref contract_id, .. })

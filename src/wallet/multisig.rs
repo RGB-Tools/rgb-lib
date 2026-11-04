@@ -198,6 +198,11 @@ impl MultisigKeys {
 /// An RGB multisig wallet.
 ///
 /// Can be obtained with the [`MultisigWallet::new`] method.
+///
+/// For now, a multisig wallet refuses the mints of bridged assets paying it (it can still receive
+/// regular transfers of bridged assets): its cosigners would check a received mint each on its
+/// own, so one not checking it could make the others fail it while the lock may have been made.
+/// This is temporary, it will be addressed along with other open issues of multisig wallets.
 pub struct MultisigWallet {
     pub(crate) internals: WalletInternals,
     pub(crate) keys: MultisigKeys,
@@ -278,6 +283,15 @@ impl WalletOnline for MultisigWallet {
 
     // every cosigner downloads the consignment from the recipient proxy
     fn releases_received_transfer_data(&self) -> bool {
+        false
+    }
+
+    // TODO: temporary, until the receive of a mint is coordinated among cosigners (along with
+    // other open issues of multisig wallets). Each cosigner checks a received mint on its own,
+    // while a cosigner that doesn't check it may fail it on the hub (e.g. at its invoice
+    // expiration), making the others fail it too: as the lock may have been made already, the
+    // mint would then complete on an output no cosigner tracks
+    fn accepts_received_mints(&self) -> bool {
         false
     }
 
@@ -1581,6 +1595,11 @@ impl MultisigWallet {
     ///
     /// An optional amount can be specified, which will be embedded in the invoice. It will not be
     /// checked when accepting the transfer.
+    ///
+    /// A UTXO holds at most one mint right of an asset: an invoice requesting one
+    /// ([`Assignment::MintRight`]) blinds a UTXO that doesn't hold one and isn't due to receive
+    /// one, and a transfer paying a mint right to a UTXO holding one (e.g. through an invoice
+    /// requesting [`Assignment::Any`]) is refused.
     ///
     /// An expiration UTC timestamp must be specified, which will set the expiration of the
     /// invoice and the transfer. An expiration more than [`MAX_EXPIRATION_SECS`] in the future is

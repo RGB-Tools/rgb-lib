@@ -6,7 +6,8 @@ use utils::*;
 
 #[cfg(feature = "electrum")]
 #[test]
-#[serial]
+#[parallel]
+#[serial(hub)]
 fn success() {
     initialize();
     op_counter_reset();
@@ -781,7 +782,13 @@ fn success() {
     check_wallets_up_to_date(&mut [&mut wlt_1, &mut wlt_2, &mut wlt_3]);
     let burn_amount = 50;
     let op_init = wlt_1.burn_init(&ifa_asset.asset_id, burn_amount, Some(BURN_REASON));
-    inspect_burn(&wlt_3, &op_init, &ifa_asset, burn_amount, Some(BURN_REASON));
+    inspect_burn(
+        &wlt_3,
+        &op_init,
+        &ifa_asset.asset_id,
+        burn_amount,
+        Some(BURN_REASON),
+    );
     operation_complete::<BurnHandler>(
         op_init.operation_idx,
         &mut [&mut wlt_1, &mut wlt_2, &mut wlt_3],
@@ -806,7 +813,7 @@ fn success() {
 
     println!("\n=== burn discarded (wlt_3) ===");
     let op_init = wlt_3.burn_init(&ifa_asset.asset_id, 1, None);
-    inspect_burn(&wlt_1, &op_init, &ifa_asset, 1, None);
+    inspect_burn(&wlt_1, &op_init, &ifa_asset.asset_id, 1, None);
     operation_complete::<BurnHandler>(
         op_init.operation_idx,
         &mut [],
@@ -1003,7 +1010,8 @@ fn success() {
 
 #[cfg(feature = "electrum")]
 #[test]
-#[serial]
+#[parallel]
+#[serial(hub)]
 fn fail() {
     initialize();
     op_counter_reset();
@@ -1393,7 +1401,8 @@ fn fail() {
 
 #[cfg(feature = "electrum")]
 #[test]
-#[serial]
+#[parallel]
+#[serial(hub)]
 fn offline() {
     initialize();
 
@@ -1528,7 +1537,8 @@ fn offline() {
 
 #[cfg(feature = "electrum")]
 #[test]
-#[serial]
+#[parallel]
+#[serial(hub)]
 fn send_to_oneself() {
     initialize();
     op_counter_reset();
@@ -1813,5 +1823,149 @@ fn send_to_oneself() {
         &[&wlt_1, &wlt_2, &wlt_3],
         &nia_asset.asset_id,
         (AMOUNT_SMALL, AMOUNT_SMALL, AMOUNT_SMALL),
+    );
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+#[serial(hub)]
+#[serial(evm)]
+fn mint_refused() {
+    initialize();
+    op_counter_reset();
+
+    let bitcoin_network = BitcoinNetwork::Regtest;
+    let threshold_colored = 2;
+    let threshold_vanilla = 2;
+    let random_str: String = rand::rng()
+        .sample_iter(&Alphanumeric)
+        .take(6)
+        .map(char::from)
+        .collect();
+
+    // multisig wallet keys
+    let wlt_1_keys = generate_keys(bitcoin_network, WitnessVersion::Taproot);
+    let wlt_2_keys = generate_keys(bitcoin_network, WitnessVersion::Taproot);
+
+    // cosigners
+    let cosigners = vec![
+        Cosigner::from_keys(&wlt_1_keys, None),
+        Cosigner::from_keys(&wlt_2_keys, None),
+    ];
+    let cosigner_xpubs: Vec<String> = cosigners
+        .iter()
+        .map(|c| c.account_xpub_colored.clone())
+        .collect();
+
+    // biscuit token setup
+    let root_keypair = KeyPair::new();
+    let root_public_key = root_keypair.public();
+    let mut cosigner_tokens = vec![];
+    for cosigner_xpub in &cosigner_xpubs {
+        cosigner_tokens.push(create_token(
+            &root_keypair,
+            Role::Cosigner(cosigner_xpub.clone()),
+            None,
+        ));
+    }
+    let wo_token = create_token(&root_keypair, Role::WatchOnly, None);
+
+    // hub setup
+    write_hub_config(
+        &cosigner_xpubs,
+        threshold_colored,
+        threshold_vanilla,
+        root_public_key.to_bytes_hex(),
+        None,
+    );
+    restart_multisig_hub();
+
+    // multisig wallets
+    let multisig_wlt_keys =
+        MultisigKeys::new(cosigners.clone(), threshold_colored, threshold_vanilla);
+    let mut wlt_1_multisig = get_test_ms_wallet(&multisig_wlt_keys, format!("{random_str}_1"));
+    let wlt_1_multisig_online = ms_go_online(&mut wlt_1_multisig, &cosigner_tokens[0]);
+    let mut wlt_2_multisig = get_test_ms_wallet(&multisig_wlt_keys, format!("{random_str}_2"));
+    let wlt_2_multisig_online = ms_go_online(&mut wlt_2_multisig, &cosigner_tokens[1]);
+    let wlt_1_singlesig = get_test_wallet_with_keys(&wlt_1_keys);
+    let wlt_2_singlesig = get_test_wallet_with_keys(&wlt_2_keys);
+    let mut wlt_wo_multisig = get_test_ms_wallet(&multisig_wlt_keys, format!("{random_str}_wo"));
+    let wlt_wo_multisig_online = ms_go_online(&mut wlt_wo_multisig, &wo_token);
+    let mut wlt_1 = ms_party!(
+        &wlt_1_singlesig,
+        &mut wlt_1_multisig,
+        wlt_1_multisig_online,
+        &cosigner_xpubs[0]
+    );
+    let mut wlt_2 = ms_party!(
+        &wlt_2_singlesig,
+        &mut wlt_2_multisig,
+        wlt_2_multisig_online,
+        &cosigner_xpubs[1]
+    );
+    let mut wlt_wo = ms_party!(&mut wlt_wo_multisig, wlt_wo_multisig_online);
+
+    // a singlesig wallet mints a bridged asset to a multisig invoice
+    let token_contract = deploy_test_erc20("Bridged Token", "BRG", 18, 1_000_000);
+    let bridge_contract = deploy_bridge(&token_contract.address);
+    let mut minter = get_funded_party!();
+    let asset = minter.issue_asset_bfa(2, bridge_contract.address.clone(), None);
+    // (the wallet has no backup info yet, which the witness_receive helper checks)
+    let receive_data = wlt_1.witness_receive_res().unwrap();
+    op_counter_bump();
+    sync_wallets_full(&mut [&mut wlt_2]);
+    let recipient = Recipient {
+        assignment: Assignment::Fungible(AMOUNT),
+        recipient_id: receive_data.recipient_id.clone(),
+        witness_data: Some(WitnessData {
+            amount_sat: 1000,
+            blinding: None,
+        }),
+        transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        public_key: Some(receive_data.public_key.clone()),
+        expiration_timestamp: None,
+        encryption: Encryption::Optional,
+    };
+    minter.mint_begin(minter.online, &asset.asset_id, recipient);
+
+    // every cosigner refuses it, without checking it, so no lock is made for it (temporary, see
+    // MultisigWallet)
+    for wlt in [&mut wlt_1, &mut wlt_2] {
+        wlt.wait_for_refresh(None);
+        assert!(
+            wlt.multisig
+                .get_received_mint(receive_data.recipient_id.clone())
+                .unwrap()
+                .is_none()
+        );
+    }
+    check_transfer_status(
+        &[&wlt_1, &wlt_2],
+        &[None],
+        None,
+        Some(receive_data.batch_transfer_idx),
+        TransferStatus::Failed,
+    );
+
+    // so does the watch-only
+    watch_only_wallet_sync(&mut wlt_wo);
+    let wo_online = wlt_wo.online();
+    wlt_wo
+        .multisig_mut()
+        .refresh(wo_online, None, vec![], false)
+        .unwrap();
+    let transfer = wlt_wo
+        .list_transfers(None)
+        .into_iter()
+        .find(|t| t.batch_transfer_idx == receive_data.batch_transfer_idx)
+        .unwrap();
+    assert_eq!(transfer.status, TransferStatus::Failed);
+    assert!(
+        wlt_wo
+            .multisig
+            .get_received_mint(receive_data.recipient_id.clone())
+            .unwrap()
+            .is_none()
     );
 }

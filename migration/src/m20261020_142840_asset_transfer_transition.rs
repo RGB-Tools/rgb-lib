@@ -29,7 +29,7 @@ impl MigrationTrait for Migration {
         // backfill the outgoing asset transfers (incoming ones record no transition), telling the
         // transition apart as the transfer listing did before: a burn is the only one with a
         // transfer having no recipient, an inflation the only one with issue colorings. Links
-        // were never released before this migration
+        // and mints were never released before this migration
         manager
             .get_connection()
             .execute_unprepared(&format!(

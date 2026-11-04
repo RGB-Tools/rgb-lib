@@ -111,6 +111,8 @@ fn schema_assignment_combinations() {
     initialize();
 
     let mut party = get_funded_party!();
+    // more UTXOs to have free allocation slots for the issuances
+    party.create_utxos_default();
 
     check_receive_schema_assignment_combinations(&mut party, Wallet::witness_receive);
 }

@@ -32,10 +32,12 @@ interface RgbLibError {
   CannotLinkToItself();
   CannotProvideOutOfBandAck(string details);
   CannotProvideOutOfBandConsignment(string details);
-  CannotUseIfaOnMainnet();
+  CannotUseSchemaOnMainnet(AssetSchema asset_schema);
+  ConsignmentValidationFailed(string details);
   Database(string details);
   DuplicateProxyAuthKey(string details);
   EmptyFile(string file_path);
+  EvmChainIdMismatch(u64 expected, u64 actual);
   ExpirationInvalid();
   FailedBdkSync(string details);
   FailedBroadcast(string details);
@@ -56,6 +58,7 @@ interface RgbLibError {
   InvalidAmountZero();
   InvalidAssignment();
   InvalidAttachments(string details);
+  InvalidBeforeBlock(string details);
   InvalidBitcoinKeys();
   InvalidBitcoinNetwork(string network);
   InvalidBurnReason(string details);
@@ -69,6 +72,9 @@ interface RgbLibError {
   InvalidEncryptedBlob(string details);
   InvalidEndpointAuthSignature();
   InvalidEstimationBlocks();
+  InvalidEvmChain(string details);
+  InvalidEvmContractAddress(string details);
+  InvalidEvmRpcUrl(string details);
   InvalidExpiration();
   InvalidFeeRate(string details);
   InvalidFilePath(string file_path);
@@ -99,8 +105,11 @@ interface RgbLibError {
   InvoiceExpired();
   InvoiceNotReserved();
   InvoiceQuotaExceeded();
+  LastMintRight();
   MaxFeeExceeded(string txid);
   MinFeeNotMet(string txid);
+  MintLockExpired(string opid, u64 before_block);
+  MintLockNotFound(string opid);
   MultisigCannotMarkOperationProcessed(string details);
   MultisigCannotRespondToOperation(string details);
   MultisigHubService(string details);
@@ -114,11 +123,13 @@ interface RgbLibError {
   NoBurnAmount();
   NoConsignment();
   NoCosignersSupplied();
+  NoEvmRpcUrl(u64 chain_id);
   NoInflationAmounts();
   NoIssuanceAmounts();
   NoKeysSupplied();
   NoMaxAllocationsPerUtxo();
   NoMedia();
+  NoMintRights();
   NoSupportedSchemas();
   NoValidTransportEndpoint();
   Offline();
@@ -152,6 +163,7 @@ interface RgbLibError {
   UnsupportedInflation(AssetSchema asset_schema);
   UnsupportedLayer1(string layer_1);
   UnsupportedLink(AssetSchema asset_schema);
+  UnsupportedMint(AssetSchema asset_schema);
   UnsupportedSchema(AssetSchema asset_schema);
   UnsupportedTransportType();
   UnsupportedWalletManifestVersion(string version);
@@ -168,6 +180,7 @@ enum AssetSchema {
   "Uda",
   "Cfa",
   "Ifa",
+  "Bfa",
 };
 
 [Remote]
@@ -248,11 +261,27 @@ dictionary AssetIFA {
 };
 
 [Remote]
+dictionary AssetBFA {
+  string asset_id;
+  string ticker;
+  string name;
+  string? details;
+  u8 precision;
+  u64 known_circulating_supply;
+  i64 timestamp;
+  i64 added_at;
+  Balance balance;
+  Media? media;
+  string? reject_list_url;
+};
+
+[Remote]
 dictionary Assets {
   sequence<AssetNIA>? nia;
   sequence<AssetUDA>? uda;
   sequence<AssetCFA>? cfa;
   sequence<AssetIFA>? ifa;
+  sequence<AssetBFA>? bfa;
 };
 
 [Remote]
@@ -389,6 +418,7 @@ interface Assignment {
   NonFungible();
   InflationRight(u64 amount);
   LinkRight();
+  MintRight();
   Any();
 };
 
@@ -398,6 +428,7 @@ dictionary AssignmentsCollection {
   boolean non_fungible;
   u64 inflation;
   boolean link;
+  u64 mint;
 };
 
 dictionary InvoiceData {
@@ -490,12 +521,20 @@ enum IndexerProtocol {
   "Esplora",
 };
 
+[Remote]
+dictionary EvmChain {
+  string rpc_url;
+  u64 min_mint_lock_blocks;
+  u64 max_mint_lock_blocks;
+};
+
 dictionary OnlineOptions {
   IndexerConfig indexer_config;
   boolean skip_consistency_check;
   u32 vanilla_sync_lookback;
   u32 failed_witness_receive_grace_secs;
   record<string, string> proxy_auth_keys;
+  record<u64, EvmChain> evm_chains;
 };
 
 [Remote]
@@ -575,6 +614,7 @@ enum TransferKind {
   "Inflation",
   "Burn",
   "Link",
+  "Mint",
 };
 
 [Remote]
@@ -755,6 +795,31 @@ dictionary LinkBeginResult {
 };
 
 [Remote]
+dictionary MintDetails {
+  string fascia_path;
+  u8 min_confirmations;
+  u64 entropy;
+  string opid;
+};
+
+[Remote]
+dictionary MintBeginResult {
+  string psbt;
+  i32 batch_transfer_idx;
+  MintDetails details;
+};
+
+[Remote]
+dictionary ReceivedMint {
+  string opid;
+  string lock_id;
+  u64 amount;
+  u64 before_block;
+  u64 evm_chain_id;
+  string bridge_contract;
+};
+
+[Remote]
 dictionary SendDetails {
   string fascia_path;
   u8 min_confirmations;
@@ -869,8 +934,10 @@ enum TypeOfTransition {
   "Transfer",
   "Burn",
   "Link",
+  "Mint",
   "TransferInflation",
   "TransferLink",
+  "Propagate",
 };
 
 [Remote]
@@ -898,6 +965,7 @@ interface BundleFilter {
 [Enum]
 interface TransitionMetadata {
   AllowedInflation(u64 amount);
+  BeforeBlock(u64 block);
 };
 
 [Remote]
@@ -991,6 +1059,9 @@ interface Wallet {
   string get_wallet_dir();
 
   string get_media_dir();
+
+  [Throws=RgbLibError]
+  ReceivedMint? get_received_mint(string recipient_id);
 
   [Throws=RgbLibError]
   PsbtInspection inspect_psbt(string psbt);
@@ -1119,6 +1190,12 @@ interface Wallet {
     string? linked_from_contract, boolean skip_contract_checks);
 
   [Throws=RgbLibError]
+  AssetBFA issue_asset_bfa(
+    string ticker, string name, u8 precision, u8 mint_rights, u64 chain_id,
+    string contract_address, string? reject_list_address, boolean link_right,
+    string? linked_from_contract, boolean skip_contract_checks);
+
+  [Throws=RgbLibError]
   OperationResult link(
     Online online, string asset_id, string linked_to_contract, u64 fee_rate,
     u8 min_confirmations, boolean skip_contract_checks);
@@ -1143,6 +1220,14 @@ interface Wallet {
   [Throws=RgbLibError]
   sequence<Unspent> list_unspents(
     Online? online, boolean settled_only, boolean skip_sync);
+
+  [Throws=RgbLibError]
+  MintBeginResult mint_begin(
+    Online online, string asset_id, Recipient recipient, u64 before_block,
+    u64 fee_rate, u8 min_confirmations, string sender_transport_endpoint);
+
+  [Throws=RgbLibError]
+  OperationResult mint_end(Online online, string signed_psbt);
 
   [Throws=RgbLibError]
   record<i32, RefreshedTransfer> refresh(
@@ -1209,6 +1294,9 @@ interface MultisigWallet {
   string get_wallet_dir();
 
   string get_media_dir();
+
+  [Throws=RgbLibError]
+  ReceivedMint? get_received_mint(string recipient_id);
 
   [Throws=RgbLibError]
   PsbtInspection inspect_psbt(string psbt);

@@ -460,6 +460,18 @@ pub fn script_buf_from_recipient_id(recipient_id: String) -> Result<Option<Scrip
     }
 }
 
+/// The URL of a BFA reject list, if the contract declares one served at a URL.
+///
+/// This is only the URL recorded in the DB and reported in the asset metadata: a reject list kept
+/// by an EVM contract has no URL, so it gives `None` here, but it is still enforced, as the reject
+/// list of a BFA asset is read off its contract when needed (see `asset_reject_list_source`).
+pub(crate) fn bfa_reject_list_url(location: Option<RejectListLocation>) -> Option<String> {
+    match location? {
+        RejectListLocation::Url(url) => Some(url.to_string()),
+        RejectListLocation::Evm(_) => None,
+    }
+}
+
 pub(crate) fn beneficiary_from_script_buf(script_buf: ScriptBuf) -> Beneficiary {
     let address_payload = AddressPayload::from_script(&script_buf).unwrap();
     Beneficiary::WitnessVout(Pay2Vout::new(address_payload), None)
@@ -1216,17 +1228,21 @@ impl ResolveWitness for ChainResolver<'_> {
     }
 }
 
+/// Witness resolver looking up the witness with the given ID (if any) in the consignment, as it may
+/// not have been broadcast yet, and the other witnesses with the fallback chain resolver.
 #[cfg(feature = "_online")]
-pub(crate) struct OffchainResolver<'a, 'cons, const TRANSFER: bool> {
-    pub(crate) witness_id: RgbTxid,
+pub(crate) struct OffchainResolver<'cons, 'r, R: ResolveWitness + ?Sized, const TRANSFER: bool> {
+    pub(crate) witness_id: Option<RgbTxid>,
     pub(crate) consignment: &'cons Consignment<TRANSFER>,
-    pub(crate) fallback: ChainResolver<'a>,
+    pub(crate) fallback: &'r R,
 }
 
 #[cfg(feature = "_online")]
-impl<const TRANSFER: bool> ResolveWitness for OffchainResolver<'_, '_, TRANSFER> {
+impl<R: ResolveWitness + ?Sized, const TRANSFER: bool> ResolveWitness
+    for OffchainResolver<'_, '_, R, TRANSFER>
+{
     fn resolve_witness(&self, witness_id: RgbTxid) -> Result<WitnessStatus, WitnessResolverError> {
-        if witness_id != self.witness_id {
+        if Some(witness_id) != self.witness_id {
             #[cfg(test)]
             if spv_only() {
                 return Err(WitnessResolverError::ResolverIssue(
@@ -1252,6 +1268,91 @@ impl<const TRANSFER: bool> ResolveWitness for OffchainResolver<'_, '_, TRANSFER>
     fn check_chain_net(&self, chain_net: ChainNet) -> Result<(), WitnessResolverError> {
         self.fallback.check_chain_net(chain_net)
     }
+}
+
+/// Validate the given consignment with the given validation config, resolving all its witnesses
+/// with the given chain resolver, except `offchain_witness_id` if it's `Some`: that one is taken
+/// from the consignment as tentative, as it may not have been broadcast yet.
+///
+/// Claims (mint locks) are confirmed on the chain the asset's bridge lives on, through
+/// the EVM RPC URL configured for it in `evm_rpc_urls`, reading the lock confirming each mint from
+/// the records the bridge contract keeps, as of the latest finalized block. A mint whose lock
+/// wasn't included before the block it commits to will never be confirmed, and is reported as an
+/// [`Error::MintLockExpired`].
+#[cfg(feature = "_online")]
+pub(crate) fn validate_consignment_internal<const TRANSFER: bool>(
+    consignment: &Consignment<TRANSFER>,
+    offchain_witness_id: Option<RgbTxid>,
+    chain_resolver: &(impl ResolveWitness + ?Sized),
+    evm_rpc_urls: &HashMap<u64, String>,
+    validation_config: &ValidationConfig,
+) -> Result<ValidConsignment<TRANSFER>, Error> {
+    let validation_error = |e: ValidationError| match e {
+        ValidationError::InvalidConsignment(e) => Error::ConsignmentValidationFailed {
+            details: e.to_string(),
+        },
+        ValidationError::ResolverError(e) => Error::Network {
+            details: e.to_string(),
+        },
+        e => Error::Internal {
+            details: format!("unexpected consignment validation error: {e}"),
+        },
+    };
+
+    let asset_schema = AssetSchema::try_from(consignment.schema_id())?;
+    // phase 1: everything that only depends on the consignment itself
+    let mut pending = consignment
+        .clone()
+        .validate_deterministic(&asset_schema.schema_rules(), validation_config)
+        .map_err(validation_error)?;
+
+    // phase 2: resolve what depends on the chains, then finalize. Claims (mint locks)
+    // live on the chain the asset's bridge contract is deployed on and cannot be resolved by the
+    // witness resolver: confirm them against that chain before resolving the witnesses
+    let claims: Vec<Claim> = pending.pending().unresolved_claims().cloned().collect();
+    if !claims.is_empty() {
+        if !asset_schema.supports_mint() {
+            return Err(Error::ConsignmentValidationFailed {
+                details: format!("{asset_schema} schema does not support claims"),
+            });
+        }
+        let bridge_location = BridgedFungibleAsset::bridge_location(consignment.genesis())
+            .map_err(|e| Error::Internal {
+                details: format!("unexpected bridge location error: {e}"),
+            })?;
+        let BridgeLocation::Evm(EvmContract { chain_id, .. }) = &bridge_location;
+        let evm_rpc_url = evm_rpc_urls.get(chain_id).ok_or(Error::NoEvmRpcUrl {
+            chain_id: *chain_id,
+        })?;
+        let evm_client = EvmClient::new(evm_rpc_url)?;
+        let mint_resolver = MintClaimResolver::new(&evm_client);
+        let claim_resolver = CheckedClaimResolver::with(&mint_resolver, bridge_location)?;
+        for claim in &claims {
+            let Claim::Lock { before_block, .. } = claim;
+            match pending.resolve_claim(&claim_resolver, claim) {
+                // tell a mint that will never be confirmed from one that may still be
+                Err(ClaimResolverError::Unconfirmed(opid)) if mint_resolver.is_expired(&opid) => {
+                    return Err(Error::MintLockExpired {
+                        opid: opid.to_string(),
+                        before_block: *before_block,
+                    });
+                }
+                res => res?,
+            }
+        }
+    }
+
+    // then resolve the witnesses
+    let resolver = OffchainResolver {
+        witness_id: offchain_witness_id,
+        consignment,
+        fallback: chain_resolver,
+    };
+    pending
+        .pending()
+        .resolve_all(&resolver)
+        .map_err(validation_error)?;
+    Ok(pending.finalize())
 }
 
 #[cfg(test)]

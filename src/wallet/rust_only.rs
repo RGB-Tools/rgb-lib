@@ -115,9 +115,13 @@ impl Wallet {
             {
                 for (opout, state) in opout_state_map {
                     if let AllocatedState::Amount(amt) = &state {
+                        // a transition can't spend more than u64::MAX of an asset, which BFA
+                        // assets (with no supply limit) can exceed
                         asset_available_amt = asset_available_amt
                             .checked_add(amt.as_u64())
-                            .expect("total available asset amount cannot exceed u64::MAX");
+                            .ok_or_else(|| Error::InvalidColoringInfo {
+                                details: s!("total asset amount in inputs exceeds u64::MAX"),
+                            })?;
                     } else if let AllocatedState::Data(_) = &state {
                         asset_available_amt = 1;
                         // there can be only a single state when contract is UDA
@@ -160,7 +164,7 @@ impl Wallet {
                 beneficiaries.push(seal);
 
                 match schema {
-                    AssetSchema::Nia | AssetSchema::Cfa | AssetSchema::Ifa => {
+                    AssetSchema::Nia | AssetSchema::Cfa | AssetSchema::Ifa | AssetSchema::Bfa => {
                         asset_transition_builder = asset_transition_builder.add_fungible_state(
                             assignment_name.clone(),
                             seal,
@@ -330,38 +334,28 @@ impl Wallet {
         let graph_seal = GraphSeal::with_blinded_vout(vout, blinding);
         stock.store_secret_seal(graph_seal)?;
 
-        let resolver = OffchainResolver {
-            witness_id,
-            consignment: &consignment,
-            fallback: self.blockchain_resolver(),
-        };
-
         debug!(self.logger(), "Validating consignment...");
-        let asset_schema: AssetSchema = consignment.schema_id().try_into()?;
         let validation_config = ValidationConfig {
             chain_net: self.chain_net(),
             ..Default::default()
         };
-        let valid_consignment = match consignment.clone().validate(
-            &asset_schema.schema_rules(),
-            &resolver,
+        let valid_consignment = match validate_consignment_internal(
+            &consignment,
+            Some(witness_id),
+            &self.blockchain_resolver(),
+            self.evm_rpc_urls(),
             &validation_config,
         ) {
             Ok(consignment) => consignment,
-            Err(ValidationError::InvalidConsignment(e)) => {
-                error!(self.logger(), "Consignment is invalid: {}", e);
+            Err(Error::ConsignmentValidationFailed { details }) => {
+                error!(self.logger(), "Consignment is invalid: {}", details);
                 return Err(Error::InvalidConsignment);
             }
-            Err(ValidationError::ResolverError(e)) => {
-                warn!(self.logger(), "Network error during consignment validation");
-                return Err(Error::Network {
-                    details: e.to_string(),
-                });
-            }
             Err(e) => {
-                return Err(Error::Internal {
-                    details: format!("unexpected consignment validation error: {e}"),
-                });
+                if let Error::Network { .. } = e {
+                    warn!(self.logger(), "Network error during consignment validation");
+                }
+                return Err(e);
             }
         };
         let validity = valid_consignment.validation_status().validity();
@@ -383,6 +377,11 @@ impl Wallet {
             PaymentSeal::WitnessVout(vout),
         );
 
+        let resolver = OffchainResolver {
+            witness_id: Some(witness_id),
+            consignment: &consignment,
+            fallback: &self.blockchain_resolver(),
+        };
         stock.accept_transfer(valid_consignment, &resolver)?;
 
         txn.commit()?;
@@ -484,20 +483,18 @@ impl Wallet {
         let contract_id = consignment.contract_id();
 
         let witness_id = RgbTxid::from_str(&offchain_txid).map_err(|_| Error::InvalidTxid)?;
-        let resolver = OffchainResolver {
-            witness_id,
-            consignment: &consignment,
-            fallback: self.blockchain_resolver(),
-        };
         let asset_schema: AssetSchema = consignment.schema_id().try_into()?;
         let validation_config = ValidationConfig {
             chain_net: self.chain_net(),
             ..Default::default()
         };
-        let valid_transfer = consignment
-            .clone()
-            .validate(&asset_schema.schema_rules(), &resolver, &validation_config)
-            .expect("valid consignment");
+        let valid_transfer = validate_consignment_internal(
+            &consignment,
+            Some(witness_id),
+            &self.blockchain_resolver(),
+            self.evm_rpc_urls(),
+            &validation_config,
+        )?;
         let valid_contract = valid_transfer.clone().into_valid_contract();
 
         self.save_new_asset_internal(
@@ -593,7 +590,7 @@ impl Wallet {
                 &txn.iter_tokens()?,
                 &txn.iter_token_medias()?,
             ),
-            AssetSchema::Nia | AssetSchema::Cfa | AssetSchema::Ifa => None,
+            AssetSchema::Nia | AssetSchema::Cfa | AssetSchema::Ifa | AssetSchema::Bfa => None,
         };
         let medias = self.get_asset_medias(&txn, asset.media_idx, token)?;
         txn.commit()?;

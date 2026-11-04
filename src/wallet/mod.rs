@@ -30,19 +30,20 @@ pub use multisig::{
     OperationInfo, RespondToOperation, UserRole,
 };
 pub use objects::{
-    Address, AssetCFA, AssetFilter, AssetIFA, AssetNIA, AssetUDA, Assets, AssignmentsCollection,
-    Balance, BlockTime, BtcBalance, DatabaseType, EmbeddedMedia, Invoice, InvoiceData, Media,
-    Metadata, Online, Outpoint, PendingVanillaTx, ProofOfReserves, PsbtInputInfo, PsbtInspection,
-    PsbtOutputInfo, ReceiveData, Recipient, RecipientInfo, RecipientType, RgbAllocation, Token,
-    TokenLight, Transaction, TransactionType, Transfer, TransferKind, TransferScope,
-    TransferTransportEndpoint, TransportEndpoint, Unspent, Utxo, WalletData, WalletDescriptors,
-    WitnessData,
+    Address, AssetBFA, AssetCFA, AssetFilter, AssetIFA, AssetNIA, AssetUDA, Assets,
+    AssignmentsCollection, Balance, BlockTime, BtcBalance, DatabaseType, EmbeddedMedia, Invoice,
+    InvoiceData, Media, Metadata, Online, Outpoint, PendingVanillaTx, ProofOfReserves,
+    PsbtInputInfo, PsbtInspection, PsbtOutputInfo, ReceiveData, ReceivedMint, Recipient,
+    RecipientInfo, RecipientType, RgbAllocation, Token, TokenLight, Transaction, TransactionType,
+    Transfer, TransferKind, TransferScope, TransferTransportEndpoint, TransportEndpoint, Unspent,
+    Utxo, WalletData, WalletDescriptors, WitnessData,
 };
 #[cfg(feature = "_online")]
 pub use objects::{
-    BitcoindAuth, BurnBeginResult, BurnDetails, IndexerConfig, IndexerProtocol, InflateBeginResult,
-    InflateDetails, LinkBeginResult, LinkDetails, OnlineOptions, OperationResult, RefreshFilter,
-    RefreshResult, RefreshTransferStatus, RefreshedTransfer, SendBeginResult, SendDetails,
+    BitcoindAuth, BurnBeginResult, BurnDetails, EvmChain, IndexerConfig, IndexerProtocol,
+    InflateBeginResult, InflateDetails, LinkBeginResult, LinkDetails, MintBeginResult, MintDetails,
+    OnlineOptions, OperationResult, RefreshFilter, RefreshResult, RefreshTransferStatus,
+    RefreshedTransfer, SendBeginResult, SendDetails,
 };
 pub use offline::RgbWalletOpsOffline;
 #[cfg(feature = "_online")]
@@ -63,11 +64,11 @@ pub(crate) use indexer::Indexer;
 #[cfg(feature = "_online")]
 pub(crate) use objects::{
     AssetInfo, AssetSpend, BeginOperationData, BtcChange, ChangeDestination, ChangeSlots,
-    CleanAckOutcome, ConsignmentPayment, FailTransfersOutcome, LocalRecipient, LocalRecipientData,
-    LocalWitnessData, MainTransition, OnlineData, PaymentSeal, PrepareRgbPsbtResult,
-    PrepareTransferPsbtResult, ProxyReceiveData, ReceiveMatcher, ReceiveMode,
-    ReceivedConsignmentMeta, RefreshResultTrait, RejectList, SelectedInputs, TakenSlots,
-    TryFailBatchTransferOutcome,
+    CleanAckOutcome, ConsignmentPayment, ExtraAllocations, FailTransfersOutcome, LocalRecipient,
+    LocalRecipientData, LocalWitnessData, MainTransition, OnlineData, PaymentSeal,
+    PendingMintLocks, PrepareRgbPsbtResult, PrepareTransferPsbtResult, ProxyReceiveData,
+    ReceiveMatcher, ReceiveMode, ReceivedConsignmentMeta, RefreshResultTrait, RejectList,
+    RejectListSource, SelectedInputs, SentMint, TakenSlots, TryFailBatchTransferOutcome,
 };
 pub(crate) use objects::{
     AssetTransferColoringInfo, InfoAssetTransfer, InfoBatchTransfer, IssueData, IssuedAssetDetails,
@@ -140,4 +141,7 @@ pub(crate) const MAX_POW_DIFFICULTY: u32 = 28;
 pub(crate) const RGB_STATE_ASSET_OWNER: &str = "assetOwner";
 pub(crate) const RGB_STATE_INFLATION_ALLOWANCE: &str = "inflationAllowance";
 pub(crate) const RGB_STATE_LINK_RIGHT: &str = "linkRight";
+pub(crate) const RGB_STATE_MINT_RIGHT: &str = "mintRight";
+pub(crate) const RGB_GLOBAL_BRIDGE_LOCATION: &str = "bridgeLocation";
+pub(crate) const RGB_GLOBAL_REJECT_LIST: &str = "rejectList";
 pub(crate) const RGB_GLOBAL_REJECT_LIST_URL: &str = "rejectListUrl";

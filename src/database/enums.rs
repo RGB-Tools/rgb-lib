@@ -8,6 +8,8 @@ pub(crate) const SCHEMA_ID_CFA: &str =
     "rgb:sch:JgqK5hJX9YBT4osCV7VcW_iLTcA5csUCnLzvaKTTrNY#mars-house-friend";
 pub(crate) const SCHEMA_ID_IFA: &str =
     "rgb:sch:A2n9kPNWtXUqwQJyXfY8yGHKyEPZgvrNYYYPGhXawOk#graph-salute-retro";
+pub(crate) const SCHEMA_ID_BFA: &str =
+    "rgb:sch:3I0xZVEQnQxYVk7vDnh5uNtQyUfsmThw6dX9n_Gvb5o#mama-swing-album";
 
 /// The schema of an asset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
@@ -26,6 +28,9 @@ pub enum AssetSchema {
     /// IFA schema
     #[cfg_attr(feature = "wallet", sea_orm(num_value = 4))]
     Ifa = 4,
+    /// BFA schema
+    #[cfg_attr(feature = "wallet", sea_orm(num_value = 5))]
+    Bfa = 5,
 }
 
 impl fmt::Display for AssetSchema {
@@ -43,6 +48,7 @@ impl TryFrom<String> for AssetSchema {
             SCHEMA_ID_UDA => AssetSchema::Uda,
             SCHEMA_ID_CFA => AssetSchema::Cfa,
             SCHEMA_ID_IFA => AssetSchema::Ifa,
+            SCHEMA_ID_BFA => AssetSchema::Bfa,
             _ => return Err(Error::UnknownRgbSchema { schema_id }),
         })
     }
@@ -63,6 +69,7 @@ impl AssetSchema {
             SCHEMA_ID_UDA => AssetSchema::Uda,
             SCHEMA_ID_CFA => AssetSchema::Cfa,
             SCHEMA_ID_IFA => AssetSchema::Ifa,
+            SCHEMA_ID_BFA => AssetSchema::Bfa,
             _ => return Err(Error::UnknownRgbSchema { schema_id }),
         })
     }
@@ -79,6 +86,7 @@ impl AssetSchema {
             Self::Uda => UniqueDigitalAsset::schema(),
             Self::Cfa => CollectibleFungibleAsset::schema(),
             Self::Ifa => InflatableFungibleAsset::schema(),
+            Self::Bfa => BridgedFungibleAsset::schema(),
         }
     }
 
@@ -88,16 +96,24 @@ impl AssetSchema {
     pub(crate) fn supports_assignment(&self, assignment: &Assignment) -> bool {
         match assignment {
             Assignment::Fungible(_) => match self {
-                Self::Nia | Self::Cfa | Self::Ifa => true,
+                Self::Nia | Self::Cfa | Self::Ifa | Self::Bfa => true,
                 Self::Uda => false,
             },
             Assignment::NonFungible => match self {
                 Self::Uda => true,
-                Self::Nia | Self::Cfa | Self::Ifa => false,
+                Self::Nia | Self::Cfa | Self::Ifa | Self::Bfa => false,
             },
-            Assignment::InflationRight(_) | Assignment::LinkRight => match self {
+            Assignment::InflationRight(_) => match self {
                 Self::Ifa => true,
+                Self::Nia | Self::Uda | Self::Cfa | Self::Bfa => false,
+            },
+            Assignment::LinkRight => match self {
+                Self::Ifa | Self::Bfa => true,
                 Self::Nia | Self::Uda | Self::Cfa => false,
+            },
+            Assignment::MintRight => match self {
+                Self::Bfa => true,
+                Self::Nia | Self::Uda | Self::Cfa | Self::Ifa => false,
             },
             Assignment::Any => false,
         }
@@ -107,7 +123,7 @@ impl AssetSchema {
 #[cfg(feature = "wallet")]
 impl AssetSchema {
     pub(crate) const VALUES: [Self; NUM_KNOWN_SCHEMAS] =
-        [Self::Nia, Self::Uda, Self::Cfa, Self::Ifa];
+        [Self::Nia, Self::Uda, Self::Cfa, Self::Ifa, Self::Bfa];
 
     pub(crate) fn get_from_contract_id(
         contract_id: ContractId,
@@ -124,6 +140,7 @@ impl AssetSchema {
             Self::Uda => UniqueDigitalAsset::schema_rules(),
             Self::Cfa => CollectibleFungibleAsset::schema_rules(),
             Self::Ifa => InflatableFungibleAsset::schema_rules(),
+            Self::Bfa => BridgedFungibleAsset::schema_rules(),
         }
     }
 
@@ -133,16 +150,24 @@ impl AssetSchema {
             Self::Uda => UniqueDigitalAsset::schema_definition(),
             Self::Cfa => CollectibleFungibleAsset::schema_definition(),
             Self::Ifa => InflatableFungibleAsset::schema_definition(),
+            Self::Bfa => BridgedFungibleAsset::schema_definition(),
         }
     }
 
+    /// Whether the schema can be used on mainnet.
+    pub(crate) fn allowed_on_mainnet(&self) -> bool {
+        match self {
+            Self::Nia | Self::Uda | Self::Cfa => true,
+            Self::Ifa | Self::Bfa => false,
+        }
+    }
     /// What a request for [`Assignment::Any`] of the schema refers to: the only kind of state it
     /// can be requested for, or [`Assignment::Any`] itself if there is more than one.
     pub(crate) fn any_assignment(&self) -> Assignment {
         match self {
             Self::Nia | Self::Cfa => Assignment::Fungible(0),
             Self::Uda => Assignment::NonFungible,
-            Self::Ifa => Assignment::Any,
+            Self::Ifa | Self::Bfa => Assignment::Any,
         }
     }
 
@@ -150,7 +175,7 @@ impl AssetSchema {
     #[cfg(feature = "_online")]
     pub(crate) fn supports_reject_list(&self) -> bool {
         match self {
-            Self::Ifa => true,
+            Self::Bfa | Self::Ifa => true,
             Self::Nia | Self::Uda | Self::Cfa => false,
         }
     }
@@ -160,7 +185,7 @@ impl AssetSchema {
     pub(crate) fn supports_inflation(&self) -> bool {
         match self {
             Self::Ifa => true,
-            Self::Nia | Self::Uda | Self::Cfa => false,
+            Self::Nia | Self::Uda | Self::Cfa | Self::Bfa => false,
         }
     }
 
@@ -168,7 +193,7 @@ impl AssetSchema {
     #[cfg(feature = "_online")]
     pub(crate) fn supports_burn(&self) -> bool {
         match self {
-            Self::Ifa => true,
+            Self::Bfa | Self::Ifa => true,
             Self::Nia | Self::Uda | Self::Cfa => false,
         }
     }
@@ -176,11 +201,19 @@ impl AssetSchema {
     /// Whether the schema has a link right, to link the asset to another contract.
     pub(crate) fn supports_link(&self) -> bool {
         match self {
-            Self::Ifa => true,
+            Self::Ifa | Self::Bfa => true,
             Self::Nia | Self::Uda | Self::Cfa => false,
         }
     }
 
+    /// Whether the schema supports mint operations.
+    #[cfg(feature = "_online")]
+    pub(crate) fn supports_mint(&self) -> bool {
+        match self {
+            Self::Bfa => true,
+            Self::Nia | Self::Uda | Self::Cfa | Self::Ifa => false,
+        }
+    }
     pub(crate) fn import_schema_definition(&self, stock: &mut RgbStock<'_>) -> Result<(), Error> {
         stock.import_schema_definition(self.schema_definition())
     }
@@ -193,6 +226,7 @@ impl From<AssetSchema> for SchemaId {
             AssetSchema::Ifa => SchemaId::from_str(SCHEMA_ID_IFA).unwrap(),
             AssetSchema::Nia => SchemaId::from_str(SCHEMA_ID_NIA).unwrap(),
             AssetSchema::Uda => SchemaId::from_str(SCHEMA_ID_UDA).unwrap(),
+            AssetSchema::Bfa => SchemaId::from_str(SCHEMA_ID_BFA).unwrap(),
         }
     }
 }
@@ -479,6 +513,8 @@ pub enum Assignment {
     InflationRight(u64),
     /// Link right
     LinkRight,
+    /// Mint right
+    MintRight,
     /// Any assignment
     Any,
 }
@@ -492,6 +528,7 @@ impl Assignment {
             }
             AllocatedState::Data(_) => Self::NonFungible,
             AllocatedState::Void if opout.ty == OS_LINK => Self::LinkRight,
+            AllocatedState::Void if opout.ty == OS_MINT => Self::MintRight,
             _ => unreachable!(),
         }
     }
@@ -513,6 +550,12 @@ impl Assignment {
                     .expect("total inflation amount cannot exceed u64::MAX")
             }
             Self::LinkRight => assignments.link = true,
+            Self::MintRight => {
+                assignments.mint = assignments
+                    .mint
+                    .checked_add(1)
+                    .expect("total mint rights cannot exceed u64::MAX")
+            }
             _ => unreachable!("when using this method we should know the assignment type"),
         }
     }
@@ -523,6 +566,7 @@ impl Assignment {
             Self::Fungible(_) | Self::NonFungible => Some(RGB_STATE_ASSET_OWNER),
             Self::InflationRight(_) => Some(RGB_STATE_INFLATION_ALLOWANCE),
             Self::LinkRight => Some(RGB_STATE_LINK_RIGHT),
+            Self::MintRight => Some(RGB_STATE_MINT_RIGHT),
             Self::Any => None,
         }
     }
@@ -638,6 +682,7 @@ impl Assignment {
             },
             TypedAssigns::Declarative(assigns) => match ty {
                 OS_LINK => assigns.get(no).map(|_| Self::LinkRight),
+                OS_MINT => assigns.get(no).map(|_| Self::MintRight),
                 _ => None,
             },
         }
@@ -661,6 +706,9 @@ pub enum TypeOfTransition {
     /// Link transition (spending the link right to link the asset to another contract)
     #[cfg_attr(feature = "wallet", sea_orm(num_value = 4))]
     Link = 4,
+    /// Mint transition (minting assets backed by tokens locked on the external chain)
+    #[cfg_attr(feature = "wallet", sea_orm(num_value = 7))]
+    Mint = 7,
     /// Transfer of inflation rights, by a transition of its own in the bundle of an operation, as
     /// the main transition of the operation (e.g. a transfer) can't move them
     #[cfg_attr(feature = "wallet", sea_orm(num_value = 5))]
@@ -669,6 +717,10 @@ pub enum TypeOfTransition {
     /// main transition of the operation (e.g. a transfer) can't move them
     #[cfg_attr(feature = "wallet", sea_orm(num_value = 6))]
     TransferLink = 6,
+    /// Propagation of mint rights: transferring them to other wallets, multiplying them locally,
+    /// to be consumed by mint transitions, or moving them along as extra
+    #[cfg_attr(feature = "wallet", sea_orm(num_value = 8))]
+    Propagate = 8,
 }
 
 impl TypeOfTransition {
@@ -679,8 +731,10 @@ impl TypeOfTransition {
             Self::Transfer => "transfer",
             Self::Burn => "burn",
             Self::Link => "link",
+            Self::Mint => "mint",
             Self::TransferInflation => "transferInflation",
             Self::TransferLink => "transferLink",
+            Self::Propagate => "propagate",
         }
     }
 }
@@ -694,8 +748,10 @@ impl TryFrom<TransitionType> for TypeOfTransition {
             TS_INFLATION => Self::Inflate,
             TS_BURN => Self::Burn,
             TS_LINK => Self::Link,
+            TS_MINT => Self::Mint,
             TS_TRANSFER_INFLATION => Self::TransferInflation,
             TS_TRANSFER_LINK => Self::TransferLink,
+            TS_PROPAGATE => Self::Propagate,
             _ => return Err(()),
         })
     }
@@ -728,6 +784,7 @@ mod tests {
         assert_eq!(AssetSchema::Uda.to_string(), "Uda");
         assert_eq!(AssetSchema::Cfa.to_string(), "Cfa");
         assert_eq!(AssetSchema::Ifa.to_string(), "Ifa");
+        assert_eq!(AssetSchema::Bfa.to_string(), "Bfa");
     }
 
     #[test]
@@ -823,6 +880,7 @@ mod tests {
             Assignment::NonFungible,
             Assignment::InflationRight(500),
             Assignment::LinkRight,
+            Assignment::MintRight,
             Assignment::Any,
         ];
         for assignment in assignments {
@@ -886,6 +944,7 @@ mod tests {
         assert_eq!(Assignment::NonFungible.main_amount(), 1);
         assert_eq!(Assignment::InflationRight(500).main_amount(), 0);
         assert_eq!(Assignment::LinkRight.main_amount(), 0);
+        assert_eq!(Assignment::MintRight.main_amount(), 0);
         assert_eq!(Assignment::Any.main_amount(), 0);
     }
 

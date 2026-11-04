@@ -501,10 +501,11 @@ fn fail() {
     let result = party_nia.inflate_begin_result(&asset_ifa.asset_id, &[1]);
     assert_matches!(result, Err(Error::UnsupportedSchema { asset_schema: _ }));
     // - inflation not supported (the match is exhaustive, so that a new schema has to be sorted)
+    party.create_utxos_default(); // more UTXOs to have free allocation slots for the issuances
     for schema in AssetSchema::iter() {
         match schema {
             AssetSchema::Ifa => continue,
-            AssetSchema::Nia | AssetSchema::Uda | AssetSchema::Cfa => {}
+            AssetSchema::Nia | AssetSchema::Uda | AssetSchema::Cfa | AssetSchema::Bfa => {}
         }
         let asset_id = party.issue_asset_of_schema(schema);
         let result = party.inflate_result(&asset_id, &[200, 42]);

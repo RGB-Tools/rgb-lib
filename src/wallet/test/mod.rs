@@ -73,6 +73,33 @@ use crate::{
 const PROXY_HOST: &str = "127.0.0.1:3000/json-rpc";
 static PROXY_ENDPOINT: Lazy<String> = Lazy::new(|| format!("rpc://{PROXY_HOST}"));
 #[cfg(feature = "_online")]
+const EVM_RPC_URL: &str = "http://127.0.0.1:8545";
+/// EIP-155 chain ID of the anvil node (its default one, see tests/compose.yaml)
+#[cfg(feature = "_online")]
+const ANVIL_CHAIN_ID: u64 = 31337;
+/// Blocks to mine on anvil for the latest block to become finalized: two epochs of its default
+/// 32 slots
+#[cfg(feature = "electrum")]
+const EVM_FINALITY_DEPTH: u64 = 64;
+/// Blocks a mint leaves for its lock by default, after the latest one when it begins: more than any
+/// test mines
+#[cfg(feature = "electrum")]
+const MINT_LOCK_BLOCKS: u64 = 100_000;
+/// Blocks a mint the test lets expire leaves for its lock, counted from the latest block when the
+/// mint begins. It has to be high enough to pass the MIN_MINT_LOCK_BLOCKS check of mint_begin,
+/// with some margin because anvil mines a block every 2 seconds, and low enough for the test to
+/// mine past it quickly
+#[cfg(feature = "electrum")]
+const SHORT_MINT_LOCK_BLOCKS: u64 = 20;
+/// Maximum number of blocks a mint can leave for its lock (see EvmChain::max_mint_lock_blocks) in
+/// test wallets: well above MINT_LOCK_BLOCKS
+#[cfg(feature = "_online")]
+const MAX_MINT_LOCK_BLOCKS: u64 = 1_000_000;
+/// Minimum number of blocks a mint has to leave for its lock (see EvmChain::min_mint_lock_blocks)
+/// in test wallets: the least possible, as tests let mints expire
+#[cfg(feature = "_online")]
+const MIN_MINT_LOCK_BLOCKS: u64 = 2;
+#[cfg(feature = "_online")]
 const TEST_DATA_DIR_PARTS: [&str; 2] = ["tests", "tmp_srv"];
 const NOSRV_DATA_DIR_PARTS: [&str; 2] = ["tests", "tmp_nosrv"];
 const PASSWORD: &str = "password";
@@ -130,6 +157,8 @@ const LISTS_DIR_PARTS: [&str; 2] = ["tests", "lists"];
 const HUB_DIR_PARTS: [&str; 2] = ["tests", "hub"];
 #[cfg(feature = "_online")]
 const TICKER: &str = "TICKER";
+#[cfg(feature = "electrum")]
+const UNICODE_TICKER: &str = "₿TC";
 #[cfg(feature = "_online")]
 const NAME: &str = "asset name";
 #[cfg(feature = "electrum")]
@@ -166,6 +195,10 @@ const MIN_CONFIRMATIONS: u8 = 1;
 const FAKE_TXID: &str = "e5a3e577309df31bd606f48049049d2e1e02b048206ba232944fcc053a176ccb";
 #[cfg(feature = "electrum")]
 const FAKE_OUTPOINT: &str = "e5a3e577309df31bd606f48049049d2e1e02b048206ba232944fcc053a176ccb:0";
+#[cfg(feature = "electrum")]
+const FAKE_EVM_ADDRESS: &str = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+#[cfg(feature = "electrum")]
+const FAKE_PUBKEY: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 #[cfg(feature = "electrum")]
 const FAKE_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 const UNKNOWN_IDX: i32 = 9999;
@@ -231,6 +264,8 @@ thread_local! {
     pub(crate) static MOCK_RETENTION_GRACE: RefCell<Option<u32>> = const { RefCell::new(None) };
     pub(crate) static MOCK_MIN_RETENTION_GRACE: RefCell<Option<u32>> = const { RefCell::new(None) };
     pub(crate) static MOCK_CONFIRMATION_MARGIN: RefCell<Option<u32>> = const { RefCell::new(None) };
+    pub(crate) static RECEIVED_CONSIGNMENT_VALIDATIONS: RefCell<usize> = const { RefCell::new(0) };
+    pub(crate) static MOCK_MINT_KEPT_AMOUNT: RefCell<Option<u64>> = const { RefCell::new(None) };
 }
 
 #[cfg(feature = "_online")]
@@ -580,6 +615,19 @@ pub fn mock_hub_accept_pending() -> bool {
     MOCK_HUB_ACCEPT_PENDING.take().is_some()
 }
 
+// simulate a minter keeping part of a mint: the amount to also mint to an output of the mint TX,
+// besides what the recipient receives
+#[cfg(feature = "_online")]
+pub fn mock_mint_kept_amount() -> Option<u64> {
+    MOCK_MINT_KEPT_AMOUNT.take()
+}
+
+// count the received consignments validated, for tests checking a retry doesn't validate again
+#[cfg(feature = "_online")]
+pub fn count_received_consignment_validation() {
+    RECEIVED_CONSIGNMENT_VALIDATIONS.with_borrow_mut(|n| *n += 1);
+}
+
 #[cfg(feature = "_online")]
 pub fn mock_send_end_crash() -> bool {
     if MOCK_SEND_END_CRASH.take().is_none() {
@@ -593,6 +641,8 @@ pub fn mock_send_end_crash() -> bool {
 // test utilities
 #[macro_use]
 mod utils;
+#[cfg(feature = "electrum")]
+pub(crate) use utils::anvil::*;
 #[cfg(feature = "_online")]
 pub(crate) use utils::chain::*;
 pub(crate) use utils::{api::*, helpers::*};
@@ -635,6 +685,8 @@ mod inspect_consignment;
 #[cfg(feature = "electrum")]
 mod inspect_rgb_transfer;
 #[cfg(feature = "electrum")]
+mod issue_asset_bfa;
+#[cfg(feature = "electrum")]
 mod issue_asset_cfa;
 #[cfg(feature = "electrum")]
 mod issue_asset_ifa;
@@ -656,6 +708,7 @@ mod list_unspents;
 mod load;
 #[cfg(all(feature = "electrum", feature = "rgb_fs_store_migration"))]
 mod migrate;
+mod mint;
 #[cfg(feature = "electrum")]
 mod multisig;
 mod new;

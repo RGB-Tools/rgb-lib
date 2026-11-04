@@ -64,6 +64,10 @@ pub struct OnlineData {
     pub(crate) indexer_config: IndexerConfig,
     pub(crate) indexer: Indexer,
     pub(crate) resolver: AnyResolver,
+    // EVM chains by EIP-155 chain ID (see OnlineOptions::evm_chains)
+    pub(crate) evm_chains: HashMap<u64, EvmChain>,
+    // the RPC URLs of evm_chains, for what resolves claims and reject lists through them
+    pub(crate) evm_rpc_urls: HashMap<u64, String>,
     pub(crate) hub_client: Option<MultisigHubClient>,
     pub(crate) user_role: Option<UserRole>,
     pub(crate) vanilla_sync_lookback: u32,
@@ -136,6 +140,66 @@ pub struct OnlineOptions {
     /// caller must keep supplying a correct key for all endpoints that any pending transfer relies
     /// on: a wrong or missing key for such an endpoint can make `refresh` fail to process it.
     pub proxy_auth_keys: HashMap<String, String>,
+    /// EVM chains to be used for mint operations on bridged assets, by their EIP-155 chain ID.
+    ///
+    /// A bridged asset commits to the chain its bridge contract lives on: minting it, or
+    /// receiving a mint of it, needs that chain to be configured and fails with
+    /// [`Error::NoEvmRpcUrl`] otherwise. Going online checks each configured endpoint answers,
+    /// is on the chain it is configured for and serves the latest finalized block and the contract
+    /// state as of it (as locks are read from the records of the bridge contract once finalized),
+    /// failing with an [`Error::InvalidEvmRpcUrl`] otherwise: nodes not keeping the state of that
+    /// block (e.g. some pruned ones) are not supported. It also checks
+    /// the mint lock blocks of each chain, failing with an [`Error::InvalidEvmChain`] if they
+    /// aren't consistent.
+    ///
+    /// Only used when the wallet supports the [`AssetSchema::Bfa`] schema.
+    pub evm_chains: HashMap<u64, EvmChain>,
+}
+
+/// An EVM chain mint operations use, see [`OnlineOptions::evm_chains`].
+#[cfg(feature = "_online")]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct EvmChain {
+    /// URL of the EVM JSON-RPC endpoint connected to the chain.
+    ///
+    /// The wallet trusts this endpoint to report the state of the chain faithfully, as it
+    /// confirms mints (the locks the bridge contract records) and reads reject lists through it:
+    /// an endpoint reporting a lock as expired when it isn't makes the wallet refuse a mint that
+    /// completes anyway (the minter checking the lock through its own endpoint), so the minted
+    /// assets are lost for it, while one reporting a lock that doesn't exist makes it accept a
+    /// mint that's invalid for everyone else (e.g. its later recipients). The same applies to the
+    /// reject lists read through it. Use an endpoint you control or trust.
+    pub rpc_url: String,
+    /// Minimum number of blocks, after the latest block of the chain, the block a mint commits to
+    /// (the one its lock has to be included before) has to be, when minting (see
+    /// [`Wallet::mint_begin`]).
+    ///
+    /// The lock is made after minting begins and the recipient has checked the mint: one
+    /// included late expires the mint, for everyone, getting the locked tokens back depending on
+    /// the bridge contract. This leaves the lock time to be made and included. It only protects
+    /// the minter, so it's not checked on received mints. The time this corresponds to depends
+    /// on the block time of the chain. A value below 2 has the effect of 2, the lock needing a
+    /// block after the latest one to be included in. It must be at most
+    /// [`max_mint_lock_blocks`](EvmChain::max_mint_lock_blocks), going online failing with an
+    /// [`Error::InvalidEvmChain`] otherwise.
+    pub min_mint_lock_blocks: u64,
+    /// Maximum number of blocks, after the latest block of the chain, the block a mint commits to
+    /// (the one its lock has to be included before) can be.
+    ///
+    /// When refreshing, a received mint is checked before its lock is made (see
+    /// [`get_received_mint`](crate::wallet::RgbWalletOpsOffline::get_received_mint)) and from
+    /// then on its transfer is waited for until the lock is finalized or found expired, keeping
+    /// the receiving UTXO unspendable meanwhile. A mint committing to a block further than this,
+    /// as of when it is checked, is refused: a checked mint can then keep the UTXO unspendable
+    /// for up to about this many blocks, plus the time the chain takes to finalize them. Minting
+    /// refuses a further block too (see [`Wallet::mint_begin`]).
+    ///
+    /// The time this corresponds to depends on the block time of the chain. A value below 2
+    /// refuses every mint, as the lock needs a block after the latest one to be included in.
+    /// The cosigners of a multisig wallet should all configure the same value: a cosigner
+    /// configuring a lower one refuses on its own a mint the others may accept.
+    pub max_mint_lock_blocks: u64,
 }
 
 /// Indexer the wallet connects to, see [`OnlineOptions::indexer_config`].
@@ -848,6 +912,88 @@ impl AssetIFA {
     }
 }
 
+/// A Bridged Fungible Asset.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct AssetBFA {
+    /// ID of the asset
+    pub asset_id: String,
+    /// Ticker of the asset
+    pub ticker: String,
+    /// Name of the asset
+    pub name: String,
+    /// Details of the asset
+    pub details: Option<String>,
+    /// Precision, also known as divisibility, of the asset
+    pub precision: u8,
+    /// Known circulating supply: the amount locked on the bridge contract and not released, as
+    /// the contract accounted it when the wallet last read it (ending a mint or receiving the
+    /// asset), 0 if it never did. It includes the locks of mints not completed (yet) and the ones
+    /// in blocks that are not final, so it's an upper bound of the supply
+    pub known_circulating_supply: u64,
+    /// Timestamp of asset genesis
+    pub timestamp: i64,
+    /// Timestamp of asset import
+    pub added_at: i64,
+    /// Current balance of the asset
+    pub balance: Balance,
+    /// Asset media attachment
+    pub media: Option<Media>,
+    /// Reject list URL
+    pub reject_list_url: Option<String>,
+}
+
+impl AssetBFA {
+    pub(crate) fn get_asset_details(
+        txn: &DbTxn,
+        wallet: &(impl WalletOffline + ?Sized),
+        asset: &DbAsset,
+        transfers: Option<Vec<DbTransfer>>,
+        asset_transfers: Option<Vec<DbAssetTransfer>>,
+        batch_transfers: Option<Vec<DbBatchTransfer>>,
+        colorings: Option<Vec<DbColoring>>,
+        txos: Option<Vec<DbTxo>>,
+        medias: Option<Vec<DbMedia>>,
+    ) -> Result<AssetBFA, Error> {
+        let media = {
+            let medias = if let Some(m) = medias {
+                m
+            } else {
+                txn.iter_media()?
+            };
+            medias
+                .iter()
+                .find(|m| Some(m.idx) == asset.media_idx)
+                .map(|m| Media::from_db_media(m, wallet.media_dir()))
+        };
+        let balance = txn.get_asset_balance(
+            asset.id.clone(),
+            transfers,
+            asset_transfers,
+            batch_transfers,
+            colorings,
+            txos,
+        )?;
+        let known_circulating_supply = asset
+            .known_circulating_supply
+            .as_ref()
+            .map_or(0, |s| s.parse::<u64>().unwrap());
+        Ok(AssetBFA {
+            asset_id: asset.id.clone(),
+            ticker: asset.ticker.clone().unwrap(),
+            name: asset.name.clone(),
+            details: asset.details.clone(),
+            precision: asset.precision,
+            known_circulating_supply,
+            timestamp: asset.timestamp,
+            added_at: asset.added_at,
+            balance,
+            media,
+            reject_list_url: asset.reject_list_url.clone(),
+        })
+    }
+}
+
 /// List of RGB assets, grouped by asset schema.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
@@ -860,6 +1006,8 @@ pub struct Assets {
     pub cfa: Option<Vec<AssetCFA>>,
     /// List of IFA assets
     pub ifa: Option<Vec<AssetIFA>>,
+    /// List of BFA assets
+    pub bfa: Option<Vec<AssetBFA>>,
 }
 
 pub(crate) trait IssuedAssetDetails: Sized {
@@ -926,6 +1074,17 @@ impl IssuedAssetDetails for AssetIFA {
     }
 }
 
+impl IssuedAssetDetails for AssetBFA {
+    fn from_issuance(
+        txn: &DbTxn,
+        wallet: &(impl WalletOffline + ?Sized),
+        asset: &DbAsset,
+        _issue_data: &IssueData,
+    ) -> Result<Self, Error> {
+        Self::get_asset_details(txn, wallet, asset, None, None, None, None, None, None)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct LocalAssetData {
     pub(crate) asset_id: String,
@@ -970,6 +1129,8 @@ pub struct AssignmentsCollection {
     pub inflation: u64,
     /// Link right assignment
     pub link: bool,
+    /// Mint right assignments
+    pub mint: u64,
 }
 
 #[cfg(feature = "_online")]
@@ -992,6 +1153,13 @@ impl AssignmentsCollection {
             .expect("total inflation amount cannot exceed u64::MAX");
     }
 
+    fn add_mint(&mut self) {
+        self.mint = self
+            .mint
+            .checked_add(1)
+            .expect("total mint rights cannot exceed u64::MAX");
+    }
+
     pub(crate) fn add_opout_state(&mut self, opout: &Opout, state: &AllocatedState) {
         match state {
             AllocatedState::Amount(amt) if opout.ty == OS_ASSET => {
@@ -1005,6 +1173,9 @@ impl AssignmentsCollection {
             }
             AllocatedState::Void if opout.ty == OS_LINK => {
                 self.link = true;
+            }
+            AllocatedState::Void if opout.ty == OS_MINT => {
+                self.add_mint();
             }
             _ => {}
         }
@@ -1025,6 +1196,7 @@ impl AssignmentsCollection {
             }
             (AllocatedState::Data(_), _) => needed.non_fungible && !self.non_fungible,
             (AllocatedState::Void, OS_LINK) => needed.link && !self.link,
+            (AllocatedState::Void, OS_MINT) => needed.mint.saturating_sub(self.mint) > 0,
             _ => false,
         }
     }
@@ -1041,6 +1213,10 @@ impl AssignmentsCollection {
                 .checked_sub(needed.inflation)
                 .expect("selected inputs must cover outputs"),
             link: false,
+            mint: self
+                .mint
+                .checked_sub(needed.mint)
+                .expect("selected inputs must cover outputs"),
         }
     }
 
@@ -1055,6 +1231,9 @@ impl AssignmentsCollection {
             return false;
         }
         if needed.link && !self.link {
+            return false;
+        }
+        if self.mint < needed.mint {
             return false;
         }
         true
@@ -1264,6 +1443,27 @@ impl Invoice {
                     }
                 }
             }
+            Some(AssetSchema::Bfa) => {
+                match (decoded.assignment_state, assignment_name.as_deref()) {
+                    (Some(InvoiceState::Amount(v)), Some(RGB_STATE_ASSET_OWNER)) => {
+                        Assignment::Fungible(v.value())
+                    }
+                    (None, Some(RGB_STATE_ASSET_OWNER)) => Assignment::Fungible(0),
+                    (Some(InvoiceState::Void) | None, Some(RGB_STATE_LINK_RIGHT)) => {
+                        Assignment::LinkRight
+                    }
+                    (Some(InvoiceState::Void) | None, Some(RGB_STATE_MINT_RIGHT)) => {
+                        Assignment::MintRight
+                    }
+                    (Some(InvoiceState::Amount(_)), None) => Assignment::Any,
+                    (None, None) => Assignment::Any,
+                    (_, _) => {
+                        return Err(Error::InvalidInvoice {
+                            details: s!("invalid assignment"),
+                        });
+                    }
+                }
+            }
         };
         let recipient_id = decoded.beneficiary.to_string();
         let transport_endpoints: Vec<String> =
@@ -1409,6 +1609,8 @@ pub enum TransferKind {
     Burn,
     /// A link transfer
     Link,
+    /// A mint transfer, bringing in assets backed by tokens locked on the external chain
+    Mint,
 }
 
 #[derive(Debug, Clone)]
@@ -1831,7 +2033,7 @@ pub struct PsbtInspection {
 }
 
 // ────────────────────────────────────────────────────────────
-// Send, inflate, burn & refresh operations
+// Send, inflate, burn, mint & refresh operations
 // ────────────────────────────────────────────────────────────
 
 /// The result of a burn begin operation.
@@ -1912,6 +2114,57 @@ pub struct InflateDetails {
     pub min_confirmations: u8,
     /// Entropy used for the merkle tree construction operation
     pub entropy: u64,
+}
+
+/// The result of a mint begin operation.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg(feature = "_online")]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct MintBeginResult {
+    /// PSBT to inspect and sign
+    pub psbt: String,
+    /// Batch transfer idx
+    pub batch_transfer_idx: i32,
+    /// Operation details
+    pub details: MintDetails,
+}
+
+/// Details for mint operations.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg(feature = "_online")]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct MintDetails {
+    /// Path to fascia file for inspection
+    pub fascia_path: String,
+    /// Minimum confirmations for the operation
+    pub min_confirmations: u8,
+    /// Entropy used for the merkle tree construction operation
+    pub entropy: u64,
+    /// ID of the mint operation
+    pub opid: String,
+}
+
+/// A mint received by the wallet, as checked by it: what its sender has to lock on the external
+/// chain for the mint to complete.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct ReceivedMint {
+    /// ID of the mint operation
+    pub opid: String,
+    /// ID the lock has to be made for, committing to the mint operation and to the TX including
+    /// it, so that the lock confirms the mint only in that TX: the hex-encoded tagged SHA-256 of
+    /// the operation ID followed by the TXID in internal byte order (reversed compared to how it's
+    /// usually displayed), i.e. `SHA256(t || t || opid || txid)` where `t` is the SHA-256 of the
+    /// tag `urn:lnp-bp:rgb:lock#2026-11-04`
+    pub lock_id: String,
+    /// Amount minted, which the lock has to match
+    pub amount: u64,
+    /// External chain block the lock has to be included before
+    pub before_block: u64,
+    /// EIP-155 chain ID of the EVM chain the asset's bridge contract lives on
+    pub evm_chain_id: u64,
+    /// Address of the asset's bridge contract, where the lock has to be made
+    pub bridge_contract: String,
 }
 
 /// The result of a send begin operation.
@@ -2114,7 +2367,6 @@ impl LocalRgbAllocation {
 
     /// Whether the allocation is held by its UTXO, or due to be, so that spending the UTXO moves
     /// it: an incoming allocation on an unspent TXO, from a transfer that hasn't failed.
-    #[cfg(feature = "_online")]
     pub(crate) fn held(&self) -> bool {
         self.incoming && !self.txo_spent && !self.status.failed()
     }
@@ -2125,6 +2377,26 @@ pub struct AssetSpend {
     pub input_outpoints: Vec<Outpoint>,
     pub assignments_collected: AssignmentsCollection,
     pub input_btc_amt: u64,
+}
+
+/// Where a contract's reject list is published.
+#[cfg(feature = "_online")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum RejectListSource {
+    /// A list of opouts served at a URL
+    Url(String),
+    /// A list of opouts kept by an `IRgbRejectList` EVM contract
+    Evm(EvmContract),
+}
+
+#[cfg(feature = "_online")]
+impl From<RejectListLocation> for RejectListSource {
+    fn from(location: RejectListLocation) -> Self {
+        match location {
+            RejectListLocation::Url(url) => Self::Url(url.to_string()),
+            RejectListLocation::Evm(contract) => Self::Evm(contract),
+        }
+    }
 }
 
 /// The decisions of a reject list about single opouts, each holding only its latest decision.
@@ -2163,6 +2435,7 @@ impl RejectList {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AssetInfo {
     pub contract_id: ContractId,
+    pub schema: AssetSchema,
     pub reject_list_url: Option<String>,
 }
 
@@ -2190,6 +2463,11 @@ pub enum MainTransition {
         /// The contract this is linked to
         linked_to_contract: ContractId,
     },
+    /// A mint, committing to the external chain block the lock has to be included before
+    Mint {
+        /// The external chain block the lock has to be included before
+        before_block: u64,
+    },
 }
 
 #[cfg(feature = "_online")]
@@ -2201,6 +2479,7 @@ impl MainTransition {
             Self::Inflate => TypeOfTransition::Inflate,
             Self::Burn { .. } => TypeOfTransition::Burn,
             Self::Link { .. } => TypeOfTransition::Link,
+            Self::Mint { .. } => TypeOfTransition::Mint,
         }
     }
 
@@ -2237,7 +2516,9 @@ impl InfoAssetTransfer {
         let transition_type = match self.main_transition {
             MainTransition::Burn { .. } => TS_BURN,
             MainTransition::Link { .. } => TS_LINK,
-            MainTransition::Transfer | MainTransition::Inflate => return vec![],
+            MainTransition::Transfer | MainTransition::Inflate | MainTransition::Mint { .. } => {
+                return vec![];
+            }
         };
         fascia
             .bundles()
@@ -2263,13 +2544,18 @@ pub enum ChangeDestination {
     Utxo(Outpoint),
 }
 
+/// The allocations moved along by an operation, by asset ID and outpoint they're moved from, each
+/// with where it goes.
+pub type ExtraAllocations =
+    HashMap<String, HashMap<OutPoint, Vec<(Assignment, ChangeDestination)>>>;
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct InfoBatchTransfer {
     /// New Bitcoin output created by this transfer to hold RGB change, if any
     pub btc_change: Option<BtcChange>,
     /// Allocations other than the ones being sent, moved as a side effect of spending a UTXO they
     /// shared with a sent asset, by asset ID and spent outpoint, each with where it goes
-    pub extra_allocations: HashMap<String, HashMap<OutPoint, Vec<(Assignment, ChangeDestination)>>>,
+    pub extra_allocations: ExtraAllocations,
     /// Whether this is a donation (broadcast without waiting for the recipients' ACK)
     pub donation: bool,
     /// Number of confirmations required before the transfer is considered settled
@@ -2310,6 +2596,7 @@ pub struct BeginOperationData {
     pub transfer_dir: PathBuf,
     pub info_batch_transfer: InfoBatchTransfer,
     pub batch_transfer_idx: Option<i32>,
+    pub opid: Option<String>,
 }
 
 #[cfg(feature = "_online")]
@@ -2335,6 +2622,39 @@ pub struct ReceivedConsignmentMeta {
     pub sender_pubkey: String,
     pub consignment_hash: String,
     pub batch: bool,
+}
+
+/// A mint sent by the wallet: what its lock on the external chain has to match.
+#[cfg(feature = "_online")]
+pub struct SentMint {
+    /// ID of the minted asset
+    pub contract_id: ContractId,
+    /// ID of the mint operation
+    pub opid: OpId,
+    /// ID the lock has to be made for, committing to the mint operation and to the TX including
+    /// it
+    pub lock_id: LockId,
+    /// Amount minted, which the lock has to match
+    pub amount: u64,
+    /// External chain block the lock has to be included before
+    pub before_block: u64,
+    /// Location of the asset's bridge contract, where the lock has to be made
+    pub bridge_location: BridgeLocation,
+}
+
+/// The mint locks a received consignment waits for, saved once it has been validated as far as it
+/// can be without them, so that until they're finalized a refresh only looks them up.
+#[cfg(feature = "_online")]
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct PendingMintLocks {
+    /// SHA-256 digest (hex-encoded) of the consignment file waiting for the locks
+    pub(crate) consignment_digest: String,
+    /// EIP-155 chain ID of the EVM chain the bridge contract lives on
+    pub(crate) evm_chain_id: u64,
+    /// Address of the bridge contract recording the locks
+    pub(crate) bridge_contract: EvmAddress,
+    /// The claims of the mints whose locks aren't finalized yet
+    pub(crate) claims: Vec<Claim>,
 }
 
 /// The sender proxy's response to `ack.clean`, requested before failing an outgoing operation.
@@ -2413,28 +2733,33 @@ pub enum ReceiveMatcher {
 pub struct TakenSlots {
     /// allocations of the asset received held or due
     pub(crate) asset: usize,
+    /// amount of the asset received held or due
+    pub(crate) asset_amount: u128,
     /// allocations of any asset held or due, including the ones of the asset received
     pub(crate) all: usize,
     /// other unpaid invoices, each due to receive an allocation of any asset
     pub(crate) invoices: usize,
+    /// mint rights of the asset received held or due, and other unpaid invoices requesting one
+    pub(crate) mint_rights: usize,
 }
 
 /// The UTXOs selected as inputs of an operation, with the number of allocations of each asset they
-/// hold, which spending them moves, as inputs of the bundle of the asset.
+/// hold, which spending them moves, as inputs of the bundle of the asset, and their total amount,
+/// as a transition can't spend more than `u64::MAX` of an asset (which BFA assets can exceed).
 #[cfg(feature = "_online")]
 #[derive(Clone, Debug, Default)]
 pub struct SelectedInputs {
     outpoints: HashSet<Outpoint>,
-    // map of asset IDs to the number of their allocations
-    allocations: HashMap<String, usize>,
+    // map of asset IDs to the number of their allocations and their total amount
+    allocations: HashMap<String, (usize, u128)>,
 }
 
 #[cfg(feature = "_online")]
 impl SelectedInputs {
-    /// The number of allocations of each asset held by the given UTXO.
-    fn held_allocations(unspent: &LocalUnspent) -> HashMap<&str, usize> {
-        let mut held: HashMap<&str, usize> = HashMap::new();
-        for asset_id in unspent
+    /// The number of allocations of each asset held by the given UTXO, with their total amount.
+    fn held_allocations(unspent: &LocalUnspent) -> HashMap<&str, (usize, u128)> {
+        let mut held: HashMap<&str, (usize, u128)> = HashMap::new();
+        for allocation in unspent
             .rgb_allocations
             .iter()
             .filter(|a| a.held())
@@ -2442,25 +2767,32 @@ impl SelectedInputs {
             // which makes its UTXO unspendable (see `get_input_unspents`); a UTXO used as change
             // gets checked when the receive gets its asset, counting the change (see
             // `count_utxo_taken_slots`)
-            .filter_map(|a| a.asset_id.as_deref())
+            .filter(|a| a.asset_id.is_some())
         {
-            *held.entry(asset_id).or_default() += 1;
+            let (num, amount) = held
+                .entry(allocation.asset_id.as_deref().unwrap())
+                .or_default();
+            *num += 1;
+            *amount += u128::from(allocation.assignment.main_amount());
         }
         held
     }
 
     /// Whether the given allocations of each asset, added to the ones of the UTXOs selected, don't
-    /// exceed `max_allocations`.
-    fn held_fit(&self, held: &HashMap<&str, usize>, max_allocations: usize) -> bool {
-        held.iter().all(|(asset_id, num)| {
-            self.allocations.get(*asset_id).unwrap_or(&0) + num <= max_allocations
+    /// exceed `max_allocations` nor an amount of `u64::MAX`.
+    fn held_fit(&self, held: &HashMap<&str, (usize, u128)>, max_allocations: usize) -> bool {
+        held.iter().all(|(asset_id, (num, amount))| {
+            let (selected_num, selected_amount) =
+                self.allocations.get(*asset_id).copied().unwrap_or_default();
+            selected_num + num <= max_allocations
+                && selected_amount + amount <= u128::from(u64::MAX)
         })
     }
 
     /// Select the given UTXO, unless the allocations of an asset it holds, added to the ones of the
-    /// UTXOs selected, exceed `max_allocations`, returning whether it's selected. A UTXO already
-    /// selected (e.g. for another asset of the same operation) is skipped since it's already been
-    /// accounted for (allocations would otherwise be counted twice).
+    /// UTXOs selected, exceed `max_allocations` or an amount of `u64::MAX`, returning whether it's
+    /// selected. A UTXO already selected (e.g. for another asset of the same operation) is skipped
+    /// since it's already been accounted for (allocations would otherwise be counted twice).
     pub(crate) fn select(&mut self, unspent: &LocalUnspent, max_allocations: usize) -> bool {
         let outpoint = unspent.utxo.outpoint();
         if self.outpoints.contains(&outpoint) {
@@ -2471,12 +2803,31 @@ impl SelectedInputs {
         if !self.held_fit(&held, max_allocations) {
             return false;
         }
-        for (asset_id, num) in held {
-            *self.allocations.entry(asset_id.to_string()).or_default() += num;
+        for (asset_id, (num, amount)) in held {
+            let (selected_num, selected_amount) =
+                self.allocations.entry(asset_id.to_string()).or_default();
+            *selected_num += num;
+            *selected_amount += amount;
         }
         self.outpoints.insert(outpoint);
         true
     }
+}
+
+/// The allocations of an asset a destination of the RGB change holds or is due to receive.
+#[cfg(feature = "_online")]
+#[derive(Clone, Debug, Default)]
+struct ChangeSlotAsset {
+    /// their number, of any kind (inflation rights included)
+    num: usize,
+    /// the total amount of the asset they hold, which can't go over `u64::MAX`, as a transition
+    /// can't spend more than that of an asset (which BFA assets can exceed), so a destination
+    /// holding more would be stuck: a right holds no amount of the asset, so it doesn't add to it,
+    /// not even an inflation right (whose amount is an allowance to issue, a state of its own).
+    /// A `u128` so that adding an allocation to the total cannot overflow before the check
+    amount: u128,
+    /// whether one of them is a mint right, or an unpaid invoice requests one
+    mint_right: bool,
 }
 
 /// A destination of the RGB change of an operation, with the slots left on it.
@@ -2490,20 +2841,23 @@ struct ChangeSlot {
     /// the allocations it can still receive
     free: usize,
     /// the allocations of each asset it holds or is due to receive
-    assets: HashMap<String, usize>,
+    assets: HashMap<String, ChangeSlotAsset>,
 }
 
 /// The destinations the RGB change of an operation can go to, in order of preference: the new
 /// Bitcoin output of its TX, if any, then pre-existing UTXOs. A destination receives allocations up
 /// to the ones allowed per UTXO, counting the ones it holds or is due to receive and the slots
-/// reserved by its unpaid invoices, and as long as it doesn't hold more allocations of an asset
-/// than a bundle can spend. Each allocation is placed on its own, so the change is spread over as
-/// many destinations as needed.
+/// reserved by its unpaid invoices, as long as it doesn't hold more allocations of an asset than a
+/// bundle can spend, nor more than `u64::MAX` of an asset (which a transition can't spend), nor
+/// more than one mint right of an asset. Each allocation is placed on its own, so the change is
+/// spread over as many destinations as needed.
 #[cfg(feature = "_online")]
 #[derive(Clone, Debug, Default)]
 pub struct ChangeSlots {
     slots: Vec<ChangeSlot>,
     max_asset_allocations: usize,
+    /// the assets whose unpaid invoices requesting a mint right have been accounted for
+    mint_right_invoices: HashSet<String>,
 }
 
 #[cfg(feature = "_online")]
@@ -2534,12 +2888,17 @@ impl ChangeSlots {
             if free == 0 {
                 continue;
             }
-            let mut assets: HashMap<String, usize> = HashMap::new();
+            let mut assets: HashMap<String, ChangeSlotAsset> = HashMap::new();
             // allocations of a receive whose asset isn't known yet only count towards the total;
             // the receive checks the per-asset limit once its asset is known, counting any
             // change too (see `count_utxo_taken_slots`)
-            for asset_id in held.iter().filter_map(|a| a.asset_id.clone()) {
-                *assets.entry(asset_id).or_default() += 1;
+            for allocation in held.iter().filter(|a| a.asset_id.is_some()) {
+                let asset = assets
+                    .entry(allocation.asset_id.clone().unwrap())
+                    .or_default();
+                asset.num += 1;
+                asset.amount += u128::from(allocation.assignment.main_amount());
+                asset.mint_right |= allocation.assignment == Assignment::MintRight;
             }
             slots.push(ChangeSlot {
                 destination: ChangeDestination::Utxo(utxo.utxo.outpoint()),
@@ -2551,20 +2910,56 @@ impl ChangeSlots {
         Self {
             slots,
             max_asset_allocations,
+            mint_right_invoices: HashSet::new(),
         }
     }
 
-    /// Take the slot for an allocation of the asset with ID `asset_id` on the first destination
-    /// that can receive it, returning it, with the parsed outpoint of a pre-existing UTXO, or
-    /// `None` if no destination can.
-    pub(crate) fn take(&mut self, asset_id: &str) -> Option<(ChangeDestination, Option<OutPoint>)> {
+    /// Whether the unpaid invoices requesting a mint right of the asset with ID `asset_id` have
+    /// been accounted for (see [`Self::add_mint_right_invoices`]).
+    pub(crate) fn knows_mint_right_invoices(&self, asset_id: &str) -> bool {
+        self.mint_right_invoices.contains(asset_id)
+    }
+
+    /// Account for the unpaid invoices requesting a mint right of the asset with ID `asset_id`,
+    /// on the given UTXOs, which can't receive another one.
+    pub(crate) fn add_mint_right_invoices(&mut self, asset_id: &str, utxos: &HashSet<Outpoint>) {
+        for slot in &mut self.slots {
+            if let ChangeDestination::Utxo(outpoint) = &slot.destination
+                && utxos.contains(outpoint)
+            {
+                slot.assets
+                    .entry(asset_id.to_string())
+                    .or_default()
+                    .mint_right = true;
+            }
+        }
+        self.mint_right_invoices.insert(asset_id.to_string());
+    }
+
+    /// Take the slot for an allocation of the asset with ID `asset_id`, of the given amount and
+    /// whether it's a mint right, on the first destination that can receive it.
+    ///
+    /// Returns `None` if no destination can receive it, otherwise the destination taken, with the
+    /// outpoint of the pre-existing UTXO it is (`None` for the new Bitcoin change output).
+    pub(crate) fn take(
+        &mut self,
+        asset_id: &str,
+        amount: u128,
+        mint_right: bool,
+    ) -> Option<(ChangeDestination, Option<OutPoint>)> {
         let max_asset_allocations = self.max_asset_allocations;
         let slot = self.slots.iter_mut().find(|s| {
+            let asset = s.assets.get(asset_id).cloned().unwrap_or_default();
             s.free > 0
-                && s.assets.get(asset_id).copied().unwrap_or_default() < max_asset_allocations
+                && asset.num < max_asset_allocations
+                && asset.amount + amount <= u128::from(u64::MAX)
+                && !(mint_right && asset.mint_right)
         })?;
         slot.free -= 1;
-        *slot.assets.entry(asset_id.to_string()).or_default() += 1;
+        let asset = slot.assets.entry(asset_id.to_string()).or_default();
+        asset.num += 1;
+        asset.amount += amount;
+        asset.mint_right |= mint_right;
         Some((slot.destination.clone(), slot.outpoint))
     }
 }

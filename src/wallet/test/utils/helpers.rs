@@ -643,6 +643,10 @@ pub(crate) fn schema_supports_assignment(schema: AssetSchema, assignment: &Assig
             assignment,
             Assignment::Fungible(_) | Assignment::InflationRight(_) | Assignment::LinkRight
         ),
+        AssetSchema::Bfa => matches!(
+            assignment,
+            Assignment::Fungible(_) | Assignment::LinkRight | Assignment::MintRight
+        ),
     }
 }
 
@@ -662,7 +666,7 @@ fn expected_receive_assignment(
             Some(Assignment::Fungible(0))
         }
         (Some(AssetSchema::Uda), Assignment::Any) => Some(Assignment::NonFungible),
-        (Some(AssetSchema::Ifa), Assignment::Any) => Some(Assignment::Any),
+        (Some(AssetSchema::Ifa | AssetSchema::Bfa), Assignment::Any) => Some(Assignment::Any),
         (Some(schema), _) if schema_supports_assignment(schema, assignment) => {
             Some(assignment.clone())
         }
@@ -702,7 +706,10 @@ pub(crate) fn check_receive_schema_assignment_combinations(
         .map(|a| match a {
             Assignment::Fungible(_) => Assignment::Fungible(amount),
             Assignment::InflationRight(_) => Assignment::InflationRight(amount),
-            Assignment::NonFungible | Assignment::LinkRight | Assignment::Any => a,
+            Assignment::NonFungible
+            | Assignment::LinkRight
+            | Assignment::MintRight
+            | Assignment::Any => a,
         })
         .collect();
     for (schema, asset_id) in schemas {
@@ -861,7 +868,28 @@ pub(crate) fn test_go_online_options(indexer_url: Option<&str>) -> OnlineOptions
         vanilla_sync_lookback: INDEXER_SYNC_LOOKBACK as u32,
         failed_witness_receive_grace_secs: FAILED_WITNESS_RECEIVE_GRACE_SECS,
         proxy_auth_keys: HashMap::new(),
+        evm_chains: test_evm_chains(HashMap::from([(
+            super::super::ANVIL_CHAIN_ID,
+            super::super::EVM_RPC_URL.to_string(),
+        )])),
     }
+}
+
+/// The EVM chains with the given RPC URLs, by chain ID, allowing mints to leave from
+/// `MIN_MINT_LOCK_BLOCKS` to `MAX_MINT_LOCK_BLOCKS` blocks for their lock
+#[cfg(feature = "_online")]
+pub(crate) fn test_evm_chains(evm_rpc_urls: HashMap<u64, String>) -> HashMap<u64, EvmChain> {
+    evm_rpc_urls
+        .into_iter()
+        .map(|(chain_id, rpc_url)| {
+            let evm_chain = EvmChain {
+                rpc_url,
+                min_mint_lock_blocks: super::super::MIN_MINT_LOCK_BLOCKS,
+                max_mint_lock_blocks: super::super::MAX_MINT_LOCK_BLOCKS,
+            };
+            (chain_id, evm_chain)
+        })
+        .collect()
 }
 
 #[cfg(feature = "_online")]

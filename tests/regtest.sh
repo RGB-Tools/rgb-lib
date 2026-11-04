@@ -44,7 +44,7 @@ LISTS_DIR="${CWD}/lists"
 HUB_DIR="${CWD}/hub"
 COMPOSE_FPATH="${CWD}/compose.yaml"
 COMPOSE="$COMPOSE -f ${COMPOSE_FPATH}"
-EXPOSED_PORTS=(3000 18443 50001) # see compose.yaml for the exposed ports
+EXPOSED_PORTS=(3000 8545 18443 50001) # see compose.yaml for the exposed ports
 TIMEOUT=100
 
 BCLI="$COMPOSE exec -T -u blits bitcoind bitcoin-cli -regtest"
@@ -129,6 +129,20 @@ _wait_for_proxy() {
     done
 }
 
+_wait_for_anvil() {
+    # wait for anvil to be ready to accept RPC requests
+    start_time=$(date +%s)
+    until $COMPOSE logs anvil |grep -q 'Listening on'; do
+        current_time=$(date +%s)
+        if [ $((current_time - start_time)) -gt $TIMEOUT ]; then
+            echo "Timeout waiting for anvil to start"
+            $COMPOSE logs anvil
+            exit 1
+        fi
+        sleep 1
+    done
+}
+
 stop_services() {
     # bring all services down
     $COMPOSE --profile '*' down -v --remove-orphans
@@ -195,6 +209,8 @@ prepare_tests_environment() {
     _wait_for_proxy $PROXY_MOD_API
 
     _wait_for_proxy proxy-auth
+
+    _wait_for_anvil
 }
 
 prepare_bindings_examples_environment() {
@@ -207,6 +223,8 @@ prepare_bindings_examples_environment() {
     _wait_for_electrs electrs
 
     _wait_for_proxy proxy
+
+    _wait_for_anvil
 }
 
 mine() {

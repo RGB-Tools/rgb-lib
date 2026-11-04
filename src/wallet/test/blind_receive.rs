@@ -282,6 +282,37 @@ fn success() {
         Some(Assignment::InflationRight(amount))
     );
 
+    // detect assignment: amount, BFA
+    party.create_utxos_default(); // more UTXOs to have free allocation slots
+    let asset_bfa = party.issue_asset_bfa(1, FAKE_EVM_ADDRESS.to_string(), None);
+    let asset_bfa_id = asset_bfa.asset_id;
+    let receive_data = party
+        .wallet
+        .blind_receive(
+            Some(party.online),
+            Some(asset_bfa_id.clone()),
+            Assignment::Fungible(amount),
+            default_rcv_expiration(),
+            TRANSPORT_ENDPOINTS.clone(),
+            MIN_CONFIRMATIONS,
+            None,
+        )
+        .unwrap();
+    let invoice = Invoice::new(receive_data.invoice).unwrap();
+    let invoice_data = invoice.invoice_data();
+    assert_eq!(invoice_data.asset_schema, Some(AssetSchema::Bfa));
+    assert_eq!(invoice_data.asset_id, Some(asset_bfa_id.clone()));
+    assert_eq!(invoice_data.assignment, Assignment::Fungible(amount));
+    assert_eq!(
+        invoice_data.assignment_name,
+        Some(RGB_STATE_ASSET_OWNER.to_string())
+    );
+    let transfer = party.get_test_transfer_recipient(&receive_data.recipient_id);
+    assert_eq!(
+        transfer.requested_assignment,
+        Some(Assignment::Fungible(amount))
+    );
+
     // detect assignment: any, no schema
     let receive_data = party
         .wallet

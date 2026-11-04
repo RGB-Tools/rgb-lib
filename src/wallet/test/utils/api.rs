@@ -478,6 +478,31 @@ pub(crate) trait OfflineSigParty {
         opouts
     }
 
+    /// opouts of the asset on each unspent UTXO hosting any, in the order inputs are selected from
+    #[cfg(feature = "electrum")]
+    fn extract_opouts_by_utxo(&self, asset_id: &str) -> Vec<(OutPoint, Vec<Opout>)> {
+        let contract_id = ContractId::from_str(asset_id).unwrap();
+        let txn = self.wlt().database().begin_transaction().unwrap();
+        let unspent_txos = txn.get_unspent_txos(vec![]).unwrap();
+        let stock = self.wlt().rgb_stock(&txn).unwrap();
+        let mut opouts_by_utxo = Vec::new();
+        for txo in unspent_txos {
+            let outpoint = OutPoint::from(txo);
+            let mut opouts = Vec::new();
+            for (_explicit_seal, opout_state_map) in stock
+                .contract_assignments_for(contract_id, [outpoint])
+                .unwrap()
+            {
+                opouts.extend(opout_state_map.into_keys());
+            }
+            if !opouts.is_empty() {
+                opouts_by_utxo.push((outpoint, opouts));
+            }
+        }
+        txn.commit().unwrap();
+        opouts_by_utxo
+    }
+
     #[cfg(feature = "electrum")]
     fn get_asset_balance(&self, asset_id: &str) -> Balance {
         self.get_asset_balance_result(asset_id).unwrap()
@@ -1035,6 +1060,22 @@ pub(crate) trait SinglesigWalletParty {
     ) -> Result<Online, Error>;
 
     #[cfg(feature = "electrum")]
+    fn issue_asset_bfa(
+        &mut self,
+        mint_rights: u8,
+        contract_address: String,
+        reject_list_address: Option<String>,
+    ) -> AssetBFA;
+
+    #[cfg(feature = "electrum")]
+    fn issue_asset_bfa_result(
+        &mut self,
+        mint_rights: u8,
+        contract_address: String,
+        reject_list_address: Option<String>,
+    ) -> Result<AssetBFA, Error>;
+
+    #[cfg(feature = "electrum")]
     fn issue_asset_cfa(&mut self, amounts: Option<&[u64]>, file_path: Option<String>) -> AssetCFA;
 
     #[cfg(feature = "electrum")]
@@ -1152,6 +1193,38 @@ impl<T: OfflineSigParty<W = Wallet>> SinglesigWalletParty for T {
     }
 
     #[cfg(feature = "electrum")]
+    fn issue_asset_bfa(
+        &mut self,
+        mint_rights: u8,
+        contract_address: String,
+        reject_list_address: Option<String>,
+    ) -> AssetBFA {
+        self.issue_asset_bfa_result(mint_rights, contract_address, reject_list_address)
+            .unwrap()
+    }
+
+    #[cfg(feature = "electrum")]
+    fn issue_asset_bfa_result(
+        &mut self,
+        mint_rights: u8,
+        contract_address: String,
+        reject_list_address: Option<String>,
+    ) -> Result<AssetBFA, Error> {
+        self.wlt_mut().issue_asset_bfa(
+            TICKER.to_string(),
+            NAME.to_string(),
+            PRECISION,
+            mint_rights,
+            ANVIL_CHAIN_ID,
+            contract_address,
+            reject_list_address,
+            false,
+            None,
+            false,
+        )
+    }
+
+    #[cfg(feature = "electrum")]
     fn issue_asset_cfa(&mut self, amounts: Option<&[u64]>, file_path: Option<String>) -> AssetCFA {
         self.issue_asset_cfa_result(amounts, file_path).unwrap()
     }
@@ -1229,6 +1302,10 @@ impl<T: OfflineSigParty<W = Wallet>> SinglesigWalletParty for T {
             AssetSchema::Uda => self.issue_asset_uda_result(None, None, vec![])?.asset_id,
             AssetSchema::Cfa => self.issue_asset_cfa_result(None, None)?.asset_id,
             AssetSchema::Ifa => self.issue_asset_ifa_result(None, None, None)?.asset_id,
+            AssetSchema::Bfa => {
+                self.issue_asset_bfa_result(1, FAKE_EVM_ADDRESS.to_string(), None)?
+                    .asset_id
+            }
         })
     }
 
@@ -1285,6 +1362,21 @@ impl SinglesigParty {
     pub(crate) fn set_proxy_auth_keys(&mut self, proxy_auth_keys: HashMap<String, String>) {
         let mut online_options = test_go_online_options(None);
         online_options.proxy_auth_keys = proxy_auth_keys;
+        let online = self.wallet.go_online(online_options).unwrap();
+        assert_eq!(online, self.online);
+    }
+
+    /// Go online again with the same indexer, setting the given EVM RPC endpoints
+    #[cfg(feature = "electrum")]
+    pub(crate) fn set_evm_rpc_urls(&mut self, evm_rpc_urls: HashMap<u64, String>) {
+        self.set_evm_chains(test_evm_chains(evm_rpc_urls));
+    }
+
+    /// Go online again with the same indexer, setting the given EVM chains
+    #[cfg(feature = "electrum")]
+    pub(crate) fn set_evm_chains(&mut self, evm_chains: HashMap<u64, EvmChain>) {
+        let mut online_options = test_go_online_options(None);
+        online_options.evm_chains = evm_chains;
         let online = self.wallet.go_online(online_options).unwrap();
         assert_eq!(online, self.online);
     }
@@ -1526,6 +1618,59 @@ impl SinglesigParty {
     }
 
     #[cfg(feature = "electrum")]
+    pub(crate) fn mint_begin(
+        &mut self,
+        online: Online,
+        asset_id: &str,
+        recipient: Recipient,
+    ) -> MintBeginResult {
+        self.mint_begin_result(online, asset_id, recipient).unwrap()
+    }
+
+    #[cfg(feature = "electrum")]
+    pub(crate) fn mint_begin_result(
+        &mut self,
+        online: Online,
+        asset_id: &str,
+        recipient: Recipient,
+    ) -> Result<MintBeginResult, Error> {
+        self.mint_begin_before_result(online, asset_id, recipient, default_before_block())
+    }
+
+    #[cfg(feature = "electrum")]
+    pub(crate) fn mint_begin_before_result(
+        &mut self,
+        online: Online,
+        asset_id: &str,
+        recipient: Recipient,
+        before_block: u64,
+    ) -> Result<MintBeginResult, Error> {
+        self.wallet.mint_begin(
+            online,
+            asset_id.to_string(),
+            recipient,
+            before_block,
+            FEE_RATE,
+            MIN_CONFIRMATIONS,
+            PROXY_ENDPOINT.clone(),
+        )
+    }
+
+    #[cfg(feature = "electrum")]
+    pub(crate) fn mint_end(&mut self, online: Online, signed_psbt: String) -> OperationResult {
+        self.mint_end_result(online, signed_psbt).unwrap()
+    }
+
+    #[cfg(feature = "electrum")]
+    pub(crate) fn mint_end_result(
+        &mut self,
+        online: Online,
+        signed_psbt: String,
+    ) -> Result<OperationResult, Error> {
+        self.wallet.mint_end(online, signed_psbt)
+    }
+
+    #[cfg(feature = "electrum")]
     pub(crate) fn list_unspents_vanilla(
         &mut self,
         min_confirmations: Option<u8>,
@@ -1587,16 +1732,26 @@ impl SinglesigParty {
         let consignment_path = self.wallet.get_send_consignment_path(asset_id, &txid);
         let consignment = RgbTransfer::load_file(consignment_path).unwrap();
 
+        rcv_party.import_contract(&consignment);
+        rcv_party
+            .wallet
+            .save_new_asset(rcv_party.online, consignment, txid)
+            .unwrap();
+    }
+
+    /// Import the contract of the given consignment (its genesis) into the wallet's stock, as
+    /// `save_new_asset` needs.
+    #[cfg(feature = "electrum")]
+    pub(crate) fn import_contract(&self, consignment: &RgbTransfer) {
         let contract = consignment.clone().into_contract();
         let asset_schema: AssetSchema = consignment.schema_id().try_into().unwrap();
         let validation_config = ValidationConfig {
-            chain_net: rcv_party.wallet.chain_net(),
+            chain_net: self.wallet.chain_net(),
             ..Default::default()
         };
-        let txn = rcv_party.wallet.database().begin_transaction().unwrap();
-        let mut stock = rcv_party.wallet.rgb_stock(&txn).unwrap();
+        let txn = self.wallet.database().begin_transaction().unwrap();
+        let mut stock = self.wallet.rgb_stock(&txn).unwrap();
         let valid_contract = contract
-            .clone()
             .validate(
                 &asset_schema.schema_rules(),
                 &DumbResolver,
@@ -1604,14 +1759,9 @@ impl SinglesigParty {
             )
             .unwrap();
         stock
-            .import_contract(valid_contract, &rcv_party.wallet.blockchain_resolver())
+            .import_contract(valid_contract, &self.wallet.blockchain_resolver())
             .unwrap();
         txn.commit().unwrap();
-
-        rcv_party
-            .wallet
-            .save_new_asset(rcv_party.online, consignment, txid)
-            .unwrap();
     }
 
     #[cfg(feature = "_online")]
