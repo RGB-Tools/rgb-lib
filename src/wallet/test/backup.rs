@@ -326,3 +326,30 @@ fn backup_info() {
     let backup_required = wallet.backup_info().unwrap();
     assert!(!backup_required);
 }
+
+#[test]
+fn zip_zstd_round_trip() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let source = tempdir.path().join("wallet-fingerprint");
+    fs::create_dir_all(source.join("nested/empty")).unwrap();
+    fs::write(source.join("nested/payload"), b"wallet backup contents").unwrap();
+    let archive_path = tempdir.path().join("backup.zip");
+    let logger = Logger::root(slog::Discard, slog::o!());
+
+    zip_dir(&source, &archive_path, true, &logger).unwrap();
+    let mut archive = ZipArchive::new(fs::File::open(&archive_path).unwrap()).unwrap();
+    let entry = archive
+        .by_name("wallet-fingerprint/nested/payload")
+        .unwrap();
+    assert_eq!(entry.compression(), zip::CompressionMethod::Zstd);
+    drop(entry);
+    drop(archive);
+
+    let output = tempdir.path().join("restored");
+    unzip(&archive_path, &output, &logger).unwrap();
+    assert_eq!(
+        fs::read(output.join("wallet-fingerprint/nested/payload")).unwrap(),
+        b"wallet backup contents"
+    );
+    assert!(output.join("wallet-fingerprint/nested/empty").is_dir());
+}
