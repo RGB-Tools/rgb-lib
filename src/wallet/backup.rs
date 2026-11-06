@@ -596,4 +596,83 @@ mod tests {
         let result = zip_dir(&source, &tempdir.path().join("backup.zip"), false, &logger);
         assert!(matches!(result, Err(Error::IO { details }) if details.contains("unreadable")));
     }
+
+    #[test]
+    fn zip_zstd_round_trip() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let source = tempdir.path().join("wallet-fingerprint");
+        fs::create_dir_all(source.join("nested/empty")).unwrap();
+        // larger than the zip_dir copy buffer, so it gets written in multiple chunks
+        let payload: Vec<u8> = (0..10_000u32).map(|i| (i % 251) as u8).collect();
+        fs::write(source.join("nested/payload"), &payload).unwrap();
+        fs::write(source.join(LOG_FILE), b"must not be archived").unwrap();
+        let archive_path = tempdir.path().join("backup.zip");
+        let logger = slog::Logger::root(slog::Discard, slog::o!());
+
+        zip_dir(&source, &archive_path, true, &logger).unwrap();
+
+        // archive contains the wallet dir (empty dirs included), without the log file
+        {
+            let mut archive = ZipArchive::new(fs::File::open(&archive_path).unwrap()).unwrap();
+            let mut names = archive
+                .file_names()
+                .map(|n| n.unwrap().into_owned())
+                .collect::<Vec<_>>();
+            names.sort();
+            assert_eq!(
+                names,
+                [
+                    "wallet-fingerprint/",
+                    "wallet-fingerprint/nested/",
+                    "wallet-fingerprint/nested/empty/",
+                    "wallet-fingerprint/nested/payload",
+                ]
+            );
+            let entry = archive
+                .by_name("wallet-fingerprint/nested/payload")
+                .unwrap();
+            assert_eq!(entry.compression(), zip::CompressionMethod::Zstd);
+        }
+        assert_eq!(
+            get_fingerprint_from_zip(&archive_path).unwrap(),
+            "wallet-fingerprint"
+        );
+
+        let output = tempdir.path().join("restored");
+        unzip(&archive_path, &output, &logger).unwrap();
+        assert_eq!(
+            fs::read(output.join("wallet-fingerprint/nested/payload")).unwrap(),
+            payload
+        );
+        assert!(output.join("wallet-fingerprint/nested/empty").is_dir());
+        assert!(!output.join("wallet-fingerprint").join(LOG_FILE).exists());
+    }
+
+    #[test]
+    fn unzip_stays_inside_output_dir() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let archive_path = tempdir.path().join("malicious.zip");
+        let mut zip = ZipWriter::new(fs::File::create(&archive_path).unwrap());
+        for name in [
+            "../escaped",
+            "safe/../../escaped_nested",
+            "/absolute",
+            "safe/file",
+        ] {
+            zip.start_file(name, SimpleFileOptions::default()).unwrap();
+            zip.write_all(name.as_bytes()).unwrap();
+        }
+        zip.finish().unwrap();
+        let logger = slog::Logger::root(slog::Discard, slog::o!());
+
+        let output = tempdir.path().join("restored");
+        unzip(&archive_path, &output, &logger).unwrap();
+
+        // entries escaping the output dir are skipped
+        assert!(!tempdir.path().join("escaped").exists());
+        assert!(!tempdir.path().join("escaped_nested").exists());
+        // absolute paths are made relative to the output dir
+        assert_eq!(fs::read(output.join("absolute")).unwrap(), b"/absolute");
+        assert_eq!(fs::read(output.join("safe/file")).unwrap(), b"safe/file");
+    }
 }
