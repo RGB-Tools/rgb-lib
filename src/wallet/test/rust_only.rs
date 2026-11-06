@@ -94,8 +94,7 @@ fn success() {
     let fungible = fungible.as_fungible();
     assert_eq!(fungible.len(), 1);
     let fungible = fungible.first().unwrap();
-    let seal = fungible.revealed_seal().unwrap();
-    let state = fungible.as_revealed_state();
+    let (seal, state) = fungible.as_revealed().unwrap();
     assert_eq!(seal.txid, TxPtr::WitnessTx);
     assert_eq!(seal.vout.into_u32(), vout);
     assert_eq!(seal.blinding, blinding);
@@ -132,6 +131,25 @@ fn success() {
         .unwrap()
         .save_file(&consignment_path)
         .unwrap();
+
+    // the invoice must be reserved on the proxy before a consignment can be posted
+    let recipient_pk = hex::encode(gen_ed25519().verifying_key().to_bytes());
+    let proxy_client = get_proxy_client(Some(PROXY_URL));
+    proxy_client
+        .prepare_invoice(
+            &invoice_id(&txid, &recipient_pk),
+            &(now().unix_timestamp() + 3600).to_string(),
+            &recipient_pk,
+            None,
+        )
+        .unwrap();
+    post_test_consignment(
+        &proxy_client,
+        &txid,
+        &recipient_pk,
+        &consignment_path,
+        FAKE_HASH,
+    );
 
     // accept transfer
     recv_party
@@ -589,52 +607,6 @@ fn color_psbt_overflow_fail() {
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
-fn check_indexer_url_electrum_success() {
-    initialize();
-
-    let result = check_indexer_url(ELECTRUM_URL, BitcoinNetwork::Regtest);
-    assert_matches!(result, Ok(IndexerProtocol::Electrum));
-
-    let result = check_indexer_url(ELECTRUM_2_URL, BitcoinNetwork::Regtest);
-    assert_matches!(result, Ok(IndexerProtocol::Electrum));
-}
-
-#[cfg(feature = "electrum")]
-#[test]
-#[parallel]
-fn check_indexer_url_electrum_fail() {
-    initialize();
-
-    let result = check_indexer_url(ELECTRUM_BLOCKSTREAM_URL, BitcoinNetwork::Regtest);
-    let verbose_unsupported =
-        "verbose transactions are unsupported by the provided electrum service";
-    assert_matches!(result, Err(Error::InvalidIndexer { details: m }) if m.contains(verbose_unsupported));
-}
-
-#[cfg(feature = "esplora")]
-#[test]
-#[parallel]
-fn check_indexer_url_esplora_success() {
-    initialize();
-
-    let result = check_indexer_url(ESPLORA_URL, BitcoinNetwork::Regtest);
-    assert_matches!(result, Ok(IndexerProtocol::Esplora));
-}
-
-#[cfg(feature = "esplora")]
-#[test]
-#[parallel]
-fn check_indexer_url_esplora_fail() {
-    initialize();
-
-    let result = check_indexer_url(PROXY_URL, BitcoinNetwork::Regtest);
-    let invalid_indexer = s!("not a valid electrum nor esplora server");
-    assert_matches!(result, Err(Error::InvalidIndexer { details: m }) if m == invalid_indexer);
-}
-
-#[cfg(feature = "electrum")]
-#[test]
-#[parallel]
 fn check_proxy_url_success() {
     initialize();
 
@@ -796,6 +768,9 @@ fn save_new_asset_fail() {
         vec![Recipient {
             assignment: Assignment::Fungible(10),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: Some(WitnessData {
                 amount_sat: 1000,
                 blinding: None,
@@ -847,6 +822,9 @@ fn send_end_db_update_only_success() {
         vec![Recipient {
             assignment: Assignment::Fungible(10),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -860,6 +838,7 @@ fn send_end_db_update_only_success() {
             FEE_RATE,
             MIN_CONFIRMATIONS,
             default_send_expiration(),
+            Some(PROXY_ENDPOINT.clone()),
             false,
         )
         .unwrap();
@@ -868,7 +847,7 @@ fn send_end_db_update_only_success() {
 
     let result = party
         .wallet
-        .send_end_db_update_only(party.online, signed_psbt)
+        .send_end_db_update_only(party.online, signed_psbt.clone())
         .unwrap();
 
     assert!(!result.txid.is_empty());
@@ -878,6 +857,63 @@ fn send_end_db_update_only_success() {
         party
             .check_test_transfer_status_sender(&result.txid, TransferStatus::WaitingConfirmations,)
     );
+
+    // a donation that has already been ended cannot be ended again
+    let result_again = party
+        .wallet
+        .send_end_db_update_only(party.online, signed_psbt);
+    assert_matches!(result_again, Err(Error::CannotEndTransfer { txid }) if txid == result.txid);
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn send_end_db_update_only_wrong_operation() {
+    initialize();
+
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+
+    // a non-donation send
+    let asset = party.issue_asset_ifa(None, None, None);
+    let receive_data = rcv_party.blind_receive();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(10),
+            recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
+            witness_data: None,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let begin = party.send_begin_result(&recipient_map).unwrap();
+    let signed_psbt = party.wallet.sign_psbt(begin.psbt, None).unwrap();
+    let txid = Psbt::from_str(&signed_psbt)
+        .unwrap()
+        .unsigned_tx
+        .compute_txid()
+        .to_string();
+    let result = party
+        .wallet
+        .send_end_db_update_only(party.online, signed_psbt);
+    assert_matches!(result, Err(Error::WrongOperation { txid: t }) if t == txid);
+
+    // another operation
+    let asset = party.issue_asset_ifa(None, None, None);
+    let unsigned_psbt = party.burn_begin(&asset.asset_id, 1, None);
+    let signed_psbt = party.wallet.sign_psbt(unsigned_psbt, None).unwrap();
+    let txid = Psbt::from_str(&signed_psbt)
+        .unwrap()
+        .unsigned_tx
+        .compute_txid()
+        .to_string();
+    let result = party
+        .wallet
+        .send_end_db_update_only(party.online, signed_psbt);
+    assert_matches!(result, Err(Error::WrongOperation { txid: t }) if t == txid);
 }
 
 #[cfg(feature = "electrum")]
@@ -897,6 +933,9 @@ fn send_end_db_update_only_unknown_transfer() {
         vec![Recipient {
             assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -946,6 +985,9 @@ fn create_consignments_success() {
         vec![Recipient {
             assignment: Assignment::Fungible(10),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],

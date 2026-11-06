@@ -77,6 +77,47 @@ fn esplora_bitcoin_cli() -> Vec<String> {
     ]
 }
 
+// run a bitcoin-cli command on the node without a block filter index. The node is on its own
+// isolated chain that no other test observes, so no miner coordination nor indexer wait is needed
+// (bitcoind RPC reflects new blocks synchronously).
+#[cfg(feature = "bitcoind")]
+fn no_filters_node_cmd(args: &[&str]) -> String {
+    let compose_file = ["tests", "compose.yaml"].join(MAIN_SEPARATOR_STR);
+    let output = Command::new("docker")
+        .stdin(Stdio::null())
+        .arg("compose")
+        .args([
+            "-f",
+            &compose_file,
+            "exec",
+            "-T",
+            "-u",
+            "blits",
+            "bitcoind_no_filters",
+            "bitcoin-cli",
+            "-regtest",
+            "-rpcwallet=miner",
+        ])
+        .args(args)
+        .output()
+        .expect("failed to call the no-filters node");
+    assert!(
+        output.status.success(),
+        "no-filters node command {args:?} failed: {output:?}"
+    );
+    str::from_utf8(&output.stdout).unwrap().trim().to_string()
+}
+
+#[cfg(feature = "bitcoind")]
+pub(crate) fn fund_wallet_no_filters(address: &str) {
+    no_filters_node_cmd(&["sendtoaddress", address, "1"]);
+}
+
+#[cfg(feature = "bitcoind")]
+pub(crate) fn mine_no_filters(blocks: u32) {
+    no_filters_node_cmd(&["-generate", &blocks.to_string()]);
+}
+
 impl Miner {
     fn mine(&self, esplora: bool, blocks: u32) -> bool {
         if self.no_mine_count > 0 {
@@ -232,34 +273,25 @@ pub(crate) fn mine(esplora: bool) {
 }
 
 #[cfg(feature = "electrum")]
-pub fn get_tx_height(esplora: bool, txid: &str) -> Option<u64> {
-    let indexer_url = if esplora {
-        ESPLORA_URL
-    } else {
-        #[cfg(feature = "electrum")]
-        {
-            ELECTRUM_URL
-        }
-        #[cfg(not(feature = "electrum"))]
-        {
-            panic!("electrum indexer unavailable without electrum feature")
-        }
+pub fn get_tx_height(txid: &str) -> Option<u64> {
+    let indexer_config = IndexerConfig::Electrum {
+        url: ELECTRUM_URL.to_string(),
     };
-    let indexer = build_indexer(indexer_url).expect("cannot get indexer");
+    let indexer = build_indexer(&indexer_config).expect("cannot get indexer");
     indexer.get_tx_confirmations(txid).unwrap()
 }
 
 #[cfg(feature = "electrum")]
-pub fn mine_tx(esplora: bool, txid: &str) {
+pub fn mine_tx(txid: &str) {
     println!("trying to have TX {txid} mined");
     for _ in 0..10 {
-        if let Some(conf_num) = get_tx_height(esplora, txid)
+        if let Some(conf_num) = get_tx_height(txid)
             && conf_num > 0
         {
             println!("TX with ID {txid} has been mined");
             return;
         }
-        mine(esplora);
+        mine(false);
     }
     panic!("TX is not getting mined");
 }
@@ -412,24 +444,36 @@ pub(crate) fn wait_indexers_sync() {
             .expect("could not parse blockcount");
         max_blockcount = std::cmp::max(blockcount, max_blockcount);
     }
+    // bitcoind is queried directly, so there is no indexer to wait for
+    #[cfg(not(any(feature = "electrum", feature = "esplora")))]
+    let _ = (t_0, max_blockcount);
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
     loop {
         std::thread::sleep(std::time::Duration::from_millis(100));
         let mut all_synced = true;
 
-        let indexer_urls = vec![
+        let indexer_configs = vec![
             #[cfg(feature = "electrum")]
-            ELECTRUM_URL,
+            IndexerConfig::Electrum {
+                url: ELECTRUM_URL.to_string(),
+            },
             #[cfg(feature = "electrum")]
-            ELECTRUM_2_URL,
+            IndexerConfig::Electrum {
+                url: ELECTRUM_2_URL.to_string(),
+            },
             #[cfg(feature = "electrum")]
-            ELECTRUM_BLOCKSTREAM_URL,
+            IndexerConfig::Electrum {
+                url: ELECTRUM_BLOCKSTREAM_URL.to_string(),
+            },
             #[cfg(feature = "esplora")]
-            ESPLORA_URL,
+            IndexerConfig::Esplora {
+                url: ESPLORA_URL.to_string(),
+            },
         ];
 
-        for indexer_url in indexer_urls {
-            let err_msg = format!("cannot get indexer {indexer_url}");
-            let indexer = build_indexer(indexer_url).expect(&err_msg);
+        for indexer_config in indexer_configs {
+            let err_msg = format!("cannot get indexer {}", indexer_config.url());
+            let indexer = build_indexer(&indexer_config).expect(&err_msg);
             if indexer.block_hash(max_blockcount as usize).is_err() {
                 all_synced = false;
             }

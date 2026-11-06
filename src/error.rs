@@ -6,7 +6,7 @@
 use super::*;
 
 /// The error variants returned by functions.
-#[derive(Debug, Clone, PartialEq, thiserror::Error, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Deserialize, Serialize)]
 pub enum Error {
     /// No need to create more allocations
     #[error("Allocations already available")]
@@ -46,6 +46,13 @@ pub enum Error {
     #[error("Batch transfer cannot be deleted")]
     CannotDeleteBatchTransfer,
 
+    /// The transfer has already failed or progressed, so it cannot be ended again
+    #[error("Transfer cannot be ended: {txid}")]
+    CannotEndTransfer {
+        /// Transfer TXID
+        txid: String,
+    },
+
     /// Cannot estimate fees
     #[error("Cannot estimate fees")]
     CannotEstimateFees,
@@ -83,12 +90,23 @@ pub enum Error {
         details: String,
     },
 
+    /// Two proxy authentication key entries resolve to the same proxy URL
+    #[error("Duplicate proxy authentication key: {details}")]
+    DuplicateProxyAuthKey {
+        /// Error details
+        details: String,
+    },
+
     /// The provided file is empty
     #[error("Empty file: {file_path}")]
     EmptyFile {
         /// File path
         file_path: String,
     },
+
+    /// The provided expiration is invalid (in the past or too far in the future)
+    #[error("Invalid expiration")]
+    ExpirationInvalid,
 
     /// Syncing BDK with the blockchain has failed
     #[error("Failed bdk sync: {details}")]
@@ -121,6 +139,10 @@ pub enum Error {
     /// The master fingerprint derived from the mnemonic doesn't match the provided one
     #[error("Fingerprint mismatch")]
     FingerprintMismatch,
+
+    /// A proxy payload, decrypted if it was encrypted, doesn't match its expected hash
+    #[error("Hash mismatch")]
+    HashMismatch,
 
     /// An I/O error has been encountered
     #[error("I/O error: {details}")]
@@ -160,7 +182,7 @@ pub enum Error {
     InsufficientAllocationSlots,
 
     /// There are not enough assignments of the requested asset to fulfill the request
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     #[error("Insufficient total assignments for asset: {asset_id}")]
     InsufficientAssignments {
         /// Asset ID
@@ -218,6 +240,13 @@ pub enum Error {
         network: String,
     },
 
+    /// The provided burn reason is invalid
+    #[error("Invalid burn reason: {details}")]
+    InvalidBurnReason {
+        /// Error details
+        details: String,
+    },
+
     /// The provided coloring info is invalid
     #[error("Invalid coloring info")]
     InvalidColoringInfo {
@@ -228,6 +257,10 @@ pub enum Error {
     /// The consignment is invalid
     #[error("Invalid consignment")]
     InvalidConsignment,
+
+    /// The content signature was rejected as invalid
+    #[error("Invalid content signature")]
+    InvalidContentSignature,
 
     /// The provided cosigner is invalid
     #[error("Invalid cosigner: {details}")]
@@ -254,6 +287,17 @@ pub enum Error {
         /// Error details
         details: String,
     },
+
+    /// A proxy payload is malformed or cannot be decrypted
+    #[error("Invalid encrypted blob: {details}")]
+    InvalidEncryptedBlob {
+        /// Error details
+        details: String,
+    },
+
+    /// The endpoint signature was rejected as invalid
+    #[error("Invalid endpoint auth signature")]
+    InvalidEndpointAuthSignature,
 
     /// Trying to request fee estimation for an invalid block number, it must be between 1 and 1008
     #[error("Trying to request fee estimation for an invalid block number")]
@@ -324,6 +368,17 @@ pub enum Error {
         /// Error details
         details: String,
     },
+
+    /// The provided proxy authentication key is invalid
+    #[error("Invalid proxy authentication key: {details}")]
+    InvalidProxyAuthKey {
+        /// Error details
+        details: String,
+    },
+
+    /// The proxy auth signature was rejected as invalid
+    #[error("Invalid proxy auth signature")]
+    InvalidProxyAuthSignature,
 
     /// The provided proxy URL points to a proxy running an unsupported protocol version
     #[error("Invalid proxy protocol version: {version}")]
@@ -408,6 +463,19 @@ pub enum Error {
         witness_version: String,
     },
 
+    /// The recipient proxy refused the transfer as the invoice has expired, or the invoice
+    /// expiration has passed before the transfer could be created
+    #[error("Invoice expired")]
+    InvoiceExpired,
+
+    /// The invoice has not been reserved on the recipient proxy
+    #[error("Invoice not reserved")]
+    InvoiceNotReserved,
+
+    /// The invoice cannot accept more transfers on the recipient proxy
+    #[error("Invoice quota exceeded")]
+    InvoiceQuotaExceeded,
+
     /// The maximum fee has been exceeded
     #[error("Max fee exceeded for transfer with TXID: {txid}")]
     MaxFeeExceeded {
@@ -441,6 +509,16 @@ pub enum Error {
     MultisigHubService {
         /// Error details
         details: String,
+    },
+
+    /// The operation was created with the previous proxy protocol and cannot be processed; the
+    /// hub sync does not move past it, as the group must be drained with the previous version
+    #[error(
+        "Operation with idx {operation_idx} was created with the previous proxy protocol, the group must be drained with the previous version"
+    )]
+    MultisigLegacyOperation {
+        /// Operation idx
+        operation_idx: i32,
     },
 
     /// Cannot initiate a new operation while another is in progress
@@ -504,6 +582,10 @@ pub enum Error {
     #[error("Cannot allocate assets with zero allocations per UTXO")]
     NoMaxAllocationsPerUtxo,
 
+    /// No media found
+    #[error("No media found")]
+    NoMedia,
+
     /// Cannot create a wallet with no supported schemas
     #[error("Cannot create a wallet with no supported schemas")]
     NoSupportedSchemas,
@@ -520,6 +602,14 @@ pub enum Error {
     #[error("The Online object is needed to perform this operation")]
     OnlineNeeded,
 
+    /// The proxy operation has expired
+    #[error("Operation expired")]
+    OperationExpired,
+
+    /// The proxy operation was not found
+    #[error("Operation not found")]
+    OperationNotFound,
+
     /// Output created is under the dust limit
     #[error("Output below the dust limit")]
     OutputBelowDustLimit,
@@ -530,6 +620,25 @@ pub enum Error {
         /// Error details
         details: String,
     },
+
+    /// The proxy rejected a change to immutable operation data
+    #[error("Proxy cannot change: {details}")]
+    ProxyCannotChange {
+        /// Error details
+        details: String,
+    },
+
+    /// The proxy is draining and doesn't accept new transfers
+    #[error("Proxy draining")]
+    ProxyDraining,
+
+    /// The proxy doesn't accept any more media for the transfer
+    #[error("Proxy doesn't accept so many media")]
+    ProxyTooManyMedia,
+
+    /// The signed TX was already released to a recipient, so it can no longer be revoked
+    #[error("TX already released")]
+    ProxyTxAlreadyReleased,
 
     /// Error during PSBT inspection
     #[error("Error during PSBT inspection: {details}")]
@@ -567,6 +676,10 @@ pub enum Error {
         details: String,
     },
 
+    /// The proxy's registered signed TX for this operation was previously cleared
+    #[error("Signed TX was cleared")]
+    SignedTxCleared,
+
     /// The inflation amount exceeds the max possible supply
     #[error("The inflation amount exceeds the max possible supply")]
     TooHighInflationAmounts,
@@ -582,6 +695,14 @@ pub enum Error {
     /// PSBT has too many signatures
     #[error("PSBT has too many signatures")]
     TooManySignaturesInPsbt,
+
+    /// The transfer ID has been deleted on the recipient proxy and cannot be reused
+    #[error("Transfer ID deleted")]
+    TransferIDDeleted,
+
+    /// The transfer ID is already in use by a different operation on the sender proxy
+    #[error("Transfer ID in use")]
+    TransferIDInUse,
 
     /// The detected RGB schema is unknown
     #[error("Unknown RGB schema: {schema_id}")]
@@ -667,13 +788,25 @@ pub enum Error {
     #[error("Operation not allowed on watch only wallet")]
     WatchOnly,
 
+    /// The PSBT belongs to a different kind of operation than the expected one
+    #[error("PSBT belongs to a different operation: {txid}")]
+    WrongOperation {
+        /// TXID of the PSBT
+        txid: String,
+    },
+
     /// The provided password is incorrect
     #[error("The provided password is incorrect")]
     WrongPassword,
 }
 
+#[cfg(feature = "wallet")]
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum IndexerError {
+    #[cfg(feature = "bitcoind")]
+    #[error("Bitcoind error: {0}")]
+    Bitcoind(#[from] BitcoindRpcError),
+
     #[cfg(feature = "electrum")]
     #[error("Electrum error: {0}")]
     Electrum(#[from] ElectrumError),
@@ -683,9 +816,10 @@ pub(crate) enum IndexerError {
     Esplora(#[from] EsploraError),
 }
 
+#[cfg(feature = "wallet")]
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum InternalError {
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     #[error("API error: {0}")]
     Api(#[from] reqwest::Error),
 
@@ -752,12 +886,6 @@ pub(crate) enum InternalError {
     #[error("Serde JSON error: {0}")]
     SerdeJSON(#[from] serde_json::Error),
 
-    #[error("Stash error: {0}")]
-    StashError(String),
-
-    #[error("Stock error: {0}")]
-    StockError(String),
-
     #[error("Strip prefix error: {0}")]
     StripPrefix(#[from] std::path::StripPrefixError),
 
@@ -771,6 +899,7 @@ pub(crate) enum InternalError {
     ZipError(#[from] zip::result::ZipError),
 }
 
+#[cfg(feature = "wallet")]
 impl From<bdk_wallet::keys::bip39::Error> for Error {
     fn from(e: bdk_wallet::keys::bip39::Error) -> Self {
         Error::InvalidMnemonic {
@@ -779,6 +908,7 @@ impl From<bdk_wallet::keys::bip39::Error> for Error {
     }
 }
 
+#[cfg(feature = "wallet")]
 impl From<bdk_wallet::bitcoin::bip32::Error> for Error {
     fn from(e: bdk_wallet::bitcoin::bip32::Error) -> Self {
         Error::InvalidPubkey {
@@ -787,6 +917,7 @@ impl From<bdk_wallet::bitcoin::bip32::Error> for Error {
     }
 }
 
+#[cfg(feature = "wallet")]
 impl From<bdk_wallet::bitcoin::psbt::PsbtParseError> for Error {
     fn from(e: bdk_wallet::bitcoin::psbt::PsbtParseError) -> Self {
         Error::InvalidPsbt {
@@ -795,6 +926,7 @@ impl From<bdk_wallet::bitcoin::psbt::PsbtParseError> for Error {
     }
 }
 
+#[cfg(feature = "wallet")]
 impl From<IndexerError> for Error {
     fn from(e: IndexerError) -> Self {
         Error::Indexer {
@@ -803,7 +935,7 @@ impl From<IndexerError> for Error {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl From<reqwest::Error> for Error {
     fn from(e: reqwest::Error) -> Self {
         Error::RestClientBuild {
@@ -812,92 +944,63 @@ impl From<reqwest::Error> for Error {
     }
 }
 
+#[cfg(feature = "wallet")]
 impl From<bdk_wallet::bitcoin::psbt::ExtractTxError> for InternalError {
     fn from(e: bdk_wallet::bitcoin::psbt::ExtractTxError) -> Self {
         InternalError::BdkExtractTxError(e.to_string())
     }
 }
 
+#[cfg(feature = "wallet")]
 impl From<psrgbt::CommitError> for InternalError {
     fn from(e: psrgbt::CommitError) -> Self {
         InternalError::Commit(e.to_string())
     }
 }
 
+#[cfg(feature = "wallet")]
 impl From<psrgbt::RgbPsbtError> for InternalError {
     fn from(e: psrgbt::RgbPsbtError) -> Self {
         InternalError::RgbPsbtError(e.to_string())
     }
 }
 
+#[cfg(feature = "wallet")]
 impl From<psrgbt::OpretKeyError> for InternalError {
     fn from(e: psrgbt::OpretKeyError) -> Self {
         InternalError::RgbPsbtError(e.to_string())
     }
 }
 
+#[cfg(feature = "wallet")]
 impl From<psrgbt::MpcPsbtError> for InternalError {
     fn from(e: psrgbt::MpcPsbtError) -> Self {
         InternalError::RgbPsbtError(e.to_string())
     }
 }
 
-impl From<rgbstd::persistence::StashProviderError<std::convert::Infallible>> for InternalError {
-    fn from(e: rgbstd::persistence::StashProviderError<std::convert::Infallible>) -> Self {
-        InternalError::StashError(e.to_string())
+#[cfg(feature = "wallet")]
+impl<E: std::error::Error> From<StockError<&DbTxn, E>> for Error {
+    fn from(e: StockError<&DbTxn, E>) -> Self {
+        match e {
+            // the stock store is rgb-lib's own database layer, so its failures
+            // already are `Error`s and get reported as-is
+            StockError::Store(e) => e,
+            // failures reported by the witness resolver, i.e. by the indexer
+            StockError::Resolver(details) => Error::Indexer { details },
+            StockError::WitnessUnresolved(txid, e) => Error::Indexer {
+                details: format!("cannot resolve witness {txid}: {e}"),
+            },
+            // anything else is invalid input or inconsistent RGB data, which
+            // can only happen in case of a bug
+            e => Error::Internal {
+                details: format!("Stock err: {e}"),
+            },
+        }
     }
 }
 
-impl From<rgbstd::persistence::StockError> for InternalError {
-    fn from(e: rgbstd::persistence::StockError) -> Self {
-        InternalError::StockError(e.to_string())
-    }
-}
-
-impl
-    From<
-        rgbstd::persistence::StockError<
-            rgbstd::persistence::MemStash,
-            rgbstd::persistence::MemState,
-            rgbstd::persistence::MemIndex,
-            rgbstd::persistence::ConsignError,
-        >,
-    > for InternalError
-{
-    fn from(
-        e: rgbstd::persistence::StockError<
-            rgbstd::persistence::MemStash,
-            rgbstd::persistence::MemState,
-            rgbstd::persistence::MemIndex,
-            rgbstd::persistence::ConsignError,
-        >,
-    ) -> Self {
-        InternalError::StockError(e.to_string())
-    }
-}
-
-impl
-    From<
-        rgbstd::persistence::StockError<
-            rgbstd::persistence::MemStash,
-            rgbstd::persistence::MemState,
-            rgbstd::persistence::MemIndex,
-            rgbstd::persistence::FasciaError,
-        >,
-    > for InternalError
-{
-    fn from(
-        e: rgbstd::persistence::StockError<
-            rgbstd::persistence::MemStash,
-            rgbstd::persistence::MemState,
-            rgbstd::persistence::MemIndex,
-            rgbstd::persistence::FasciaError,
-        >,
-    ) -> Self {
-        InternalError::StockError(e.to_string())
-    }
-}
-
+#[cfg(feature = "wallet")]
 impl From<rgbinvoice::TransportParseError> for Error {
     fn from(e: rgbinvoice::TransportParseError) -> Self {
         Error::InvalidTransportEndpoint {
@@ -906,6 +1009,7 @@ impl From<rgbinvoice::TransportParseError> for Error {
     }
 }
 
+#[cfg(feature = "wallet")]
 impl From<bdk_wallet::LoadError> for Error {
     fn from(e: bdk_wallet::LoadError) -> Self {
         match e {
@@ -929,6 +1033,7 @@ impl From<std::io::Error> for Error {
     }
 }
 
+#[cfg(feature = "wallet")]
 impl From<InternalError> for Error {
     fn from(e: InternalError) -> Self {
         Error::Internal {
@@ -937,6 +1042,7 @@ impl From<InternalError> for Error {
     }
 }
 
+#[cfg(feature = "wallet")]
 impl From<sea_orm::DbErr> for Error {
     fn from(e: sea_orm::DbErr) -> Self {
         Error::Database {
@@ -945,6 +1051,7 @@ impl From<sea_orm::DbErr> for Error {
     }
 }
 
+#[cfg(feature = "wallet")]
 impl From<rgbstd::contract::BuilderError> for Error {
     fn from(e: rgbstd::contract::BuilderError) -> Self {
         Error::Internal {
@@ -953,7 +1060,7 @@ impl From<rgbstd::contract::BuilderError> for Error {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "wallet"))]
 mod tests {
     use super::*;
 
@@ -1004,13 +1111,19 @@ mod tests {
         assert_matches!(err, Error::Internal { details } if !details.is_empty());
 
         // IndexerError error
+        #[cfg(feature = "bitcoind")]
+        {
+            let err = IndexerError::Bitcoind(BitcoindRpcError::ReturnedError(s!("boom")));
+            let err = Error::from(err);
+            assert_matches!(err, Error::Indexer { details } if !details.is_empty());
+        }
         #[cfg(feature = "electrum")]
         {
             let err = IndexerError::Electrum(ElectrumError::MissingDomain);
             let err = Error::from(err);
             assert_matches!(err, Error::Indexer { details } if !details.is_empty());
         }
-        #[cfg(all(feature = "esplora", not(feature = "electrum")))]
+        #[cfg(feature = "esplora")]
         {
             let err = IndexerError::Esplora(EsploraError::InvalidResponse);
             let err = Error::from(err);
@@ -1093,30 +1206,5 @@ mod tests {
         let err = psrgbt::CommitError::Rgb(psrgbt::RgbPsbtError::NoContracts);
         let err = InternalError::from(err);
         assert_matches!(err, InternalError::Commit(ref e) if !e.is_empty());
-
-        // StockError errors
-        let err: rgbstd::persistence::StockError<
-            rgbstd::persistence::MemStash,
-            rgbstd::persistence::MemState,
-            rgbstd::persistence::MemIndex,
-            rgbstd::persistence::FasciaError,
-        > = rgbstd::persistence::StockError::AbsentValidWitness;
-        let err = InternalError::from(err);
-        assert_matches!(err, InternalError::StockError(ref e) if !e.is_empty());
-        let err: rgbstd::persistence::StockError<
-            rgbstd::persistence::MemStash,
-            rgbstd::persistence::MemState,
-            rgbstd::persistence::MemIndex,
-            rgbstd::persistence::ConsignError,
-        > = rgbstd::persistence::StockError::AbsentValidWitness;
-        let err = InternalError::from(err);
-        assert_matches!(err, InternalError::StockError(ref e) if !e.is_empty());
-        let err: rgbstd::persistence::StockError<
-            rgbstd::persistence::MemStash,
-            rgbstd::persistence::MemState,
-            rgbstd::persistence::MemIndex,
-        > = rgbstd::persistence::StockError::Resolver(s!("test"));
-        let err = InternalError::from(err);
-        assert_matches!(err, InternalError::StockError(ref e) if !e.is_empty());
     }
 }

@@ -1,5 +1,6 @@
 mod bdk;
 pub(crate) mod entities;
+pub(crate) mod rgb;
 
 use super::*;
 
@@ -7,8 +8,10 @@ use crate::database::entities::{
     asset, asset_transfer, batch_transfer, coloring, media, prelude::*, transfer,
     transfer_transport_endpoint, transport_endpoint, txo, wallet_transaction,
 };
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 use crate::database::entities::{pending_witness_script, reserved_txo};
+#[cfg(feature = "_online")]
+use sea_orm::RelationTrait;
 
 /// Max number of values bound in a single `IN (...)` clause, well below SQLite's variable limit.
 const SQL_IN_CHUNK_SIZE: usize = 500;
@@ -26,7 +29,7 @@ fn select_in_chunks<T>(
 }
 
 #[derive(Debug, Clone)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) struct DbAssetTransferData {
     pub(crate) asset_transfer: DbAssetTransfer,
     pub(crate) transfers: Vec<DbTransfer>,
@@ -44,7 +47,7 @@ impl DbBatchTransfer {
             .collect()
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn get_transfers(
         &self,
         asset_transfers: &[DbAssetTransfer],
@@ -68,7 +71,7 @@ impl DbBatchTransfer {
         })
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn get_incoming_transfer(
         &self,
         asset_transfers: &[DbAssetTransfer],
@@ -90,7 +93,31 @@ impl DbBatchTransfer {
         self.status.failed()
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
+    /// Whether the transfer was created before the proxy protocol v1.0 (sender proxy, signed
+    /// ACKs, encryption): such a transfer has no operation key and, since the protocol keeps no
+    /// backward compatibility, can no longer be completed through a proxy.
+    pub(crate) fn is_legacy(&self) -> bool {
+        self.operation_secret_key.is_none()
+    }
+
+    #[cfg(feature = "_online")]
+    /// Whether the transfer has expired at `now`. Only operations with a counterparty (sends and
+    /// receives) carry an expiration, which the public API requires; the ones without (burn,
+    /// inflation) have none and never expire, as they are broadcast right away and wait for nobody.
+    pub(crate) fn is_expired(&self, now: i64) -> bool {
+        self.expiration.is_some_and(|expiration| expiration < now)
+    }
+
+    #[cfg(feature = "_online")]
+    /// Whether the transfer expiration has passed at `now` by more than `margin` seconds, so it has
+    /// passed for a counterparty whose clock is up to `margin` seconds behind this wallet's too.
+    pub(crate) fn is_expired_with_margin(&self, now: i64, margin: u32) -> bool {
+        self.expiration
+            .is_some_and(|expiration| expiration + i64::from(margin) < now)
+    }
+
+    #[cfg(feature = "_online")]
     pub(crate) fn waiting(&self) -> bool {
         self.status.waiting()
     }
@@ -99,14 +126,14 @@ impl DbBatchTransfer {
         self.status.waiting_confirmations()
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn is_fallible(&self) -> bool {
         self.status.is_fallible()
     }
 }
 
 #[derive(Debug, Clone)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) struct DbBatchTransferData {
     pub(crate) asset_transfers_data: Vec<DbAssetTransferData>,
 }
@@ -169,7 +196,7 @@ impl DbTransfer {
         (asset_transfer.clone(), batch_transfer.clone())
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn uses_out_of_band_exchange(&self) -> bool {
         self.invoice_string
             .as_deref()
@@ -272,6 +299,14 @@ pub struct DbTxn {
     on_commit: Mutex<Vec<Box<dyn FnOnce() + Send>>>,
 }
 
+// required by the rgb-ops `RgbStore` trait (implemented on `&DbTxn`); the inner
+// transaction is not `Debug`
+impl std::fmt::Debug for DbTxn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DbTxn").finish_non_exhaustive()
+    }
+}
+
 impl Drop for DbTxn {
     fn drop(&mut self) {
         if let Some(txn) = self.txn.take() {
@@ -295,6 +330,37 @@ impl DbTxn {
             .lock()
             .expect("on_commit mutex is never poisoned")
             .push(Box::new(f));
+    }
+
+    /// Run `f` inside a savepoint of this transaction.
+    ///
+    /// If `f` succeeds its changes are kept (and become durable only once this transaction
+    /// commits), otherwise they are rolled back without affecting the rest of this transaction.
+    /// Callbacks registered by `f` are moved to this transaction on success and dropped otherwise.
+    #[cfg(feature = "_online")]
+    pub(crate) fn with_savepoint<T>(
+        &self,
+        f: impl FnOnce(&DbTxn) -> Result<T, Error>,
+    ) -> Result<T, Error> {
+        let mut savepoint = DbTxn {
+            txn: Some(block_on(self.inner().begin())?),
+            on_commit: Mutex::new(Vec::new()),
+        };
+        // on error the savepoint is dropped, which rolls it back
+        let res = f(&savepoint)?;
+        let txn = savepoint.txn.take().expect("txn already consumed");
+        block_on(txn.commit())?;
+        let callbacks = std::mem::take(
+            &mut *savepoint
+                .on_commit
+                .lock()
+                .expect("on_commit mutex is never poisoned"),
+        );
+        self.on_commit
+            .lock()
+            .expect("on_commit mutex is never poisoned")
+            .extend(callbacks);
+        Ok(res)
     }
 
     pub(crate) fn commit(mut self) -> Result<(), Error> {
@@ -358,7 +424,7 @@ impl DbTxn {
         Ok(res.last_insert_id)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn set_reserved_txos(
         &self,
         reserved_txos: Vec<DbReservedTxoActMod>,
@@ -400,7 +466,7 @@ impl DbTxn {
         Ok(res.last_insert_id)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn set_txo(&self, txo: DbTxoActMod) -> Result<i32, Error> {
         let mut on_conflict =
             sea_query::OnConflict::columns([txo::Column::Txid, txo::Column::Vout]);
@@ -445,7 +511,7 @@ impl DbTxn {
         Ok(idx)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn set_wallet_transaction(
         &self,
         wallet_transaction: DbWalletTransactionActMod,
@@ -454,7 +520,7 @@ impl DbTxn {
         Ok(res.last_insert_id)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn update_transfer(
         &self,
         transfer: &mut DbTransferActMod,
@@ -464,12 +530,12 @@ impl DbTxn {
         )?)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn update_asset(&self, asset: &mut DbAssetActMod) -> Result<DbAsset, Error> {
         Ok(block_on(Asset::update(asset.clone()).exec(self.inner()))?)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn update_asset_transfer(
         &self,
         asset_transfer: &mut DbAssetTransferActMod,
@@ -488,7 +554,7 @@ impl DbTxn {
         )?)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn update_batch_transfer(
         &self,
         batch_transfer: &mut DbBatchTransferActMod,
@@ -500,7 +566,7 @@ impl DbTxn {
         )?)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn update_transfer_transport_endpoint(
         &self,
         transfer_transport_endpoint: &mut DbTransferTransportEndpointActMod,
@@ -511,7 +577,7 @@ impl DbTxn {
         )?)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn update_txo(&self, txo: DbTxoActMod) -> Result<(), Error> {
         block_on(Txo::update(txo).exec(self.inner()))?;
         Ok(())
@@ -536,7 +602,7 @@ impl DbTxn {
         Ok(())
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn del_pending_witness_script(&self, script: String) -> Result<(), Error> {
         block_on(
             PendingWitnessScript::delete_many()
@@ -546,12 +612,50 @@ impl DbTxn {
         Ok(())
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn del_reserved_txos(&self, reserved_txos: &[DbReservedTxo]) -> Result<(), Error> {
         let idxs = reserved_txos.iter().map(|r| r.idx).collect::<Vec<_>>();
         block_on(
             ReservedTxo::delete_many()
                 .filter(reserved_txo::Column::Idx.is_in(idxs))
+                .exec(self.inner()),
+        )?;
+        Ok(())
+    }
+
+    #[cfg(feature = "_online")]
+    pub(crate) fn del_colored_reserved_txos_by_outpoints(
+        &self,
+        outpoints: &[Outpoint],
+    ) -> Result<(), Error> {
+        if outpoints.is_empty() {
+            return Ok(());
+        }
+        let mut condition = Condition::any();
+        for outpoint in outpoints {
+            condition = condition.add(
+                Condition::all()
+                    .add(reserved_txo::Column::Txid.eq(outpoint.txid.clone()))
+                    .add(reserved_txo::Column::Vout.eq(outpoint.vout)),
+            );
+        }
+        block_on(
+            ReservedTxo::delete_many()
+                .filter(reserved_txo::Column::ReservedForColored.is_not_null())
+                .filter(condition)
+                .exec(self.inner()),
+        )?;
+        Ok(())
+    }
+
+    #[cfg(feature = "_online")]
+    pub(crate) fn del_reserved_txos_for_batch_transfer(
+        &self,
+        batch_transfer_idx: i32,
+    ) -> Result<(), Error> {
+        block_on(
+            ReservedTxo::delete_many()
+                .filter(reserved_txo::Column::ReservedForColored.eq(batch_transfer_idx))
                 .exec(self.inner()),
         )?;
         Ok(())
@@ -594,6 +698,53 @@ impl DbTxn {
         )?)
     }
 
+    #[cfg(feature = "_online")]
+    pub(crate) fn get_batch_transfer_transfers(
+        &self,
+        batch_transfer_idx: i32,
+    ) -> Result<Vec<DbTransfer>, Error> {
+        Ok(block_on(
+            Transfer::find()
+                .join(JoinType::InnerJoin, transfer::Relation::AssetTransfer.def())
+                .filter(asset_transfer::Column::BatchTransferIdx.eq(batch_transfer_idx))
+                .all(self.inner()),
+        )?)
+    }
+
+    /// The transfers of incoming batch transfers that are pending or that have failed after
+    /// `failed_since`, each with its batch transfer.
+    #[cfg(feature = "_online")]
+    pub(crate) fn get_pending_or_recently_failed_incoming_transfers(
+        &self,
+        failed_since: i64,
+    ) -> Result<Vec<(DbTransfer, DbBatchTransfer)>, Error> {
+        let pending_statuses: Vec<TransferStatus> =
+            TransferStatus::iter().filter(|s| s.pending()).collect();
+        Ok(block_on(
+            Transfer::find()
+                .join(JoinType::InnerJoin, transfer::Relation::AssetTransfer.def())
+                .join(
+                    JoinType::InnerJoin,
+                    asset_transfer::Relation::BatchTransfer.def(),
+                )
+                .filter(batch_transfer::Column::Incoming.eq(true))
+                .filter(
+                    Condition::any()
+                        .add(batch_transfer::Column::Status.is_in(pending_statuses))
+                        .add(
+                            Condition::all()
+                                .add(batch_transfer::Column::Status.eq(TransferStatus::Failed))
+                                .add(batch_transfer::Column::UpdatedAt.gt(failed_since)),
+                        ),
+                )
+                .select_also(BatchTransfer)
+                .all(self.inner()),
+        )?
+        .into_iter()
+        .map(|(t, b)| (t, b.expect("should be connected")))
+        .collect())
+    }
+
     pub(crate) fn get_media(&self, media_idx: i32) -> Result<Option<DbMedia>, Error> {
         Ok(block_on(Media::find_by_id(media_idx).one(self.inner()))?)
     }
@@ -603,6 +754,19 @@ impl DbTxn {
             Media::find()
                 .filter(media::Column::Digest.eq(digest))
                 .one(self.inner()),
+        )?)
+    }
+
+    #[cfg(feature = "_online")]
+    pub(crate) fn get_receive_colorings_by_txo_idxs(
+        &self,
+        txo_idxs: Vec<i32>,
+    ) -> Result<Vec<DbColoring>, Error> {
+        Ok(block_on(
+            Coloring::find()
+                .filter(coloring::Column::TxoIdx.is_in(txo_idxs))
+                .filter(coloring::Column::Type.eq(ColoringType::Receive))
+                .all(self.inner()),
         )?)
     }
 
@@ -671,11 +835,20 @@ impl DbTxn {
         Ok(block_on(Media::find().all(self.inner()))?)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn iter_pending_witness_scripts(
         &self,
     ) -> Result<Vec<DbPendingWitnessScript>, Error> {
         Ok(block_on(PendingWitnessScript::find().all(self.inner()))?)
+    }
+
+    #[cfg(feature = "_online")]
+    pub(crate) fn iter_pending_witness_txos(&self) -> Result<Vec<DbTxo>, Error> {
+        Ok(block_on(
+            Txo::find()
+                .filter(txo::Column::PendingWitness.eq(true))
+                .all(self.inner()),
+        )?)
     }
 
     pub(crate) fn iter_reserved_txos(&self) -> Result<Vec<DbReservedTxo>, Error> {
@@ -702,7 +875,30 @@ impl DbTxn {
         Ok(block_on(WalletTransaction::find().all(self.inner()))?)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    // helper to retrieve transfers for an asset without scanning the full tables
+    #[cfg(feature = "_online")]
+    pub(crate) fn get_transfers_for_asset(
+        &self,
+        batch_transfer_idx: i32,
+        asset_id: &str,
+    ) -> Result<Vec<DbTransfer>, Error> {
+        let Some(asset_transfer) = block_on(
+            AssetTransfer::find()
+                .filter(asset_transfer::Column::BatchTransferIdx.eq(batch_transfer_idx))
+                .filter(asset_transfer::Column::AssetId.eq(asset_id))
+                .one(self.inner()),
+        )?
+        else {
+            return Ok(vec![]);
+        };
+        Ok(block_on(
+            Transfer::find()
+                .filter(transfer::Column::AssetTransferIdx.eq(asset_transfer.idx))
+                .all(self.inner()),
+        )?)
+    }
+
+    #[cfg(feature = "_online")]
     pub(crate) fn get_transfer_transport_endpoints_data(
         &self,
         transfer_idx: i32,
@@ -975,11 +1171,6 @@ impl DbTxn {
                 .expect("pending outgoing cannot exceed available balance"),
             spendable,
         })
-    }
-
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
-    pub(crate) fn get_asset_ids(&self) -> Result<Vec<String>, Error> {
-        Ok(self.iter_assets()?.into_iter().map(|a| a.id).collect())
     }
 
     pub(crate) fn check_asset_exists(&self, asset_id: String) -> Result<DbAsset, Error> {

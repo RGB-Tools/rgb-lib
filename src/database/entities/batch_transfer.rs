@@ -23,6 +23,9 @@ pub struct Model {
     pub expiration: Option<i64>,
     pub min_confirmations: u8,
     pub incoming: bool,
+    pub operation_secret_key: Option<Vec<u8>>,
+    pub broadcast_deadline: Option<i64>,
+    pub retention_deadline: Option<i64>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
@@ -35,6 +38,9 @@ pub enum Column {
     Expiration,
     MinConfirmations,
     Incoming,
+    OperationSecretKey,
+    BroadcastDeadline,
+    RetentionDeadline,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DerivePrimaryKey)]
@@ -52,6 +58,7 @@ impl PrimaryKeyTrait for PrimaryKey {
 #[derive(Copy, Clone, Debug, EnumIter)]
 pub enum Relation {
     AssetTransfer,
+    ReservedTxo,
 }
 
 impl ColumnTrait for Column {
@@ -66,6 +73,9 @@ impl ColumnTrait for Column {
             Self::Expiration => ColumnType::BigInteger.def().null(),
             Self::MinConfirmations => ColumnType::SmallInteger.def(),
             Self::Incoming => ColumnType::Boolean.def(),
+            Self::OperationSecretKey => ColumnType::VarBinary(StringLen::None).def().null(),
+            Self::BroadcastDeadline => ColumnType::BigInteger.def().null(),
+            Self::RetentionDeadline => ColumnType::BigInteger.def().null(),
         }
     }
 }
@@ -74,6 +84,7 @@ impl RelationTrait for Relation {
     fn def(&self) -> RelationDef {
         match self {
             Self::AssetTransfer => Entity::has_many(super::asset_transfer::Entity).into(),
+            Self::ReservedTxo => Entity::has_many(super::reserved_txo::Entity).into(),
         }
     }
 }
@@ -81,6 +92,12 @@ impl RelationTrait for Relation {
 impl Related<super::asset_transfer::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::AssetTransfer.def()
+    }
+}
+
+impl Related<super::reserved_txo::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::ReservedTxo.def()
     }
 }
 

@@ -141,6 +141,32 @@ fn fail() {
         true,
     );
     assert!(matches!(result, Err(Error::InvalidFeeRate { details: m }) if m == FEE_MSG_OVER));
+
+    // send_btc_end with the PSBT of another operation
+    // - an RGB one
+    let asset = party.issue_asset_ifa(None, None, None);
+    let unsigned_psbt = party.burn_begin(&asset.asset_id, 1, None);
+    let signed_psbt = party.wallet.sign_psbt(unsigned_psbt, None).unwrap();
+    let txid = Psbt::from_str(&signed_psbt)
+        .unwrap()
+        .unsigned_tx
+        .compute_txid()
+        .to_string();
+    let result = party.wallet.send_btc_end(party.online, signed_psbt);
+    assert_matches!(result, Err(Error::WrongOperation { txid: t }) if t == txid);
+    // - a vanilla one
+    let unsigned_psbt = party
+        .wallet
+        .create_utxos_begin(party.online, false, Some(1), None, FEE_RATE, false, false)
+        .unwrap();
+    let signed_psbt = party.wallet.sign_psbt(unsigned_psbt, None).unwrap();
+    let txid = Psbt::from_str(&signed_psbt)
+        .unwrap()
+        .unsigned_tx
+        .compute_txid()
+        .to_string();
+    let result = party.wallet.send_btc_end(party.online, signed_psbt);
+    assert_matches!(result, Err(Error::WrongOperation { txid: t }) if t == txid);
 }
 
 #[cfg(feature = "electrum")]
@@ -238,7 +264,11 @@ fn begin_reservation_interactions() {
         .expect("should exist after begin");
     assert_eq!(wt.r#type, WalletTransactionType::SendBtc);
     // one reserved_txo per PSBT input, all pointing to that wt row
-    assert!(reservations.iter().all(|r| r.reserved_for == Some(wt.idx)));
+    assert!(
+        reservations
+            .iter()
+            .all(|r| r.reserved_for_vanilla == Some(wt.idx))
+    );
     // reservation set exactly matches PSBT inputs
     let reserved_set: HashSet<(String, u32)> = reservations
         .iter()

@@ -1,22 +1,30 @@
 use super::*;
 
+pub(crate) const SCHEMA_ID_NIA: &str =
+    "rgb:sch:RWhwUfTMpuP2Zfx1~j4nswCANGeJrYOqDcKelaMV4zU#remote-digital-pegasus";
+pub(crate) const SCHEMA_ID_UDA: &str =
+    "rgb:sch:~6rjymf3GTE840lb5JoXm2aFwE8eWCk3mCjOf_mUztE#spider-montana-fantasy";
+pub(crate) const SCHEMA_ID_CFA: &str =
+    "rgb:sch:JgqK5hJX9YBT4osCV7VcW_iLTcA5csUCnLzvaKTTrNY#mars-house-friend";
+pub(crate) const SCHEMA_ID_IFA: &str =
+    "rgb:sch:Y2a6SW4rY3gRwLE40OxILhwOyL2FR9ppte790oLbIe0#athena-paul-horizon";
+
 /// The schema of an asset.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize, EnumIter, DeriveActiveEnum,
-)]
-#[sea_orm(rs_type = "u8", db_type = "TinyUnsigned")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[cfg_attr(feature = "wallet", derive(EnumIter, DeriveActiveEnum))]
+#[cfg_attr(feature = "wallet", sea_orm(rs_type = "u8", db_type = "TinyUnsigned"))]
 pub enum AssetSchema {
     /// NIA schema
-    #[sea_orm(num_value = 1)]
+    #[cfg_attr(feature = "wallet", sea_orm(num_value = 1))]
     Nia = 1,
     /// UDA schema
-    #[sea_orm(num_value = 2)]
+    #[cfg_attr(feature = "wallet", sea_orm(num_value = 2))]
     Uda = 2,
     /// CFA schema
-    #[sea_orm(num_value = 3)]
+    #[cfg_attr(feature = "wallet", sea_orm(num_value = 3))]
     Cfa = 3,
     /// IFA schema
-    #[sea_orm(num_value = 4)]
+    #[cfg_attr(feature = "wallet", sea_orm(num_value = 4))]
     Ifa = 4,
 }
 
@@ -49,9 +57,6 @@ impl TryFrom<SchemaId> for AssetSchema {
 }
 
 impl AssetSchema {
-    pub(crate) const VALUES: [Self; NUM_KNOWN_SCHEMAS] =
-        [Self::Nia, Self::Uda, Self::Cfa, Self::Ifa];
-
     fn from_schema_id_str(schema_id: String) -> Result<Self, Error> {
         Ok(match &schema_id[..] {
             SCHEMA_ID_NIA => AssetSchema::Nia,
@@ -67,15 +72,8 @@ impl AssetSchema {
         Self::from_schema_id_str(schema_id.to_string())
     }
 
-    pub(crate) fn get_from_contract_id(
-        contract_id: ContractId,
-        runtime: &RgbRuntime,
-    ) -> Result<Self, Error> {
-        let schema_id = runtime.genesis(contract_id)?.schema_id;
-        Self::from_schema_id(schema_id)
-    }
-
-    fn schema(&self) -> Schema {
+    /// Get the RGB [`Schema`] of the [`AssetSchema`].
+    pub(crate) fn schema(&self) -> Schema {
         match self {
             Self::Nia => NonInflatableAsset::schema(),
             Self::Uda => UniqueDigitalAsset::schema(),
@@ -83,36 +81,42 @@ impl AssetSchema {
             Self::Ifa => InflatableFungibleAsset::schema(),
         }
     }
+}
 
-    fn scripts(&self) -> Scripts {
+#[cfg(feature = "wallet")]
+impl AssetSchema {
+    pub(crate) const VALUES: [Self; NUM_KNOWN_SCHEMAS] =
+        [Self::Nia, Self::Uda, Self::Cfa, Self::Ifa];
+
+    pub(crate) fn get_from_contract_id(
+        contract_id: ContractId,
+        stock: &RgbStock<'_>,
+    ) -> Result<Self, Error> {
+        let schema_id = stock.genesis(contract_id)?.schema_id;
+        Self::from_schema_id(schema_id)
+    }
+
+    #[cfg(feature = "_online")]
+    pub(crate) fn schema_rules(&self) -> SchemaRules {
         match self {
-            Self::Nia => NonInflatableAsset::scripts(),
-            Self::Uda => UniqueDigitalAsset::scripts(),
-            Self::Cfa => CollectibleFungibleAsset::scripts(),
-            Self::Ifa => InflatableFungibleAsset::scripts(),
+            Self::Nia => NonInflatableAsset::schema_rules(),
+            Self::Uda => UniqueDigitalAsset::schema_rules(),
+            Self::Cfa => CollectibleFungibleAsset::schema_rules(),
+            Self::Ifa => InflatableFungibleAsset::schema_rules(),
         }
     }
 
-    pub(crate) fn types(&self) -> TypeSystem {
+    pub(crate) fn schema_definition(&self) -> SchemaDefinition {
         match self {
-            Self::Nia => NonInflatableAsset::types(),
-            Self::Uda => UniqueDigitalAsset::types(),
-            Self::Cfa => CollectibleFungibleAsset::types(),
-            Self::Ifa => InflatableFungibleAsset::types(),
+            Self::Nia => NonInflatableAsset::schema_definition(),
+            Self::Uda => UniqueDigitalAsset::schema_definition(),
+            Self::Cfa => CollectibleFungibleAsset::schema_definition(),
+            Self::Ifa => InflatableFungibleAsset::schema_definition(),
         }
     }
 
-    pub(crate) fn import_kit(&self, runtime: &mut RgbRuntime) -> Result<(), Error> {
-        let schema = self.schema();
-        let lib = self.scripts();
-        let types = self.types();
-        let mut kit = Kit::default();
-        kit.schemata.push(schema).unwrap();
-        kit.scripts.extend(lib.into_values()).unwrap();
-        kit.types = types;
-        let valid_kit = kit.validate().map_err(|_| InternalError::Unexpected)?;
-        runtime.import_kit(valid_kit)?;
-        Ok(())
+    pub(crate) fn import_schema_definition(&self, stock: &mut RgbStock<'_>) -> Result<(), Error> {
+        stock.import_schema_definition(self.schema_definition())
     }
 }
 
@@ -127,6 +131,7 @@ impl From<AssetSchema> for SchemaId {
     }
 }
 
+#[cfg(feature = "wallet")]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
 #[sea_orm(rs_type = "u8", db_type = "TinyUnsigned")]
 pub enum ColoringType {
@@ -140,6 +145,7 @@ pub enum ColoringType {
     Change = 4,
 }
 
+#[cfg(feature = "wallet")]
 /// The type of an RGB recipient.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub enum RecipientTypeFull {
@@ -149,12 +155,14 @@ pub enum RecipientTypeFull {
     Witness { vout: Option<u32> },
 }
 
+#[cfg(feature = "wallet")]
 impl From<RecipientTypeFull> for Value {
     fn from(value: RecipientTypeFull) -> Self {
         Value::Json(Some(Box::new(serde_json::to_value(value).unwrap())))
     }
 }
 
+#[cfg(feature = "wallet")]
 impl TryFrom<Value> for RecipientTypeFull {
     type Error = sea_orm::DbErr;
 
@@ -168,6 +176,7 @@ impl TryFrom<Value> for RecipientTypeFull {
     }
 }
 
+#[cfg(feature = "wallet")]
 impl rgb_lib_migration::ValueType for RecipientTypeFull {
     fn type_name() -> String {
         "json".to_string()
@@ -189,6 +198,7 @@ impl rgb_lib_migration::ValueType for RecipientTypeFull {
     }
 }
 
+#[cfg(feature = "wallet")]
 impl TryGetable for RecipientTypeFull {
     fn try_get_by<I: sea_orm::ColIdx>(res: &QueryResult, index: I) -> Result<Self, TryGetError> {
         let json_value_opt: Option<JsonValue> = res.try_get_by(index)?;
@@ -202,12 +212,14 @@ impl TryGetable for RecipientTypeFull {
     }
 }
 
+#[cfg(feature = "wallet")]
 impl Nullable for RecipientTypeFull {
     fn null() -> Value {
         Value::Json(None)
     }
 }
 
+#[cfg(feature = "wallet")]
 /// The type of an RGB transport.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, Deserialize, Serialize)]
 #[sea_orm(rs_type = "u8", db_type = "TinyUnsigned")]
@@ -217,6 +229,61 @@ pub enum TransportType {
     JsonRpc = 1,
 }
 
+#[cfg(feature = "wallet")]
+/// The role of a transport endpoint associated to a transfer.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, Deserialize, Serialize)]
+#[sea_orm(rs_type = "u8", db_type = "TinyUnsigned")]
+pub enum TransportEndpointKind {
+    /// The recipient's proxy (where the consignment and media are exchanged)
+    #[sea_orm(num_value = 1)]
+    RecipientProxy = 1,
+    /// The sender's proxy (where the recipient posts its ACK and retrieves the signed TX)
+    #[sea_orm(num_value = 2)]
+    SenderProxy = 2,
+}
+
+#[cfg(feature = "wallet")]
+/// The consignment and media encryption preference of a recipient (mirrors
+/// [`rgbinvoice::Encryption`]).
+#[derive(
+    Debug, Copy, Clone, PartialEq, Eq, Hash, EnumIter, DeriveActiveEnum, Deserialize, Serialize,
+)]
+#[sea_orm(rs_type = "u8", db_type = "TinyUnsigned")]
+pub enum Encryption {
+    /// Encryption is mandatory for consignment and media (the recipient refuses cleartext)
+    #[sea_orm(num_value = 1)]
+    Required = 1,
+    /// Encryption must not be used for consignment and media (the recipient refuses encrypted)
+    #[sea_orm(num_value = 2)]
+    Unsupported = 2,
+    /// Encryption may be used for consignment and media (the recipient accepts both)
+    #[sea_orm(num_value = 3)]
+    Optional = 3,
+}
+
+#[cfg(feature = "wallet")]
+impl From<rgbinvoice::Encryption> for Encryption {
+    fn from(e: rgbinvoice::Encryption) -> Self {
+        match e {
+            rgbinvoice::Encryption::Required => Encryption::Required,
+            rgbinvoice::Encryption::Unsupported => Encryption::Unsupported,
+            rgbinvoice::Encryption::Optional => Encryption::Optional,
+        }
+    }
+}
+
+#[cfg(feature = "wallet")]
+impl From<Encryption> for rgbinvoice::Encryption {
+    fn from(e: Encryption) -> Self {
+        match e {
+            Encryption::Required => rgbinvoice::Encryption::Required,
+            Encryption::Unsupported => rgbinvoice::Encryption::Unsupported,
+            Encryption::Optional => rgbinvoice::Encryption::Optional,
+        }
+    }
+}
+
+#[cfg(feature = "wallet")]
 /// The status of a [`crate::wallet::Transfer`].
 #[derive(
     Debug,
@@ -256,6 +323,7 @@ pub enum TransferStatus {
     Failed = 4,
 }
 
+#[cfg(feature = "wallet")]
 impl TransferStatus {
     pub(crate) fn failed(&self) -> bool {
         self == &TransferStatus::Failed
@@ -276,7 +344,7 @@ impl TransferStatus {
         .contains(self)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn waiting(&self) -> bool {
         [
             TransferStatus::WaitingCounterparty,
@@ -299,7 +367,7 @@ impl TransferStatus {
         self == &TransferStatus::WaitingCounterparty
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn is_fallible(&self) -> bool {
         [
             TransferStatus::Initiated,
@@ -311,6 +379,7 @@ impl TransferStatus {
     }
 }
 
+#[cfg(feature = "wallet")]
 /// The type of a pending vanilla wallet transaction.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, Deserialize, Serialize)]
 #[sea_orm(rs_type = "u8", db_type = "TinyUnsigned")]
@@ -339,6 +408,7 @@ pub enum Assignment {
     Any,
 }
 
+#[cfg(feature = "wallet")]
 impl Assignment {
     pub(crate) fn from_opout_and_state(opout: Opout, state: &AllocatedState) -> Self {
         match state {
@@ -351,7 +421,7 @@ impl Assignment {
         }
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn add_to_assignments(&self, assignments: &mut AssignmentsCollection) {
         match self {
             Self::Fungible(amt) => {
@@ -381,7 +451,7 @@ impl Assignment {
         }
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn inflation_amount(&self) -> u64 {
         if let Self::InflationRight(amt) = self {
             *amt
@@ -391,12 +461,14 @@ impl Assignment {
     }
 }
 
+#[cfg(feature = "wallet")]
 impl From<Assignment> for Value {
     fn from(value: Assignment) -> Self {
         Value::Json(Some(Box::new(serde_json::to_value(value).unwrap())))
     }
 }
 
+#[cfg(feature = "wallet")]
 impl TryFrom<Value> for Assignment {
     type Error = sea_orm::DbErr;
 
@@ -410,6 +482,7 @@ impl TryFrom<Value> for Assignment {
     }
 }
 
+#[cfg(feature = "wallet")]
 impl rgb_lib_migration::ValueType for Assignment {
     fn type_name() -> String {
         "json".to_string()
@@ -431,6 +504,7 @@ impl rgb_lib_migration::ValueType for Assignment {
     }
 }
 
+#[cfg(feature = "wallet")]
 impl TryGetable for Assignment {
     fn try_get_by<I: sea_orm::ColIdx>(res: &QueryResult, index: I) -> Result<Self, TryGetError> {
         let json_value_opt: Option<JsonValue> = res.try_get_by(index)?;
@@ -442,17 +516,82 @@ impl TryGetable for Assignment {
     }
 }
 
+#[cfg(feature = "wallet")]
 impl Nullable for Assignment {
     fn null() -> Value {
         Value::Json(None)
     }
 }
 
-#[cfg(test)]
+impl Assignment {
+    /// Get the assignment at the given index of the given typed assignments, returning `None` for
+    /// assignment types unknown to the supported schemas.
+    pub(crate) fn from_typed_assigns<Seal: ExposedSeal>(
+        ty: AssignmentType,
+        typed_assigns: &TypedAssigns<Seal>,
+        no: u16,
+    ) -> Option<Self> {
+        let no = no as usize;
+        match typed_assigns {
+            TypedAssigns::Fungible(assigns) => {
+                let amount = assigns.get(no)?.state.as_u64();
+                match ty {
+                    OS_ASSET => Some(Self::Fungible(amount)),
+                    OS_INFLATION => Some(Self::InflationRight(amount)),
+                    _ => None,
+                }
+            }
+            TypedAssigns::Structured(assigns) => match ty {
+                OS_ASSET => assigns.get(no).map(|_| Self::NonFungible),
+                _ => None,
+            },
+            TypedAssigns::Declarative(_) => None,
+        }
+    }
+}
+
+/// Type of RGB transition
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub enum TypeOfTransition {
+    /// Inflation transition (issuing new tokens)
+    Inflate,
+    /// Transfer transition (moving existing tokens)
+    Transfer,
+    /// Burn transition (burning existing tokens)
+    Burn,
+}
+
+impl TypeOfTransition {
+    #[cfg(feature = "_online")]
+    pub(crate) fn type_name(&self) -> &'static str {
+        match self {
+            Self::Inflate => "inflate",
+            Self::Transfer => "transfer",
+            Self::Burn => "burn",
+        }
+    }
+}
+
+impl TryFrom<TransitionType> for TypeOfTransition {
+    type Error = ();
+
+    fn try_from(transition_type: TransitionType) -> Result<Self, Self::Error> {
+        Ok(match transition_type {
+            TS_TRANSFER => Self::Transfer,
+            TS_INFLATION => Self::Inflate,
+            TS_BURN => Self::Burn,
+            _ => return Err(()),
+        })
+    }
+}
+
+#[cfg(all(test, feature = "wallet"))]
 mod tests {
     use sea_orm::IntoActiveValue;
 
     use super::*;
+
+    use strict_encoding::StrictDumb;
 
     #[test]
     fn test_schema_id() {
@@ -683,7 +822,7 @@ mod tests {
         assert!(!TransferStatus::Failed.waiting_counterparty());
         assert!(!TransferStatus::WaitingBroadcast.waiting_counterparty());
 
-        #[cfg(any(feature = "electrum", feature = "esplora"))]
+        #[cfg(feature = "_online")]
         {
             assert!(TransferStatus::WaitingCounterparty.waiting());
             assert!(TransferStatus::WaitingConfirmations.waiting());
@@ -692,6 +831,35 @@ mod tests {
             assert!(!TransferStatus::Initiated.waiting());
             assert!(!TransferStatus::Settled.waiting());
             assert!(!TransferStatus::Failed.waiting());
+        }
+    }
+
+    #[test]
+    fn test_encryption_conversions() {
+        // every variant maps both ways between the DB enum and the rgb-invoicing enum, and keeps a
+        // stable on-disk num_value (the DB persistence contract)
+        for (encryption, num_value) in [
+            (Encryption::Required, 1u8),
+            (Encryption::Unsupported, 2),
+            (Encryption::Optional, 3),
+        ] {
+            // DB -> invoicing maps to the matching concrete variant
+            let to_invoicing: rgbinvoice::Encryption = encryption.into();
+            let invoicing_ok = matches!(
+                (encryption, &to_invoicing),
+                (Encryption::Required, rgbinvoice::Encryption::Required)
+                    | (Encryption::Unsupported, rgbinvoice::Encryption::Unsupported)
+                    | (Encryption::Optional, rgbinvoice::Encryption::Optional)
+            );
+            assert!(
+                invoicing_ok,
+                "{encryption:?} mapped to the wrong invoicing variant"
+            );
+            // invoicing -> DB round-trips back to the original variant
+            let back: Encryption = to_invoicing.into();
+            assert_eq!(back, encryption);
+            // the integer stored in the DB must not change across versions
+            assert_eq!(encryption as u8, num_value);
         }
     }
 }
