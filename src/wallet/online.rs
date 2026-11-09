@@ -5050,6 +5050,21 @@ pub trait WalletOnline: WalletOffline {
                 txn.set_coloring(db_coloring)?;
             }
 
+            // a burn has no recipient to iterate, but it still gets a transfer row, to record the
+            // assignment it burns and the hash of the consignment proving it
+            if matches!(transfer_info.main_transition, TypeOfTransition::Burn) {
+                let transfer = DbTransferActMod {
+                    asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
+                    requested_assignment: ActiveValue::Set(Some(Assignment::Fungible(
+                        transfer_info.original_assignments_needed.fungible,
+                    ))),
+                    consignment_hash: ActiveValue::Set(consignment_hash.clone()),
+                    recipient_encryption: ActiveValue::Set(Encryption::Unsupported),
+                    ..Default::default()
+                };
+                txn.set_transfer(transfer)?;
+            }
+
             for recipient in transfer_info.recipients.clone() {
                 // the transfer ID on the proxies, only for a proxy recipient
                 let proxy_transfer_id = match &sender_pubkey_hex {
@@ -5102,11 +5117,7 @@ pub trait WalletOnline: WalletOffline {
                             recipient.assignment,
                         )
                     }
-                    TypeOfTransition::Burn => (
-                        None,
-                        None,
-                        Assignment::Fungible(transfer_info.original_assignments_needed.fungible),
-                    ),
+                    TypeOfTransition::Burn => unreachable!("a burn has no recipient"),
                     TypeOfTransition::Transfer => (
                         Some(recipient.recipient_id.clone()),
                         None,
@@ -6511,33 +6522,6 @@ pub trait WalletOnline: WalletOffline {
             input_unspents.clone(),
         )?;
 
-        let chainnet: ChainNet = self.bitcoin_network().into();
-        let script_pubkey = self
-            .get_new_addresses(KeychainKind::External, 1)?
-            .script_pubkey();
-        let dust = self
-            .bdk_wallet()
-            .public_descriptor(KeychainKind::External)
-            .dust_value()
-            .to_sat();
-        let witness_recipients: Vec<(ScriptBuf, u64)> = vec![(script_pubkey.clone(), dust)];
-        let beneficiary = beneficiary_from_script_buf(script_pubkey.clone());
-        let beneficiary = XChainNet::with(chainnet, beneficiary);
-        let recipient_id = beneficiary.to_string();
-        let local_recipients = vec![LocalRecipient {
-            recipient_id,
-            local_recipient_data: LocalRecipientData::Witness(LocalWitnessData {
-                amount_sat: dust,
-                blinding: None,
-                vout: 1,
-            }),
-            assignment: Assignment::Fungible(0),
-            transport_endpoints: vec![],
-            public_key: vec![],
-            encryption: Encryption::Unsupported,
-            invoice_expiration: None,
-        }];
-
         let contract_id = ContractId::from_str(&asset_id).expect("invalid contract ID");
         let asset_info = AssetInfo {
             contract_id,
@@ -6545,7 +6529,7 @@ pub trait WalletOnline: WalletOffline {
         };
         let transfer_info = InfoAssetTransfer {
             asset_info,
-            recipients: local_recipients.clone(),
+            recipients: vec![],
             asset_spend: asset_spend.clone(),
             change: AssignmentsCollection::default(),
             original_assignments_needed: assignments_needed.clone(),
@@ -6556,11 +6540,10 @@ pub trait WalletOnline: WalletOffline {
             beneficiaries_witness: vec![],
             burn_reason,
         };
-        let receive_ids: Vec<String> = local_recipients
-            .iter()
-            .map(|lr| lr.recipient_id.clone())
-            .collect();
-        let transfer_dir = self.setup_transfer_directory(receive_ids)?;
+        // a burn has no recipient, so there's no recipient ID to name its transfer directory: a
+        // random one keeps concurrent burns apart until the TXID replaces it
+        let dir_id = format!("burn_{}", rand::rng().random_range(0..u64::MAX));
+        let transfer_dir = self.setup_transfer_directory(vec![dir_id])?;
 
         self.prepare_single_asset_psbt(
             txn,
@@ -6568,7 +6551,7 @@ pub trait WalletOnline: WalletOffline {
             transfer_dir,
             unspents,
             &input_unspents,
-            &witness_recipients,
+            &vec![],
             fee_rate_checked,
             min_confirmations,
             &mut stock,

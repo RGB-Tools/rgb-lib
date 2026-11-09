@@ -837,7 +837,7 @@ fn success() {
     check_btc_balance(
         &mut [&mut wlt_1, &mut wlt_2, &mut wlt_3],
         (0, 6442, 6442),
-        (15366, 15366, 15366),
+        (15452, 15452, 15452),
     );
     drop(_guard);
     // confirm the TX, so the final state checks below don't depend on other tests mining
@@ -926,7 +926,7 @@ fn success() {
 
     // final state expectations
     let btc_final_vanilla = (6442, 6442, 6442);
-    let btc_final_colored = (15366, 15366, 15366);
+    let btc_final_colored = (15452, 15452, 15452);
     let tx_type_final = TransactionType::SendBtc;
     #[rustfmt::skip]
     let assets_final = HashMap::from([
