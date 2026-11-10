@@ -39,6 +39,10 @@ pub(crate) struct WalletManifest {
     pub(crate) database_type: DatabaseType,
     pub(crate) max_allocations_per_utxo: u32,
     pub(crate) supported_schemas: Vec<AssetSchema>,
+    // defaulted, so manifests written before this setting existed keep loading (as not reckless,
+    // which is what a wallet created without the setting was)
+    #[serde(default)]
+    pub(crate) allow_reckless_schemas: bool,
     pub(crate) account_xpub_vanilla: String,
     pub(crate) account_xpub_colored: String,
     pub(crate) vanilla_keychain: u8,
@@ -54,6 +58,7 @@ impl WalletManifest {
             database_type: wallet_data.database_type.clone(),
             max_allocations_per_utxo: wallet_data.max_allocations_per_utxo,
             supported_schemas: wallet_data.supported_schemas.clone(),
+            allow_reckless_schemas: wallet_data.allow_reckless_schemas,
             account_xpub_vanilla: keys.account_xpub_vanilla.clone(),
             account_xpub_colored: keys.account_xpub_colored.clone(),
             vanilla_keychain: keys.vanilla_keychain.unwrap_or(KEYCHAIN_BTC),
@@ -144,6 +149,7 @@ impl WalletManifest {
                 database_type: self.database_type,
                 max_allocations_per_utxo: self.max_allocations_per_utxo,
                 supported_schemas: self.supported_schemas,
+                allow_reckless_schemas: self.allow_reckless_schemas,
             },
             SinglesigKeys {
                 account_xpub_vanilla: self.account_xpub_vanilla,
@@ -236,6 +242,8 @@ pub(crate) fn setup_rgb(
     database: &RgbLibDatabase,
     supported_schemas: Vec<AssetSchema>,
     bitcoin_network: BitcoinNetwork,
+    allow_reckless_schemas: bool,
+    logger: &Logger,
 ) -> Result<(), Error> {
     if supported_schemas.is_empty() {
         return Err(Error::NoSupportedSchemas);
@@ -243,9 +251,17 @@ pub(crate) fn setup_rgb(
     if bitcoin_network == BitcoinNetwork::Mainnet
         && let Some(asset_schema) = supported_schemas.iter().find(|s| !s.allowed_on_mainnet())
     {
-        return Err(Error::CannotUseSchemaOnMainnet {
-            asset_schema: *asset_schema,
-        });
+        if !allow_reckless_schemas {
+            return Err(Error::CannotUseSchemaOnMainnet {
+                asset_schema: *asset_schema,
+            });
+        }
+        // the caller has opted out of the mainnet schema check: leave a trace of it in the
+        // wallet log, since from here on the wallet can operate such schemas on mainnet
+        warn!(
+            logger,
+            "Reckless schemas allowed: supporting the {asset_schema} schema on mainnet"
+        );
     }
     let txn = database.begin_transaction()?;
     let mut stock = RgbStock::new(&txn);

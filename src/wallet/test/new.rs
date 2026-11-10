@@ -79,6 +79,7 @@ fn success() {
                 database_type: DatabaseType::Sqlite,
                 max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
                 supported_schemas: AssetSchema::VALUES.to_vec(),
+                allow_reckless_schemas: false,
             },
             SinglesigKeys::from_keys(&keys, vanilla_keychain),
         )
@@ -149,6 +150,7 @@ fn mainnet_success_electrum() {
                 max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
                 // IFA not supported on mainnet
                 supported_schemas: vec![AssetSchema::Cfa, AssetSchema::Nia, AssetSchema::Uda],
+                allow_reckless_schemas: false,
             },
             SinglesigKeys::from_keys(&keys, None),
         )
@@ -180,6 +182,7 @@ fn mainnet_success_esplora() {
                 max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
                 // IFA not supported on mainnet
                 supported_schemas: vec![AssetSchema::Cfa, AssetSchema::Nia, AssetSchema::Uda],
+                allow_reckless_schemas: false,
             },
             SinglesigKeys::from_keys(&keys, None),
         )
@@ -354,6 +357,7 @@ fn watch_only_success() {
             database_type: DatabaseType::Sqlite,
             max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
             supported_schemas: AssetSchema::VALUES.to_vec(),
+            allow_reckless_schemas: false,
         },
         SinglesigKeys::from_keys_no_mnemonic(&keys, None),
     )
@@ -371,6 +375,7 @@ fn watch_only_success() {
             database_type: DatabaseType::Sqlite,
             max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
             supported_schemas: AssetSchema::VALUES.to_vec(),
+            allow_reckless_schemas: false,
         },
         SinglesigKeys::from_keys(&keys, None),
     )
@@ -418,6 +423,7 @@ fn watch_only_fail() {
             database_type: DatabaseType::Sqlite,
             max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
             supported_schemas: AssetSchema::VALUES.to_vec(),
+            allow_reckless_schemas: false,
         },
         SinglesigKeys::from_keys_no_mnemonic(&keys_bad, None),
     );
@@ -492,6 +498,7 @@ fn supported_schemas() {
             database_type: DatabaseType::Sqlite,
             max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
             supported_schemas: vec![AssetSchema::Nia],
+            allow_reckless_schemas: false,
         },
         SinglesigKeys::from_keys(&keys, None),
     )
@@ -519,6 +526,7 @@ fn supported_schemas() {
             database_type: DatabaseType::Sqlite,
             max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
             supported_schemas: vec![AssetSchema::Uda],
+            allow_reckless_schemas: false,
         },
         SinglesigKeys::from_keys(&keys_rcv, None),
     )
@@ -567,6 +575,7 @@ fn supported_schemas() {
             database_type: DatabaseType::Sqlite,
             max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
             supported_schemas: vec![AssetSchema::Cfa],
+            allow_reckless_schemas: false,
         },
         SinglesigKeys::from_keys(&keys, None),
     )
@@ -599,6 +608,7 @@ fn supported_schemas() {
             database_type: DatabaseType::Sqlite,
             max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
             supported_schemas: vec![AssetSchema::Bfa],
+            allow_reckless_schemas: false,
         },
         SinglesigKeys::from_keys(&keys, None),
     )
@@ -631,6 +641,7 @@ fn supported_schemas() {
             database_type: DatabaseType::Sqlite,
             max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
             supported_schemas: vec![],
+            allow_reckless_schemas: false,
         },
         SinglesigKeys::from_keys(&keys, None),
     );
@@ -654,6 +665,7 @@ fn supported_schemas() {
                 database_type: DatabaseType::Sqlite,
                 max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
                 supported_schemas: vec![AssetSchema::Nia, schema],
+                allow_reckless_schemas: false,
             },
             SinglesigKeys::from_keys(&keys_mainnet, None),
         );
@@ -664,6 +676,61 @@ fn supported_schemas() {
             assert_matches!(err, Some(Error::CannotUseSchemaOnMainnet { asset_schema }) if asset_schema == schema);
         }
     }
+}
+
+// A mainnet wallet normally cannot support the schemas that aren't allowed on mainnet, but it can
+// be created anyway by opting into reckless schemas. The opt-in is part of the wallet settings, so
+// it's recorded in the manifest and keeps applying when the wallet is loaded back.
+#[test]
+#[parallel]
+fn allow_reckless_schemas_success() {
+    let data_dir = PrivateDataDir::new();
+    let data_dir_str = data_dir.string();
+
+    let reckless_schemas: Vec<_> = AssetSchema::iter()
+        .filter(|s| !s.allowed_on_mainnet())
+        .collect();
+    assert!(!reckless_schemas.is_empty());
+
+    let bitcoin_network = BitcoinNetwork::Mainnet;
+    let keys = generate_keys(bitcoin_network, WitnessVersion::Taproot);
+    let mut wallet_data = WalletData {
+        data_dir: data_dir_str.clone(),
+        bitcoin_network,
+        database_type: DatabaseType::Sqlite,
+        max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
+        supported_schemas: reckless_schemas.clone(),
+        allow_reckless_schemas: false,
+    };
+
+    // without the opt-in the schemas are refused
+    let err = Wallet::new(wallet_data.clone(), SinglesigKeys::from_keys(&keys, None)).err();
+    assert_matches!(err, Some(Error::CannotUseSchemaOnMainnet { .. }));
+
+    // with the opt-in the wallet is created and supports them
+    wallet_data.allow_reckless_schemas = true;
+    let wallet = Wallet::new(wallet_data.clone(), SinglesigKeys::from_keys(&keys, None)).unwrap();
+    let created_data = wallet.get_wallet_data();
+    assert!(created_data.allow_reckless_schemas);
+    assert_eq!(created_data.supported_schemas, reckless_schemas);
+    drop(wallet);
+
+    // the opt-in survives a load, which would otherwise hit the check again
+    let loaded = Wallet::load(
+        &data_dir_str,
+        &keys.master_fingerprint,
+        Some(keys.mnemonic.clone()),
+    )
+    .unwrap();
+    let loaded_data = loaded.get_wallet_data();
+    assert!(loaded_data.allow_reckless_schemas);
+    assert_eq!(loaded_data.supported_schemas, reckless_schemas);
+    drop(loaded);
+
+    // dropping the opt-in brings the check back, also for an existing wallet
+    wallet_data.allow_reckless_schemas = false;
+    let err = Wallet::new(wallet_data, SinglesigKeys::from_keys(&keys, None)).err();
+    assert_matches!(err, Some(Error::CannotUseSchemaOnMainnet { .. }));
 }
 
 // Wallets created before the BDK changeset moved into the rgb-lib DB keep their data in a

@@ -31,6 +31,19 @@ pub struct WalletData {
     /// List of schemas the wallet should support (when issuing, sending and receiving). Empty list
     /// means the wallet should support all the schemas rgb-lib supports.
     pub supported_schemas: Vec<AssetSchema>,
+    /// Whether to allow the wallet to support schemas that are not allowed on mainnet.
+    ///
+    /// Some schemas are not considered ready for mainnet use, so creating a mainnet wallet
+    /// supporting one of them normally fails with an [`Error::CannotUseSchemaOnMainnet`]. Setting
+    /// this to true bypasses the check, allowing a mainnet wallet to support such schemas. It has
+    /// no effect on the other networks, where all schemas are always allowed.
+    ///
+    /// The setting is recorded in the wallet manifest, so [`Wallet::load`] keeps bypassing the
+    /// check for a wallet created with it.
+    ///
+    /// <div class="warning">Warning: setting <tt>allow_reckless_schemas</tt> to true is dangerous,
+    /// only do this if you know what you're doing!</div>
+    pub allow_reckless_schemas: bool,
 }
 
 /// Descriptors for an RGB wallet.

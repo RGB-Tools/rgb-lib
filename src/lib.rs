@@ -79,6 +79,7 @@
 //!         database_type: DatabaseType::Sqlite,
 //!         max_allocations_per_utxo: 5,
 //!         supported_schemas: vec![AssetSchema::Nia],
+//!         allow_reckless_schemas: false,
 //!     };
 //!     let wallet = Wallet::new(wallet_data, single_sig_keys)?;
 //!
@@ -113,6 +114,7 @@
 //!         database_type: DatabaseType::Sqlite,
 //!         max_allocations_per_utxo: 5,
 //!         supported_schemas: vec![AssetSchema::Nia],
+//!         allow_reckless_schemas: false,
 //!     };
 //!     let wallet = Wallet::new(wallet_data, SinglesigKeys::from_keys(&keys, None))?;
 //!     drop(wallet);
@@ -469,10 +471,8 @@ use serde::{Deserialize, Serialize};
 use sha2::Sha512;
 #[cfg(feature = "wallet")]
 use sha2::{Digest, Sha256};
-#[cfg(feature = "_online")]
-use slog::warn;
 #[cfg(feature = "wallet")]
-use slog::{Drain, Logger, debug, error, info, o};
+use slog::{Drain, Logger, debug, error, info, o, warn};
 #[cfg(feature = "wallet")]
 use slog_async::AsyncGuard;
 #[cfg(feature = "wallet")]

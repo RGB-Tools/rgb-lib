@@ -15,6 +15,7 @@ fn success() {
         database_type: DatabaseType::Sqlite,
         max_allocations_per_utxo: 1,
         supported_schemas: vec![AssetSchema::Nia, AssetSchema::Cfa],
+        allow_reckless_schemas: false,
     };
     let wallet_keys = SinglesigKeys::from_keys(&keys, Some(2));
     let wallet = Wallet::new(wallet_data.clone(), wallet_keys.clone()).unwrap();
@@ -42,6 +43,10 @@ fn success() {
         wallet_data.max_allocations_per_utxo
     );
     assert_eq!(loaded_data.supported_schemas, wallet_data.supported_schemas);
+    assert_eq!(
+        loaded_data.allow_reckless_schemas,
+        wallet_data.allow_reckless_schemas
+    );
 
     let loaded_keys = loaded.get_keys();
     assert_eq!(loaded_keys.account_xpub_vanilla, keys.account_xpub_vanilla);
@@ -90,6 +95,7 @@ fn new_updates_manifest_success() {
         database_type: DatabaseType::Sqlite,
         max_allocations_per_utxo: 1,
         supported_schemas: vec![AssetSchema::Nia],
+        allow_reckless_schemas: false,
     };
     let wallet = Wallet::new(wallet_data.clone(), SinglesigKeys::from_keys(&keys, None)).unwrap();
     drop(wallet);
@@ -475,4 +481,36 @@ fn manifest_fingerprint_mismatch_fail() {
         .err()
         .unwrap();
     assert_matches!(err, Error::FingerprintMismatch);
+}
+
+// Manifests written before a setting existed don't carry it, so loading one has to fall back to
+// the behavior the wallet was created with instead of failing to read the manifest.
+#[test]
+#[parallel]
+fn manifest_without_optional_settings_success() {
+    let test_data_dir = PrivateDataDir::new();
+    let test_data_dir_str = test_data_dir.string();
+
+    let keys = generate_keys(BitcoinNetwork::Regtest, WitnessVersion::Taproot);
+    let wallet = Wallet::new(
+        get_test_wallet_data(&test_data_dir_str),
+        SinglesigKeys::from_keys(&keys, None),
+    )
+    .unwrap();
+    let manifest_path = wallet.get_wallet_dir().join(WALLET_MANIFEST_FILE);
+    drop(wallet);
+
+    let mut manifest: Value =
+        serde_json::from_str(&fs::read_to_string(&manifest_path).unwrap()).unwrap();
+    assert!(
+        manifest
+            .as_object_mut()
+            .unwrap()
+            .remove("allow_reckless_schemas")
+            .is_some()
+    );
+    fs::write(&manifest_path, serde_json::to_string(&manifest).unwrap()).unwrap();
+
+    let loaded = Wallet::load(&test_data_dir_str, &keys.master_fingerprint, None).unwrap();
+    assert!(!loaded.get_wallet_data().allow_reckless_schemas);
 }

@@ -48,7 +48,8 @@ int main(int argc, char *argv[]) {
     const char *wallet_data =
         "{ \"data_dir\": \"./data\", \"bitcoin_network\": \"Regtest\", "
         "\"database_type\": \"Sqlite\", \"max_allocations_per_utxo\": \"1\", "
-        "\"supported_schemas\": [\"Nia\", \"Cfa\", \"Uda\"] }";
+        "\"supported_schemas\": [\"Nia\", \"Cfa\", \"Uda\"], "
+        "\"allow_reckless_schemas\": false }";
     char keys_data[600];
     sprintf(keys_data,
             "{ \"account_xpub_vanilla\": \"%s\", "

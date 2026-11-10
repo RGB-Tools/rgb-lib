@@ -83,7 +83,8 @@ pub enum Error {
         details: String,
     },
 
-    /// The schema cannot be used on mainnet
+    /// The schema cannot be used on mainnet, unless the wallet opts into it by setting
+    /// `allow_reckless_schemas` (see `WalletData`)
     #[error("Cannot use {asset_schema} schema on mainnet")]
     CannotUseSchemaOnMainnet {
         /// Asset schema

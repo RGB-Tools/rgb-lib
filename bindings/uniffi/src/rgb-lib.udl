@@ -725,6 +725,7 @@ dictionary WalletData {
   DatabaseType database_type;
   u32 max_allocations_per_utxo;
   sequence<AssetSchema> supported_schemas;
+  boolean allow_reckless_schemas;
 };
 
 [Remote]

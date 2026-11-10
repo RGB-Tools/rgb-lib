@@ -2055,6 +2055,7 @@ fn fail() {
             database_type: DatabaseType::Sqlite,
             max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
             supported_schemas: vec![AssetSchema::Nia, AssetSchema::Bfa],
+            allow_reckless_schemas: false,
         },
         SinglesigKeys::from_keys(&keys, None),
     )
@@ -2074,6 +2075,7 @@ fn fail() {
             database_type: DatabaseType::Sqlite,
             max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
             supported_schemas: vec![AssetSchema::Nia],
+            allow_reckless_schemas: false,
         },
         SinglesigKeys::from_keys(&keys, None),
     )

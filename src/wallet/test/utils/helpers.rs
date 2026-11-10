@@ -144,6 +144,7 @@ pub(crate) fn get_test_wallet_data(data_dir: &str) -> WalletData {
         database_type: DatabaseType::Sqlite,
         max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
         supported_schemas: AssetSchema::VALUES.to_vec(),
+        allow_reckless_schemas: false,
     }
 }
 
@@ -218,6 +219,7 @@ fn get_test_wallet_raw_in(
             database_type: DatabaseType::Sqlite,
             max_allocations_per_utxo: max_allocations_per_utxo.unwrap_or(MAX_ALLOCATIONS_PER_UTXO),
             supported_schemas: AssetSchema::VALUES.to_vec(),
+            allow_reckless_schemas: false,
         },
         wallet_keys.clone(),
     )

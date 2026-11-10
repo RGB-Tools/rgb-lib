@@ -1096,7 +1096,13 @@ impl MultisigWallet {
         migrate_rgb_fs_to_db(&wallet_dir, &database)?;
 
         // setup RGB
-        setup_rgb(&database, wdata.supported_schemas, wdata.bitcoin_network)?;
+        setup_rgb(
+            &database,
+            wdata.supported_schemas,
+            wdata.bitcoin_network,
+            wdata.allow_reckless_schemas,
+            &logger,
+        )?;
 
         info!(logger, "New multisig wallet completed");
         Ok(Self {
