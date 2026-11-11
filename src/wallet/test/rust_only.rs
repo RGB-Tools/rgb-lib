@@ -818,6 +818,110 @@ fn save_new_asset_fail() {
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
+fn save_new_asset_invalid_consignment_fail() {
+    initialize();
+
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_empty_party!();
+    let asset = party.issue_asset_nia(None);
+    let receive_data = rcv_party.witness_receive();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(10),
+            recipient_id: receive_data.recipient_id.clone(),
+            witness_data: Some(WitnessData {
+                amount_sat: 1000,
+                blinding: None,
+            }),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid = party.send_retry(&recipient_map);
+    let consignment_path = party
+        .wallet
+        .get_send_consignment_path(&asset.asset_id, &txid);
+    let consignment = RgbTransfer::load_file(consignment_path).unwrap();
+
+    // a wrong witness TXID: the consignment's witness cannot be resolved off-chain and the real TX
+    // is not on chain (donation is false, the sender has not broadcast), so validation fails. A
+    // caller-supplied consignment that fails validation must be reported as an error, not panic
+    let result =
+        rcv_party
+            .wallet
+            .save_new_asset(rcv_party.online, consignment, FAKE_TXID.to_string());
+    assert!(
+        matches!(
+            result,
+            Err(Error::InvalidConsignment) | Err(Error::Network { .. })
+        ),
+        "unexpected result: {result:?}"
+    );
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn save_new_asset_twice_success() {
+    initialize();
+
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_empty_party!();
+    let asset = party.issue_asset_nia(None);
+    let receive_data = rcv_party.witness_receive();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(10),
+            recipient_id: receive_data.recipient_id.clone(),
+            witness_data: Some(WitnessData {
+                amount_sat: 1000,
+                blinding: None,
+            }),
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid = party.send_retry(&recipient_map);
+    let consignment_path = party
+        .wallet
+        .get_send_consignment_path(&asset.asset_id, &txid);
+    let consignment = RgbTransfer::load_file(consignment_path).unwrap();
+
+    // the contract is expected to already be in the stock (as after accept_transfer_consignment)
+    let contract = consignment.clone().into_contract();
+    let asset_schema: AssetSchema = consignment.schema_id().try_into().unwrap();
+    let validation_config = ValidationConfig {
+        chain_net: rcv_party.wallet.chain_net(),
+        trusted_typesystem: asset_schema.types(),
+        ..Default::default()
+    };
+    let mut runtime = rcv_party.wallet.rgb_runtime().unwrap();
+    let valid_contract = contract
+        .validate(&DumbResolver, &validation_config)
+        .unwrap();
+    runtime
+        .import_contract(valid_contract, rcv_party.wallet.blockchain_resolver())
+        .unwrap();
+    drop(runtime);
+
+    rcv_party
+        .wallet
+        .save_new_asset(rcv_party.online, consignment.clone(), txid.clone())
+        .unwrap();
+    assert!(rcv_party.db_check_asset_exists(&asset.asset_id).is_ok());
+
+    // a caller retrying (e.g. after a crash between saving and its own bookkeeping) must not get
+    // an opaque DB constraint error for an asset that is already saved
+    rcv_party
+        .wallet
+        .save_new_asset(rcv_party.online, consignment, txid)
+        .unwrap();
+    assert!(rcv_party.db_check_asset_exists(&asset.asset_id).is_ok());
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
 fn send_end_db_update_only_fail() {
     initialize();
 
