@@ -8,7 +8,6 @@ authors = [
 edition = "2024"
 rust-version = "1.94.0"
 repository = "https://github.com/RGB-Tools/rgb-lib"
-homepage = "https://github.com/RGB-Tools/rgb-lib"
 license = "MIT"
 description = "RGB wallet library"
 exclude = ["migration"]
