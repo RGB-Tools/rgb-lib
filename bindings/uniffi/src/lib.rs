@@ -13,7 +13,8 @@ use rgb_lib::{
     keys::{Keys, WitnessVersion},
     no_wallet::{
         BundleFilter as RgbLibBundleFilter, ConsignmentInspection as RgbLibConsignmentInspection,
-        RgbGenesisInfo as RgbLibRgbGenesisInfo, TransitionMetadata as RgbLibTransitionMetadata,
+        RgbGenesisInfo as RgbLibRgbGenesisInfo, RgbMediaInfo,
+        TransitionMetadata as RgbLibTransitionMetadata,
     },
     utils::BitcoinNetwork,
     wallet::{
@@ -602,6 +603,7 @@ pub struct RgbGenesisInfo {
     pub ticker: Option<String>,
     pub details: Option<String>,
     pub precision: u8,
+    pub media: Vec<RgbMediaInfo>,
     pub outputs: Vec<RgbOutputInfo>,
 }
 impl From<RgbLibRgbGenesisInfo> for RgbGenesisInfo {
@@ -614,6 +616,7 @@ impl From<RgbLibRgbGenesisInfo> for RgbGenesisInfo {
             ticker: orig.ticker,
             details: orig.details,
             precision: orig.precision,
+            media: orig.media,
             outputs: orig.outputs.into_iter().map(|o| o.into()).collect(),
         }
     }
@@ -628,6 +631,7 @@ impl From<RgbGenesisInfo> for RgbLibRgbGenesisInfo {
             ticker: orig.ticker,
             details: orig.details,
             precision: orig.precision,
+            media: orig.media,
             outputs: orig.outputs.into_iter().map(|o| o.into()).collect(),
         }
     }

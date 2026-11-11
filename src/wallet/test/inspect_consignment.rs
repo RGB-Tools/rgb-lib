@@ -74,6 +74,7 @@ fn success() {
     assert_eq!(genesis.ticker.as_ref(), Some(&asset.ticker));
     assert_eq!(genesis.details, asset.details);
     assert_eq!(genesis.precision, asset.precision);
+    assert!(genesis.media.is_empty());
     assert_eq!(genesis.outputs.len(), 1);
     let issuance_output = &genesis.outputs[0];
     assert_eq!(issuance_output.assignment, Assignment::Fungible(AMOUNT));
@@ -305,6 +306,52 @@ fn success() {
     assert_eq!(
         fungible_sum(transition.inputs.iter().map(|i| &i.assignment)),
         fungible_sum(transition.outputs.iter().map(|o| &o.assignment))
+    );
+}
+
+/// The genesis media are reported from the contract terms and, for a UDA, from its token.
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn media() {
+    initialize();
+
+    let image_str = ["tests", "qrcode.png"].join(MAIN_SEPARATOR_STR);
+    let file_digest = hash_bytes_hex(&fs::read(FILE_STR).unwrap());
+    let image_digest = hash_bytes_hex(&fs::read(&image_str).unwrap());
+
+    let mut party = get_funded_party!();
+    // the contract consignments are saved on issuance, one per asset ID
+    let assets_dir = party.wallet.get_wallet_dir().join(ASSETS_DIR);
+    let contract_path = |asset_id: &str| assets_dir.join(asset_id).to_string_lossy().to_string();
+
+    // an asset issued without media has none in its genesis
+    let asset_nia = party.issue_asset_nia(None);
+    let inspection =
+        inspect_consignment(contract_path(&asset_nia.asset_id), BundleFilter::All).unwrap();
+    assert!(inspection.genesis.media.is_empty());
+
+    // a UDA reports the media of its token, then its attachments in index order
+    let asset_uda =
+        party.issue_asset_uda(Some(DETAILS), Some(FILE_STR), vec![&image_str, FILE_STR]);
+    let inspection =
+        inspect_consignment(contract_path(&asset_uda.asset_id), BundleFilter::All).unwrap();
+    assert_eq!(
+        inspection.genesis.media,
+        vec![
+            RgbMediaInfo {
+                digest: file_digest.clone(),
+                mime: s!("text/plain"),
+            },
+            RgbMediaInfo {
+                digest: image_digest,
+                mime: s!("image/png"),
+            },
+            RgbMediaInfo {
+                digest: file_digest,
+                mime: s!("text/plain"),
+            },
+        ]
     );
 }
 

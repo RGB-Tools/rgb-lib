@@ -890,6 +890,12 @@ dictionary RgbInspection {
 };
 
 [Remote]
+dictionary RgbMediaInfo {
+  string digest;
+  string mime;
+};
+
+[Remote]
 dictionary RgbGenesisInfo {
   string chain_net;
   i64 timestamp;
@@ -898,6 +904,7 @@ dictionary RgbGenesisInfo {
   string? ticker;
   string? details;
   u8 precision;
+  sequence<RgbMediaInfo> media;
   sequence<RgbOutputInfo> outputs;
 };
 

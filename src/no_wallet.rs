@@ -106,6 +106,25 @@ pub struct RgbInspection {
     pub operations: Vec<RgbOperationInfo>,
 }
 
+/// Information about a media file attached to an RGB asset.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct RgbMediaInfo {
+    /// Hex-encoded digest of the media file
+    pub digest: String,
+    /// MIME type of the media file
+    pub mime: String,
+}
+
+impl From<&Attachment> for RgbMediaInfo {
+    fn from(attachment: &Attachment) -> Self {
+        Self {
+            digest: hex::encode(attachment.digest),
+            mime: attachment.ty.to_string(),
+        }
+    }
+}
+
 /// Information about the genesis of an RGB asset.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
@@ -125,6 +144,9 @@ pub struct RgbGenesisInfo {
     pub details: Option<String>,
     /// Asset precision
     pub precision: u8,
+    /// Media files of the asset: the contract terms media, plus, for a UDA, the token media and
+    /// its attachments
+    pub media: Vec<RgbMediaInfo>,
     /// Details of the issuance outputs
     pub outputs: Vec<RgbOutputInfo>,
 }
@@ -390,6 +412,16 @@ fn genesis_info(
         }
     };
 
+    // the media of the asset, read from the same fields the wallet extracts its attachments from
+    let terms: ContractTerms = global(contract_id, genesis, GS_TERMS)?.ok_or(missing(GS_TERMS))?;
+    let mut media: Vec<RgbMediaInfo> = terms.media.iter().map(RgbMediaInfo::from).collect();
+    if matches!(asset_schema, AssetSchema::Uda) {
+        let token_data: TokenData =
+            global(contract_id, genesis, GS_TOKENS)?.ok_or(missing(GS_TOKENS))?;
+        media.extend(token_data.media.iter().map(RgbMediaInfo::from));
+        media.extend(token_data.attachments.values().map(RgbMediaInfo::from));
+    }
+
     Ok(RgbGenesisInfo {
         chain_net: genesis.chain_net.prefix().to_string(),
         timestamp: genesis.timestamp,
@@ -398,6 +430,7 @@ fn genesis_info(
         ticker: ticker.map(|t| t.to_string()),
         details: details.map(|d| d.to_string()),
         precision: precision.into(),
+        media,
         outputs: outputs_info(
             &format!("genesis of contract {contract_id}"),
             asset_schema,

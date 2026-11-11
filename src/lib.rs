@@ -339,8 +339,8 @@ use rgbstd::{
         mpc::{MerkleTree, Message, MultiSource, ProtocolId},
     },
     stl::{
-        Attachment, ContractTerms, EmbeddedMedia as RgbEmbeddedMedia, MediaType,
-        ProofOfReserves as RgbProofOfReserves, RejectListUrl, RicardianContract, Ticker, TokenData,
+        EmbeddedMedia as RgbEmbeddedMedia, MediaType, ProofOfReserves as RgbProofOfReserves,
+        RejectListUrl, RicardianContract, Ticker,
     },
     txout::{BlindSeal, ExplicitSeal, TxPtr},
     validation::{
@@ -358,7 +358,7 @@ use rgbstd::{
     },
     contract::IssuerWrapper,
     rgbcore::{commit_verify::mpc::Commitment, dbc::Proof as _},
-    stl::{AssetSpec, BurnReason, Details, Name},
+    stl::{AssetSpec, Attachment, BurnReason, ContractTerms, Details, Name, TokenData},
     txout::TxoSeal,
     validation::DbcProof,
 };
@@ -384,8 +384,8 @@ use schemata::{
 };
 use schemata::{
     GS_BURN_REASON, GS_BURNED_ASSET, GS_BURNED_INFLATION, GS_DETAILS, GS_ISSUED_SUPPLY, GS_NAME,
-    GS_NOMINAL, GS_PRECISION, MS_ALLOWED_INFLATION, OS_ASSET, OS_INFLATION, TS_BURN, TS_INFLATION,
-    TS_TRANSFER,
+    GS_NOMINAL, GS_PRECISION, GS_TERMS, GS_TOKENS, MS_ALLOWED_INFLATION, OS_ASSET, OS_INFLATION,
+    TS_BURN, TS_INFLATION, TS_TRANSFER,
 };
 #[cfg(feature = "wallet")]
 use scrypt::{Params, phc::Salt, scrypt};
