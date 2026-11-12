@@ -504,6 +504,67 @@ fn import_asset_contract_offline_reopen() {
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
+fn import_asset_contract_offline_rejection_and_reimport() {
+    let data_dir = PrivateDataDir::new();
+    let party = offline_party!(data_dir.wallet(true, None));
+    let contract = nia_contract(&party.wallet, party.wallet.chain_net());
+    let asset_id = contract.contract_id().to_string();
+    let wrong_network = nia_contract(&party.wallet, ChainNet::BitcoinTestnet3);
+    let mut malformed = contract.clone();
+    malformed.transfer = true;
+    assert_eq!(malformed.contract_id(), contract.contract_id());
+    let backup_before = party.db_backup_info_opt();
+
+    for invalid in [wrong_network.clone(), malformed.clone()] {
+        let result = party.wallet.import_asset_contract(invalid, vec![]);
+        assert_matches!(result, Err(Error::InvalidConsignment));
+        assert_matches!(
+            party.get_asset_metadata_result(&asset_id),
+            Err(Error::AssetNotFound { .. })
+        );
+        assert!(party.list_assets(&[]).nia.unwrap().is_empty());
+        assert!(party.db_transfers().is_empty());
+        assert_eq!(party.db_backup_info_opt(), backup_before);
+    }
+
+    let metadata = party
+        .wallet
+        .import_asset_contract(contract.clone(), vec![])
+        .unwrap();
+    let backup_after = party.db_backup_info();
+
+    // Existing registration must not bypass validation or make a repeat import a mutation.
+    for candidate in [wrong_network, malformed, contract.clone()] {
+        if candidate == contract {
+            assert_eq!(
+                party
+                    .wallet
+                    .import_asset_contract(candidate, vec![])
+                    .unwrap(),
+                metadata
+            );
+        } else {
+            let result = party.wallet.import_asset_contract(candidate, vec![]);
+            assert_matches!(result, Err(Error::InvalidConsignment));
+        }
+        assert_eq!(party.get_asset_metadata(&asset_id), metadata);
+        assert_eq!(party.get_asset_balance(&asset_id), Balance::default());
+        assert_eq!(party.list_assets(&[]).nia.unwrap().len(), 1);
+        assert!(party.db_transfers().is_empty());
+        assert_eq!(party.db_backup_info(), backup_after);
+        assert_eq!(
+            party
+                .wallet
+                .export_asset_contract(asset_id.clone())
+                .unwrap(),
+            contract
+        );
+    }
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
 fn import_asset_contract_first_receive() {
     initialize();
 
