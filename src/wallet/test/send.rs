@@ -1791,6 +1791,8 @@ fn receive_multiple_same_asset_success() {
             },
         ],
     )]);
+    // no blocks until the transfers have been checked in status WaitingConfirmations
+    let guard = stop_mining();
     let txid = party.send_retry(&recipient_map);
     assert!(!txid.is_empty());
 
@@ -1966,6 +1968,7 @@ fn receive_multiple_same_asset_success() {
     assert!(updated_at_2 > transfer_data_2.created_at);
 
     // transfers progress to status Settled after tx mining + refresh
+    drop(guard);
     mine(false);
     std::thread::sleep(Duration::from_millis(1000)); // make sure updated_at will be at least +1s
     rcv_party.wait_for_refresh(None);
@@ -2063,6 +2066,8 @@ fn receive_multiple_different_assets_success() {
             }],
         ),
     ]);
+    // no blocks until the transfers have been checked in status WaitingConfirmations
+    let guard = stop_mining();
     let txid = party.send_retry(&recipient_map);
     assert!(!txid.is_empty());
 
@@ -2280,6 +2285,7 @@ fn receive_multiple_different_assets_success() {
 
     // transfers progress to status Settled after tx mining + refresh
     std::thread::sleep(Duration::from_millis(1000)); // make sure updated_at will be at least +1s
+    drop(guard);
     mine(false);
     rcv_party.wait_for_refresh(None);
     party.wait_for_refresh(Some(&asset_1.asset_id));
@@ -2596,6 +2602,8 @@ fn ack() {
             },
         ],
     )]);
+    // no blocks until the transfers have been checked in their intermediate statuses
+    let _guard = stop_mining();
     let txid = party.send_retry(&recipient_map);
     assert!(!txid.is_empty());
 
@@ -5824,6 +5832,8 @@ fn witness_success() {
         ],
     )]);
     party.create_utxos(false, None, None, FEE_RATE, None);
+    // no blocks until the transfers have been checked in status WaitingConfirmations
+    let guard = stop_mining();
     let txid = party.send_retry(&recipient_map);
     assert!(!txid.is_empty());
 
@@ -5876,6 +5886,7 @@ fn witness_success() {
     );
 
     // transfers progress to status Settled after tx mining + refresh
+    drop(guard);
     mine(false);
     rcv_party.wait_for_refresh(None);
     party.wait_for_refresh(Some(&asset.asset_id));

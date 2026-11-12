@@ -1740,6 +1740,8 @@ fn send_to_oneself() {
             },
         ],
     )]);
+    // no blocks until the receive transfers have been checked in status WaitingConfirmations
+    let guard = stop_mining();
     let op_init_rgb = wlt_1.send_init(recipient_map);
     operation_complete::<SendRgbHandler>(
         op_init_rgb.operation_idx,
@@ -1766,6 +1768,7 @@ fn send_to_oneself() {
         None,
         TransferStatus::WaitingConfirmations,
     );
+    drop(guard);
     settle_transfer(
         &mut [&mut wlt_1, &mut wlt_2],
         &mut [&mut wlt_3],

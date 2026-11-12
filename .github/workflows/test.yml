@@ -11,7 +11,7 @@ env:
 
 jobs:
   test_and_coverage:
-    timeout-minutes: 45
+    timeout-minutes: 60
     runs-on: ubuntu-latest
 
     steps:

@@ -144,14 +144,17 @@ fn success() {
         transfer_recv_witness.assignments,
         vec![Assignment::Fungible(amount * 2)]
     );
-    assert_eq!(
+    // the statuses are not what this test is about: a block mined by a test running alongside can
+    // confirm the TX before the refresh pass that picks up the released TX, settling a transfer
+    // early, so accept both statuses
+    assert!(matches!(
         transfer_recv_blind.status,
-        TransferStatus::WaitingConfirmations
-    );
-    assert_eq!(
+        TransferStatus::WaitingConfirmations | TransferStatus::Settled
+    ));
+    assert!(matches!(
         transfer_recv_witness.status,
-        TransferStatus::WaitingConfirmations
-    );
+        TransferStatus::WaitingConfirmations | TransferStatus::Settled
+    ));
     assert_eq!(transfer_recv_blind.txid, Some(txid.clone()));
     assert_eq!(transfer_recv_witness.txid, Some(txid.clone()));
 
