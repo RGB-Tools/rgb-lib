@@ -91,8 +91,7 @@ fn success() {
     party.wait_for_refresh(Some(&asset.asset_id));
     mine(false);
     rcv_party.wait_for_refresh(Some(&asset.asset_id));
-    party.wait_for_refresh(Some(&asset.asset_id));
-    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+    party.wait_for_transfer_status_sender(Some(&asset.asset_id), &txid, TransferStatus::Settled);
     assert_eq!(link_rights(&mut party, &asset.asset_id), 0);
     assert_eq!(link_rights(&mut rcv_party, &asset.asset_id), 1);
     let rcv_transfer = rcv_party
@@ -273,8 +272,7 @@ fn send_beside_fungible() {
     party.wait_for_refresh(Some(&asset.asset_id));
     mine(false);
     rcv_party.wait_for_refresh(Some(&asset.asset_id));
-    party.wait_for_refresh(Some(&asset.asset_id));
-    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+    party.wait_for_transfer_status_sender(Some(&asset.asset_id), &txid, TransferStatus::Settled);
 
     // the receiver got both, each on the invoice it was sent to
     assert_eq!(link_rights(&mut party, &asset.asset_id), 0);
@@ -609,8 +607,7 @@ fn end_after_fail_or_end() {
     let (_, txid, signed_psbt) = begin(&mut party);
     link_end_result(&mut party, &signed_psbt).unwrap();
     mine(false);
-    party.wait_for_refresh(None);
-    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+    party.wait_for_transfer_status_sender(None, &txid, TransferStatus::Settled);
     let result = link_end_result(&mut party, &signed_psbt);
     assert_matches!(result, Err(Error::CannotEndTransfer { txid: t }) if t == txid);
     assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));

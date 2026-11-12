@@ -986,12 +986,12 @@ fn filter_with_waiting_safe_height() {
     party_2.wait_for_refresh(None);
     party_1.wait_for_refresh(Some(&asset.asset_id));
     force_mine_no_resume_when_alone(false);
-    party_2.wait_for_refresh(None);
-    party_1.wait_for_refresh(Some(&asset.asset_id));
-    assert!(party_2.check_test_transfer_status_recipient(
+    party_2.wait_for_transfer_status_recipient(
+        None,
         &receive_data_1.recipient_id,
-        TransferStatus::Settled
-    ));
+        TransferStatus::Settled,
+    );
+    party_1.wait_for_refresh(Some(&asset.asset_id));
 
     // 2nd transfer: wallet 1 > wallet 2 with min_confirmations = 2
     // txid_1 has only one confirmation, so the transfer parks in WaitingSafeHeight

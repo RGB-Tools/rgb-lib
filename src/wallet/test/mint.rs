@@ -476,12 +476,10 @@ fn witness_recipient() {
     let signed_psbt = party.wallet.sign_psbt(res.psbt, None).unwrap();
     party.mint_end(party.online, signed_psbt);
     mine(false);
-    rcv_party.wait_for_refresh(None);
-    assert!(
-        rcv_party.check_test_transfer_status_recipient(
-            &receive_data.recipient_id,
-            TransferStatus::Settled
-        )
+    rcv_party.wait_for_transfer_status_recipient(
+        None,
+        &receive_data.recipient_id,
+        TransferStatus::Settled,
     );
     assert_eq!(rcv_party.get_asset_balance(&asset.asset_id).settled, AMOUNT);
 }
@@ -519,12 +517,10 @@ fn revalidate_received_mint() {
     let signed_psbt = party.wallet.sign_psbt(res.psbt, None).unwrap();
     party.mint_end(party.online, signed_psbt);
     mine(false);
-    rcv_party.wait_for_refresh(None);
-    assert!(
-        rcv_party.check_test_transfer_status_recipient(
-            &receive_data.recipient_id,
-            TransferStatus::Settled
-        )
+    rcv_party.wait_for_transfer_status_recipient(
+        None,
+        &receive_data.recipient_id,
+        TransferStatus::Settled,
     );
     assert_eq!(rcv_party.get_asset_balance(&asset.asset_id).settled, AMOUNT);
 }
@@ -649,12 +645,10 @@ fn lock_for_other_tx() {
         .unwrap();
     party.mint_end(party.online, signed_psbt);
     mine(false);
-    rcv_party.wait_for_refresh(None);
-    assert!(
-        rcv_party.check_test_transfer_status_recipient(
-            &receive_data.recipient_id,
-            TransferStatus::Settled
-        )
+    rcv_party.wait_for_transfer_status_recipient(
+        None,
+        &receive_data.recipient_id,
+        TransferStatus::Settled,
     );
     assert_eq!(rcv_party.get_asset_balance(&asset.asset_id).settled, AMOUNT);
 }
@@ -904,12 +898,10 @@ fn checked_mint_reject_list_not_repeated() {
     let signed_psbt = party.wallet.sign_psbt(res.psbt, None).unwrap();
     party.mint_end(party.online, signed_psbt);
     mine(false);
-    rcv_party.wait_for_refresh(None);
-    assert!(
-        rcv_party.check_test_transfer_status_recipient(
-            &receive_data.recipient_id,
-            TransferStatus::Settled
-        )
+    rcv_party.wait_for_transfer_status_recipient(
+        None,
+        &receive_data.recipient_id,
+        TransferStatus::Settled,
     );
 }
 
@@ -976,12 +968,10 @@ fn retry_looks_up_mint_lock() {
     let signed_psbt = party.wallet.sign_psbt(res.psbt, None).unwrap();
     party.mint_end(party.online, signed_psbt);
     mine(false);
-    rcv_party.wait_for_refresh(None);
-    assert!(
-        rcv_party.check_test_transfer_status_recipient(
-            &receive_data.recipient_id,
-            TransferStatus::Settled
-        )
+    rcv_party.wait_for_transfer_status_recipient(
+        None,
+        &receive_data.recipient_id,
+        TransferStatus::Settled,
     );
 }
 
@@ -1070,12 +1060,10 @@ fn locked_mint_not_refused() {
     let signed_psbt = party.wallet.sign_psbt(res.psbt, None).unwrap();
     party.mint_end(party.online, signed_psbt);
     mine(false);
-    rcv_party.wait_for_refresh(None);
-    assert!(
-        rcv_party.check_test_transfer_status_recipient(
-            &receive_data.recipient_id,
-            TransferStatus::Settled
-        )
+    rcv_party.wait_for_transfer_status_recipient(
+        None,
+        &receive_data.recipient_id,
+        TransferStatus::Settled,
     );
     assert_eq!(
         rcv_party.get_asset_balance(&asset.asset_id).settled,
@@ -1133,12 +1121,10 @@ fn mint_tx_inputs_spent(rcv_indexer_url: Option<String>) {
     let tx = Psbt::from_str(&signed_psbt).unwrap().extract_tx().unwrap();
     party.wallet.broadcast_tx(tx).unwrap();
     mine(false);
-    rcv_party.wait_for_refresh(None);
-    assert!(
-        rcv_party.check_test_transfer_status_recipient(
-            &receive_data.recipient_id,
-            TransferStatus::Failed
-        )
+    rcv_party.wait_for_transfer_status_recipient(
+        None,
+        &receive_data.recipient_id,
+        TransferStatus::Failed,
     );
 }
 
@@ -1535,8 +1521,7 @@ fn mint_end_after_fail() {
     let res = party.mint_end(party.online, signed_psbt.clone());
     mine(false);
     rcv_party.wait_for_refresh(None);
-    party.wait_for_refresh(None);
-    assert!(party.check_test_transfer_status_sender(&res.txid, TransferStatus::Settled));
+    party.wait_for_transfer_status_sender(None, &res.txid, TransferStatus::Settled);
     let result = party.mint_end_result(party.online, signed_psbt);
     assert_matches!(result, Err(Error::CannotEndTransfer { txid: t }) if t == res.txid);
     assert!(party.check_test_transfer_status_sender(&res.txid, TransferStatus::Settled));
@@ -1741,16 +1726,13 @@ fn invoice_expiration_ignored() {
     let signed_psbt = party.wallet.sign_psbt(res.psbt, None).unwrap();
     party.mint_end(party.online, signed_psbt);
     mine(false);
-    rcv_party.wait_for_refresh(None);
-    assert!(
-        rcv_party.check_test_transfer_status_recipient(
-            &receive_data.recipient_id,
-            TransferStatus::Settled
-        )
+    rcv_party.wait_for_transfer_status_recipient(
+        None,
+        &receive_data.recipient_id,
+        TransferStatus::Settled,
     );
     assert_eq!(rcv_party.get_asset_balance(&asset.asset_id).settled, AMOUNT);
-    party.wait_for_refresh(Some(&asset.asset_id));
-    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+    party.wait_for_transfer_status_sender(Some(&asset.asset_id), &txid, TransferStatus::Settled);
 }
 
 // finalize the lock of the mint `res` paying `recipient_id`, end the mint and check it settles
@@ -1772,11 +1754,9 @@ fn settle_locked_mint(
     let signed_psbt = party.wallet.sign_psbt(res.psbt, None).unwrap();
     party.mint_end(party.online, signed_psbt);
     mine(false);
-    rcv_party.wait_for_refresh(None);
-    assert!(rcv_party.check_test_transfer_status_recipient(recipient_id, TransferStatus::Settled));
+    rcv_party.wait_for_transfer_status_recipient(None, recipient_id, TransferStatus::Settled);
     assert_eq!(rcv_party.get_asset_balance(asset_id).settled, AMOUNT);
-    party.wait_for_refresh(Some(asset_id));
-    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+    party.wait_for_transfer_status_sender(Some(asset_id), &txid, TransferStatus::Settled);
 }
 
 // a mint whose lock is made before its recipient checks it (e.g. by a bridge locking right away),
@@ -2579,14 +2559,12 @@ fn reject_list() {
     party_3.wait_for_refresh(None);
     party_2.wait_for_refresh(None);
     mine(false);
-    party_3.wait_for_refresh(None);
-    party_2.wait_for_refresh(None);
-    assert!(
-        party_3.check_test_transfer_status_recipient(
-            &receive_data.recipient_id,
-            TransferStatus::Settled
-        )
+    party_3.wait_for_transfer_status_recipient(
+        None,
+        &receive_data.recipient_id,
+        TransferStatus::Settled,
     );
+    party_2.wait_for_refresh(None);
     assert_eq!(party_3.get_asset_balance(&asset.asset_id).settled, amt);
 
     // a further entry rejecting the minted allocation again supersedes the allow: the received
@@ -2641,14 +2619,12 @@ fn reject_list() {
     let signed_psbt = party_1.wallet.sign_psbt(res.psbt, None).unwrap();
     party_1.mint_end(party_1.online, signed_psbt);
     mine(false);
-    party_3.wait_for_refresh(None);
-    party_1.wait_for_refresh(None);
-    assert!(
-        party_3.check_test_transfer_status_recipient(
-            &receive_data.recipient_id,
-            TransferStatus::Settled
-        )
+    party_3.wait_for_transfer_status_recipient(
+        None,
+        &receive_data.recipient_id,
+        TransferStatus::Settled,
     );
+    party_1.wait_for_refresh(None);
 
     // a mint is checked against the reject list too: with all its mint rights rejected the minter
     // cannot mint anymore, instead of producing a mint its recipient would refuse
@@ -2707,12 +2683,12 @@ fn reject_list_moved_rights() {
         let signed_psbt = party.wallet.sign_psbt(res.psbt, None).unwrap();
         party.mint_end(party.online, signed_psbt);
         mine(false);
-        rcv_party.wait_for_refresh(None);
-        party.wait_for_refresh(None);
-        assert!(rcv_party.check_test_transfer_status_recipient(
+        rcv_party.wait_for_transfer_status_recipient(
+            None,
             &receive_data.recipient_id,
-            TransferStatus::Settled
-        ));
+            TransferStatus::Settled,
+        );
+        party.wait_for_refresh(None);
     };
 
     // each mint right is on its own UTXO
@@ -3034,13 +3010,12 @@ fn receive_mint_right_on_utxo_with_one() {
 
     // settle the first one
     mine(false);
-    rcv_party.wait_for_refresh(None);
-    party.wait_for_refresh(Some(asset_id));
-    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
-    assert!(rcv_party.check_test_transfer_status_recipient(
+    rcv_party.wait_for_transfer_status_recipient(
+        None,
         &receive_data_1.recipient_id,
-        TransferStatus::Settled
-    ));
+        TransferStatus::Settled,
+    );
+    party.wait_for_transfer_status_sender(Some(asset_id), &txid, TransferStatus::Settled);
 
     // no mint right invoice can be made on the UTXO holding one
     assert_matches!(
@@ -3271,15 +3246,12 @@ fn moved_mint_right_no_btc_change() {
     rcv_party.wait_for_refresh(None);
     party.wait_for_refresh(None);
     mine(false);
-    rcv_party.wait_for_refresh(None);
-    party.wait_for_refresh(None);
-    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
-    assert!(
-        rcv_party.check_test_transfer_status_recipient(
-            &receive_data.recipient_id,
-            TransferStatus::Settled
-        )
+    rcv_party.wait_for_transfer_status_recipient(
+        None,
+        &receive_data.recipient_id,
+        TransferStatus::Settled,
     );
+    party.wait_for_transfer_status_sender(None, &txid, TransferStatus::Settled);
 
     // M got the RGB change, D the mint right, each UTXO holding a single mint right
     assert_eq!(allocations_on(&mut party, &utxo_m).len(), 2);
@@ -3322,15 +3294,12 @@ fn mint_and_settle(
     let signed_psbt = party.wallet.sign_psbt(res.psbt, None).unwrap();
     party.mint_end(party.online, signed_psbt);
     mine(false);
-    rcv_party.wait_for_refresh(None);
-    assert!(
-        rcv_party.check_test_transfer_status_recipient(
-            &receive_data.recipient_id,
-            TransferStatus::Settled
-        )
+    rcv_party.wait_for_transfer_status_recipient(
+        None,
+        &receive_data.recipient_id,
+        TransferStatus::Settled,
     );
-    party.wait_for_refresh(Some(asset_id));
-    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+    party.wait_for_transfer_status_sender(Some(asset_id), &txid, TransferStatus::Settled);
 }
 
 // a bridge releasing locked tokens without the RGB allocations being burned lets the RGB supply

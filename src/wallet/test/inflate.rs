@@ -713,8 +713,7 @@ fn end_after_fail_or_end() {
     let (_, txid, signed_psbt) = begin(&mut party);
     party.inflate_end_result(&signed_psbt).unwrap();
     mine(false);
-    party.wait_for_refresh(None);
-    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+    party.wait_for_transfer_status_sender(None, &txid, TransferStatus::Settled);
     let result = party.inflate_end_result(&signed_psbt);
     assert_matches!(result, Err(Error::CannotEndTransfer { txid: t }) if t == txid);
     assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));

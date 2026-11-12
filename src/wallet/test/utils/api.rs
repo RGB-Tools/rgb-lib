@@ -1,5 +1,9 @@
 use super::*;
 
+// a refresh that keeps changing transfers forever would be a bug: stop and report it
+#[cfg(feature = "electrum")]
+const MAX_REFRESH_PASSES: u8 = 20;
+
 // singlesig party without an online handle (for offline-only test APIs)
 pub(crate) struct OfflineSinglesigParty {
     pub(crate) wallet: Wallet,
@@ -30,6 +34,14 @@ macro_rules! party {
     };
 }
 
+/// A transfer to wait on, identified by the recipient ID of a receive or the TXID of a send.
+#[cfg(feature = "electrum")]
+#[derive(Debug)]
+pub(crate) enum TransferRef<'a> {
+    Recipient(&'a str),
+    Sender(&'a str),
+}
+
 // convenience trait to allow uniform access to offline functionality from all parties
 pub(crate) trait OfflineSigParty {
     type W: RgbWalletOpsOffline;
@@ -38,12 +50,9 @@ pub(crate) trait OfflineSigParty {
 
     fn wlt_mut(&mut self) -> &mut Self::W;
 
+    /// Status of the receive transfer with the given recipient ID.
     #[cfg(feature = "electrum")]
-    fn check_test_transfer_status_recipient(
-        &self,
-        recipient_id: &str,
-        expected_status: TransferStatus,
-    ) -> bool {
+    fn transfer_status_recipient(&self, recipient_id: &str) -> TransferStatus {
         let transfers = self.db_transfers();
         let mut recipient_transfers = transfers
             .iter()
@@ -51,11 +60,39 @@ pub(crate) trait OfflineSigParty {
         let transfer = recipient_transfers.next().unwrap();
         assert!(recipient_transfers.next().is_none());
         let (transfer_data, _) = self.get_test_transfer_data(transfer);
-        println!(
-            "receive with recipient_id {} is in status {:?}",
-            recipient_id, transfer_data.status
-        );
-        transfer_data.status == expected_status
+        transfer_data.status
+    }
+
+    /// Status of the send transfer with the given TXID.
+    #[cfg(feature = "electrum")]
+    fn transfer_status_sender(&self, txid: &str) -> TransferStatus {
+        let batch_transfers: Vec<_> = self
+            .db_batch_transfers()
+            .into_iter()
+            .filter(|b| b.txid == Some(txid.to_string()))
+            .collect();
+        assert_eq!(batch_transfers.len(), 1);
+        batch_transfers.first().unwrap().status
+    }
+
+    /// Status of the transfer `transfer_ref` refers to.
+    #[cfg(feature = "electrum")]
+    fn transfer_status(&self, transfer_ref: &TransferRef) -> TransferStatus {
+        match transfer_ref {
+            TransferRef::Recipient(recipient_id) => self.transfer_status_recipient(recipient_id),
+            TransferRef::Sender(txid) => self.transfer_status_sender(txid),
+        }
+    }
+
+    #[cfg(feature = "electrum")]
+    fn check_test_transfer_status_recipient(
+        &self,
+        recipient_id: &str,
+        expected_status: TransferStatus,
+    ) -> bool {
+        let status = self.transfer_status_recipient(recipient_id);
+        println!("receive with recipient_id {recipient_id} is in status {status:?}");
+        status == expected_status
     }
 
     #[cfg(feature = "electrum")]
@@ -64,18 +101,9 @@ pub(crate) trait OfflineSigParty {
         txid: &str,
         expected_status: TransferStatus,
     ) -> bool {
-        let batch_transfers: Vec<_> = self
-            .db_batch_transfers()
-            .into_iter()
-            .filter(|b| b.txid == Some(txid.to_string()))
-            .collect();
-        assert_eq!(batch_transfers.len(), 1);
-        let batch_transfer = batch_transfers.first().unwrap();
-        println!(
-            "send with txid {} is in status {:?}",
-            txid, batch_transfer.status
-        );
-        batch_transfer.status == expected_status
+        let status = self.transfer_status_sender(txid);
+        println!("send with txid {txid} is in status {status:?}");
+        status == expected_status
     }
 
     #[cfg(feature = "electrum")]
@@ -948,6 +976,140 @@ pub(crate) trait SigParty: OfflineSigParty<W: RgbWalletOpsOnline> {
         }
     }
 
+    /// A single refresh, with the error handling shared by the waiting helpers: `None` means it
+    /// hit an error the caller is expected to retry, while a fatal one panics.
+    fn refresh_pass(&mut self, asset_id: Option<&str>) -> Option<RefreshResult> {
+        let result = self.refresh_result(asset_id, &[]);
+        let Ok(refresh_res) = result else {
+            eprintln!("refresh error: {result:?}");
+            return None;
+        };
+        let mut non_fatal_error = false;
+        refresh_res.iter().for_each(|(i, rt)| {
+            if let Some(ref e) = rt.failure {
+                eprintln!("refresh of {i} failure: {e} ({e:?})");
+                match e {
+                    Error::InvalidTxid => {
+                        println!("refresh of {i} invalid TXID: {e}");
+                        non_fatal_error = true;
+                    }
+                    Error::Network { details } => {
+                        println!("refresh of {i} network error: {e}, details: {details}");
+                        non_fatal_error = true;
+                    }
+                    _ => panic!("refresh of {i} fatal error: {e}"),
+                }
+            }
+        });
+        if non_fatal_error {
+            return None;
+        }
+        Some(refresh_res)
+    }
+
+    /// Refresh until a pass changes nothing, so that all the progress that is possible at this
+    /// point has been applied.
+    ///
+    /// Each pass applies the progress that is possible when it runs, which can enable more (e.g. a
+    /// batch recipient that ACKs before the last one moves to WaitingBroadcast, then picks up the
+    /// released TX and reaches WaitingConfirmations), so a single pass can leave the wallet in a
+    /// state that depends on which transfer happened to change first.
+    ///
+    /// Returns whether anything changed or there is nothing left to refresh (refresh only
+    /// considers transfers in a waiting status, so an empty result means no change can ever
+    /// happen: this is normal, as a transfer may have already been updated by an earlier refresh,
+    /// e.g. settled on a block mined by another test, since mining is shared between tests running
+    /// in parallel).
+    #[cfg(feature = "electrum")]
+    fn drain_refresh(&mut self, asset_id: Option<&str>) -> bool {
+        let mut progressed = false;
+        for _ in 0..MAX_REFRESH_PASSES {
+            let Some(refresh_res) = self.refresh_pass(asset_id) else {
+                return progressed;
+            };
+            if refresh_res.is_empty() {
+                println!("no transfer left to refresh");
+                return true;
+            }
+            if !refresh_res.transfers_changed() {
+                return progressed;
+            }
+            progressed = true;
+        }
+        panic!("refresh is not reaching a stable state");
+    }
+
+    /// Refresh until the transfer `transfer_ref` refers to is in `expected_status`.
+    ///
+    /// This is for statuses a transfer cannot move past (Settled and Failed): waiting for an
+    /// intermediate one can hang, as the transfer may have already left it by the time it's
+    /// checked.
+    #[cfg(feature = "electrum")]
+    fn wait_for_transfer_status(
+        &mut self,
+        asset_id: Option<&str>,
+        transfer_ref: TransferRef<'_>,
+        expected_status: TransferStatus,
+    ) {
+        assert!(
+            matches!(
+                expected_status,
+                TransferStatus::Settled | TransferStatus::Failed
+            ),
+            "only a final status can be waited for, got {expected_status:?}"
+        );
+        println!("waiting for {transfer_ref:?} to be {expected_status:?}");
+        let check = || {
+            // refresh even if the status already matches: the caller may be relying on the side
+            // effects of the refresh this replaces (e.g. progress on another transfer)
+            self.drain_refresh(asset_id);
+            self.transfer_status(&transfer_ref) == expected_status
+        };
+        if !wait_for_function(check, 30, 500) {
+            panic!(
+                "{transfer_ref:?} is in status {:?}, it's not becoming {expected_status:?}",
+                self.transfer_status(&transfer_ref)
+            );
+        }
+    }
+
+    /// Refresh until the receive transfer with the given recipient ID is in `expected_status`
+    /// (see `wait_for_transfer_status`).
+    #[cfg(feature = "electrum")]
+    fn wait_for_transfer_status_recipient(
+        &mut self,
+        asset_id: Option<&str>,
+        recipient_id: &str,
+        expected_status: TransferStatus,
+    ) {
+        self.wait_for_transfer_status(
+            asset_id,
+            TransferRef::Recipient(recipient_id),
+            expected_status,
+        );
+    }
+
+    /// Refresh until the send transfer with the given TXID is in `expected_status` (see
+    /// `wait_for_transfer_status`).
+    #[cfg(feature = "electrum")]
+    fn wait_for_transfer_status_sender(
+        &mut self,
+        asset_id: Option<&str>,
+        txid: &str,
+        expected_status: TransferStatus,
+    ) {
+        self.wait_for_transfer_status(asset_id, TransferRef::Sender(txid), expected_status);
+    }
+
+    /// Refresh until a transfer changes status, panicking if none does.
+    ///
+    /// When `transfer_ids` is given, it waits for each of those transfers to change instead.
+    ///
+    /// This waits for *some* progress, which is not necessarily the progress the caller is after,
+    /// and it leaves the progress that the refresh enables pending (which is what tests checking
+    /// the status a transfer goes through at each refresh expect). When waiting for a transfer to
+    /// reach a final status, `wait_for_transfer_status` is both more precise and immune to another
+    /// transfer changing first.
     fn wait_for_refresh_raw(&mut self, asset_id: Option<&str>, transfer_ids: Option<&[i32]>) {
         println!(
             "waiting for refresh ({})",
@@ -960,61 +1122,45 @@ pub(crate) trait SigParty: OfflineSigParty<W: RgbWalletOpsOnline> {
             target_set = t_ids.iter().copied().collect();
         }
         let check = || {
-            let result = self.refresh_result(asset_id, &[]);
-            if let Ok(refresh_res) = result {
-                let mut non_fatal_error = false;
-                refresh_res.iter().for_each(|(i, rt)| {
-                    if let Some(ref e) = rt.failure {
-                        eprintln!("refresh of {i} failure: {e} ({e:?})");
-                        match e {
-                            Error::InvalidTxid => {
-                                println!("refresh of {i} invalid TXID: {e}");
-                                non_fatal_error = true;
-                            }
-                            Error::Network { details } => {
-                                println!("refresh of {i} network error: {e}, details: {details}");
-                                non_fatal_error = true;
-                            }
-                            _ => panic!("refresh of {i} fatal error: {e}"),
-                        }
+            let Some(refresh_res) = self.refresh_pass(asset_id) else {
+                return false;
+            };
+            // refresh only considers transfers in a waiting status, so an empty result means there
+            // is nothing left to refresh and no change can ever happen: this is normal, as a
+            // transfer may have already been updated by an earlier refresh; the caller's status
+            // checks tell if the outcome is the expected one
+            if refresh_res.is_empty() {
+                println!("no transfer left to refresh");
+                return true;
+            }
+            // a batch recipient that ACKs before the last one moves to WaitingBroadcast; one more
+            // pass lets it pick up the released TX and reach WaitingConfirmations
+            let has_waiting_broadcast = refresh_res
+                .values()
+                .any(|rt| rt.updated_status == Some(TransferStatus::WaitingBroadcast));
+            if transfer_ids.is_some() {
+                for (id, rt) in &refresh_res {
+                    if rt.updated_status.is_some() && target_set.contains(id) {
+                        seen.insert(*id);
                     }
-                });
-                if non_fatal_error {
-                    return false;
                 }
-                if transfer_ids.is_some() {
-                    let has_waiting_broadcast = refresh_res
-                        .iter()
-                        .any(|(_, rt)| rt.updated_status == Some(TransferStatus::WaitingBroadcast));
-                    for (id, rt) in refresh_res {
-                        if rt.updated_status.is_some() && target_set.contains(&id) {
-                            seen.insert(id);
-                        }
-                    }
-                    if seen == target_set {
-                        // a batch recipient that ACKs before the last one moves to WaitingBroadcast;
-                        // one more pass lets it pick up the released TX and reach WaitingConfirmations
-                        if has_waiting_broadcast {
-                            self.refresh_result(asset_id, &[]).unwrap();
-                        }
-                        return true;
-                    }
-                } else if refresh_res.transfers_changed() {
-                    // a batch recipient that ACKs before the last one moves to WaitingBroadcast; if
-                    // that happened, do one more refresh pass so it can pick up the released TX and
-                    // reach WaitingConfirmations
-                    let has_waiting_broadcast = refresh_res
-                        .iter()
-                        .any(|(_, rt)| rt.updated_status == Some(TransferStatus::WaitingBroadcast));
+                // a target that is no longer waiting cannot be updated anymore, so it doesn't need
+                // to have been seen changing
+                let done = target_set
+                    .iter()
+                    .all(|id| seen.contains(id) || !refresh_res.contains_key(id));
+                if done {
                     if has_waiting_broadcast {
-                        self.refresh_result(asset_id, &[]).unwrap();
+                        self.refresh_pass(asset_id);
                     }
                     return true;
                 }
-            } else {
-                eprintln!("refresh error: {result:?}");
-                return false;
-            };
+            } else if refresh_res.transfers_changed() {
+                if has_waiting_broadcast {
+                    self.refresh_pass(asset_id);
+                }
+                return true;
+            }
             false
         };
         if !wait_for_function(check, 10, 500) {

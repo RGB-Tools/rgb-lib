@@ -383,13 +383,16 @@ fn encryption_variants() {
         rcv_party.wait_for_refresh(None);
         party.wait_for_refresh(Some(&asset.asset_id));
         mine(false);
-        rcv_party.wait_for_refresh(None);
-        party.wait_for_refresh(Some(&asset.asset_id));
-        assert!(rcv_party.check_test_transfer_status_recipient(
+        rcv_party.wait_for_transfer_status_recipient(
+            None,
             &receive_data.recipient_id,
-            TransferStatus::Settled
-        ));
-        assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+            TransferStatus::Settled,
+        );
+        party.wait_for_transfer_status_sender(
+            Some(&asset.asset_id),
+            &txid,
+            TransferStatus::Settled,
+        );
     }
 }
 
@@ -2492,13 +2495,13 @@ fn batch_donation_success() {
     assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::WaitingConfirmations));
 
     mine(false);
-    rcv_party_1.wait_for_refresh(None);
+    rcv_party_1.wait_for_transfer_status_recipient(
+        None,
+        &receive_data_a1.recipient_id,
+        TransferStatus::Settled,
+    );
     rcv_party_2.wait_for_refresh(None);
     party.wait_for_refresh(None);
-    assert!(rcv_party_1.check_test_transfer_status_recipient(
-        &receive_data_a1.recipient_id,
-        TransferStatus::Settled
-    ));
     assert!(rcv_party_1.check_test_transfer_status_recipient(
         &receive_data_b1.recipient_id,
         TransferStatus::Settled
@@ -2699,8 +2702,7 @@ fn nack() {
         .unwrap();
 
     // refreshing sender transfer now has it fail
-    party.wait_for_refresh(Some(&asset.asset_id));
-    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Failed));
+    party.wait_for_transfer_status_sender(Some(&asset.asset_id), &txid, TransferStatus::Failed);
 }
 
 /// a NACK already recorded on the sender proxy for this recipient (only the recipient itself can
@@ -2754,17 +2756,14 @@ fn nack_pre_existing_receiver_fails() {
 
     // the receiver validates the consignment but its ACK is refused by the proxy: the sender will
     // never see an ACK, so the receive must be failed rather than left waiting
-    rcv_party.wait_for_refresh(None);
-    assert!(
-        rcv_party.check_test_transfer_status_recipient(
-            &receive_data.recipient_id,
-            TransferStatus::Failed
-        )
+    rcv_party.wait_for_transfer_status_recipient(
+        None,
+        &receive_data.recipient_id,
+        TransferStatus::Failed,
     );
 
     // the sender fails as usual
-    party.wait_for_refresh(Some(&asset.asset_id));
-    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Failed));
+    party.wait_for_transfer_status_sender(Some(&asset.asset_id), &txid, TransferStatus::Failed);
 }
 
 #[cfg(feature = "electrum")]
@@ -2931,11 +2930,11 @@ fn invalid_ack_signature_fails_once_expired() {
     assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Failed));
 
     // recipient 1 polls again: the proxy reports the operation expired and its transfer fails too
-    rcv_party_1.wait_for_refresh(None);
-    assert!(rcv_party_1.check_test_transfer_status_recipient(
+    rcv_party_1.wait_for_transfer_status_recipient(
+        None,
         &receive_data_1.recipient_id,
-        TransferStatus::Failed
-    ));
+        TransferStatus::Failed,
+    );
 }
 
 #[cfg(feature = "electrum")]
@@ -2975,12 +2974,10 @@ fn recipient_refuses_tampered_consignment() {
     );
 
     // on refresh the recipient downloads it, the plaintext-hash check fails, and it refuses -> Failed
-    rcv_party.wait_for_refresh(None);
-    assert!(
-        rcv_party.check_test_transfer_status_recipient(
-            &receive_data.recipient_id,
-            TransferStatus::Failed
-        )
+    rcv_party.wait_for_transfer_status_recipient(
+        None,
+        &receive_data.recipient_id,
+        TransferStatus::Failed,
     );
 }
 
@@ -3017,8 +3014,7 @@ fn recipient_refuses_consignment_not_paying_it() {
     party.wait_for_refresh(Some(&asset.asset_id));
     mine(false);
     rcv_party_1.wait_for_refresh(Some(&asset.asset_id));
-    party.wait_for_refresh(Some(&asset.asset_id));
-    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+    party.wait_for_transfer_status_sender(Some(&asset.asset_id), &txid, TransferStatus::Settled);
 
     // post the same consignment to the invoice of rcv_party_2 (which advertises cleartext, so the
     // consignment can be posted as is)
@@ -3112,8 +3108,7 @@ fn link_right_on_wallet_utxo() {
     party.wait_for_refresh(Some(&asset.asset_id));
     mine(false);
     rcv_party.wait_for_refresh(Some(&asset.asset_id));
-    party.wait_for_refresh(Some(&asset.asset_id));
-    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+    party.wait_for_transfer_status_sender(Some(&asset.asset_id), &txid, TransferStatus::Settled);
 
     // the link right is on the UTXO of the blind receive
     assert_eq!(
@@ -3141,8 +3136,11 @@ fn link_right_on_wallet_utxo() {
     rcv_party.wait_for_refresh(Some(&asset.asset_id));
     mine(false);
     party.wait_for_refresh(Some(&asset.asset_id));
-    rcv_party.wait_for_refresh(Some(&asset.asset_id));
-    assert!(rcv_party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+    rcv_party.wait_for_transfer_status_sender(
+        Some(&asset.asset_id),
+        &txid,
+        TransferStatus::Settled,
+    );
     let link_right_outpoints = link_right_outpoints(&rcv_party.wallet, &asset.asset_id);
     assert_eq!(link_right_outpoints.len(), 1);
     assert_ne!(link_right_outpoints[0], receive_outpoint);
@@ -3219,11 +3217,11 @@ fn recipient_operation_expired() {
     std::thread::sleep(Duration::from_secs(sleep_secs));
 
     // recipient 1 polls again: the proxy reports the operation expired (-105) and the transfer fails
-    rcv_party_1.wait_for_refresh(None);
-    assert!(rcv_party_1.check_test_transfer_status_recipient(
+    rcv_party_1.wait_for_transfer_status_recipient(
+        None,
         &receive_data_1.recipient_id,
-        TransferStatus::Failed
-    ));
+        TransferStatus::Failed,
+    );
 }
 
 #[cfg(feature = "electrum")]
@@ -3278,15 +3276,12 @@ fn sender_expired_after_recipient_ack() {
 
     // the transfer settles on both sides
     mine(false);
-    rcv_party.wait_for_refresh(None);
-    party.wait_for_refresh(None);
-    assert!(
-        rcv_party.check_test_transfer_status_recipient(
-            &receive_data.recipient_id,
-            TransferStatus::Settled
-        )
+    rcv_party.wait_for_transfer_status_recipient(
+        None,
+        &receive_data.recipient_id,
+        TransferStatus::Settled,
     );
-    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+    party.wait_for_transfer_status_sender(None, &txid, TransferStatus::Settled);
 }
 
 /// The sender proxy drops its data (e.g. a reset) while outgoing operations are pending: ack.get
@@ -3437,13 +3432,12 @@ fn sender_proxy_lost_operation() {
 
     // transfer 1 settles on both sides
     mine(false);
-    rcv_party_1.wait_for_refresh(None);
-    party.wait_for_refresh(None);
-    assert!(rcv_party_1.check_test_transfer_status_recipient(
+    rcv_party_1.wait_for_transfer_status_recipient(
+        None,
         &receive_data_1.recipient_id,
-        TransferStatus::Settled
-    ));
-    assert!(party.check_test_transfer_status_sender(&txid_1, TransferStatus::Settled));
+        TransferStatus::Settled,
+    );
+    party.wait_for_transfer_status_sender(None, &txid_1, TransferStatus::Settled);
 }
 
 #[cfg(feature = "electrum")]
@@ -3498,12 +3492,10 @@ fn fail_before_ack_revokes_operation() {
     // the recipient fails the transfer
     let sleep_secs = std::cmp::max(expiration + 2 - now().unix_timestamp(), 0) as u64;
     std::thread::sleep(Duration::from_secs(sleep_secs));
-    rcv_party.wait_for_refresh(None);
-    assert!(
-        rcv_party.check_test_transfer_status_recipient(
-            &receive_data.recipient_id,
-            TransferStatus::Failed
-        )
+    rcv_party.wait_for_transfer_status_recipient(
+        None,
+        &receive_data.recipient_id,
+        TransferStatus::Failed,
     );
 }
 
@@ -5630,15 +5622,12 @@ fn send_extra_allocations_no_dry_run_impl(donation: bool) {
     }
     assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::WaitingConfirmations));
     mine(false);
-    rcv_party.wait_for_refresh(None);
-    party.wait_for_refresh(Some(&asset.asset_id));
-    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
-    assert!(
-        rcv_party.check_test_transfer_status_recipient(
-            &receive_data.recipient_id,
-            TransferStatus::Settled
-        )
+    rcv_party.wait_for_transfer_status_recipient(
+        None,
+        &receive_data.recipient_id,
+        TransferStatus::Settled,
     );
+    party.wait_for_transfer_status_sender(Some(&asset.asset_id), &txid, TransferStatus::Settled);
 
     // the sent asset moved, the extra asset stayed with the sender
     assert_eq!(
@@ -6814,14 +6803,12 @@ fn spv_proofs() {
     rcv_party.wait_for_refresh(None);
     party.wait_for_refresh(Some(&asset.asset_id));
     mine(false);
-    rcv_party.wait_for_refresh(None);
-    party.wait_for_refresh(Some(&asset.asset_id));
-    assert!(
-        rcv_party.check_test_transfer_status_recipient(
-            &receive_data.recipient_id,
-            TransferStatus::Settled
-        )
+    rcv_party.wait_for_transfer_status_recipient(
+        None,
+        &receive_data.recipient_id,
+        TransferStatus::Settled,
     );
+    party.wait_for_refresh(Some(&asset.asset_id));
 
     // spend the received allocation: the consignment now carries a proof for the mined
     // witness of the first transfer, while its own (unmined) witness has none
@@ -6874,12 +6861,12 @@ fn spv_proofs() {
     // and the transfer settles
     rcv_party.wait_for_refresh(Some(&asset.asset_id));
     mine(false);
-    party.wait_for_refresh(None);
-    rcv_party.wait_for_refresh(Some(&asset.asset_id));
-    assert!(party.check_test_transfer_status_recipient(
+    party.wait_for_transfer_status_recipient(
+        None,
         &receive_data_2.recipient_id,
-        TransferStatus::Settled
-    ));
+        TransferStatus::Settled,
+    );
+    rcv_party.wait_for_refresh(Some(&asset.asset_id));
 }
 
 #[cfg(feature = "electrum")]
@@ -9453,8 +9440,7 @@ fn donation_recipient_nack() {
     assert!(party_1.check_test_transfer_status_sender(&txid, TransferStatus::WaitingConfirmations));
     // settle on sender side
     mine(false);
-    party_1.wait_for_refresh(None);
-    assert!(party_1.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+    party_1.wait_for_transfer_status_sender(None, &txid, TransferStatus::Settled);
     assert!(
         party_2.check_test_transfer_status_recipient(
             &receive_data.recipient_id,
@@ -10238,13 +10224,16 @@ fn unsafe_history_waits_for_safe_height() {
     party_2.wait_for_refresh(None);
     party_1.wait_for_refresh(Some(&asset.asset_id));
     force_mine_no_resume_when_alone(false);
-    party_2.wait_for_refresh(None);
-    party_1.wait_for_refresh(Some(&asset.asset_id));
-    assert!(party_2.check_test_transfer_status_recipient(
+    party_2.wait_for_transfer_status_recipient(
+        None,
         &receive_data_1.recipient_id,
-        TransferStatus::Settled
-    ));
-    assert!(party_1.check_test_transfer_status_sender(&txid_1, TransferStatus::Settled));
+        TransferStatus::Settled,
+    );
+    party_1.wait_for_transfer_status_sender(
+        Some(&asset.asset_id),
+        &txid_1,
+        TransferStatus::Settled,
+    );
 
     // 2nd transfer: wallet 1 > wallet 2 with min_confirmations = 2, out-of-band exchange
     // txid_1 has only one confirmation, so transfer parks in WaitingSafeHeight
@@ -10328,8 +10317,11 @@ fn unsafe_history_waits_for_safe_height() {
 
     // mine, sender (min_confirmations = 1) settles, recipient (min_confirmations = 2) still in WaitingConfirmations
     force_mine_no_resume_when_alone(false);
-    party_1.wait_for_refresh(Some(&asset.asset_id));
-    assert!(party_1.check_test_transfer_status_sender(&txid_2, TransferStatus::Settled));
+    party_1.wait_for_transfer_status_sender(
+        Some(&asset.asset_id),
+        &txid_2,
+        TransferStatus::Settled,
+    );
     assert!(!party_2.refresh_all());
     assert!(party_2.check_test_transfer_status_recipient(
         &receive_data_2.recipient_id,
@@ -11639,19 +11631,16 @@ fn recipient_nacks_short_retention_grace() {
     assert!(!txid.is_empty());
 
     // the recipient NACKs and fails the transfer
-    rcv_party.wait_for_refresh(None);
-    assert!(
-        rcv_party.check_test_transfer_status_recipient(
-            &receive_data.recipient_id,
-            TransferStatus::Failed
-        )
+    rcv_party.wait_for_transfer_status_recipient(
+        None,
+        &receive_data.recipient_id,
+        TransferStatus::Failed,
     );
     let transfer = rcv_party.get_test_transfer_recipient(&receive_data.recipient_id);
     assert_eq!(transfer.ack, None);
 
     // the sender sees the NACK and fails the transfer too
-    party.wait_for_refresh(Some(&asset.asset_id));
-    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Failed));
+    party.wait_for_transfer_status_sender(Some(&asset.asset_id), &txid, TransferStatus::Failed);
 }
 
 /// A recipient that ACKed a batch transfer without obtaining the TX keeps posting its ACK and, if no
@@ -12168,12 +12157,12 @@ fn proxy_max_media() {
     rcv_party.wait_for_refresh(None);
     party.wait_for_refresh(Some(&asset.asset_id));
     mine(false);
-    rcv_party.wait_for_refresh(None);
-    party.wait_for_refresh(Some(&asset.asset_id));
-    assert!(rcv_party.check_test_transfer_status_recipient(
+    rcv_party.wait_for_transfer_status_recipient(
+        None,
         &receive_data_2.recipient_id,
-        TransferStatus::Settled
-    ));
+        TransferStatus::Settled,
+    );
+    party.wait_for_refresh(Some(&asset.asset_id));
     let uda_assets = rcv_party.list_assets(&[AssetSchema::Uda]).uda.unwrap();
     let token = uda_assets[0].token.as_ref().unwrap();
     assert!(token.media.is_some());
@@ -12564,8 +12553,7 @@ fn change_respects_invoice_slots() {
     rcv_party.wait_for_refresh(Some(asset_id));
     mine(false);
     rcv_party_2.wait_for_refresh(None);
-    rcv_party.wait_for_refresh(Some(asset_id));
-    assert!(rcv_party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+    rcv_party.wait_for_transfer_status_sender(Some(asset_id), &txid, TransferStatus::Settled);
 
     // and the invoice can still be paid
     send_to_blind_and_settle(
@@ -12626,15 +12614,12 @@ fn receive_processed_again_counted_once() {
     rcv_party.wait_for_refresh(None);
     party.wait_for_refresh(None);
     mine(false);
-    rcv_party.wait_for_refresh(None);
-    party.wait_for_refresh(None);
-    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
-    assert!(
-        rcv_party.check_test_transfer_status_recipient(
-            &receive_data.recipient_id,
-            TransferStatus::Settled
-        )
+    rcv_party.wait_for_transfer_status_recipient(
+        None,
+        &receive_data.recipient_id,
+        TransferStatus::Settled,
     );
+    party.wait_for_transfer_status_sender(None, &txid, TransferStatus::Settled);
 
     // the allocation is saved once
     assert_eq!(
@@ -12960,8 +12945,7 @@ fn utxo_allocations_limit_across_assets_impl(x_first: bool) {
     rcv_party.wait_for_refresh(None);
     mine(false);
     rcv_party_2.wait_for_refresh(None);
-    rcv_party.wait_for_refresh(None);
-    assert!(rcv_party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+    rcv_party.wait_for_transfer_status_sender(None, &txid, TransferStatus::Settled);
     assert_eq!(rcv_party_2.get_asset_balance(asset_x_id).settled, amount_x);
     assert_eq!(
         rcv_party_2.get_asset_balance(asset_y_id).settled,
@@ -13096,15 +13080,12 @@ fn broadcast_legacy_signed_psbt() {
     party.wait_for_refresh(Some(asset_id));
     assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::WaitingConfirmations));
     mine(false);
-    rcv_party.wait_for_refresh(None);
-    party.wait_for_refresh(Some(asset_id));
-    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
-    assert!(
-        rcv_party.check_test_transfer_status_recipient(
-            &receive_data.recipient_id,
-            TransferStatus::Settled
-        )
+    rcv_party.wait_for_transfer_status_recipient(
+        None,
+        &receive_data.recipient_id,
+        TransferStatus::Settled,
     );
+    party.wait_for_transfer_status_sender(Some(asset_id), &txid, TransferStatus::Settled);
 }
 #[cfg(feature = "electrum")]
 #[test]
@@ -13216,8 +13197,7 @@ fn change_utxo_allocations_limit_impl(max_allocations: usize) {
     rcv_party.wait_for_refresh(Some(asset_id));
     mine(false);
     rcv_party_2.wait_for_refresh(None);
-    rcv_party.wait_for_refresh(Some(asset_id));
-    assert!(rcv_party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+    rcv_party.wait_for_transfer_status_sender(Some(asset_id), &txid, TransferStatus::Settled);
     assert_eq!(utxo_num_allocations(&mut rcv_party, &utxo_d), Some(1));
     assert_eq!(
         utxo_num_allocations(&mut rcv_party, &utxo_change),
@@ -13314,8 +13294,11 @@ fn change_spread_over_utxos() {
     rcv_party.wait_for_refresh(Some(&asset_a.asset_id));
     mine(false);
     rcv_party_2.wait_for_refresh(None);
-    rcv_party.wait_for_refresh(Some(&asset_a.asset_id));
-    assert!(rcv_party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+    rcv_party.wait_for_transfer_status_sender(
+        Some(&asset_a.asset_id),
+        &txid,
+        TransferStatus::Settled,
+    );
     assert_eq!(utxo_num_allocations(&mut rcv_party, &utxo_s), None);
     for utxo in [&utxo_change, &utxos_u[0], &utxos_u[1]] {
         assert_eq!(
@@ -13399,8 +13382,11 @@ fn change_btc_output_within_limit() {
     rcv_party.wait_for_refresh(Some(&asset_a.asset_id));
     mine(false);
     rcv_party_2.wait_for_refresh(None);
-    rcv_party.wait_for_refresh(Some(&asset_a.asset_id));
-    assert!(rcv_party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+    rcv_party.wait_for_transfer_status_sender(
+        Some(&asset_a.asset_id),
+        &txid,
+        TransferStatus::Settled,
+    );
     assert_eq!(
         utxo_num_allocations(&mut rcv_party, &utxo_change),
         Some(max_allocations as usize - 1)
@@ -13447,8 +13433,7 @@ fn change_allocations_placed_separately() {
     party.wait_for_refresh(None);
     mine(false);
     rcv_party.wait_for_refresh(None);
-    party.wait_for_refresh(None);
-    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+    party.wait_for_transfer_status_sender(None, &txid, TransferStatus::Settled);
 
     // the change went to the BTC change output and to a pre-existing UTXO, one allocation each
     let transfers = party.list_transfers(Some(&asset.asset_id));

@@ -475,15 +475,12 @@ pub(crate) fn send_to_blind_and_settle(
     receiver.wait_for_refresh(None);
     sender.wait_for_refresh(None);
     mine(false);
-    receiver.wait_for_refresh(None);
-    sender.wait_for_refresh(None);
-    assert!(sender.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
-    assert!(
-        receiver.check_test_transfer_status_recipient(
-            &receive_data.recipient_id,
-            TransferStatus::Settled
-        )
+    receiver.wait_for_transfer_status_recipient(
+        None,
+        &receive_data.recipient_id,
+        TransferStatus::Settled,
     );
+    sender.wait_for_transfer_status_sender(None, &txid, TransferStatus::Settled);
     txid
 }
 
@@ -499,15 +496,12 @@ pub(crate) fn send_to_blind_refused(
 ) {
     let recipient_map = blind_recipient_map(asset_id, receive_data, assignment);
     let txid = sender.send_result(&recipient_map).unwrap().txid;
-    receiver.wait_for_refresh(None);
-    assert!(
-        receiver.check_test_transfer_status_recipient(
-            &receive_data.recipient_id,
-            TransferStatus::Failed
-        )
+    receiver.wait_for_transfer_status_recipient(
+        None,
+        &receive_data.recipient_id,
+        TransferStatus::Failed,
     );
-    sender.wait_for_refresh(Some(asset_id));
-    assert!(sender.check_test_transfer_status_sender(&txid, TransferStatus::Failed));
+    sender.wait_for_transfer_status_sender(Some(asset_id), &txid, TransferStatus::Failed);
 }
 
 /// Send the given `assignment` of the asset with ID `asset_id` from `sender` to a new blind receive
