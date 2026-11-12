@@ -1,6 +1,47 @@
 use super::*;
 
 #[cfg(feature = "electrum")]
+use rgbstd::{GenesisSeal, Vout};
+
+#[cfg(feature = "electrum")]
+fn nia_contract(wallet: &Wallet, chain_net: ChainNet) -> RgbContract {
+    let beneficiary_txid =
+        RgbTxid::from_str("14295d5bb1a191cdb6286dc0944df938421e3dfcbf0811353ccac4100c2068c5")
+            .unwrap();
+    let beneficiary = GenesisSeal::new_random(beneficiary_txid, Vout::from_u32(1));
+    let spec = AssetSpec {
+        ticker: wallet.check_ticker(TICKER.to_string()).unwrap(),
+        name: wallet.check_name(NAME.to_string()).unwrap(),
+        details: None,
+        precision: wallet.check_precision(PRECISION).unwrap(),
+    };
+    ContractBuilder::with(
+        Identity::default(),
+        NonInflatableAsset::schema(),
+        NonInflatableAsset::types(),
+        NonInflatableAsset::scripts(),
+        chain_net,
+    )
+    .add_global_state("spec", spec)
+    .unwrap()
+    .add_global_state(
+        "terms",
+        ContractTerms {
+            text: RicardianContract::default(),
+            media: None,
+        },
+    )
+    .unwrap()
+    .add_global_state(RGB_GLOBAL_ISSUED_SUPPLY, Amount::from(AMOUNT))
+    .unwrap()
+    .add_fungible_state(RGB_STATE_ASSET_OWNER, beneficiary, AMOUNT)
+    .unwrap()
+    .issue_contract()
+    .unwrap()
+    .into_consignment()
+}
+
+#[cfg(feature = "electrum")]
 #[test]
 #[parallel]
 fn success() {
@@ -287,6 +328,406 @@ fn save_new_asset_success() {
     assert_eq!(asset_model.precision, PRECISION);
     assert_eq!(asset_model.ticker.unwrap(), TICKER);
     assert_eq!(asset_model.schema, AssetSchema::Uda);
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn export_asset_contract_success() {
+    initialize();
+
+    let mut issuer = get_funded_party!();
+    let asset = issuer.issue_asset_nia(None);
+    let contract = issuer
+        .wallet
+        .export_asset_contract(asset.asset_id.clone())
+        .unwrap();
+    let armored = contract.to_string();
+
+    assert!(armored.starts_with("-----BEGIN RGB CONSIGNMENT-----"));
+    assert!(armored.contains("\nId: rgb:csg:"));
+    assert!(armored.contains("\nVersion:"));
+    assert!(armored.contains("\nType: contract"));
+    assert!(armored.contains(&format!("\nContract: {}", asset.asset_id)));
+    assert!(armored.contains("\nSchema:"));
+    assert!(armored.contains("\nCheck-SHA256:"));
+    assert!(armored.ends_with("-----END RGB CONSIGNMENT-----\n"));
+    assert_eq!(RgbContract::from_str(&armored).unwrap(), contract);
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn export_asset_contract_fail() {
+    initialize();
+
+    let mut issuer = get_funded_party!();
+    let recipient = get_empty_party!();
+    let asset = issuer.issue_asset_nia(None);
+
+    let result = recipient
+        .wallet
+        .export_asset_contract(asset.asset_id.clone());
+    assert_matches!(
+        result,
+        Err(Error::AssetNotFound { asset_id }) if asset_id == asset.asset_id
+    );
+
+    let invalid_asset_id = s!("not-an-asset-id");
+    let result = recipient
+        .wallet
+        .export_asset_contract(invalid_asset_id.clone());
+    assert_matches!(
+        result,
+        Err(Error::AssetNotFound { asset_id }) if asset_id == invalid_asset_id
+    );
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn import_asset_contract_success() {
+    initialize();
+
+    let mut issuer = get_funded_party!();
+    let recipient = get_empty_party!();
+    let image_path = ["tests", "qrcode.png"].join(MAIN_SEPARATOR_STR);
+    let (contract_media, _) = issuer.wallet.file_details(FILE_STR).unwrap();
+
+    MOCK_CONTRACT_DATA.with_borrow_mut(|data| data.push(contract_media.clone()));
+    let nia = issuer.issue_asset_nia(None);
+    let cfa = issuer.issue_asset_cfa(None, Some(FILE_STR.to_string()));
+    MOCK_CONTRACT_DATA.with_borrow_mut(|data| data.push(contract_media.clone()));
+    let ifa = issuer.issue_asset_ifa(None, None, None);
+    MOCK_CONTRACT_DATA.with_borrow_mut(|data| data.push(contract_media));
+    let uda = issuer.issue_asset_uda(None, Some(&image_path), vec![FILE_STR]);
+
+    let imports = [
+        (nia.asset_id, AssetSchema::Nia, vec![FILE_STR.to_string()]),
+        (cfa.asset_id, AssetSchema::Cfa, vec![FILE_STR.to_string()]),
+        (ifa.asset_id, AssetSchema::Ifa, vec![FILE_STR.to_string()]),
+        (
+            uda.asset_id,
+            AssetSchema::Uda,
+            vec![FILE_STR.to_string(), image_path],
+        ),
+    ];
+
+    for (asset_id, asset_schema, media_file_paths) in imports {
+        let contract = issuer
+            .wallet
+            .export_asset_contract(asset_id.clone())
+            .unwrap();
+        let metadata = recipient
+            .wallet
+            .import_asset_contract(contract.clone(), media_file_paths.clone())
+            .unwrap();
+
+        assert_eq!(metadata.asset_schema, asset_schema);
+        assert_eq!(metadata.name, NAME);
+        assert_eq!(metadata.precision, PRECISION);
+        assert_eq!(
+            recipient
+                .wallet
+                .import_asset_contract(contract.clone(), vec![])
+                .unwrap(),
+            metadata
+        );
+        assert_eq!(
+            recipient
+                .wallet
+                .get_asset_balance(asset_id.clone())
+                .unwrap(),
+            Balance::default()
+        );
+        assert_eq!(
+            recipient
+                .wallet
+                .export_asset_contract(asset_id.clone())
+                .unwrap(),
+            contract
+        );
+        for media_file_path in media_file_paths {
+            let (_, media) = issuer.wallet.file_details(media_file_path).unwrap();
+            assert!(recipient.wallet.media_dir().join(media.digest).is_file());
+        }
+    }
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn import_asset_contract_offline_reopen() {
+    let data_dir = PrivateDataDir::new();
+    let wallet = data_dir.wallet(true, None);
+    let contract = nia_contract(&wallet, wallet.chain_net());
+    let asset_id = contract.contract_id().to_string();
+    let metadata = wallet
+        .import_asset_contract(contract.clone(), vec![])
+        .unwrap();
+    let wallet_data = wallet.get_wallet_data();
+    let keys = wallet.get_keys();
+    drop(wallet);
+
+    let mut wallet = Wallet::new(wallet_data, keys).unwrap();
+    assert_eq!(
+        wallet.get_asset_metadata(asset_id.clone()).unwrap(),
+        metadata
+    );
+    assert_eq!(
+        wallet.get_asset_balance(asset_id.clone()).unwrap(),
+        Balance::default()
+    );
+    assert_eq!(wallet.list_assets(vec![]).unwrap().nia.unwrap().len(), 1);
+    assert_eq!(
+        wallet.export_asset_contract(asset_id.clone()).unwrap(),
+        contract
+    );
+
+    // Preregistration is enough to request this asset before receiving its first transfer.
+    let receive = wallet
+        .witness_receive(
+            Some(asset_id.clone()),
+            Assignment::Fungible(AMOUNT),
+            default_rcv_expiration(),
+            vec![],
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+    let invoice = Invoice::new(receive.invoice).unwrap().invoice_data();
+    assert_eq!(invoice.asset_id, Some(asset_id));
+    assert_eq!(invoice.asset_schema, Some(AssetSchema::Nia));
+    assert_eq!(invoice.assignment, Assignment::Fungible(AMOUNT));
+    assert_eq!(invoice.network, BitcoinNetwork::Regtest);
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn import_asset_contract_offline_rejection_and_reimport() {
+    let data_dir = PrivateDataDir::new();
+    let party = offline_party!(data_dir.wallet(true, None));
+    let contract = nia_contract(&party.wallet, party.wallet.chain_net());
+    let asset_id = contract.contract_id().to_string();
+    let wrong_network = nia_contract(&party.wallet, ChainNet::BitcoinTestnet3);
+    let mut malformed = contract.clone();
+    malformed.transfer = true;
+    assert_eq!(malformed.contract_id(), contract.contract_id());
+    let backup_before = party.db_backup_info_opt();
+
+    for invalid in [wrong_network.clone(), malformed.clone()] {
+        let result = party.wallet.import_asset_contract(invalid, vec![]);
+        assert_matches!(result, Err(Error::InvalidConsignment));
+        assert_matches!(
+            party.get_asset_metadata_result(&asset_id),
+            Err(Error::AssetNotFound { .. })
+        );
+        assert!(party.list_assets(&[]).nia.unwrap().is_empty());
+        assert!(party.db_transfers().is_empty());
+        assert_eq!(party.db_backup_info_opt(), backup_before);
+    }
+
+    let metadata = party
+        .wallet
+        .import_asset_contract(contract.clone(), vec![])
+        .unwrap();
+    let backup_after = party.db_backup_info();
+
+    // Existing registration must not bypass validation or make a repeat import a mutation.
+    for candidate in [wrong_network, malformed, contract.clone()] {
+        if candidate == contract {
+            assert_eq!(
+                party
+                    .wallet
+                    .import_asset_contract(candidate, vec![])
+                    .unwrap(),
+                metadata
+            );
+        } else {
+            let result = party.wallet.import_asset_contract(candidate, vec![]);
+            assert_matches!(result, Err(Error::InvalidConsignment));
+        }
+        assert_eq!(party.get_asset_metadata(&asset_id), metadata);
+        assert_eq!(party.get_asset_balance(&asset_id), Balance::default());
+        assert_eq!(party.list_assets(&[]).nia.unwrap().len(), 1);
+        assert!(party.db_transfers().is_empty());
+        assert_eq!(party.db_backup_info(), backup_after);
+        assert_eq!(
+            party
+                .wallet
+                .export_asset_contract(asset_id.clone())
+                .unwrap(),
+            contract
+        );
+    }
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn import_asset_contract_first_receive() {
+    initialize();
+
+    let amount = 66;
+    let mut issuer = get_funded_party!();
+    let asset = issuer.issue_asset_nia(None);
+    let contract = issuer
+        .wallet
+        .export_asset_contract(asset.asset_id.clone())
+        .unwrap();
+
+    for witness in [false, true] {
+        let recipient = get_funded_party!();
+        let metadata = recipient
+            .wallet
+            .import_asset_contract(contract.clone(), vec![])
+            .unwrap();
+        let wallet_data = recipient.get_wallet_data();
+        let keys = recipient.get_keys();
+        drop(recipient);
+
+        let mut wallet = Wallet::new(wallet_data, keys).unwrap();
+        let online = wallet.go_online(test_go_online_options(None)).unwrap();
+        let mut recipient = party!(wallet, online);
+        assert_eq!(recipient.get_asset_metadata(&asset.asset_id), metadata);
+        assert_eq!(
+            recipient.get_asset_balance(&asset.asset_id),
+            Balance::default()
+        );
+        assert!(recipient.list_transfers(Some(&asset.asset_id)).is_empty());
+
+        let receive = if witness {
+            recipient
+                .wallet
+                .witness_receive(
+                    Some(asset.asset_id.clone()),
+                    Assignment::Any,
+                    default_rcv_expiration(),
+                    TRANSPORT_ENDPOINTS.clone(),
+                    MIN_CONFIRMATIONS,
+                )
+                .unwrap()
+        } else {
+            recipient.blind_receive_asset_expiry(Some(asset.asset_id.clone()), None)
+        };
+        let invoice = Invoice::new(receive.invoice).unwrap().invoice_data();
+        assert_eq!(invoice.asset_id, Some(asset.asset_id.clone()));
+        assert_eq!(invoice.asset_schema, Some(AssetSchema::Nia));
+        let recipient_map = HashMap::from([(
+            asset.asset_id.clone(),
+            vec![Recipient {
+                assignment: Assignment::Fungible(amount),
+                recipient_id: receive.recipient_id.clone(),
+                witness_data: witness.then_some(WitnessData {
+                    amount_sat: 1000,
+                    blinding: None,
+                }),
+                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+            }],
+        )]);
+        let txid = issuer.send(recipient_map, FEE_RATE, None).txid;
+        recipient.wait_for_refresh(Some(&asset.asset_id));
+        issuer.wait_for_refresh(Some(&asset.asset_id));
+
+        for settled in [false, true] {
+            if settled {
+                mine(false);
+                recipient.wait_for_refresh(Some(&asset.asset_id));
+                issuer.wait_for_refresh(Some(&asset.asset_id));
+            }
+            let expected_balance = Balance {
+                settled: if settled { amount } else { 0 },
+                future: amount,
+                spendable: if settled { amount } else { 0 },
+            };
+            assert_eq!(
+                recipient.get_asset_balance(&asset.asset_id),
+                expected_balance
+            );
+            let transfers = recipient.list_transfers(Some(&asset.asset_id));
+            assert_eq!(transfers.len(), 1);
+            assert_eq!(transfers[0].txid, Some(txid.clone()));
+            assert_eq!(
+                transfers[0].status,
+                if settled {
+                    TransferStatus::Settled
+                } else {
+                    TransferStatus::WaitingBroadcast
+                }
+            );
+
+            // Reimporting must not reset an existing receive, balance or transfer history.
+            assert_eq!(
+                recipient
+                    .wallet
+                    .import_asset_contract(contract.clone(), vec![])
+                    .unwrap(),
+                metadata
+            );
+            assert_eq!(
+                recipient.get_asset_balance(&asset.asset_id),
+                expected_balance
+            );
+            assert_eq!(
+                serde_json::to_value(recipient.list_transfers(Some(&asset.asset_id))).unwrap(),
+                serde_json::to_value(transfers).unwrap()
+            );
+            assert_eq!(recipient.list_assets(&[]).nia.unwrap().len(), 1);
+        }
+    }
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn import_asset_contract_fail() {
+    initialize();
+
+    let mut issuer = get_funded_party!();
+    let recipient = get_empty_party!();
+    let image_path = ["tests", "qrcode.png"].join(MAIN_SEPARATOR_STR);
+    let asset = issuer.issue_asset_cfa(None, Some(FILE_STR.to_string()));
+    let contract = issuer
+        .wallet
+        .export_asset_contract(asset.asset_id.clone())
+        .unwrap();
+    let (_, expected_media) = issuer.wallet.file_details(FILE_STR).unwrap();
+    let (_, unexpected_media) = issuer.wallet.file_details(&image_path).unwrap();
+
+    let result = recipient
+        .wallet
+        .import_asset_contract(contract.clone(), vec![]);
+    let details = format!("missing media file with digest '{}'", expected_media.digest);
+    assert_matches!(result, Err(Error::InvalidAttachments { details: m }) if m == details);
+
+    let result = recipient
+        .wallet
+        .import_asset_contract(contract.clone(), vec![image_path]);
+    let details = format!(
+        "unexpected media file with digest '{}'",
+        unexpected_media.digest
+    );
+    assert_matches!(result, Err(Error::InvalidAttachments { details: m }) if m == details);
+
+    let result = recipient
+        .wallet
+        .import_asset_contract(contract, vec![FILE_STR.to_string(), FILE_STR.to_string()]);
+    let details = format!(
+        "duplicate media file with digest '{}'",
+        expected_media.digest
+    );
+    assert_matches!(result, Err(Error::InvalidAttachments { details: m }) if m == details);
+    assert_matches!(
+        recipient.wallet.get_asset_metadata(asset.asset_id.clone()),
+        Err(Error::AssetNotFound { .. })
+    );
+
+    let offline_recipient = offline_party!(get_test_wallet(true, None));
+    let wrong_network_contract = nia_contract(&offline_recipient.wallet, ChainNet::BitcoinTestnet3);
+    let result = offline_recipient
+        .wallet
+        .import_asset_contract(wrong_network_contract, vec![]);
+    assert_matches!(result, Err(Error::InvalidConsignment));
 }
 
 #[cfg(feature = "electrum")]
