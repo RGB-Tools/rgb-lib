@@ -854,10 +854,7 @@ pub(crate) trait OfflineSigParty {
         let mut current_balance = Balance::default();
         let check = || {
             current_balance = self.get_asset_balance(asset_id);
-            if &current_balance == expected_balance {
-                return true;
-            }
-            false
+            &current_balance == expected_balance
         };
         if !wait_for_function(check, 10, 500) {
             println!("current balance: {current_balance:?}");
@@ -964,10 +961,7 @@ pub(crate) trait SigParty: OfflineSigParty<W: RgbWalletOpsOnline> {
         let mut current_balance = BtcBalance::default();
         let check = || {
             current_balance = self.get_btc_balance_with_sync();
-            if &current_balance == expected_balance {
-                return true;
-            }
-            false
+            &current_balance == expected_balance
         };
         if !wait_for_function(check, 10, 500) {
             println!("current balance: {current_balance:?}");
@@ -1683,10 +1677,7 @@ impl SinglesigParty {
         let check = || {
             let unspents = self.list_unspents_with_sync(false);
             let colorable = unspents.iter().filter(|u| u.utxo.colorable).count();
-            if (colorable - colorable_before) == expected as usize {
-                return true;
-            }
-            false
+            (colorable - colorable_before) == expected as usize
         };
         if !wait_for_function(check, 10, 500) {
             panic!(
