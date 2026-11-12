@@ -1,4 +1,4 @@
-FROM blockstream/esplora:latest
+FROM blockstream/esplora:v3.0.1
 
 # disable socat and tor services
 RUN sed -i '1G; 2i # disable socat and tor services\nrm /etc/service/socat /etc/service/tor' \

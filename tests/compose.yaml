@@ -30,7 +30,7 @@ services:
     depends_on:
       - bitcoind
   electrs-blockstream:
-    image: olivbau/blockstream-electrs
+    image: olivbau/blockstream-electrs@sha256:53f7ff95fafedfc94cc6d7239edacde41ca1190955879fcfacf805394b1169c3
     profiles: ['tests']
     command:
       --network regtest
@@ -47,7 +47,7 @@ services:
     build:
       context: ./esplora
       dockerfile: ./Dockerfile.notor
-    image: esplora:latest-notor
+    image: esplora:notor
     profiles: ['tests']
     command: /srv/explorer/run.sh bitcoin-regtest explorer
     environment:
@@ -122,7 +122,7 @@ services:
       - hub:/srv/data
       - ./hub/config.toml:/srv/data/config.toml:ro
   anvil:
-    image: ghcr.io/foundry-rs/foundry:latest
+    image: ghcr.io/foundry-rs/foundry:v1.9.0
     command: >
       anvil
       --host 0.0.0.0
