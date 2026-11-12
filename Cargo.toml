@@ -139,7 +139,6 @@ wallet = [
     "dep:bdk_wallet",
     "dep:chacha20poly1305",
     "dep:ed25519-dalek",
-    "dep:x25519-dalek",
     "dep:hkdf",
     "dep:hmac",
     "dep:sha2",
@@ -171,7 +170,7 @@ bdk_file_store_migration = ["wallet", "bdk_wallet/file_store"]
 rgb_fs_store_migration = ["wallet", "rgb-ops/legacy"]
 # implied by each indexer feature, marking a build whose wallet can reach the network; it exists
 # only to avoid repeating the list of indexer features in cfgs and must not be enabled on its own
-_online = ["wallet"]
+_online = ["wallet", "dep:x25519-dalek"]
 # implied by each indexer validation feature, marking a build that can validate consignments
 # reaching the network; it exists only to avoid repeating the list of indexer validation features
 # in cfgs and must not be enabled on its own
