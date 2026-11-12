@@ -457,6 +457,168 @@ fn import_asset_contract_success() {
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
+fn import_asset_contract_offline_reopen() {
+    let data_dir = PrivateDataDir::new();
+    let wallet = data_dir.wallet(true, None);
+    let contract = nia_contract(&wallet, wallet.chain_net());
+    let asset_id = contract.contract_id().to_string();
+    let metadata = wallet
+        .import_asset_contract(contract.clone(), vec![])
+        .unwrap();
+    let wallet_data = wallet.get_wallet_data();
+    let keys = wallet.get_keys();
+    drop(wallet);
+
+    let mut wallet = Wallet::new(wallet_data, keys).unwrap();
+    assert_eq!(
+        wallet.get_asset_metadata(asset_id.clone()).unwrap(),
+        metadata
+    );
+    assert_eq!(
+        wallet.get_asset_balance(asset_id.clone()).unwrap(),
+        Balance::default()
+    );
+    assert_eq!(wallet.list_assets(vec![]).unwrap().nia.unwrap().len(), 1);
+    assert_eq!(
+        wallet.export_asset_contract(asset_id.clone()).unwrap(),
+        contract
+    );
+
+    // Preregistration is enough to request this asset before receiving its first transfer.
+    let receive = wallet
+        .witness_receive(
+            Some(asset_id.clone()),
+            Assignment::Fungible(AMOUNT),
+            default_rcv_expiration(),
+            vec![],
+            MIN_CONFIRMATIONS,
+        )
+        .unwrap();
+    let invoice = Invoice::new(receive.invoice).unwrap().invoice_data();
+    assert_eq!(invoice.asset_id, Some(asset_id));
+    assert_eq!(invoice.asset_schema, Some(AssetSchema::Nia));
+    assert_eq!(invoice.assignment, Assignment::Fungible(AMOUNT));
+    assert_eq!(invoice.network, BitcoinNetwork::Regtest);
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn import_asset_contract_first_receive() {
+    initialize();
+
+    let amount = 66;
+    let mut issuer = get_funded_party!();
+    let asset = issuer.issue_asset_nia(None);
+    let contract = issuer
+        .wallet
+        .export_asset_contract(asset.asset_id.clone())
+        .unwrap();
+
+    for witness in [false, true] {
+        let recipient = get_funded_party!();
+        let metadata = recipient
+            .wallet
+            .import_asset_contract(contract.clone(), vec![])
+            .unwrap();
+        let wallet_data = recipient.get_wallet_data();
+        let keys = recipient.get_keys();
+        drop(recipient);
+
+        let mut wallet = Wallet::new(wallet_data, keys).unwrap();
+        let online = wallet.go_online(test_go_online_options(None)).unwrap();
+        let mut recipient = party!(wallet, online);
+        assert_eq!(recipient.get_asset_metadata(&asset.asset_id), metadata);
+        assert_eq!(
+            recipient.get_asset_balance(&asset.asset_id),
+            Balance::default()
+        );
+        assert!(recipient.list_transfers(Some(&asset.asset_id)).is_empty());
+
+        let receive = if witness {
+            recipient
+                .wallet
+                .witness_receive(
+                    Some(asset.asset_id.clone()),
+                    Assignment::Any,
+                    default_rcv_expiration(),
+                    TRANSPORT_ENDPOINTS.clone(),
+                    MIN_CONFIRMATIONS,
+                )
+                .unwrap()
+        } else {
+            recipient.blind_receive_asset_expiry(Some(asset.asset_id.clone()), None)
+        };
+        let invoice = Invoice::new(receive.invoice).unwrap().invoice_data();
+        assert_eq!(invoice.asset_id, Some(asset.asset_id.clone()));
+        assert_eq!(invoice.asset_schema, Some(AssetSchema::Nia));
+        let recipient_map = HashMap::from([(
+            asset.asset_id.clone(),
+            vec![Recipient {
+                assignment: Assignment::Fungible(amount),
+                recipient_id: receive.recipient_id.clone(),
+                witness_data: witness.then_some(WitnessData {
+                    amount_sat: 1000,
+                    blinding: None,
+                }),
+                transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+            }],
+        )]);
+        let txid = issuer.send(recipient_map, FEE_RATE, None).txid;
+        recipient.wait_for_refresh(Some(&asset.asset_id));
+        issuer.wait_for_refresh(Some(&asset.asset_id));
+
+        for settled in [false, true] {
+            if settled {
+                mine(false);
+                recipient.wait_for_refresh(Some(&asset.asset_id));
+                issuer.wait_for_refresh(Some(&asset.asset_id));
+            }
+            let expected_balance = Balance {
+                settled: if settled { amount } else { 0 },
+                future: amount,
+                spendable: if settled { amount } else { 0 },
+            };
+            assert_eq!(
+                recipient.get_asset_balance(&asset.asset_id),
+                expected_balance
+            );
+            let transfers = recipient.list_transfers(Some(&asset.asset_id));
+            assert_eq!(transfers.len(), 1);
+            assert_eq!(transfers[0].txid, Some(txid.clone()));
+            assert_eq!(
+                transfers[0].status,
+                if settled {
+                    TransferStatus::Settled
+                } else {
+                    TransferStatus::WaitingBroadcast
+                }
+            );
+
+            // Reimporting must not reset an existing receive, balance or transfer history.
+            assert_eq!(
+                recipient
+                    .wallet
+                    .import_asset_contract(contract.clone(), vec![])
+                    .unwrap(),
+                metadata
+            );
+            assert_eq!(
+                recipient.get_asset_balance(&asset.asset_id),
+                expected_balance
+            );
+            assert_eq!(
+                serde_json::to_value(recipient.list_transfers(Some(&asset.asset_id))).unwrap(),
+                serde_json::to_value(transfers).unwrap()
+            );
+            assert_eq!(recipient.list_assets(&[]).nia.unwrap().len(), 1);
+        }
+    }
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
 fn import_asset_contract_fail() {
     initialize();
 
