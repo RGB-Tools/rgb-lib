@@ -201,14 +201,17 @@ pub use bdk_wallet::bitcoin;
 #[cfg(not(feature = "wallet"))]
 pub use rgbstd::bitcoin;
 pub use rgbstd::{
-    ContractId, Txid as RgbTxid,
-    containers::{ConsignmentExt, Fascia, FileContent, Transfer as RgbTransfer, WitnessBundle},
+    AssignmentType, ChainNet, ContractId, Genesis, GraphSeal, OpId, Txid as RgbTxid,
+    containers::{
+        BuilderSeal, ConsignmentExt, Fascia, FileContent, LoadError, SpvProof,
+        Transfer as RgbTransfer, WitnessBundle,
+    },
     indexers::ResolveSpvProof,
     persistence::{RetrievedSpvProofs, UpdateRes},
     schema::SchemaId,
     txout::CloseMethod,
     validation::{ResolveWitness, WitnessResolverError, WitnessStatus},
-    vm::WitnessOrd,
+    vm::{WitnessOrd, WitnessPos},
 };
 pub use rgbstd::{
     Opout,
@@ -387,7 +390,7 @@ use rgbstd::persistence::LegacyFsStore;
 use rgbstd::{
     Allocation, BundleId, Identity, Layer1, OutputSeal, OwnedFraction, RevealedData, TokenIndex,
     Vout,
-    containers::{SealWitness, SpvProof},
+    containers::SealWitness,
     contract::{
         AllocatedState, ContractBuilder, ContractData, FilteredContractState, LinkError,
         LinkableSchemaWrapper, SchemaWrapper, TransitionBuilder,
@@ -409,16 +412,14 @@ use rgbstd::{
     },
     txout::ExplicitSeal,
     validation::{SchemaDefinition, WitnessOrdProvider},
-    vm::WitnessPos,
 };
 use rgbstd::{
-    Amount, AssignmentType, Assignments, ChainNet, ExposedSeal, Genesis, GlobalStateType,
-    GraphSeal, KnownTransition, OpId, Operation as _, Precision, Schema, Transition,
-    TransitionBundle, TransitionType, TypedAssigns,
+    Amount, Assignments, ExposedSeal, GlobalStateType, KnownTransition, Operation as _, Precision,
+    Schema, Transition, TransitionBundle, TransitionType, TypedAssigns,
     bitcoin::{OutPoint, Transaction as BdkTransaction, Txid, block::Header as BlockHeader},
     containers::{
-        BuilderSeal, CheckedClaimResolver, Consignment, LoadError, PendingConsignment,
-        UniversalFile, ValidConsignment, ValidContract, ValidTransfer,
+        CheckedClaimResolver, Consignment, PendingConsignment, UniversalFile, ValidConsignment,
+        ValidContract, ValidTransfer,
     },
     contract::IssuerWrapper,
     daggy::NodeIndex,
