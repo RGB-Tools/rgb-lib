@@ -1206,7 +1206,6 @@ impl<E: std::error::Error> From<StockError<&DbTxn, E>> for Error {
     }
 }
 
-#[cfg(feature = "wallet")]
 impl From<rgbinvoice::TransportParseError> for Error {
     fn from(e: rgbinvoice::TransportParseError) -> Self {
         Error::InvalidTransportEndpoint {

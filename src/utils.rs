@@ -4,6 +4,8 @@
 
 use super::*;
 
+pub use crate::no_wallet::{recipient_id_from_script_buf, script_buf_from_recipient_id};
+
 const TIMESTAMP_FORMAT: &[time::format_description::BorrowedFormatItem] = time::macros::format_description!(
     "[year]-[month]-[day]T[hour repr:24]:[minute]:[second].[subsecond digits:3]+00"
 );
@@ -338,19 +340,6 @@ pub(crate) fn parse_address_str(
         })
 }
 
-/// Extract the witness script if recipient is a Witness one
-pub fn script_buf_from_recipient_id(recipient_id: String) -> Result<Option<ScriptBuf>, Error> {
-    let xchainnet_beneficiary =
-        XChainNet::<Beneficiary>::from_str(&recipient_id).map_err(|_| Error::InvalidRecipientID)?;
-    match xchainnet_beneficiary.into_inner() {
-        Beneficiary::WitnessVout(pay_2_vout, _) => {
-            let script_buf = pay_2_vout.to_script();
-            Ok(Some(script_buf))
-        }
-        Beneficiary::BlindedSeal(_) => Ok(None),
-    }
-}
-
 /// The URL of a BFA reject list, if the contract declares one served at a URL.
 ///
 /// This is only the URL recorded in the DB and reported in the asset metadata: a reject list kept
@@ -361,20 +350,6 @@ pub(crate) fn bfa_reject_list_url(location: Option<RejectListLocation>) -> Optio
         RejectListLocation::Url(url) => Some(url.to_string()),
         RejectListLocation::Evm(_) => None,
     }
-}
-
-pub(crate) fn beneficiary_from_script_buf(script_buf: ScriptBuf) -> Beneficiary {
-    let address_payload = AddressPayload::from_script(&script_buf).unwrap();
-    Beneficiary::WitnessVout(Pay2Vout::new(address_payload), None)
-}
-
-/// Return the recipient ID for a specific script buf
-pub fn recipient_id_from_script_buf(
-    script_buf: ScriptBuf,
-    bitcoin_network: BitcoinNetwork,
-) -> String {
-    let beneficiary = beneficiary_from_script_buf(script_buf);
-    XChainNet::with(bitcoin_network.into(), beneficiary).to_string()
 }
 
 fn get_derivation_path(keychain: u8) -> DerivationPath {

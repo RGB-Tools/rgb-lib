@@ -322,13 +322,13 @@ impl Nullable for RecipientTypeFull {
     }
 }
 
-#[cfg(feature = "wallet")]
 /// The type of an RGB transport.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, Deserialize, Serialize)]
-#[sea_orm(rs_type = "u8", db_type = "TinyUnsigned")]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg_attr(feature = "wallet", derive(EnumIter, DeriveActiveEnum))]
+#[cfg_attr(feature = "wallet", sea_orm(rs_type = "u8", db_type = "TinyUnsigned"))]
 pub enum TransportType {
     /// HTTP(s) JSON-RPC ([specification](https://github.com/RGB-Tools/rgb-http-json-rpc))
-    #[sea_orm(num_value = 1)]
+    #[cfg_attr(feature = "wallet", sea_orm(num_value = 1))]
     JsonRpc = 1,
 }
 
@@ -345,26 +345,23 @@ pub enum TransportEndpointKind {
     SenderProxy = 2,
 }
 
-#[cfg(feature = "wallet")]
 /// The consignment and media encryption preference of a recipient (mirrors
 /// [`rgbinvoice::Encryption`]).
-#[derive(
-    Debug, Copy, Clone, PartialEq, Eq, Hash, EnumIter, DeriveActiveEnum, Deserialize, Serialize,
-)]
-#[sea_orm(rs_type = "u8", db_type = "TinyUnsigned")]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[cfg_attr(feature = "wallet", derive(EnumIter, DeriveActiveEnum))]
+#[cfg_attr(feature = "wallet", sea_orm(rs_type = "u8", db_type = "TinyUnsigned"))]
 pub enum Encryption {
     /// Encryption is mandatory for consignment and media (the recipient refuses cleartext)
-    #[sea_orm(num_value = 1)]
+    #[cfg_attr(feature = "wallet", sea_orm(num_value = 1))]
     Required = 1,
     /// Encryption must not be used for consignment and media (the recipient refuses encrypted)
-    #[sea_orm(num_value = 2)]
+    #[cfg_attr(feature = "wallet", sea_orm(num_value = 2))]
     Unsupported = 2,
     /// Encryption may be used for consignment and media (the recipient accepts both)
-    #[sea_orm(num_value = 3)]
+    #[cfg_attr(feature = "wallet", sea_orm(num_value = 3))]
     Optional = 3,
 }
 
-#[cfg(feature = "wallet")]
 impl From<rgbinvoice::Encryption> for Encryption {
     fn from(e: rgbinvoice::Encryption) -> Self {
         match e {
@@ -375,7 +372,6 @@ impl From<rgbinvoice::Encryption> for Encryption {
     }
 }
 
-#[cfg(feature = "wallet")]
 impl From<Encryption> for rgbinvoice::Encryption {
     fn from(e: Encryption) -> Self {
         match e {
