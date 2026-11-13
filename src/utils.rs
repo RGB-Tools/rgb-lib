@@ -4,14 +4,23 @@
 
 use super::*;
 
+pub use crate::no_wallet::{recipient_id_from_script_buf, script_buf_from_recipient_id};
+
 const TIMESTAMP_FORMAT: &[time::format_description::BorrowedFormatItem] = time::macros::format_description!(
     "[year]-[month]-[day]T[hour repr:24]:[minute]:[second].[subsecond digits:3]+00"
 );
 
-const RGB_RUNTIME_LOCK_FILE: &str = "rgb_runtime.lock";
-
+#[cfg(feature = "rgb_fs_store_migration")]
 pub(crate) const RGB_RUNTIME_DIR: &str = "rgb";
+
+/// Where the legacy filesystem RGB store is moved to be deleted, once migrated into the DB, so
+/// that retiring it is atomic. Only ever on disk between that rename and the delete: a crash in
+/// between leaves this dir, which the next wallet open sweeps up and every backup skips.
+pub(crate) const RGB_RUNTIME_DELETING_DIR: &str = "rgb.deleting";
 pub(crate) const LOG_FILE: &str = "log";
+
+/// Size cap for a strict-encoded fascia file, matching what rgb-ops uses for its own containers.
+const FASCIA_MAX_LEN: usize = amplify::confinement::U32;
 
 pub(crate) const PURPOSE: u8 = 86;
 pub(crate) const COIN_RGB_MAINNET: u32 = 827166;
@@ -22,22 +31,13 @@ pub(crate) const KEYCHAIN_BTC: u8 = 0;
 
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 pub(crate) const INDEXER_STOP_GAP: usize = 20;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) const INDEXER_TIMEOUT: u64 = 10;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) const INDEXER_RETRIES: u8 = 3;
 #[cfg(feature = "electrum")]
 pub(crate) const INDEXER_BATCH_SIZE: usize = 5;
 #[cfg(feature = "esplora")]
 pub(crate) const INDEXER_PARALLEL_REQUESTS: usize = 5;
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-const PROXY_PROTOCOL_VERSION: &str = "0.2";
-
-#[cfg(test)]
-const LOCK_FILE_TIMEOUT_SECS: f32 = 1.0;
-#[cfg(not(test))]
-const LOCK_FILE_TIMEOUT_SECS: f32 = 3600.0;
+#[cfg(feature = "_online")]
+const PROXY_PROTOCOL_VERSION: &str = "1.0";
 
 // sea-orm with runtime-tokio-rustls needs a tokio runtime for connection pool management
 static TOKIO_RUNTIME: LazyLock<tokio::runtime::Runtime> =
@@ -58,111 +58,6 @@ where
         })
     } else {
         TOKIO_RUNTIME.block_on(future)
-    }
-}
-
-/// Supported Bitcoin networks.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
-pub enum BitcoinNetwork {
-    /// Bitcoin's mainnet
-    Mainnet,
-    /// Bitcoin's testnet3
-    Testnet,
-    /// Bitcoin's testnet4
-    Testnet4,
-    /// Bitcoin's default signet
-    Signet,
-    /// Bitcoin's regtest
-    Regtest,
-    /// Bitcoin's custom signet
-    SignetCustom,
-}
-
-impl BitcoinNetwork {
-    pub(crate) fn network_kind(&self) -> NetworkKind {
-        match self {
-            BitcoinNetwork::Mainnet => NetworkKind::Main,
-            _ => NetworkKind::Test,
-        }
-    }
-}
-
-impl fmt::Display for BitcoinNetwork {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{self:?}")
-    }
-}
-
-impl FromStr for BitcoinNetwork {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(match s.to_lowercase().as_str() {
-            "mainnet" | "bitcoin" => BitcoinNetwork::Mainnet,
-            "testnet" | "testnet3" => BitcoinNetwork::Testnet,
-            "testnet4" => BitcoinNetwork::Testnet4,
-            "regtest" => BitcoinNetwork::Regtest,
-            "signet" => BitcoinNetwork::Signet,
-            "signetcustom" => BitcoinNetwork::SignetCustom,
-            _ => {
-                return Err(Error::InvalidBitcoinNetwork {
-                    network: s.to_string(),
-                });
-            }
-        })
-    }
-}
-
-impl TryFrom<ChainNet> for BitcoinNetwork {
-    type Error = Error;
-
-    fn try_from(x: ChainNet) -> Result<Self, Self::Error> {
-        match x {
-            ChainNet::BitcoinMainnet => Ok(BitcoinNetwork::Mainnet),
-            ChainNet::BitcoinTestnet3 => Ok(BitcoinNetwork::Testnet),
-            ChainNet::BitcoinTestnet4 => Ok(BitcoinNetwork::Testnet4),
-            ChainNet::BitcoinSignet => Ok(BitcoinNetwork::Signet),
-            ChainNet::BitcoinRegtest => Ok(BitcoinNetwork::Regtest),
-            ChainNet::BitcoinSignetCustom => Ok(BitcoinNetwork::SignetCustom),
-            _ => Err(Error::UnsupportedLayer1 {
-                layer_1: x.layer1().to_string(),
-            }),
-        }
-    }
-}
-
-impl From<BitcoinNetwork> for bitcoin::Network {
-    fn from(x: BitcoinNetwork) -> bitcoin::Network {
-        match x {
-            BitcoinNetwork::Mainnet => bitcoin::Network::Bitcoin,
-            BitcoinNetwork::Testnet => bitcoin::Network::Testnet,
-            BitcoinNetwork::Testnet4 => bitcoin::Network::Testnet4,
-            BitcoinNetwork::Signet => bitcoin::Network::Signet,
-            BitcoinNetwork::Regtest => bitcoin::Network::Regtest,
-            BitcoinNetwork::SignetCustom => bitcoin::Network::Signet,
-        }
-    }
-}
-
-impl From<BitcoinNetwork> for NetworkKind {
-    fn from(x: BitcoinNetwork) -> Self {
-        match x {
-            BitcoinNetwork::Mainnet => Self::Main,
-            _ => Self::Test,
-        }
-    }
-}
-
-impl From<BitcoinNetwork> for ChainNet {
-    fn from(x: BitcoinNetwork) -> ChainNet {
-        match x {
-            BitcoinNetwork::Mainnet => ChainNet::BitcoinMainnet,
-            BitcoinNetwork::Testnet => ChainNet::BitcoinTestnet3,
-            BitcoinNetwork::Testnet4 => ChainNet::BitcoinTestnet4,
-            BitcoinNetwork::Signet => ChainNet::BitcoinSignet,
-            BitcoinNetwork::Regtest => ChainNet::BitcoinRegtest,
-            BitcoinNetwork::SignetCustom => ChainNet::BitcoinSignetCustom,
-        }
     }
 }
 
@@ -445,31 +340,16 @@ pub(crate) fn parse_address_str(
         })
 }
 
-/// Extract the witness script if recipient is a Witness one
-pub fn script_buf_from_recipient_id(recipient_id: String) -> Result<Option<ScriptBuf>, Error> {
-    let xchainnet_beneficiary =
-        XChainNet::<Beneficiary>::from_str(&recipient_id).map_err(|_| Error::InvalidRecipientID)?;
-    match xchainnet_beneficiary.into_inner() {
-        Beneficiary::WitnessVout(pay_2_vout, _) => {
-            let script_buf = pay_2_vout.to_script();
-            Ok(Some(script_buf))
-        }
-        Beneficiary::BlindedSeal(_) => Ok(None),
+/// The URL of a BFA reject list, if the contract declares one served at a URL.
+///
+/// This is only the URL recorded in the DB and reported in the asset metadata: a reject list kept
+/// by an EVM contract has no URL, so it gives `None` here, but it is still enforced, as the reject
+/// list of a BFA asset is read off its genesis when needed (see `genesis_reject_list_source`).
+pub(crate) fn bfa_reject_list_url(location: Option<RejectListLocation>) -> Option<String> {
+    match location? {
+        RejectListLocation::Url(url) => Some(url.to_string()),
+        RejectListLocation::Evm(_) => None,
     }
-}
-
-pub(crate) fn beneficiary_from_script_buf(script_buf: ScriptBuf) -> Beneficiary {
-    let address_payload = AddressPayload::from_script(&script_buf).unwrap();
-    Beneficiary::WitnessVout(Pay2Vout::new(address_payload), None)
-}
-
-/// Return the recipient ID for a specific script buf
-pub fn recipient_id_from_script_buf(
-    script_buf: ScriptBuf,
-    bitcoin_network: BitcoinNetwork,
-) -> String {
-    let beneficiary = beneficiary_from_script_buf(script_buf);
-    XChainNet::with(bitcoin_network.into(), beneficiary).to_string()
 }
 
 fn get_derivation_path(keychain: u8) -> DerivationPath {
@@ -536,13 +416,36 @@ pub(crate) fn calculate_descriptor_from_xpub(
     Ok(format!("{}({key})", witness_version.descriptor_fn()))
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) fn check_proxy(proxy_url: &str) -> Result<(), Error> {
+/// The retention grace advertised by a proxy (`retention_grace_secs`), i.e. how long after an
+/// expiration it keeps the data awaiting retrieval. A proxy not advertising it is considered to
+/// grant none.
+#[cfg(feature = "_online")]
+pub(crate) fn proxy_retention_grace(info: &ServerInfoResponse) -> u32 {
+    #[cfg(test)]
+    if let Some(grace) = mock_retention_grace() {
+        return grace;
+    }
+    info.retention_grace_secs
+        .as_ref()
+        .and_then(|grace| grace.parse::<u32>().ok())
+        .unwrap_or(0)
+}
+
+/// The max number of media per transfer advertised by a proxy (`max_media`), `None` if it doesn't
+/// advertise a valid one.
+#[cfg(feature = "_online")]
+pub(crate) fn proxy_max_media(info: &ServerInfoResponse) -> Option<usize> {
+    info.max_media.as_ref().and_then(|max| max.parse().ok())
+}
+
+/// Check that the proxy at `proxy_url` runs the supported protocol version, returning its info.
+#[cfg(feature = "_online")]
+pub(crate) fn check_proxy(proxy_url: &str) -> Result<ServerInfoResponse, Error> {
     let proxy_client = ProxyClient::new(proxy_url)?;
     let server_info = proxy_client.get_info()?;
     if let Some(info) = server_info.result {
         if info.protocol_version == *PROXY_PROTOCOL_VERSION {
-            return Ok(());
+            return Ok(info);
         } else {
             return Err(Error::InvalidProxyProtocol {
                 version: info.protocol_version,
@@ -556,87 +459,104 @@ pub(crate) fn check_proxy(proxy_url: &str) -> Result<(), Error> {
     Err(Error::Proxy { details })
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn get_indexer_and_resolver(
-    indexer_url: &str,
+    indexer_config: &IndexerConfig,
     bitcoin_network: BitcoinNetwork,
 ) -> Result<(Indexer, AnyResolver), Error> {
-    // detect indexer type
-    let indexer = build_indexer(indexer_url);
-    let mut invalid_indexer = true;
-    if let Some(ref indexer) = indexer {
-        invalid_indexer = indexer.block_hash(0).is_err();
+    #[cfg_attr(not(feature = "bitcoind"), allow(unused_mut))]
+    let mut indexer = build_indexer(indexer_config)?;
+    // this also checks connectivity (and credentials for bitcoind)
+    indexer.block_hash(0).map_err(|e| Error::InvalidIndexer {
+        details: unreachable_indexer_details(indexer_config, &e),
+    })?;
+    #[allow(irrefutable_let_patterns)]
+    #[cfg(feature = "bitcoind")]
+    if let Indexer::Bitcoind(client) = &mut indexer {
+        client.block_filters = checked_bitcoind_indexes(&client.inner)?.block_filters;
     }
-    if invalid_indexer {
-        return Err(Error::InvalidIndexer {
-            details: s!("not a valid electrum nor esplora server"),
-        });
-    }
-    let indexer = indexer.unwrap();
 
-    let resolver = match indexer {
-        #[cfg(feature = "electrum")]
-        Indexer::Electrum(_) => {
-            let electrum_config = ConfigBuilder::new()
-                .retry(INDEXER_RETRIES)
-                .timeout(Some(Duration::from_secs(INDEXER_TIMEOUT)))
-                .build();
-            AnyResolver::electrum_blocking(indexer_url, Some(electrum_config)).expect(
-                "electrum_blocking uses the same config as build_indexer which already succeeded",
-            )
-        }
-        #[cfg(feature = "esplora")]
-        Indexer::Esplora(_) => {
-            let esplora_config = EsploraBuilder::new(indexer_url)
-                .max_retries(INDEXER_RETRIES.into())
-                .timeout(INDEXER_TIMEOUT);
-            AnyResolver::esplora_blocking(esplora_config)
-                .expect("esplora_blocking wraps an infallible builder and always returns Ok")
-        }
-    };
-
-    resolver
-        .check_chain_net(bitcoin_network.into())
-        .map_err(|e| Error::InvalidIndexer {
-            details: e.to_string(),
-        })?;
+    let resolver = get_resolver(indexer_config, bitcoin_network)?;
 
     Ok((indexer, resolver))
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) fn build_indexer(indexer_url: &str) -> Option<Indexer> {
-    #[cfg(feature = "electrum")]
-    {
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-        let opts = ConfigBuilder::new()
-            .retry(INDEXER_RETRIES)
-            .timeout(Some(Duration::from_secs(INDEXER_TIMEOUT)))
-            .build();
-        if let Ok(client) = ElectrumClient::from_config(indexer_url, opts) {
-            let client = BdkElectrumClient::new(client);
-            let indexer = Indexer::Electrum(Box::new(client));
-            return Some(indexer);
+/// Build the indexer client described by `indexer_config`.
+///
+/// Fails if support for the configured indexer is not compiled in. The returned client has not
+/// contacted the service yet, except for electrum, whose client connects on creation.
+#[cfg(feature = "_online")]
+pub(crate) fn build_indexer(indexer_config: &IndexerConfig) -> Result<Indexer, Error> {
+    match indexer_config {
+        #[cfg(feature = "bitcoind")]
+        IndexerConfig::Bitcoind { url, auth } => {
+            let client =
+                BitcoindRpcClient::new(url, auth.into()).map_err(|e| Error::InvalidIndexer {
+                    details: unreachable_indexer_details(indexer_config, &e),
+                })?;
+            Ok(Indexer::Bitcoind(Box::new(BitcoindClient {
+                inner: client,
+                block_filters: false,
+            })))
         }
-    }
-    if cfg!(feature = "esplora") {
+        #[cfg(feature = "electrum")]
+        IndexerConfig::Electrum { url } => {
+            let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+            let client = ElectrumClient::from_config(url, electrum_config()).map_err(|e| {
+                Error::InvalidIndexer {
+                    details: unreachable_indexer_details(indexer_config, &e),
+                }
+            })?;
+            Ok(Indexer::Electrum(Box::new(BdkElectrumClient::new(client))))
+        }
         #[cfg(feature = "esplora")]
-        {
-            let opts = EsploraBuilder::new(indexer_url)
-                .max_retries(INDEXER_RETRIES.into())
-                .timeout(INDEXER_TIMEOUT);
-            let client = EsploraClient::from_builder(opts);
-            let indexer = Indexer::Esplora(Box::new(client));
-            return Some(indexer);
+        IndexerConfig::Esplora { url } => Ok(Indexer::Esplora(Box::new(
+            EsploraClient::from_builder(esplora_config(url)),
+        ))),
+        #[cfg(not(all(feature = "bitcoind", feature = "electrum", feature = "esplora")))]
+        _ => {
+            let feature = match indexer_config {
+                IndexerConfig::Bitcoind { .. } => "bitcoind",
+                IndexerConfig::Electrum { .. } => "electrum",
+                IndexerConfig::Esplora { .. } => "esplora",
+            };
+            Err(Error::InvalidIndexer {
+                details: format!(
+                    "{feature} support is not enabled (requires the `{feature}` feature)"
+                ),
+            })
         }
     }
-    None
+}
+
+/// Detect which indexer is served at `indexer_url`: a Bitcoin Core node when `bitcoind_auth` is
+/// provided, otherwise an electrum or esplora server (detected by trying electrum first).
+///
+/// Returns `None` if no supported indexer can be detected.
+#[cfg(feature = "_online")]
+pub(crate) fn detect_indexer(
+    indexer_url: &str,
+    bitcoind_auth: Option<&BitcoindAuth>,
+) -> Option<IndexerConfig> {
+    if let Some(auth) = bitcoind_auth {
+        return cfg!(feature = "bitcoind").then(|| IndexerConfig::Bitcoind {
+            url: indexer_url.to_string(),
+            auth: auth.clone(),
+        });
+    }
+    let electrum = IndexerConfig::Electrum {
+        url: indexer_url.to_string(),
+    };
+    if build_indexer(&electrum).is_ok() {
+        return Some(electrum);
+    }
+    cfg!(feature = "esplora").then(|| IndexerConfig::Esplora {
+        url: indexer_url.to_string(),
+    })
 }
 
 pub(crate) fn hash_bytes(data: &[u8]) -> Vec<u8> {
-    <sha256::Hash as Sha256Hash>::hash(data)
-        .to_byte_array()
-        .to_vec()
+    sha256_digest(data).to_vec()
 }
 
 pub(crate) fn hash_bytes_hex(data: &[u8]) -> String {
@@ -661,7 +581,11 @@ where
     let tmp = atomic_tmp_path(path)?;
     // drop any temp file leaked by an earlier crash
     let _ = fs::remove_file(&tmp);
-    write(&tmp)?;
+    if let Err(e) = write(&tmp) {
+        // don't leave a partial temp file behind (best-effort)
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
+    }
     // fsync the temp file contents before making them visible
     fs::File::open(&tmp)?.sync_all()?;
     fs::rename(&tmp, path)?;
@@ -694,7 +618,64 @@ pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), Error> {
     atomic_write_with(path, |tmp| Ok(fs::write(tmp, bytes)?))
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+/// Read a fascia file, which is strict-encoded like every other RGB container.
+pub(crate) fn read_fascia(path: &Path) -> Result<Fascia, Error> {
+    Fascia::strict_deserialize_from_file::<FASCIA_MAX_LEN>(path).map_err(|e| Error::Internal {
+        details: format!("cannot read fascia {}: {e}", path.display()),
+    })
+}
+
+/// Remove the RGB data (operations, consumers and commitment data) from the given PSBT, once they
+/// are committed: the commitment is in its TX and the operations are in the fascia, so they aren't
+/// needed to sign it and broadcast its TX, and, spending UTXOs with many allocations, they could
+/// make the PSBT too large to be parsed back (see [`check_psbt_parsable`]).
+#[cfg(feature = "wallet")]
+pub(crate) fn strip_rgb_data(psbt: &mut Psbt) {
+    let is_rgb = |key: &bdk_wallet::bitcoin::psbt::raw::ProprietaryKey| {
+        [
+            &PSBT_RGB_PREFIX[..],
+            &PSBT_MPC_PREFIX[..],
+            &PSBT_OPRET_PREFIX[..],
+            &PSBT_TAPRET_PREFIX[..],
+        ]
+        .contains(&key.prefix.as_slice())
+    };
+    psbt.proprietary.retain(|key, _| !is_rgb(key));
+    for input in &mut psbt.inputs {
+        input.proprietary.retain(|key, _| !is_rgb(key));
+    }
+    for output in &mut psbt.outputs {
+        output.proprietary.retain(|key, _| !is_rgb(key));
+    }
+}
+
+/// Check that the given PSBT can be parsed back, which fails if its global map exceeds
+/// MAX_VEC_SIZE bytes. Such a PSBT can't be signed by an external signer nor be read back to
+/// broadcast its TX.
+///
+/// This is a safety check, run before anything is saved or posted: once its RGB data are removed
+/// (see [`strip_rgb_data`]), the PSBT of an operation stays far below that bound.
+#[cfg(feature = "wallet")]
+pub(crate) fn check_psbt_parsable(psbt: &Psbt) -> Result<(), Error> {
+    Psbt::deserialize(&psbt.serialize())
+        .map(|_| ())
+        .map_err(|e| Error::Internal {
+            details: format!("PSBT can't be parsed back: {e}"),
+        })
+}
+
+/// Write a fascia file atomically, so a crash mid-write cannot leave a torn one behind.
+#[cfg(any(feature = "_online", feature = "rgb_fs_store_migration"))]
+pub(crate) fn write_fascia(path: &Path, fascia: &Fascia) -> Result<(), Error> {
+    let bytes = fascia
+        .to_strict_serialized::<FASCIA_MAX_LEN>()
+        .map_err(|e| Error::Internal {
+            details: format!("cannot serialize fascia {}: {e}", path.display()),
+        })?;
+    atomic_write(path, &bytes)
+}
+
+#[cfg(feature = "_online")]
 pub(crate) fn hash_file(path: &Path) -> Result<String, Error> {
     let mut file = fs::File::open(path)?;
     let mut engine = sha256::HashEngine::default();
@@ -755,33 +736,46 @@ impl ResolveWitness for DumbResolver {
     }
 }
 
-/// Wrapper for the RGB stock and its lockfile.
+/// Wrapper for the RGB stock.
+///
+/// Every read and write goes through the borrowed database transaction, so concurrent access is
+/// serialized by the database itself (a single connection per process, SQLite locking across
+/// processes) and no separate lock is needed.
+// `pub` only because it appears in the signatures of `WalletOffline`/`WalletOnline` methods,
+// supertraits of the public `RgbWalletOps*` traits; not part of the public API
 #[doc(hidden)]
 #[derive(Debug)]
-pub struct RgbRuntime {
-    /// The RGB stock
-    stock: Stock,
-    /// The wallet directory, where the lockfile for the runtime is to be held
-    wallet_dir: PathBuf,
+pub struct RgbStock<'txn> {
+    /// The RGB stock, writing through the shared database transaction borrowed for `'txn`
+    stock: Stock<&'txn DbTxn>,
 }
 
-impl RgbRuntime {
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+impl<'txn> RgbStock<'txn> {
+    /// Build an [`RgbStock`] whose `Stock` reads and writes through the shared rgb-lib
+    /// transaction. The store borrows `db_txn` for `'txn`, so the stock cannot outlive the
+    /// transaction's commit.
+    pub(crate) fn new(db_txn: &'txn DbTxn) -> Self {
+        Self {
+            stock: Stock::with(db_txn),
+        }
+    }
+
+    #[cfg(feature = "_online")]
     pub(crate) fn accept_transfer<R: ResolveWitness>(
         &mut self,
         contract: ValidTransfer,
         resolver: &R,
-    ) -> Result<(), InternalError> {
+    ) -> Result<(), Error> {
         self.stock
             .accept_transfer(contract, resolver)
-            .map_err(InternalError::from)
+            .map_err(Error::from)
     }
 
     pub(crate) fn consume_fascia(
         &mut self,
         fascia: Fascia,
         witness_ord: Option<WitnessOrd>,
-    ) -> Result<(), InternalError> {
+    ) -> Result<(), Error> {
         struct FasciaResolver {
             witness_id: RgbTxid,
             witness_ord: WitnessOrd,
@@ -800,103 +794,110 @@ impl RgbRuntime {
 
         self.stock
             .consume_fascia(fascia, resolver)
-            .map_err(InternalError::from)
-    }
-
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
-    pub(crate) fn contracts(&self) -> Result<Vec<ContractInfo>, InternalError> {
-        Ok(self
-            .stock
-            .contracts()
-            .map_err(InternalError::from)?
-            .collect())
+            .map_err(Error::from)
     }
 
     pub(crate) fn contract_wrapper<C: IssuerWrapper>(
         &self,
         contract_id: ContractId,
-    ) -> Result<C::Wrapper<MemContract<&MemContractState>>, InternalError> {
+    ) -> Result<C::Wrapper<ContractStateSnapshot>, Error> {
         self.stock
             .contract_wrapper::<C>(contract_id)
-            .map_err(InternalError::from)
+            .map_err(Error::from)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
-    pub(crate) fn contracts_assigning(
+    /// The assignments on the given outpoints of every contract assigning state there, in a
+    /// single store query
+    #[cfg(feature = "_online")]
+    pub(crate) fn assignments_by_contract(
         &self,
-        outputs: impl IntoIterator<Item = impl Into<OutPoint>>,
-    ) -> Result<BTreeSet<ContractId>, InternalError> {
-        Ok(FromIterator::from_iter(
-            self.stock
-                .contracts_assigning(outputs)
-                .map_err(InternalError::from)?,
-        ))
+        outpoints: impl IntoIterator<Item = impl Into<OutPoint>>,
+    ) -> Result<BTreeMap<ContractId, ContractAssignments>, Error> {
+        self.stock
+            .assignments_by_contract(outpoints)
+            .map_err(Error::from)
     }
 
-    pub(crate) fn genesis(&self, contract_id: ContractId) -> Result<&Genesis, InternalError> {
+    pub(crate) fn genesis(&self, contract_id: ContractId) -> Result<Genesis, Error> {
         self.stock
-            .as_stash_provider()
-            .genesis(contract_id)
-            .map_err(InternalError::from)
+            .as_store()
+            .genesis(contract_id)?
+            .ok_or_else(|| Error::Internal {
+                details: format!("genesis {contract_id} not found"),
+            })
     }
 
     pub(crate) fn import_contract<R: ResolveWitness>(
         &mut self,
         contract: ValidContract,
         resolver: &R,
-    ) -> Result<(), InternalError> {
+    ) -> Result<(), Error> {
         self.stock
             .import_contract(contract, resolver)
-            .map_err(InternalError::from)
+            .map_err(Error::from)
     }
 
-    pub(crate) fn import_kit(&mut self, kit: ValidKit) -> Result<Status, InternalError> {
-        self.stock.import_kit(kit).map_err(InternalError::from)
+    pub(crate) fn import_schema_definition(
+        &mut self,
+        schema_def: SchemaDefinition,
+    ) -> Result<(), Error> {
+        self.stock
+            .import_schema_definition(schema_def)
+            .map_err(Error::from)
+    }
+
+    pub(crate) fn consignment_data<const TRANSFER: bool>(
+        &self,
+        consignment: &ValidConsignment<TRANSFER>,
+    ) -> Result<ContractData<FilteredContractState>, Error> {
+        self.stock
+            .consignment_data(consignment)
+            .map_err(Error::from)
     }
 
     pub(crate) fn contract_assignments_for(
         &self,
         contract_id: ContractId,
         outpoints: impl IntoIterator<Item = impl Into<OutPoint>>,
-    ) -> Result<HashMap<OutputSeal, HashMap<Opout, AllocatedState>>, InternalError> {
+    ) -> Result<ContractAssignments, Error> {
         self.stock
             .contract_assignments_for(contract_id, outpoints)
-            .map_err(InternalError::from)
+            .map_err(Error::from)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
-    pub(crate) fn contract_schema(
-        &self,
-        contract_id: ContractId,
-    ) -> Result<&Schema, InternalError> {
+    #[cfg(feature = "_online")]
+    pub(crate) fn contract_schema(&self, contract_id: ContractId) -> Result<Schema, Error> {
         self.stock
-            .as_stash_provider()
-            .contract_schema(contract_id)
-            .map_err(InternalError::from)
+            .as_store()
+            .contract_schema(contract_id)?
+            .ok_or_else(|| Error::Internal {
+                details: format!("schema for contract {contract_id} not found"),
+            })
     }
 
-    pub(crate) fn schemata(&self) -> Result<Vec<SchemaInfo>, InternalError> {
-        Ok(self
-            .stock
+    pub(crate) fn schemata(&self) -> Result<Vec<SchemaInfo>, Error> {
+        self.stock
             .schemata()
-            .map_err(InternalError::from)?
-            .collect())
+            .map(|r| r.map_err(Error::from))
+            .collect()
     }
 
-    pub(crate) fn seal_secret(
+    pub(crate) fn seal_of_secret(
         &mut self,
         secret: SecretSeal,
-    ) -> Result<Option<GraphSeal>, InternalError> {
-        self.stock
-            .as_stash_provider()
-            .seal_secret(secret)
-            .map_err(InternalError::from)
+    ) -> Result<Option<GraphSeal>, Error> {
+        self.stock.as_store().seal_of_secret(secret)
     }
 
-    pub(crate) fn store_secret_seal(&mut self, seal: GraphSeal) -> Result<bool, InternalError> {
-        self.stock
-            .store_secret_seal(seal)
-            .map_err(InternalError::from)
+    pub(crate) fn store_secret_seal(&mut self, seal: GraphSeal) -> Result<(), Error> {
+        self.stock.store_secret_seal(seal).map_err(Error::from)
+    }
+
+    pub(crate) fn store_spv_proofs(&mut self, proofs: RetrievedSpvProofs) -> Result<(), Error> {
+        if !proofs.is_empty() {
+            self.stock.store_spv_proofs(proofs)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn transfer(
@@ -905,10 +906,18 @@ impl RgbRuntime {
         outputs: impl AsRef<[OutputSeal]>,
         secret_seals: impl AsRef<[SecretSeal]>,
         witness_id: Option<RgbTxid>,
-    ) -> Result<RgbTransfer, InternalError> {
+        spv_resolver: Option<&dyn ResolveSpvProof>,
+    ) -> Result<(RgbTransfer, RetrievedSpvProofs), Error> {
         self.stock
-            .transfer(contract_id, outputs, secret_seals, [], witness_id)
-            .map_err(InternalError::from)
+            .transfer(
+                contract_id,
+                outputs,
+                secret_seals,
+                [],
+                witness_id,
+                spv_resolver,
+            )
+            .map_err(Error::from)
     }
 
     pub(crate) fn transfer_from_fascia(
@@ -916,163 +925,102 @@ impl RgbRuntime {
         contract_id: ContractId,
         outputs: impl AsRef<[OutputSeal]>,
         secret_seals: impl AsRef<[SecretSeal]>,
+        opids: impl IntoIterator<Item = OpId>,
         fascia: &Fascia,
-    ) -> Result<RgbTransfer, InternalError> {
+        spv_resolver: Option<&dyn ResolveSpvProof>,
+    ) -> Result<(RgbTransfer, RetrievedSpvProofs), Error> {
         self.stock
-            .transfer_from_fascia(contract_id, outputs, secret_seals, [], fascia)
-            .map_err(InternalError::from)
+            .transfer_from_fascia(
+                contract_id,
+                outputs,
+                secret_seals,
+                opids,
+                fascia,
+                spv_resolver,
+            )
+            .map_err(Error::from)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn transfer_from_fascia_with_dag(
         &self,
         contract_id: ContractId,
         outputs: impl AsRef<[OutputSeal]>,
         secret_seals: impl AsRef<[SecretSeal]>,
+        opids: impl IntoIterator<Item = OpId>,
         fascia: &Fascia,
-    ) -> Result<(RgbTransfer, OpoutsDagData), InternalError> {
+    ) -> Result<(RgbTransfer, OpsDag, RetrievedSpvProofs), Error> {
         self.stock
-            .transfer_from_fascia_with_dag(contract_id, outputs, secret_seals, [], fascia)
-            .map_err(InternalError::from)
+            .transfer_from_fascia_with_dag(contract_id, outputs, secret_seals, opids, fascia, None)
+            .map_err(Error::from)
     }
 
     pub(crate) fn transition_builder(
         &self,
         contract_id: ContractId,
         transition_name: impl Into<FieldName>,
-    ) -> Result<TransitionBuilder, InternalError> {
+    ) -> Result<TransitionBuilder, Error> {
         self.stock
             .transition_builder(contract_id, transition_name)
-            .map_err(InternalError::from)
+            .map_err(Error::from)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn transition_builder_raw(
         &self,
         contract_id: ContractId,
         transition_type: TransitionType,
-    ) -> Result<TransitionBuilder, InternalError> {
+    ) -> Result<TransitionBuilder, Error> {
         self.stock
             .transition_builder_raw(contract_id, transition_type)
-            .map_err(InternalError::from)
+            .map_err(Error::from)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub(crate) fn update_witnesses<R: ResolveWitness>(
         &mut self,
         resolver: &R,
         after_height: u32,
         force_witnesses: Vec<RgbTxid>,
-    ) -> Result<UpdateRes, InternalError> {
+    ) -> Result<UpdateRes, Error> {
         self.stock
             .update_witnesses(resolver, after_height, force_witnesses)
-            .map_err(InternalError::from)
+            .map_err(Error::from)
     }
 
     pub(crate) fn upsert_witness(
         &mut self,
         witness_id: RgbTxid,
         witness_ord: WitnessOrd,
-    ) -> Result<(), InternalError> {
+    ) -> Result<(), Error> {
         self.stock.upsert_witness(witness_id, witness_ord)?;
         Ok(())
     }
-}
 
-impl Drop for RgbRuntime {
-    fn drop(&mut self) {
-        self.stock.store().expect("unable to save stock");
-        fs::remove_file(self.wallet_dir.join(RGB_RUNTIME_LOCK_FILE))
-            .expect("should be able to drop lockfile")
-    }
-}
-
-fn write_rgb_runtime_lockfile(wallet_dir: &Path) -> Result<(), Error> {
-    let lock_file_path = wallet_dir.join(RGB_RUNTIME_LOCK_FILE);
-    let t_0 = OffsetDateTime::now_utc();
-    loop {
-        match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(lock_file_path.clone())
-        {
-            Ok(_) => return Ok(()),
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
-                if (OffsetDateTime::now_utc() - t_0).as_seconds_f32() > LOCK_FILE_TIMEOUT_SECS {
-                    return Err(Error::Internal {
-                        details: s!("unreleased lock file"),
-                    });
-                } else {
-                    std::thread::sleep(std::time::Duration::from_millis(400))
-                }
-            }
-            Err(e) => {
-                return Err(Error::IO {
-                    details: e.to_string(),
-                });
-            }
-        }
-    }
-}
-
-pub(crate) fn load_rgb_runtime<P: AsRef<Path>>(wallet_dir: P) -> Result<RgbRuntime, Error> {
-    write_rgb_runtime_lockfile(wallet_dir.as_ref())?;
-
-    let rgb_dir = wallet_dir.as_ref().join(RGB_RUNTIME_DIR);
-    if !rgb_dir.exists() {
-        fs::create_dir_all(&rgb_dir)?;
-    }
-    let provider = FsBinStore::new(rgb_dir.clone())?;
-    let stock = Stock::load(provider.clone(), true).or_else(|err| {
-        if err
-            .0
-            .downcast_ref::<DeserializeError>()
-            .map(|e| matches!(e, DeserializeError::Decode(DecodeError::Io(e)) if e.kind() == ErrorKind::NotFound))
-            .unwrap_or_default()
-        {
-            let mut stock = Stock::in_memory();
-            stock.make_persistent(provider, true).expect("unable to save stock");
-            return Ok(stock)
-        }
-        Err(Error::IO { details: err.to_string() })
-    })?;
-
-    Ok(RgbRuntime {
-        stock,
-        wallet_dir: wallet_dir.as_ref().to_path_buf(),
-    })
-}
-
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) struct OffchainResolver<'a, 'cons, const TRANSFER: bool> {
-    pub(crate) witness_id: RgbTxid,
-    pub(crate) consignment: &'cons Consignment<TRANSFER>,
-    pub(crate) fallback: &'a AnyResolver,
-}
-
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-impl<const TRANSFER: bool> ResolveWitness for OffchainResolver<'_, '_, TRANSFER> {
-    fn resolve_witness(&self, witness_id: RgbTxid) -> Result<WitnessStatus, WitnessResolverError> {
-        if witness_id != self.witness_id {
-            return self.fallback.resolve_witness(witness_id);
-        }
-        self.consignment
-            .bundled_witnesses()
-            .find(|bw| bw.witness_id() == witness_id)
-            .and_then(|p| p.pub_witness.tx().cloned())
-            .map_or_else(
-                || self.fallback.resolve_witness(witness_id),
-                |tx| Ok(WitnessStatus::Resolved(tx, WitnessOrd::Tentative)),
-            )
-    }
-    fn check_chain_net(&self, chain_net: ChainNet) -> Result<(), WitnessResolverError> {
-        self.fallback.check_chain_net(chain_net)
+    #[cfg(all(test, feature = "electrum"))]
+    pub(crate) fn witness_spv_proof(&self, witness_id: RgbTxid) -> Result<Option<SpvProof>, Error> {
+        self.stock.as_store().witness_spv_proof(witness_id)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "_online")]
+    #[test]
+    fn reject_list_parse() {
+        let opid = "a8a9fb2e43bd4d1d02c6c4c5e1a8dd4ce9a4f9ea1e04a4dd4a1d4bdd4b0c4c4d";
+        let rejected = Opout::from_str(&format!("{opid}/4000/0")).unwrap();
+        let allowed = Opout::from_str(&format!("{opid}/4000/1")).unwrap();
+        let list = format!("\n  {rejected} \n\t!{allowed}\t\n\n# a comment\n{opid}\n");
+        let (reject_list, invalid) = RejectList::parse(&list);
+        assert!(reject_list.rejects(&rejected));
+        assert!(!reject_list.allows(&rejected));
+        assert!(reject_list.allows(&allowed));
+        assert!(!reject_list.rejects(&allowed));
+        assert_eq!(invalid, 2);
+    }
 
     #[derive(Debug, Deserialize)]
     struct MandatoryField {
@@ -1174,7 +1122,7 @@ mod tests {
         assert_eq!(result, None);
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     #[test]
     fn test_check_proxy_json_rpc_error() {
         // server returns HTTP 200 with result=null and a JSON-RPC error field
@@ -1192,7 +1140,7 @@ mod tests {
         mock.assert();
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     #[test]
     fn test_check_proxy_invalid_body_error_details() {
         // server returns HTTP 200 with a body that is not a JSON-RPC response: the transport
@@ -1210,7 +1158,7 @@ mod tests {
         mock.assert();
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     #[test]
     fn test_check_proxy_connection_error_details() {
         // bind then drop a listener to get a port that refuses connections: the transport error
@@ -1225,28 +1173,6 @@ mod tests {
     }
 
     #[test]
-    fn test_load_rgb_runtime_corrupt_stock() {
-        let dir = tempfile::tempdir().unwrap();
-        let rgb_dir = dir.path().join(RGB_RUNTIME_DIR);
-        fs::create_dir_all(&rgb_dir).unwrap();
-        // write garbage to stash.dat: Stock::load fails with a decode error
-        fs::write(rgb_dir.join("stash.dat"), b"not valid binary data").unwrap();
-        let result = load_rgb_runtime(dir.path());
-        assert_matches!(result, Err(Error::IO { .. }));
-    }
-
-    #[test]
-    fn test_write_rgb_runtime_lockfile_timeout() {
-        let dir = tempfile::tempdir().unwrap();
-        let lock_path = dir.path().join(RGB_RUNTIME_LOCK_FILE);
-        // pre-create the lock file so every open attempt sees AlreadyExists
-        fs::File::create(&lock_path).unwrap();
-        // with a lower LOCK_FILE_TIMEOUT_SECS in test builds the error is returned immediately
-        let result = write_rgb_runtime_lockfile(dir.path());
-        assert_matches!(result, Err(Error::Internal { details }) if details == "unreleased lock file");
-    }
-
-    #[test]
     fn test_atomic_write() {
         let dir = tempfile::tempdir().unwrap();
         // parent dir does not exist yet: it must be created
@@ -1257,17 +1183,42 @@ mod tests {
         atomic_write(&path, b"world!!").unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"world!!");
         // no temp file is left behind
-        assert!(!path.parent().unwrap().join(".f.bin.tmp").exists());
+        let tmp = path.parent().unwrap().join(".f.bin.tmp");
+        assert!(!tmp.exists());
+        // a failing write leaves the previous file intact and no partial temp file behind
+        let res = atomic_write_with(&path, |tmp| {
+            fs::write(tmp, b"partial")?;
+            Err(Error::Internal {
+                details: s!("write failed"),
+            })
+        });
+        assert!(matches!(res, Err(Error::Internal { .. })));
+        assert_eq!(fs::read(&path).unwrap(), b"world!!");
+        assert!(!tmp.exists());
     }
 
-    // The None return from build_indexer is only reachable when electrum is enabled but esplora
-    // is not, and the URL is not a valid electrum server. With esplora enabled the builder is
-    // infallible so it would always return Some(Indexer::Esplora) instead.
+    // The None return from detect_indexer is only reachable when electrum is enabled but esplora
+    // is not, and the URL is not a valid electrum server. With esplora enabled detection always
+    // falls back to Some(IndexerConfig::Esplora) instead.
     #[cfg(all(feature = "electrum", not(feature = "esplora")))]
     #[test]
-    fn test_build_indexer_invalid_url_returns_none() {
-        let result = build_indexer("not_a_valid_url");
+    fn test_detect_indexer_invalid_url_returns_none() {
+        let result = detect_indexer("not_a_valid_url", None);
         assert!(result.is_none());
+    }
+
+    #[cfg(feature = "_online")]
+    #[test]
+    fn test_build_indexer_invalid_url() {
+        let result = build_indexer(&IndexerConfig::Electrum {
+            url: s!("not_a_valid_url"),
+        });
+        #[cfg(feature = "electrum")]
+        let details = "not a valid electrum server";
+        #[cfg(not(feature = "electrum"))]
+        let details = "electrum support is not enabled (requires the `electrum` feature)";
+        // Indexer is not Debug, so the Ok variant cannot be printed by assert_matches
+        assert!(matches!(result, Err(Error::InvalidIndexer { details: m }) if m == details));
     }
 
     #[test]
@@ -1406,5 +1357,16 @@ mod tests {
         let network = BitcoinNetwork::SignetCustom;
         let rust_bitcoin_network = bitcoin::Network::from(network);
         assert_eq!(rust_bitcoin_network, bitcoin::Network::Signet);
+    }
+
+    #[cfg(feature = "electrum")]
+    #[test]
+    fn get_indexer_and_resolver_resolver_connection_refused() {
+        // the indexer connects, then the resolver connection is refused
+        let url = start_single_connection_electrum_mock();
+        let result =
+            get_indexer_and_resolver(&IndexerConfig::Electrum { url }, BitcoinNetwork::Regtest);
+        // Indexer is not Debug, so the Ok variant cannot be printed by assert_matches
+        assert!(matches!(result, Err(Error::InvalidIndexer { .. })));
     }
 }

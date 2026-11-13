@@ -1,6 +1,6 @@
 [package]
 name = "rgb-lib-migration"
-version = "0.3.0-beta.5"
+version = "0.3.0-beta.6"
 authors = [
     "Zoe Faltibà <zoefaltiba@gmail.com>",
     "Nicola Busanello <nicola.busanello@gmail.com>",
@@ -8,7 +8,6 @@ authors = [
 edition = "2024"
 rust-version = "1.94.0"
 repository = "https://github.com/RGB-Tools/rgb-lib"
-homepage = "https://github.com/RGB-Tools/rgb-lib"
 license = "MIT"
 description = "RGB wallet library migrations"
 
@@ -20,7 +19,7 @@ path = "src/lib.rs"
 tokio = { version = "1", default-features = false, features = [
     "macros"
 ] }
-sea-orm-migration = { version = "2.0.1", default-features = false, features = [
+sea-orm-migration = { version = "2.0.4", default-features = false, features = [
     "cli",
     "runtime-tokio-rustls",
     "sqlx-postgres",

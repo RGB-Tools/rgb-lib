@@ -27,10 +27,10 @@ Once the migration file is ready, you'll need to run a local postgres DB and
 use it to refresh the migration and generate entities with `sea-orm-cli`. This
 is accomplished with:
 ```sh
-docker pull postgres:latest
+docker pull postgres:18
 
 docker run -p 127.0.0.1:5432:5432/tcp --name migration-postgres \
-    -e POSTGRES_PASSWORD=mysecretpassword -d postgres
+    -e POSTGRES_PASSWORD=mysecretpassword -d postgres:18
 
 DATABASE_URL=postgres://postgres:mysecretpassword@localhost:5432 \
     sea-orm-cli migrate up

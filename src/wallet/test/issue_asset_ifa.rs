@@ -207,6 +207,9 @@ fn no_issue_on_pending_send() {
             Recipient {
                 assignment: Assignment::Fungible(amount),
                 recipient_id: receive_data_1.recipient_id.clone(),
+                public_key: Some(receive_data_1.public_key.clone()),
+                expiration_timestamp: Some(receive_data_1.expiration_timestamp),
+                encryption: Encryption::Optional,
                 witness_data: Some(WitnessData {
                     amount_sat: 1000,
                     blinding: None,
@@ -216,6 +219,9 @@ fn no_issue_on_pending_send() {
             Recipient {
                 assignment: Assignment::InflationRight(amount_inflation),
                 recipient_id: receive_data_2.recipient_id.clone(),
+                public_key: Some(receive_data_2.public_key.clone()),
+                expiration_timestamp: Some(receive_data_2.expiration_timestamp),
+                encryption: Encryption::Optional,
                 witness_data: Some(WitnessData {
                     amount_sat: 1000,
                     blinding: None,
@@ -311,6 +317,9 @@ fn fail() {
         vec![AMOUNT],
         vec![],
         None,
+        false,
+        None,
+        false,
     );
     assert!(matches!(result, Err(Error::InvalidTicker { details: m }) if m == EMPTY_MSG));
 
@@ -322,6 +331,9 @@ fn fail() {
         vec![AMOUNT],
         vec![],
         None,
+        false,
+        None,
+        false,
     );
     assert!(matches!(result, Err(Error::InvalidTicker { details: m }) if m == IDENT_TOO_LONG_MSG));
 
@@ -333,6 +345,9 @@ fn fail() {
         vec![AMOUNT],
         vec![],
         None,
+        false,
+        None,
+        false,
     );
     assert!(
         matches!(result, Err(Error::InvalidTicker { details: m }) if m == "ticker needs to be all uppercase")
@@ -347,6 +362,9 @@ fn fail() {
         vec![AMOUNT],
         vec![],
         None,
+        false,
+        None,
+        false,
     );
     assert!(
         matches!(result, Err(Error::InvalidTicker { details: m }) if m == IDENT_NOT_ASCII_MSG
@@ -362,6 +380,9 @@ fn fail() {
         vec![AMOUNT],
         vec![],
         None,
+        false,
+        None,
+        false,
     );
     assert!(
         matches!(result, Err(Error::InvalidTicker { details: m }) if m == IDENT_NOT_ASCII_MSG
@@ -377,6 +398,9 @@ fn fail() {
         vec![AMOUNT],
         vec![],
         None,
+        false,
+        None,
+        false,
     );
     assert!(
         matches!(result, Err(Error::InvalidTicker { details: m }) if m == IDENT_NOT_START_MSG
@@ -391,6 +415,9 @@ fn fail() {
         vec![AMOUNT],
         vec![],
         None,
+        false,
+        None,
+        false,
     );
     assert!(matches!(result, Err(Error::InvalidName { details: m }) if m == EMPTY_MSG));
 
@@ -402,6 +429,9 @@ fn fail() {
         vec![AMOUNT],
         vec![],
         None,
+        false,
+        None,
+        false,
     );
     assert!(matches!(result, Err(Error::InvalidName { details: m }) if m == IDENT_TOO_LONG_MSG));
 
@@ -414,6 +444,9 @@ fn fail() {
         vec![AMOUNT],
         vec![],
         None,
+        false,
+        None,
+        false,
     );
     assert!(
         matches!(result, Err(Error::InvalidName { details: m }) if m == IDENT_NOT_ASCII_MSG
@@ -428,6 +461,9 @@ fn fail() {
         vec![AMOUNT],
         vec![],
         None,
+        false,
+        None,
+        false,
     );
     assert!(matches!(
         result,

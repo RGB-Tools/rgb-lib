@@ -20,6 +20,9 @@ fn success() {
         vec![Recipient {
             assignment: Assignment::Fungible(10),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -41,6 +44,8 @@ fn success() {
     assert_eq!(nia_metadata.ticker.unwrap(), TICKER.to_string());
     assert_eq!(nia_metadata.details, None);
     assert!((timestamp - nia_metadata.timestamp) < 30);
+    assert_eq!(nia_metadata.linked_from_contract, None);
+    assert_eq!(nia_metadata.linked_to_contract, None);
 
     let image_str = ["tests", "qrcode.png"].join(MAIN_SEPARATOR_STR);
     let asset_uda =
@@ -93,6 +98,14 @@ fn success() {
     assert_eq!(cfa_metadata.ticker, None);
     assert_eq!(cfa_metadata.details, details);
     assert!((timestamp - cfa_metadata.timestamp) < 30);
+
+    // an IFA asset issued without its link right nor a contract it's linked from
+    party.create_utxos_default();
+    let asset_ifa = party.issue_asset_ifa(None, None, None);
+    let ifa_metadata = party.get_asset_metadata(&asset_ifa.asset_id);
+    assert_eq!(ifa_metadata.asset_schema, AssetSchema::Ifa);
+    assert_eq!(ifa_metadata.linked_from_contract, None);
+    assert_eq!(ifa_metadata.linked_to_contract, None);
 }
 
 #[cfg(feature = "electrum")]

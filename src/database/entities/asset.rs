@@ -29,6 +29,8 @@ pub struct Model {
     pub max_supply: Option<String>,
     pub known_circulating_supply: Option<String>,
     pub reject_list_url: Option<String>,
+    pub linked_from_contract: Option<String>,
+    pub linked_to_contract: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
@@ -47,6 +49,8 @@ pub enum Column {
     MaxSupply,
     KnownCirculatingSupply,
     RejectListUrl,
+    LinkedFromContract,
+    LinkedToContract,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DerivePrimaryKey)]
@@ -86,6 +90,8 @@ impl ColumnTrait for Column {
             Self::MaxSupply => ColumnType::String(StringLen::None).def().null(),
             Self::KnownCirculatingSupply => ColumnType::String(StringLen::None).def().null(),
             Self::RejectListUrl => ColumnType::String(StringLen::None).def().null(),
+            Self::LinkedFromContract => ColumnType::String(StringLen::None).def().null(),
+            Self::LinkedToContract => ColumnType::String(StringLen::None).def().null(),
         }
     }
 }

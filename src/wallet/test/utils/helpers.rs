@@ -1,26 +1,5 @@
 use super::*;
 
-#[cfg(feature = "electrum")]
-use regex::RegexSet;
-#[cfg(feature = "electrum")]
-use std::io::Write;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-use std::time::{Duration, Instant};
-
-/// Panic if the given expression doesn't match the provided pattern, logging the unexpected result
-#[macro_export]
-macro_rules! assert_matches {
-    ($expression:expr, $pattern:pat $(if $guard:expr)? $(,)?) => {{
-        #[allow(unreachable_patterns)]
-        match $expression {
-            $pattern $(if $guard)? => {},
-            _ => {
-                panic!("received unexpected result: {}", format!("{:?}", $expression));
-            }
-        }
-    }};
-}
-
 /// A data dir of its own for a test that doesn't call `initialize()`.
 ///
 /// `initialize()` runs `regtest.sh prepare_tests_environment`, which wipes the shared
@@ -112,12 +91,12 @@ impl PrivateDataDir {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn join_with_sep(parts: &[&str]) -> String {
     parts.join(MAIN_SEPARATOR_STR)
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn get_current_time() -> u128 {
     let now = std::time::SystemTime::now();
     now.duration_since(std::time::UNIX_EPOCH)
@@ -130,7 +109,7 @@ pub(crate) fn get_restore_dir_string() -> String {
     join_with_sep(&RESTORE_DIR_PARTS)
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn get_test_data_dir_string() -> String {
     join_with_sep(&TEST_DATA_DIR_PARTS)
 }
@@ -144,12 +123,12 @@ pub(crate) fn get_restore_dir_path<P: AsRef<Path>>(last: Option<P>) -> PathBuf {
     path
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn get_test_data_dir_path() -> PathBuf {
     PathBuf::from(get_test_data_dir_string())
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn create_test_data_dir() -> PathBuf {
     let test_data_dir = get_test_data_dir_path();
     if !test_data_dir.exists() {
@@ -165,6 +144,7 @@ pub(crate) fn get_test_wallet_data(data_dir: &str) -> WalletData {
         database_type: DatabaseType::Sqlite,
         max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
         supported_schemas: AssetSchema::VALUES.to_vec(),
+        allow_reckless_schemas: false,
     }
 }
 
@@ -175,7 +155,7 @@ pub(crate) fn get_test_wallet_with_keys(keys: &Keys) -> Wallet {
 }
 
 // return a wallet for testing
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn get_test_wallet_with_net(
     private_keys: bool,
     max_allocations_per_utxo: Option<u32>,
@@ -239,6 +219,7 @@ fn get_test_wallet_raw_in(
             database_type: DatabaseType::Sqlite,
             max_allocations_per_utxo: max_allocations_per_utxo.unwrap_or(MAX_ALLOCATIONS_PER_UTXO),
             supported_schemas: AssetSchema::VALUES.to_vec(),
+            allow_reckless_schemas: false,
         },
         wallet_keys.clone(),
     )
@@ -247,7 +228,7 @@ fn get_test_wallet_raw_in(
     wallet
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 // return a regtest wallet for testing
 pub(crate) fn get_test_wallet(private_keys: bool, max_allocations_per_utxo: Option<u32>) -> Wallet {
     get_test_wallet_with_net(
@@ -269,7 +250,7 @@ pub(crate) fn get_funded_party_p2wpkh() -> SinglesigParty {
     party
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn get_empty_wallet(
     private_keys: bool,
     indexer_url: Option<String>,
@@ -281,7 +262,7 @@ pub(crate) fn get_empty_wallet(
     (wallet, online)
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn get_funded_noutxo_wallet(
     private_keys: bool,
     indexer_url: Option<String>,
@@ -291,7 +272,7 @@ pub(crate) fn get_funded_noutxo_wallet(
     (wallet, online)
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn get_funded_party(private_keys: bool, indexer_url: Option<String>) -> SinglesigParty {
     let (wallet, online) = get_funded_noutxo_wallet(private_keys, indexer_url);
     let mut party = party!(wallet, online);
@@ -299,13 +280,13 @@ pub(crate) fn get_funded_party(private_keys: bool, indexer_url: Option<String>) 
     party
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn get_empty_party(private_keys: bool, indexer_url: Option<String>) -> SinglesigParty {
     let (wallet, online) = get_empty_wallet(private_keys, indexer_url);
     party!(wallet, online)
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn get_funded_noutxo_party(
     private_keys: bool,
     indexer_url: Option<String>,
@@ -314,12 +295,12 @@ pub(crate) fn get_funded_noutxo_party(
     party!(wallet, online)
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn send_to_address(address: String) {
     send_sats_to_address(address, None);
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn send_sats_to_address(address: String, sats: Option<u64>) {
     let amt = BdkAmount::from_sat(sats.unwrap_or(100_000_000));
     let btc_str = amt.to_string_in(Denomination::Bitcoin);
@@ -353,7 +334,7 @@ pub(crate) fn send_sats_to_address(address: String, sats: Option<u64>) {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn fund_wallet(address: String) {
     send_to_address(address);
     mine(false);
@@ -392,7 +373,7 @@ pub(crate) fn print_unspents(unspents: &[Unspent], msg: &str) {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn wait_for_function<F>(mut func: F, timeout_secs: u8, interval_ms: u16) -> bool
 where
     F: FnMut() -> bool,
@@ -421,26 +402,636 @@ pub(crate) fn write_opouts_to_reject_list(filename: &str, opouts: &[String]) {
     }
 }
 
+/// A recipient of the given `assignment` paying the blind receive described by `receive_data`,
+/// with optional encryption and the default transport endpoints.
+#[cfg(feature = "electrum")]
+pub(crate) fn blind_recipient(receive_data: &ReceiveData, assignment: Assignment) -> Recipient {
+    Recipient {
+        assignment,
+        recipient_id: receive_data.recipient_id.clone(),
+        public_key: Some(receive_data.public_key.clone()),
+        expiration_timestamp: Some(receive_data.expiration_timestamp),
+        encryption: Encryption::Optional,
+        witness_data: None,
+        transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+    }
+}
+
+/// A recipient of the given `assignment` paying the witness receive described by `receive_data`,
+/// with the given witness amount, no blinding and the same defaults as [`blind_recipient`].
+#[cfg(feature = "electrum")]
+pub(crate) fn witness_recipient(
+    receive_data: &ReceiveData,
+    assignment: Assignment,
+    amount_sat: u64,
+) -> Recipient {
+    Recipient {
+        witness_data: Some(WitnessData {
+            amount_sat,
+            blinding: None,
+        }),
+        ..blind_recipient(receive_data, assignment)
+    }
+}
+
+/// Build a recipient map sending the given `assignment` of the asset with ID `asset_id` to the
+/// blind receive described by `receive_data`.
+#[cfg(feature = "electrum")]
+pub(crate) fn blind_recipient_map(
+    asset_id: &str,
+    receive_data: &ReceiveData,
+    assignment: Assignment,
+) -> HashMap<String, Vec<Recipient>> {
+    HashMap::from([(
+        asset_id.to_string(),
+        vec![blind_recipient(receive_data, assignment)],
+    )])
+}
+
+/// Send the given `assignment` of the asset with ID `asset_id` from `sender` to the blind receive
+/// of `receiver` described by `receive_data`, then settle the transfer, returning its TXID.
+#[cfg(feature = "electrum")]
+pub(crate) fn send_to_blind_and_settle(
+    sender: &mut SinglesigParty,
+    receiver: &mut SinglesigParty,
+    asset_id: &str,
+    receive_data: &ReceiveData,
+    assignment: Assignment,
+) -> String {
+    let recipient_map = blind_recipient_map(asset_id, receive_data, assignment);
+    let txid = sender.send_retry(&recipient_map);
+    receiver.wait_for_refresh(None);
+    sender.wait_for_refresh(None);
+    mine(false);
+    receiver.wait_for_transfer_status_recipient(
+        None,
+        &receive_data.recipient_id,
+        TransferStatus::Settled,
+    );
+    sender.wait_for_transfer_status_sender(None, &txid, TransferStatus::Settled);
+    txid
+}
+
+/// Send the given `assignment` of the asset with ID `asset_id` from `sender` to the blind receive
+/// of `receiver` described by `receive_data`, and have `receiver` refuse the transfer.
+#[cfg(feature = "electrum")]
+pub(crate) fn send_to_blind_refused(
+    sender: &mut SinglesigParty,
+    receiver: &mut SinglesigParty,
+    asset_id: &str,
+    receive_data: &ReceiveData,
+    assignment: Assignment,
+) {
+    let recipient_map = blind_recipient_map(asset_id, receive_data, assignment);
+    let txid = sender.send_result(&recipient_map).unwrap().txid;
+    receiver.wait_for_transfer_status_recipient(
+        None,
+        &receive_data.recipient_id,
+        TransferStatus::Failed,
+    );
+    sender.wait_for_transfer_status_sender(Some(asset_id), &txid, TransferStatus::Failed);
+}
+
+/// Send the given `assignment` of the asset with ID `asset_id` from `sender` to a new blind receive
+/// of `receiver`, then settle the transfer, returning its TXID.
+#[cfg(feature = "electrum")]
+pub(crate) fn send_and_settle(
+    sender: &mut SinglesigParty,
+    receiver: &mut SinglesigParty,
+    asset_id: &str,
+    assignment: Assignment,
+) -> String {
+    let receive_data = receiver.blind_receive();
+    send_to_blind_and_settle(sender, receiver, asset_id, &receive_data, assignment)
+}
+
+/// The allocations held by the only colored UTXO of `party`.
+#[cfg(feature = "electrum")]
+pub(crate) fn single_colored_utxo_allocations(party: &mut SinglesigParty) -> Vec<RgbAllocation> {
+    let unspents = party.list_unspents(true);
+    let colored: Vec<&Unspent> = unspents
+        .iter()
+        .filter(|u| !u.rgb_allocations.is_empty())
+        .collect();
+    assert_eq!(colored.len(), 1);
+    colored[0].rgb_allocations.clone()
+}
+
+/// The number of allocations of the UTXO at `outpoint` of `party`, if unspent.
+#[cfg(feature = "electrum")]
+pub(crate) fn utxo_num_allocations(
+    party: &mut SinglesigParty,
+    outpoint: &Outpoint,
+) -> Option<usize> {
+    party
+        .list_unspents(true)
+        .iter()
+        .find(|u| u.utxo.outpoint == *outpoint)
+        .map(|u| u.rgb_allocations.len())
+}
+
+/// Issue an IFA asset with its link right, linked from the contract with ID `linked_from`, if
+/// given, and with the given reject list URL.
+#[cfg(feature = "electrum")]
+pub(crate) fn issue_asset_ifa_link(
+    party: &mut SinglesigParty,
+    linked_from: Option<String>,
+    reject_list_url: Option<String>,
+) -> AssetIFA {
+    party
+        .wallet
+        .issue_asset_ifa(
+            TICKER.to_string(),
+            NAME.to_string(),
+            PRECISION,
+            vec![AMOUNT],
+            vec![],
+            reject_list_url,
+            true,
+            linked_from,
+            false,
+        )
+        .unwrap()
+}
+
+/// Issue an IFA asset with its link right, plus the IFA contract replacing it, issued linked from
+/// it: the pair a link needs, as the contract to link to has to be known to the wallet and to
+/// point back at the linking one.
+#[cfg(feature = "electrum")]
+pub(crate) fn issue_asset_ifa_link_pair(party: &mut SinglesigParty) -> (AssetIFA, AssetIFA) {
+    let asset = issue_asset_ifa_link(party, None, None);
+    let replacement = issue_asset_ifa_link(party, Some(asset.asset_id.clone()), None);
+    (asset, replacement)
+}
+
+/// The number of allocations of the link right of the asset with the given ID held by the given
+/// party.
+#[cfg(feature = "electrum")]
+pub(crate) fn link_rights(party: &mut SinglesigParty, asset_id: &str) -> usize {
+    party
+        .list_unspents(false)
+        .iter()
+        .flat_map(|u| u.rgb_allocations.iter())
+        .filter(|a| {
+            a.asset_id.as_deref() == Some(asset_id) && a.assignment == Assignment::LinkRight
+        })
+        .count()
+}
+
+/// The outpoints of the unspent UTXOs of the given wallet holding the link right of the given
+/// asset, according to its stock, which also knows about the ones rgb-lib doesn't track: at most
+/// one is expected, a list lets the tests check that.
+#[cfg(feature = "electrum")]
+pub(crate) fn link_right_outpoints(wallet: &Wallet, asset_id: &str) -> Vec<OutPoint> {
+    let contract_id = ContractId::from_str(asset_id).unwrap();
+    let txn = wallet.database().begin_transaction().unwrap();
+    let outpoints: Vec<OutPoint> = txn
+        .get_unspent_txos(vec![])
+        .unwrap()
+        .into_iter()
+        .map(OutPoint::from)
+        .collect();
+    let stock = wallet.rgb_stock(&txn).unwrap();
+    let mut link_right_outpoints = vec![];
+    for (seal, opout_state_map) in stock
+        .contract_assignments_for(contract_id, outpoints)
+        .unwrap()
+    {
+        if opout_state_map.keys().any(|opout| opout.ty == OS_LINK) {
+            link_right_outpoints.push(seal.to_outpoint());
+        }
+    }
+    txn.commit().unwrap();
+    link_right_outpoints
+}
+
+/// The TXID of the given PSBT.
+#[cfg(feature = "electrum")]
+pub(crate) fn psbt_txid(psbt: &str) -> String {
+    Psbt::from_str(psbt)
+        .unwrap()
+        .unsigned_tx
+        .compute_txid()
+        .to_string()
+}
+
+/// Whether an asset of the given schema supports the given assignment.
+#[cfg(feature = "electrum")]
+pub(crate) fn schema_supports_assignment(schema: AssetSchema, assignment: &Assignment) -> bool {
+    match schema {
+        AssetSchema::Nia | AssetSchema::Cfa => matches!(assignment, Assignment::Fungible(_)),
+        AssetSchema::Uda => matches!(assignment, Assignment::NonFungible),
+        AssetSchema::Ifa => matches!(
+            assignment,
+            Assignment::Fungible(_) | Assignment::InflationRight(_) | Assignment::LinkRight
+        ),
+        AssetSchema::Bfa => matches!(
+            assignment,
+            Assignment::Fungible(_) | Assignment::LinkRight | Assignment::MintRight
+        ),
+    }
+}
+
+/// The assignment a receive request ends up with for an asset of the given schema (`None` when no
+/// asset is specified), or `None` if the request is invalid.
+#[cfg(feature = "electrum")]
+fn expected_receive_assignment(
+    schema: Option<AssetSchema>,
+    assignment: &Assignment,
+) -> Option<Assignment> {
+    match (schema, assignment) {
+        // without an asset only an amount can be requested
+        (None, Assignment::Fungible(_) | Assignment::Any) => Some(assignment.clone()),
+        (None, _) => None,
+        // "any" is narrowed down to the schema's assignment, if it has only one
+        (Some(AssetSchema::Nia | AssetSchema::Cfa), Assignment::Any) => {
+            Some(Assignment::Fungible(0))
+        }
+        (Some(AssetSchema::Uda), Assignment::Any) => Some(Assignment::NonFungible),
+        (Some(AssetSchema::Ifa | AssetSchema::Bfa), Assignment::Any) => Some(Assignment::Any),
+        (Some(schema), _) if schema_supports_assignment(schema, assignment) => {
+            Some(assignment.clone())
+        }
+        (Some(_), _) => None,
+    }
+}
+
+/// A receive API of the wallet, i.e. [`Wallet::blind_receive`] or [`Wallet::witness_receive`].
+#[cfg(feature = "electrum")]
+pub(crate) type ReceiveFn = fn(
+    &mut Wallet,
+    Option<Online>,
+    Option<String>,
+    Assignment,
+    u64,
+    Vec<String>,
+    u8,
+    Option<Encryption>,
+) -> Result<ReceiveData, Error>;
+
+/// Request, with the given receive API, every assignment kind for no asset and for an asset of
+/// each schema, checking that either the request is refused as invalid or the invoice and the
+/// transfer carry the expected assignment.
+#[cfg(feature = "electrum")]
+pub(crate) fn check_receive_schema_assignment_combinations(
+    party: &mut SinglesigParty,
+    receive: ReceiveFn,
+) {
+    let amount = 66;
+    // issue all the assets upfront, as blind receives take up allocation slots
+    let mut schemas: Vec<(Option<AssetSchema>, Option<String>)> = vec![(None, None)];
+    for schema in AssetSchema::iter() {
+        schemas.push((Some(schema), Some(party.issue_asset_of_schema(schema))));
+    }
+    // all the assignment kinds, with an amount where they have one
+    let assignments: Vec<Assignment> = Assignment::iter()
+        .map(|a| match a {
+            Assignment::Fungible(_) => Assignment::Fungible(amount),
+            Assignment::InflationRight(_) => Assignment::InflationRight(amount),
+            Assignment::NonFungible
+            | Assignment::LinkRight
+            | Assignment::MintRight
+            | Assignment::Any => a,
+        })
+        .collect();
+    for (schema, asset_id) in schemas {
+        for assignment in &assignments {
+            let result = receive(
+                &mut party.wallet,
+                Some(party.online),
+                asset_id.clone(),
+                assignment.clone(),
+                default_rcv_expiration(),
+                TRANSPORT_ENDPOINTS.clone(),
+                MIN_CONFIRMATIONS,
+                None,
+            );
+            let context = format!("schema {schema:?}, assignment {assignment:?}");
+            let Some(expected) = expected_receive_assignment(schema, assignment) else {
+                assert_matches!(result, Err(Error::InvalidAssignment));
+                continue;
+            };
+            let receive_data = result.unwrap_or_else(|e| panic!("{context}: {e:?}"));
+            let invoice = Invoice::new(receive_data.invoice.clone())
+                .unwrap_or_else(|e| panic!("{context}: {e:?}: {}", receive_data.invoice));
+            let invoice_data = invoice.invoice_data();
+            assert_eq!(invoice_data.asset_schema, schema, "{context}");
+            assert_eq!(invoice_data.asset_id, asset_id, "{context}");
+            assert_eq!(invoice_data.assignment, expected, "{context}");
+            let transfer = party.get_test_transfer_recipient(&receive_data.recipient_id);
+            assert_eq!(transfer.requested_assignment, Some(expected), "{context}");
+        }
+    }
+}
+
 #[cfg(feature = "electrum")]
 pub(crate) fn get_proxy_client(proxy_url: Option<&str>) -> ProxyClient {
     ProxyClient::new(proxy_url.unwrap_or(PROXY_URL)).unwrap()
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-pub(crate) fn test_go_online_options(indexer_url: Option<&str>) -> OnlineOptions {
-    OnlineOptions {
-        indexer_url: indexer_url.unwrap_or(DEFAULT_INDEXER_URL).to_string(),
-        skip_consistency_check: true,
-        vanilla_sync_lookback: INDEXER_SYNC_LOOKBACK as u32,
+/// Post a consignment file to the invoice of `recipient_id` (with pubkey `recipient_pk`) acting as
+/// a sender with a fresh key, returning the sender key and the transfer ID.
+#[cfg(feature = "electrum")]
+pub(crate) fn post_test_consignment(
+    proxy_client: &ProxyClient,
+    recipient_id: &str,
+    recipient_pk: &str,
+    consignment_path: &Path,
+    consignment_hash: &str,
+) -> (ed25519_dalek::SigningKey, String) {
+    let sender_sk = gen_ed25519();
+    let sender_pk = hex::encode(sender_sk.verifying_key().to_bytes());
+    let invoice_id = invoice_id(recipient_id, recipient_pk);
+    let transfer_id = transfer_id(&invoice_id, &sender_pk);
+    let blob_hash = hash_file(consignment_path).unwrap();
+    let digest = sha256_digest(
+        post_consignment_message(&transfer_id, consignment_hash, &blob_hash).as_bytes(),
+    );
+    let data = PostConsignmentData {
+        invoice_id,
+        transfer_id: transfer_id.clone(),
+        sender_transport_endpoint: PROXY_ENDPOINT.clone(),
+        sender_pk,
+        consignment_hash: consignment_hash.to_string(),
+        batch: false,
+        signature: hex::encode(sign_ed25519(&sender_sk, &digest)),
+    };
+    let res = proxy_client
+        .post_consignment(
+            &data,
+            consignment_path,
+            &now().unix_timestamp().to_string(),
+            "0",
+        )
+        .unwrap();
+    assert_eq!(res.result, Some(true), "{:?}", res.error);
+    (sender_sk, transfer_id)
+}
+
+/// Post a media file for a transfer created with [`post_test_consignment`].
+#[cfg(feature = "electrum")]
+pub(crate) fn post_test_media(
+    proxy_client: &ProxyClient,
+    sender_sk: &ed25519_dalek::SigningKey,
+    transfer_id: &str,
+    media_id: &str,
+    media_path: &Path,
+) {
+    let blob_hash = hash_file(media_path).unwrap();
+    let digest = sha256_digest(post_media_message(transfer_id, media_id, &blob_hash).as_bytes());
+    let res = proxy_client
+        .post_media(
+            transfer_id,
+            media_id,
+            media_path,
+            &hex::encode(sign_ed25519(sender_sk, &digest)),
+        )
+        .unwrap();
+    assert_eq!(res.result, Some(true), "{:?}", res.error);
+}
+
+#[cfg(feature = "bitcoind")]
+pub(crate) fn bitcoind_pass_auth() -> BitcoindAuth {
+    BitcoindAuth::UserPass {
+        username: BITCOIND_USER.to_string(),
+        password: BITCOIND_PASSWORD.to_string(),
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+// the no-filters node authenticates via its cookie file (exported by regtest.sh) so both auth
+// methods get coverage
+#[cfg(feature = "bitcoind")]
+pub(crate) fn bitcoind_cookie_auth() -> BitcoindAuth {
+    BitcoindAuth::CookieFile {
+        path: join_with_sep(&["tests", "tmp_srv", "bitcoind_no_filters.cookie"]),
+    }
+}
+
+#[cfg(feature = "_online")]
+pub(crate) fn test_indexer_config(indexer_url: &str) -> IndexerConfig {
+    let url = indexer_url.to_string();
+    #[cfg(feature = "bitcoind")]
+    if [BITCOIND_URL, BITCOIND_NO_TXINDEX_URL].contains(&indexer_url) {
+        return IndexerConfig::Bitcoind {
+            url,
+            auth: bitcoind_pass_auth(),
+        };
+    }
+    #[cfg(feature = "bitcoind")]
+    if indexer_url == BITCOIND_NO_FILTERS_URL {
+        return IndexerConfig::Bitcoind {
+            url,
+            auth: bitcoind_cookie_auth(),
+        };
+    }
+    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    if indexer_url == ESPLORA_URL {
+        return IndexerConfig::Esplora { url };
+    }
+    #[cfg(feature = "electrum")]
+    return IndexerConfig::Electrum { url };
+    #[cfg(all(feature = "esplora", not(feature = "electrum")))]
+    return IndexerConfig::Esplora { url };
+    #[cfg(all(
+        feature = "bitcoind",
+        not(any(feature = "electrum", feature = "esplora"))
+    ))]
+    return IndexerConfig::Bitcoind {
+        url,
+        auth: bitcoind_pass_auth(),
+    };
+}
+
+#[cfg(feature = "_online")]
+pub(crate) fn test_go_online_options(indexer_url: Option<&str>) -> OnlineOptions {
+    OnlineOptions {
+        indexer_config: test_indexer_config(indexer_url.unwrap_or(DEFAULT_INDEXER_URL)),
+        skip_consistency_check: true,
+        vanilla_sync_lookback: INDEXER_SYNC_LOOKBACK as u32,
+        failed_witness_receive_grace_secs: FAILED_WITNESS_RECEIVE_GRACE_SECS,
+        proxy_auth_keys: HashMap::new(),
+        evm_chains: test_evm_chains(HashMap::from([(
+            super::super::ANVIL_CHAIN_ID,
+            super::super::EVM_RPC_URL.to_string(),
+        )])),
+    }
+}
+
+/// The EVM chains with the given RPC URLs, by chain ID, allowing mints to leave from
+/// `MIN_MINT_LOCK_BLOCKS` to `MAX_MINT_LOCK_BLOCKS` blocks for their lock
+#[cfg(feature = "_online")]
+pub(crate) fn test_evm_chains(evm_rpc_urls: HashMap<u64, String>) -> HashMap<u64, EvmChain> {
+    evm_rpc_urls
+        .into_iter()
+        .map(|(chain_id, rpc_url)| {
+            let evm_chain = EvmChain {
+                rpc_url,
+                min_mint_lock_blocks: super::super::MIN_MINT_LOCK_BLOCKS,
+                max_mint_lock_blocks: super::super::MAX_MINT_LOCK_BLOCKS,
+            };
+            (chain_id, evm_chain)
+        })
+        .collect()
+}
+
+#[cfg(feature = "_online")]
 pub(crate) fn default_rcv_expiration() -> u64 {
     (now().unix_timestamp() + DURATION_RCV_TRANSFER as i64) as u64
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) fn default_send_expiration() -> u64 {
     (now().unix_timestamp() + DURATION_SEND_TRANSFER as i64) as u64
+}
+
+// proxy that forwards every call to the real one, except ACK posts and gets that receive an
+// unparsable response while `fail_ack` is set; it also returns how many times a consignment
+// has been requested
+#[cfg(feature = "electrum")]
+pub(crate) fn failing_ack_proxy(
+    fail_ack: Arc<AtomicBool>,
+) -> (mockito::ServerGuard, mockito::Mock, Arc<AtomicUsize>) {
+    let consignment_gets = Arc::new(AtomicUsize::new(0));
+    let gets = Arc::clone(&consignment_gets);
+    let mut server = mockito::Server::new();
+    let mock = server
+        .mock("POST", "/json-rpc")
+        .with_body_from_request(move |req| {
+            let body = req.body().unwrap().clone();
+            let body_str = String::from_utf8_lossy(&body);
+            if body_str.contains("\"consignment.get\"") {
+                gets.fetch_add(1, Ordering::Relaxed);
+            }
+            if fail_ack.load(Ordering::Relaxed)
+                && (body_str.contains("\"ack.post\"") || body_str.contains("\"ack.get\""))
+            {
+                return b"not valid json".to_vec();
+            }
+            forward_to_proxy(req, body)
+        })
+        .expect_at_least(1)
+        .create();
+    (server, mock, consignment_gets)
+}
+
+// proxy that forwards every call to the real one, except transfer lists that receive an
+// unparsable response while `fail_list` is set
+#[cfg(feature = "electrum")]
+pub(crate) fn failing_list_proxy(
+    fail_list: Arc<AtomicBool>,
+) -> (mockito::ServerGuard, mockito::Mock) {
+    let mut server = mockito::Server::new();
+    let mock = server
+        .mock("POST", "/json-rpc")
+        .with_body_from_request(move |req| {
+            let body = req.body().unwrap().clone();
+            if fail_list.load(Ordering::Relaxed)
+                && String::from_utf8_lossy(&body).contains("\"transfer.list\"")
+            {
+                return b"not valid json".to_vec();
+            }
+            forward_to_proxy(req, body)
+        })
+        .expect_at_least(1)
+        .create();
+    (server, mock)
+}
+
+// proxy that forwards every call to the real one, except the calls starting a new transfer
+// (invoice.prepare, consignment.post and ack.prepare) that are refused as by a draining proxy
+#[cfg(feature = "electrum")]
+pub(crate) fn draining_proxy(draining: Arc<AtomicBool>) -> (mockito::ServerGuard, mockito::Mock) {
+    let mut server = mockito::Server::new();
+    let mock = server
+        .mock("POST", "/json-rpc")
+        .with_body_from_request(move |req| {
+            let body = req.body().unwrap().clone();
+            let body_str = String::from_utf8_lossy(&body);
+            // consignment.post is a multipart call, so its method name is not quoted
+            if draining.load(Ordering::Relaxed)
+                && ["invoice.prepare", "consignment.post", "ack.prepare"]
+                    .iter()
+                    .any(|m| body_str.contains(m))
+            {
+                return br#"{"jsonrpc":"2.0","id":null,"error":{"code":-115,"message":"Server draining"}}"#.to_vec();
+            }
+            forward_to_proxy(req, body)
+        })
+        .expect_at_least(1)
+        .create();
+    (server, mock)
+}
+
+// proxy that forwards every call to the real one, advertising `max_media` in server.info (not
+// advertising any while it's 0, which a proxy cannot set)
+#[cfg(feature = "electrum")]
+pub(crate) fn max_media_proxy(
+    max_media: Arc<AtomicUsize>,
+) -> (mockito::ServerGuard, mockito::Mock) {
+    let mut server = mockito::Server::new();
+    let mock = server
+        .mock("POST", "/json-rpc")
+        .with_body_from_request(move |req| {
+            let body = req.body().unwrap().clone();
+            let is_info = String::from_utf8_lossy(&body).contains("\"server.info\"");
+            let res = forward_to_proxy(req, body);
+            if !is_info {
+                return res;
+            }
+            let mut res: serde_json::Value = serde_json::from_slice(&res).unwrap();
+            let result = res["result"].as_object_mut().unwrap();
+            match max_media.load(Ordering::Relaxed) {
+                0 => result.remove("max_media"),
+                max => result.insert(s!("max_media"), max.to_string().into()),
+            };
+            serde_json::to_vec(&res).unwrap()
+        })
+        .expect_at_least(1)
+        .create();
+    (server, mock)
+}
+
+// proxy that forwards every call to the real one, except ack.post responses, whose `expires_at`
+// is replaced with the given one
+#[cfg(feature = "electrum")]
+pub(crate) fn expires_at_proxy(expires_at: String) -> (mockito::ServerGuard, mockito::Mock) {
+    let mut server = mockito::Server::new();
+    let mock = server
+        .mock("POST", "/json-rpc")
+        .with_body_from_request(move |req| {
+            let body = req.body().unwrap().clone();
+            let is_ack_post = String::from_utf8_lossy(&body).contains("\"ack.post\"");
+            let res = forward_to_proxy(req, body);
+            if !is_ack_post {
+                return res;
+            }
+            let mut res: serde_json::Value = serde_json::from_slice(&res).unwrap();
+            if let Some(result) = res.get_mut("result").and_then(|r| r.as_object_mut()) {
+                result.insert(s!("expires_at"), expires_at.clone().into());
+            }
+            serde_json::to_vec(&res).unwrap()
+        })
+        .expect_at_least(1)
+        .create();
+    (server, mock)
+}
+
+// forward a request received by a mock proxy to the real one, returning its response body
+#[cfg(feature = "electrum")]
+fn forward_to_proxy(req: &mockito::Request, body: Vec<u8>) -> Vec<u8> {
+    let content_type = req.header(CONTENT_TYPE)[0].clone();
+    // the blocking client cannot run inside mockito's async runtime
+    std::thread::spawn(move || {
+        RestClient::new()
+            .post(PROXY_URL)
+            .header(CONTENT_TYPE, content_type)
+            .body(body)
+            .send()
+            .unwrap()
+            .bytes()
+            .unwrap()
+            .to_vec()
+    })
+    .join()
+    .unwrap()
 }

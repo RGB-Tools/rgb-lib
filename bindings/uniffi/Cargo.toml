@@ -20,7 +20,8 @@ path = "uniffi-bindgen.rs"
 default = ["uniffi/cli"]
 
 [dependencies]
-rgb-lib = { version = "0.3.0-beta.7", path = "../../", features = [
+rgb-lib = { version = "0.3.0-beta.8", path = "../../", features = [
+    "bitcoind",
     "electrum",
     "esplora",
 ] }
@@ -35,5 +36,9 @@ uniffi = { version = "0.32", default-features = false, features = [
 aws-lc-rs = { version = "1.17", default-features = false, features = [
     "bindgen",
 ] }
+
+[profile.release]
+# make overflow bugs fail loudly instead of producing wrong amounts, as rgb-lib does
+overflow-checks = true
 
 [workspace]

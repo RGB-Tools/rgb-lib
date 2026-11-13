@@ -14,7 +14,8 @@ crate-type = ["staticlib", "cdylib"]
 name = "rgblibcffi"
 
 [dependencies]
-rgb-lib = { version = "0.3.0-beta.7", path = "../../", features = [
+rgb-lib = { version = "0.3.0-beta.8", path = "../../", features = [
+    "bitcoind",
     "electrum",
     "esplora",
 ] }
@@ -26,6 +27,10 @@ thiserror = { version = "2.0", default-features = false }
 
 [build-dependencies]
 cbindgen = "0.29"
+
+[profile.release]
+# make overflow bugs fail loudly instead of producing wrong amounts, as rgb-lib does
+overflow-checks = true
 
 [workspace]
 

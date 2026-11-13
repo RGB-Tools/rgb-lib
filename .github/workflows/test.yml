@@ -11,14 +11,14 @@ env:
 
 jobs:
   test_and_coverage:
-    timeout-minutes: 45
+    timeout-minutes: 90
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Setup rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           components: llvm-tools-preview
           toolchain: stable
@@ -30,11 +30,32 @@ jobs:
           curl -fsSL $LLVM_COV_RELEASES/latest/download/cargo-llvm-cov-$host.tar.gz | tar xzf - -C "$HOME/.cargo/bin"
       - name: Test with all features and generate coverage report
         run: ./tests/coverage.sh --ci
+      - name: Store the coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-report
+          path: coverage.lcov
+          if-no-files-found: error
+          retention-days: 7
+
+  upload_coverage:
+    needs: test_and_coverage
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Retrieve the coverage report
+        uses: actions/download-artifact@v8
+        with:
+          name: coverage-report
       - name: Upload coverage report
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
+        timeout-minutes: 5
         with:
           fail_ci_if_error: true
-          file: coverage.lcov
+          files: coverage.lcov
           flags: rust
           token: ${{ secrets.CODECOV_TOKEN }}
 
@@ -43,16 +64,26 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
-          rustflags: ""
+          build-warnings: warn
+      - name: Test with bitcoind feature
+        run: |
+          cargo test --profile reldebug --no-default-features --features bitcoind get_fee_estimation::success_bitcoind -- --ignored
+          SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features bitcoind go_online::fail
+          SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features bitcoind go_online::bitcoind
+          SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features bitcoind send::min_confirmations_bitcoind
+          SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features bitcoind send::min_relay_fee_bitcoind
       - name: Test with electrum feature
         run: |
           cargo test --profile reldebug --no-default-features --features electrum get_fee_estimation::success_electrum -- --ignored
           SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features electrum go_online::fail
           SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features electrum send::min_confirmations_electrum
           SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features electrum send::min_relay_fee_electrum
+          SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features electrum send::utxo_allocations_limit_across_inputs_full -- --ignored
+          SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features electrum send::send_many_allocations_full -- --ignored
+          SKIP_INIT=1 cargo test --profile reldebug --no-default-features --features electrum send::change_utxo_allocations_limit_full -- --ignored
       - name: Test with esplora feature
         run: |
           cargo test --profile reldebug --no-default-features --features esplora get_fee_estimation::success_esplora -- --ignored
@@ -62,16 +93,22 @@ jobs:
       - name: Test with no default features
         run: |
           cargo test --profile reldebug --no-default-features
+      - name: Test with indexer validation features
+        run: |
+          cargo test --profile reldebug --no-default-features --features bitcoind_validation,electrum_validation,esplora_validation
+      - name: Test with wallet feature
+        run: |
+          cargo test --profile reldebug --no-default-features --features wallet
 
   test_doc:
     timeout-minutes: 30
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
-          rustflags: ""
+          build-warnings: warn
       - name: Test documentation
         run: |
           cargo test --doc

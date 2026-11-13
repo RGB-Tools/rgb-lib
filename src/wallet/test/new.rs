@@ -1,7 +1,5 @@
 use super::*;
 
-use std::os::unix::fs::PermissionsExt;
-
 fn check_wallet(
     party: &impl OfflineSigParty<W = Wallet>,
     network: BitcoinNetwork,
@@ -81,6 +79,7 @@ fn success() {
                 database_type: DatabaseType::Sqlite,
                 max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
                 supported_schemas: AssetSchema::VALUES.to_vec(),
+                allow_reckless_schemas: false,
             },
             SinglesigKeys::from_keys(&keys, vanilla_keychain),
         )
@@ -151,6 +150,7 @@ fn mainnet_success_electrum() {
                 max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
                 // IFA not supported on mainnet
                 supported_schemas: vec![AssetSchema::Cfa, AssetSchema::Nia, AssetSchema::Uda],
+                allow_reckless_schemas: false,
             },
             SinglesigKeys::from_keys(&keys, None),
         )
@@ -182,6 +182,7 @@ fn mainnet_success_esplora() {
                 max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
                 // IFA not supported on mainnet
                 supported_schemas: vec![AssetSchema::Cfa, AssetSchema::Nia, AssetSchema::Uda],
+                allow_reckless_schemas: false,
             },
             SinglesigKeys::from_keys(&keys, None),
         )
@@ -267,10 +268,6 @@ fn fail() {
     // set the permissions to read and execute only (no write permissions)
     let permissions = fs::Permissions::from_mode(0o555);
     fs::set_permissions(non_writable_path, permissions).unwrap();
-    // try to load runtime, expecting it to receive a permission denied error
-    let result = load_rgb_runtime(PathBuf::from_str(non_writable_path).unwrap());
-    let err = result.err().unwrap();
-    assert!(matches!(err, Error::IO { details: m } if m.starts_with("Permission denied")));
     // try to setup logger, expecting it to receive a permission denied error
     let result = std::panic::catch_unwind(|| setup_logger(non_writable_path, Some("log")));
     assert!(result.is_ok());
@@ -306,6 +303,9 @@ fn re_instantiate_wallet() {
         vec![Recipient {
             assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -357,6 +357,7 @@ fn watch_only_success() {
             database_type: DatabaseType::Sqlite,
             max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
             supported_schemas: AssetSchema::VALUES.to_vec(),
+            allow_reckless_schemas: false,
         },
         SinglesigKeys::from_keys_no_mnemonic(&keys, None),
     )
@@ -374,6 +375,7 @@ fn watch_only_success() {
             database_type: DatabaseType::Sqlite,
             max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
             supported_schemas: AssetSchema::VALUES.to_vec(),
+            allow_reckless_schemas: false,
         },
         SinglesigKeys::from_keys(&keys, None),
     )
@@ -421,6 +423,7 @@ fn watch_only_fail() {
             database_type: DatabaseType::Sqlite,
             max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
             supported_schemas: AssetSchema::VALUES.to_vec(),
+            allow_reckless_schemas: false,
         },
         SinglesigKeys::from_keys_no_mnemonic(&keys_bad, None),
     );
@@ -495,6 +498,7 @@ fn supported_schemas() {
             database_type: DatabaseType::Sqlite,
             max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
             supported_schemas: vec![AssetSchema::Nia],
+            allow_reckless_schemas: false,
         },
         SinglesigKeys::from_keys(&keys, None),
     )
@@ -508,12 +512,10 @@ fn supported_schemas() {
     let asset_nia = party_nia.issue_asset_nia(Some(&[AMOUNT]));
 
     // issue a different schema asset, should fail
-    let result = party_nia.issue_asset_cfa_result(Some(&[AMOUNT]), None);
-    assert_matches!(result, Err(Error::UnsupportedSchema { asset_schema: _ }));
-    let result = party_nia.issue_asset_ifa_result(Some(&[AMOUNT]), None, None);
-    assert_matches!(result, Err(Error::UnsupportedSchema { asset_schema: _ }));
-    let result = party_nia.issue_asset_uda_result(None, None, vec![]);
-    assert_matches!(result, Err(Error::UnsupportedSchema { asset_schema: _ }));
+    for schema in AssetSchema::iter().filter(|s| *s != AssetSchema::Nia) {
+        let result = party_nia.issue_asset_of_schema_result(schema);
+        assert_matches!(result, Err(Error::UnsupportedSchema { asset_schema }) if asset_schema == schema);
+    }
 
     // recipient wallet (UDA schema supported)
     let keys_rcv = generate_keys(bitcoin_network, WitnessVersion::Taproot);
@@ -524,6 +526,7 @@ fn supported_schemas() {
             database_type: DatabaseType::Sqlite,
             max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
             supported_schemas: vec![AssetSchema::Uda],
+            allow_reckless_schemas: false,
         },
         SinglesigKeys::from_keys(&keys_rcv, None),
     )
@@ -542,6 +545,9 @@ fn supported_schemas() {
         vec![Recipient {
             assignment: Assignment::Fungible(66),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -569,6 +575,7 @@ fn supported_schemas() {
             database_type: DatabaseType::Sqlite,
             max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
             supported_schemas: vec![AssetSchema::Cfa],
+            allow_reckless_schemas: false,
         },
         SinglesigKeys::from_keys(&keys, None),
     )
@@ -583,11 +590,47 @@ fn supported_schemas() {
         vec![Recipient {
             assignment: Assignment::Fungible(66),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
     )]);
     let result = party_cfa.send_result(&recipient_map);
+    assert_matches!(result, Err(Error::UnsupportedSchema { asset_schema: _ }));
+
+    // wallet (BFA schema supported)
+    let mut wallet_bfa = Wallet::new(
+        WalletData {
+            data_dir: get_test_data_dir_string(),
+            bitcoin_network,
+            database_type: DatabaseType::Sqlite,
+            max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
+            supported_schemas: vec![AssetSchema::Bfa],
+            allow_reckless_schemas: false,
+        },
+        SinglesigKeys::from_keys(&keys, None),
+    )
+    .unwrap();
+    let online_bfa = wallet_bfa.go_online(test_go_online_options(None)).unwrap();
+    let mut party_bfa = party!(wallet_bfa, online_bfa);
+
+    // send asset unsupported by the sender
+    let receive_data = rcv_party_uda.blind_receive();
+    let recipient_map = HashMap::from([(
+        asset_nia.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(66),
+            recipient_id: receive_data.recipient_id.clone(),
+            witness_data: None,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
+        }],
+    )]);
+    let result = party_bfa.send_result(&recipient_map);
     assert_matches!(result, Err(Error::UnsupportedSchema { asset_schema: _ }));
 
     // wallet (no schema supported)
@@ -598,6 +641,7 @@ fn supported_schemas() {
             database_type: DatabaseType::Sqlite,
             max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
             supported_schemas: vec![],
+            allow_reckless_schemas: false,
         },
         SinglesigKeys::from_keys(&keys, None),
     );
@@ -606,24 +650,87 @@ fn supported_schemas() {
         assert_matches!(e, Error::NoSupportedSchemas);
     }
 
-    // wallet (mainnet, IFA schema supported)
+    // wallet (mainnet), for each schema
     let bitcoin_network = BitcoinNetwork::Mainnet;
-    let keys_mainnet = generate_keys(bitcoin_network, WitnessVersion::Taproot);
-    let result = Wallet::new(
-        WalletData {
-            data_dir: get_test_data_dir_string(),
-            bitcoin_network,
-            database_type: DatabaseType::Sqlite,
-            max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
-            supported_schemas: vec![AssetSchema::Nia, AssetSchema::Ifa],
-        },
-        SinglesigKeys::from_keys(&keys_mainnet, None),
-    );
-    // IFA on mainnet not allowed
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert_matches!(e, Error::CannotUseIfaOnMainnet);
+    for schema in AssetSchema::iter() {
+        let allowed = match schema {
+            AssetSchema::Nia | AssetSchema::Uda | AssetSchema::Cfa => true,
+            AssetSchema::Ifa | AssetSchema::Bfa => false,
+        };
+        let keys_mainnet = generate_keys(bitcoin_network, WitnessVersion::Taproot);
+        let result = Wallet::new(
+            WalletData {
+                data_dir: get_test_data_dir_string(),
+                bitcoin_network,
+                database_type: DatabaseType::Sqlite,
+                max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
+                supported_schemas: vec![AssetSchema::Nia, schema],
+                allow_reckless_schemas: false,
+            },
+            SinglesigKeys::from_keys(&keys_mainnet, None),
+        );
+        if allowed {
+            assert!(result.is_ok());
+        } else {
+            let err = result.err();
+            assert_matches!(err, Some(Error::CannotUseSchemaOnMainnet { asset_schema }) if asset_schema == schema);
+        }
     }
+}
+
+// A mainnet wallet normally cannot support the schemas that aren't allowed on mainnet, but it can
+// be created anyway by opting into reckless schemas. The opt-in is part of the wallet settings, so
+// it's recorded in the manifest and keeps applying when the wallet is loaded back.
+#[test]
+#[parallel]
+fn allow_reckless_schemas_success() {
+    let data_dir = PrivateDataDir::new();
+    let data_dir_str = data_dir.string();
+
+    let reckless_schemas: Vec<_> = AssetSchema::iter()
+        .filter(|s| !s.allowed_on_mainnet())
+        .collect();
+    assert!(!reckless_schemas.is_empty());
+
+    let bitcoin_network = BitcoinNetwork::Mainnet;
+    let keys = generate_keys(bitcoin_network, WitnessVersion::Taproot);
+    let mut wallet_data = WalletData {
+        data_dir: data_dir_str.clone(),
+        bitcoin_network,
+        database_type: DatabaseType::Sqlite,
+        max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
+        supported_schemas: reckless_schemas.clone(),
+        allow_reckless_schemas: false,
+    };
+
+    // without the opt-in the schemas are refused
+    let err = Wallet::new(wallet_data.clone(), SinglesigKeys::from_keys(&keys, None)).err();
+    assert_matches!(err, Some(Error::CannotUseSchemaOnMainnet { .. }));
+
+    // with the opt-in the wallet is created and supports them
+    wallet_data.allow_reckless_schemas = true;
+    let wallet = Wallet::new(wallet_data.clone(), SinglesigKeys::from_keys(&keys, None)).unwrap();
+    let created_data = wallet.get_wallet_data();
+    assert!(created_data.allow_reckless_schemas);
+    assert_eq!(created_data.supported_schemas, reckless_schemas);
+    drop(wallet);
+
+    // the opt-in survives a load, which would otherwise hit the check again
+    let loaded = Wallet::load(
+        &data_dir_str,
+        &keys.master_fingerprint,
+        Some(keys.mnemonic.clone()),
+    )
+    .unwrap();
+    let loaded_data = loaded.get_wallet_data();
+    assert!(loaded_data.allow_reckless_schemas);
+    assert_eq!(loaded_data.supported_schemas, reckless_schemas);
+    drop(loaded);
+
+    // dropping the opt-in brings the check back, also for an existing wallet
+    wallet_data.allow_reckless_schemas = false;
+    let err = Wallet::new(wallet_data, SinglesigKeys::from_keys(&keys, None)).err();
+    assert_matches!(err, Some(Error::CannotUseSchemaOnMainnet { .. }));
 }
 
 // Wallets created before the BDK changeset moved into the rgb-lib DB keep their data in a
@@ -654,17 +761,14 @@ fn legacy_bdk_store_is_imported() {
     drop(store);
 
     let database = setup_db(dir.path()).unwrap();
-    let txn = database.begin_transaction().unwrap();
     let bdk_wallet = setup_bdk(
-        &txn,
+        &database,
         dir.path(),
         descriptors.colored.clone(),
         descriptors.vanilla.clone(),
-        false,
         BitcoinNetwork::Regtest,
     )
     .unwrap();
-    txn.commit().unwrap();
 
     // the revealed indices survived the upgrade
     assert_eq!(
