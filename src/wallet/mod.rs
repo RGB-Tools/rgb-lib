@@ -25,8 +25,9 @@ pub use crate::no_wallet::{
     WitnessValidationStatus,
 };
 pub use crate::no_wallet::{
-    RgbInputInfo, RgbInspection, RgbOperationInfo, RgbOutputInfo, RgbTransitionInfo,
-    TransitionGlobal, TransitionMetadata,
+    Invoice, InvoiceData, Outpoint, RecipientInfo, RecipientType, RgbInputInfo, RgbInspection,
+    RgbOperationInfo, RgbOutputInfo, RgbTransitionInfo, TransitionGlobal, TransitionMetadata,
+    TransportEndpoint,
 };
 pub use backup::restore_backup;
 pub use multisig::{Cosigner, MultisigKeys, MultisigWallet};
@@ -37,12 +38,11 @@ pub use multisig::{
 };
 pub use objects::{
     Address, AssetBFA, AssetCFA, AssetFilter, AssetIFA, AssetNIA, AssetUDA, Assets,
-    AssignmentsCollection, Balance, BlockTime, BtcBalance, DatabaseType, EmbeddedMedia, Invoice,
-    InvoiceData, Media, Metadata, Online, Outpoint, PendingVanillaTx, ProofOfReserves,
-    PsbtInputInfo, PsbtInspection, PsbtOutputInfo, ReceiveData, ReceivedMint, Recipient,
-    RecipientInfo, RecipientType, RgbAllocation, Token, TokenLight, Transaction, TransactionType,
-    Transfer, TransferKind, TransferScope, TransferTransportEndpoint, TransportEndpoint, Unspent,
-    Utxo, WalletData, WalletDescriptors, WitnessData,
+    AssignmentsCollection, Balance, BlockTime, BtcBalance, DatabaseType, EmbeddedMedia, Media,
+    Metadata, Online, PendingVanillaTx, ProofOfReserves, PsbtInputInfo, PsbtInspection,
+    PsbtOutputInfo, ReceiveData, ReceivedMint, Recipient, RgbAllocation, Token, TokenLight,
+    Transaction, TransactionType, Transfer, TransferKind, TransferScope, TransferTransportEndpoint,
+    Unspent, Utxo, WalletData, WalletDescriptors, WitnessData,
 };
 #[cfg(feature = "_online")]
 pub use objects::{
@@ -143,10 +143,6 @@ pub(crate) const CONFIRMATION_MARGIN_SECS: u32 = 86400;
 #[cfg(feature = "_online")]
 pub(crate) const MAX_POW_DIFFICULTY: u32 = 28;
 
-pub(crate) const RGB_STATE_ASSET_OWNER: &str = "assetOwner";
-pub(crate) const RGB_STATE_INFLATION_ALLOWANCE: &str = "inflationAllowance";
-pub(crate) const RGB_STATE_LINK_RIGHT: &str = "linkRight";
-pub(crate) const RGB_STATE_MINT_RIGHT: &str = "mintRight";
 pub(crate) const RGB_GLOBAL_BRIDGE_LOCATION: &str = "bridgeLocation";
 pub(crate) const RGB_GLOBAL_REJECT_LIST: &str = "rejectList";
 pub(crate) const RGB_GLOBAL_REJECT_LIST_URL: &str = "rejectListUrl";

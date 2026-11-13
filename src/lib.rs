@@ -50,6 +50,12 @@
 //! corresponding indexer feature), which adds the indexer client and an HTTP client (to confirm
 //! mints and read reject lists), without enabling the `wallet` feature.
 //!
+//! The [`no_wallet`] module also provides the objects and helpers that don't need a wallet at all,
+//! which the wallet APIs also use and re-export: [`no_wallet::Outpoint`], the recipient ID ones
+//! ([`no_wallet::RecipientInfo`], [`no_wallet::script_buf_from_recipient_id`] and
+//! [`no_wallet::recipient_id_from_script_buf`]) and the parsing ones for invoices
+//! ([`no_wallet::Invoice`]) and transport endpoints ([`no_wallet::TransportEndpoint`]).
+//!
 //! ## Errors
 //! Errors are handled with the crate `thiserror`.
 //!
@@ -221,13 +227,13 @@ pub use rgbstd::{
 };
 
 pub use crate::{
-    database::enums::{AssetSchema, Assignment, TypeOfTransition},
+    database::enums::{AssetSchema, Assignment, Encryption, TransportType, TypeOfTransition},
     error::Error,
     no_wallet::BitcoinNetwork,
 };
 #[cfg(feature = "wallet")]
 pub use crate::{
-    database::enums::{Encryption, TransferStatus, TransportType, WalletTransactionType},
+    database::enums::{TransferStatus, WalletTransactionType},
     utils::block_on,
 };
 
@@ -296,7 +302,7 @@ use bdk_wallet::{
     ChangeSet, KeychainKind, LocalOutput, SignOptions, Wallet as BdkWallet,
     bitcoin::{
         Address as BdkAddress, Amount as BdkAmount, BlockHash, Network as BdkNetwork, NetworkKind,
-        OutPoint as BdkOutPoint, ScriptBuf, TxOut,
+        OutPoint as BdkOutPoint, TxOut,
         bip32::{ChildNumber, DerivationPath, Fingerprint, KeySource, Xpriv, Xpub},
         consensus::{Decodable, Encodable},
         hashes::Hash as Sha256Hash,
@@ -356,8 +362,8 @@ use rgb_lib_migration::{
     ArrayType, ColumnType, Migrator, MigratorTrait, Nullable, Value, ValueTypeErr,
 };
 #[cfg(feature = "wallet")]
-use rgbinvoice::{AddressPayload, RgbInvoice, RgbInvoiceBuilder, RgbTransport};
-use rgbinvoice::{Beneficiary, XChainNet};
+use rgbinvoice::RgbInvoiceBuilder;
+use rgbinvoice::{AddressPayload, Beneficiary, RgbInvoice, RgbTransport, XChainNet};
 #[cfg(feature = "wallet")]
 use rgbstd::SecretSeal;
 #[cfg(feature = "rgb_fs_store_migration")]
@@ -388,15 +394,13 @@ use rgbstd::indexers::esplora_blocking::esplora_client::{
 use rgbstd::persistence::LegacyFsStore;
 #[cfg(feature = "wallet")]
 use rgbstd::{
-    Allocation, BundleId, Identity, Layer1, OutputSeal, OwnedFraction, RevealedData, TokenIndex,
-    Vout,
+    Allocation, BundleId, Identity, OutputSeal, OwnedFraction, RevealedData, TokenIndex, Vout,
     containers::SealWitness,
     contract::{
         AllocatedState, ContractBuilder, ContractData, FilteredContractState, LinkError,
         LinkableSchemaWrapper, SchemaWrapper, TransitionBuilder,
     },
     info::SchemaInfo,
-    invoice::{InvoiceState, Pay2Vout},
     persistence::{
         AllocKind, AllocSeal, AllocationFilter, AllocationRow, AllocationWrite,
         ContractAssignments, ContractStateSnapshot, GlobalStateRow, GlobalStateWrite, Lib, LibId,
@@ -414,15 +418,18 @@ use rgbstd::{
     validation::{SchemaDefinition, WitnessOrdProvider},
 };
 use rgbstd::{
-    Amount, Assignments, ExposedSeal, GlobalStateType, KnownTransition, Operation as _, Precision,
-    Schema, Transition, TransitionBundle, TransitionType, TypedAssigns,
-    bitcoin::{OutPoint, Transaction as BdkTransaction, Txid, block::Header as BlockHeader},
+    Amount, Assignments, ExposedSeal, GlobalStateType, KnownTransition, Layer1, Operation as _,
+    Precision, Schema, Transition, TransitionBundle, TransitionType, TypedAssigns,
+    bitcoin::{
+        OutPoint, ScriptBuf, Transaction as BdkTransaction, Txid, block::Header as BlockHeader,
+    },
     containers::{
         CheckedClaimResolver, Consignment, PendingConsignment, UniversalFile, ValidConsignment,
         ValidContract, ValidTransfer,
     },
     contract::IssuerWrapper,
     daggy::NodeIndex,
+    invoice::{InvoiceState, Pay2Vout},
     rgbcore::{commit_verify::mpc::Commitment, dbc::Proof as _},
     stl::{
         AssetSpec, Attachment, BlockNumber, BurnReason, ContractTerms, Details, Name,
@@ -526,7 +533,10 @@ use crate::no_wallet::validation::{
     validate_with_claims,
 };
 #[cfg(feature = "wallet")]
-use crate::no_wallet::{bundle_info, check_file_exists, verify_witness_commitment};
+use crate::no_wallet::{
+    Outpoint, beneficiary_from_script_buf, bundle_info, check_file_exists,
+    verify_witness_commitment,
+};
 #[cfg(feature = "electrum")]
 use crate::utils::INDEXER_BATCH_SIZE;
 #[cfg(feature = "esplora")]
@@ -574,10 +584,10 @@ use crate::{
         encrypt_blob, encrypt_to_tempfile, invoice_id, sign_ed25519, solve_pow, transfer_id,
         verify_ed25519, verifying_key_from_bytes,
     },
-    no_wallet::{BitcoindAuth, IndexerConfig},
+    no_wallet::{BitcoindAuth, IndexerConfig, script_buf_from_recipient_id},
     utils::{
         check_proxy, detect_indexer, get_indexer_and_resolver, hash_file, proxy_max_media,
-        proxy_retention_grace, script_buf_from_recipient_id,
+        proxy_retention_grace,
     },
     wallet::{AssignmentsCollection, Indexer, multisig::RespondToOperation},
 };
@@ -635,15 +645,14 @@ use crate::{
     utils::{
         ACCOUNT, DumbResolver, KEYCHAIN_BTC, KEYCHAIN_RGB, LOG_FILE, PURPOSE,
         RGB_RUNTIME_DELETING_DIR, RgbStock, adjust_canonicalization, atomic_tmp_path, atomic_write,
-        atomic_write_with, beneficiary_from_script_buf, bfa_reject_list_url,
-        from_str_or_number_mandatory, from_str_or_number_optional, get_account_xpubs,
-        get_coin_type, get_descriptors, get_descriptors_from_xpubs, hash_bytes, hash_bytes_hex,
-        now, parse_address_str, read_fascia, setup_logger, str_to_xpub,
+        atomic_write_with, bfa_reject_list_url, from_str_or_number_mandatory,
+        from_str_or_number_optional, get_account_xpubs, get_coin_type, get_descriptors,
+        get_descriptors_from_xpubs, hash_bytes, hash_bytes_hex, now, parse_address_str,
+        read_fascia, setup_logger, str_to_xpub,
     },
     wallet::{
-        AssetFilter, Balance, LocalRgbAllocation, LocalUnspent, NUM_KNOWN_SCHEMAS, Outpoint,
-        RGB_STATE_ASSET_OWNER, RGB_STATE_INFLATION_ALLOWANCE, RGB_STATE_LINK_RIGHT,
-        RGB_STATE_MINT_RIGHT, WalletDescriptors,
+        AssetFilter, Balance, LocalRgbAllocation, LocalUnspent, NUM_KNOWN_SCHEMAS,
+        WalletDescriptors,
     },
 };
 // the mock electrum server of the validation tests, shared with the wallet ones
@@ -674,5 +683,9 @@ pub(crate) const RGB_GLOBAL_ISSUED_SUPPLY: &str = "issuedSupply";
 #[cfg(feature = "wallet")]
 pub(crate) const RGB_GLOBAL_LINKED_FROM_CONTRACT: &str = "linkedFromContract";
 pub(crate) const RGB_GLOBAL_LINKED_TO_CONTRACT: &str = "linkedToContract";
+pub(crate) const RGB_STATE_ASSET_OWNER: &str = "assetOwner";
+pub(crate) const RGB_STATE_INFLATION_ALLOWANCE: &str = "inflationAllowance";
+pub(crate) const RGB_STATE_LINK_RIGHT: &str = "linkRight";
+pub(crate) const RGB_STATE_MINT_RIGHT: &str = "mintRight";
 pub(crate) const RGB_METADATA_BEFORE_BLOCK: &str = "beforeBlock";
 pub(crate) const RGB_METADATA_ALLOWED_INFLATION: &str = "allowedInflation";
