@@ -1165,7 +1165,7 @@ pub(crate) fn check_reject_list(
     reject_list_resolver: Option<&dyn ResolveRejectList>,
     opouts: &HashSet<Opout>,
 ) -> Result<(), Error> {
-    let Some(source) = genesis_reject_list_source(asset_schema, genesis)? else {
+    let Some(source) = genesis_reject_list_source_validated(asset_schema, genesis)? else {
         return Ok(());
     };
     let reject_list = reject_list_resolver
@@ -1215,11 +1215,13 @@ pub(crate) fn checked_evm_client(
 
 /// Where the reject list of an asset with the given schema and genesis is published, if any.
 ///
-/// The reject list is a genesis global, so it can be read off a consignment without a stock.
+/// The reject list is a genesis global, so it can be read off a consignment without a stock. The
+/// decoding error is returned as is, as how an invalid global is reported depends on whether the
+/// genesis has been validated (see `genesis_reject_list_source_validated`).
 pub(crate) fn genesis_reject_list_source(
     asset_schema: AssetSchema,
     genesis: &Genesis,
-) -> Result<Option<RejectListSource>, Error> {
+) -> Result<Option<RejectListSource>, DeserializeError> {
     let global = |global_type: GlobalStateType| {
         genesis
             .globals
@@ -1227,19 +1229,27 @@ pub(crate) fn genesis_reject_list_source(
             .and_then(|values| values.first())
             .map(|value| value.to_inner())
     };
-    let invalid = |e: DeserializeError| Error::Internal {
-        details: format!("invalid reject list in a validated genesis: {e}"),
-    };
     Ok(match asset_schema {
         AssetSchema::Bfa => global(GS_REJECT_LIST)
-            .map(|data| RejectListLocation::from_strict_serialized(data).map_err(invalid))
+            .map(RejectListLocation::from_strict_serialized)
             .transpose()?
             .map(RejectListSource::from),
         AssetSchema::Ifa => global(GS_REJECT_LIST_URL)
-            .map(|data| RejectListUrl::from_strict_serialized(data).map_err(invalid))
+            .map(RejectListUrl::from_strict_serialized)
             .transpose()?
             .map(|url| RejectListSource::Url(url.to_string())),
         AssetSchema::Nia | AssetSchema::Uda | AssetSchema::Cfa => None,
+    })
+}
+
+/// Where the reject list of an asset with the given schema and already validated genesis is
+/// published, if any: an invalid global is an internal error, as validation has accepted it.
+pub(crate) fn genesis_reject_list_source_validated(
+    asset_schema: AssetSchema,
+    genesis: &Genesis,
+) -> Result<Option<RejectListSource>, Error> {
+    genesis_reject_list_source(asset_schema, genesis).map_err(|e| Error::Internal {
+        details: format!("invalid reject list in a validated genesis: {e}"),
     })
 }
 

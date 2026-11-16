@@ -1003,6 +1003,23 @@ dictionary RgbMediaInfo {
 };
 
 [Remote]
+dictionary RgbEvmContractInfo {
+  u64 chain_id;
+  string address;
+};
+
+[Enum]
+interface RgbBridgeLocationInfo {
+  Evm(RgbEvmContractInfo contract);
+};
+
+[Enum]
+interface RgbRejectListInfo {
+  Url(string url);
+  Evm(RgbEvmContractInfo contract);
+};
+
+[Remote]
 dictionary RgbGenesisInfo {
   string chain_net;
   i64 timestamp;
@@ -1011,6 +1028,11 @@ dictionary RgbGenesisInfo {
   string? ticker;
   string? details;
   u8 precision;
+  u64? issued_supply;
+  u64? max_supply;
+  string? linked_from_contract;
+  RgbBridgeLocationInfo? bridge_location;
+  RgbRejectListInfo? reject_list;
   sequence<RgbMediaInfo> media;
   sequence<RgbOutputInfo> outputs;
 };

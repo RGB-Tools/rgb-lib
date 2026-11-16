@@ -451,11 +451,12 @@ use schemata::{
     UniqueDigitalAsset,
 };
 use schemata::{
-    GS_BURN_REASON, GS_BURNED_ASSET, GS_BURNED_INFLATION, GS_DETAILS, GS_ISSUED_SUPPLY,
-    GS_LINKED_TO_CONTRACT, GS_NAME, GS_NOMINAL, GS_PRECISION, GS_REJECT_LIST, GS_REJECT_LIST_URL,
-    GS_TERMS, GS_TICKER, GS_TOKENS, MS_ALLOWED_INFLATION, MS_BEFORE_BLOCK, OS_ASSET, OS_INFLATION,
-    OS_LINK, OS_MINT, TS_BURN, TS_INFLATION, TS_LINK, TS_MINT, TS_PROPAGATE, TS_TRANSFER,
-    TS_TRANSFER_INFLATION, TS_TRANSFER_LINK,
+    GS_BRIDGE_LOCATION, GS_BURN_REASON, GS_BURNED_ASSET, GS_BURNED_INFLATION, GS_DETAILS,
+    GS_ISSUED_SUPPLY, GS_LINKED_FROM_CONTRACT, GS_LINKED_TO_CONTRACT, GS_MAX_SUPPLY, GS_NAME,
+    GS_NOMINAL, GS_PRECISION, GS_REJECT_LIST, GS_REJECT_LIST_URL, GS_TERMS, GS_TICKER, GS_TOKENS,
+    MS_ALLOWED_INFLATION, MS_BEFORE_BLOCK, OS_ASSET, OS_INFLATION, OS_LINK, OS_MINT, TS_BURN,
+    TS_INFLATION, TS_LINK, TS_MINT, TS_PROPAGATE, TS_TRANSFER, TS_TRANSFER_INFLATION,
+    TS_TRANSFER_LINK,
 };
 #[cfg(feature = "wallet")]
 use scrypt::{Params, phc::Salt, scrypt};
@@ -527,10 +528,10 @@ use crate::no_wallet::validation::esplora_config;
 #[cfg(feature = "_online")]
 use crate::no_wallet::validation::{
     ChainResolver, ClaimResolution, OffchainResolver, PendingClaims, RejectList, RejectListSource,
-    RemoteRejectListResolver, ResolveRejectList, check_reject_list, genesis_reject_list_source,
-    get_resolver, pending_claims, rejected_opouts, resolve_claims, resolve_witnesses,
-    unreachable_indexer_details, validate_consignment_internal, validate_deterministic,
-    validate_with_claims,
+    RemoteRejectListResolver, ResolveRejectList, check_reject_list,
+    genesis_reject_list_source_validated, get_resolver, pending_claims, rejected_opouts,
+    resolve_claims, resolve_witnesses, unreachable_indexer_details, validate_consignment_internal,
+    validate_deterministic, validate_with_claims,
 };
 #[cfg(feature = "wallet")]
 use crate::no_wallet::{

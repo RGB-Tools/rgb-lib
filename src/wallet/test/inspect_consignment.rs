@@ -74,6 +74,11 @@ fn success() {
     assert_eq!(genesis.ticker.as_ref(), Some(&asset.ticker));
     assert_eq!(genesis.details, asset.details);
     assert_eq!(genesis.precision, asset.precision);
+    assert_eq!(genesis.issued_supply, Some(asset.issued_supply));
+    assert_eq!(genesis.max_supply, None);
+    assert_eq!(genesis.linked_from_contract, None);
+    assert_eq!(genesis.bridge_location, None);
+    assert_eq!(genesis.reject_list, None);
     assert!(genesis.media.is_empty());
     assert_eq!(genesis.outputs.len(), 1);
     let issuance_output = &genesis.outputs[0];
@@ -375,6 +380,97 @@ fn media() {
                 mime: s!("text/plain"),
             },
         ]
+    );
+}
+
+/// The genesis globals each schema defines are reported: the supply ones, the contract the asset
+/// is linked from, the bridge location and the reject list.
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn genesis_globals() {
+    initialize();
+
+    let mut party = get_funded_party!();
+    // each issuance below needs a UTXO with no allocation, plus one per right it issues
+    party.create_utxos(false, Some(15), None, FEE_RATE, None);
+    // the contract consignments are saved on issuance, one per asset ID
+    let assets_dir = party.wallet.get_wallet_dir().join(ASSETS_DIR);
+    let genesis = |asset_id: &str| {
+        let path = assets_dir.join(asset_id).to_string_lossy().to_string();
+        inspect_consignment(path, BundleFilter::All)
+            .unwrap()
+            .genesis
+    };
+
+    // a NIA commits its issued supply and nothing else
+    let asset_nia = party.issue_asset_nia(None);
+    let genesis_nia = genesis(&asset_nia.asset_id);
+    assert_eq!(genesis_nia.issued_supply, Some(asset_nia.issued_supply));
+    assert_eq!(genesis_nia.max_supply, None);
+    assert_eq!(genesis_nia.linked_from_contract, None);
+    assert_eq!(genesis_nia.bridge_location, None);
+    assert_eq!(genesis_nia.reject_list, None);
+
+    // a CFA commits its issued supply as well
+    let asset_cfa = party.issue_asset_cfa(None, None);
+    let genesis_cfa = genesis(&asset_cfa.asset_id);
+    assert_eq!(genesis_cfa.issued_supply, Some(asset_cfa.issued_supply));
+    assert_eq!(genesis_cfa.max_supply, None);
+
+    // a UDA has a single token, so it commits no supply
+    let asset_uda = party.issue_asset_uda(None, None, vec![]);
+    let genesis_uda = genesis(&asset_uda.asset_id);
+    assert_eq!(genesis_uda.issued_supply, None);
+    assert_eq!(genesis_uda.max_supply, None);
+
+    // an IFA commits its issued and max supply, plus the URL of its reject list if it has one
+    let reject_list_url = s!("http://example.com/reject-list");
+    let asset_ifa = party.issue_asset_ifa(None, None, Some(reject_list_url.clone()));
+    let genesis_ifa = genesis(&asset_ifa.asset_id);
+    assert_eq!(genesis_ifa.issued_supply, Some(asset_ifa.initial_supply));
+    assert_eq!(genesis_ifa.max_supply, Some(asset_ifa.max_supply));
+    assert_eq!(
+        genesis_ifa.reject_list,
+        Some(RgbRejectListInfo::Url(reject_list_url))
+    );
+    assert_eq!(genesis_ifa.bridge_location, None);
+    assert_eq!(genesis_ifa.linked_from_contract, None);
+
+    // the IFA issued linked from another one commits the contract it's linked from
+    let (linked_from, linked) = issue_asset_ifa_link_pair(&mut party);
+    let genesis_linked = genesis(&linked.asset_id);
+    assert_eq!(
+        genesis_linked.linked_from_contract.as_ref(),
+        Some(&linked_from.asset_id)
+    );
+    assert_eq!(genesis(&linked_from.asset_id).linked_from_contract, None);
+    assert_eq!(genesis_linked.reject_list, None);
+
+    // a BFA commits the location of its bridge contract, and of its reject list if it has one.
+    // Its supply all comes from mints, so its genesis commits none
+    let evm_contract = RgbEvmContractInfo {
+        chain_id: ANVIL_CHAIN_ID,
+        address: FAKE_EVM_ADDRESS.to_lowercase(),
+    };
+    let asset_bfa = party.issue_asset_bfa(1, FAKE_EVM_ADDRESS.to_string(), None);
+    let genesis_bfa = genesis(&asset_bfa.asset_id);
+    assert_eq!(
+        genesis_bfa.bridge_location,
+        Some(RgbBridgeLocationInfo::Evm(evm_contract.clone()))
+    );
+    assert_eq!(genesis_bfa.reject_list, None);
+    assert_eq!(genesis_bfa.issued_supply, None);
+    assert_eq!(genesis_bfa.max_supply, None);
+    assert_eq!(genesis_bfa.linked_from_contract, None);
+    let asset_bfa_reject = party.issue_asset_bfa(
+        1,
+        FAKE_EVM_ADDRESS.to_string(),
+        Some(FAKE_EVM_ADDRESS.to_string()),
+    );
+    assert_eq!(
+        genesis(&asset_bfa_reject.asset_id).reject_list,
+        Some(RgbRejectListInfo::Evm(evm_contract))
     );
 }
 

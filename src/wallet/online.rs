@@ -5718,7 +5718,7 @@ pub trait WalletOnline: WalletOffline {
             // every operation is checked, so that none spends a rejected allocation: a recipient
             // would refuse it, and an operation with no recipient (an inflation or a burn) would
             // carry rejected history
-            let reject_list_source = genesis_reject_list_source(
+            let reject_list_source = genesis_reject_list_source_validated(
                 transfer_info.asset_info.schema,
                 &stock.genesis(transfer_info.asset_info.contract_id)?,
             )?;

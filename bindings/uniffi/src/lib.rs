@@ -13,7 +13,9 @@ use rgb_lib::{
     keys::{Keys, WitnessVersion},
     no_wallet::{
         BundleFilter as RgbLibBundleFilter, ConsignmentInspection as RgbLibConsignmentInspection,
+        RgbBridgeLocationInfo as RgbLibRgbBridgeLocationInfo, RgbEvmContractInfo,
         RgbGenesisInfo as RgbLibRgbGenesisInfo, RgbMediaInfo,
+        RgbRejectListInfo as RgbLibRgbRejectListInfo,
         TransitionMetadata as RgbLibTransitionMetadata,
     },
     wallet::{
@@ -701,6 +703,43 @@ impl From<RgbInspection> for RgbLibRgbInspection {
         }
     }
 }
+pub enum RgbBridgeLocationInfo {
+    Evm { contract: RgbEvmContractInfo },
+}
+impl From<RgbLibRgbBridgeLocationInfo> for RgbBridgeLocationInfo {
+    fn from(orig: RgbLibRgbBridgeLocationInfo) -> Self {
+        match orig {
+            RgbLibRgbBridgeLocationInfo::Evm(contract) => RgbBridgeLocationInfo::Evm { contract },
+        }
+    }
+}
+impl From<RgbBridgeLocationInfo> for RgbLibRgbBridgeLocationInfo {
+    fn from(orig: RgbBridgeLocationInfo) -> Self {
+        match orig {
+            RgbBridgeLocationInfo::Evm { contract } => RgbLibRgbBridgeLocationInfo::Evm(contract),
+        }
+    }
+}
+pub enum RgbRejectListInfo {
+    Url { url: String },
+    Evm { contract: RgbEvmContractInfo },
+}
+impl From<RgbLibRgbRejectListInfo> for RgbRejectListInfo {
+    fn from(orig: RgbLibRgbRejectListInfo) -> Self {
+        match orig {
+            RgbLibRgbRejectListInfo::Url(url) => RgbRejectListInfo::Url { url },
+            RgbLibRgbRejectListInfo::Evm(contract) => RgbRejectListInfo::Evm { contract },
+        }
+    }
+}
+impl From<RgbRejectListInfo> for RgbLibRgbRejectListInfo {
+    fn from(orig: RgbRejectListInfo) -> Self {
+        match orig {
+            RgbRejectListInfo::Url { url } => RgbLibRgbRejectListInfo::Url(url),
+            RgbRejectListInfo::Evm { contract } => RgbLibRgbRejectListInfo::Evm(contract),
+        }
+    }
+}
 pub struct RgbGenesisInfo {
     pub chain_net: String,
     pub timestamp: i64,
@@ -709,6 +748,11 @@ pub struct RgbGenesisInfo {
     pub ticker: Option<String>,
     pub details: Option<String>,
     pub precision: u8,
+    pub issued_supply: Option<u64>,
+    pub max_supply: Option<u64>,
+    pub linked_from_contract: Option<String>,
+    pub bridge_location: Option<RgbBridgeLocationInfo>,
+    pub reject_list: Option<RgbRejectListInfo>,
     pub media: Vec<RgbMediaInfo>,
     pub outputs: Vec<RgbOutputInfo>,
 }
@@ -722,6 +766,11 @@ impl From<RgbLibRgbGenesisInfo> for RgbGenesisInfo {
             ticker: orig.ticker,
             details: orig.details,
             precision: orig.precision,
+            issued_supply: orig.issued_supply,
+            max_supply: orig.max_supply,
+            linked_from_contract: orig.linked_from_contract,
+            bridge_location: orig.bridge_location.map(|l| l.into()),
+            reject_list: orig.reject_list.map(|l| l.into()),
             media: orig.media,
             outputs: orig.outputs.into_iter().map(|o| o.into()).collect(),
         }
@@ -737,6 +786,11 @@ impl From<RgbGenesisInfo> for RgbLibRgbGenesisInfo {
             ticker: orig.ticker,
             details: orig.details,
             precision: orig.precision,
+            issued_supply: orig.issued_supply,
+            max_supply: orig.max_supply,
+            linked_from_contract: orig.linked_from_contract,
+            bridge_location: orig.bridge_location.map(|l| l.into()),
+            reject_list: orig.reject_list.map(|l| l.into()),
             media: orig.media,
             outputs: orig.outputs.into_iter().map(|o| o.into()).collect(),
         }

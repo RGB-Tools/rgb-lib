@@ -133,6 +133,60 @@ impl From<&Attachment> for RgbMediaInfo {
     }
 }
 
+/// A smart contract deployed on an EVM-compatible chain, as referenced by RGB contract state.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct RgbEvmContractInfo {
+    /// EIP-155 chain ID of the chain the contract is deployed on
+    pub chain_id: u64,
+    /// Address of the contract, hex-encoded with the `0x` prefix
+    pub address: String,
+}
+
+impl From<&EvmContract> for RgbEvmContractInfo {
+    fn from(contract: &EvmContract) -> Self {
+        Self {
+            chain_id: contract.chain_id,
+            address: contract.address.to_string(),
+        }
+    }
+}
+
+/// Where the bridge contract backing an asset is deployed, committed in its genesis.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub enum RgbBridgeLocationInfo {
+    /// A bridge contract deployed on an EVM-compatible chain, whose chain ID a claim resolver has
+    /// to check against the chain it's connected to
+    Evm(RgbEvmContractInfo),
+}
+
+impl From<BridgeLocation> for RgbBridgeLocationInfo {
+    fn from(location: BridgeLocation) -> Self {
+        match location {
+            BridgeLocation::Evm(contract) => Self::Evm((&contract).into()),
+        }
+    }
+}
+
+/// Where the reject list of an asset is published, committed in its genesis.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub enum RgbRejectListInfo {
+    /// A list of rejected opouts served at a URL
+    Url(String),
+    /// A list of rejected opouts kept by an `IRgbRejectList` contract deployed on an
+    /// EVM-compatible chain
+    Evm(RgbEvmContractInfo),
+}
+
+impl From<RejectListSource> for RgbRejectListInfo {
+    fn from(source: RejectListSource) -> Self {
+        match source {
+            RejectListSource::Url(url) => Self::Url(url),
+            RejectListSource::Evm(contract) => Self::Evm((&contract).into()),
+        }
+    }
+}
+
 /// Information about the genesis of an RGB asset.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
@@ -152,6 +206,24 @@ pub struct RgbGenesisInfo {
     pub details: Option<String>,
     /// Asset precision
     pub precision: u8,
+    /// Supply issued by the genesis itself, committed by the schemas that allow an initial
+    /// issuance (`None` for the UDA schema, which issues a single token, and for the BFA one,
+    /// whose supply all comes from mints). Later issuances commit their own amount, so this is
+    /// the initial supply, not the current one (see [`TransitionGlobal::IssuedSupply`])
+    pub issued_supply: Option<u64>,
+    /// Maximum supply the asset can be inflated to, committed by the IFA schema (`None` for the
+    /// other schemas: a BFA asset has no such cap, its supply being bounded by the tokens locked
+    /// on the bridge contract)
+    pub max_supply: Option<u64>,
+    /// ID of the contract the asset is linked from, if any (only committed by the BFA and IFA
+    /// schemas; see [`TransitionGlobal::LinkedToContract`] for the other end of the link)
+    pub linked_from_contract: Option<String>,
+    /// Where the bridge contract backing the asset is deployed, which the BFA schema requires
+    /// (`None` for the other schemas)
+    pub bridge_location: Option<RgbBridgeLocationInfo>,
+    /// Where the reject list of the asset is published, if it declares one (only committed by the
+    /// BFA and IFA schemas, the latter supporting a URL only)
+    pub reject_list: Option<RgbRejectListInfo>,
     /// Media files of the asset: the contract terms media, plus, for a UDA, the token media and
     /// its attachments
     pub media: Vec<RgbMediaInfo>,
@@ -431,6 +503,47 @@ fn genesis_info(
         }
     };
 
+    // the supply, link, bridge and reject list globals of the schemas defining them. The issued
+    // supply and the max supply are mandatory where they're defined, the others are optional
+    let issued_supply: Option<Amount> = match asset_schema {
+        AssetSchema::Nia | AssetSchema::Cfa | AssetSchema::Ifa => {
+            Some(global(contract_id, genesis, GS_ISSUED_SUPPLY)?.ok_or(missing(GS_ISSUED_SUPPLY))?)
+        }
+        AssetSchema::Uda | AssetSchema::Bfa => None,
+    };
+    let max_supply: Option<Amount> = match asset_schema {
+        AssetSchema::Ifa => {
+            Some(global(contract_id, genesis, GS_MAX_SUPPLY)?.ok_or(missing(GS_MAX_SUPPLY))?)
+        }
+        AssetSchema::Nia | AssetSchema::Uda | AssetSchema::Cfa | AssetSchema::Bfa => None,
+    };
+    let linked_from_contract: Option<ContractId> = match asset_schema {
+        AssetSchema::Ifa | AssetSchema::Bfa => {
+            global(contract_id, genesis, GS_LINKED_FROM_CONTRACT)?
+        }
+        AssetSchema::Nia | AssetSchema::Uda | AssetSchema::Cfa => None,
+    };
+    let bridge_location = match asset_schema {
+        AssetSchema::Bfa => Some(
+            BridgedFungibleAsset::bridge_location(genesis)
+                .map_err(|e| Error::RgbInspection {
+                    details: format!(
+                        "genesis of contract {contract_id}: invalid {GS_BRIDGE_LOCATION} global: \
+                         {e}"
+                    ),
+                })?
+                .into(),
+        ),
+        AssetSchema::Nia | AssetSchema::Uda | AssetSchema::Cfa | AssetSchema::Ifa => None,
+    };
+    // read by the same helper the reject list check uses, so that inspection and enforcement
+    // always look at the same global
+    let reject_list = validation::genesis_reject_list_source(asset_schema, genesis)
+        .map_err(|e| Error::RgbInspection {
+            details: format!("genesis of contract {contract_id}: invalid reject list global: {e}"),
+        })?
+        .map(RgbRejectListInfo::from);
+
     // the media of the asset, read from the same fields the wallet extracts its attachments from
     let terms: ContractTerms = global(contract_id, genesis, GS_TERMS)?.ok_or(missing(GS_TERMS))?;
     let mut media: Vec<RgbMediaInfo> = terms.media.iter().map(RgbMediaInfo::from).collect();
@@ -449,6 +562,11 @@ fn genesis_info(
         ticker,
         details: details.map(|d| d.to_string()),
         precision: precision.into(),
+        issued_supply: issued_supply.map(u64::from),
+        max_supply: max_supply.map(u64::from),
+        linked_from_contract: linked_from_contract.map(|id| id.to_string()),
+        bridge_location,
+        reject_list,
         media,
         outputs: outputs_info(
             &format!("genesis of contract {contract_id}"),

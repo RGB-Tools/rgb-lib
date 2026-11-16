@@ -58,7 +58,8 @@ use crate::wallet::utils::build_indexer;
 use crate::{
     database::enums::{SCHEMA_ID_CFA, SCHEMA_ID_IFA, SCHEMA_ID_NIA, SCHEMA_ID_UDA},
     no_wallet::{
-        BundleFilter, ResolveRejectList, RgbMediaInfo, inspect_consignment, validate_consignment,
+        BundleFilter, ResolveRejectList, RgbBridgeLocationInfo, RgbEvmContractInfo, RgbMediaInfo,
+        RgbRejectListInfo, inspect_consignment, validate_consignment,
         validate_consignment_with_resolver, validation::RemoteRejectListResolver,
     },
     utils::{get_account_data, recipient_id_from_script_buf, script_buf_from_recipient_id},

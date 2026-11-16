@@ -13,9 +13,9 @@ pub(crate) mod validation;
 use super::*;
 
 pub use inspection::{
-    BundleFilter, ConsignmentInspection, RgbGenesisInfo, RgbInputInfo, RgbInspection, RgbMediaInfo,
-    RgbOperationInfo, RgbOutputInfo, RgbTransitionInfo, TransitionGlobal, TransitionMetadata,
-    inspect_consignment,
+    BundleFilter, ConsignmentInspection, RgbBridgeLocationInfo, RgbEvmContractInfo, RgbGenesisInfo,
+    RgbInputInfo, RgbInspection, RgbMediaInfo, RgbOperationInfo, RgbOutputInfo, RgbRejectListInfo,
+    RgbTransitionInfo, TransitionGlobal, TransitionMetadata, inspect_consignment,
 };
 #[cfg(feature = "wallet")]
 pub(crate) use inspection::{bundle_info, verify_witness_commitment};
