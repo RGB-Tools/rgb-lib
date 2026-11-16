@@ -472,9 +472,15 @@ fn consignment_inspection<const TRANSFER: bool>(
 /// asked to sign commits to.
 ///
 /// The fascia is checked to be the one of the PSBT transaction and the MPC commitment of its
-/// bundles, rebuilt with the given entropy (also saved by the wallet that built the operation), to
-/// be the one the PSBT transaction commits to, which proves it commits to these bundles only. The
-/// bundles are checked to commit to the inspected transitions.
+/// bundles, rebuilt with the entropy the operation was built with, to be the one the PSBT
+/// transaction commits to, which proves it commits to these bundles only. The bundles are checked
+/// to commit to the inspected transitions.
+///
+/// The entropy defaults to the one the MPC commitment of the fascia carries, so it only has to be
+/// given for a fascia whose commitment doesn't carry it, as a concealed one, while an inspection
+/// without either fails. The wallet that built the operation reports it as well, and a given one
+/// the commitment of the fascia wasn't built with is an error, as the two can only disagree if the
+/// fascia isn't the one of the inspected operation.
 ///
 /// The given Bitcoin network is only used to build the recipient IDs of the blinded receives the
 /// transitions pay (their concealed seals in output), so it has to be the network of the assets.
@@ -501,7 +507,7 @@ fn consignment_inspection<const TRANSFER: bool>(
 pub fn inspect_fascia(
     psbt: String,
     fascia_path: String,
-    entropy: u64,
+    entropy: Option<u64>,
     bitcoin_network: BitcoinNetwork,
 ) -> Result<RgbInspection, Error> {
     // check request data validity
@@ -542,11 +548,12 @@ pub(crate) fn fascia_from_file(fascia_path: &str) -> Result<Fascia, Error> {
 ///
 /// The fascia is checked to be the one of the PSBT transaction, which is then checked to commit to
 /// the MPC commitment rebuilt from the inspected bundles with the given entropy, so to these
-/// bundles only.
+/// bundles only. The entropy defaults to the one the MPC commitment of the fascia carries, which
+/// only a concealed commitment doesn't, and a given one has to be the carried one.
 pub(crate) fn fascia_inspection(
     psbt: &Psbt,
     fascia: &Fascia,
-    entropy: u64,
+    entropy: Option<u64>,
     mut bundle_operation: impl FnMut(
         ContractId,
         &TransitionBundle,
@@ -574,6 +581,27 @@ pub(crate) fn fascia_inspection(
             Message::from(bundle.bundle_id()),
         );
     }
+
+    // the entropy of the commitment, which its merkle block carries unless it's concealed: a
+    // given one that isn't the carried one means the fascia isn't the one of the operation
+    let entropy = match (entropy, fascia.seal_witness().mpc_merkle_block.entropy()) {
+        (Some(given), Some(carried)) if given != carried => {
+            return Err(Error::RgbInspection {
+                details: format!(
+                    "the MPC commitment of the fascia was built with entropy {carried}, not the \
+                     given {given}"
+                ),
+            });
+        }
+        (Some(entropy), _) | (None, Some(entropy)) => entropy,
+        (None, None) => {
+            return Err(Error::RgbInspection {
+                details: "the MPC commitment of the fascia doesn't carry the entropy it was built \
+                          with, which then has to be given"
+                    .to_string(),
+            });
+        }
+    };
 
     // rebuild the MPC commitment of the fascia bundles and verify the PSBT commits to it, which
     // ensures the PSBT commits to these bundles only
@@ -1103,7 +1131,7 @@ mod tests {
             inspect_fascia(
                 psbt.to_string(),
                 fascia_path.to_string(),
-                0,
+                None,
                 BitcoinNetwork::Regtest,
             )
         };

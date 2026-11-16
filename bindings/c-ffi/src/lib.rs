@@ -379,7 +379,7 @@ pub extern "C" fn rgblib_inspect_consignment(
 pub extern "C" fn rgblib_inspect_fascia(
     psbt: *const c_char,
     fascia_path: *const c_char,
-    entropy: u64,
+    entropy: *const c_char,
     bitcoin_network: *const c_char,
 ) -> CResultString {
     inspect_fascia(psbt, fascia_path, entropy, bitcoin_network).into()

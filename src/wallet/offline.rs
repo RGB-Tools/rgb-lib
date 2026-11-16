@@ -2935,7 +2935,7 @@ pub trait WalletOffline: WalletBackup {
         txn: &DbTxn,
         psbt: String,
         fascia_path: String,
-        entropy: u64,
+        entropy: Option<u64>,
     ) -> Result<RgbInspection, Error> {
         // check request data validity
         let psbt = Psbt::from_str(&psbt)?;
@@ -3376,7 +3376,7 @@ pub trait RgbWalletOpsOffline: WalletOffline + WalletBackup {
         &self,
         psbt: String,
         fascia_path: String,
-        entropy: u64,
+        entropy: Option<u64>,
     ) -> Result<RgbInspection, Error> {
         info!(self.logger(), "Inspecting fascia...");
         let txn = self.database().begin_transaction()?;

@@ -101,7 +101,7 @@ fn success() {
         .inspect_fascia(
             res.psbt.clone(),
             res.details.fascia_path.clone(),
-            res.details.entropy,
+            Some(res.details.entropy),
         )
         .unwrap();
     assert_eq!(rgb_inspection.operations.len(), 1);

@@ -1311,7 +1311,7 @@ fn inspect_consignment(
 fn inspect_fascia(
     psbt: String,
     fascia_path: String,
-    entropy: u64,
+    entropy: Option<u64>,
     bitcoin_network: BitcoinNetwork,
 ) -> Result<RgbInspection, RgbLibError> {
     rgb_lib::no_wallet::inspect_fascia(psbt, fascia_path, entropy, bitcoin_network)
@@ -2096,7 +2096,7 @@ impl Wallet {
         &self,
         psbt: String,
         fascia_path: String,
-        entropy: u64,
+        entropy: Option<u64>,
     ) -> Result<RgbInspection, RgbLibError> {
         Ok(self
             ._get_wallet()
@@ -2517,7 +2517,7 @@ impl MultisigWallet {
         &self,
         psbt: String,
         fascia_path: String,
-        entropy: u64,
+        entropy: Option<u64>,
     ) -> Result<RgbInspection, RgbLibError> {
         Ok(self
             ._get_wallet()

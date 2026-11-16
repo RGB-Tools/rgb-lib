@@ -32,29 +32,30 @@ fn fail() {
         .inspect_fascia(
             res.psbt.clone(),
             details.fascia_path.clone(),
-            details.entropy,
+            Some(details.entropy),
         )
         .unwrap();
 
-    // a different entropy gives a commitment the PSBT doesn't commit to
+    // an entropy that isn't the one the fascia carries
     let result = party.wallet.inspect_fascia(
         res.psbt.clone(),
         details.fascia_path.clone(),
-        details.entropy.wrapping_add(1),
+        Some(details.entropy.wrapping_add(1)),
     );
-    assert_matches!(result, Err(Error::RgbInspection { details: d }) if d.contains("doesn't commit to"));
+    assert_matches!(result, Err(Error::RgbInspection { details: d })
+        if d.contains(&format!("built with entropy {}, not the given", details.entropy)));
 
     // inspect the PSBT against a tampered version of the fascia the wallet saved
     let fascia = read_fascia(Path::new(&details.fascia_path)).unwrap();
     let fascia_json = serde_json::to_value(&fascia).unwrap();
-    let inspect_tampered = |wallet: &Wallet, tampered_json: Value| {
+    let inspect_tampered = |wallet: &Wallet, tampered_json: Value, entropy: Option<u64>| {
         let tampered_fascia: Fascia = serde_json::from_value(tampered_json).unwrap();
         let tampered_file = tempfile::NamedTempFile::with_prefix("inspect_fascia::").unwrap();
         write_fascia(tampered_file.path(), &tampered_fascia).unwrap();
         wallet.inspect_fascia(
             res.psbt.clone(),
             tampered_file.path().to_string_lossy().to_string(),
-            details.entropy,
+            entropy,
         )
     };
 
@@ -70,7 +71,7 @@ fn fail() {
         .unwrap();
     let nonce = transition["nonce"].as_u64().unwrap();
     transition.insert(s!("nonce"), nonce.wrapping_add(1).into());
-    let result = inspect_tampered(&party.wallet, tampered_json);
+    let result = inspect_tampered(&party.wallet, tampered_json, Some(details.entropy));
     assert_matches!(result, Err(Error::RgbInspection { details: d }) if d.contains("is not committed"));
 
     // a bundle filed under the contract of another asset: nothing commits to the contract, so the
@@ -80,7 +81,7 @@ fn fail() {
     assert_eq!(bundles.keys().collect::<Vec<_>>(), vec![&asset.asset_id]);
     let bundle = bundles.values().next().unwrap().clone();
     *bundles = serde_json::Map::from_iter([(asset_2.asset_id.clone(), bundle)]);
-    let result = inspect_tampered(&party.wallet, tampered_json);
+    let result = inspect_tampered(&party.wallet, tampered_json, Some(details.entropy));
     assert_matches!(result, Err(Error::RgbInspection { details: d })
         if d.contains(&format!("is of contract {}", asset.asset_id)));
 
@@ -96,8 +97,26 @@ fn fail() {
         .as_array_mut()
         .unwrap();
     known_transitions.push(known_transitions[0].clone());
-    let result = inspect_tampered(&party.wallet, tampered_json);
+    let result = inspect_tampered(&party.wallet, tampered_json, Some(details.entropy));
     assert_matches!(result, Err(Error::RgbInspection { details: d }) if d.contains("is listed twice"));
+
+    // a fascia whose MPC commitment doesn't carry the entropy it was built with can only be
+    // inspected by giving the entropy
+    let mut tampered_json = fascia_json;
+    tampered_json["sealWitness"]["mpcMerkleBlock"]["entropy"] = Value::Null;
+    let result = inspect_tampered(&party.wallet, tampered_json.clone(), None);
+    assert_matches!(result, Err(Error::RgbInspection { details: d })
+        if d.contains("doesn't carry the entropy"));
+    inspect_tampered(&party.wallet, tampered_json.clone(), Some(details.entropy)).unwrap();
+
+    // with no entropy to check the given one against, a wrong one is only caught by the
+    // commitment it gives
+    let result = inspect_tampered(
+        &party.wallet,
+        tampered_json,
+        Some(details.entropy.wrapping_add(1)),
+    );
+    assert_matches!(result, Err(Error::RgbInspection { details: d }) if d.contains("doesn't commit to"));
 }
 
 /// An input spending another transition of the same bundle is resolved by the bundle itself, so
@@ -124,7 +143,7 @@ fn fail_concealed_bundle_input() {
         .inspect_fascia(
             res.psbt.clone(),
             details.fascia_path.clone(),
-            details.entropy,
+            Some(details.entropy),
         )
         .unwrap();
 
@@ -172,15 +191,16 @@ fn fail_concealed_bundle_input() {
     let tampered_path = tampered_file.path().to_string_lossy().to_string();
 
     // the allocation the burn spends can no longer be resolved, with or without a wallet
-    let result =
-        party
-            .wallet
-            .inspect_fascia(res.psbt.clone(), tampered_path.clone(), details.entropy);
+    let result = party.wallet.inspect_fascia(
+        res.psbt.clone(),
+        tampered_path.clone(),
+        Some(details.entropy),
+    );
     assert_matches!(result, Err(Error::RgbInspection { details: d }) if d.contains("isn't assigned by the bundle"));
     let result = inspect_fascia(
         res.psbt,
         tampered_path,
-        details.entropy,
+        Some(details.entropy),
         BitcoinNetwork::Regtest,
     );
     assert_matches!(result, Err(Error::RgbInspection { details: d }) if d.contains("isn't assigned by the bundle"));
@@ -226,16 +246,28 @@ fn without_wallet() {
         .inspect_fascia(
             res.psbt.clone(),
             details.fascia_path.clone(),
-            details.entropy,
+            Some(details.entropy),
         )
         .unwrap();
     let inspection = inspect_fascia(
         res.psbt.clone(),
         details.fascia_path.clone(),
-        details.entropy,
+        Some(details.entropy),
         BitcoinNetwork::Regtest,
     )
     .unwrap();
+    // the fascia carries the entropy its MPC commitment was built with, so giving it is optional
+    let inspection_no_entropy = inspect_fascia(
+        res.psbt.clone(),
+        details.fascia_path.clone(),
+        None,
+        BitcoinNetwork::Regtest,
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(&inspection_no_entropy).unwrap(),
+        serde_json::to_value(&inspection).unwrap()
+    );
     assert_eq!(inspection.txid, wallet_inspection.txid);
     assert_eq!(inspection.close_method, wallet_inspection.close_method);
     assert_eq!(inspection.commitment_hex, wallet_inspection.commitment_hex);
@@ -320,7 +352,7 @@ fn without_wallet() {
     let testnet_inspection = inspect_fascia(
         res.psbt.clone(),
         details.fascia_path.clone(),
-        details.entropy,
+        Some(details.entropy),
         BitcoinNetwork::Testnet,
     )
     .unwrap();
@@ -335,14 +367,15 @@ fn without_wallet() {
         receive_data_blind.recipient_id.clone()
     );
 
-    // the entropy has to be the one the commitment was built with
+    // a given entropy has to be the one the fascia carries
     let result = inspect_fascia(
         res.psbt.clone(),
         details.fascia_path.clone(),
-        details.entropy.wrapping_add(1),
+        Some(details.entropy.wrapping_add(1)),
         BitcoinNetwork::Regtest,
     );
-    assert_matches!(result, Err(Error::RgbInspection { details: d }) if d.contains("doesn't commit to"));
+    assert_matches!(result, Err(Error::RgbInspection { details: d })
+        if d.contains(&format!("built with entropy {}, not the given", details.entropy)));
 
     // the PSBT has to be the one of the fascia witness transaction
     let mut other_psbt = Psbt::from_str(&res.psbt).unwrap();
@@ -352,28 +385,29 @@ fn without_wallet() {
     let result = inspect_fascia(
         other_psbt.clone(),
         details.fascia_path.clone(),
-        details.entropy,
+        Some(details.entropy),
         BitcoinNetwork::Regtest,
     );
     assert_matches!(result, Err(Error::RgbInspection { details: d }) if d.contains("does not match PSBT TXID"));
-    let result =
-        party
-            .wallet
-            .inspect_fascia(other_psbt, details.fascia_path.clone(), details.entropy);
+    let result = party.wallet.inspect_fascia(
+        other_psbt,
+        details.fascia_path.clone(),
+        Some(details.entropy),
+    );
     assert_matches!(result, Err(Error::RgbInspection { details: d }) if d.contains("does not match PSBT TXID"));
 
     // the PSBT and the fascia file have to be valid
     let result = inspect_fascia(
         s!("invalid"),
         details.fascia_path.clone(),
-        details.entropy,
+        Some(details.entropy),
         BitcoinNetwork::Regtest,
     );
     assert_matches!(result, Err(Error::InvalidPsbt { details: _ }));
     let result = inspect_fascia(
         res.psbt,
         s!("inexistent"),
-        details.entropy,
+        Some(details.entropy),
         BitcoinNetwork::Regtest,
     );
     assert_matches!(result, Err(Error::InvalidFilePath { file_path: f }) if f == "inexistent");
@@ -410,7 +444,7 @@ fn inflation_rights() {
     let res = party.send_begin_result(&recipient_map).unwrap();
     let inspection = party
         .wallet
-        .inspect_fascia(res.psbt, res.details.fascia_path, res.details.entropy)
+        .inspect_fascia(res.psbt, res.details.fascia_path, Some(res.details.entropy))
         .unwrap();
     assert_eq!(inspection.operations.len(), 1);
     let transitions = &inspection.operations[0].transitions;
@@ -466,7 +500,7 @@ fn link_right() {
     let res = party.send_begin_result(&recipient_map).unwrap();
     let inspection = party
         .wallet
-        .inspect_fascia(res.psbt, res.details.fascia_path, res.details.entropy)
+        .inspect_fascia(res.psbt, res.details.fascia_path, Some(res.details.entropy))
         .unwrap();
     assert_eq!(inspection.operations.len(), 1);
     let transitions = &inspection.operations[0].transitions;
