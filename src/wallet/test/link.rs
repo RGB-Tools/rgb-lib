@@ -136,7 +136,7 @@ fn success() {
         .flat_map(|w| w.operations.iter().flat_map(|o| o.transitions.iter()))
         .find(|t| t.r#type == TypeOfTransition::Link)
         .unwrap();
-    let inputs: Vec<_> = link.inputs.iter().map(|i| &i.assignment).collect();
+    let inputs: Vec<_> = link.inputs.iter().map(input_assignment).collect();
     assert_eq!(inputs, vec![&Assignment::LinkRight]);
     assert!(link.outputs.is_empty());
     assert_eq!(
@@ -244,7 +244,7 @@ fn send_beside_fungible() {
     let res = party.send_begin_result(&recipient_map).unwrap();
     let inspection = party
         .wallet
-        .inspect_rgb_transfer(
+        .inspect_fascia(
             res.psbt.clone(),
             res.details.fascia_path.clone(),
             res.details.entropy,

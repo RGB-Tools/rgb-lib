@@ -41,7 +41,8 @@
 //! ## Features
 //! The wallet functionality requires the `wallet` feature (enabled by default and by all the
 //! indexer features: `bitcoind`, `electrum` and `esplora`). Without it the library only provides
-//! the APIs that don't need a wallet, like [`no_wallet::inspect_consignment`] and
+//! the APIs that don't need a wallet, like [`no_wallet::inspect_consignment`],
+//! [`no_wallet::inspect_fascia`] (which checks what the PSBT of an operation commits to) and
 //! [`no_wallet::validate_consignment_with_resolver`] (consignment validation with resolvers
 //! provided by the caller, for witnesses, mints and reject lists), depending on few crates other
 //! than the RGB ones and on no network client. Validating with an indexer, like
@@ -227,7 +228,9 @@ pub use rgbstd::{
 };
 
 pub use crate::{
-    database::enums::{AssetSchema, Assignment, Encryption, TransportType, TypeOfTransition},
+    database::enums::{
+        AssetSchema, Assignment, Encryption, TransportType, TypeOfAssignment, TypeOfTransition,
+    },
     error::Error,
     no_wallet::BitcoinNetwork,
 };
@@ -256,7 +259,7 @@ use std::{
 };
 #[cfg(feature = "wallet")]
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeSet,
     fs,
     hash::Hash,
     io::{self, Write},
@@ -264,7 +267,7 @@ use std::{
     sync::{Arc, LazyLock, Mutex},
 };
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fmt,
     num::NonZeroU32,
     path::Path,
@@ -273,14 +276,12 @@ use std::{
 #[cfg(any(feature = "wallet", feature = "_validation"))]
 use std::{io::Read, time::Duration};
 
+use amplify::confinement::MediumOrdMap;
 #[cfg(test)]
 use amplify::confinement::NonEmptyVec;
 use amplify::{ByteArray, Wrapper, s};
 #[cfg(feature = "wallet")]
-use amplify::{
-    Bytes32, bmap,
-    confinement::{Confined, MediumOrdMap},
-};
+use amplify::{Bytes32, bmap, confinement::Confined};
 #[cfg(feature = "_online")]
 use base64::{Engine as _, engine::general_purpose};
 #[cfg(feature = "bitcoind")]
@@ -306,7 +307,7 @@ use bdk_wallet::{
         bip32::{ChildNumber, DerivationPath, Fingerprint, KeySource, Xpriv, Xpub},
         consensus::{Decodable, Encodable},
         hashes::Hash as Sha256Hash,
-        psbt::{ExtractTxError, Psbt},
+        psbt::{ExtractTxError, Psbt, PsbtParseError},
         secp256k1::Secp256k1,
     },
     chain::{
@@ -366,6 +367,8 @@ use rgbinvoice::RgbInvoiceBuilder;
 use rgbinvoice::{AddressPayload, Beneficiary, RgbInvoice, RgbTransport, XChainNet};
 #[cfg(feature = "wallet")]
 use rgbstd::SecretSeal;
+#[cfg(not(feature = "wallet"))]
+use rgbstd::bitcoin::psbt::{Psbt, PsbtParseError};
 #[cfg(feature = "rgb_fs_store_migration")]
 use rgbstd::containers::legacy::ConsignmentV0;
 #[cfg(feature = "rgb_fs_store_migration")]
@@ -406,10 +409,7 @@ use rgbstd::{
         ContractAssignments, ContractStateSnapshot, GlobalStateRow, GlobalStateWrite, Lib, LibId,
         RgbStore, Stock, StockError, TxBegin, TxMode, Visibility, decode, encode,
     },
-    rgbcore::commit_verify::{
-        CommitId, Conceal, TryCommitVerify,
-        mpc::{MerkleTree, Message, MultiSource, ProtocolId},
-    },
+    rgbcore::commit_verify::Conceal,
     stl::{
         EmbeddedMedia as RgbEmbeddedMedia, MediaType, ProofOfReserves as RgbProofOfReserves,
         RicardianContract, Ticker,
@@ -419,7 +419,8 @@ use rgbstd::{
 };
 use rgbstd::{
     Amount, Assignments, ExposedSeal, GlobalStateType, KnownTransition, Layer1, Operation as _,
-    Precision, Schema, Transition, TransitionBundle, TransitionType, TypedAssigns,
+    Opout as RgbOpout, Precision, Schema, Transition, TransitionBundle, TransitionType,
+    TypedAssigns,
     bitcoin::{
         OutPoint, ScriptBuf, Transaction as BdkTransaction, Txid, block::Header as BlockHeader,
     },
@@ -430,7 +431,13 @@ use rgbstd::{
     contract::IssuerWrapper,
     daggy::NodeIndex,
     invoice::{InvoiceState, Pay2Vout},
-    rgbcore::{commit_verify::mpc::Commitment, dbc::Proof as _},
+    rgbcore::{
+        commit_verify::{
+            CommitId, TryCommitVerify,
+            mpc::{Commitment, MerkleTree, Message, MultiSource, ProtocolId},
+        },
+        dbc::Proof as _,
+    },
     stl::{
         AssetSpec, Attachment, BlockNumber, BurnReason, ContractTerms, Details, Name,
         RejectListLocation, RejectListUrl, TokenData, UnicodeTicker,
@@ -519,6 +526,8 @@ use crate::api::{
 };
 #[cfg(feature = "_validation")]
 use crate::error::IndexerError;
+#[cfg(any(feature = "_online", feature = "rgb_fs_store_migration"))]
+use crate::no_wallet::FASCIA_MAX_LEN;
 #[cfg(feature = "bitcoind")]
 use crate::no_wallet::validation::checked_bitcoind_indexes;
 #[cfg(feature = "electrum")]
@@ -535,8 +544,8 @@ use crate::no_wallet::validation::{
 };
 #[cfg(feature = "wallet")]
 use crate::no_wallet::{
-    Outpoint, beneficiary_from_script_buf, bundle_info, check_file_exists,
-    verify_witness_commitment,
+    Outpoint, beneficiary_from_script_buf, bundle_info, fascia_from_file, fascia_inspection,
+    read_fascia,
 };
 #[cfg(feature = "electrum")]
 use crate::utils::INDEXER_BATCH_SIZE;
@@ -649,7 +658,7 @@ use crate::{
         atomic_write_with, bfa_reject_list_url, from_str_or_number_mandatory,
         from_str_or_number_optional, get_account_xpubs, get_coin_type, get_descriptors,
         get_descriptors_from_xpubs, hash_bytes, hash_bytes_hex, now, parse_address_str,
-        read_fascia, setup_logger, str_to_xpub,
+        setup_logger, str_to_xpub,
     },
     wallet::{
         AssetFilter, Balance, LocalRgbAllocation, LocalUnspent, NUM_KNOWN_SCHEMAS,

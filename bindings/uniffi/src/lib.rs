@@ -13,8 +13,8 @@ use rgb_lib::{
     keys::{Keys, WitnessVersion},
     no_wallet::{
         BundleFilter as RgbLibBundleFilter, ConsignmentInspection as RgbLibConsignmentInspection,
-        RgbBridgeLocationInfo as RgbLibRgbBridgeLocationInfo, RgbEvmContractInfo,
-        RgbGenesisInfo as RgbLibRgbGenesisInfo, RgbMediaInfo,
+        Opout as RgbLibOpout, RgbBridgeLocationInfo as RgbLibRgbBridgeLocationInfo,
+        RgbEvmContractInfo, RgbGenesisInfo as RgbLibRgbGenesisInfo, RgbMediaInfo,
         RgbRejectListInfo as RgbLibRgbRejectListInfo,
         TransitionMetadata as RgbLibTransitionMetadata,
     },
@@ -42,7 +42,7 @@ use rgb_lib::{
         TransactionType, Transfer as RgbLibTransfer, TransferKind,
         TransferScope as RgbLibTransferScope, TransferTransportEndpoint,
         TransitionGlobal as RgbLibTransitionGlobal, TransportEndpoint as RgbLibTransportEndpoint,
-        TypeOfTransition, Unspent as RgbLibUnspent, UserRole, Utxo,
+        TypeOfAssignment, TypeOfTransition, Unspent as RgbLibUnspent, UserRole, Utxo,
         ValidatedWitness as RgbLibValidatedWitness, ValidationOptions,
         ValidationWarning as RgbLibValidationWarning, Wallet as RgbLibWallet, WalletData,
         WalletDescriptors, WitnessData, WitnessValidationStatus as RgbLibWitnessValidationStatus,
@@ -478,23 +478,49 @@ impl From<Unspent> for RgbLibUnspent {
         }
     }
 }
+pub struct Opout {
+    pub opid: String,
+    pub assignment_type: TypeOfAssignment,
+    pub index: u16,
+}
+impl From<RgbLibOpout> for Opout {
+    fn from(orig: RgbLibOpout) -> Self {
+        Self {
+            opid: orig.opid,
+            assignment_type: orig.assignment_type,
+            index: orig.index,
+        }
+    }
+}
+impl From<Opout> for RgbLibOpout {
+    fn from(orig: Opout) -> Self {
+        Self {
+            opid: orig.opid,
+            assignment_type: orig.assignment_type,
+            index: orig.index,
+        }
+    }
+}
 pub struct RgbInputInfo {
-    pub vin: u32,
-    pub assignment: Assignment,
+    pub opout: Opout,
+    pub vin: Option<u32>,
+    pub assignment: Option<Assignment>,
 }
 impl From<RgbLibRgbInputInfo> for RgbInputInfo {
     fn from(orig: RgbLibRgbInputInfo) -> Self {
         Self {
+            opout: orig.opout.into(),
             vin: orig.vin,
-            assignment: orig.assignment.into(),
+            assignment: orig.assignment.map(|a| a.into()),
         }
     }
 }
 impl From<RgbInputInfo> for RgbLibRgbInputInfo {
     fn from(orig: RgbInputInfo) -> Self {
         Self {
+            opout: orig.opout.into(),
             vin: orig.vin,
-            assignment: orig.assignment.into(),
+            assignment: orig.assignment.map(|a| a.into()),
         }
     }
 }
@@ -1282,6 +1308,16 @@ fn inspect_consignment(
         .map(|i| i.into())
 }
 
+fn inspect_fascia(
+    psbt: String,
+    fascia_path: String,
+    entropy: u64,
+    bitcoin_network: BitcoinNetwork,
+) -> Result<RgbInspection, RgbLibError> {
+    rgb_lib::no_wallet::inspect_fascia(psbt, fascia_path, entropy, bitcoin_network)
+        .map(|i| i.into())
+}
+
 fn validate_consignment(
     consignment_path: String,
     indexer_config: IndexerConfig,
@@ -2056,7 +2092,7 @@ impl Wallet {
         self._get_wallet().inspect_psbt(psbt)
     }
 
-    fn inspect_rgb_transfer(
+    fn inspect_fascia(
         &self,
         psbt: String,
         fascia_path: String,
@@ -2064,7 +2100,7 @@ impl Wallet {
     ) -> Result<RgbInspection, RgbLibError> {
         Ok(self
             ._get_wallet()
-            .inspect_rgb_transfer(psbt, fascia_path, entropy)?
+            .inspect_fascia(psbt, fascia_path, entropy)?
             .into())
     }
 
@@ -2477,7 +2513,7 @@ impl MultisigWallet {
         self._get_wallet().inspect_psbt(psbt)
     }
 
-    fn inspect_rgb_transfer(
+    fn inspect_fascia(
         &self,
         psbt: String,
         fascia_path: String,
@@ -2485,7 +2521,7 @@ impl MultisigWallet {
     ) -> Result<RgbInspection, RgbLibError> {
         Ok(self
             ._get_wallet()
-            .inspect_rgb_transfer(psbt, fascia_path, entropy)?
+            .inspect_fascia(psbt, fascia_path, entropy)?
             .into())
     }
 }

@@ -19,9 +19,6 @@ pub(crate) const RGB_RUNTIME_DIR: &str = "rgb";
 pub(crate) const RGB_RUNTIME_DELETING_DIR: &str = "rgb.deleting";
 pub(crate) const LOG_FILE: &str = "log";
 
-/// Size cap for a strict-encoded fascia file, matching what rgb-ops uses for its own containers.
-const FASCIA_MAX_LEN: usize = amplify::confinement::U32;
-
 pub(crate) const PURPOSE: u8 = 86;
 pub(crate) const COIN_RGB_MAINNET: u32 = 827166;
 pub(crate) const COIN_RGB_TESTNET: u32 = 827167;
@@ -616,13 +613,6 @@ pub(crate) fn atomic_tmp_path(path: &Path) -> Result<PathBuf, Error> {
 /// Atomically write `bytes` to `path`.
 pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), Error> {
     atomic_write_with(path, |tmp| Ok(fs::write(tmp, bytes)?))
-}
-
-/// Read a fascia file, which is strict-encoded like every other RGB container.
-pub(crate) fn read_fascia(path: &Path) -> Result<Fascia, Error> {
-    Fascia::strict_deserialize_from_file::<FASCIA_MAX_LEN>(path).map_err(|e| Error::Internal {
-        details: format!("cannot read fascia {}: {e}", path.display()),
-    })
 }
 
 /// Remove the RGB data (operations, consumers and commitment data) from the given PSBT, once they

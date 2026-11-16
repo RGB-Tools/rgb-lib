@@ -572,6 +572,19 @@ pub(crate) fn inspect_consignment(
     Ok(serde_json::to_string(&res)?)
 }
 
+pub(crate) fn inspect_fascia(
+    psbt: *const c_char,
+    fascia_path: *const c_char,
+    entropy: u64,
+    bitcoin_network: *const c_char,
+) -> Result<String, Error> {
+    let psbt = ptr_to_string(psbt);
+    let fascia_path = ptr_to_string(fascia_path);
+    let bitcoin_network = BitcoinNetwork::from_str(&ptr_to_string(bitcoin_network))?;
+    let res = rgb_lib::no_wallet::inspect_fascia(psbt, fascia_path, entropy, bitcoin_network)?;
+    Ok(serde_json::to_string(&res)?)
+}
+
 pub(crate) fn invoice_data(invoice_string: *const c_char) -> Result<String, Error> {
     let invoice_string = ptr_to_string(invoice_string);
     let invoice = rgb_lib::wallet::Invoice::new(invoice_string)?;

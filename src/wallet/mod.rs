@@ -17,7 +17,7 @@ pub(crate) mod singlesig;
 #[cfg(test)]
 pub(crate) mod test;
 
-pub use crate::database::enums::TypeOfTransition;
+pub use crate::database::enums::{TypeOfAssignment, TypeOfTransition};
 #[cfg(feature = "_validation")]
 pub use crate::no_wallet::{BitcoindAuth, IndexerConfig, IndexerProtocol};
 pub use crate::no_wallet::{

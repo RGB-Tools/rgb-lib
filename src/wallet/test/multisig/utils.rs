@@ -1428,7 +1428,7 @@ pub(super) fn inspect_inflate(
     let details = InflateHandler::extract_details(&files).unwrap();
     let rgb_inspection = wallet
         .multisig
-        .inspect_rgb_transfer(psbt.clone(), details.fascia_path, details.entropy)
+        .inspect_fascia(psbt.clone(), details.fascia_path, details.entropy)
         .unwrap();
     assert_eq!(
         rgb_inspection.txid,
@@ -1498,7 +1498,7 @@ pub(super) fn inspect_burn(
     assert_eq!(details.burn_reason.as_deref(), burn_reason);
     let rgb_inspection = wallet
         .multisig
-        .inspect_rgb_transfer(psbt.clone(), details.fascia_path, details.entropy)
+        .inspect_fascia(psbt.clone(), details.fascia_path, details.entropy)
         .unwrap();
     assert_eq!(rgb_inspection.close_method, CloseMethod::OpretFirst);
     assert_eq!(rgb_inspection.operations.len(), 1);
@@ -1543,7 +1543,7 @@ pub(super) fn inspect_send(
     let details = SendRgbHandler::extract_details(&files).unwrap();
     let rgb_inspection = wallet
         .multisig
-        .inspect_rgb_transfer(psbt.to_string(), details.fascia_path, details.entropy)
+        .inspect_fascia(psbt.to_string(), details.fascia_path, details.entropy)
         .unwrap();
     assert_eq!(rgb_inspection.close_method, CloseMethod::OpretFirst);
     assert_eq!(rgb_inspection.commitment_hex.len(), 64);
@@ -1609,11 +1609,14 @@ pub(super) fn inspect_send(
     let total_cfa_output: u64 = cfa_outputs.iter().map(|o| o.assignment.main_amount()).sum();
     assert_eq!(total_cfa_output, cfa_sent_amount + cfa_change_amount);
     assert!(!cfa_inputs.is_empty());
-    let total_cfa_input: u64 = cfa_inputs.iter().map(|i| i.assignment.main_amount()).sum();
+    let total_cfa_input: u64 = cfa_inputs
+        .iter()
+        .map(|i| input_assignment(i).main_amount())
+        .sum();
     assert_eq!(total_cfa_input, total_cfa_output);
     for input in &cfa_inputs {
-        assert!((input.vin as usize) < psbt_info.inputs.len());
-        assert_matches!(input.assignment, Assignment::Fungible(_));
+        assert!((input_vin(input) as usize) < psbt_info.inputs.len());
+        assert_matches!(input.assignment, Some(Assignment::Fungible(_)));
     }
     let nia_inputs: Vec<_> = nia_transfer
         .transitions
@@ -1639,12 +1642,15 @@ pub(super) fn inspect_send(
     assert!(nia_sent_outputs[0].is_concealed);
     assert_eq!(nia_sent_outputs[0].is_ours, Some(false));
     let total_nia_output: u64 = nia_outputs.iter().map(|o| o.assignment.main_amount()).sum();
-    let total_nia_input: u64 = nia_inputs.iter().map(|i| i.assignment.main_amount()).sum();
+    let total_nia_input: u64 = nia_inputs
+        .iter()
+        .map(|i| input_assignment(i).main_amount())
+        .sum();
     assert_eq!(total_nia_input, total_nia_output);
     assert!(total_nia_input >= AMOUNT_SMALL);
     for input in &nia_inputs {
-        assert!((input.vin as usize) < psbt_info.inputs.len());
-        assert_matches!(input.assignment, Assignment::Fungible(_));
+        assert!((input_vin(input) as usize) < psbt_info.inputs.len());
+        assert_matches!(input.assignment, Some(Assignment::Fungible(_)));
     }
     let nia_2_transfer = rgb_inspection
         .operations
@@ -1690,13 +1696,13 @@ pub(super) fn inspect_send(
     assert!(!nia_2_inputs.is_empty());
     let nia_2_total_input: u64 = nia_2_inputs
         .iter()
-        .map(|i| i.assignment.main_amount())
+        .map(|i| input_assignment(i).main_amount())
         .sum();
     assert_eq!(nia_2_total_input, nia_2_total_output);
     assert_eq!(nia_2_total_input, AMOUNT_SMALL);
     for input in &nia_2_inputs {
-        assert!((input.vin as usize) < psbt_info.inputs.len());
-        assert_matches!(input.assignment, Assignment::Fungible(_));
+        assert!((input_vin(input) as usize) < psbt_info.inputs.len());
+        assert_matches!(input.assignment, Some(Assignment::Fungible(_)));
     }
 }
 

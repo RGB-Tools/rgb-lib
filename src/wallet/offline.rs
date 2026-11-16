@@ -2930,7 +2930,7 @@ pub trait WalletOffline: WalletBackup {
         })
     }
 
-    fn inspect_rgb_transfer_impl(
+    fn inspect_fascia_impl(
         &self,
         txn: &DbTxn,
         psbt: String,
@@ -2939,23 +2939,7 @@ pub trait WalletOffline: WalletBackup {
     ) -> Result<RgbInspection, Error> {
         // check request data validity
         let psbt = Psbt::from_str(&psbt)?;
-        check_file_exists(&fascia_path)?;
-        let fascia =
-            read_fascia(&PathBuf::from(&fascia_path)).map_err(|_| Error::InvalidFilePath {
-                file_path: fascia_path,
-            })?;
-
-        // verify the fascia's witness ID matches our PSBT's transaction ID
-        let fascia_witness_id = fascia.witness_id();
-        let witness_id = psbt.unsigned_tx.compute_txid();
-        if fascia_witness_id != witness_id {
-            return Err(Error::RgbInspection {
-                details: format!(
-                    "fascia witness ID {} does not match PSBT TXID {}",
-                    fascia_witness_id, witness_id
-                ),
-            });
-        }
+        let fascia = fascia_from_file(&fascia_path)?;
 
         // verify all PSBT inputs belong to this wallet
         for psbt_input in psbt.inputs.iter() {
@@ -2974,9 +2958,6 @@ pub trait WalletOffline: WalletBackup {
             }
         }
 
-        // inspect fascia bundles and collect operations and commitment messages
-        let mut messages = BTreeMap::new();
-        let mut operations = Vec::new();
         let mut stock = self.rgb_stock(txn)?;
         let prev_outputs: Vec<_> = psbt
             .unsigned_tx
@@ -2999,89 +2980,73 @@ pub trait WalletOffline: WalletBackup {
                 txn.get_txo(&outpoint).unwrap_or(None).is_some()
             }
         };
-        for (contract_id, bundle) in fascia.bundles() {
-            // collect the RGB inputs allocated in stock to the spent outputs
-            let mut stock_inputs = HashMap::new();
-            if let Ok(ass_map) =
-                stock.contract_assignments_for(*contract_id, prev_outputs.iter().copied())
-            {
-                for (explicit_seal, opout_state_map) in ass_map {
-                    let outpoint = explicit_seal.to_outpoint();
-                    for (opout, state) in opout_state_map {
-                        let assignment = Assignment::from_opout_and_state(opout, &state);
-                        stock_inputs.insert(opout, (outpoint, assignment));
+        fascia_inspection(
+            &psbt,
+            &fascia,
+            entropy,
+            |contract_id, bundle, witness_tx| {
+                // collect the RGB inputs allocated in stock to the spent outputs
+                let mut stock_inputs = HashMap::new();
+                if let Ok(ass_map) =
+                    stock.contract_assignments_for(contract_id, prev_outputs.iter().copied())
+                {
+                    for (explicit_seal, opout_state_map) in ass_map {
+                        let outpoint = explicit_seal.to_outpoint();
+                        for (opout, state) in opout_state_map {
+                            let assignment = Assignment::from_opout_and_state(opout, &state);
+                            stock_inputs.insert(opout, (outpoint, assignment));
+                        }
                     }
                 }
-            }
 
-            // safety check: ensure the bundle spends all the stock inputs, as the ones it doesn't
-            // spend would be lost (inputs missing in stock are detected when inspecting the bundle)
-            let bundle_input_opouts: HashSet<_> = bundle
-                .known_transitions
-                .iter()
-                .flat_map(|KnownTransition { transition, .. }| transition.inputs())
-                .collect();
-            let extra_in_stock: Vec<_> = stock_inputs
-                .keys()
-                .filter(|opout| !bundle_input_opouts.contains(opout))
-                .collect();
-            if !extra_in_stock.is_empty() {
-                return Err(Error::RgbInspection {
-                    details: format!(
-                        "bundle for contract {contract_id}: stock contains {} input(s) not declared in bundle (malformed transfer?): {extra_in_stock:?}",
-                        extra_in_stock.len(),
-                    ),
-                });
-            }
+                // safety check: ensure the bundle spends all the stock inputs, as the ones it
+                // doesn't spend would be lost (inputs missing in stock are detected when
+                // inspecting the bundle)
+                let bundle_input_opouts: HashSet<_> = bundle
+                    .known_transitions
+                    .iter()
+                    .flat_map(|KnownTransition { transition, .. }| transition.inputs())
+                    .collect();
+                let extra_in_stock: Vec<_> = stock_inputs
+                    .keys()
+                    .filter(|opout| !bundle_input_opouts.contains(opout))
+                    .collect();
+                if !extra_in_stock.is_empty() {
+                    return Err(Error::RgbInspection {
+                        details: format!(
+                            "bundle for contract {contract_id}: stock contains {} input(s) not declared in bundle (malformed transfer?): {extra_in_stock:?}",
+                            extra_in_stock.len(),
+                        ),
+                    });
+                }
 
-            // inspect bundle transitions
-            let chain_net = stock.genesis(*contract_id)?.chain_net;
-            let asset_schema = AssetSchema::get_from_contract_id(*contract_id, &stock)?;
-            let is_ours = |seal: &BuilderSeal<GraphSeal>| {
-                Some(match seal {
-                    BuilderSeal::Revealed(seal) => {
-                        is_revealed_seal_ours(seal.txid, seal.vout.into_u32())
-                    }
-                    BuilderSeal::Concealed(seal) => {
-                        stock.seal_of_secret(*seal).unwrap_or(None).is_some()
-                    }
-                })
-            };
-            let operation = bundle_info(
-                *contract_id,
-                asset_schema,
-                chain_net,
-                bundle,
-                &psbt.unsigned_tx,
-                true,
-                |opout| stock_inputs.get(&opout).cloned(),
-                is_ours,
-                |_| None,
-            )?;
-
-            operations.push(operation);
-
-            messages.insert(
-                ProtocolId::from(*contract_id),
-                Message::from(bundle.bundle_id()),
-            );
-        }
-
-        // rebuild the MPC commitment of the fascia bundles and verify the PSBT commits to it, which
-        // ensures the PSBT commits to these bundles only
-        let mut source = MultiSource::with_static_entropy(entropy);
-        source.messages = MediumOrdMap::from_checked(messages);
-        let merkle_tree = MerkleTree::try_commit(&source).expect("commit should succeed");
-        let commitment = merkle_tree.commit_id();
-        let dbc_proof = &fascia.seal_witness().dbc_proof;
-        verify_witness_commitment(dbc_proof, &commitment, &psbt.unsigned_tx)?;
-
-        Ok(RgbInspection {
-            txid: witness_id.to_string(),
-            close_method: dbc_proof.method(),
-            commitment_hex: hex::encode(commitment.to_byte_array()),
-            operations,
-        })
+                // inspect bundle transitions
+                let chain_net = stock.genesis(contract_id)?.chain_net;
+                let asset_schema = AssetSchema::get_from_contract_id(contract_id, &stock)?;
+                let is_ours = |seal: &BuilderSeal<GraphSeal>| {
+                    Some(match seal {
+                        BuilderSeal::Revealed(seal) => {
+                            is_revealed_seal_ours(seal.txid, seal.vout.into_u32())
+                        }
+                        BuilderSeal::Concealed(seal) => {
+                            stock.seal_of_secret(*seal).unwrap_or(None).is_some()
+                        }
+                    })
+                };
+                bundle_info(
+                    contract_id,
+                    Some(asset_schema),
+                    chain_net,
+                    bundle,
+                    witness_tx,
+                    true,
+                    true,
+                    |opout| stock_inputs.get(&opout).cloned(),
+                    is_ours,
+                    |_| None,
+                )
+            },
+        )
     }
 
     fn get_transfer_end_data(&self, psbt: &Psbt) -> Result<TransferEndData, Error> {
@@ -3397,19 +3362,27 @@ pub trait RgbWalletOpsOffline: WalletOffline + WalletBackup {
         Ok(inspection)
     }
 
-    /// Inspect a PSBT and an RGB fascia to verify the commitment and show information about the
-    /// RGB transfer.
-    fn inspect_rgb_transfer(
+    /// Inspect the given PSBT and the RGB fascia at the given path, saved by this wallet when it
+    /// built the operation, to verify the PSBT commits to the bundles of the fascia and show
+    /// information about the RGB transitions they carry.
+    ///
+    /// This works like [`crate::no_wallet::inspect_fascia`], which doesn't need a wallet, adding
+    /// what only the wallet knows: the PSBT inputs are checked to all be the wallet's, the
+    /// allocations the transitions spend are resolved from the wallet (an input that isn't
+    /// allocated in it, or that the bundle doesn't spend, is an error) and the outputs report
+    /// whether they are the wallet's. The assignment types of the transitions are also checked
+    /// against the schemas of their assets, which the wallet has the genesis of.
+    fn inspect_fascia(
         &self,
         psbt: String,
         fascia_path: String,
         entropy: u64,
     ) -> Result<RgbInspection, Error> {
-        info!(self.logger(), "Inspecting RGB transfer...");
+        info!(self.logger(), "Inspecting fascia...");
         let txn = self.database().begin_transaction()?;
-        let inspection = self.inspect_rgb_transfer_impl(&txn, psbt, fascia_path, entropy)?;
+        let inspection = self.inspect_fascia_impl(&txn, psbt, fascia_path, entropy)?;
         txn.commit()?;
-        info!(self.logger(), "RGB transfer inspection completed");
+        info!(self.logger(), "Fascia inspection completed");
         Ok(inspection)
     }
 }

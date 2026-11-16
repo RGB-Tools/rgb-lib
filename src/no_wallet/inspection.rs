@@ -1,18 +1,50 @@
-//! Consignment inspection.
+//! Inspection.
 //!
-//! This module defines the consignment inspection, which doesn't require a wallet, and the objects
-//! it returns, some of which are shared with wallet methods (e.g. the PSBT inspection ones).
+//! This module defines the consignment and fascia inspections, which don't require a wallet, and
+//! the objects they return, some of which are shared with wallet methods (e.g. the PSBT inspection
+//! ones).
 
 use super::*;
+
+/// An operation output, which RGB identifies as `<operation ID>/<assignment type>/<index>`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct Opout {
+    /// ID of the operation the output belongs to
+    pub opid: String,
+    /// Type of the assignment the output belongs to
+    pub assignment_type: TypeOfAssignment,
+    /// Index of the output among the ones of its assignment type
+    pub index: u16,
+}
+
+impl TryFrom<RgbOpout> for Opout {
+    /// The assignment type of the operation output, when it's not one of the supported schemas'
+    type Error = AssignmentType;
+
+    fn try_from(opout: RgbOpout) -> Result<Self, Self::Error> {
+        Ok(Self {
+            opid: opout.op.to_string(),
+            assignment_type: TypeOfAssignment::from_assignment_type(opout.ty).ok_or(opout.ty)?,
+            index: opout.no,
+        })
+    }
+}
 
 /// Information about an RGB input being spent.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct RgbInputInfo {
-    /// The input index in the transaction
-    pub vin: u32,
-    /// The assignment in input
-    pub assignment: Assignment,
+    /// The operation output the input spends, which the bundle of the spending transition commits
+    /// to in its input map
+    pub opout: Opout,
+    /// The index of the transaction input spending the allocation (`None` when the allocation
+    /// can't be resolved, as inspecting a fascia without a wallet)
+    pub vin: Option<u32>,
+    /// The assignment in input, the state it carries included (`None` when the spent allocation
+    /// isn't resolved, as inspecting a fascia without a wallet: the opout gives the type of the
+    /// assignment, not the state the input spends)
+    pub assignment: Option<Assignment>,
 }
 
 /// Information about an RGB output destination.
@@ -361,7 +393,7 @@ fn consignment_inspection<const TRANSFER: bool>(
         }
     }
     // get the spent outpoint and assignment of a transition input
-    let resolve_input = |opout: Opout| -> Option<(OutPoint, Assignment)> {
+    let resolve_input = |opout: RgbOpout| -> Option<(OutPoint, Assignment)> {
         if opout.op == genesis_id {
             let typed_assigns = consignment.genesis.assignments.get(&opout.ty)?;
             let seal = typed_assigns.revealed_seal_at(opout.no).ok()??;
@@ -404,10 +436,11 @@ fn consignment_inspection<const TRANSFER: bool>(
 
         let operation = bundle_info(
             contract_id,
-            asset_schema,
+            Some(asset_schema),
             consignment.genesis.chain_net,
             &witness_bundle.bundle,
             tx,
+            true,
             true,
             resolve_input,
             |_| None,
@@ -433,8 +466,138 @@ fn consignment_inspection<const TRANSFER: bool>(
     })
 }
 
+/// Inspect the given PSBT and the RGB fascia at the given path, both saved by the wallet that
+/// built the operation, to verify the PSBT commits to the bundles of the fascia and show
+/// information about the RGB transitions they carry, so that a signer can check what the PSBT it's
+/// asked to sign commits to.
+///
+/// The fascia is checked to be the one of the PSBT transaction and the MPC commitment of its
+/// bundles, rebuilt with the given entropy (also saved by the wallet that built the operation), to
+/// be the one the PSBT transaction commits to, which proves it commits to these bundles only. The
+/// bundles are checked to commit to the inspected transitions.
+///
+/// The given Bitcoin network is only used to build the recipient IDs of the blinded receives the
+/// transitions pay (their concealed seals in output), so it has to be the network of the assets.
+///
+/// Without a wallet the allocations the transitions spend aren't known, so an input only reports
+/// the operation output it spends, which its bundle commits to, unless another transition of the
+/// same bundle assigns it: [`RgbInputInfo::vin`] and [`RgbInputInfo::assignment`] are `None`.
+/// Which outputs are the signer's isn't known either ([`RgbOutputInfo::is_ours`] is `None`), and
+/// the assignment types of the transitions aren't checked against the schemas of their assets,
+/// which the fascia doesn't carry.
+#[cfg_attr(
+    feature = "wallet",
+    doc = "The wallet inspection ([`crate::wallet::RgbWalletOpsOffline::inspect_fascia`]) reports \
+           all of it."
+)]
+#[cfg_attr(
+    not(feature = "wallet"),
+    doc = "The wallet inspection (`wallet::RgbWalletOpsOffline::inspect_fascia`, available with \
+           the `wallet` feature) reports all of it."
+)]
+///
+/// This doesn't validate the operations: a successful inspection doesn't mean they are valid, nor
+/// that the transaction committing to them has been signed or broadcast.
+pub fn inspect_fascia(
+    psbt: String,
+    fascia_path: String,
+    entropy: u64,
+    bitcoin_network: BitcoinNetwork,
+) -> Result<RgbInspection, Error> {
+    // check request data validity
+    let psbt = Psbt::from_str(&psbt)?;
+    let fascia = fascia_from_file(&fascia_path)?;
+
+    fascia_inspection(
+        &psbt,
+        &fascia,
+        entropy,
+        |contract_id, bundle, witness_tx| {
+            bundle_info(
+                contract_id,
+                None,
+                bitcoin_network.into(),
+                bundle,
+                witness_tx,
+                true,
+                false,
+                |_| None,
+                |_| None,
+                |_| None,
+            )
+        },
+    )
+}
+
+/// Read the fascia the inspection is given the path of.
+pub(crate) fn fascia_from_file(fascia_path: &str) -> Result<Fascia, Error> {
+    check_file_exists(fascia_path)?;
+    read_fascia(Path::new(fascia_path)).map_err(|_| Error::InvalidFilePath {
+        file_path: fascia_path.to_string(),
+    })
+}
+
+/// Build the inspection details of a fascia, inspecting each of its bundles with the given
+/// function (called with the contract ID of the bundle and the witness transaction).
+///
+/// The fascia is checked to be the one of the PSBT transaction, which is then checked to commit to
+/// the MPC commitment rebuilt from the inspected bundles with the given entropy, so to these
+/// bundles only.
+pub(crate) fn fascia_inspection(
+    psbt: &Psbt,
+    fascia: &Fascia,
+    entropy: u64,
+    mut bundle_operation: impl FnMut(
+        ContractId,
+        &TransitionBundle,
+        &BdkTransaction,
+    ) -> Result<RgbOperationInfo, Error>,
+) -> Result<RgbInspection, Error> {
+    // verify the fascia's witness ID matches the PSBT's transaction ID
+    let fascia_witness_id = fascia.witness_id();
+    let witness_id = psbt.unsigned_tx.compute_txid();
+    if fascia_witness_id != witness_id {
+        return Err(Error::RgbInspection {
+            details: format!(
+                "fascia witness ID {fascia_witness_id} does not match PSBT TXID {witness_id}"
+            ),
+        });
+    }
+
+    // inspect the fascia bundles and collect the operations and the commitment messages
+    let mut messages = BTreeMap::new();
+    let mut operations = Vec::new();
+    for (contract_id, bundle) in fascia.bundles() {
+        operations.push(bundle_operation(*contract_id, bundle, &psbt.unsigned_tx)?);
+        messages.insert(
+            ProtocolId::from(*contract_id),
+            Message::from(bundle.bundle_id()),
+        );
+    }
+
+    // rebuild the MPC commitment of the fascia bundles and verify the PSBT commits to it, which
+    // ensures the PSBT commits to these bundles only
+    let mut source = MultiSource::with_static_entropy(entropy);
+    source.messages = MediumOrdMap::from_checked(messages);
+    // the protocol IDs are the contract IDs of the inspected fascia, so a fascia whose contracts
+    // can't be fit in a tree, which a valid one always can, is reported as invalid
+    let merkle_tree = MerkleTree::try_commit(&source).map_err(|e| Error::RgbInspection {
+        details: format!("cannot rebuild the MPC commitment of the fascia bundles: {e}"),
+    })?;
+    let commitment = merkle_tree.commit_id();
+    let dbc_proof = &fascia.seal_witness().dbc_proof;
+    verify_witness_commitment(dbc_proof, &commitment, &psbt.unsigned_tx)?;
+
+    Ok(RgbInspection {
+        txid: witness_id.to_string(),
+        close_method: dbc_proof.method(),
+        commitment_hex: hex::encode(commitment.to_byte_array()),
+        operations,
+    })
+}
+
 /// Verify the witness transaction commits to the given MPC commitment with the given DBC proof.
-pub(crate) fn verify_witness_commitment(
+fn verify_witness_commitment(
     dbc_proof: &DbcProof,
     commitment: &Commitment,
     witness_tx: &BdkTransaction,
@@ -570,7 +733,7 @@ fn genesis_info(
         media,
         outputs: outputs_info(
             &format!("genesis of contract {contract_id}"),
-            asset_schema,
+            Some(asset_schema),
             &genesis.assignments,
             genesis.chain_net,
             None,
@@ -580,32 +743,60 @@ fn genesis_info(
     })
 }
 
-/// Build the inspection details of the operation of a bundle, given its witness transaction and
-/// the functions resolving an input to the outpoint it's allocated to and its assignment, telling
-/// if an output seal is ours and if a transition is a terminal operation.
+/// Build the inspection details of the operation of a bundle, given its witness transaction, the
+/// schema of its asset (if known) and the functions resolving an input to the outpoint it's
+/// allocated to and its assignment, telling if an output seal is ours and if a transition is a
+/// terminal operation.
 ///
 /// The bundle ID only commits to the bundle input map, which binds each input to the ID of the
 /// transition spending it, so, if requested, transitions whose ID isn't the one committed for their
-/// inputs are rejected, as they're not the ones the bundle commits to.
+/// inputs are rejected, as they're not the ones the bundle commits to. Transitions of a contract
+/// other than the one the bundle is filed under are rejected as well, as nothing commits to it,
+/// and so are transitions listed twice, as the input map binds each input to a single transition.
+///
+/// Every input is expected to be resolved, by the given function or by another transition of the
+/// same bundle, unless `resolve_inputs` is false, as a fascia inspected without a wallet has
+/// nothing to resolve the spent allocations from: such an input only reports its opout. An input
+/// spending another transition of the same bundle is expected to be resolved in any case, as the
+/// bundle carries the assignment it spends.
 pub(crate) fn bundle_info(
     contract_id: ContractId,
-    asset_schema: AssetSchema,
+    asset_schema: Option<AssetSchema>,
     chain_net: ChainNet,
     bundle: &TransitionBundle,
     witness_tx: &BdkTransaction,
     check_commitments: bool,
-    mut resolve_input: impl FnMut(Opout) -> Option<(OutPoint, Assignment)>,
+    resolve_inputs: bool,
+    mut resolve_input: impl FnMut(RgbOpout) -> Option<(OutPoint, Assignment)>,
     mut is_ours: impl FnMut(&BuilderSeal<GraphSeal>) -> Option<bool>,
     mut is_terminal: impl FnMut(&OpId) -> Option<bool>,
 ) -> Result<RgbOperationInfo, Error> {
     // looked up for each input, as one may be assigned by another transition of the bundle
-    let bundle_transitions: HashMap<OpId, &Transition> = bundle
-        .known_transitions
-        .iter()
-        .map(|kt| (kt.opid, &kt.transition))
-        .collect();
+    let mut bundle_transitions: HashMap<OpId, &Transition> = HashMap::new();
+    for KnownTransition { opid, transition } in bundle.known_transitions.iter() {
+        // the transitions are a list, so the same one can be listed twice: as the input map binds
+        // each input to a single transition, it would be reported (and its state counted) twice
+        if bundle_transitions.insert(*opid, transition).is_some() {
+            return Err(Error::RgbInspection {
+                details: format!(
+                    "bundle for contract {contract_id}: transition {opid} is listed twice"
+                ),
+            });
+        }
+    }
     let mut transitions = vec![];
     for KnownTransition { opid, transition } in bundle.known_transitions.iter() {
+        // nothing commits to the contract a bundle is filed under, so a transition of another
+        // contract would be reported as one of this contract, while validating the operation,
+        // which checks the contract of each transition, would reject it
+        if transition.contract_id != contract_id {
+            return Err(Error::RgbInspection {
+                details: format!(
+                    "bundle for contract {contract_id}: transition {opid} is of contract {}",
+                    transition.contract_id
+                ),
+            });
+        }
         let inputs = transition.inputs();
         let committed = !check_commitments
             || transition.id() == *opid
@@ -622,23 +813,52 @@ pub(crate) fn bundle_info(
         }
         let mut inputs_info = vec![];
         for opout in inputs {
-            let (outpoint, assignment) = bundle_output(&bundle_transitions, opout)
-                .or_else(|| resolve_input(opout))
-                .ok_or_else(|| Error::RgbInspection {
-                    details: format!("bundle for contract {contract_id}: unknown input {opout}"),
-                })?;
-            let vin = witness_tx
-                .input
-                .iter()
-                .position(|i| i.previous_output == outpoint)
-                .ok_or_else(|| Error::RgbInspection {
-                    details: format!(
-                        "bundle for contract {contract_id}: input {opout} not spent by witness {}",
-                        witness_tx.compute_txid()
-                    ),
-                })?;
+            // an input spending another transition of the bundle is resolved by the bundle itself:
+            // if it isn't, that transition doesn't assign it (so the spending one doesn't spend
+            // what it claims) or assigns it to a seal the witness can't spend (a concealed one or
+            // one of the witness transaction itself, which this transaction can't spend)
+            let in_bundle = bundle_transitions.contains_key(&opout.op);
+            let resolved =
+                bundle_output(&bundle_transitions, opout).or_else(|| resolve_input(opout));
+            let (vin, assignment) = match resolved {
+                Some((outpoint, assignment)) => {
+                    let vin = witness_tx
+                        .input
+                        .iter()
+                        .position(|i| i.previous_output == outpoint)
+                        .ok_or_else(|| Error::RgbInspection {
+                            details: format!(
+                                "bundle for contract {contract_id}: input {opout} not spent by \
+                                 witness {}",
+                                witness_tx.compute_txid()
+                            ),
+                        })?;
+                    (Some(vin as u32), Some(assignment))
+                }
+                None if in_bundle => {
+                    return Err(Error::RgbInspection {
+                        details: format!(
+                            "bundle for contract {contract_id}: input {opout} isn't assigned by \
+                             the bundle to an outpoint the witness spends"
+                        ),
+                    });
+                }
+                None if resolve_inputs => {
+                    return Err(Error::RgbInspection {
+                        details: format!(
+                            "bundle for contract {contract_id}: unknown input {opout}"
+                        ),
+                    });
+                }
+                None => (None, None),
+            };
             inputs_info.push(RgbInputInfo {
-                vin: vin as u32,
+                opout: opout.try_into().map_err(|ty| Error::RgbInspection {
+                    details: format!(
+                        "bundle for contract {contract_id}: unknown assignment type: {ty}"
+                    ),
+                })?,
+                vin,
                 assignment,
             });
         }
@@ -665,7 +885,7 @@ pub(crate) fn bundle_info(
 /// (given by OpId, e.g. the split a burn spends) to an outpoint the witness transaction spends.
 fn bundle_output(
     bundle_transitions: &HashMap<OpId, &Transition>,
-    opout: Opout,
+    opout: RgbOpout,
 ) -> Option<(OutPoint, Assignment)> {
     let transition = bundle_transitions.get(&opout.op)?;
     let assigns = transition.assignments.get(&opout.ty)?;
@@ -681,7 +901,7 @@ fn bundle_output(
 /// inputs, the function telling if an output seal is ours and whether it's a terminal operation.
 fn transition_info(
     contract_id: ContractId,
-    asset_schema: AssetSchema,
+    asset_schema: Option<AssetSchema>,
     transition: &Transition,
     chain_net: ChainNet,
     witness_txid: Txid,
@@ -800,15 +1020,17 @@ fn transition_info(
 }
 
 /// Build the inspection details of the outputs of an operation, given the context to report in
-/// errors, the contract schema, chain and network, the TXID its seals pointing to the witness
-/// transaction refer to, the function telling if an output seal is ours and whether the operation
-/// is a terminal one.
+/// errors, the schema of its contract (if known), its chain and network, the TXID its seals
+/// pointing to the witness transaction refer to, the function telling if an output seal is ours and
+/// whether the operation is a terminal one.
 ///
 /// Assignment types rgb-lib can't represent are rejected, telling apart the ones defined by the
-/// schema but not supported yet from the ones unknown to it.
+/// schema but not supported yet from the ones unknown to it. Without the schema, which a fascia
+/// inspected without a wallet doesn't carry, the assignment types are only checked to be ones
+/// rgb-lib can represent, not to be allowed by the schema of the asset.
 fn outputs_info<Id: SealTxid>(
     context: &str,
-    asset_schema: AssetSchema,
+    asset_schema: Option<AssetSchema>,
     assignments: &Assignments<BlindSeal<Id>>,
     chain_net: ChainNet,
     witness_txid: Option<Txid>,
@@ -822,9 +1044,10 @@ where
     for (ass_type, typed_assigns) in assignments.iter() {
         for no in 0..typed_assigns.len_u16() {
             let Some(assignment) = Assignment::from_typed_assigns(*ass_type, typed_assigns, no)
-                .filter(|a| asset_schema.supports_assignment(a))
+                .filter(|a| asset_schema.is_none_or(|schema| schema.supports_assignment(a)))
             else {
-                let in_schema = asset_schema.schema().owned_types.contains_key(ass_type);
+                let in_schema = asset_schema
+                    .is_some_and(|schema| schema.schema().owned_types.contains_key(ass_type));
                 let kind = if in_schema {
                     "currently unsupported"
                 } else {
@@ -871,6 +1094,38 @@ where
 mod tests {
     use super::*;
 
+    /// A valid PSBT, of a transaction unrelated to any fascia.
+    const PSBT: &str = "cHNidP8BAF4CAAAAATQi69UHNVN1H3GVJyjCt2qx9Xsmt56SLSMwGM/GQxgBAQAAAAD9////AfQBAAAAAAAAIlEgoK74YaTaHlE4t4tfisItYxVkOmBakMt96x+kMAS6ArcZCgAAAAEBK+gDAAAAAAAAIlEgjWk7HP1AQKe/fp/RWQmQzRsfIQWHq+fWUteGf/YfEy0hFoJzo2OMevtseGK/uBkC+bautE/IgnmbDCz6eMojamp4GQA39GtzVgAAgB+fDIAAAACAAAAAAAAAAAABFyCCc6NjjHr7bHhiv7gZAvm2rrRPyIJ5mwws+njKI2pqeAAA";
+
+    #[test]
+    fn inspect_fascia_invalid_file() {
+        let inspect = |psbt: &str, fascia_path: &str| {
+            inspect_fascia(
+                psbt.to_string(),
+                fascia_path.to_string(),
+                0,
+                BitcoinNetwork::Regtest,
+            )
+        };
+
+        // invalid PSBT
+        let result = inspect("not a PSBT", "inexistent");
+        assert_matches!(result, Err(Error::InvalidPsbt { details: _ }));
+
+        // inexistent file
+        let result = inspect(PSBT, "inexistent");
+        assert!(
+            matches!(result, Err(Error::InvalidFilePath { file_path: f }) if f == "inexistent")
+        );
+
+        // not a fascia
+        let file = tempfile::NamedTempFile::with_prefix("inspect_fascia::").unwrap();
+        std::fs::write(file.path(), b"not a fascia").unwrap();
+        let file_path = file.path().to_string_lossy().to_string();
+        let result = inspect(PSBT, &file_path);
+        assert!(matches!(result, Err(Error::InvalidFilePath { file_path: f }) if f == file_path));
+    }
+
     #[test]
     fn inspect_consignment_invalid_file() {
         // inexistent file
@@ -880,18 +1135,46 @@ mod tests {
         );
 
         // not a consignment
-        let file_path = std::env::temp_dir().join("rgb_lib_inspect_consignment_invalid_file");
-        std::fs::write(&file_path, b"not a consignment").unwrap();
-        let result =
-            inspect_consignment(file_path.to_string_lossy().to_string(), BundleFilter::All);
+        let file = tempfile::NamedTempFile::with_prefix("inspect_consignment::").unwrap();
+        std::fs::write(file.path(), b"not a consignment").unwrap();
+        let file_path = file.path().to_string_lossy().to_string();
+        let result = inspect_consignment(file_path.clone(), BundleFilter::All);
         assert_matches!(result, Err(Error::InvalidConsignment));
 
         // invalid witness TXID
-        let result = inspect_consignment(
-            file_path.to_string_lossy().to_string(),
-            BundleFilter::Witness("invalid".to_string()),
-        );
+        let result = inspect_consignment(file_path, BundleFilter::Witness("invalid".to_string()));
         assert_matches!(result, Err(Error::InvalidTxid));
+    }
+
+    #[test]
+    fn opout_assignment_types() {
+        let opid = OpId::from([1; 32]);
+        let opout = |ty| Opout::try_from(RgbOpout::new(opid, ty, 3));
+
+        assert_eq!(
+            opout(OS_ASSET).unwrap(),
+            Opout {
+                opid: opid.to_string(),
+                assignment_type: TypeOfAssignment::Asset,
+                index: 3,
+            }
+        );
+        assert_eq!(
+            opout(OS_INFLATION).unwrap().assignment_type,
+            TypeOfAssignment::InflationRight
+        );
+        assert_eq!(
+            opout(OS_LINK).unwrap().assignment_type,
+            TypeOfAssignment::LinkRight
+        );
+        assert_eq!(
+            opout(OS_MINT).unwrap().assignment_type,
+            TypeOfAssignment::MintRight
+        );
+
+        // an assignment type no supported schema defines
+        let unknown = AssignmentType::with(u16::MAX);
+        assert_eq!(opout(unknown), Err(unknown));
     }
 
     #[test]
@@ -911,7 +1194,7 @@ mod tests {
                 .unwrap();
             assignments
         };
-        let outputs = |asset_schema: AssetSchema, ty: AssignmentType| {
+        let outputs = |asset_schema: Option<AssetSchema>, ty: AssignmentType| {
             outputs_info(
                 "ctx",
                 asset_schema,
@@ -924,19 +1207,30 @@ mod tests {
         };
 
         // supported types
-        let result = outputs(AssetSchema::Ifa, OS_LINK).unwrap();
+        let result = outputs(Some(AssetSchema::Ifa), OS_LINK).unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].assignment, Assignment::LinkRight);
-        let result = outputs(AssetSchema::Bfa, OS_MINT).unwrap();
+        let result = outputs(Some(AssetSchema::Bfa), OS_MINT).unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].assignment, Assignment::MintRight);
 
         // type unknown to the schema
-        let result = outputs(AssetSchema::Nia, OS_LINK);
+        let result = outputs(Some(AssetSchema::Nia), OS_LINK);
         assert_matches!(
             result,
             Err(Error::RgbInspection { details })
                 if details == format!("ctx: unknown assignment type: {OS_LINK}")
+        );
+
+        // without a schema the type is only checked to be one rgb-lib can represent
+        let result = outputs(None, OS_LINK).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].assignment, Assignment::LinkRight);
+        let result = outputs(None, AssignmentType::with(u16::MAX));
+        assert_matches!(
+            result,
+            Err(Error::RgbInspection { details })
+                if details == format!("ctx: unknown assignment type: {}", u16::MAX)
         );
     }
 }

@@ -512,6 +512,33 @@ pub enum Assignment {
     Any,
 }
 
+/// Type of RGB assignment
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub enum TypeOfAssignment {
+    /// The asset itself, fungible or not
+    Asset,
+    /// An inflation right, allowing to issue new tokens
+    InflationRight,
+    /// A link right, allowing to link the asset to a contract on another chain
+    LinkRight,
+    /// A mint right, allowing to mint tokens backed by the ones locked on the external chain
+    MintRight,
+}
+
+impl TypeOfAssignment {
+    /// Get the type of the given RGB assignment type, returning `None` for the ones unknown to the
+    /// supported schemas.
+    pub(crate) fn from_assignment_type(ty: AssignmentType) -> Option<Self> {
+        match ty {
+            OS_ASSET => Some(Self::Asset),
+            OS_INFLATION => Some(Self::InflationRight),
+            OS_LINK => Some(Self::LinkRight),
+            OS_MINT => Some(Self::MintRight),
+            _ => None,
+        }
+    }
+}
+
 #[cfg(feature = "wallet")]
 impl Assignment {
     pub(crate) fn from_opout_and_state(opout: Opout, state: &AllocatedState) -> Self {

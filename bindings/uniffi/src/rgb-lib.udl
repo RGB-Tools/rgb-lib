@@ -15,6 +15,10 @@ namespace rgb_lib {
   ConsignmentInspection inspect_consignment(string consignment_path, BundleFilter bundle_filter);
 
   [Throws=RgbLibError]
+  RgbInspection inspect_fascia(string psbt, string fascia_path, u64 entropy,
+    BitcoinNetwork bitcoin_network);
+
+  [Throws=RgbLibError]
   ConsignmentValidation validate_consignment(string consignment_path,
     IndexerConfig indexer_config, record<u64, string> evm_rpc_urls, u8? min_confirmations,
     ValidationOptions options);
@@ -913,9 +917,17 @@ dictionary PsbtInspection {
 };
 
 [Remote]
+dictionary Opout {
+  string opid;
+  TypeOfAssignment assignment_type;
+  u16 index;
+};
+
+[Remote]
 dictionary RgbInputInfo {
-  u32 vin;
-  Assignment assignment;
+  Opout opout;
+  u32? vin;
+  Assignment? assignment;
 };
 
 [Remote]
@@ -936,6 +948,14 @@ dictionary RgbOperationInfo {
   u32 committed_transition_count;
   u32 committed_input_count;
   sequence<RgbTransitionInfo> transitions;
+};
+
+[Remote]
+enum TypeOfAssignment {
+  "Asset",
+  "InflationRight",
+  "LinkRight",
+  "MintRight",
 };
 
 [Remote]
@@ -1136,7 +1156,7 @@ interface Wallet {
   PsbtInspection inspect_psbt(string psbt);
 
   [Throws=RgbLibError]
-  RgbInspection inspect_rgb_transfer(
+  RgbInspection inspect_fascia(
     string psbt, string fascia_path, u64 entropy);
 
   [Throws=RgbLibError]
@@ -1371,7 +1391,7 @@ interface MultisigWallet {
   PsbtInspection inspect_psbt(string psbt);
 
   [Throws=RgbLibError]
-  RgbInspection inspect_rgb_transfer(
+  RgbInspection inspect_fascia(
     string psbt, string fascia_path, u64 entropy);
 
   [Throws=RgbLibError]

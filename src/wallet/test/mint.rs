@@ -98,7 +98,7 @@ fn success() {
     // check the opid matches the one of the mint transition found via inspection
     let rgb_inspection = party
         .wallet
-        .inspect_rgb_transfer(
+        .inspect_fascia(
             res.psbt.clone(),
             res.details.fascia_path.clone(),
             res.details.entropy,

@@ -376,6 +376,16 @@ pub extern "C" fn rgblib_inspect_consignment(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn rgblib_inspect_fascia(
+    psbt: *const c_char,
+    fascia_path: *const c_char,
+    entropy: u64,
+    bitcoin_network: *const c_char,
+) -> CResultString {
+    inspect_fascia(psbt, fascia_path, entropy, bitcoin_network).into()
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn rgblib_invoice_data(invoice_string: *const c_char) -> CResultString {
     invoice_data(invoice_string).into()
 }

@@ -319,14 +319,14 @@ impl From<RejectListLocation> for RejectListSource {
 /// ones along its history, is decided when walking the history (see `rejected_opouts`).
 #[derive(Debug, Default)]
 pub struct RejectList {
-    pub(crate) reject_opouts: HashSet<Opout>,
-    pub(crate) allow_opouts: HashSet<Opout>,
+    pub(crate) reject_opouts: HashSet<RgbOpout>,
+    pub(crate) allow_opouts: HashSet<RgbOpout>,
 }
 
 impl RejectList {
     /// Build a reject list from the given decisions, in the order they were taken: each opout
     /// rejected or, if `true`, allowed (the last decision for an opout wins).
-    pub fn from_decisions(decisions: impl IntoIterator<Item = (Opout, bool)>) -> Self {
+    pub fn from_decisions(decisions: impl IntoIterator<Item = (RgbOpout, bool)>) -> Self {
         let mut reject_list = Self::default();
         for (opout, allow) in decisions {
             reject_list.insert(opout, allow);
@@ -335,7 +335,7 @@ impl RejectList {
     }
 
     /// Record a decision about `opout`, replacing any earlier one.
-    pub(crate) fn insert(&mut self, opout: Opout, allow: bool) {
+    pub(crate) fn insert(&mut self, opout: RgbOpout, allow: bool) {
         let (decided, replaced) = if allow {
             (&mut self.allow_opouts, &mut self.reject_opouts)
         } else {
@@ -356,7 +356,7 @@ impl RejectList {
         let mut invalid = 0;
         for line in list.lines().map(str::trim).filter(|l| !l.is_empty()) {
             let (is_allow, opout_str) = line.strip_prefix("!").map_or((false, line), |s| (true, s));
-            match Opout::from_str(opout_str) {
+            match RgbOpout::from_str(opout_str) {
                 Ok(opout) => reject_list.insert(opout, is_allow),
                 Err(_) => invalid += 1,
             }
@@ -374,11 +374,11 @@ impl RejectList {
         })
     }
 
-    pub(crate) fn rejects(&self, opout: &Opout) -> bool {
+    pub(crate) fn rejects(&self, opout: &RgbOpout) -> bool {
         self.reject_opouts.contains(opout)
     }
 
-    pub(crate) fn allows(&self, opout: &Opout) -> bool {
+    pub(crate) fn allows(&self, opout: &RgbOpout) -> bool {
         self.allow_opouts.contains(opout)
     }
 }
@@ -1163,7 +1163,7 @@ pub(crate) fn check_reject_list(
     genesis: &Genesis,
     ops_dag: Option<&OpsDag>,
     reject_list_resolver: Option<&dyn ResolveRejectList>,
-    opouts: &HashSet<Opout>,
+    opouts: &HashSet<RgbOpout>,
 ) -> Result<(), Error> {
     let Some(source) = genesis_reject_list_source_validated(asset_schema, genesis)? else {
         return Ok(());
@@ -1264,7 +1264,7 @@ pub(crate) fn genesis_reject_list_source_validated(
 /// consignment but not proven by it, so they are never checked.
 pub(crate) fn reject_check_origins<const TRANSFER: bool>(
     consignment: &Consignment<TRANSFER>,
-) -> HashSet<Opout> {
+) -> HashSet<RgbOpout> {
     let terminal_ops = consignment.terminal_ops();
     let mut opouts = HashSet::new();
     for KnownTransition { opid, transition } in consignment
@@ -1276,7 +1276,7 @@ pub(crate) fn reject_check_origins<const TRANSFER: bool>(
         opouts.extend(transition.inputs());
         for (ass_type, typed_assigns) in transition.assignments.iter() {
             for no in 0..typed_assigns.len_u16() {
-                opouts.insert(Opout::new(*opid, *ass_type, no));
+                opouts.insert(RgbOpout::new(*opid, *ass_type, no));
             }
         }
     }
@@ -1289,8 +1289,8 @@ pub(crate) fn reject_check_origins<const TRANSFER: bool>(
 pub(crate) fn rejected_opouts(
     ops_dag: &OpsDag,
     reject_list: &RejectList,
-    check_opouts: &HashSet<Opout>,
-) -> Result<HashSet<Opout>, Error> {
+    check_opouts: &HashSet<RgbOpout>,
+) -> Result<HashSet<RgbOpout>, Error> {
     let mut to_reject = HashSet::new();
     // shared by the walks, so that a history common to several opouts is walked once
     let mut rejected = HashMap::new();
@@ -1490,7 +1490,7 @@ pub(crate) mod tests {
                         if next(3 * i + 1) >= density {
                             continue;
                         }
-                        let input = Opout::new(op(j), AssignmentType::with(4000), no);
+                        let input = RgbOpout::new(op(j), AssignmentType::with(4000), no);
                         match next(10) {
                             0 => {
                                 reject_list.reject_opouts.insert(input);
@@ -1535,7 +1535,7 @@ pub(crate) mod tests {
 
     #[test]
     fn reject_list_latest_decision() {
-        let opout = Opout::new(OpId::from([1; 32]), AssignmentType::with(0), 0);
+        let opout = RgbOpout::new(OpId::from([1; 32]), AssignmentType::with(0), 0);
         let mut reject_list = RejectList::default();
         assert!(!reject_list.rejects(&opout) && !reject_list.allows(&opout));
         reject_list.insert(opout, false);

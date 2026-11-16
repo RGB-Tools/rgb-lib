@@ -13,12 +13,13 @@ pub(crate) mod validation;
 use super::*;
 
 pub use inspection::{
-    BundleFilter, ConsignmentInspection, RgbBridgeLocationInfo, RgbEvmContractInfo, RgbGenesisInfo,
-    RgbInputInfo, RgbInspection, RgbMediaInfo, RgbOperationInfo, RgbOutputInfo, RgbRejectListInfo,
-    RgbTransitionInfo, TransitionGlobal, TransitionMetadata, inspect_consignment,
+    BundleFilter, ConsignmentInspection, Opout, RgbBridgeLocationInfo, RgbEvmContractInfo,
+    RgbGenesisInfo, RgbInputInfo, RgbInspection, RgbMediaInfo, RgbOperationInfo, RgbOutputInfo,
+    RgbRejectListInfo, RgbTransitionInfo, TransitionGlobal, TransitionMetadata,
+    inspect_consignment, inspect_fascia,
 };
 #[cfg(feature = "wallet")]
-pub(crate) use inspection::{bundle_info, verify_witness_commitment};
+pub(crate) use inspection::{bundle_info, fascia_from_file, fascia_inspection};
 #[cfg(feature = "_validation")]
 pub use validation::{BitcoindAuth, IndexerConfig, IndexerProtocol, validate_consignment};
 pub use validation::{
@@ -495,6 +496,9 @@ impl TryFrom<RgbTransport> for TransportEndpoint {
 // Files
 // ────────────────────────────────────────────────────────────
 
+/// Size cap for a strict-encoded fascia file, matching what rgb-ops uses for its own containers.
+pub(crate) const FASCIA_MAX_LEN: usize = amplify::confinement::U32;
+
 /// Check the file at the given path exists.
 pub(crate) fn check_file_exists(file_path: &str) -> Result<(), Error> {
     if !Path::new(file_path).exists() {
@@ -503,6 +507,13 @@ pub(crate) fn check_file_exists(file_path: &str) -> Result<(), Error> {
         });
     }
     Ok(())
+}
+
+/// Read a fascia file, which is strict-encoded like every other RGB container.
+pub(crate) fn read_fascia(path: &Path) -> Result<Fascia, Error> {
+    Fascia::strict_deserialize_from_file::<FASCIA_MAX_LEN>(path).map_err(|e| Error::Internal {
+        details: format!("cannot read fascia {}: {e}", path.display()),
+    })
 }
 
 #[cfg(test)]

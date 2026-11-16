@@ -108,7 +108,7 @@ fn success() {
     assert_eq!(transition.inputs.len(), 1);
     assert_eq!(
         transition.inputs[0].assignment,
-        Assignment::Fungible(AMOUNT)
+        Some(Assignment::Fungible(AMOUNT))
     );
     // outputs: the two recipients' and the change, all of the terminal operation
     assert_eq!(transition.outputs.len(), 3);
@@ -314,7 +314,7 @@ fn success() {
     assert_eq!(operation.committed_input_count, 2);
     let transition = &operation.transitions[0];
     assert_eq!(transition.inputs.len(), 2);
-    let mut input_assignments: Vec<_> = transition.inputs.iter().map(|i| &i.assignment).collect();
+    let mut input_assignments: Vec<_> = transition.inputs.iter().map(input_assignment).collect();
     input_assignments.sort();
     assert_eq!(
         input_assignments,
@@ -332,7 +332,7 @@ fn success() {
     assert!(transition.outputs[0].is_concealed);
     assert_eq!(transition.outputs[0].is_terminal, Some(true));
     assert_eq!(
-        fungible_sum(transition.inputs.iter().map(|i| &i.assignment)),
+        fungible_sum(transition.inputs.iter().map(input_assignment)),
         fungible_sum(transition.outputs.iter().map(|o| &o.assignment))
     );
 }

@@ -1105,9 +1105,8 @@ impl From<bdk_wallet::bitcoin::bip32::Error> for Error {
     }
 }
 
-#[cfg(feature = "wallet")]
-impl From<bdk_wallet::bitcoin::psbt::PsbtParseError> for Error {
-    fn from(e: bdk_wallet::bitcoin::psbt::PsbtParseError) -> Self {
+impl From<PsbtParseError> for Error {
+    fn from(e: PsbtParseError) -> Self {
         Error::InvalidPsbt {
             details: e.to_string(),
         }

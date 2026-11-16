@@ -59,7 +59,7 @@ use crate::{
     database::enums::{SCHEMA_ID_CFA, SCHEMA_ID_IFA, SCHEMA_ID_NIA, SCHEMA_ID_UDA},
     no_wallet::{
         BundleFilter, ResolveRejectList, RgbBridgeLocationInfo, RgbEvmContractInfo, RgbMediaInfo,
-        RgbRejectListInfo, inspect_consignment, validate_consignment,
+        RgbRejectListInfo, inspect_consignment, inspect_fascia, validate_consignment,
         validate_consignment_with_resolver, validation::RemoteRejectListResolver,
     },
     utils::{get_account_data, recipient_id_from_script_buf, script_buf_from_recipient_id},
@@ -687,7 +687,7 @@ mod inflate;
 #[cfg(feature = "electrum")]
 mod inspect_consignment;
 #[cfg(feature = "electrum")]
-mod inspect_rgb_transfer;
+mod inspect_fascia;
 #[cfg(feature = "electrum")]
 mod issue_asset_bfa;
 #[cfg(feature = "electrum")]

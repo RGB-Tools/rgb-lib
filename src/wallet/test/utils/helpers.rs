@@ -402,6 +402,24 @@ pub(crate) fn write_opouts_to_reject_list(filename: &str, opouts: &[String]) {
     }
 }
 
+/// The assignment an inspected input spends, which the wallet and the consignment inspections
+/// always resolve (only a fascia inspected without a wallet leaves it unresolved).
+#[cfg(feature = "electrum")]
+pub(crate) fn input_assignment(input: &RgbInputInfo) -> &Assignment {
+    input
+        .assignment
+        .as_ref()
+        .expect("input assignment should be resolved")
+}
+
+/// The index of the transaction input an inspected input is spent by, which the wallet and the
+/// consignment inspections always resolve (only a fascia inspected without a wallet leaves it
+/// unresolved).
+#[cfg(feature = "electrum")]
+pub(crate) fn input_vin(input: &RgbInputInfo) -> u32 {
+    input.vin.expect("input vin should be resolved")
+}
+
 /// A recipient of the given `assignment` paying the blind receive described by `receive_data`,
 /// with optional encryption and the default transport endpoints.
 #[cfg(feature = "electrum")]
