@@ -1,6 +1,6 @@
-//! Utilities.
+//! Wallet utilities.
 //!
-//! This module defines some utility methods and structures.
+//! This module defines some utility methods and structures of the wallet.
 
 use super::*;
 

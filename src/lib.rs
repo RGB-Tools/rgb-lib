@@ -197,8 +197,6 @@ pub(crate) mod error;
 pub mod keys;
 pub mod no_wallet;
 #[cfg(feature = "wallet")]
-pub mod utils;
-#[cfg(feature = "wallet")]
 pub mod wallet;
 
 #[cfg(feature = "wallet")]
@@ -237,7 +235,7 @@ pub use crate::{
 #[cfg(feature = "wallet")]
 pub use crate::{
     database::enums::{TransferStatus, WalletTransactionType},
-    utils::block_on,
+    wallet::utils::block_on,
 };
 
 #[cfg(feature = "_validation")]
@@ -547,18 +545,6 @@ use crate::no_wallet::{
     Outpoint, beneficiary_from_script_buf, bundle_info, fascia_from_file, fascia_inspection,
     read_fascia,
 };
-#[cfg(feature = "electrum")]
-use crate::utils::INDEXER_BATCH_SIZE;
-#[cfg(feature = "esplora")]
-use crate::utils::INDEXER_PARALLEL_REQUESTS;
-#[cfg(any(feature = "electrum", feature = "esplora"))]
-use crate::utils::INDEXER_STOP_GAP;
-#[cfg(feature = "_online")]
-use crate::utils::write_fascia;
-#[cfg(feature = "wallet")]
-use crate::utils::{check_psbt_parsable, strip_rgb_data};
-#[cfg(feature = "bitcoind")]
-use crate::wallet::BitcoindClient;
 #[cfg(feature = "_online")]
 #[cfg(test)]
 use crate::wallet::test::{
@@ -568,6 +554,16 @@ use crate::wallet::test::{
     mock_mint_kept_amount, mock_retention_grace, mock_send_end_crash, mock_spam_hidden_spends,
     mock_spam_recipient_assignments, skip_build_dag, skip_check_fee_rate, spv_only,
 };
+#[cfg(feature = "electrum")]
+use crate::wallet::utils::INDEXER_BATCH_SIZE;
+#[cfg(feature = "esplora")]
+use crate::wallet::utils::INDEXER_PARALLEL_REQUESTS;
+#[cfg(any(feature = "electrum", feature = "esplora"))]
+use crate::wallet::utils::INDEXER_STOP_GAP;
+#[cfg(feature = "_online")]
+use crate::wallet::utils::write_fascia;
+#[cfg(feature = "wallet")]
+use crate::wallet::utils::{check_psbt_parsable, strip_rgb_data};
 #[cfg(feature = "_online")]
 use crate::{
     api::{
@@ -594,12 +590,12 @@ use crate::{
         encrypt_blob, encrypt_to_tempfile, invoice_id, sign_ed25519, solve_pow, transfer_id,
         verify_ed25519, verifying_key_from_bytes,
     },
-    no_wallet::{BitcoindAuth, IndexerConfig, script_buf_from_recipient_id},
-    utils::{
+    no_wallet::script_buf_from_recipient_id,
+    wallet::utils::{
         check_proxy, detect_indexer, get_indexer_and_resolver, hash_file, proxy_max_media,
         proxy_retention_grace,
     },
-    wallet::{AssignmentsCollection, Indexer, multisig::RespondToOperation},
+    wallet::{AssignmentsCollection, multisig::RespondToOperation},
 };
 #[cfg(feature = "wallet")]
 use crate::{
@@ -652,7 +648,7 @@ use crate::{
     encryption::{gen_ed25519, sha256_digest},
     error::InternalError,
     keys::{Keys, WitnessVersion},
-    utils::{
+    wallet::utils::{
         ACCOUNT, DumbResolver, KEYCHAIN_BTC, KEYCHAIN_RGB, LOG_FILE, PURPOSE,
         RGB_RUNTIME_DELETING_DIR, RgbStock, adjust_canonicalization, atomic_tmp_path, atomic_write,
         atomic_write_with, bfa_reject_list_url, from_str_or_number_mandatory,
@@ -660,10 +656,7 @@ use crate::{
         get_descriptors_from_xpubs, hash_bytes, hash_bytes_hex, now, parse_address_str,
         setup_logger, str_to_xpub,
     },
-    wallet::{
-        AssetFilter, Balance, LocalRgbAllocation, LocalUnspent, NUM_KNOWN_SCHEMAS,
-        WalletDescriptors,
-    },
+    wallet::{AssetFilter, Balance, LocalRgbAllocation, LocalUnspent, NUM_KNOWN_SCHEMAS},
 };
 // the mock electrum server of the validation tests, shared with the wallet ones
 #[cfg(all(test, feature = "electrum"))]

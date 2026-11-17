@@ -46,14 +46,14 @@ use crate::encryption::ENC_VERSION;
 use crate::keys::Keys;
 #[cfg(all(feature = "electrum", feature = "rgb_fs_store_migration"))]
 use crate::keys::restore_keys;
-#[cfg(all(feature = "electrum", feature = "rgb_fs_store_migration"))]
-use crate::utils::{RGB_RUNTIME_DELETING_DIR, RGB_RUNTIME_DIR};
 #[cfg(feature = "_online")]
 use crate::wallet::online::*;
 #[cfg(feature = "electrum")]
 use crate::wallet::rust_only::check_proxy_url;
 #[cfg(any(feature = "electrum", feature = "esplora"))]
 use crate::wallet::utils::build_indexer;
+#[cfg(all(feature = "electrum", feature = "rgb_fs_store_migration"))]
+use crate::wallet::utils::{RGB_RUNTIME_DELETING_DIR, RGB_RUNTIME_DIR};
 #[cfg(feature = "electrum")]
 use crate::{
     database::enums::{SCHEMA_ID_CFA, SCHEMA_ID_IFA, SCHEMA_ID_NIA, SCHEMA_ID_UDA},
@@ -62,12 +62,12 @@ use crate::{
         RgbRejectListInfo, inspect_consignment, inspect_fascia, validate_consignment,
         validate_consignment_with_resolver, validation::RemoteRejectListResolver,
     },
-    utils::{get_account_data, recipient_id_from_script_buf, script_buf_from_recipient_id},
+    wallet::utils::{get_account_data, recipient_id_from_script_buf, script_buf_from_recipient_id},
     wallet::{multisig::*, rust_only::*},
 };
 use crate::{
     keys::generate_keys,
-    utils::{
+    wallet::utils::{
         KEYCHAIN_BTC, KEYCHAIN_RGB, get_account_derivation_children, get_coin_type,
         get_extended_derivation_path,
     },

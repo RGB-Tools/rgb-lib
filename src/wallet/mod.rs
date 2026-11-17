@@ -13,6 +13,7 @@ pub(crate) mod offline;
 pub(crate) mod online;
 pub mod rust_only;
 pub(crate) mod singlesig;
+pub mod utils;
 
 #[cfg(test)]
 pub(crate) mod test;
