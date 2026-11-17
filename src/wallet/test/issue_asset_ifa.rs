@@ -288,6 +288,33 @@ fn no_issue_on_pending_send() {
     );
 }
 
+/// The reject list the asset commits to, served at a URL, is reported by the issuance, by the
+/// asset list and by the asset metadata.
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn reject_list() {
+    initialize();
+
+    let mut party = get_funded_party!();
+
+    let reject_list_url = s!("http://example.com/reject-list");
+    let asset = party.issue_asset_ifa(Some(&[AMOUNT]), None, Some(reject_list_url.clone()));
+
+    let expected = Some(RgbRejectListInfo::Url(reject_list_url));
+    assert_eq!(asset.reject_list, expected);
+    let listed = party
+        .list_assets(&[AssetSchema::Ifa])
+        .ifa
+        .unwrap()
+        .into_iter()
+        .find(|a| a.asset_id == asset.asset_id)
+        .unwrap();
+    assert_eq!(listed.reject_list, expected);
+    let metadata = party.get_asset_metadata(&asset.asset_id);
+    assert_eq!(metadata.reject_list, expected);
+}
+
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]

@@ -545,8 +545,8 @@ use crate::no_wallet::validation::{
 };
 #[cfg(feature = "wallet")]
 use crate::no_wallet::{
-    Outpoint, beneficiary_from_script_buf, bundle_info, fascia_from_file, fascia_inspection,
-    read_fascia,
+    Outpoint, RgbRejectListInfo, beneficiary_from_script_buf, bundle_info, fascia_from_file,
+    fascia_inspection, read_fascia,
 };
 #[cfg(any(feature = "wallet", feature = "_validation"))]
 use crate::utils::atomic_write_with;
@@ -657,10 +657,10 @@ use crate::{
     keys::{Keys, WitnessVersion},
     wallet::utils::{
         ACCOUNT, DumbResolver, KEYCHAIN_BTC, KEYCHAIN_RGB, LOG_FILE, PURPOSE,
-        RGB_RUNTIME_DELETING_DIR, RgbStock, adjust_canonicalization, bfa_reject_list_url,
-        from_str_or_number_mandatory, from_str_or_number_optional, get_account_xpubs,
-        get_coin_type, get_descriptors, get_descriptors_from_xpubs, hash_bytes, hash_bytes_hex,
-        now, parse_address_str, setup_logger, str_to_xpub,
+        RGB_RUNTIME_DELETING_DIR, RgbStock, adjust_canonicalization, from_str_or_number_mandatory,
+        from_str_or_number_optional, get_account_xpubs, get_coin_type, get_descriptors,
+        get_descriptors_from_xpubs, hash_bytes, hash_bytes_hex, now, parse_address_str,
+        setup_logger, str_to_xpub,
     },
     wallet::{AssetFilter, Balance, LocalRgbAllocation, LocalUnspent, NUM_KNOWN_SCHEMAS},
 };

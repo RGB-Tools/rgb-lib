@@ -321,18 +321,6 @@ pub(crate) fn parse_address_str(
         })
 }
 
-/// The URL of a BFA reject list, if the contract declares one served at a URL.
-///
-/// This is only the URL recorded in the DB and reported in the asset metadata: a reject list kept
-/// by an EVM contract has no URL, so it gives `None` here, but it is still enforced, as the reject
-/// list of a BFA asset is read off its genesis when needed (see `genesis_reject_list_source`).
-pub(crate) fn bfa_reject_list_url(location: Option<RejectListLocation>) -> Option<String> {
-    match location? {
-        RejectListLocation::Url(url) => Some(url.to_string()),
-        RejectListLocation::Evm(_) => None,
-    }
-}
-
 fn get_derivation_path(keychain: u8) -> DerivationPath {
     let derivation_path = vec![ChildNumber::from_normal_idx(keychain as u32).unwrap()];
     DerivationPath::from_iter(derivation_path.clone())

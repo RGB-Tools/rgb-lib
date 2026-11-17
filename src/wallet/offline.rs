@@ -658,7 +658,7 @@ pub trait WalletOffline: WalletBackup {
             initial_supply: settled,
             max_supply: None,
             known_circulating_supply: None,
-            reject_list_url: None,
+            reject_list: None,
             linked_from_contract: None,
             token: None,
             timestamp: valid_contract.genesis.timestamp,
@@ -804,7 +804,7 @@ pub trait WalletOffline: WalletBackup {
             initial_supply: 1,
             max_supply: None,
             known_circulating_supply: None,
-            reject_list_url: None,
+            reject_list: None,
             linked_from_contract: None,
             token: Some(Token::from_token_data(&token_data, self.media_dir())),
             timestamp: valid_contract.genesis.timestamp,
@@ -914,7 +914,7 @@ pub trait WalletOffline: WalletBackup {
             initial_supply: settled,
             max_supply: None,
             known_circulating_supply: None,
-            reject_list_url: None,
+            reject_list: None,
             linked_from_contract: None,
             token: None,
             timestamp: valid_contract.genesis.timestamp,
@@ -1089,7 +1089,7 @@ pub trait WalletOffline: WalletBackup {
             initial_supply: settled,
             max_supply: Some(max_supply),
             known_circulating_supply: Some(settled),
-            reject_list_url,
+            reject_list: reject_list_url.map(RgbRejectListInfo::Url),
             linked_from_contract: linked_from_contract.map(|c| c.to_string()),
             token: None,
             timestamp: valid_contract.genesis.timestamp,
@@ -1194,15 +1194,17 @@ pub trait WalletOffline: WalletBackup {
                 .add_global_state("details", details.clone())
                 .expect("invalid details");
         }
-        if let Some(reject_list_address) = reject_list_address {
+        let reject_list = reject_list_address
+            .map(|address| {
+                Ok::<_, Error>(RejectListLocation::Evm(EvmContract {
+                    chain_id,
+                    address: self.check_contract_address(address)?,
+                }))
+            })
+            .transpose()?;
+        if let Some(reject_list) = reject_list.clone() {
             builder = builder
-                .add_global_state(
-                    RGB_GLOBAL_REJECT_LIST,
-                    RejectListLocation::Evm(EvmContract {
-                        chain_id,
-                        address: self.check_contract_address(reject_list_address)?,
-                    }),
-                )
+                .add_global_state(RGB_GLOBAL_REJECT_LIST, reject_list)
                 .expect("invalid rejectList");
         }
 
@@ -1252,7 +1254,7 @@ pub trait WalletOffline: WalletBackup {
             initial_supply: 0,
             max_supply: None,
             known_circulating_supply: None,
-            reject_list_url: None,
+            reject_list: reject_list.map(RgbRejectListInfo::from),
             linked_from_contract: linked_from_contract.map(|c| c.to_string()),
             token: None,
             timestamp: valid_contract.genesis.timestamp,
@@ -1793,7 +1795,7 @@ pub trait WalletOffline: WalletBackup {
             ticker: asset.ticker,
             details: asset.details,
             token,
-            reject_list_url: asset.reject_list_url,
+            reject_list: asset.reject_list,
             linked_from_contract: asset.linked_from_contract,
             linked_to_contract: asset.linked_to_contract,
         })
@@ -1841,7 +1843,7 @@ pub trait WalletOffline: WalletBackup {
             precision: ActiveValue::Set(asset_data.precision),
             ticker: ActiveValue::Set(asset_data.ticker.clone()),
             timestamp: ActiveValue::Set(asset_data.timestamp),
-            reject_list_url: ActiveValue::Set(asset_data.reject_list_url.clone()),
+            reject_list: ActiveValue::Set(asset_data.reject_list.clone()),
             linked_from_contract: ActiveValue::Set(asset_data.linked_from_contract.clone()),
             linked_to_contract: ActiveValue::Set(None),
         };
@@ -2030,7 +2032,7 @@ pub trait WalletOffline: WalletBackup {
                     initial_supply,
                     max_supply: None,
                     known_circulating_supply: None,
-                    reject_list_url: None,
+                    reject_list: None,
                     linked_from_contract: None,
                     token: None,
                     timestamp,
@@ -2061,7 +2063,7 @@ pub trait WalletOffline: WalletBackup {
                     initial_supply,
                     max_supply: None,
                     known_circulating_supply: None,
-                    reject_list_url: None,
+                    reject_list: None,
                     linked_from_contract: None,
                     token: Some(token_full),
                     timestamp,
@@ -2089,7 +2091,7 @@ pub trait WalletOffline: WalletBackup {
                     initial_supply,
                     max_supply: None,
                     known_circulating_supply: None,
-                    reject_list_url: None,
+                    reject_list: None,
                     linked_from_contract: None,
                     token: None,
                     timestamp,
@@ -2116,7 +2118,9 @@ pub trait WalletOffline: WalletBackup {
                 } else {
                     initial_supply
                 };
-                let reject_list_url = contract.reject_list_url().map(|u| u.to_string());
+                let reject_list = contract
+                    .reject_list_url()
+                    .map(|u| RgbRejectListInfo::Url(u.to_string()));
                 let linked_from_contract = contract_link(contract.link_from())?;
                 LocalAssetData {
                     asset_id: contract_id.to_string(),
@@ -2129,7 +2133,7 @@ pub trait WalletOffline: WalletBackup {
                     initial_supply,
                     max_supply: Some(max_supply),
                     known_circulating_supply: Some(known_circulating_supply),
-                    reject_list_url,
+                    reject_list,
                     linked_from_contract,
                     token: None,
                     timestamp,
@@ -2146,7 +2150,7 @@ pub trait WalletOffline: WalletBackup {
                     .contract_terms()
                     .media
                     .map(|a| Media::from_attachment(&a, media_dir));
-                let reject_list_url = bfa_reject_list_url(contract.reject_list());
+                let reject_list = contract.reject_list().map(RgbRejectListInfo::from);
                 let linked_from_contract = contract_link(contract.link_from())?;
                 LocalAssetData {
                     asset_id: contract_id.to_string(),
@@ -2159,7 +2163,7 @@ pub trait WalletOffline: WalletBackup {
                     initial_supply: 0,
                     max_supply: None,
                     known_circulating_supply: None,
-                    reject_list_url,
+                    reject_list,
                     linked_from_contract,
                     token: None,
                     timestamp,

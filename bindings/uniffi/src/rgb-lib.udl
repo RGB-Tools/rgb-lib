@@ -259,7 +259,6 @@ dictionary AssetCFA {
   Media? media;
 };
 
-[Remote]
 dictionary AssetIFA {
   string asset_id;
   string ticker;
@@ -273,10 +272,9 @@ dictionary AssetIFA {
   i64 added_at;
   Balance balance;
   Media? media;
-  string? reject_list_url;
+  RgbRejectListInfo? reject_list;
 };
 
-[Remote]
 dictionary AssetBFA {
   string asset_id;
   string ticker;
@@ -288,10 +286,9 @@ dictionary AssetBFA {
   i64 added_at;
   Balance balance;
   Media? media;
-  string? reject_list_url;
+  RgbRejectListInfo? reject_list;
 };
 
-[Remote]
 dictionary Assets {
   sequence<AssetNIA>? nia;
   sequence<AssetUDA>? uda;
@@ -495,7 +492,6 @@ dictionary Token {
     ProofOfReserves? reserves;
 };
 
-[Remote]
 dictionary Metadata {
   AssetSchema asset_schema;
   u64 initial_supply;
@@ -507,7 +503,7 @@ dictionary Metadata {
   string? ticker;
   string? details;
   Token? token;
-  string? reject_list_url;
+  RgbRejectListInfo? reject_list;
   string? linked_from_contract;
   string? linked_to_contract;
 };

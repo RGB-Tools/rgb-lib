@@ -19,28 +19,29 @@ use rgb_lib::{
         TransitionMetadata as RgbLibTransitionMetadata,
     },
     wallet::{
-        Address as RgbLibAddress, AssetBFA, AssetCFA, AssetFilter as RgbLibAssetFilter, AssetIFA,
-        AssetNIA, AssetUDA, Assets, AssignmentsCollection, Balance,
-        BitcoindAuth as RgbLibBitcoindAuth, BlockTime, BtcBalance, BurnBeginResult, BurnDetails,
+        Address as RgbLibAddress, AssetBFA as RgbLibAssetBFA, AssetCFA,
+        AssetFilter as RgbLibAssetFilter, AssetIFA as RgbLibAssetIFA, AssetNIA, AssetUDA,
+        Assets as RgbLibAssets, AssignmentsCollection, Balance, BitcoindAuth as RgbLibBitcoindAuth,
+        BlockTime, BtcBalance, BurnBeginResult, BurnDetails,
         ConsignmentValidation as RgbLibConsignmentValidation, Cosigner as CosignerData,
         DatabaseType, EmbeddedMedia, EvmChain, HubInfo, IndexerConfig as RgbLibIndexerConfig,
         IndexerProtocol, InflateBeginResult, InflateDetails, InitOperationResult,
         Invoice as RgbLibInvoice, InvoiceData as RgbLibInvoiceData, LinkBeginResult, LinkDetails,
-        Media, Metadata, MintBeginResult, MintDetails, MultisigKeys, MultisigOnlineOptions,
-        MultisigVotingStatus as RgbLibMultisigVotingStatus, MultisigWallet as RgbLibMultisigWallet,
-        Online, OnlineOptions as RgbLibOnlineOptions, Operation as RgbLibOperation,
-        OperationInfo as RgbLibOperationInfo, OperationResult, Outpoint, PendingVanillaTx,
-        ProofOfReserves, PsbtInputInfo, PsbtInspection, PsbtOutputInfo, ReceiveData, ReceivedMint,
-        Recipient as RgbLibRecipient, RecipientInfo as RgbLibRecipientInfo, RecipientType,
-        RefreshFilter, RefreshTransferStatus, RefreshedTransfer,
-        RespondToOperation as RgbLibRespondToOperation, RgbAllocation as RgbLibRgbAllocation,
-        RgbInputInfo as RgbLibRgbInputInfo, RgbInspection as RgbLibRgbInspection,
-        RgbOperationInfo as RgbLibRgbOperationInfo, RgbOutputInfo as RgbLibRgbOutputInfo,
-        RgbTransitionInfo as RgbLibRgbTransitionInfo, RgbWalletOpsOffline, RgbWalletOpsOnline,
-        SendBeginResult, SendDetails, SinglesigKeys, SpvProofFill,
-        SyncKeychain as RgbLibSyncKeychain, SyncOptions as RgbLibSyncOptions, SyncStrategy, Token,
-        TokenLight, Transaction, TransactionType, Transfer as RgbLibTransfer, TransferKind,
-        TransferScope as RgbLibTransferScope, TransferTransportEndpoint,
+        Media, Metadata as RgbLibMetadata, MintBeginResult, MintDetails, MultisigKeys,
+        MultisigOnlineOptions, MultisigVotingStatus as RgbLibMultisigVotingStatus,
+        MultisigWallet as RgbLibMultisigWallet, Online, OnlineOptions as RgbLibOnlineOptions,
+        Operation as RgbLibOperation, OperationInfo as RgbLibOperationInfo, OperationResult,
+        Outpoint, PendingVanillaTx, ProofOfReserves, PsbtInputInfo, PsbtInspection, PsbtOutputInfo,
+        ReceiveData, ReceivedMint, Recipient as RgbLibRecipient,
+        RecipientInfo as RgbLibRecipientInfo, RecipientType, RefreshFilter, RefreshTransferStatus,
+        RefreshedTransfer, RespondToOperation as RgbLibRespondToOperation,
+        RgbAllocation as RgbLibRgbAllocation, RgbInputInfo as RgbLibRgbInputInfo,
+        RgbInspection as RgbLibRgbInspection, RgbOperationInfo as RgbLibRgbOperationInfo,
+        RgbOutputInfo as RgbLibRgbOutputInfo, RgbTransitionInfo as RgbLibRgbTransitionInfo,
+        RgbWalletOpsOffline, RgbWalletOpsOnline, SendBeginResult, SendDetails, SinglesigKeys,
+        SpvProofFill, SyncKeychain as RgbLibSyncKeychain, SyncOptions as RgbLibSyncOptions,
+        SyncStrategy, Token, TokenLight, Transaction, TransactionType, Transfer as RgbLibTransfer,
+        TransferKind, TransferScope as RgbLibTransferScope, TransferTransportEndpoint,
         TransitionGlobal as RgbLibTransitionGlobal, TransportEndpoint as RgbLibTransportEndpoint,
         TypeOfAssignment, TypeOfTransition, Unspent as RgbLibUnspent, UserRole, Utxo,
         ValidatedWitness as RgbLibValidatedWitness, ValidationOptions,
@@ -764,6 +765,126 @@ impl From<RgbRejectListInfo> for RgbLibRgbRejectListInfo {
         match orig {
             RgbRejectListInfo::Url { url } => RgbLibRgbRejectListInfo::Url(url),
             RgbRejectListInfo::Evm { contract } => RgbLibRgbRejectListInfo::Evm(contract),
+        }
+    }
+}
+pub struct AssetIFA {
+    pub asset_id: String,
+    pub ticker: String,
+    pub name: String,
+    pub details: Option<String>,
+    pub precision: u8,
+    pub initial_supply: u64,
+    pub max_supply: u64,
+    pub known_circulating_supply: u64,
+    pub timestamp: i64,
+    pub added_at: i64,
+    pub balance: Balance,
+    pub media: Option<Media>,
+    pub reject_list: Option<RgbRejectListInfo>,
+}
+impl From<RgbLibAssetIFA> for AssetIFA {
+    fn from(orig: RgbLibAssetIFA) -> Self {
+        Self {
+            asset_id: orig.asset_id,
+            ticker: orig.ticker,
+            name: orig.name,
+            details: orig.details,
+            precision: orig.precision,
+            initial_supply: orig.initial_supply,
+            max_supply: orig.max_supply,
+            known_circulating_supply: orig.known_circulating_supply,
+            timestamp: orig.timestamp,
+            added_at: orig.added_at,
+            balance: orig.balance,
+            media: orig.media,
+            reject_list: orig.reject_list.map(|l| l.into()),
+        }
+    }
+}
+pub struct AssetBFA {
+    pub asset_id: String,
+    pub ticker: String,
+    pub name: String,
+    pub details: Option<String>,
+    pub precision: u8,
+    pub known_circulating_supply: u64,
+    pub timestamp: i64,
+    pub added_at: i64,
+    pub balance: Balance,
+    pub media: Option<Media>,
+    pub reject_list: Option<RgbRejectListInfo>,
+}
+impl From<RgbLibAssetBFA> for AssetBFA {
+    fn from(orig: RgbLibAssetBFA) -> Self {
+        Self {
+            asset_id: orig.asset_id,
+            ticker: orig.ticker,
+            name: orig.name,
+            details: orig.details,
+            precision: orig.precision,
+            known_circulating_supply: orig.known_circulating_supply,
+            timestamp: orig.timestamp,
+            added_at: orig.added_at,
+            balance: orig.balance,
+            media: orig.media,
+            reject_list: orig.reject_list.map(|l| l.into()),
+        }
+    }
+}
+pub struct Assets {
+    pub nia: Option<Vec<AssetNIA>>,
+    pub uda: Option<Vec<AssetUDA>>,
+    pub cfa: Option<Vec<AssetCFA>>,
+    pub ifa: Option<Vec<AssetIFA>>,
+    pub bfa: Option<Vec<AssetBFA>>,
+}
+impl From<RgbLibAssets> for Assets {
+    fn from(orig: RgbLibAssets) -> Self {
+        Self {
+            nia: orig.nia,
+            uda: orig.uda,
+            cfa: orig.cfa,
+            ifa: orig
+                .ifa
+                .map(|assets| assets.into_iter().map(|a| a.into()).collect()),
+            bfa: orig
+                .bfa
+                .map(|assets| assets.into_iter().map(|a| a.into()).collect()),
+        }
+    }
+}
+pub struct Metadata {
+    pub asset_schema: AssetSchema,
+    pub initial_supply: u64,
+    pub max_supply: u64,
+    pub known_circulating_supply: u64,
+    pub timestamp: i64,
+    pub name: String,
+    pub precision: u8,
+    pub ticker: Option<String>,
+    pub details: Option<String>,
+    pub token: Option<Token>,
+    pub reject_list: Option<RgbRejectListInfo>,
+    pub linked_from_contract: Option<String>,
+    pub linked_to_contract: Option<String>,
+}
+impl From<RgbLibMetadata> for Metadata {
+    fn from(orig: RgbLibMetadata) -> Self {
+        Self {
+            asset_schema: orig.asset_schema,
+            initial_supply: orig.initial_supply,
+            max_supply: orig.max_supply,
+            known_circulating_supply: orig.known_circulating_supply,
+            timestamp: orig.timestamp,
+            name: orig.name,
+            precision: orig.precision,
+            ticker: orig.ticker,
+            details: orig.details,
+            token: orig.token,
+            reject_list: orig.reject_list.map(|l| l.into()),
+            linked_from_contract: orig.linked_from_contract,
+            linked_to_contract: orig.linked_to_contract,
         }
     }
 }
@@ -1658,7 +1779,9 @@ impl Wallet {
     }
 
     fn get_asset_metadata(&self, asset_id: String) -> Result<Metadata, RgbLibError> {
-        self._get_wallet().get_asset_metadata(asset_id)
+        self._get_wallet()
+            .get_asset_metadata(asset_id)
+            .map(|m| m.into())
     }
 
     fn get_fee_estimation(&self, online: Online, blocks: u16) -> Result<f64, RgbLibError> {
@@ -1816,17 +1939,19 @@ impl Wallet {
         linked_from_contract: Option<String>,
         skip_contract_checks: bool,
     ) -> Result<AssetIFA, RgbLibError> {
-        self._get_wallet().issue_asset_ifa(
-            ticker,
-            name,
-            precision,
-            amounts,
-            inflation_amounts,
-            reject_list_url,
-            link_right,
-            linked_from_contract,
-            skip_contract_checks,
-        )
+        self._get_wallet()
+            .issue_asset_ifa(
+                ticker,
+                name,
+                precision,
+                amounts,
+                inflation_amounts,
+                reject_list_url,
+                link_right,
+                linked_from_contract,
+                skip_contract_checks,
+            )
+            .map(|a| a.into())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1843,18 +1968,20 @@ impl Wallet {
         linked_from_contract: Option<String>,
         skip_contract_checks: bool,
     ) -> Result<AssetBFA, RgbLibError> {
-        self._get_wallet().issue_asset_bfa(
-            ticker,
-            name,
-            precision,
-            mint_rights,
-            chain_id,
-            contract_address,
-            reject_list_address,
-            link_right,
-            linked_from_contract,
-            skip_contract_checks,
-        )
+        self._get_wallet()
+            .issue_asset_bfa(
+                ticker,
+                name,
+                precision,
+                mint_rights,
+                chain_id,
+                contract_address,
+                reject_list_address,
+                link_right,
+                linked_from_contract,
+                skip_contract_checks,
+            )
+            .map(|a| a.into())
     }
 
     fn link(
@@ -1907,7 +2034,9 @@ impl Wallet {
     }
 
     fn list_assets(&self, filter_asset_schemas: Vec<AssetSchema>) -> Result<Assets, RgbLibError> {
-        self._get_wallet().list_assets(filter_asset_schemas)
+        self._get_wallet()
+            .list_assets(filter_asset_schemas)
+            .map(|a| a.into())
     }
 
     fn list_transactions(
@@ -2280,7 +2409,9 @@ impl MultisigWallet {
     }
 
     fn get_asset_metadata(&self, asset_id: String) -> Result<Metadata, RgbLibError> {
-        self._get_wallet().get_asset_metadata(asset_id)
+        self._get_wallet()
+            .get_asset_metadata(asset_id)
+            .map(|m| m.into())
     }
 
     fn get_fee_estimation(&self, online: Online, blocks: u16) -> Result<f64, RgbLibError> {
@@ -2392,19 +2523,23 @@ impl MultisigWallet {
         inflation_amounts: Vec<u64>,
         reject_list_url: Option<String>,
     ) -> Result<AssetIFA, RgbLibError> {
-        self._get_wallet().issue_asset_ifa(
-            online,
-            ticker,
-            name,
-            precision,
-            amounts,
-            inflation_amounts,
-            reject_list_url,
-        )
+        self._get_wallet()
+            .issue_asset_ifa(
+                online,
+                ticker,
+                name,
+                precision,
+                amounts,
+                inflation_amounts,
+                reject_list_url,
+            )
+            .map(|a| a.into())
     }
 
     fn list_assets(&self, filter_asset_schemas: Vec<AssetSchema>) -> Result<Assets, RgbLibError> {
-        self._get_wallet().list_assets(filter_asset_schemas)
+        self._get_wallet()
+            .list_assets(filter_asset_schemas)
+            .map(|a| a.into())
     }
 
     fn list_transactions(

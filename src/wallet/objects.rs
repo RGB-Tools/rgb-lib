@@ -474,8 +474,8 @@ pub struct Metadata {
     pub details: Option<String>,
     /// Asset unique token
     pub token: Option<Token>,
-    /// Reject list URL
-    pub reject_list_url: Option<String>,
+    /// Where the reject list the asset commits to is published, if any
+    pub reject_list: Option<RgbRejectListInfo>,
     /// ID of the contract the asset is linked from, if any
     pub linked_from_contract: Option<String>,
     /// ID of the contract the asset has been linked to, if linked by this wallet: a link assigns
@@ -727,8 +727,8 @@ pub struct AssetIFA {
     pub balance: Balance,
     /// Asset media attachment
     pub media: Option<Media>,
-    /// Reject list URL
-    pub reject_list_url: Option<String>,
+    /// Where the reject list the asset commits to is published, if any
+    pub reject_list: Option<RgbRejectListInfo>,
 }
 
 impl AssetIFA {
@@ -783,7 +783,7 @@ impl AssetIFA {
             added_at: asset.added_at,
             balance,
             media,
-            reject_list_url: asset.reject_list_url.clone(),
+            reject_list: asset.reject_list.clone(),
         })
     }
 }
@@ -815,8 +815,8 @@ pub struct AssetBFA {
     pub balance: Balance,
     /// Asset media attachment
     pub media: Option<Media>,
-    /// Reject list URL
-    pub reject_list_url: Option<String>,
+    /// Where the reject list the asset commits to is published, if any
+    pub reject_list: Option<RgbRejectListInfo>,
 }
 
 impl AssetBFA {
@@ -865,7 +865,7 @@ impl AssetBFA {
             added_at: asset.added_at,
             balance,
             media,
-            reject_list_url: asset.reject_list_url.clone(),
+            reject_list: asset.reject_list.clone(),
         })
     }
 }
@@ -973,7 +973,7 @@ pub struct LocalAssetData {
     pub(crate) initial_supply: u64,
     pub(crate) max_supply: Option<u64>,
     pub(crate) known_circulating_supply: Option<u64>,
-    pub(crate) reject_list_url: Option<String>,
+    pub(crate) reject_list: Option<RgbRejectListInfo>,
     pub(crate) linked_from_contract: Option<String>,
     pub(crate) token: Option<Token>,
     pub(crate) timestamp: i64,
@@ -1991,7 +1991,6 @@ pub struct AssetSpend {
 pub struct AssetInfo {
     pub contract_id: ContractId,
     pub schema: AssetSchema,
-    pub reject_list_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

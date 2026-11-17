@@ -3,6 +3,7 @@
 use sea_orm::entity::prelude::*;
 
 use crate::database::enums::AssetSchema;
+use crate::no_wallet::RgbRejectListInfo;
 
 #[derive(Copy, Clone, Default, Debug, DeriveEntity)]
 pub struct Entity;
@@ -28,7 +29,7 @@ pub struct Model {
     pub timestamp: i64,
     pub max_supply: Option<String>,
     pub known_circulating_supply: Option<String>,
-    pub reject_list_url: Option<String>,
+    pub reject_list: Option<RgbRejectListInfo>,
     pub linked_from_contract: Option<String>,
     pub linked_to_contract: Option<String>,
 }
@@ -48,7 +49,7 @@ pub enum Column {
     Timestamp,
     MaxSupply,
     KnownCirculatingSupply,
-    RejectListUrl,
+    RejectList,
     LinkedFromContract,
     LinkedToContract,
 }
@@ -89,7 +90,7 @@ impl ColumnTrait for Column {
             Self::Timestamp => ColumnType::BigInteger.def(),
             Self::MaxSupply => ColumnType::String(StringLen::None).def().null(),
             Self::KnownCirculatingSupply => ColumnType::String(StringLen::None).def().null(),
-            Self::RejectListUrl => ColumnType::String(StringLen::None).def().null(),
+            Self::RejectList => ColumnType::Json.def().null(),
             Self::LinkedFromContract => ColumnType::String(StringLen::None).def().null(),
             Self::LinkedToContract => ColumnType::String(StringLen::None).def().null(),
         }

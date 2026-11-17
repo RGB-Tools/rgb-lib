@@ -972,7 +972,7 @@ fn check_asset_metadata<P: OfflineSigParty<W = MultisigWallet>>(
         assert_eq!(meta.known_circulating_supply, supply);
         assert_eq!(meta.name, name);
         assert_eq!(meta.precision, precision);
-        assert_eq!(meta.reject_list_url, None);
+        assert_eq!(meta.reject_list, None);
         match schema {
             AssetSchema::Cfa => assert_eq!(meta.ticker, None),
             _ => assert_eq!(meta.ticker, Some(TICKER.to_string())),

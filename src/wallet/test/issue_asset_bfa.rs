@@ -55,6 +55,7 @@ fn success() {
             spendable: 0,
         }
     );
+    assert_eq!(asset.reject_list, None);
     assert!(before_timestamp <= asset.added_at && asset.added_at <= now().unix_timestamp());
     let unspents = party.list_unspents(false);
     let unspents_fungible = unspents.iter().filter(|u| {
@@ -117,6 +118,39 @@ fn multi_success() {
                     && u.rgb_allocations.first().unwrap().asset_id == Some(asset.asset_id.clone())
             })
     );
+}
+
+/// The reject list the asset commits to, kept by an EVM contract, is reported by the issuance,
+/// by the asset list and by the asset metadata.
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn reject_list() {
+    initialize();
+
+    let mut party = get_funded_party!();
+
+    let asset = party.issue_asset_bfa(
+        1,
+        FAKE_EVM_ADDRESS.to_string(),
+        Some(FAKE_EVM_ADDRESS.to_string()),
+    );
+
+    let expected = Some(RgbRejectListInfo::Evm(RgbEvmContractInfo {
+        chain_id: ANVIL_CHAIN_ID,
+        address: FAKE_EVM_ADDRESS.to_lowercase(),
+    }));
+    assert_eq!(asset.reject_list, expected);
+    let listed = party
+        .list_assets(&[AssetSchema::Bfa])
+        .bfa
+        .unwrap()
+        .into_iter()
+        .find(|a| a.asset_id == asset.asset_id)
+        .unwrap();
+    assert_eq!(listed.reject_list, expected);
+    let metadata = party.get_asset_metadata(&asset.asset_id);
+    assert_eq!(metadata.reject_list, expected);
 }
 
 #[cfg(feature = "electrum")]

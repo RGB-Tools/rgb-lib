@@ -14,6 +14,7 @@ mod m20261020_141856_add_rgb_storage_tables;
 mod m20261020_142324_proxy_v1;
 mod m20261020_142840_asset_transfer_transition;
 mod m20261020_143313_asset_links;
+mod m20261117_104500_asset_reject_list;
 
 pub struct Migrator;
 
@@ -35,6 +36,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261020_142324_proxy_v1::Migration),
             Box::new(m20261020_142840_asset_transfer_transition::Migration),
             Box::new(m20261020_143313_asset_links::Migration),
+            Box::new(m20261117_104500_asset_reject_list::Migration),
         ]
     }
 }

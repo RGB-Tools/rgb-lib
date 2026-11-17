@@ -7027,7 +7027,6 @@ pub trait WalletOnline: WalletOffline {
                     AssetInfo {
                         contract_id,
                         schema,
-                        reject_list_url: asset.reject_list_url,
                     },
                     original_assignments_needed,
                 ),
@@ -7592,7 +7591,6 @@ pub trait WalletOnline: WalletOffline {
         let asset_info = AssetInfo {
             contract_id,
             schema,
-            reject_list_url: asset.reject_list_url,
         };
         let transfer_info = InfoAssetTransfer {
             asset_info,
@@ -7729,7 +7727,6 @@ pub trait WalletOnline: WalletOffline {
         let asset_info = AssetInfo {
             contract_id,
             schema: asset.schema,
-            reject_list_url: asset.reject_list_url,
         };
         let transfer_info = InfoAssetTransfer {
             asset_info,
@@ -8079,7 +8076,6 @@ pub trait WalletOnline: WalletOffline {
         let asset_info = AssetInfo {
             contract_id,
             schema,
-            reject_list_url: asset.reject_list_url,
         };
         let transfer_info = InfoAssetTransfer {
             asset_info,

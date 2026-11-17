@@ -219,6 +219,15 @@ impl From<RejectListSource> for RgbRejectListInfo {
     }
 }
 
+impl From<RejectListLocation> for RgbRejectListInfo {
+    fn from(location: RejectListLocation) -> Self {
+        match location {
+            RejectListLocation::Url(url) => Self::Url(url.to_string()),
+            RejectListLocation::Evm(contract) => Self::Evm((&contract).into()),
+        }
+    }
+}
+
 /// Information about the genesis of an RGB asset.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
