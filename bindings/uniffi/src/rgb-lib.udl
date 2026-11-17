@@ -286,6 +286,7 @@ dictionary AssetBFA {
   i64 added_at;
   Balance balance;
   Media? media;
+  RgbBridgeLocationInfo bridge_location;
   RgbRejectListInfo? reject_list;
 };
 
@@ -503,6 +504,7 @@ dictionary Metadata {
   string? ticker;
   string? details;
   Token? token;
+  RgbBridgeLocationInfo? bridge_location;
   RgbRejectListInfo? reject_list;
   string? linked_from_contract;
   string? linked_to_contract;

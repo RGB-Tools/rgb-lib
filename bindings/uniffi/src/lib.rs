@@ -813,6 +813,7 @@ pub struct AssetBFA {
     pub added_at: i64,
     pub balance: Balance,
     pub media: Option<Media>,
+    pub bridge_location: RgbBridgeLocationInfo,
     pub reject_list: Option<RgbRejectListInfo>,
 }
 impl From<RgbLibAssetBFA> for AssetBFA {
@@ -828,6 +829,7 @@ impl From<RgbLibAssetBFA> for AssetBFA {
             added_at: orig.added_at,
             balance: orig.balance,
             media: orig.media,
+            bridge_location: orig.bridge_location.into(),
             reject_list: orig.reject_list.map(|l| l.into()),
         }
     }
@@ -865,6 +867,7 @@ pub struct Metadata {
     pub ticker: Option<String>,
     pub details: Option<String>,
     pub token: Option<Token>,
+    pub bridge_location: Option<RgbBridgeLocationInfo>,
     pub reject_list: Option<RgbRejectListInfo>,
     pub linked_from_contract: Option<String>,
     pub linked_to_contract: Option<String>,
@@ -882,6 +885,7 @@ impl From<RgbLibMetadata> for Metadata {
             ticker: orig.ticker,
             details: orig.details,
             token: orig.token,
+            bridge_location: orig.bridge_location.map(|l| l.into()),
             reject_list: orig.reject_list.map(|l| l.into()),
             linked_from_contract: orig.linked_from_contract,
             linked_to_contract: orig.linked_to_contract,

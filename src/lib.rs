@@ -545,8 +545,8 @@ use crate::no_wallet::validation::{
 };
 #[cfg(feature = "wallet")]
 use crate::no_wallet::{
-    Outpoint, RgbRejectListInfo, beneficiary_from_script_buf, bundle_info, fascia_from_file,
-    fascia_inspection, read_fascia,
+    Outpoint, RgbBridgeLocationInfo, RgbRejectListInfo, beneficiary_from_script_buf, bundle_info,
+    fascia_from_file, fascia_inspection, read_fascia,
 };
 #[cfg(any(feature = "wallet", feature = "_validation"))]
 use crate::utils::atomic_write_with;

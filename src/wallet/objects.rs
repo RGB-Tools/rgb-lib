@@ -474,6 +474,8 @@ pub struct Metadata {
     pub details: Option<String>,
     /// Asset unique token
     pub token: Option<Token>,
+    /// Where the bridge contract backing the asset is deployed, which only a BFA asset has
+    pub bridge_location: Option<RgbBridgeLocationInfo>,
     /// Where the reject list the asset commits to is published, if any
     pub reject_list: Option<RgbRejectListInfo>,
     /// ID of the contract the asset is linked from, if any
@@ -815,6 +817,9 @@ pub struct AssetBFA {
     pub balance: Balance,
     /// Asset media attachment
     pub media: Option<Media>,
+    /// Where the bridge contract backing the asset is deployed, where the locks its mints are
+    /// backed by have to be made
+    pub bridge_location: RgbBridgeLocationInfo,
     /// Where the reject list the asset commits to is published, if any
     pub reject_list: Option<RgbRejectListInfo>,
 }
@@ -865,6 +870,10 @@ impl AssetBFA {
             added_at: asset.added_at,
             balance,
             media,
+            bridge_location: asset
+                .bridge_location
+                .clone()
+                .expect("a BFA asset has a bridge location"),
             reject_list: asset.reject_list.clone(),
         })
     }
@@ -973,6 +982,7 @@ pub struct LocalAssetData {
     pub(crate) initial_supply: u64,
     pub(crate) max_supply: Option<u64>,
     pub(crate) known_circulating_supply: Option<u64>,
+    pub(crate) bridge_location: Option<RgbBridgeLocationInfo>,
     pub(crate) reject_list: Option<RgbRejectListInfo>,
     pub(crate) linked_from_contract: Option<String>,
     pub(crate) token: Option<Token>,

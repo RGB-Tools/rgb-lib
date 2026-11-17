@@ -777,6 +777,73 @@ impl TryFrom<TransitionType> for TypeOfTransition {
     }
 }
 
+// The DB representation of a bridge location (see `RgbBridgeLocationInfo`): the location of the
+// bridge contract the genesis of an asset commits to is cached in a JSON column when the asset is
+// saved.
+#[cfg(feature = "wallet")]
+impl From<RgbBridgeLocationInfo> for Value {
+    fn from(value: RgbBridgeLocationInfo) -> Self {
+        Value::Json(Some(Box::new(serde_json::to_value(value).unwrap())))
+    }
+}
+
+#[cfg(feature = "wallet")]
+impl TryFrom<Value> for RgbBridgeLocationInfo {
+    type Error = sea_orm::DbErr;
+
+    fn try_from(v: Value) -> Result<Self, Self::Error> {
+        match v {
+            Value::Json(Some(json)) => {
+                serde_json::from_value(*json).map_err(|e| sea_orm::DbErr::Custom(e.to_string()))
+            }
+            _ => Err(sea_orm::DbErr::Type("Expected JSON value".into())),
+        }
+    }
+}
+
+#[cfg(feature = "wallet")]
+impl rgb_lib_migration::ValueType for RgbBridgeLocationInfo {
+    fn type_name() -> String {
+        "json".to_string()
+    }
+
+    fn column_type() -> ColumnType {
+        ColumnType::Json
+    }
+
+    fn array_type() -> ArrayType {
+        ArrayType::Json
+    }
+
+    fn try_from(v: Value) -> Result<Self, ValueTypeErr> {
+        match v {
+            Value::Json(Some(json)) => serde_json::from_value(*json).map_err(|_| ValueTypeErr),
+            _ => Err(ValueTypeErr),
+        }
+    }
+}
+
+#[cfg(feature = "wallet")]
+impl TryGetable for RgbBridgeLocationInfo {
+    fn try_get_by<I: sea_orm::ColIdx>(res: &QueryResult, index: I) -> Result<Self, TryGetError> {
+        let json_value_opt: Option<JsonValue> = res.try_get_by(index)?;
+        match json_value_opt {
+            Some(json_value) => serde_json::from_value(json_value)
+                .map_err(|e| TryGetError::DbErr(DbErr::Type(e.to_string()))),
+            None => Err(TryGetError::Null(
+                "Null value for RgbBridgeLocationInfo".to_string(),
+            )),
+        }
+    }
+}
+
+#[cfg(feature = "wallet")]
+impl Nullable for RgbBridgeLocationInfo {
+    fn null() -> Value {
+        Value::Json(None)
+    }
+}
+
 // The DB representation of a reject list location (see `RgbRejectListInfo`): the location the
 // genesis of an asset commits to is cached in a JSON column when the asset is saved.
 #[cfg(feature = "wallet")]

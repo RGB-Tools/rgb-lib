@@ -56,6 +56,22 @@ fn success() {
         }
     );
     assert_eq!(asset.reject_list, None);
+    let bridge_location = RgbBridgeLocationInfo::Evm(RgbEvmContractInfo {
+        chain_id: ANVIL_CHAIN_ID,
+        address: FAKE_EVM_ADDRESS.to_lowercase(),
+    });
+    assert_eq!(asset.bridge_location, bridge_location);
+    let listed = party
+        .list_assets(&[AssetSchema::Bfa])
+        .bfa
+        .unwrap()
+        .into_iter()
+        .find(|a| a.asset_id == asset.asset_id)
+        .unwrap();
+    assert_eq!(listed.bridge_location, bridge_location);
+    let metadata = party.get_asset_metadata(&asset.asset_id);
+    assert_eq!(metadata.bridge_location, Some(bridge_location));
+    assert_eq!(metadata.reject_list, None);
     assert!(before_timestamp <= asset.added_at && asset.added_at <= now().unix_timestamp());
     let unspents = party.list_unspents(false);
     let unspents_fungible = unspents.iter().filter(|u| {

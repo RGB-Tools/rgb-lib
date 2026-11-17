@@ -658,6 +658,7 @@ pub trait WalletOffline: WalletBackup {
             initial_supply: settled,
             max_supply: None,
             known_circulating_supply: None,
+            bridge_location: None,
             reject_list: None,
             linked_from_contract: None,
             token: None,
@@ -804,6 +805,7 @@ pub trait WalletOffline: WalletBackup {
             initial_supply: 1,
             max_supply: None,
             known_circulating_supply: None,
+            bridge_location: None,
             reject_list: None,
             linked_from_contract: None,
             token: Some(Token::from_token_data(&token_data, self.media_dir())),
@@ -914,6 +916,7 @@ pub trait WalletOffline: WalletBackup {
             initial_supply: settled,
             max_supply: None,
             known_circulating_supply: None,
+            bridge_location: None,
             reject_list: None,
             linked_from_contract: None,
             token: None,
@@ -1089,6 +1092,7 @@ pub trait WalletOffline: WalletBackup {
             initial_supply: settled,
             max_supply: Some(max_supply),
             known_circulating_supply: Some(settled),
+            bridge_location: None,
             reject_list: reject_list_url.map(RgbRejectListInfo::Url),
             linked_from_contract: linked_from_contract.map(|c| c.to_string()),
             token: None,
@@ -1166,7 +1170,10 @@ pub trait WalletOffline: WalletBackup {
         let details: Option<Details> = None;
         let bfa_ticker = self.check_unicode_ticker(ticker.clone())?;
 
-        let contract_address = self.check_contract_address(contract_address)?;
+        let bridge_location = BridgeLocation::Evm(EvmContract {
+            chain_id,
+            address: self.check_contract_address(contract_address)?,
+        });
 
         let mut builder = ContractBuilder::with(
             Identity::default(),
@@ -1181,13 +1188,7 @@ pub trait WalletOffline: WalletBackup {
         .expect("invalid precision")
         .add_global_state("terms", terms)
         .expect("invalid terms")
-        .add_global_state(
-            RGB_GLOBAL_BRIDGE_LOCATION,
-            BridgeLocation::Evm(EvmContract {
-                chain_id,
-                address: contract_address,
-            }),
-        )
+        .add_global_state(RGB_GLOBAL_BRIDGE_LOCATION, bridge_location.clone())
         .expect("invalid bridgeLocation");
         if let Some(details) = &details {
             builder = builder
@@ -1254,6 +1255,7 @@ pub trait WalletOffline: WalletBackup {
             initial_supply: 0,
             max_supply: None,
             known_circulating_supply: None,
+            bridge_location: Some(bridge_location.into()),
             reject_list: reject_list.map(RgbRejectListInfo::from),
             linked_from_contract: linked_from_contract.map(|c| c.to_string()),
             token: None,
@@ -1795,6 +1797,7 @@ pub trait WalletOffline: WalletBackup {
             ticker: asset.ticker,
             details: asset.details,
             token,
+            bridge_location: asset.bridge_location,
             reject_list: asset.reject_list,
             linked_from_contract: asset.linked_from_contract,
             linked_to_contract: asset.linked_to_contract,
@@ -1843,6 +1846,7 @@ pub trait WalletOffline: WalletBackup {
             precision: ActiveValue::Set(asset_data.precision),
             ticker: ActiveValue::Set(asset_data.ticker.clone()),
             timestamp: ActiveValue::Set(asset_data.timestamp),
+            bridge_location: ActiveValue::Set(asset_data.bridge_location.clone()),
             reject_list: ActiveValue::Set(asset_data.reject_list.clone()),
             linked_from_contract: ActiveValue::Set(asset_data.linked_from_contract.clone()),
             linked_to_contract: ActiveValue::Set(None),
@@ -2032,6 +2036,7 @@ pub trait WalletOffline: WalletBackup {
                     initial_supply,
                     max_supply: None,
                     known_circulating_supply: None,
+                    bridge_location: None,
                     reject_list: None,
                     linked_from_contract: None,
                     token: None,
@@ -2063,6 +2068,7 @@ pub trait WalletOffline: WalletBackup {
                     initial_supply,
                     max_supply: None,
                     known_circulating_supply: None,
+                    bridge_location: None,
                     reject_list: None,
                     linked_from_contract: None,
                     token: Some(token_full),
@@ -2091,6 +2097,7 @@ pub trait WalletOffline: WalletBackup {
                     initial_supply,
                     max_supply: None,
                     known_circulating_supply: None,
+                    bridge_location: None,
                     reject_list: None,
                     linked_from_contract: None,
                     token: None,
@@ -2133,6 +2140,7 @@ pub trait WalletOffline: WalletBackup {
                     initial_supply,
                     max_supply: Some(max_supply),
                     known_circulating_supply: Some(known_circulating_supply),
+                    bridge_location: None,
                     reject_list,
                     linked_from_contract,
                     token: None,
@@ -2150,6 +2158,7 @@ pub trait WalletOffline: WalletBackup {
                     .contract_terms()
                     .media
                     .map(|a| Media::from_attachment(&a, media_dir));
+                let bridge_location = contract.bridge_location().into();
                 let reject_list = contract.reject_list().map(RgbRejectListInfo::from);
                 let linked_from_contract = contract_link(contract.link_from())?;
                 LocalAssetData {
@@ -2163,6 +2172,7 @@ pub trait WalletOffline: WalletBackup {
                     initial_supply: 0,
                     max_supply: None,
                     known_circulating_supply: None,
+                    bridge_location: Some(bridge_location),
                     reject_list,
                     linked_from_contract,
                     token: None,
