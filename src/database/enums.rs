@@ -11,6 +11,77 @@ pub(crate) const SCHEMA_ID_IFA: &str =
 pub(crate) const SCHEMA_ID_BFA: &str =
     "rgb:sch:3I0xZVEQnQxYVk7vDnh5uNtQyUfsmThw6dX9n_Gvb5o#mama-swing-album";
 
+/// Implement the traits a type needs to be stored in a JSON column: the conversions from and to a
+/// DB `Value`, the `ValueType` the migrations describe the column with, the read of a column and
+/// the null value of a nullable one.
+#[cfg(feature = "wallet")]
+macro_rules! impl_json_column {
+    ($ty:ty) => {
+        impl From<$ty> for Value {
+            fn from(value: $ty) -> Self {
+                Value::Json(Some(Box::new(serde_json::to_value(value).unwrap())))
+            }
+        }
+
+        impl TryFrom<Value> for $ty {
+            type Error = sea_orm::DbErr;
+
+            fn try_from(v: Value) -> Result<Self, Self::Error> {
+                match v {
+                    Value::Json(Some(json)) => serde_json::from_value(*json)
+                        .map_err(|e| sea_orm::DbErr::Custom(e.to_string())),
+                    _ => Err(sea_orm::DbErr::Type("Expected JSON value".into())),
+                }
+            }
+        }
+
+        impl rgb_lib_migration::ValueType for $ty {
+            fn type_name() -> String {
+                "json".to_string()
+            }
+
+            fn column_type() -> ColumnType {
+                ColumnType::Json
+            }
+
+            fn array_type() -> ArrayType {
+                ArrayType::Json
+            }
+
+            fn try_from(v: Value) -> Result<Self, ValueTypeErr> {
+                match v {
+                    Value::Json(Some(json)) => {
+                        serde_json::from_value(*json).map_err(|_| ValueTypeErr)
+                    }
+                    _ => Err(ValueTypeErr),
+                }
+            }
+        }
+
+        impl TryGetable for $ty {
+            fn try_get_by<I: sea_orm::ColIdx>(
+                res: &QueryResult,
+                index: I,
+            ) -> Result<Self, TryGetError> {
+                let json_value_opt: Option<JsonValue> = res.try_get_by(index)?;
+                match json_value_opt {
+                    Some(json_value) => serde_json::from_value(json_value)
+                        .map_err(|e| TryGetError::DbErr(DbErr::Type(e.to_string()))),
+                    None => Err(TryGetError::Null(
+                        concat!("Null value for ", stringify!($ty)).to_string(),
+                    )),
+                }
+            }
+        }
+
+        impl Nullable for $ty {
+            fn null() -> Value {
+                Value::Json(None)
+            }
+        }
+    };
+}
+
 /// The schema of an asset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[cfg_attr(feature = "wallet", derive(EnumIter, DeriveActiveEnum))]
@@ -259,68 +330,7 @@ pub enum RecipientTypeFull {
 }
 
 #[cfg(feature = "wallet")]
-impl From<RecipientTypeFull> for Value {
-    fn from(value: RecipientTypeFull) -> Self {
-        Value::Json(Some(Box::new(serde_json::to_value(value).unwrap())))
-    }
-}
-
-#[cfg(feature = "wallet")]
-impl TryFrom<Value> for RecipientTypeFull {
-    type Error = sea_orm::DbErr;
-
-    fn try_from(v: Value) -> Result<Self, Self::Error> {
-        match v {
-            Value::Json(Some(json)) => {
-                serde_json::from_value(*json).map_err(|e| sea_orm::DbErr::Custom(e.to_string()))
-            }
-            _ => Err(sea_orm::DbErr::Type("Expected JSON value".into())),
-        }
-    }
-}
-
-#[cfg(feature = "wallet")]
-impl rgb_lib_migration::ValueType for RecipientTypeFull {
-    fn type_name() -> String {
-        "json".to_string()
-    }
-
-    fn column_type() -> ColumnType {
-        ColumnType::Json
-    }
-
-    fn array_type() -> ArrayType {
-        ArrayType::Json
-    }
-
-    fn try_from(v: Value) -> Result<Self, ValueTypeErr> {
-        match v {
-            Value::Json(Some(json)) => serde_json::from_value(*json).map_err(|_| ValueTypeErr),
-            _ => Err(ValueTypeErr),
-        }
-    }
-}
-
-#[cfg(feature = "wallet")]
-impl TryGetable for RecipientTypeFull {
-    fn try_get_by<I: sea_orm::ColIdx>(res: &QueryResult, index: I) -> Result<Self, TryGetError> {
-        let json_value_opt: Option<JsonValue> = res.try_get_by(index)?;
-        match json_value_opt {
-            Some(json_value) => serde_json::from_value(json_value)
-                .map_err(|e| TryGetError::DbErr(DbErr::Type(e.to_string()))),
-            None => Err(TryGetError::Null(
-                "Null value for RecipientTypeFull".to_string(),
-            )),
-        }
-    }
-}
-
-#[cfg(feature = "wallet")]
-impl Nullable for RecipientTypeFull {
-    fn null() -> Value {
-        Value::Json(None)
-    }
-}
+impl_json_column!(RecipientTypeFull);
 
 /// The type of an RGB transport.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -612,66 +622,7 @@ impl Assignment {
 }
 
 #[cfg(feature = "wallet")]
-impl From<Assignment> for Value {
-    fn from(value: Assignment) -> Self {
-        Value::Json(Some(Box::new(serde_json::to_value(value).unwrap())))
-    }
-}
-
-#[cfg(feature = "wallet")]
-impl TryFrom<Value> for Assignment {
-    type Error = sea_orm::DbErr;
-
-    fn try_from(v: Value) -> Result<Self, Self::Error> {
-        match v {
-            Value::Json(Some(json)) => {
-                serde_json::from_value(*json).map_err(|e| sea_orm::DbErr::Custom(e.to_string()))
-            }
-            _ => Err(sea_orm::DbErr::Type("Expected JSON value".into())),
-        }
-    }
-}
-
-#[cfg(feature = "wallet")]
-impl rgb_lib_migration::ValueType for Assignment {
-    fn type_name() -> String {
-        "json".to_string()
-    }
-
-    fn column_type() -> ColumnType {
-        ColumnType::Json
-    }
-
-    fn array_type() -> ArrayType {
-        ArrayType::Json
-    }
-
-    fn try_from(v: Value) -> Result<Self, ValueTypeErr> {
-        match v {
-            Value::Json(Some(json)) => serde_json::from_value(*json).map_err(|_| ValueTypeErr),
-            _ => Err(ValueTypeErr),
-        }
-    }
-}
-
-#[cfg(feature = "wallet")]
-impl TryGetable for Assignment {
-    fn try_get_by<I: sea_orm::ColIdx>(res: &QueryResult, index: I) -> Result<Self, TryGetError> {
-        let json_value_opt: Option<JsonValue> = res.try_get_by(index)?;
-        match json_value_opt {
-            Some(json_value) => serde_json::from_value(json_value)
-                .map_err(|e| TryGetError::DbErr(DbErr::Type(e.to_string()))),
-            None => Err(TryGetError::Null("Null value for Assignment".to_string())),
-        }
-    }
-}
-
-#[cfg(feature = "wallet")]
-impl Nullable for Assignment {
-    fn null() -> Value {
-        Value::Json(None)
-    }
-}
+impl_json_column!(Assignment);
 
 impl Assignment {
     /// The assignment of the given fungible `amount` of type `ty`, `None` for assignment types
@@ -781,134 +732,12 @@ impl TryFrom<TransitionType> for TypeOfTransition {
 // bridge contract the genesis of an asset commits to is cached in a JSON column when the asset is
 // saved.
 #[cfg(feature = "wallet")]
-impl From<RgbBridgeLocationInfo> for Value {
-    fn from(value: RgbBridgeLocationInfo) -> Self {
-        Value::Json(Some(Box::new(serde_json::to_value(value).unwrap())))
-    }
-}
-
-#[cfg(feature = "wallet")]
-impl TryFrom<Value> for RgbBridgeLocationInfo {
-    type Error = sea_orm::DbErr;
-
-    fn try_from(v: Value) -> Result<Self, Self::Error> {
-        match v {
-            Value::Json(Some(json)) => {
-                serde_json::from_value(*json).map_err(|e| sea_orm::DbErr::Custom(e.to_string()))
-            }
-            _ => Err(sea_orm::DbErr::Type("Expected JSON value".into())),
-        }
-    }
-}
-
-#[cfg(feature = "wallet")]
-impl rgb_lib_migration::ValueType for RgbBridgeLocationInfo {
-    fn type_name() -> String {
-        "json".to_string()
-    }
-
-    fn column_type() -> ColumnType {
-        ColumnType::Json
-    }
-
-    fn array_type() -> ArrayType {
-        ArrayType::Json
-    }
-
-    fn try_from(v: Value) -> Result<Self, ValueTypeErr> {
-        match v {
-            Value::Json(Some(json)) => serde_json::from_value(*json).map_err(|_| ValueTypeErr),
-            _ => Err(ValueTypeErr),
-        }
-    }
-}
-
-#[cfg(feature = "wallet")]
-impl TryGetable for RgbBridgeLocationInfo {
-    fn try_get_by<I: sea_orm::ColIdx>(res: &QueryResult, index: I) -> Result<Self, TryGetError> {
-        let json_value_opt: Option<JsonValue> = res.try_get_by(index)?;
-        match json_value_opt {
-            Some(json_value) => serde_json::from_value(json_value)
-                .map_err(|e| TryGetError::DbErr(DbErr::Type(e.to_string()))),
-            None => Err(TryGetError::Null(
-                "Null value for RgbBridgeLocationInfo".to_string(),
-            )),
-        }
-    }
-}
-
-#[cfg(feature = "wallet")]
-impl Nullable for RgbBridgeLocationInfo {
-    fn null() -> Value {
-        Value::Json(None)
-    }
-}
+impl_json_column!(RgbBridgeLocationInfo);
 
 // The DB representation of a reject list location (see `RgbRejectListInfo`): the location the
 // genesis of an asset commits to is cached in a JSON column when the asset is saved.
 #[cfg(feature = "wallet")]
-impl From<RgbRejectListInfo> for Value {
-    fn from(value: RgbRejectListInfo) -> Self {
-        Value::Json(Some(Box::new(serde_json::to_value(value).unwrap())))
-    }
-}
-
-#[cfg(feature = "wallet")]
-impl TryFrom<Value> for RgbRejectListInfo {
-    type Error = sea_orm::DbErr;
-
-    fn try_from(v: Value) -> Result<Self, Self::Error> {
-        match v {
-            Value::Json(Some(json)) => {
-                serde_json::from_value(*json).map_err(|e| sea_orm::DbErr::Custom(e.to_string()))
-            }
-            _ => Err(sea_orm::DbErr::Type("Expected JSON value".into())),
-        }
-    }
-}
-
-#[cfg(feature = "wallet")]
-impl rgb_lib_migration::ValueType for RgbRejectListInfo {
-    fn type_name() -> String {
-        "json".to_string()
-    }
-
-    fn column_type() -> ColumnType {
-        ColumnType::Json
-    }
-
-    fn array_type() -> ArrayType {
-        ArrayType::Json
-    }
-
-    fn try_from(v: Value) -> Result<Self, ValueTypeErr> {
-        match v {
-            Value::Json(Some(json)) => serde_json::from_value(*json).map_err(|_| ValueTypeErr),
-            _ => Err(ValueTypeErr),
-        }
-    }
-}
-
-#[cfg(feature = "wallet")]
-impl TryGetable for RgbRejectListInfo {
-    fn try_get_by<I: sea_orm::ColIdx>(res: &QueryResult, index: I) -> Result<Self, TryGetError> {
-        let json_value_opt: Option<JsonValue> = res.try_get_by(index)?;
-        match json_value_opt {
-            Some(json_value) => serde_json::from_value(json_value)
-                .map_err(|e| TryGetError::DbErr(DbErr::Type(e.to_string()))),
-            None => Err(TryGetError::Null(
-                "Null value for RgbRejectListInfo".to_string(),
-            )),
-        }
-    }
-}
-
-#[cfg(feature = "wallet")]
-impl Nullable for RgbRejectListInfo {
-    fn null() -> Value {
-        Value::Json(None)
-    }
-}
+impl_json_column!(RgbRejectListInfo);
 
 #[cfg(all(test, feature = "wallet"))]
 mod tests {
