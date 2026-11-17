@@ -402,6 +402,60 @@ pub(crate) fn write_opouts_to_reject_list(filename: &str, opouts: &[String]) {
     }
 }
 
+/// The config of the electrum indexer the tests run against.
+#[cfg(feature = "electrum")]
+pub(crate) fn electrum_indexer_config() -> IndexerConfig {
+    IndexerConfig::Electrum {
+        url: ELECTRUM_URL.to_string(),
+    }
+}
+
+/// The validation options of a consignment of the tests, taking the witness with the given TXID
+/// (if any) from the consignment.
+#[cfg(feature = "electrum")]
+pub(crate) fn validation_options(offchain_txid: Option<&str>) -> ValidationOptions {
+    ValidationOptions {
+        bitcoin_network: BitcoinNetwork::Regtest,
+        offchain_txid: offchain_txid.map(str::to_string),
+    }
+}
+
+/// Validate the consignment at the given path with the indexer the tests run against, taking the
+/// witness with the given TXID (if any) from the consignment and applying the given confirmation
+/// policy.
+#[cfg(feature = "electrum")]
+pub(crate) fn validate_test_consignment(
+    consignment_path: &str,
+    offchain_txid: Option<&str>,
+    min_confirmations: Option<u8>,
+) -> Result<ConsignmentValidation, Error> {
+    validate_consignment(
+        consignment_path,
+        &electrum_indexer_config(),
+        &HashMap::new(),
+        min_confirmations,
+        &validation_options(offchain_txid),
+    )
+}
+
+/// Fill in the SPV proofs the consignment at the given path is missing, with the indexer the
+/// tests run against.
+#[cfg(feature = "electrum")]
+pub(crate) fn fill_proofs(consignment_path: &str) -> SpvProofFill {
+    fill_spv_proofs(consignment_path, &electrum_indexer_config()).unwrap()
+}
+
+/// The SPV proof the consignment at the given path carries for the witness transaction with the
+/// given TXID, if any.
+#[cfg(feature = "electrum")]
+pub(crate) fn witness_spv_proof(consignment_path: &str, txid: &str) -> Option<SpvProof> {
+    RgbTransfer::load_file(consignment_path)
+        .unwrap()
+        .bundled_witnesses()
+        .find(|witness_bundle| witness_bundle.witness_id().to_string() == txid)
+        .and_then(|witness_bundle| witness_bundle.spv_proof.clone())
+}
+
 /// The assignment an inspected input spends, which the wallet and the consignment inspections
 /// always resolve (only a fascia inspected without a wallet leaves it unresolved).
 #[cfg(feature = "electrum")]

@@ -59,8 +59,9 @@ use crate::{
     database::enums::{SCHEMA_ID_CFA, SCHEMA_ID_IFA, SCHEMA_ID_NIA, SCHEMA_ID_UDA},
     no_wallet::{
         BundleFilter, ResolveRejectList, RgbBridgeLocationInfo, RgbEvmContractInfo, RgbMediaInfo,
-        RgbRejectListInfo, inspect_consignment, inspect_fascia, validate_consignment,
-        validate_consignment_with_resolver, validation::RemoteRejectListResolver,
+        RgbRejectListInfo, fill_spv_proofs, inspect_consignment, inspect_fascia,
+        validate_consignment, validate_consignment_with_resolver,
+        validation::RemoteRejectListResolver,
     },
     wallet::utils::{get_account_data, recipient_id_from_script_buf, script_buf_from_recipient_id},
     wallet::{multisig::*, rust_only::*},
@@ -668,6 +669,8 @@ mod delete_transfers;
 mod drain_to;
 #[cfg(feature = "electrum")]
 mod fail_transfers;
+#[cfg(feature = "electrum")]
+mod fill_spv_proofs;
 #[cfg(feature = "electrum")]
 mod finalize_psbt;
 mod get_address;

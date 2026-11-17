@@ -37,15 +37,16 @@ use rgb_lib::{
         RgbInputInfo as RgbLibRgbInputInfo, RgbInspection as RgbLibRgbInspection,
         RgbOperationInfo as RgbLibRgbOperationInfo, RgbOutputInfo as RgbLibRgbOutputInfo,
         RgbTransitionInfo as RgbLibRgbTransitionInfo, RgbWalletOpsOffline, RgbWalletOpsOnline,
-        SendBeginResult, SendDetails, SinglesigKeys, SyncKeychain as RgbLibSyncKeychain,
-        SyncOptions as RgbLibSyncOptions, SyncStrategy, Token, TokenLight, Transaction,
-        TransactionType, Transfer as RgbLibTransfer, TransferKind,
+        SendBeginResult, SendDetails, SinglesigKeys, SpvProofFill,
+        SyncKeychain as RgbLibSyncKeychain, SyncOptions as RgbLibSyncOptions, SyncStrategy, Token,
+        TokenLight, Transaction, TransactionType, Transfer as RgbLibTransfer, TransferKind,
         TransferScope as RgbLibTransferScope, TransferTransportEndpoint,
         TransitionGlobal as RgbLibTransitionGlobal, TransportEndpoint as RgbLibTransportEndpoint,
         TypeOfAssignment, TypeOfTransition, Unspent as RgbLibUnspent, UserRole, Utxo,
         ValidatedWitness as RgbLibValidatedWitness, ValidationOptions,
         ValidationWarning as RgbLibValidationWarning, Wallet as RgbLibWallet, WalletData,
         WalletDescriptors, WitnessData, WitnessValidationStatus as RgbLibWitnessValidationStatus,
+        WitnessWithoutProof,
     },
 };
 
@@ -1333,6 +1334,13 @@ fn validate_consignment(
         &options,
     )
     .map(|v| v.into())
+}
+
+fn fill_spv_proofs(
+    consignment_path: String,
+    indexer_config: IndexerConfig,
+) -> Result<SpvProofFill, RgbLibError> {
+    rgb_lib::no_wallet::fill_spv_proofs(&consignment_path, &indexer_config.into())
 }
 
 struct RecipientInfo {

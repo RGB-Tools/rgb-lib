@@ -1,28 +1,5 @@
 use super::*;
 
-fn validate(
-    consignment_path: &str,
-    offchain_txid: Option<&str>,
-    min_confirmations: Option<u8>,
-) -> Result<ConsignmentValidation, Error> {
-    validate_consignment(
-        consignment_path,
-        &IndexerConfig::Electrum {
-            url: ELECTRUM_URL.to_string(),
-        },
-        &HashMap::new(),
-        min_confirmations,
-        &validation_options(offchain_txid),
-    )
-}
-
-fn validation_options(offchain_txid: Option<&str>) -> ValidationOptions {
-    ValidationOptions {
-        bitcoin_network: BitcoinNetwork::Regtest,
-        offchain_txid: offchain_txid.map(str::to_string),
-    }
-}
-
 #[test]
 #[parallel]
 fn success() {
@@ -55,9 +32,9 @@ fn success() {
     let consignment = RgbTransfer::load_file(&consignment_path).unwrap();
 
     // the witness hasn't been broadcast yet, so it needs to be taken from the consignment
-    let result = validate(&consignment_path, None, None);
+    let result = validate_test_consignment(&consignment_path, None, None);
     assert_matches!(result, Err(Error::ConsignmentValidationFailed { .. }));
-    let validation = validate(&consignment_path, Some(&txid), None).unwrap();
+    let validation = validate_test_consignment(&consignment_path, Some(&txid), None).unwrap();
     assert_eq!(
         validation.consignment_id,
         consignment.consignment_id().to_string()
@@ -78,7 +55,7 @@ fn success() {
     assert!(validation.warnings.is_empty());
 
     // an unconfirmed witness is reported when confirmations are requested
-    let validation = validate(&consignment_path, Some(&txid), Some(1)).unwrap();
+    let validation = validate_test_consignment(&consignment_path, Some(&txid), Some(1)).unwrap();
     assert!(validation.safe_height.is_some());
     assert_eq!(
         validation.warnings,
@@ -88,7 +65,7 @@ fn success() {
     );
 
     // unconfirmed witnesses are reported whatever the requested confirmations
-    let validation = validate(&consignment_path, Some(&txid), Some(0)).unwrap();
+    let validation = validate_test_consignment(&consignment_path, Some(&txid), Some(0)).unwrap();
     assert_eq!(
         validation.warnings,
         vec![ValidationWarning::UnsafeHistory {
@@ -103,21 +80,22 @@ fn success() {
         .into_contract()
         .save_file(contract_file.path())
         .unwrap();
-    let validation = validate(&contract_file.path().to_string_lossy(), None, Some(1)).unwrap();
+    let validation =
+        validate_test_consignment(&contract_file.path().to_string_lossy(), None, Some(1)).unwrap();
     assert!(!validation.is_transfer);
     assert_eq!(validation.asset_id, asset.asset_id);
     assert!(validation.witnesses.is_empty());
     assert!(validation.warnings.is_empty());
     // it has no witness, so no offchain TXID can match one
     let contract_path = contract_file.path().to_string_lossy().to_string();
-    let result = validate(&contract_path, Some(&txid), None);
+    let result = validate_test_consignment(&contract_path, Some(&txid), None);
     assert_matches!(result, Err(Error::OffchainTxidNotFound { txid: t }) if t == txid);
 
     // a contract consignment carrying bundles is invalid, so no offchain TXID can be of use
     let mut contract = consignment.clone().into_contract();
     contract.bundles = consignment.bundles.clone();
     contract.save_file(contract_file.path()).unwrap();
-    let result = validate(&contract_path, None, None);
+    let result = validate_test_consignment(&contract_path, None, None);
     assert_matches!(result, Err(Error::ConsignmentValidationFailed { .. }));
 
     // settle the transfer, the witness then being resolved by the indexer
@@ -131,12 +109,12 @@ fn success() {
         .wallet
         .get_receive_valid_consignment_path(&rcv_consignment_path);
     assert!(valid_consignment_path.exists());
-    let result = validate(&valid_consignment_path.to_string_lossy(), None, None);
+    let result = validate_test_consignment(&valid_consignment_path.to_string_lossy(), None, None);
     assert_matches!(result, Err(Error::InvalidConsignment));
 
     party.wait_for_refresh(Some(&asset.asset_id));
     mine(false);
-    let validation = validate(&consignment_path, None, Some(1)).unwrap();
+    let validation = validate_test_consignment(&consignment_path, None, Some(1)).unwrap();
     let safe_height = validation.safe_height.unwrap();
     assert_eq!(validation.witnesses.len(), 1);
     let witness = &validation.witnesses[0];
@@ -146,7 +124,7 @@ fn success() {
     assert!(validation.warnings.is_empty());
 
     // a mined witness is safe with 0 confirmations requested
-    let validation = validate(&consignment_path, None, Some(0)).unwrap();
+    let validation = validate_test_consignment(&consignment_path, None, Some(0)).unwrap();
     assert!(validation.warnings.is_empty());
 
     // the other indexers resolve the witness the same way
@@ -181,14 +159,14 @@ fn fail() {
     initialize();
 
     // inexistent file
-    let result = validate("inexistent", None, None);
+    let result = validate_test_consignment("inexistent", None, None);
     assert_matches!(result, Err(Error::InvalidFilePath { file_path: f }) if f == "inexistent");
 
     // not a consignment
     let invalid_file = tempfile::NamedTempFile::with_prefix("validate_consignment::").unwrap();
     let invalid_path = invalid_file.path().to_string_lossy().to_string();
     fs::write(&invalid_file, b"not a consignment").unwrap();
-    let result = validate(&invalid_path, None, None);
+    let result = validate_test_consignment(&invalid_path, None, None);
     assert_matches!(result, Err(Error::InvalidConsignment));
 
     // a schema definition
@@ -196,7 +174,7 @@ fn fail() {
         .schema_definition()
         .save_file(invalid_file.path())
         .unwrap();
-    let result = validate(&invalid_path, None, None);
+    let result = validate_test_consignment(&invalid_path, None, None);
     assert_matches!(result, Err(Error::InvalidConsignment));
 
     // wallets
@@ -225,12 +203,12 @@ fn fail() {
         .to_string();
 
     // invalid TXID
-    let result = validate(&consignment_path, Some("invalid"), None);
+    let result = validate_test_consignment(&consignment_path, Some("invalid"), None);
     assert_matches!(result, Err(Error::InvalidTxid));
 
     // TXID not of a witness in the consignment
     let unknown_txid = "0".repeat(64);
-    let result = validate(&consignment_path, Some(&unknown_txid), None);
+    let result = validate_test_consignment(&consignment_path, Some(&unknown_txid), None);
     assert_matches!(result, Err(Error::OffchainTxidNotFound { txid: t }) if t == unknown_txid);
 
     // indexer for another network
@@ -259,7 +237,7 @@ fn fail() {
         bundle.known_transitions = Confined::from_iter_checked(known_transitions);
     }));
     consignment.save_file(invalid_file.path()).unwrap();
-    let result = validate(&invalid_path, Some(&txid), None);
+    let result = validate_test_consignment(&invalid_path, Some(&txid), None);
     assert_matches!(result, Err(Error::ConsignmentValidationFailed { .. }));
 }
 
@@ -634,27 +612,27 @@ fn reject_list() {
     inputs_and_change.sort();
 
     // nothing rejected
-    validate(&consignment_path, Some(&txid), None).unwrap();
+    validate_test_consignment(&consignment_path, Some(&txid), None).unwrap();
 
     // a rejected terminal
     write_opouts_to_reject_list(list_name, std::slice::from_ref(&terminal));
-    let result = validate(&consignment_path, Some(&txid), None);
+    let result = validate_test_consignment(&consignment_path, Some(&txid), None);
     assert_matches!(result, Err(Error::ConsignmentRejected { opouts }) if opouts == vec![terminal.clone()]);
 
     // a terminal rejected then allowed
     write_opouts_to_reject_list(list_name, &[terminal.clone(), format!("!{terminal}")]);
-    validate(&consignment_path, Some(&txid), None).unwrap();
+    validate_test_consignment(&consignment_path, Some(&txid), None).unwrap();
 
     // a rejected ancestor: the issuance itself, the terminal and the change are all tainted
     write_opouts_to_reject_list(list_name, std::slice::from_ref(&issuance));
-    let result = validate(&consignment_path, Some(&txid), None);
+    let result = validate_test_consignment(&consignment_path, Some(&txid), None);
     assert_matches!(result, Err(Error::ConsignmentRejected { opouts }) if opouts == all_checked);
 
     // an allowed terminal shields itself only: the operation's input and change stay tainted, so
     // the consignment is refused (a wallet receiving the terminal would accept it, as it checks
     // the assignments it receives)
     write_opouts_to_reject_list(list_name, &[issuance.clone(), format!("!{terminal}")]);
-    let result = validate(&consignment_path, Some(&txid), None);
+    let result = validate_test_consignment(&consignment_path, Some(&txid), None);
     assert_matches!(result, Err(Error::ConsignmentRejected { opouts }) if opouts == inputs_and_change);
 
     // a custom reject list resolver is trusted in place of the reject list server

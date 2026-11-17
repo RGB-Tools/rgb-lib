@@ -196,6 +196,8 @@ pub(crate) mod error;
 #[cfg(feature = "wallet")]
 pub mod keys;
 pub mod no_wallet;
+#[cfg(any(feature = "wallet", feature = "_validation"))]
+pub(crate) mod utils;
 #[cfg(feature = "wallet")]
 pub mod wallet;
 
@@ -245,7 +247,7 @@ use std::cell::{Cell, RefCell};
 use std::cmp;
 #[cfg(all(test, unix, feature = "wallet"))]
 use std::os::unix::fs::PermissionsExt;
-#[cfg(any(feature = "wallet", feature = "bitcoind_validation"))]
+#[cfg(any(feature = "wallet", feature = "_validation"))]
 use std::path::PathBuf;
 #[cfg(all(test, feature = "wallet"))]
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -255,15 +257,6 @@ use std::{
     collections::hash_map::{DefaultHasher, Entry},
     hash::Hasher,
 };
-#[cfg(feature = "wallet")]
-use std::{
-    collections::BTreeSet,
-    fs,
-    hash::Hash,
-    io::{self, Write},
-    panic,
-    sync::{Arc, LazyLock, Mutex},
-};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fmt,
@@ -271,6 +264,16 @@ use std::{
     path::Path,
     str::FromStr,
 };
+#[cfg(feature = "wallet")]
+use std::{
+    hash::Hash,
+    io::Write,
+    panic,
+    sync::{Arc, LazyLock, Mutex},
+};
+// also needed without the wallet, to fill in the SPV proofs a consignment is missing
+#[cfg(any(feature = "wallet", feature = "_validation"))]
+use std::{collections::BTreeSet, fs, io};
 #[cfg(any(feature = "wallet", feature = "_validation"))]
 use std::{io::Read, time::Duration};
 
@@ -545,6 +548,10 @@ use crate::no_wallet::{
     Outpoint, beneficiary_from_script_buf, bundle_info, fascia_from_file, fascia_inspection,
     read_fascia,
 };
+#[cfg(any(feature = "wallet", feature = "_validation"))]
+use crate::utils::atomic_write_with;
+#[cfg(feature = "wallet")]
+use crate::utils::{atomic_tmp_path, atomic_write};
 #[cfg(feature = "_online")]
 #[cfg(test)]
 use crate::wallet::test::{
@@ -650,11 +657,10 @@ use crate::{
     keys::{Keys, WitnessVersion},
     wallet::utils::{
         ACCOUNT, DumbResolver, KEYCHAIN_BTC, KEYCHAIN_RGB, LOG_FILE, PURPOSE,
-        RGB_RUNTIME_DELETING_DIR, RgbStock, adjust_canonicalization, atomic_tmp_path, atomic_write,
-        atomic_write_with, bfa_reject_list_url, from_str_or_number_mandatory,
-        from_str_or_number_optional, get_account_xpubs, get_coin_type, get_descriptors,
-        get_descriptors_from_xpubs, hash_bytes, hash_bytes_hex, now, parse_address_str,
-        setup_logger, str_to_xpub,
+        RGB_RUNTIME_DELETING_DIR, RgbStock, adjust_canonicalization, bfa_reject_list_url,
+        from_str_or_number_mandatory, from_str_or_number_optional, get_account_xpubs,
+        get_coin_type, get_descriptors, get_descriptors_from_xpubs, hash_bytes, hash_bytes_hex,
+        now, parse_address_str, setup_logger, str_to_xpub,
     },
     wallet::{AssetFilter, Balance, LocalRgbAllocation, LocalUnspent, NUM_KNOWN_SCHEMAS},
 };

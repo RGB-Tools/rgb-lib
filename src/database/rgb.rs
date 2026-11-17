@@ -1333,7 +1333,8 @@ pub(crate) fn migrate_rgb_fs_to_db(
 mod legacy {
     use super::*;
 
-    use crate::wallet::utils::{RGB_RUNTIME_DIR, atomic_write_with, sync_dir, write_fascia};
+    use crate::utils::{atomic_write_with, sync_dir};
+    use crate::wallet::utils::{RGB_RUNTIME_DIR, write_fascia};
     use crate::wallet::{ASSETS_DIR, FASCIA_FILE, TRANSFERS_DIR, UNSIGNED_PSBT_FILE};
 
     /// Prefix of every RGB container file, followed by a 3-byte magic

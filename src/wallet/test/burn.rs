@@ -790,21 +790,6 @@ fn bfa_success() {
 fn ifa_reject_list_burn() {
     initialize();
 
-    fn validate(consignment_path: &str) -> Result<ConsignmentValidation, Error> {
-        validate_consignment(
-            consignment_path,
-            &IndexerConfig::Electrum {
-                url: ELECTRUM_URL.to_string(),
-            },
-            &HashMap::new(),
-            None,
-            &ValidationOptions {
-                bitcoin_network: BitcoinNetwork::Regtest,
-                offchain_txid: None,
-            },
-        )
-    }
-
     fn burn_consignment(
         party: &SinglesigParty,
         asset_id: &str,
@@ -923,24 +908,24 @@ fn ifa_reject_list_burn() {
             .len_u16(),
         2
     );
-    validate(&path_a).unwrap();
-    validate(&path_b).unwrap();
+    validate_test_consignment(&path_a, None, None).unwrap();
+    validate_test_consignment(&path_b, None, None).unwrap();
 
     // 1. the issuer rejects the allocation party A burned
     write_opouts_to_reject_list(list_name, &[opout_a.to_string()]);
 
     // the burn consignment of party A spends a rejected opout, so it's refused
-    let result = validate(&path_a);
+    let result = validate_test_consignment(&path_a, None, None);
     assert_matches!(result, Err(Error::ConsignmentRejected { opouts }) if opouts == vec![opout_a.to_string()]);
-    validate(&path_b).unwrap();
+    validate_test_consignment(&path_b, None, None).unwrap();
     // 2. the issuer rejects the issuance allocation instead, tainting the history of both burns:
     // the input of party A's, the input of party B's (the burned part of its split, whose other
     // part the burn consignment doesn't prove)
     write_opouts_to_reject_list(list_name, &[issuance_opout.to_string()]);
 
-    let result = validate(&path_a);
+    let result = validate_test_consignment(&path_a, None, None);
     assert_matches!(result, Err(Error::ConsignmentRejected { opouts }) if opouts == vec![opout_a.to_string()]);
-    let result = validate(&path_b);
+    let result = validate_test_consignment(&path_b, None, None);
     assert_matches!(result, Err(Error::ConsignmentRejected { opouts }) if opouts == vec![burned_b.to_string()]);
 }
 

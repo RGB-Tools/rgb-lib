@@ -8,6 +8,8 @@
 //! `electrum_validation` or `esplora_validation`), which doesn't enable the `wallet` feature.
 
 pub(crate) mod inspection;
+#[cfg(feature = "_validation")]
+pub(crate) mod spv;
 pub(crate) mod validation;
 
 use super::*;
@@ -20,6 +22,8 @@ pub use inspection::{
 };
 #[cfg(feature = "wallet")]
 pub(crate) use inspection::{bundle_info, fascia_from_file, fascia_inspection};
+#[cfg(feature = "_validation")]
+pub use spv::{SpvProofFill, WitnessWithoutProof, fill_spv_proofs};
 #[cfg(feature = "_validation")]
 pub use validation::{BitcoindAuth, IndexerConfig, IndexerProtocol, validate_consignment};
 pub use validation::{

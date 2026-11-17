@@ -22,6 +22,9 @@ namespace rgb_lib {
   ConsignmentValidation validate_consignment(string consignment_path,
     IndexerConfig indexer_config, record<u64, string> evm_rpc_urls, u8? min_confirmations,
     ValidationOptions options);
+
+  [Throws=RgbLibError]
+  SpvProofFill fill_spv_proofs(string consignment_path, IndexerConfig indexer_config);
 };
 
 [Error, Remote]
@@ -1092,6 +1095,18 @@ interface ValidationWarning {
   UnsafeHistory(sequence<string> txids);
   InvalidSpvProof(string bundle_id, string txid);
   Other(string details);
+};
+
+[Remote]
+dictionary SpvProofFill {
+  sequence<WitnessWithoutProof> without_proof;
+  boolean rewritten;
+};
+
+[Remote]
+dictionary WitnessWithoutProof {
+  string txid;
+  string details;
 };
 
 [Remote]
