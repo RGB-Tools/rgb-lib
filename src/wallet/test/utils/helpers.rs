@@ -520,6 +520,25 @@ pub(crate) fn blind_recipient_map(
     )])
 }
 
+/// Refresh both parties until the batch send with the given TXID and each of the receives with
+/// the given recipient IDs are settled.
+///
+/// Waiting for the statuses the test expects, instead of for some transfer to change status, is
+/// immune to a transfer being settled by a block another test mines and to a refresh taking longer
+/// than a change wait allows.
+#[cfg(feature = "electrum")]
+pub(crate) fn settle_batch(
+    sender: &mut SinglesigParty,
+    receiver: &mut SinglesigParty,
+    txid: &str,
+    recipient_ids: &[&str],
+) {
+    for recipient_id in recipient_ids {
+        receiver.wait_for_transfer_status_recipient(None, recipient_id, TransferStatus::Settled);
+    }
+    sender.wait_for_transfer_status_sender(None, txid, TransferStatus::Settled);
+}
+
 /// Send the given `assignment` of the asset with ID `asset_id` from `sender` to the blind receive
 /// of `receiver` described by `receive_data`, then settle the transfer, returning its TXID.
 #[cfg(feature = "electrum")]
@@ -535,12 +554,7 @@ pub(crate) fn send_to_blind_and_settle(
     receiver.wait_for_refresh(None);
     sender.wait_for_refresh(None);
     mine(false);
-    receiver.wait_for_transfer_status_recipient(
-        None,
-        &receive_data.recipient_id,
-        TransferStatus::Settled,
-    );
-    sender.wait_for_transfer_status_sender(None, &txid, TransferStatus::Settled);
+    settle_batch(sender, receiver, &txid, &[&receive_data.recipient_id]);
     txid
 }
 

@@ -269,8 +269,12 @@ fn filters() {
     assert_eq!(rcv_by_txid.len(), 2);
     party.wait_for_refresh(None);
     mine(false);
-    rcv_party.wait_for_refresh(None);
-    party.wait_for_refresh(None);
+    settle_batch(
+        &mut party,
+        &mut rcv_party,
+        &txid,
+        &[&receive_nia.recipient_id, &receive_cfa.recipient_id],
+    );
 
     // Id + txid of a tx not carrying that asset: empty
     let receive_nia_2 = rcv_party.blind_receive();
@@ -507,8 +511,12 @@ fn scopes() {
     // settle and check again
     party.wait_for_refresh(None);
     mine(false);
-    rcv_party.wait_for_refresh(None);
-    party.wait_for_refresh(None);
+    settle_batch(
+        &mut party,
+        &mut rcv_party,
+        &txid,
+        &[&receive_nia.recipient_id, &receive_cfa.recipient_id],
+    );
     check_scopes_match_all(&party, &filters);
     check_scopes_match_all(&rcv_party, &filters);
 }
@@ -579,7 +587,11 @@ fn scopes_extra_allocations() {
     rcv_party.wait_for_refresh(None);
     party.wait_for_refresh(None);
     mine(false);
-    rcv_party.wait_for_refresh(None);
-    party.wait_for_refresh(None);
+    settle_batch(
+        &mut party,
+        &mut rcv_party,
+        &txid,
+        &[&receive_data.recipient_id],
+    );
     check_scopes_match_all(&party, &filters);
 }
