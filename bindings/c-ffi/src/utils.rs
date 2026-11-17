@@ -175,6 +175,16 @@ fn string_to_ptr(other: String) -> *mut c_char {
     cstr.into_raw()
 }
 
+pub(crate) fn attach_spv_proofs(
+    consignment_path: *const c_char,
+    indexer_config: *const c_char,
+) -> Result<String, Error> {
+    let consignment_path = ptr_to_string(consignment_path);
+    let indexer_config: IndexerConfig = serde_json::from_str(&ptr_to_string(indexer_config))?;
+    let res = rgb_lib::no_wallet::attach_spv_proofs(&consignment_path, &indexer_config)?;
+    Ok(serde_json::to_string(&res)?)
+}
+
 pub(crate) fn backup(
     wallet: &COpaqueStruct,
     backup_path: *const c_char,

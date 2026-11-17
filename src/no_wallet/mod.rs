@@ -21,7 +21,10 @@ pub use inspection::{
 #[cfg(feature = "wallet")]
 pub(crate) use inspection::{bundle_info, fascia_from_file, fascia_inspection};
 #[cfg(feature = "_validation")]
-pub use validation::{BitcoindAuth, IndexerConfig, IndexerProtocol, validate_consignment};
+pub use validation::{
+    BitcoindAuth, IndexerConfig, IndexerProtocol, SpvProofsAttachment, attach_spv_proofs,
+    validate_consignment,
+};
 pub use validation::{
     ConsignmentValidation, RejectList, RejectListSource, ResolveRejectList, ValidatedWitness,
     ValidationOptions, ValidationWarning, WitnessValidationStatus,

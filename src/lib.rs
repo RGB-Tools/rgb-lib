@@ -45,11 +45,11 @@
 //! [`no_wallet::inspect_fascia`] (which checks what the PSBT of an operation commits to) and
 //! [`no_wallet::validate_consignment_with_resolver`] (consignment validation with resolvers
 //! provided by the caller, for witnesses, mints and reject lists), depending on few crates other
-//! than the RGB ones and on no network client. Validating with an indexer, like
-//! `no_wallet::validate_consignment`, requires an indexer validation feature
-//! (`bitcoind_validation`, `electrum_validation` or `esplora_validation`, enabled by the
-//! corresponding indexer feature), which adds the indexer client and an HTTP client (to confirm
-//! mints and read reject lists), without enabling the `wallet` feature.
+//! than the RGB ones and on no network client. Reaching an indexer, like
+//! `no_wallet::validate_consignment` and `no_wallet::attach_spv_proofs` do, requires an indexer
+//! validation feature (`bitcoind_validation`, `electrum_validation` or `esplora_validation`,
+//! enabled by the corresponding indexer feature), which adds the indexer client and an HTTP client
+//! (to confirm mints and read reject lists), without enabling the `wallet` feature.
 //!
 //! The [`no_wallet`] module also provides the objects and helpers that don't need a wallet at all,
 //! which the wallet APIs also use and re-export: [`no_wallet::Outpoint`], the recipient ID ones

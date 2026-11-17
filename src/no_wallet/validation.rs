@@ -295,6 +295,20 @@ impl ConsignmentValidation {
     }
 }
 
+/// Result of attaching SPV proofs to an RGB consignment, see [`attach_spv_proofs`].
+#[cfg(feature = "_validation")]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
+pub struct SpvProofsAttachment {
+    /// ID of the consignment, which changes when a proof is attached, as it commits to the proofs
+    pub consignment_id: String,
+    /// TXIDs of the witness transactions an SPV proof has been attached to, sorted
+    pub attached: Vec<String>,
+    /// TXIDs of the witness transactions left without an SPV proof, as the indexer couldn't
+    /// provide it (e.g. because they aren't mined yet), sorted
+    pub missing: Vec<String>,
+}
+
 /// Where a contract's reject list is published, see [`ResolveRejectList`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum RejectListSource {
@@ -664,6 +678,102 @@ pub fn validate_consignment(
         safe_height,
         options,
     )
+}
+
+/// Attach the missing SPV proofs to the RGB consignment (transfer or contract) at the given path,
+/// without a wallet.
+///
+/// A wallet attaches the proofs of the mined witness transactions to the consignments it creates,
+/// so the witness transaction of the operation a consignment has been created for, which
+/// hasn't been broadcast yet at that time, has none. Once that transaction is mined, this method
+/// completes the consignment, which can then be validated from the block headers alone, with
+/// a resolver that doesn't look witness transactions up (see
+/// [`validate_consignment_with_resolver`]).
+///
+/// The proof of each witness transaction that has none is requested to the indexer described by
+/// `indexer_config`, which must be for the network of the consignment. The proofs the consignment
+/// already carries are left untouched and a witness transaction whose proof cannot be retrieved
+/// is left without one and reported in [`SpvProofsAttachment::missing`]. The consignment file is
+/// replaced if at least a proof has been attached, otherwise it's left as it is.
+///
+/// This doesn't validate the consignment nor the attached proofs, which the indexer is trusted for
+/// until the consignment is validated: validation checks them against the block headers.
+#[cfg(feature = "_validation")]
+pub fn attach_spv_proofs(
+    consignment_path: &str,
+    indexer_config: &IndexerConfig,
+) -> Result<SpvProofsAttachment, Error> {
+    check_file_exists(consignment_path)?;
+    match UniversalFile::load_file(consignment_path) {
+        Ok(UniversalFile::Transfer(consignment)) => {
+            attach_spv_proofs_to_file(consignment, consignment_path, indexer_config)
+        }
+        Ok(UniversalFile::Contract(consignment)) => {
+            attach_spv_proofs_to_file(consignment, consignment_path, indexer_config)
+        }
+        _ => Err(Error::InvalidConsignment),
+    }
+}
+
+/// Attach the missing SPV proofs to the given consignment, loaded from the file at the given path,
+/// see [`attach_spv_proofs`].
+#[cfg(feature = "_validation")]
+fn attach_spv_proofs_to_file<const TRANSFER: bool>(
+    mut consignment: Consignment<TRANSFER>,
+    consignment_path: &str,
+    indexer_config: &IndexerConfig,
+) -> Result<SpvProofsAttachment, Error>
+where
+    Consignment<TRANSFER>: FileContent,
+{
+    let bitcoin_network = BitcoinNetwork::try_from(consignment.genesis.chain_net)?;
+    let resolver = get_resolver(indexer_config, bitcoin_network)?;
+    let mut attached = vec![];
+    let mut missing = vec![];
+    for witness_bundle in consignment.bundles.iter_mut() {
+        if witness_bundle.spv_proof.is_some() {
+            continue;
+        }
+        let witness_id = witness_bundle.witness_id();
+        match resolver.resolve_spv_proof(witness_id) {
+            Ok(spv_proof) => {
+                witness_bundle.spv_proof = Some(spv_proof);
+                attached.push(witness_id.to_string());
+            }
+            Err(_) => missing.push(witness_id.to_string()),
+        }
+    }
+    if !attached.is_empty() {
+        replace_consignment_file(&consignment, consignment_path)?;
+    }
+    attached.sort();
+    missing.sort();
+    Ok(SpvProofsAttachment {
+        consignment_id: consignment.consignment_id().to_string(),
+        attached,
+        missing,
+    })
+}
+
+/// Replace the consignment file at the given path, through a temporary file next to it, so a
+/// failed write doesn't leave a partial consignment behind.
+#[cfg(feature = "_validation")]
+fn replace_consignment_file<const TRANSFER: bool>(
+    consignment: &Consignment<TRANSFER>,
+    consignment_path: &str,
+) -> Result<(), Error>
+where
+    Consignment<TRANSFER>: FileContent,
+{
+    let tmp_path = format!("{consignment_path}.tmp");
+    let replaced = consignment
+        .save_file(&tmp_path)
+        .and_then(|_| std::fs::rename(&tmp_path, consignment_path));
+    if replaced.is_err() {
+        // don't leave a partial temporary file behind (best-effort)
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+    Ok(replaced?)
 }
 
 /// Validate the RGB consignment (transfer or contract) at the given path, without a wallet,

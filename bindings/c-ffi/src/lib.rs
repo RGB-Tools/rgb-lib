@@ -65,6 +65,14 @@ pub extern "C" fn free_wallet(obj: COpaqueStruct) {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn rgblib_attach_spv_proofs(
+    consignment_path: *const c_char,
+    indexer_config: *const c_char,
+) -> CResultString {
+    attach_spv_proofs(consignment_path, indexer_config).into()
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn rgblib_backup(
     wallet: &COpaqueStruct,
     backup_path: *const c_char,
