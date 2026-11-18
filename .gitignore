@@ -9,3 +9,4 @@
 **/tests/hub
 /.vim
 /.vscode
+/coverage.lcov

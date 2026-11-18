@@ -117,7 +117,7 @@ pub(crate) enum OperationStatus {
     Discarded,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 pub(crate) enum OperationType {
     CreateUtxos = 1,
     Issuance = 2,
@@ -128,6 +128,16 @@ pub(crate) enum OperationType {
     WitnessReceive = 7,
     Burn = 8,
 }
+
+/// Operation types for which the hub requires the per-operation Ed25519 secret seed to be posted
+/// as a top-level `seed` field: the ones encrypting/decrypting data exchanged with the proxy
+/// server. The hub rejects a seed posted for any other operation type, so this list needs to match
+/// the hub's one exactly.
+pub(crate) const OPERATION_TYPES_REQUIRING_SEED: [OperationType; 3] = [
+    OperationType::SendRgb,
+    OperationType::BlindReceive,
+    OperationType::WitnessReceive,
+];
 
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct PostOperationResponse {
@@ -311,16 +321,25 @@ impl MultisigHubClient {
         response.json::<EmptyResponse>().map_err(Self::req_err)
     }
 
+    /// Post an operation and its files to the hub.
+    ///
+    /// `seed` is the operation's Ed25519 secret seed (raw 32 bytes). It must be provided for the
+    /// operation types in [`OPERATION_TYPES_REQUIRING_SEED`] and omitted for all the other ones,
+    /// otherwise the hub rejects the request.
     pub(crate) fn post_operation(
         &self,
         files: Vec<(FileType, FileSource)>,
         operation_type: OperationType,
+        seed: Option<&[u8]>,
     ) -> Result<PostOperationResponse, Error> {
         let operation_type_bytes = (operation_type as u8).to_le_bytes().to_vec();
         let operation_type_part = multipart::Part::bytes(operation_type_bytes)
             .mime_str(OCTET_STREAM)
             .expect("OCTET_STREAM is a valid MIME type");
         let mut form = multipart::Form::new().part("operation_type", operation_type_part);
+        if let Some(seed) = seed {
+            form = form.text("seed", hex::encode(seed));
+        }
         for (file_type, file_source) in files {
             let field_name = file_type.field_name().to_string();
             let file_part = match file_source {
@@ -762,7 +781,7 @@ mod tests {
         let client: MultisigHubClient =
             MultisigHubClient::new("http://127.0.0.1:1", "token").unwrap();
         let result = client
-            .post_operation(vec![], OperationType::CreateUtxos)
+            .post_operation(vec![], OperationType::CreateUtxos, None)
             .unwrap_err();
         assert_matches!(result, Error::MultisigHubService { .. });
 
@@ -776,7 +795,7 @@ mod tests {
             .create();
         let client = MultisigHubClient::new(&server.url(), "test-token").unwrap();
         let result = client
-            .post_operation(vec![], OperationType::CreateUtxos)
+            .post_operation(vec![], OperationType::CreateUtxos, None)
             .unwrap_err();
         assert_matches!(result, Error::MultisigHubService { .. });
         mock.assert();

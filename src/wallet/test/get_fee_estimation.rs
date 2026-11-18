@@ -1,6 +1,6 @@
 use super::*;
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 fn success_common(party: &mut SinglesigParty, esplora: bool) {
     fn random_send_btc(party: &mut SinglesigParty) {
         let fee_rate = rand::rng().random_range(1..10);
@@ -58,6 +58,18 @@ fn success_common(party: &mut SinglesigParty, esplora: bool) {
     }
 }
 
+#[cfg(feature = "bitcoind")]
+#[test]
+#[ignore = "should be executed alone for performance reasons"]
+#[serial]
+fn success_bitcoind() {
+    initialize();
+
+    let mut party = get_funded_noutxo_party!(BITCOIND_URL.to_string());
+
+    success_common(&mut party, false);
+}
+
 #[cfg(feature = "electrum")]
 #[test]
 #[ignore = "should be executed alone for performance reasons"]
@@ -82,7 +94,7 @@ fn success_esplora() {
     success_common(&mut party, true);
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 fn fail_common(party: &SinglesigParty, esplora: bool) {
     for _ in 0..100 {
         mine_blocks(esplora, 100);
@@ -92,6 +104,18 @@ fn fail_common(party: &SinglesigParty, esplora: bool) {
         }
     }
     panic!("cannot find the expected error");
+}
+
+#[cfg(feature = "bitcoind")]
+#[test]
+#[ignore = "should be executed alone for performance reasons"]
+#[serial]
+fn fail_bitcoind() {
+    initialize();
+
+    let party = get_empty_party!(BITCOIND_URL.to_string());
+
+    fail_common(&party, false)
 }
 
 #[cfg(feature = "electrum")]

@@ -198,6 +198,11 @@ impl MultisigKeys {
 /// An RGB multisig wallet.
 ///
 /// Can be obtained with the [`MultisigWallet::new`] method.
+///
+/// For now, a multisig wallet refuses the mints of bridged assets paying it (it can still receive
+/// regular transfers of bridged assets): its cosigners would check a received mint each on its
+/// own, so one not checking it could make the others fail it while the lock may have been made.
+/// This is temporary, it will be addressed along with other open issues of multisig wallets.
 pub struct MultisigWallet {
     pub(crate) internals: WalletInternals,
     pub(crate) keys: MultisigKeys,
@@ -212,7 +217,7 @@ impl WalletCore for MultisigWallet {
         &mut self.internals
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     fn sync_wallet(
         &mut self,
         txn: &DbTxn,
@@ -245,7 +250,7 @@ impl WalletCore for MultisigWallet {
 impl WalletBackup for MultisigWallet {}
 
 impl WalletOffline for MultisigWallet {
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     fn get_new_addresses(
         &mut self,
         keychain: KeychainKind,
@@ -266,13 +271,27 @@ impl WalletOffline for MultisigWallet {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl WalletOnline for MultisigWallet {
     fn wallet_specific_consistency_checks(&mut self, _txn: &DbTxn) -> Result<(), Error> {
         Ok(())
     }
 
     fn supports_out_of_band_exchange(&self) -> bool {
+        false
+    }
+
+    // every cosigner downloads the consignment from the recipient proxy
+    fn releases_received_transfer_data(&self) -> bool {
+        false
+    }
+
+    // TODO: temporary, until the receive of a mint is coordinated among cosigners (along with
+    // other open issues of multisig wallets). Each cosigner checks a received mint on its own,
+    // while a cosigner that doesn't check it may fail it on the hub (e.g. at its invoice
+    // expiration), making the others fail it too: as the lock may have been made already, the
+    // mint would then complete on an output no cosigner tracks
+    fn accepts_received_mints(&self) -> bool {
         false
     }
 
@@ -315,7 +334,7 @@ impl WalletOnline for MultisigWallet {
 impl RgbWalletOpsOffline for MultisigWallet {}
 
 /// Common online APIs of the wallet.
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl RgbWalletOpsOnline for MultisigWallet {
     fn fail_transfers(
         &mut self,
@@ -346,7 +365,7 @@ impl RgbWalletOpsOnline for MultisigWallet {
 }
 
 /// Multisig-specific options for the [`MultisigWallet::go_online`] method.
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct MultisigOnlineOptions {
@@ -358,7 +377,7 @@ pub struct MultisigOnlineOptions {
 
 /// Voting status for multisig operations.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct MultisigVotingStatus {
     /// xPubs of cosigners that ACKed
@@ -372,17 +391,20 @@ pub struct MultisigVotingStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 struct ReceiveMetadata {
     invoice: String,
     min_confirmations: u8,
     expiration_timestamp: i64,
     secret_seal: Option<GraphSeal>,
+    seed: String,
+    #[serde(default)]
+    retention_deadline: Option<i64>,
 }
 
 /// Operations for multisig wallets.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub enum Operation {
     // CreateUtxos variants
     /// Create UTXOs operation waiting for user's response (ACK/NACK)
@@ -557,13 +579,13 @@ pub enum Operation {
 }
 
 #[derive(Debug, Clone)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) struct FileResponse {
     pub(crate) r#type: FileType,
     pub(crate) filepath: PathBuf,
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl InfoBatchTransfer {
     fn extract_from_files(files: &[FileResponse]) -> Result<Self, Error> {
         let transfer_data_file = files
@@ -580,7 +602,7 @@ impl InfoBatchTransfer {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 fn extract_fascia_path(files: &[FileResponse]) -> Result<String, Error> {
     files
         .iter()
@@ -591,7 +613,7 @@ fn extract_fascia_path(files: &[FileResponse]) -> Result<String, Error> {
         })
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 fn extract_fascia_from_files(files: &[FileResponse]) -> Result<Fascia, Error> {
     let fascia_file = files
         .iter()
@@ -599,18 +621,16 @@ fn extract_fascia_from_files(files: &[FileResponse]) -> Result<Fascia, Error> {
         .ok_or(Error::MultisigUnexpectedData {
             details: s!("fascia not found"),
         })?;
-    let file = fs::File::open(&fascia_file.filepath)?;
-    let reader = io::BufReader::new(file);
-    serde_json::from_reader(reader).map_err(|_| Error::MultisigUnexpectedData {
+    read_fascia(&fascia_file.filepath).map_err(|_| Error::MultisigUnexpectedData {
         details: s!("invalid fascia"),
     })
 }
 
 #[derive(Debug, Clone)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) struct NoDetails;
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) trait OperationHandler {
     type Details: Clone;
 
@@ -639,10 +659,10 @@ pub(crate) trait OperationHandler {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) struct CreateUtxosHandler;
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl OperationHandler for CreateUtxosHandler {
     type Details = NoDetails;
 
@@ -676,10 +696,10 @@ impl OperationHandler for CreateUtxosHandler {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) struct SendBtcHandler;
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl OperationHandler for SendBtcHandler {
     type Details = NoDetails;
 
@@ -713,16 +733,21 @@ impl OperationHandler for SendBtcHandler {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) struct SendRgbHandler;
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl OperationHandler for SendRgbHandler {
     type Details = SendDetails;
 
     fn extract_details(files: &[FileResponse]) -> Result<Self::Details, Error> {
         let fascia_path = extract_fascia_path(files)?;
         let info_batch_transfer = InfoBatchTransfer::extract_from_files(files)?;
+        if !info_batch_transfer.is_operation(&TypeOfTransition::Transfer) {
+            return Err(Error::MultisigUnexpectedData {
+                details: s!("operation data is not of a send"),
+            });
+        }
         Ok(SendDetails {
             fascia_path,
             min_confirmations: info_batch_transfer.min_confirmations,
@@ -760,8 +785,17 @@ impl OperationHandler for SendRgbHandler {
         wallet: &mut MultisigWallet,
         combined_psbt: &Psbt,
     ) -> Result<String, Error> {
-        let res = wallet.send_end_impl(txn, combined_psbt)?;
-        Ok(res.txid)
+        match wallet.send_end_impl(txn, combined_psbt) {
+            Ok(res) => Ok(res.txid),
+            // the operation has already been executed locally and the transfer has since failed
+            // (as agreed through the hub transfer status) or progressed: there is nothing left to
+            // execute, and the operation must still be marked as processed so the sync can move
+            // past it. The transfer cannot have been failed by this cosigner before the operation
+            // got approved, as multisig begins are dry runs, saving nothing until the approved
+            // operation is executed
+            Err(Error::CannotEndTransfer { txid }) => Ok(txid),
+            Err(e) => Err(e),
+        }
     }
 
     fn reconstruct_transfer_directory(
@@ -773,16 +807,21 @@ impl OperationHandler for SendRgbHandler {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) struct InflateHandler;
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl OperationHandler for InflateHandler {
     type Details = InflateDetails;
 
     fn extract_details(files: &[FileResponse]) -> Result<Self::Details, Error> {
         let fascia_path = extract_fascia_path(files)?;
         let info_batch_transfer = InfoBatchTransfer::extract_from_files(files)?;
+        if !info_batch_transfer.is_operation(&TypeOfTransition::Inflate) {
+            return Err(Error::MultisigUnexpectedData {
+                details: s!("operation data is not of an inflation"),
+            });
+        }
         if info_batch_transfer.transfers.len() != 1 {
             return Err(Error::MultisigUnexpectedData {
                 details: format!(
@@ -827,8 +866,16 @@ impl OperationHandler for InflateHandler {
         wallet: &mut MultisigWallet,
         combined_psbt: &Psbt,
     ) -> Result<String, Error> {
-        let res = wallet.inflate_end_impl(txn, combined_psbt)?;
-        Ok(res.txid)
+        match wallet.inflate_end_impl(txn, combined_psbt) {
+            Ok(res) => Ok(res.txid),
+            // the operation has already been executed locally, which saved the transfer as
+            // progressed: there is nothing left to execute, and the operation must still be
+            // marked as processed so the sync can move past it. The transfer cannot have been
+            // failed by this cosigner before the operation got approved, as multisig begins are
+            // dry runs, saving nothing until the approved operation is executed
+            Err(Error::CannotEndTransfer { txid }) => Ok(txid),
+            Err(e) => Err(e),
+        }
     }
 
     fn reconstruct_transfer_directory(
@@ -840,16 +887,21 @@ impl OperationHandler for InflateHandler {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub(crate) struct BurnHandler;
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl OperationHandler for BurnHandler {
     type Details = BurnDetails;
 
     fn extract_details(files: &[FileResponse]) -> Result<Self::Details, Error> {
         let fascia_path = extract_fascia_path(files)?;
         let info_batch_transfer = InfoBatchTransfer::extract_from_files(files)?;
+        if !info_batch_transfer.is_operation(&TypeOfTransition::Burn) {
+            return Err(Error::MultisigUnexpectedData {
+                details: s!("operation data is not of a burn"),
+            });
+        }
         if info_batch_transfer.transfers.len() != 1 {
             return Err(Error::MultisigUnexpectedData {
                 details: format!(
@@ -862,6 +914,12 @@ impl OperationHandler for BurnHandler {
             fascia_path,
             min_confirmations: info_batch_transfer.min_confirmations,
             entropy: info_batch_transfer.entropy,
+            burn_reason: info_batch_transfer
+                .transfers
+                .values()
+                .next()
+                .and_then(|transfer| transfer.main_transition.burn_reason())
+                .map(|burn_reason| burn_reason.to_string()),
         })
     }
 
@@ -894,8 +952,16 @@ impl OperationHandler for BurnHandler {
         wallet: &mut MultisigWallet,
         combined_psbt: &Psbt,
     ) -> Result<String, Error> {
-        let res = wallet.burn_end_impl(txn, combined_psbt)?;
-        Ok(res.txid)
+        match wallet.burn_end_impl(txn, combined_psbt) {
+            Ok(res) => Ok(res.txid),
+            // the operation has already been executed locally, which saved the transfer as
+            // progressed: there is nothing left to execute, and the operation must still be
+            // marked as processed so the sync can move past it. The transfer cannot have been
+            // failed by this cosigner before the operation got approved, as multisig begins are
+            // dry runs, saving nothing until the approved operation is executed
+            Err(Error::CannotEndTransfer { txid }) => Ok(txid),
+            Err(e) => Err(e),
+        }
     }
 
     fn reconstruct_transfer_directory(
@@ -909,7 +975,7 @@ impl OperationHandler for BurnHandler {
 
 /// Information about an operation.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct OperationInfo {
     /// Index of the operation
@@ -922,7 +988,7 @@ pub struct OperationInfo {
 
 /// Response to an operation.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub enum RespondToOperation {
     /// ACK the operation with a signed PSBT
     Ack(String),
@@ -932,7 +998,7 @@ pub enum RespondToOperation {
 
 /// Result of an operation initialization.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct InitOperationResult {
     /// PSBT of the operation
@@ -943,7 +1009,7 @@ pub struct InitOperationResult {
 
 /// The role of the user on the hub.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 pub enum UserRole {
     /// A cosigner
     Cosigner,
@@ -951,7 +1017,7 @@ pub enum UserRole {
     WatchOnly,
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl From<UserRoleResponse> for UserRole {
     fn from(orig: UserRoleResponse) -> Self {
         match orig {
@@ -963,7 +1029,7 @@ impl From<UserRoleResponse> for UserRole {
 
 /// Information about the hub.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
 pub struct HubInfo {
     /// The minimum supported rgb-lib version
@@ -978,7 +1044,7 @@ pub struct HubInfo {
     pub user_role: UserRole,
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl From<InfoResponse> for HubInfo {
     fn from(orig: InfoResponse) -> Self {
         Self {
@@ -991,7 +1057,7 @@ impl From<InfoResponse> for HubInfo {
     }
 }
 
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 enum PostData {
     BeginOperationData(Box<BeginOperationData>),
     Psbt(Psbt),
@@ -1018,19 +1084,25 @@ impl MultisigWallet {
         let database = setup_db(&wallet_dir)?;
 
         // setup the BDK wallet, persisting its data inside the rgb-lib DB
-        let txn = database.begin_transaction()?;
         let bdk_wallet = setup_bdk(
-            &txn,
+            &database,
             &wallet_dir,
             descs.colored,
             descs.vanilla,
-            true,
             wdata.bitcoin_network,
         )?;
-        txn.commit()?;
+
+        // migrate any legacy filesystem RGB data into the DB (one-time, no-op otherwise)
+        migrate_rgb_fs_to_db(&wallet_dir, &database)?;
 
         // setup RGB
-        setup_rgb(&wallet_dir, wdata.supported_schemas, wdata.bitcoin_network)?;
+        setup_rgb(
+            &database,
+            wdata.supported_schemas,
+            wdata.bitcoin_network,
+            wdata.allow_reckless_schemas,
+            &logger,
+        )?;
 
         info!(logger, "New multisig wallet completed");
         Ok(Self {
@@ -1042,7 +1114,7 @@ impl MultisigWallet {
                 wallet_dir,
                 bdk_wallet,
                 bdk_pending: Arc::new(Mutex::new(ChangeSet::default())),
-                #[cfg(any(feature = "electrum", feature = "esplora"))]
+                #[cfg(feature = "_online")]
                 online_data: None,
             },
             keys,
@@ -1086,7 +1158,7 @@ impl MultisigWallet {
 }
 
 /// Online APIs of the wallet
-#[cfg(any(feature = "electrum", feature = "esplora"))]
+#[cfg(feature = "_online")]
 impl MultisigWallet {
     fn is_cosigner(&self) -> Result<bool, Error> {
         Ok(matches!(
@@ -1169,9 +1241,7 @@ impl MultisigWallet {
             batch_data_str.as_bytes(),
         )?;
         let fascia = extract_fascia_from_files(files)?;
-        let fascia_str = serde_json::to_string(&fascia).expect("serializable");
-        let fascia_path = transfer_dir.join(FASCIA_FILE);
-        atomic_write(&fascia_path, fascia_str.as_bytes())?;
+        write_fascia(&transfer_dir.join(FASCIA_FILE), &fascia)?;
         Ok(())
     }
 
@@ -1282,9 +1352,9 @@ impl MultisigWallet {
         files.append(&mut additional_files);
         let response = self
             .hub_client()
-            .post_operation(files, OperationType::Issuance)?;
-        let mut runtime = self.rgb_runtime()?;
-        let asset = self.import_and_save_contract(txn, issue_data, &mut runtime)?;
+            .post_operation(files, OperationType::Issuance, None)?;
+        let mut stock = self.rgb_stock(txn)?;
+        let asset = self.import_and_save_contract(txn, issue_data, &mut stock)?;
         self.mark_operation_as_processed(txn, response.operation_idx)?;
         T::from_issuance(txn, self, &asset, issue_data)
     }
@@ -1445,6 +1515,9 @@ impl MultisigWallet {
             amounts,
             inflation_amounts,
             reject_list_url,
+            false,
+            None,
+            false,
         )?;
         let res = self.upload_and_process_issuance(&txn, &issue_data, vec![])?;
         txn.commit()?;
@@ -1452,8 +1525,10 @@ impl MultisigWallet {
         Ok(res)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn receive_impl(
         &mut self,
+        online: Online,
         asset_id: Option<String>,
         assignment: Assignment,
         expiration_timestamp: u64,
@@ -1461,6 +1536,7 @@ impl MultisigWallet {
         min_confirmations: u8,
         recipient_type: RecipientType,
         operation_type: OperationType,
+        encryption: Option<Encryption>,
     ) -> Result<ReceiveData, Error> {
         if transport_endpoints.is_empty() {
             return Err(Error::UnsupportedTransportType);
@@ -1471,11 +1547,13 @@ impl MultisigWallet {
         // shared receive data creation logic
         let receive_data_internal = self.create_receive_data(
             &txn,
+            Some(online),
             asset_id,
             assignment,
             expiration_timestamp as i64,
             transport_endpoints,
             recipient_type,
+            encryption,
         )?;
 
         // post operation and metadata to hub
@@ -1485,10 +1563,16 @@ impl MultisigWallet {
             min_confirmations,
             expiration_timestamp,
             secret_seal: receive_data_internal.blind_seal,
+            seed: hex::encode(&receive_data_internal.operation_secret_key),
+            retention_deadline: receive_data_internal.retention_deadline,
         };
         let metadata_json = serde_json::to_vec(&receive_metadata).expect("serializable");
         let files = vec![(FileType::OperationData, FileSource::Bytes(metadata_json))];
-        let response = self.hub_client().post_operation(files, operation_type)?;
+        let response = self.hub_client().post_operation(
+            files,
+            operation_type,
+            Some(&receive_data_internal.operation_secret_key),
+        )?;
 
         // store transfer
         let batch_transfer_idx =
@@ -1505,6 +1589,7 @@ impl MultisigWallet {
             recipient_id: receive_data_internal.recipient_id,
             expiration_timestamp: expiration_timestamp as u64,
             batch_transfer_idx,
+            public_key: hex::encode(&receive_data_internal.recipient_pubkey),
         })
     }
 
@@ -1517,8 +1602,14 @@ impl MultisigWallet {
     /// An optional amount can be specified, which will be embedded in the invoice. It will not be
     /// checked when accepting the transfer.
     ///
+    /// A UTXO holds at most one mint right of an asset: an invoice requesting one
+    /// ([`Assignment::MintRight`]) blinds a UTXO that doesn't hold one and isn't due to receive
+    /// one, and a transfer paying a mint right to a UTXO holding one (e.g. through an invoice
+    /// requesting [`Assignment::Any`]) is refused.
+    ///
     /// An expiration UTC timestamp must be specified, which will set the expiration of the
-    /// invoice and the transfer.
+    /// invoice and the transfer. An expiration more than [`MAX_EXPIRATION_SECS`] in the future is
+    /// refused.
     ///
     /// Each endpoint in the provided `transport_endpoints` list will be used as RGB data exchange
     /// medium. The list needs to contain at least 1 endpoint and a maximum of 3. Strings
@@ -1540,6 +1631,7 @@ impl MultisigWallet {
         expiration_timestamp: u64,
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
+        encryption: Option<Encryption>,
     ) -> Result<ReceiveData, Error> {
         info!(
             self.logger(),
@@ -1550,6 +1642,7 @@ impl MultisigWallet {
         self.check_online(online)?;
         self.check_is_cosigner()?;
         let receive_data = self.receive_impl(
+            online,
             asset_id,
             assignment,
             expiration_timestamp,
@@ -1557,6 +1650,7 @@ impl MultisigWallet {
             min_confirmations,
             RecipientType::Blind,
             OperationType::BlindReceive,
+            encryption,
         )?;
         info!(self.logger(), "Blind receive completed");
         Ok(receive_data)
@@ -1572,7 +1666,8 @@ impl MultisigWallet {
     /// checked when accepting the transfer.
     ///
     /// An expiration UTC timestamp must be specified, which will set the expiration of the
-    /// invoice and the transfer.
+    /// invoice and the transfer. An expiration more than [`MAX_EXPIRATION_SECS`] in the future is
+    /// refused.
     ///
     /// Each endpoint in the provided `transport_endpoints` list will be used as RGB data exchange
     /// medium. The list needs to contain at least 1 endpoint and a maximum of 3. Strings
@@ -1594,6 +1689,7 @@ impl MultisigWallet {
         expiration_timestamp: u64,
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
+        encryption: Option<Encryption>,
     ) -> Result<ReceiveData, Error> {
         info!(
             self.logger(),
@@ -1604,6 +1700,7 @@ impl MultisigWallet {
         self.check_online(online)?;
         self.check_is_cosigner()?;
         let receive_data = self.receive_impl(
+            online,
             asset_id,
             assignment,
             expiration_timestamp,
@@ -1611,6 +1708,7 @@ impl MultisigWallet {
             min_confirmations,
             RecipientType::Witness,
             OperationType::WitnessReceive,
+            encryption,
         )?;
         info!(self.logger(), "Witness receive completed");
         Ok(receive_data)
@@ -1633,8 +1731,8 @@ impl MultisigWallet {
         let asset_schema: AssetSchema = valid_contract.schema_id().try_into()?;
 
         // import and move contract file to the issue consignment path
-        let mut runtime = self.rgb_runtime()?;
-        runtime
+        let mut stock = self.rgb_stock(txn)?;
+        stock
             .import_contract(valid_contract.clone(), &DumbResolver)
             .expect("importing issued contract should work");
         let contract_id = valid_contract.contract_id();
@@ -1647,7 +1745,7 @@ impl MultisigWallet {
             .iter()
             .filter(|f| matches!(f.r#type, FileType::Media))
             .collect::<Vec<_>>();
-        let attachments = self.extract_attachments(&valid_contract, asset_schema);
+        let attachments = self.extract_attachments(&stock, &valid_contract, asset_schema)?;
         if media_files.len() != attachments.len() {
             return Err(Error::MultisigUnexpectedData {
                 details: format!(
@@ -1676,7 +1774,7 @@ impl MultisigWallet {
         }
 
         let asset_data = self.extract_asset_data(
-            &runtime,
+            &stock,
             contract_id,
             asset_schema,
             valid_contract.clone(),
@@ -1684,10 +1782,13 @@ impl MultisigWallet {
         )?;
 
         let mut issue_utxos: HashMap<i32, Vec<Assignment>> = HashMap::new();
-        for a in valid_contract
-            .contract_data()
+        for a in stock
+            .consignment_data(&valid_contract)?
             .allocations(&FilterIncludeAll)
         {
+            let a = a.map_err(|e| Error::Internal {
+                details: format!("cannot read contract allocations: {e}"),
+            })?;
             let outpoint = a.seal.to_outpoint().into();
             let txo = match txn.get_txo(&outpoint)? {
                 Some(txo) => txo,
@@ -1716,7 +1817,7 @@ impl MultisigWallet {
             issue_utxos,
         };
 
-        self.import_and_save_contract(txn, &issue_data, &mut runtime)?;
+        self.import_and_save_contract(txn, &issue_data, &mut stock)?;
         self.update_backup_info(txn, false)?;
 
         Ok(asset_id)
@@ -1786,6 +1887,18 @@ impl MultisigWallet {
             blind_seal,
             recipient_type_full,
             script_pubkey,
+            operation_secret_key: hex::decode(&receive_metadata.seed).map_err(|_| {
+                Error::MultisigUnexpectedData {
+                    details: s!("invalid operation seed"),
+                }
+            })?,
+            recipient_pubkey: invoice_data
+                .public_key
+                .as_ref()
+                .and_then(|h| hex::decode(h).ok())
+                .unwrap_or_default(),
+            encryption: invoice_data.encryption,
+            retention_deadline: receive_metadata.retention_deadline,
         };
         let batch_transfer_idx =
             self.store_receive_transfer(txn, &receive_data_internal, min_confirmations)?;
@@ -1795,6 +1908,7 @@ impl MultisigWallet {
             recipient_id,
             expiration_timestamp: receive_data_internal.expiration_timestamp as u64,
             batch_transfer_idx,
+            public_key: hex::encode(&receive_data_internal.recipient_pubkey),
         })
     }
 
@@ -1804,6 +1918,11 @@ impl MultisigWallet {
     /// local index) from the hub.
     /// If the operation is found, it is processed and the operation info is returned.
     /// If the operation isn't found (i.e. the cosigner is already in sync), None is returned.
+    ///
+    /// A send or receive operation created with the previous proxy protocol, which is
+    /// not backward compatible, cannot be processed: [`Error::MultisigLegacyOperation`] is
+    /// returned and the sync does not move past it, as the group must be drained with the
+    /// previous version and abandoned.
     pub fn sync_with_hub(&mut self, online: Online) -> Result<Option<OperationInfo>, Error> {
         info!(self.logger(), "Syncing with hub...");
         self.check_online(online)?;
@@ -1984,8 +2103,63 @@ impl MultisigWallet {
         }
     }
 
+    /// Name of the operation key field in the operation data of the given operation type, if the
+    /// type has one (`operation_secret_key` for a send, `seed` for a receive).
+    fn operation_key_name(operation_type: &OperationType) -> Option<&'static str> {
+        match operation_type {
+            OperationType::SendRgb => Some("operation_secret_key"),
+            OperationType::BlindReceive | OperationType::WitnessReceive => Some("seed"),
+            _ => None,
+        }
+    }
+
+    /// Whether the given operation data lacks the operation key field, as data created with the
+    /// previous proxy protocol does.
+    fn operation_data_lacks_key(key: &str, data: &serde_json::Value) -> bool {
+        data.get(key).is_none_or(|v| v.is_null())
+    }
+
+    /// Whether a send or receive operation was created with the previous proxy protocol, i.e. its
+    /// operation data carries no operation key. The protocol keeps no backward compatibility, so
+    /// such an operation can only come from a group that was not drained before upgrading, which
+    /// cannot be used with this version. The key is written to the operation data when the
+    /// operation is created, so this is detected as soon as the operation is seen, whatever its
+    /// status.
+    fn is_legacy_operation(op: &OperationResponse, files: &[FileResponse]) -> Result<bool, Error> {
+        let Some(key) = Self::operation_key_name(&op.operation_type) else {
+            return Ok(false);
+        };
+        // a legacy operation still has this file, just without the key checked below; a missing
+        // file is a different, unexpected failure, left for the normal handler to report
+        let Some(data_file) = files
+            .iter()
+            .find(|f| matches!(f.r#type, FileType::OperationData))
+        else {
+            return Ok(false);
+        };
+        let reader = io::BufReader::new(fs::File::open(&data_file.filepath)?);
+        let data: serde_json::Value =
+            serde_json::from_reader(reader).map_err(|_| Error::MultisigUnexpectedData {
+                details: s!("invalid operation data"),
+            })?;
+        Ok(Self::operation_data_lacks_key(key, &data))
+    }
+
     fn process_operation(&mut self, op: &OperationResponse) -> Result<Operation, Error> {
         let files = self.get_or_download_files(op.files.clone())?;
+        // an operation from the previous proxy protocol cannot be processed and is not marked as
+        // processed either: the sync stops here on every call, as the group must be drained with
+        // the previous version and abandoned
+        if Self::is_legacy_operation(op, &files)? {
+            error!(
+                self.logger(),
+                "Operation {} was created with the previous proxy protocol, the group cannot be used",
+                op.operation_idx
+            );
+            return Err(Error::MultisigLegacyOperation {
+                operation_idx: op.operation_idx,
+            });
+        }
         Ok(match op.operation_type {
             OperationType::CreateUtxos => {
                 self.handle_operation::<CreateUtxosHandler>(op, &files)?
@@ -2111,6 +2285,18 @@ impl MultisigWallet {
         operation_type: OperationType,
         post_data: PostData,
     ) -> Result<InitOperationResult, Error> {
+        // the hub only accepts the operation seed for the operation types requiring it
+        let seed = if OPERATION_TYPES_REQUIRING_SEED.contains(&operation_type) {
+            match &post_data {
+                PostData::Psbt(_) => None,
+                PostData::BeginOperationData(data) => {
+                    data.info_batch_transfer.operation_secret_key.clone()
+                }
+            }
+        } else {
+            None
+        };
+
         // collect operation files
         let mut files = vec![];
         let psbt = match post_data {
@@ -2131,7 +2317,9 @@ impl MultisigWallet {
         files.push((FileType::OperationPsbt, FileSource::Bytes(psbt.serialize())));
 
         // post operation and its files
-        let response = self.hub_client().post_operation(files, operation_type)?;
+        let response = self
+            .hub_client()
+            .post_operation(files, operation_type, seed.as_deref())?;
 
         Ok(InitOperationResult {
             psbt: psbt.to_string(),
@@ -2221,11 +2409,14 @@ impl MultisigWallet {
     /// refreshing) to the [`TransferStatus::Settled`] status.
     ///
     /// An expiration UTC timestamp must be specified, which will set the expiration of the
-    /// transfer. This should be set to the same value specified by the recipient's invoice, so
-    /// that sender and recipient enforce the same deadline; once it passes, the recipient is
-    /// allowed to fail the transfer and the sender will avoid broadcasting it even if a late ACK is
-    /// received. In case of a batch transfer, set it to the minimum (earliest) expiration across
-    /// the recipients' invoices.
+    /// transfer: once it passes, the sender will avoid broadcasting it even if a late ACK is
+    /// received. It must be at least 5 minutes in the future, the clock skew the proxy tolerates
+    /// on timestamps, so that it cannot already be past on the sender proxy's clock. For
+    /// recipients with transport endpoints, it must also be at least 10 minutes (twice that
+    /// tolerance) before the earliest of their invoice expirations, so the TX can only be released
+    /// while they are still waiting for it, even with skewed clocks: their invoices therefore need
+    /// at least 15 minutes left. It must not be more than [`MAX_EXPIRATION_SECS`] in the future.
+    /// [`Error::InvalidExpiration`] is returned otherwise.
     ///
     /// Returns a PSBT ready to be signed and the operation index on the hub.
     pub fn send_init(
@@ -2236,6 +2427,7 @@ impl MultisigWallet {
         fee_rate: u64,
         min_confirmations: u8,
         expiration_timestamp: u64,
+        sender_transport_endpoint: String,
     ) -> Result<InitOperationResult, Error> {
         info!(self.logger(), "Initiate sending...");
         self.check_online(online)?;
@@ -2248,6 +2440,7 @@ impl MultisigWallet {
             fee_rate,
             min_confirmations,
             Some(expiration_timestamp as i64),
+            Some(sender_transport_endpoint),
             true,
         )?;
         let res = self.post_operation(
@@ -2303,6 +2496,9 @@ impl MultisigWallet {
     /// Prepare the PSBT to burn the specified `amount` of RGB assets, with the provided `fee_rate`
     /// (in sat/vB) and post the operation to the hub.
     ///
+    /// The optional `burn_reason` is a hex-encoded 32-byte value committed in the burn transition
+    /// (e.g. a hash binding the burn to an external destination).
+    ///
     /// The `min_confirmations` number determines the minimum number of confirmations needed for
     /// the transaction anchoring the transfer for it to be considered final and move (while
     /// refreshing) to the [`TransferStatus::Settled`] status.
@@ -2313,6 +2509,7 @@ impl MultisigWallet {
         online: Online,
         asset_id: String,
         amount: u64,
+        burn_reason: Option<String>,
         fee_rate: u64,
         min_confirmations: u8,
     ) -> Result<InitOperationResult, Error> {
@@ -2320,8 +2517,15 @@ impl MultisigWallet {
         self.check_online(online)?;
         self.check_is_cosigner()?;
         let txn = self.database().begin_transaction()?;
-        let data =
-            self.burn_begin_impl(&txn, asset_id, amount, fee_rate, min_confirmations, true)?;
+        let data = self.burn_begin_impl(
+            &txn,
+            asset_id,
+            amount,
+            burn_reason,
+            fee_rate,
+            min_confirmations,
+            true,
+        )?;
         let res = self.post_operation(
             OperationType::Burn,
             PostData::BeginOperationData(Box::new(data)),
@@ -2335,6 +2539,43 @@ impl MultisigWallet {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[cfg(feature = "_online")]
+    #[test]
+    fn legacy_operation_detection() {
+        // only sends and receives carry an operation key
+        assert_eq!(
+            MultisigWallet::operation_key_name(&OperationType::SendRgb),
+            Some("operation_secret_key")
+        );
+        assert_eq!(
+            MultisigWallet::operation_key_name(&OperationType::BlindReceive),
+            Some("seed")
+        );
+        assert_eq!(
+            MultisigWallet::operation_key_name(&OperationType::WitnessReceive),
+            Some("seed")
+        );
+        for op_type in [
+            OperationType::CreateUtxos,
+            OperationType::SendBtc,
+            OperationType::Inflation,
+            OperationType::Burn,
+        ] {
+            assert_eq!(MultisigWallet::operation_key_name(&op_type), None);
+        }
+
+        // legacy data has no key (or a null one), current data has it
+        let legacy = serde_json::json!({ "min_confirmations": 1 });
+        assert!(MultisigWallet::operation_data_lacks_key(
+            "operation_secret_key",
+            &legacy
+        ));
+        let null_key = serde_json::json!({ "seed": null });
+        assert!(MultisigWallet::operation_data_lacks_key("seed", &null_key));
+        let current = serde_json::json!({ "seed": "00".repeat(32) });
+        assert!(!MultisigWallet::operation_data_lacks_key("seed", &current));
+    }
 
     #[test]
     fn cosigner_display_and_parse() {

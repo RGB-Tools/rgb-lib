@@ -52,9 +52,10 @@ In order to run the available tests, execute:
 cargo test --workspace --all-features
 ```
 
-This command will run a [bitcoind] node, three [electrs] nodes, one [esplora]
-node and three [RGB proxy] instances, in order to perform integration tests in
-a regtest environment.
+This command will run four [bitcoind] nodes, four [electrs] nodes, one
+[esplora] node, four [RGB proxy] instances, one [RGB multisig hub] instance, an
+[nginx] server (serving reject lists) and an EVM ([anvil]) node, in order to
+perform integration tests in regtest and custom signet environments.
 
 Services will not be stopped automatically after the test run. To stop them and
 remove all containers, from the project root execute:
@@ -78,10 +79,12 @@ transitions of an asset transfer and [multisig][docs-multisig] coordination.
 
 [RGB multisig hub]: https://github.com/RGB-Tools/rgb-multisig-hub
 [RGB proxy]: https://github.com/RGB-Tools/rgb-proxy-server
+[anvil]: https://github.com/foundry-rs/foundry
 [bdk]: https://github.com/bitcoindevkit/bdk
 [bindings]: bindings/
 [docs-multisig]: docs/multisig.md
 [bitcoind]: https://github.com/bitcoin/bitcoin
 [electrs]: https://github.com/romanz/electrs
 [esplora]: https://github.com/Blockstream/esplora
+[nginx]: https://nginx.org
 [rgb-protocol]: https://github.com/rgb-protocol

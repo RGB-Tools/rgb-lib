@@ -28,6 +28,9 @@ fn success() {
         vec![Recipient {
             assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id,
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -84,6 +87,9 @@ fn success() {
         vec![Recipient {
             assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id,
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -235,6 +241,9 @@ fn double_restore() {
         vec![Recipient {
             assignment: Assignment::Fungible(amount),
             recipient_id: receive_data_1.recipient_id,
+            public_key: Some(receive_data_1.public_key.clone()),
+            expiration_timestamp: Some(receive_data_1.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -244,6 +253,9 @@ fn double_restore() {
         vec![Recipient {
             assignment: Assignment::Fungible(amount * 2),
             recipient_id: receive_data_2.recipient_id,
+            public_key: Some(receive_data_2.public_key.clone()),
+            expiration_timestamp: Some(receive_data_2.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],

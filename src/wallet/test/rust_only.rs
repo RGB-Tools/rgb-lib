@@ -77,7 +77,10 @@ fn success() {
             .iter()
             .any(|o| o.script_pubkey.is_op_return())
     );
-    assert!(!psbt.proprietary.is_empty());
+    // the RGB data are removed once committed
+    assert!(psbt.proprietary.is_empty());
+    assert!(psbt.inputs.iter().all(|i| i.proprietary.is_empty()));
+    assert!(psbt.outputs.iter().all(|o| o.proprietary.is_empty()));
     let vout = vout + 1;
 
     // check fascia
@@ -94,8 +97,7 @@ fn success() {
     let fungible = fungible.as_fungible();
     assert_eq!(fungible.len(), 1);
     let fungible = fungible.first().unwrap();
-    let seal = fungible.revealed_seal().unwrap();
-    let state = fungible.as_revealed_state();
+    let (seal, state) = fungible.as_revealed().unwrap();
     assert_eq!(seal.txid, TxPtr::WitnessTx);
     assert_eq!(seal.vout.into_u32(), vout);
     assert_eq!(seal.blinding, blinding);
@@ -133,8 +135,27 @@ fn success() {
         .save_file(&consignment_path)
         .unwrap();
 
+    // the invoice must be reserved on the proxy before a consignment can be posted
+    let recipient_pk = hex::encode(gen_ed25519().verifying_key().to_bytes());
+    let proxy_client = get_proxy_client(Some(PROXY_URL));
+    proxy_client
+        .prepare_invoice(
+            &invoice_id(&txid, &recipient_pk),
+            &(now().unix_timestamp() + 3600).to_string(),
+            &recipient_pk,
+            None,
+        )
+        .unwrap();
+    post_test_consignment(
+        &proxy_client,
+        &txid,
+        &recipient_pk,
+        &consignment_path,
+        FAKE_HASH,
+    );
+
     // accept transfer
-    recv_party
+    let (consignment, assignments, _) = recv_party
         .wallet
         .accept_transfer_consignment(
             recv_party.online,
@@ -144,6 +165,8 @@ fn success() {
             blinding,
         )
         .unwrap();
+    assert_eq!(consignment.contract_id().to_string(), asset.asset_id);
+    assert_eq!(assignments, vec![Assignment::Fungible(AMOUNT)]);
 
     // consume fascia
     party_send.wallet.consume_fascia(fascia, None).unwrap();
@@ -370,7 +393,10 @@ fn color_psbt_uda() {
             .iter()
             .any(|o| o.script_pubkey.is_op_return())
     );
-    assert!(!psbt.proprietary.is_empty());
+    // the RGB data are removed once committed
+    assert!(psbt.proprietary.is_empty());
+    assert!(psbt.inputs.iter().all(|i| i.proprietary.is_empty()));
+    assert!(psbt.outputs.iter().all(|o| o.proprietary.is_empty()));
     assert!(
         psbt.unsigned_tx
             .output
@@ -589,52 +615,6 @@ fn color_psbt_overflow_fail() {
 #[cfg(feature = "electrum")]
 #[test]
 #[parallel]
-fn check_indexer_url_electrum_success() {
-    initialize();
-
-    let result = check_indexer_url(ELECTRUM_URL, BitcoinNetwork::Regtest);
-    assert_matches!(result, Ok(IndexerProtocol::Electrum));
-
-    let result = check_indexer_url(ELECTRUM_2_URL, BitcoinNetwork::Regtest);
-    assert_matches!(result, Ok(IndexerProtocol::Electrum));
-}
-
-#[cfg(feature = "electrum")]
-#[test]
-#[parallel]
-fn check_indexer_url_electrum_fail() {
-    initialize();
-
-    let result = check_indexer_url(ELECTRUM_BLOCKSTREAM_URL, BitcoinNetwork::Regtest);
-    let verbose_unsupported =
-        "verbose transactions are unsupported by the provided electrum service";
-    assert_matches!(result, Err(Error::InvalidIndexer { details: m }) if m.contains(verbose_unsupported));
-}
-
-#[cfg(feature = "esplora")]
-#[test]
-#[parallel]
-fn check_indexer_url_esplora_success() {
-    initialize();
-
-    let result = check_indexer_url(ESPLORA_URL, BitcoinNetwork::Regtest);
-    assert_matches!(result, Ok(IndexerProtocol::Esplora));
-}
-
-#[cfg(feature = "esplora")]
-#[test]
-#[parallel]
-fn check_indexer_url_esplora_fail() {
-    initialize();
-
-    let result = check_indexer_url(PROXY_URL, BitcoinNetwork::Regtest);
-    let invalid_indexer = s!("not a valid electrum nor esplora server");
-    assert_matches!(result, Err(Error::InvalidIndexer { details: m }) if m == invalid_indexer);
-}
-
-#[cfg(feature = "electrum")]
-#[test]
-#[parallel]
 fn check_proxy_url_success() {
     initialize();
 
@@ -696,6 +676,130 @@ fn accept_transfer_consignment_fail() {
         0,
     );
     assert_matches!(result, Err(Error::InvalidFilePath { file_path: m }) if m == "invalidConsignmentPath");
+}
+
+/// Send the whole `amount` of the asset with ID `asset_id` held by `party_send` (on its only UTXO)
+/// to an output of `recv_party`, paid with `color_psbt_and_consume` at a seal with the given
+/// `blinding`. Returns the path of the saved consignment, the TXID and the vout of the colored TX
+/// paying `recv_party`, as `accept_transfer_consignment` takes them.
+#[cfg(feature = "electrum")]
+fn color_psbt_and_save_consignment(
+    party_send: &mut SinglesigParty,
+    recv_party: &mut SinglesigParty,
+    asset_id: &str,
+    amount: u64,
+    blinding: u64,
+) -> (PathBuf, String, u32) {
+    let amt_sat = 500;
+    let address = BdkAddress::from_str(&recv_party.get_address()).unwrap();
+    let mut tx_builder = party_send.wallet.bdk_wallet_mut().build_tx();
+    tx_builder
+        .add_recipient(
+            address.assume_checked().script_pubkey(),
+            BdkAmount::from_sat(amt_sat),
+        )
+        .fee_rate(FeeRate::from_sat_per_vb_u32(FEE_RATE as u32));
+    let mut psbt = tx_builder.finish().unwrap();
+    let vout = psbt
+        .unsigned_tx
+        .output
+        .iter()
+        .position(|o| o.value.to_sat() == amt_sat)
+        .unwrap() as u32;
+    let coloring_info = ColoringInfo {
+        asset_info_map: HashMap::from([(
+            ContractId::from_str(asset_id).unwrap(),
+            AssetColoringInfo {
+                output_map: HashMap::from([(vout, amount)]),
+                static_blinding: Some(blinding),
+            },
+        )]),
+        static_blinding: Some(blinding),
+        nonce: None,
+    };
+    let transfers = party_send
+        .wallet
+        .color_psbt_and_consume(&mut psbt, coloring_info)
+        .unwrap();
+    assert_eq!(transfers.len(), 1);
+    // the OP_RETURN commitment is added as the first output
+    let vout = vout + 1;
+    let txid = psbt.unsigned_tx.compute_txid().to_string();
+    let transfers_dir = party_send.wallet.get_transfers_dir().join(&txid);
+    std::fs::create_dir_all(&transfers_dir).unwrap();
+    let consignment_path = transfers_dir.join(CONSIGNMENT_FILE);
+    transfers[0].save_file(&consignment_path).unwrap();
+    (consignment_path, txid, vout)
+}
+
+/// Accepting a transfer consignment checks the assignments it receives against the reject list of
+/// the asset, as a refresh does: an allowed assignment shields its history, even when the inputs
+/// of the operation paying it are rejected (which the standalone validation refuses, see
+/// `validate_consignment::reject_list`).
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn accept_transfer_consignment_reject_list() {
+    initialize();
+
+    let blinding = 777;
+    let list_name = "accept_transfer_consignment.list";
+    write_opouts_to_reject_list(list_name, &[]);
+
+    // wallets
+    let mut party_send = get_funded_noutxo_party!();
+    let mut recv_party = get_empty_party!();
+
+    // a single UTXO, holding the issued asset (with no inflation right)
+    party_send.create_utxos(false, Some(1), None, FEE_RATE, None);
+    party_send.send_btc(&recv_party.get_address(), 99_998_200);
+    let asset = party_send.issue_asset_ifa(
+        Some(&[AMOUNT]),
+        Some(&[]),
+        Some(format!("http://localhost:8140/lists/{list_name}")),
+    );
+
+    let (consignment_path, txid, vout) = color_psbt_and_save_consignment(
+        &mut party_send,
+        &mut recv_party,
+        &asset.asset_id,
+        AMOUNT,
+        blinding,
+    );
+    let consignment = RgbTransfer::load_file(&consignment_path).unwrap();
+    let transfer = consignment
+        .bundles
+        .iter()
+        .flat_map(|wb| wb.bundle.known_transitions.iter())
+        .next()
+        .unwrap();
+    let issuance = transfer.transition.inputs().into_iter().next().unwrap();
+    let received = Opout::new(transfer.opid, OS_ASSET, 0);
+
+    let mut accept = || {
+        recv_party.wallet.accept_transfer_consignment(
+            recv_party.online,
+            consignment_path.clone(),
+            txid.clone(),
+            vout,
+            blinding,
+        )
+    };
+
+    // the received assignment rejected
+    write_opouts_to_reject_list(list_name, &[received.to_string()]);
+    let result = accept();
+    assert_matches!(result, Err(Error::ConsignmentRejected { opouts }) if opouts == vec![received.to_string()]);
+
+    // a rejected ancestor taints the received assignment
+    write_opouts_to_reject_list(list_name, &[issuance.to_string()]);
+    let result = accept();
+    assert_matches!(result, Err(Error::ConsignmentRejected { opouts }) if opouts == vec![received.to_string()]);
+
+    // an allowed received assignment shields its rejected ancestor
+    write_opouts_to_reject_list(list_name, &[issuance.to_string(), format!("!{received}")]);
+    let (_, assignments, _) = accept().unwrap();
+    assert_eq!(assignments, vec![Assignment::Fungible(AMOUNT)]);
 }
 
 #[cfg(feature = "electrum")]
@@ -796,6 +900,9 @@ fn save_new_asset_fail() {
         vec![Recipient {
             assignment: Assignment::Fungible(10),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: Some(WitnessData {
                 amount_sat: 1000,
                 blinding: None,
@@ -847,6 +954,9 @@ fn send_end_db_update_only_success() {
         vec![Recipient {
             assignment: Assignment::Fungible(10),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -860,6 +970,7 @@ fn send_end_db_update_only_success() {
             FEE_RATE,
             MIN_CONFIRMATIONS,
             default_send_expiration(),
+            Some(PROXY_ENDPOINT.clone()),
             false,
         )
         .unwrap();
@@ -868,7 +979,7 @@ fn send_end_db_update_only_success() {
 
     let result = party
         .wallet
-        .send_end_db_update_only(party.online, signed_psbt)
+        .send_end_db_update_only(party.online, signed_psbt.clone())
         .unwrap();
 
     assert!(!result.txid.is_empty());
@@ -878,6 +989,63 @@ fn send_end_db_update_only_success() {
         party
             .check_test_transfer_status_sender(&result.txid, TransferStatus::WaitingConfirmations,)
     );
+
+    // a donation that has already been ended cannot be ended again
+    let result_again = party
+        .wallet
+        .send_end_db_update_only(party.online, signed_psbt);
+    assert_matches!(result_again, Err(Error::CannotEndTransfer { txid }) if txid == result.txid);
+}
+
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn send_end_db_update_only_wrong_operation() {
+    initialize();
+
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+
+    // a non-donation send
+    let asset = party.issue_asset_ifa(None, None, None);
+    let receive_data = rcv_party.blind_receive();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(10),
+            recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
+            witness_data: None,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let begin = party.send_begin_result(&recipient_map).unwrap();
+    let signed_psbt = party.wallet.sign_psbt(begin.psbt, None).unwrap();
+    let txid = Psbt::from_str(&signed_psbt)
+        .unwrap()
+        .unsigned_tx
+        .compute_txid()
+        .to_string();
+    let result = party
+        .wallet
+        .send_end_db_update_only(party.online, signed_psbt);
+    assert_matches!(result, Err(Error::WrongOperation { txid: t }) if t == txid);
+
+    // another operation
+    let asset = party.issue_asset_ifa(None, None, None);
+    let unsigned_psbt = party.burn_begin(&asset.asset_id, 1, None);
+    let signed_psbt = party.wallet.sign_psbt(unsigned_psbt, None).unwrap();
+    let txid = Psbt::from_str(&signed_psbt)
+        .unwrap()
+        .unsigned_tx
+        .compute_txid()
+        .to_string();
+    let result = party
+        .wallet
+        .send_end_db_update_only(party.online, signed_psbt);
+    assert_matches!(result, Err(Error::WrongOperation { txid: t }) if t == txid);
 }
 
 #[cfg(feature = "electrum")]
@@ -897,6 +1065,9 @@ fn send_end_db_update_only_unknown_transfer() {
         vec![Recipient {
             assignment: Assignment::Fungible(amount),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
@@ -946,6 +1117,9 @@ fn create_consignments_success() {
         vec![Recipient {
             assignment: Assignment::Fungible(10),
             recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
             witness_data: None,
             transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
         }],
