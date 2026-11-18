@@ -132,6 +132,14 @@ pub struct RgbOperationInfo {
     pub transitions: Vec<RgbTransitionInfo>,
 }
 
+impl RgbOperationInfo {
+    /// Return whether the witness transaction commits asset transitions that are not part of the
+    /// inspected ones, meaning the operation contains concealed transitions.
+    pub fn has_concealed_transitions(&self) -> bool {
+        self.committed_transition_count as usize != self.transitions.len()
+    }
+}
+
 /// Result of inspecting the RGB operations committed by a witness transaction.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
@@ -144,6 +152,15 @@ pub struct RgbInspection {
     pub commitment_hex: String,
     /// Details of each operation
     pub operations: Vec<RgbOperationInfo>,
+}
+
+impl RgbInspection {
+    /// Return whether any of the inspected operations contains concealed transitions.
+    pub fn has_concealed_transitions(&self) -> bool {
+        self.operations
+            .iter()
+            .any(RgbOperationInfo::has_concealed_transitions)
+    }
 }
 
 /// Information about a media file attached to an RGB asset.
