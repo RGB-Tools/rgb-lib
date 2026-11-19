@@ -17,9 +17,7 @@ fn nia_contract(wallet: &Wallet, chain_net: ChainNet) -> RgbContract {
     };
     ContractBuilder::with(
         Identity::default(),
-        NonInflatableAsset::schema(),
-        NonInflatableAsset::types(),
-        NonInflatableAsset::scripts(),
+        NonInflatableAsset::schema_rules(),
         chain_net,
     )
     .add_global_state("spec", spec)
@@ -412,7 +410,9 @@ fn export_asset_contract_fail() {
 fn import_asset_contract_success() {
     initialize();
 
-    let mut issuer = get_funded_party!();
+    let mut issuer = get_funded_noutxo_party!();
+    // IFA issuance uses separate outputs for its allocation and inflation allowance.
+    issuer.create_utxos(false, Some(6), None, FEE_RATE, None);
     let recipient = get_empty_party!();
     let image_path = ["tests", "qrcode.png"].join(MAIN_SEPARATOR_STR);
     let (contract_media, _) = issuer.wallet.file_details(FILE_STR).unwrap();
@@ -422,8 +422,14 @@ fn import_asset_contract_success() {
     let cfa = issuer.issue_asset_cfa(None, Some(FILE_STR.to_string()));
     MOCK_CONTRACT_DATA.with_borrow_mut(|data| data.push(contract_media.clone()));
     let ifa = issuer.issue_asset_ifa(None, None, None);
-    MOCK_CONTRACT_DATA.with_borrow_mut(|data| data.push(contract_media));
+    MOCK_CONTRACT_DATA.with_borrow_mut(|data| data.push(contract_media.clone()));
     let uda = issuer.issue_asset_uda(None, Some(&image_path), vec![FILE_STR]);
+    MOCK_CONTRACT_DATA.with_borrow_mut(|data| data.push(contract_media));
+    let bfa = issuer.issue_asset_bfa(
+        1,
+        FAKE_EVM_ADDRESS.to_string(),
+        Some(FAKE_EVM_ADDRESS.to_string()),
+    );
 
     let imports = [
         (nia.asset_id, AssetSchema::Nia, vec![FILE_STR.to_string()]),
@@ -434,6 +440,7 @@ fn import_asset_contract_success() {
             AssetSchema::Uda,
             vec![FILE_STR.to_string(), image_path],
         ),
+        (bfa.asset_id, AssetSchema::Bfa, vec![FILE_STR.to_string()]),
     ];
 
     for (asset_id, asset_schema, media_file_paths) in imports {
@@ -449,6 +456,20 @@ fn import_asset_contract_success() {
         assert_eq!(metadata.asset_schema, asset_schema);
         assert_eq!(metadata.name, NAME);
         assert_eq!(metadata.precision, PRECISION);
+        let mut issuer_metadata = issuer.get_asset_metadata(&asset_id);
+        // Media locations belong to the receiving wallet; their digests and metadata are shared.
+        if let Some(token) = &mut issuer_metadata.token {
+            for media in token.media.iter_mut().chain(token.attachments.values_mut()) {
+                media.file_path = recipient
+                    .wallet
+                    .media_dir()
+                    .join(&media.digest)
+                    .to_string_lossy()
+                    .to_string();
+            }
+        }
+        assert_eq!(metadata, issuer_metadata);
+        assert!(recipient.list_transfers(Some(&asset_id)).is_empty());
         assert_eq!(
             recipient
                 .wallet
@@ -510,11 +531,13 @@ fn import_asset_contract_offline_reopen() {
     // Preregistration is enough to request this asset before receiving its first transfer.
     let receive = wallet
         .witness_receive(
+            None,
             Some(asset_id.clone()),
             Assignment::Fungible(AMOUNT),
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
+            None,
         )
         .unwrap();
     let invoice = Invoice::new(receive.invoice).unwrap().invoice_data();
@@ -623,11 +646,13 @@ fn import_asset_contract_first_receive() {
             recipient
                 .wallet
                 .witness_receive(
+                    Some(recipient.online),
                     Some(asset.asset_id.clone()),
                     Assignment::Any,
                     default_rcv_expiration(),
                     TRANSPORT_ENDPOINTS.clone(),
                     MIN_CONFIRMATIONS,
+                    None,
                 )
                 .unwrap()
         } else {
@@ -646,17 +671,31 @@ fn import_asset_contract_first_receive() {
                     blinding: None,
                 }),
                 transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+                public_key: invoice.public_key,
+                encryption: invoice.encryption,
+                expiration_timestamp: invoice.expiration_timestamp,
             }],
         )]);
+        let mut mining_guard = Some(stop_mining());
         let txid = issuer.send(recipient_map, FEE_RATE, None).txid;
         recipient.wait_for_refresh(Some(&asset.asset_id));
         issuer.wait_for_refresh(Some(&asset.asset_id));
+        recipient.drain_refresh(Some(&asset.asset_id));
 
         for settled in [false, true] {
             if settled {
+                drop(mining_guard.take());
                 mine(false);
-                recipient.wait_for_refresh(Some(&asset.asset_id));
-                issuer.wait_for_refresh(Some(&asset.asset_id));
+                recipient.wait_for_transfer_status_recipient(
+                    Some(&asset.asset_id),
+                    &receive.recipient_id,
+                    TransferStatus::Settled,
+                );
+                issuer.wait_for_transfer_status_sender(
+                    Some(&asset.asset_id),
+                    &txid,
+                    TransferStatus::Settled,
+                );
             }
             let expected_balance = Balance {
                 settled: if settled { amount } else { 0 },
@@ -675,7 +714,7 @@ fn import_asset_contract_first_receive() {
                 if settled {
                     TransferStatus::Settled
                 } else {
-                    TransferStatus::WaitingBroadcast
+                    TransferStatus::WaitingConfirmations
                 }
             );
 

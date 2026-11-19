@@ -56,15 +56,15 @@ impl Wallet {
     ///
     /// <div class="warning">This method is meant for special usage and is normally not needed,
     /// use it only if you know what you're doing</div>
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub fn export_asset_contract(&self, asset_id: String) -> Result<RgbContract, Error> {
         info!(self.logger(), "Exporting asset contract '{}'...", asset_id);
 
         let txn = self.database().begin_transaction()?;
         txn.check_asset_exists(asset_id.clone())?;
-        txn.commit()?;
         let contract_id = ContractId::from_str(&asset_id).expect("invalid contract ID");
-        let contract = self.rgb_runtime()?.export_contract(contract_id)?;
+        let contract = self.rgb_stock(&txn)?.export_contract(contract_id)?;
+        txn.commit()?;
 
         info!(self.logger(), "Export asset contract completed");
         Ok(contract)
@@ -78,7 +78,7 @@ impl Wallet {
     ///
     /// <div class="warning">This method is meant for special usage and is normally not needed,
     /// use it only if you know what you're doing</div>
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     pub fn import_asset_contract(
         &self,
         contract: RgbContract,
@@ -92,25 +92,32 @@ impl Wallet {
         self.check_schema_support(&asset_schema)?;
         let validation_config = ValidationConfig {
             chain_net: self.chain_net(),
-            trusted_typesystem: asset_schema.types(),
             ..Default::default()
         };
-        let valid_contract = match contract.validate(&DumbResolver, &validation_config) {
-            Ok(contract) => contract,
-            Err(ValidationError::InvalidConsignment(e)) => {
-                error!(self.logger(), "Contract consignment is invalid: {}", e);
-                return Err(Error::InvalidConsignment);
+        let valid_contract = validate_consignment_internal(
+            &contract,
+            None,
+            &DumbResolver,
+            ClaimResolution::Resolver(None),
+            &validation_config,
+        )
+        .map_err(|e| match e {
+            Error::ConsignmentValidationFailed { details } => {
+                error!(
+                    self.logger(),
+                    "Contract consignment is invalid: {}", details
+                );
+                Error::InvalidConsignment
             }
-            Err(ValidationError::ResolverError(e)) => {
+            Error::Network { details } => {
                 warn!(
                     self.logger(),
-                    "Unexpected resolver error while validating contract consignment: {}", e
+                    "Unexpected resolver error while validating contract consignment: {}", details
                 );
-                return Err(Error::Internal {
-                    details: e.to_string(),
-                });
+                Error::Internal { details }
             }
-        };
+            e => e,
+        })?;
 
         let txn = self.database().begin_transaction()?;
         if txn.get_asset(asset_id.clone())?.is_some() {
@@ -119,7 +126,10 @@ impl Wallet {
             info!(self.logger(), "Import asset contract completed");
             return Ok(metadata);
         }
-        let declared_attachments = self.extract_attachments(&valid_contract, asset_schema);
+        let stock = self.rgb_stock(&txn)?;
+        let declared_attachments =
+            self.extract_attachments(&stock, &valid_contract, asset_schema)?;
+        drop(stock);
         let expected_media = declared_attachments
             .into_iter()
             .map(|attachment| hex::encode(attachment.digest))
@@ -191,7 +201,7 @@ impl Wallet {
         Ok(metadata)
     }
 
-    #[cfg(any(feature = "electrum", feature = "esplora"))]
+    #[cfg(feature = "_online")]
     fn save_imported_asset_contract(
         &self,
         txn: DbTxn,
@@ -199,18 +209,18 @@ impl Wallet {
         asset_schema: AssetSchema,
         valid_contract: ValidContract,
     ) -> Result<Metadata, Error> {
-        let mut runtime = self.rgb_runtime()?;
-        runtime.import_contract(valid_contract.clone(), &DumbResolver)?;
+        let mut stock = self.rgb_stock(&txn)?;
+        stock.import_contract(valid_contract.clone(), &DumbResolver)?;
         self.save_new_asset_internal(
             &txn,
-            &runtime,
+            &stock,
             contract_id,
             asset_schema,
             valid_contract,
             None,
         )?;
         self.update_backup_info(&txn, false)?;
-        drop(runtime);
+        drop(stock);
         let metadata = self.get_asset_metadata_impl(&txn, contract_id.to_string())?;
         txn.commit()?;
 

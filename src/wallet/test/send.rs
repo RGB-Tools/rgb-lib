@@ -185,7 +185,6 @@ fn success() {
         .export_asset_contract(asset.asset_id.clone())
         .unwrap();
     assert!(exported_contract.bundles.is_empty());
-    assert!(exported_contract.terminals.is_empty());
     let transfer_consignment = RgbTransfer::load_file(
         party
             .wallet
@@ -193,16 +192,8 @@ fn success() {
     )
     .unwrap();
     assert!(!transfer_consignment.bundles.is_empty());
-    let contract_with_history = RgbContract {
-        version: transfer_consignment.version,
-        transfer: false,
-        terminals: Default::default(),
-        genesis: transfer_consignment.genesis,
-        bundles: transfer_consignment.bundles,
-        schema: transfer_consignment.schema,
-        types: transfer_consignment.types,
-        scripts: transfer_consignment.scripts,
-    };
+    let mut contract_with_history = exported_contract;
+    contract_with_history.bundles = transfer_consignment.bundles;
     let result = rcv_party
         .wallet
         .import_asset_contract(contract_with_history, vec![]);
