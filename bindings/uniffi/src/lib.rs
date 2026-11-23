@@ -1755,6 +1755,15 @@ impl Wallet {
         self._get_wallet().drain_to_end(online, signed_psbt)
     }
 
+    fn export_contract(
+        &self,
+        asset_id: String,
+        destination_dir: String,
+    ) -> Result<String, RgbLibError> {
+        self._get_wallet()
+            .export_contract(asset_id, destination_dir)
+    }
+
     fn fail_transfers(
         &self,
         online: Online,
@@ -1842,6 +1851,15 @@ impl Wallet {
         signed_psbt: String,
     ) -> Result<OperationResult, RgbLibError> {
         self._get_wallet().burn_end(online, signed_psbt)
+    }
+
+    fn import_contract(
+        &self,
+        contract_path: String,
+        media_file_paths: Vec<String>,
+    ) -> Result<(), RgbLibError> {
+        self._get_wallet()
+            .import_contract(contract_path, media_file_paths)
     }
 
     fn inflate(
@@ -2387,6 +2405,15 @@ impl MultisigWallet {
     ) -> Result<bool, RgbLibError> {
         self._get_wallet()
             .delete_transfers(batch_transfer_idx, no_asset_only)
+    }
+
+    fn export_contract(
+        &self,
+        asset_id: String,
+        destination_dir: String,
+    ) -> Result<String, RgbLibError> {
+        self._get_wallet()
+            .export_contract(asset_id, destination_dir)
     }
 
     fn fail_transfers(

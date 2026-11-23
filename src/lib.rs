@@ -307,7 +307,7 @@ use bdk_wallet::{
         OutPoint as BdkOutPoint, TxOut,
         bip32::{ChildNumber, DerivationPath, Fingerprint, KeySource, Xpriv, Xpub},
         consensus::{Decodable, Encodable},
-        hashes::Hash as Sha256Hash,
+        hashes::{Hash as Sha256Hash, HashEngine, sha256},
         psbt::{ExtractTxError, Psbt, PsbtParseError},
         secp256k1::Secp256k1,
     },
@@ -326,12 +326,7 @@ use bdk_wallet::{
 };
 #[cfg(feature = "_online")]
 use bdk_wallet::{
-    bitcoin::{
-        blockdata::fee_rate::FeeRate,
-        hashes::{HashEngine, sha256},
-    },
-    chain::DescriptorExt,
-    coin_selection::InsufficientFunds,
+    bitcoin::blockdata::fee_rate::FeeRate, chain::DescriptorExt, coin_selection::InsufficientFunds,
 };
 #[cfg(feature = "wallet")]
 use chacha20poly1305::{Key, KeyInit, XChaCha20Poly1305, XNonce, aead::Aead};
@@ -400,7 +395,7 @@ use rgbstd::persistence::LegacyFsStore;
 #[cfg(feature = "wallet")]
 use rgbstd::{
     Allocation, BundleId, Identity, OutputSeal, OwnedFraction, RevealedData, TokenIndex, Vout,
-    containers::SealWitness,
+    containers::{Contract, SealWitness},
     contract::{
         AllocatedState, ContractBuilder, ContractData, FilteredContractState, LinkError,
         LinkableSchemaWrapper, SchemaWrapper, TransitionBuilder,
@@ -452,9 +447,7 @@ use rgbstd::{Assign, VoidState, assignments::AssignVec};
 #[cfg(feature = "_online")]
 use rgbstd::{contract::FilterIncludeAll, validation::Validity};
 #[cfg(feature = "wallet")]
-use schemata::IfaWrapper;
-#[cfg(feature = "_online")]
-use schemata::{BfaWrapper, CfaWrapper, NiaWrapper, UdaWrapper};
+use schemata::{BfaWrapper, CfaWrapper, IfaWrapper, NiaWrapper, UdaWrapper};
 use schemata::{
     BridgedFungibleAsset, CollectibleFungibleAsset, InflatableFungibleAsset, NonInflatableAsset,
     UniqueDigitalAsset,
@@ -507,7 +500,7 @@ use strict_encoding::{StreamReader, StrictReader};
 #[cfg(feature = "wallet")]
 use strict_types::{TypeLib, TypeLibId};
 #[cfg(feature = "wallet")]
-use tempfile::TempDir;
+use tempfile::{NamedTempFile, TempDir};
 #[cfg(feature = "wallet")]
 use time::OffsetDateTime;
 #[cfg(feature = "_online")]
@@ -538,12 +531,14 @@ use crate::no_wallet::validation::electrum_config;
 use crate::no_wallet::validation::esplora_config;
 #[cfg(feature = "_online")]
 use crate::no_wallet::validation::{
-    ChainResolver, ClaimResolution, OffchainResolver, PendingClaims, RejectList, RejectListSource,
+    ChainResolver, OffchainResolver, PendingClaims, RejectList, RejectListSource,
     RemoteRejectListResolver, ResolveRejectList, check_reject_list,
     genesis_reject_list_source_validated, get_resolver, pending_claims, rejected_opouts,
-    resolve_claims, resolve_witnesses, unreachable_indexer_details, validate_consignment_internal,
-    validate_deterministic, validate_with_claims,
+    resolve_claims, resolve_witnesses, unreachable_indexer_details, validate_deterministic,
+    validate_with_claims,
 };
+#[cfg(feature = "wallet")]
+use crate::no_wallet::validation::{ClaimResolution, validate_consignment_internal};
 #[cfg(feature = "wallet")]
 use crate::no_wallet::{
     Outpoint, RgbBridgeLocationInfo, RgbRejectListInfo, beneficiary_from_script_buf, bundle_info,
@@ -600,7 +595,7 @@ use crate::{
     },
     no_wallet::script_buf_from_recipient_id,
     wallet::utils::{
-        check_proxy, detect_indexer, get_indexer_and_resolver, hash_file, proxy_max_media,
+        check_proxy, detect_indexer, get_indexer_and_resolver, proxy_max_media,
         proxy_retention_grace,
     },
     wallet::{AssignmentsCollection, multisig::RespondToOperation},
@@ -660,7 +655,7 @@ use crate::{
         ACCOUNT, DumbResolver, KEYCHAIN_BTC, KEYCHAIN_RGB, LOG_FILE, PURPOSE,
         RGB_RUNTIME_DELETING_DIR, RgbStock, adjust_canonicalization, from_str_or_number_mandatory,
         from_str_or_number_optional, get_account_xpubs, get_coin_type, get_descriptors,
-        get_descriptors_from_xpubs, hash_bytes, hash_bytes_hex, now, parse_address_str,
+        get_descriptors_from_xpubs, hash_bytes, hash_bytes_hex, hash_file, now, parse_address_str,
         setup_logger, str_to_xpub,
     },
     wallet::{AssetFilter, Balance, LocalRgbAllocation, LocalUnspent, NUM_KNOWN_SCHEMAS},

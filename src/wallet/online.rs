@@ -1812,101 +1812,68 @@ pub trait WalletOnline: WalletOffline {
         mode: &ReceiveMode,
         recipient_seed: &[u8],
     ) -> Result<bool, Error> {
-        let provided_map: HashMap<String, String> = match mode {
+        let data = match mode {
             ReceiveMode::OutOfBand { media_file_paths } => {
-                let mut map = HashMap::new();
-                for path in media_file_paths {
-                    map.insert(hash_file(Path::new(path))?, path.clone());
-                }
-                map
+                return Ok(self
+                    .save_provided_attachments(attachments, media_file_paths)?
+                    .is_some());
             }
-            ReceiveMode::Proxy { .. } => HashMap::new(),
+            ReceiveMode::Proxy(data) => data,
         };
 
         // for the proxy exchange the media is stored under an id derived from the shared secret (not
         // the plaintext digest); derive the secret once so we can locate each attachment
-        let proxy_derived = if let ReceiveMode::Proxy(data) = mode {
-            let seed: [u8; 32] = recipient_seed.try_into().map_err(|_| Error::Internal {
-                details: s!("invalid recipient secret key"),
-            })?;
-            let recipient_sk = ed25519_from_seed(&seed);
-            let sender_vk =
-                verifying_key_from_bytes(&hex::decode(&data.sender_pubkey).map_err(|_| {
-                    Error::Internal {
-                        details: s!("invalid sender pubkey"),
-                    }
-                })?)?;
-            Some(derive_shared(&recipient_sk, &sender_vk)?)
-        } else {
-            None
-        };
-
-        let mut saved_media_paths = vec![];
-        for attachment in attachments {
-            let digest = hex::encode(attachment.digest);
-            let media_path = self.media_dir().join(&digest);
-            // resolve media only if the file is not already present
-            if media_path.exists() {
-                continue;
-            }
-            match mode {
-                ReceiveMode::Proxy(data) => {
-                    let proxy_client = ProxyClient::new(&data.proxy_url)?;
-                    let media_id = proxy_derived
-                        .as_ref()
-                        .expect("proxy mode always derives the shared secret")
-                        .media_id(&digest);
-                    let media_res = proxy_client.get_media(&data.transfer_id, &media_id)?;
-                    #[cfg(test)]
-                    debug!(self.logger(), "Media GET response: {:?}", media_res);
-                    match media_res.result {
-                        Some(media_res) => {
-                            // also checks the plaintext against the digest in the contract
-                            self.decrypt_blob_with_shared_key_to_file(
-                                &media_res,
-                                data.recipient_encryption,
-                                recipient_seed,
-                                &data.sender_pubkey,
-                                &digest,
-                                &media_path,
-                            )?;
-                        }
-                        None => {
-                            error!(
-                                self.logger(),
-                                "Cannot find the media file but the contract defines one"
-                            );
-                            Self::cleanup_media_files(&saved_media_paths)?;
-                            return Ok(false);
-                        }
-                    }
+        let seed: [u8; 32] = recipient_seed.try_into().map_err(|_| Error::Internal {
+            details: s!("invalid recipient secret key"),
+        })?;
+        let recipient_sk = ed25519_from_seed(&seed);
+        let sender_vk =
+            verifying_key_from_bytes(&hex::decode(&data.sender_pubkey).map_err(|_| {
+                Error::Internal {
+                    details: s!("invalid sender pubkey"),
                 }
-                ReceiveMode::OutOfBand { .. } => match provided_map.get(&digest) {
-                    Some(path) => atomic_write_with(&media_path, |tmp| {
-                        fs::copy(path, tmp)?;
-                        Ok(())
-                    })?,
+            })?)?;
+        let proxy_derived = derive_shared(&recipient_sk, &sender_vk)?;
+
+        let saved_media_paths = self.save_media_files(|saved_media_paths| {
+            for attachment in attachments {
+                let digest = hex::encode(attachment.digest);
+                let media_path = self.media_dir().join(&digest);
+                // resolve media only if the file is not already present
+                if media_path.exists() {
+                    continue;
+                }
+                let proxy_client = ProxyClient::new(&data.proxy_url)?;
+                let media_id = proxy_derived.media_id(&digest);
+                let media_res = proxy_client.get_media(&data.transfer_id, &media_id)?;
+                #[cfg(test)]
+                debug!(self.logger(), "Media GET response: {:?}", media_res);
+                match media_res.result {
+                    Some(media_res) => {
+                        // also checks the plaintext against the digest in the contract
+                        self.decrypt_blob_with_shared_key_to_file(
+                            &media_res,
+                            data.recipient_encryption,
+                            recipient_seed,
+                            &data.sender_pubkey,
+                            &digest,
+                            &media_path,
+                        )?;
+                    }
                     None => {
                         error!(
                             self.logger(),
-                            "Media for digest {digest} was not provided for the out-of-band receive"
+                            "Cannot find the media file but the contract defines one"
                         );
-                        Self::cleanup_media_files(&saved_media_paths)?;
                         return Ok(false);
                     }
-                },
+                }
+                saved_media_paths.push(media_path);
             }
-            saved_media_paths.push(media_path);
-        }
+            Ok(true)
+        })?;
 
-        Ok(true)
-    }
-
-    fn cleanup_media_files(paths: &[PathBuf]) -> Result<(), Error> {
-        for path in paths {
-            fs::remove_file(path)?;
-        }
-        Ok(())
+        Ok(saved_media_paths.is_some())
     }
 
     fn get_consignment(
@@ -2140,61 +2107,6 @@ pub trait WalletOnline: WalletOffline {
             },
             logger: self.logger(),
         }
-    }
-
-    fn extract_attachments(
-        &self,
-        stock: &RgbStock<'_>,
-        valid_contract: &ValidContract,
-        asset_schema: AssetSchema,
-    ) -> Result<Vec<Attachment>, Error> {
-        let mut attachments = vec![];
-        let contract_data = stock.consignment_data(valid_contract)?;
-        match asset_schema {
-            AssetSchema::Nia => {
-                let contract = NiaWrapper::with(contract_data);
-                if let Some(attachment) = contract.contract_terms().media {
-                    attachments.push(attachment)
-                }
-            }
-            AssetSchema::Uda => {
-                let contract = UdaWrapper::with(contract_data);
-                if let Some(attachment) = contract.contract_terms().media {
-                    attachments.push(attachment)
-                }
-                let token_data = contract.token_data();
-                if let Some(media) = token_data.media {
-                    attachments.push(media)
-                }
-                attachments.extend(
-                    token_data
-                        .attachments
-                        .to_unconfined()
-                        .values()
-                        .cloned()
-                        .collect::<Vec<Attachment>>(),
-                )
-            }
-            AssetSchema::Cfa => {
-                let contract = CfaWrapper::with(contract_data);
-                if let Some(attachment) = contract.contract_terms().media {
-                    attachments.push(attachment)
-                }
-            }
-            AssetSchema::Ifa => {
-                let contract = IfaWrapper::with(contract_data);
-                if let Some(attachment) = contract.contract_terms().media {
-                    attachments.push(attachment)
-                }
-            }
-            AssetSchema::Bfa => {
-                let contract = BfaWrapper::with(contract_data);
-                if let Some(attachment) = contract.contract_terms().media {
-                    attachments.push(attachment)
-                }
-            }
-        };
-        Ok(attachments)
     }
 
     fn safe_height(&self, min_confirmations: u8) -> Result<u32, Error> {
@@ -3595,18 +3507,14 @@ pub trait WalletOnline: WalletOffline {
                     refuse!();
                 }
 
-                stock
-                    .import_contract(valid_contract.clone(), &self.blockchain_resolver())
-                    .expect("failure importing received contract");
-                debug!(self.logger(), "Contract registered");
                 self.save_new_asset_internal(
                     txn,
-                    &stock,
-                    contract_id,
+                    &mut stock,
                     asset_schema,
                     valid_contract,
                     Some(valid_consignment.clone()),
                 )?;
+                debug!(self.logger(), "Contract registered");
             }
 
             // add asset info to transfer if missing

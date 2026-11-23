@@ -1189,6 +1189,14 @@ pub(crate) trait SinglesigWalletParty {
     #[cfg(feature = "electrum")]
     fn abort_pending_vanilla_tx_result(&self, txid: &str) -> Result<(), Error>;
 
+    /// Return the digests of the media of the given asset.
+    #[cfg(feature = "electrum")]
+    fn asset_media_digests(&self, asset_id: &str) -> HashSet<String>;
+
+    /// Export the contract of the given asset into a new temporary directory, returning both.
+    #[cfg(feature = "electrum")]
+    fn export_contract_to_tempdir(&self, asset_id: &str) -> (TempDir, String);
+
     fn get_address(&mut self) -> String;
 
     fn go_online(&mut self, skip_consistency_check: bool, indexer_url: Option<&str>) -> Online;
@@ -1311,6 +1319,29 @@ impl<T: OfflineSigParty<W = Wallet>> SinglesigWalletParty for T {
     #[cfg(feature = "electrum")]
     fn abort_pending_vanilla_tx_result(&self, txid: &str) -> Result<(), Error> {
         self.wlt().abort_pending_vanilla_tx(txid.to_string())
+    }
+
+    #[cfg(feature = "electrum")]
+    fn asset_media_digests(&self, asset_id: &str) -> HashSet<String> {
+        self.wlt()
+            .list_asset_media(asset_id.to_string())
+            .unwrap()
+            .into_iter()
+            .map(|m| m.digest)
+            .collect()
+    }
+
+    #[cfg(feature = "electrum")]
+    fn export_contract_to_tempdir(&self, asset_id: &str) -> (TempDir, String) {
+        let destination_dir = TempDir::new().unwrap();
+        let contract_path = self
+            .wlt()
+            .export_contract(
+                asset_id.to_string(),
+                destination_dir.path().to_string_lossy().to_string(),
+            )
+            .unwrap();
+        (destination_dir, contract_path)
     }
 
     fn get_address(&mut self) -> String {
@@ -1869,36 +1900,10 @@ impl SinglesigParty {
         let consignment_path = self.wallet.get_send_consignment_path(asset_id, &txid);
         let consignment = RgbTransfer::load_file(consignment_path).unwrap();
 
-        rcv_party.import_contract(&consignment);
         rcv_party
             .wallet
             .save_new_asset(rcv_party.online, consignment, txid)
             .unwrap();
-    }
-
-    /// Import the contract of the given consignment (its genesis) into the wallet's stock, as
-    /// `save_new_asset` needs.
-    #[cfg(feature = "electrum")]
-    pub(crate) fn import_contract(&self, consignment: &RgbTransfer) {
-        let contract = consignment.clone().into_contract();
-        let asset_schema: AssetSchema = consignment.schema_id().try_into().unwrap();
-        let validation_config = ValidationConfig {
-            chain_net: self.wallet.chain_net(),
-            ..Default::default()
-        };
-        let txn = self.wallet.database().begin_transaction().unwrap();
-        let mut stock = self.wallet.rgb_stock(&txn).unwrap();
-        let valid_contract = contract
-            .validate(
-                &asset_schema.schema_rules(),
-                &DumbResolver,
-                &validation_config,
-            )
-            .unwrap();
-        stock
-            .import_contract(valid_contract, &self.wallet.blockchain_resolver())
-            .unwrap();
-        txn.commit().unwrap();
     }
 
     #[cfg(feature = "_online")]

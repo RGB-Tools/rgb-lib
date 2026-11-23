@@ -30,6 +30,7 @@ namespace rgb_lib {
 [Error, Remote]
 interface RgbLibError {
   AllocationsAlreadyAvailable();
+  AssetAlreadyKnown(string asset_id);
   AssetNotFound(string asset_id);
   BatchTransferNotFound(i32 idx);
   BitcoinNetworkMismatch();
@@ -56,6 +57,7 @@ interface RgbLibError {
   FailedBroadcast(string details);
   FailedIssuance(string details);
   FileAlreadyExists(string path);
+  FileTooLarge(string file_path, u64 max_size);
   FingerprintMismatch();
   HashMismatch();
   IO(string details);
@@ -78,6 +80,7 @@ interface RgbLibError {
   InvalidColoringInfo(string details);
   InvalidConsignment();
   InvalidContentSignature();
+  InvalidContract(string file_path);
   InvalidContractId(string contract_id);
   InvalidCosigner(string details);
   InvalidDetails(string details);
@@ -1223,6 +1226,9 @@ interface Wallet {
   string drain_to_end(Online online, string signed_psbt);
 
   [Throws=RgbLibError]
+  string export_contract(string asset_id, string destination_dir);
+
+  [Throws=RgbLibError]
   boolean fail_transfers(
     Online online, i32? batch_transfer_idx, boolean no_asset_only,
     boolean skip_sync);
@@ -1257,6 +1263,9 @@ interface Wallet {
 
   [Throws=RgbLibError]
   OperationResult burn_end(Online online, string signed_psbt);
+
+  [Throws=RgbLibError]
+  void import_contract(string contract_path, sequence<string> media_file_paths);
 
   [Throws=RgbLibError]
   OperationResult inflate(
@@ -1433,6 +1442,9 @@ interface MultisigWallet {
 
   [Throws=RgbLibError]
   boolean delete_transfers(i32? batch_transfer_idx, boolean no_asset_only);
+
+  [Throws=RgbLibError]
+  string export_contract(string asset_id, string destination_dir);
 
   [Throws=RgbLibError]
   boolean fail_transfers(

@@ -4,6 +4,12 @@
 
 use super::*;
 
+/// Max size, in bytes, of a contract consignment file accepted by
+/// [`import_contract`](Wallet::import_contract), so that a hostile one, which could be arbitrarily
+/// big, is refused before being loaded into memory and validated. The current schemas allow a
+/// genesis of about 8MB (IFA), so this covers them with room for bigger future ones.
+pub(crate) const MAX_CONTRACT_SIZE: u64 = 16 * 1024 * 1024;
+
 /// Keys for the singlesig wallet.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "camel_case", serde(rename_all = "camelCase"))]
@@ -413,6 +419,97 @@ impl Wallet {
         self.update_backup_info(&txn, false)?;
         txn.commit()?;
         info!(self.logger(), "Abort pending vanilla TX completed");
+        Ok(())
+    }
+
+    /// Import the RGB contract (no bundles, as exported by
+    /// [`export_contract`](Wallet::export_contract)) at the provided `contract_path`, making it
+    /// known to the wallet, with no allocations.
+    ///
+    /// The consignment is validated and its contract must not be already known to the wallet. A
+    /// file that isn't a contract consignment is refused with [`Error::InvalidContract`], one
+    /// larger than 16MB with [`Error::FileTooLarge`].
+    ///
+    /// Media of the contract is taken from the files already present in the wallet media directory,
+    /// falling back to the provided `media_file_paths` (matched by content hash). A contract
+    /// defining media that is neither already present nor provided cannot be imported.
+    pub fn import_contract(
+        &self,
+        contract_path: String,
+        media_file_paths: Vec<String>,
+    ) -> Result<(), Error> {
+        info!(self.logger(), "Importing contract...");
+        let invalid_file_path = || Error::InvalidFilePath {
+            file_path: contract_path.clone(),
+        };
+        // the size is checked on the opened file, which is then read only up to the max size
+        let contract_file = fs::File::open(&contract_path).map_err(|_| invalid_file_path())?;
+        let contract_file_metadata = contract_file.metadata()?;
+        if !contract_file_metadata.is_file() {
+            return Err(invalid_file_path());
+        }
+        if contract_file_metadata.len() > MAX_CONTRACT_SIZE {
+            return Err(Error::FileTooLarge {
+                file_path: contract_path,
+                max_size: MAX_CONTRACT_SIZE,
+            });
+        }
+        let contract = Contract::load(contract_file.take(MAX_CONTRACT_SIZE)).map_err(|_| {
+            Error::InvalidContract {
+                file_path: contract_path.clone(),
+            }
+        })?;
+        let asset_id = contract.contract_id().to_string();
+        let asset_schema: AssetSchema = contract.schema_id().try_into()?;
+        self.check_schema_support(&asset_schema)?;
+
+        let check_unknown = |txn: &DbTxn| match txn.get_asset(asset_id.clone())? {
+            Some(_) => Err(Error::AssetAlreadyKnown {
+                asset_id: asset_id.clone(),
+            }),
+            None => Ok(()),
+        };
+        // checked before validating, which can be slow, in its own transaction so that the DB isn't
+        // blocked while validating
+        let txn = self.database().begin_transaction()?;
+        check_unknown(&txn)?;
+        txn.commit()?;
+
+        // a contract has no witnesses nor claims
+        let validation_config = ValidationConfig {
+            chain_net: self.chain_net(),
+            ..Default::default()
+        };
+        let valid_contract = validate_consignment_internal(
+            &contract,
+            None,
+            &DumbResolver,
+            ClaimResolution::Resolver(None),
+            &validation_config,
+        )?;
+
+        let txn = self.database().begin_transaction()?;
+        // checked again, as the contract might have been imported while validating
+        check_unknown(&txn)?;
+        let mut stock = self.rgb_stock(&txn)?;
+        let attachments = self.extract_attachments(&stock, &valid_contract, asset_schema)?;
+        let Some(saved_media_paths) =
+            self.save_provided_attachments(attachments, &media_file_paths)?
+        else {
+            return Err(Error::InvalidAttachments {
+                details: s!("media defined by the contract was not provided"),
+            });
+        };
+        // the media saved above is removed if the contract then cannot be saved
+        let saved = self
+            .save_new_asset_internal(&txn, &mut stock, asset_schema, valid_contract, None)
+            .and_then(|_| self.update_backup_info(&txn, false))
+            .and_then(|_| txn.commit());
+        if let Err(e) = saved {
+            self.discard_media_files(&saved_media_paths);
+            return Err(e);
+        }
+        info!(self.logger(), "Import contract '{}' completed", asset_id);
         Ok(())
     }
 

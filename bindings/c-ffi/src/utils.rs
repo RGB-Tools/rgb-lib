@@ -398,6 +398,17 @@ pub(crate) fn drain_to_end(
     Ok(res)
 }
 
+pub(crate) fn export_contract(
+    wallet: &COpaqueStruct,
+    asset_id: *const c_char,
+    destination_dir: *const c_char,
+) -> Result<String, Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let asset_id = ptr_to_string(asset_id);
+    let destination_dir = ptr_to_string(destination_dir);
+    Ok(wallet.export_contract(asset_id, destination_dir)?)
+}
+
 pub(crate) fn fail_transfers(
     wallet: &COpaqueStruct,
     online: *const c_char,
@@ -497,6 +508,18 @@ pub(crate) fn go_online(
     let online_options: OnlineOptions = serde_json::from_str(&ptr_to_string(online_options))?;
     let res = wallet.go_online(online_options)?;
     Ok(serde_json::to_string(&res)?)
+}
+
+pub(crate) fn import_contract(
+    wallet: &COpaqueStruct,
+    contract_path: *const c_char,
+    media_file_paths: *const c_char,
+) -> Result<(), Error> {
+    let wallet = Wallet::from_opaque(wallet)?;
+    let contract_path = ptr_to_string(contract_path);
+    let media_file_paths: Vec<String> = serde_json::from_str(&ptr_to_string(media_file_paths))?;
+    wallet.import_contract(contract_path, media_file_paths)?;
+    Ok(())
 }
 
 pub(crate) fn inflate(

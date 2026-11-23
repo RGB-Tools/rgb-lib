@@ -582,7 +582,6 @@ pub(crate) fn write_fascia(path: &Path, fascia: &Fascia) -> Result<(), Error> {
     atomic_write(path, &bytes)
 }
 
-#[cfg(feature = "_online")]
 pub(crate) fn hash_file(path: &Path) -> Result<String, Error> {
     let mut file = fs::File::open(path)?;
     let mut engine = sha256::HashEngine::default();
@@ -723,6 +722,10 @@ impl<'txn> RgbStock<'txn> {
         self.stock
             .assignments_by_contract(outpoints)
             .map_err(Error::from)
+    }
+
+    pub(crate) fn export_contract(&self, contract_id: ContractId) -> Result<Contract, Error> {
+        self.stock.export_contract(contract_id).map_err(Error::from)
     }
 
     pub(crate) fn genesis(&self, contract_id: ContractId) -> Result<Genesis, Error> {

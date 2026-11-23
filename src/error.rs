@@ -12,6 +12,13 @@ pub enum Error {
     #[error("Allocations already available")]
     AllocationsAlreadyAvailable,
 
+    /// The asset is already known to the wallet
+    #[error("Asset with id {asset_id} is already known")]
+    AssetAlreadyKnown {
+        /// Asset ID
+        asset_id: String,
+    },
+
     /// Requested asset was not found
     #[error("Asset with id {asset_id} not found")]
     AssetNotFound {
@@ -178,6 +185,15 @@ pub enum Error {
         path: String,
     },
 
+    /// The file is larger than the max size allowed
+    #[error("The file {file_path} is larger than the max allowed size of {max_size} bytes")]
+    FileTooLarge {
+        /// The file path
+        file_path: String,
+        /// The max size allowed, in bytes
+        max_size: u64,
+    },
+
     /// The master fingerprint derived from the mnemonic doesn't match the provided one
     #[error("Fingerprint mismatch")]
     FingerprintMismatch,
@@ -311,6 +327,13 @@ pub enum Error {
     /// The content signature was rejected as invalid
     #[error("Invalid content signature")]
     InvalidContentSignature,
+
+    /// The provided file is not a contract consignment
+    #[error("Invalid contract: {file_path}")]
+    InvalidContract {
+        /// File path
+        file_path: String,
+    },
 
     /// The provided contract ID is invalid
     #[error("Invalid contract ID: {contract_id}")]

@@ -273,6 +273,27 @@ fn success() {
         unreachable!()
     };
 
+    println!("\n=== export NIA contract (wlt_1) and import it (singlesig) ===");
+    let destination_dir = TempDir::new().unwrap();
+    let contract_path = wlt_1
+        .multisig_ref()
+        .export_contract(
+            nia_asset_1.asset_id.clone(),
+            destination_dir.path().to_string_lossy().to_string(),
+        )
+        .unwrap();
+    let importer = get_test_wallet(true, None);
+    importer.import_contract(contract_path, vec![]).unwrap();
+    assert_eq!(
+        importer
+            .get_asset_metadata(nia_asset_1.asset_id.clone())
+            .unwrap(),
+        wlt_1
+            .multisig_ref()
+            .get_asset_metadata(nia_asset_1.asset_id.clone())
+            .unwrap()
+    );
+
     let mut singlesig_wlt = get_funded_party!();
 
     println!("\n=== send UDA (wlt_1 → singlesig) ===");

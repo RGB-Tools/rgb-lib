@@ -634,11 +634,10 @@ fn lock_for_other_tx() {
     let result = party.mint_end_result(party.online, signed_psbt.clone());
     assert_matches!(result, Err(Error::MintLockNotFound { opid }) if opid == res.details.opid);
 
-    // the lock for the mint in its TX does (saving the asset needs its contract imported)
+    // the lock for the mint in its TX does
     lock_mint(&token_contract, &bridge_contract, &res);
     evm_mine(EVM_FINALITY_DEPTH);
     rcv_party.wait_for_refresh(None);
-    rcv_party_2.import_contract(&consignment);
     rcv_party_2
         .wallet
         .save_new_asset(rcv_party_2.online, consignment, txid.clone())

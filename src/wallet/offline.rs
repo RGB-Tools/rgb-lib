@@ -12,7 +12,7 @@ pub(crate) const MINT_RCV_FILE: &str = "rcv_mint.json";
 pub(crate) static CONSIGNMENT_RCV_FILE: LazyLock<String> =
     LazyLock::new(|| format!("rcv_compose.{RGB_BIN_EXTENSION}"));
 
-const ASSET_ID_PREFIX: &str = "rgb:";
+pub(crate) const ASSET_ID_PREFIX: &str = "rgb:";
 
 pub(crate) const UDA_FIXED_INDEX: u32 = 0;
 
@@ -2004,6 +2004,132 @@ pub trait WalletOffline: WalletBackup {
         Ok(BtcBalance { vanilla, colored })
     }
 
+    fn extract_attachments(
+        &self,
+        stock: &RgbStock<'_>,
+        valid_contract: &ValidContract,
+        asset_schema: AssetSchema,
+    ) -> Result<Vec<Attachment>, Error> {
+        let mut attachments = vec![];
+        let contract_data = stock.consignment_data(valid_contract)?;
+        match asset_schema {
+            AssetSchema::Nia => {
+                let contract = NiaWrapper::with(contract_data);
+                if let Some(attachment) = contract.contract_terms().media {
+                    attachments.push(attachment)
+                }
+            }
+            AssetSchema::Uda => {
+                let contract = UdaWrapper::with(contract_data);
+                if let Some(attachment) = contract.contract_terms().media {
+                    attachments.push(attachment)
+                }
+                let token_data = contract.token_data();
+                if let Some(media) = token_data.media {
+                    attachments.push(media)
+                }
+                attachments.extend(
+                    token_data
+                        .attachments
+                        .to_unconfined()
+                        .values()
+                        .cloned()
+                        .collect::<Vec<Attachment>>(),
+                )
+            }
+            AssetSchema::Cfa => {
+                let contract = CfaWrapper::with(contract_data);
+                if let Some(attachment) = contract.contract_terms().media {
+                    attachments.push(attachment)
+                }
+            }
+            AssetSchema::Ifa => {
+                let contract = IfaWrapper::with(contract_data);
+                if let Some(attachment) = contract.contract_terms().media {
+                    attachments.push(attachment)
+                }
+            }
+            AssetSchema::Bfa => {
+                let contract = BfaWrapper::with(contract_data);
+                if let Some(attachment) = contract.contract_terms().media {
+                    attachments.push(attachment)
+                }
+            }
+        };
+        Ok(attachments)
+    }
+
+    /// Remove the given media files, saved by an operation that then failed. Failing to remove one
+    /// is only logged, as the failure of the operation is what gets reported.
+    fn discard_media_files(&self, paths: &[PathBuf]) {
+        for path in paths {
+            if let Err(e) = fs::remove_file(path) {
+                error!(self.logger(), "Cannot remove media file {path:?}: {e}");
+            }
+        }
+    }
+
+    /// Save media files with `save`, which pushes the path of each file it saves to the given list
+    /// and returns false if some media is missing.
+    ///
+    /// Returns the paths of the saved files, or None if some media is missing. The saved files are
+    /// removed if some media is missing or `save` fails, so that no partial media is left behind.
+    fn save_media_files(
+        &self,
+        save: impl FnOnce(&mut Vec<PathBuf>) -> Result<bool, Error>,
+    ) -> Result<Option<Vec<PathBuf>>, Error> {
+        let mut saved_media_paths = vec![];
+        match save(&mut saved_media_paths) {
+            Ok(true) => Ok(Some(saved_media_paths)),
+            Ok(false) => {
+                self.discard_media_files(&saved_media_paths);
+                Ok(None)
+            }
+            Err(e) => {
+                self.discard_media_files(&saved_media_paths);
+                Err(e)
+            }
+        }
+    }
+
+    /// Save into the media directory the given attachments that aren't there yet, taking them
+    /// from the provided media files (matched by their content hash).
+    ///
+    /// Returns the paths of the saved files, or None, leaving the media directory as it was, if
+    /// any attachment is missing from both the media directory and the provided media files.
+    fn save_provided_attachments(
+        &self,
+        attachments: Vec<Attachment>,
+        media_file_paths: &[String],
+    ) -> Result<Option<Vec<PathBuf>>, Error> {
+        let mut provided_map = HashMap::new();
+        for path in media_file_paths {
+            provided_map.insert(hash_file(Path::new(path))?, path);
+        }
+
+        self.save_media_files(|saved_media_paths| {
+            for attachment in attachments {
+                let digest = hex::encode(attachment.digest);
+                let media_path = self.media_dir().join(&digest);
+                if media_path.exists() {
+                    continue;
+                }
+                match provided_map.get(&digest) {
+                    Some(path) => atomic_write_with(&media_path, |tmp| {
+                        fs::copy(path, tmp)?;
+                        Ok(())
+                    })?,
+                    None => {
+                        error!(self.logger(), "Media for digest {digest} was not provided");
+                        return Ok(false);
+                    }
+                }
+                saved_media_paths.push(media_path);
+            }
+            Ok(true)
+        })
+    }
+
     fn extract_asset_data(
         &self,
         stock: &RgbStock<'_>,
@@ -2186,15 +2312,20 @@ pub trait WalletOffline: WalletBackup {
         })
     }
 
+    /// Import the given contract into the RGB stock (a no-op if it's already there) and save it
+    /// into the DB.
     fn save_new_asset_internal(
         &self,
         txn: &DbTxn,
-        stock: &RgbStock<'_>,
-        contract_id: ContractId,
+        stock: &mut RgbStock<'_>,
         asset_schema: AssetSchema,
         valid_contract: ValidContract,
         valid_transfer: Option<ValidTransfer>,
     ) -> Result<LocalAssetData, Error> {
+        // a contract has no witnesses to resolve
+        stock.import_contract(valid_contract.clone(), &DumbResolver)?;
+
+        let contract_id = valid_contract.contract_id();
         let local_asset_data = self.extract_asset_data(
             stock,
             contract_id,
@@ -3247,6 +3378,54 @@ pub trait RgbWalletOpsOffline: WalletOffline + WalletBackup {
         self.persist_and_commit(txn)?;
         info!(self.logger(), "List unspents completed");
         Ok(unspents)
+    }
+
+    /// Export the contract consignment (no bundles) of the RGB contract with the provided
+    /// `asset_id` into the provided `destination_dir`, which must be an existing directory.
+    ///
+    /// The consignment is written to a `<contract ID without the "rgb:" prefix>.rgb` file,
+    /// which must not exist yet, and can be imported by a singlesig wallet with
+    /// [`import_contract`](Wallet::import_contract), together with its media files (see
+    /// [`get_asset_metadata`](RgbWalletOpsOffline::get_asset_metadata)), if any.
+    ///
+    /// Returns the path of the exported contract file.
+    fn export_contract(&self, asset_id: String, destination_dir: String) -> Result<String, Error> {
+        info!(
+            self.logger(),
+            "Exporting consignment for contract '{}'...", asset_id
+        );
+        let txn = self.database().begin_transaction()?;
+        txn.check_asset_exists(asset_id.clone())?;
+        let destination_dir_path = Path::new(&destination_dir);
+        if !destination_dir_path.is_dir() {
+            return Err(Error::InvalidFilePath {
+                file_path: destination_dir,
+            });
+        }
+        let contract_path = destination_dir_path.join(format!(
+            "{}.{RGB_BIN_EXTENSION}",
+            asset_id.replace(ASSET_ID_PREFIX, "")
+        ));
+        let contract_id = ContractId::from_str(&asset_id).expect("asset ID in DB should be valid");
+        let contract = self.rgb_stock(&txn)?.export_contract(contract_id)?;
+        txn.commit()?;
+
+        // written to a new temporary file, then moved into place only if there's no file there
+        // yet, as a rename would replace it (e.g. if written by a concurrent export)
+        let tmp_file = NamedTempFile::new_in(destination_dir_path)?;
+        contract.save(tmp_file.as_file())?;
+        tmp_file.as_file().sync_all()?;
+        tmp_file
+            .persist_noclobber(&contract_path)
+            .map_err(|e| match e.error.kind() {
+                io::ErrorKind::AlreadyExists => Error::FileAlreadyExists {
+                    path: contract_path.to_string_lossy().to_string(),
+                },
+                _ => e.error.into(),
+            })?;
+        sync_dir(destination_dir_path)?;
+        info!(self.logger(), "Export consignment completed");
+        Ok(contract_path.to_string_lossy().to_string())
     }
 
     /// Finalize a PSBT, optionally providing BDK sign options to tweak the behavior of the

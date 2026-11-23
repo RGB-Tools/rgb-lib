@@ -465,7 +465,7 @@ impl Wallet {
         Ok(())
     }
 
-    /// Extract the metadata of a new RGB asset and save the asset into the DB.
+    /// Import a new RGB contract into the RGB stock, extract its metadata and save it into the DB.
     ///
     /// <div class="warning">This method is meant for special usage and is normally not needed, use
     /// it only if you know what you're doing</div>
@@ -479,9 +479,7 @@ impl Wallet {
         info!(self.logger(), "Saving new asset...");
         self.check_online(online)?;
         let txn = self.database().begin_transaction()?;
-        let stock = self.rgb_stock(&txn)?;
-
-        let contract_id = consignment.contract_id();
+        let mut stock = self.rgb_stock(&txn)?;
 
         let witness_id = RgbTxid::from_str(&offchain_txid).map_err(|_| Error::InvalidTxid)?;
         let asset_schema: AssetSchema = consignment.schema_id().try_into()?;
@@ -500,8 +498,7 @@ impl Wallet {
 
         self.save_new_asset_internal(
             &txn,
-            &stock,
-            contract_id,
+            &mut stock,
             asset_schema,
             valid_contract,
             Some(valid_transfer),

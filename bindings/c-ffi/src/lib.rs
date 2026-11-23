@@ -235,6 +235,15 @@ pub extern "C" fn rgblib_drain_to_end(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn rgblib_export_contract(
+    wallet: &COpaqueStruct,
+    asset_id: *const c_char,
+    destination_dir: *const c_char,
+) -> CResultString {
+    export_contract(wallet, asset_id, destination_dir).into()
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn rgblib_fail_transfers(
     wallet: &COpaqueStruct,
     online: *const c_char,
@@ -314,6 +323,15 @@ pub extern "C" fn rgblib_go_online(
     online_options: *const c_char,
 ) -> CResultString {
     go_online(wallet, online_options).into()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rgblib_import_contract(
+    wallet: &COpaqueStruct,
+    contract_path: *const c_char,
+    media_file_paths: *const c_char,
+) -> CResult {
+    import_contract(wallet, contract_path, media_file_paths).into()
 }
 
 #[unsafe(no_mangle)]
