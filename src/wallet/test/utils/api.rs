@@ -310,6 +310,15 @@ pub(crate) trait OfflineSigParty {
         pending_witness_scripts
     }
 
+    /// Whether the script is watched as paying a pending witness receive.
+    #[cfg(feature = "electrum")]
+    fn is_pending_witness_script(&self, script: &ScriptBuf) -> bool {
+        let script = script.to_hex_string();
+        self.db_pending_witness_scripts()
+            .iter()
+            .any(|s| s.script == script)
+    }
+
     #[cfg(feature = "electrum")]
     fn db_reserved_txos(&self) -> Vec<DbReservedTxo> {
         let txn = self.wlt().database().begin_transaction().unwrap();
@@ -1617,18 +1626,28 @@ impl SinglesigParty {
     }
 
     pub(crate) fn witness_receive(&mut self) -> ReceiveData {
-        self.wallet
-            .witness_receive(
-                Some(self.online),
-                None,
-                Assignment::Any,
-                default_rcv_expiration(),
-                TRANSPORT_ENDPOINTS.clone(),
-                MIN_CONFIRMATIONS,
-                None,
-                None,
-            )
+        self.witness_receive_result(TRANSPORT_ENDPOINTS.clone(), None)
             .unwrap()
+    }
+
+    /// A witness receive with the given transport endpoints, reusing the given address (or a new
+    /// one) and the defaults of [`Self::witness_receive`] otherwise.
+    pub(crate) fn witness_receive_result(
+        &mut self,
+        transport_endpoints: Vec<String>,
+        address: Option<String>,
+    ) -> Result<ReceiveData, Error> {
+        self.wallet.witness_receive(
+            Some(self.online),
+            None,
+            Assignment::Any,
+            default_rcv_expiration(),
+            transport_endpoints,
+            MIN_CONFIRMATIONS,
+            None,
+            None,
+            address,
+        )
     }
 
     #[cfg(feature = "electrum")]
@@ -2035,5 +2054,88 @@ impl SinglesigParty {
     ) -> Result<String, Error> {
         self.wallet
             .drain_to_begin(self.online, address.to_string(), fee_rate, true)
+    }
+
+    /// The first script of the keychain, the one reused for the outputs the wallet creates for
+    /// itself.
+    #[cfg(feature = "electrum")]
+    pub(crate) fn first_script(&self, keychain: KeychainKind) -> ScriptBuf {
+        self.wallet
+            .bdk_wallet()
+            .peek_address(keychain, 0)
+            .script_pubkey()
+    }
+
+    /// The first address of the keychain, the one reused for the outputs the wallet creates for
+    /// itself.
+    #[cfg(feature = "electrum")]
+    pub(crate) fn first_address(&self, keychain: KeychainKind) -> String {
+        self.wallet
+            .bdk_wallet()
+            .peek_address(keychain, 0)
+            .address
+            .to_string()
+    }
+
+    /// The scripts of the unspent outputs of the keychain.
+    #[cfg(feature = "electrum")]
+    pub(crate) fn unspent_scripts(&self, keychain: KeychainKind) -> Vec<ScriptBuf> {
+        self.wallet
+            .bdk_wallet()
+            .list_unspent()
+            .filter(|o| o.keychain == keychain)
+            .map(|o| o.txout.script_pubkey)
+            .collect()
+    }
+
+    /// The outputs of the wallet's TX with the given ID.
+    #[cfg(feature = "electrum")]
+    pub(crate) fn tx_outputs(&self, txid: &str) -> Vec<TxOut> {
+        let bdk_txid: bdk_wallet::bitcoin::Txid = txid.parse().unwrap();
+        self.wallet
+            .bdk_wallet()
+            .get_tx(bdk_txid)
+            .unwrap()
+            .tx_node
+            .tx
+            .output
+            .clone()
+    }
+
+    /// The TXO of the colored output of the TX with the given ID, which must be the only one.
+    #[cfg(feature = "electrum")]
+    pub(crate) fn only_txo_of(&self, txid: &str) -> DbTxo {
+        let mut txos = self.db_txos().into_iter().filter(|t| t.txid == txid);
+        let txo = txos.next().unwrap();
+        assert!(txos.next().is_none());
+        txo
+    }
+
+    /// Fast sync of the colored keychain.
+    #[cfg(feature = "electrum")]
+    pub(crate) fn colored_fast_sync(&mut self) {
+        self.sync(SyncOptions {
+            keychain: SyncKeychain::Colored,
+            strategy: SyncStrategy::FastSync,
+        });
+    }
+
+    /// Check the status of the receive described by `receive_data` and that it was credited the
+    /// given amount of the asset with ID `asset_id`.
+    #[cfg(feature = "electrum")]
+    pub(crate) fn check_receive(
+        &self,
+        asset_id: &str,
+        receive_data: &ReceiveData,
+        amount: u64,
+        status: TransferStatus,
+    ) {
+        let transfers = self.list_transfers(Some(asset_id));
+        let transfer = transfers
+            .iter()
+            .find(|t| t.batch_transfer_idx == receive_data.batch_transfer_idx)
+            .unwrap();
+        assert_eq!(transfer.status, status);
+        assert_eq!(transfer.assignments, vec![Assignment::Fungible(amount)]);
     }
 }

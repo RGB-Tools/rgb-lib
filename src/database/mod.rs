@@ -821,6 +821,25 @@ impl DbTxn {
         .collect())
     }
 
+    /// The transfers of incoming batch transfers to the recipient ID `recipient_id`.
+    #[cfg(feature = "_online")]
+    pub(crate) fn get_incoming_transfers_by_recipient_id(
+        &self,
+        recipient_id: &str,
+    ) -> Result<Vec<DbTransfer>, Error> {
+        Ok(block_on(
+            Transfer::find()
+                .join(JoinType::InnerJoin, transfer::Relation::AssetTransfer.def())
+                .join(
+                    JoinType::InnerJoin,
+                    asset_transfer::Relation::BatchTransfer.def(),
+                )
+                .filter(transfer::Column::RecipientId.eq(recipient_id))
+                .filter(batch_transfer::Column::Incoming.eq(true))
+                .all(self.inner()),
+        )?)
+    }
+
     pub(crate) fn get_media(&self, media_idx: i32) -> Result<Option<DbMedia>, Error> {
         Ok(block_on(Media::find_by_id(media_idx).one(self.inner()))?)
     }

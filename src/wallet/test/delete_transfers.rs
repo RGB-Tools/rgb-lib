@@ -112,8 +112,9 @@ fn success() {
     party.fail_transfers_single(batch_transfer_idx);
     let batch_transfers_before = party.db_batch_transfers();
     assert_eq!(batch_transfers_before.len(), 2);
+    // the bitcoin change is registered even with no RGB change going to it
     let txos_before = party.db_txos();
-    assert_eq!(txos_before.len(), 5);
+    assert_eq!(txos_before.len(), 6);
     let colorings_before = party.db_colorings();
     assert_eq!(colorings_before.len(), 2);
     assert!(party.delete_transfers(Some(batch_transfer_idx), false));

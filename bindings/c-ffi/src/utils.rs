@@ -1154,6 +1154,7 @@ pub(crate) fn witness_receive(
     min_confirmations: *const c_char,
     encryption: *const c_char,
     quota: *const c_char,
+    address: *const c_char,
 ) -> Result<String, Error> {
     let wallet = Wallet::from_opaque(wallet)?;
     let online = convert_optional_online(online)?;
@@ -1165,6 +1166,7 @@ pub(crate) fn witness_receive(
     let min_confirmations = ptr_to_num(min_confirmations)?;
     let encryption = convert_optional_encryption(encryption)?;
     let quota = convert_optional_number(quota)?;
+    let address = convert_optional_string(address);
     let res = wallet.witness_receive(
         online,
         asset_id,
@@ -1174,6 +1176,7 @@ pub(crate) fn witness_receive(
         min_confirmations,
         encryption,
         quota,
+        address,
     )?;
     Ok(serde_json::to_string(&res)?)
 }

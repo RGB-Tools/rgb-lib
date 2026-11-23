@@ -80,6 +80,8 @@ fn success() {
                 max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
                 supported_schemas: AssetSchema::VALUES.to_vec(),
                 allow_reckless_schemas: false,
+                address_reuse_vanilla: false,
+                address_reuse_colored_auto: false,
             },
             SinglesigKeys::from_keys(&keys, vanilla_keychain),
         )
@@ -151,6 +153,8 @@ fn mainnet_success_electrum() {
                 // IFA not supported on mainnet
                 supported_schemas: vec![AssetSchema::Cfa, AssetSchema::Nia, AssetSchema::Uda],
                 allow_reckless_schemas: false,
+                address_reuse_vanilla: false,
+                address_reuse_colored_auto: false,
             },
             SinglesigKeys::from_keys(&keys, None),
         )
@@ -183,6 +187,8 @@ fn mainnet_success_esplora() {
                 // IFA not supported on mainnet
                 supported_schemas: vec![AssetSchema::Cfa, AssetSchema::Nia, AssetSchema::Uda],
                 allow_reckless_schemas: false,
+                address_reuse_vanilla: false,
+                address_reuse_colored_auto: false,
             },
             SinglesigKeys::from_keys(&keys, None),
         )
@@ -358,6 +364,8 @@ fn watch_only_success() {
             max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
             supported_schemas: AssetSchema::VALUES.to_vec(),
             allow_reckless_schemas: false,
+            address_reuse_vanilla: false,
+            address_reuse_colored_auto: false,
         },
         SinglesigKeys::from_keys_no_mnemonic(&keys, None),
     )
@@ -376,6 +384,8 @@ fn watch_only_success() {
             max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
             supported_schemas: AssetSchema::VALUES.to_vec(),
             allow_reckless_schemas: false,
+            address_reuse_vanilla: false,
+            address_reuse_colored_auto: false,
         },
         SinglesigKeys::from_keys(&keys, None),
     )
@@ -424,6 +434,8 @@ fn watch_only_fail() {
             max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
             supported_schemas: AssetSchema::VALUES.to_vec(),
             allow_reckless_schemas: false,
+            address_reuse_vanilla: false,
+            address_reuse_colored_auto: false,
         },
         SinglesigKeys::from_keys_no_mnemonic(&keys_bad, None),
     );
@@ -499,6 +511,8 @@ fn supported_schemas() {
             max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
             supported_schemas: vec![AssetSchema::Nia],
             allow_reckless_schemas: false,
+            address_reuse_vanilla: false,
+            address_reuse_colored_auto: false,
         },
         SinglesigKeys::from_keys(&keys, None),
     )
@@ -527,6 +541,8 @@ fn supported_schemas() {
             max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
             supported_schemas: vec![AssetSchema::Uda],
             allow_reckless_schemas: false,
+            address_reuse_vanilla: false,
+            address_reuse_colored_auto: false,
         },
         SinglesigKeys::from_keys(&keys_rcv, None),
     )
@@ -576,6 +592,8 @@ fn supported_schemas() {
             max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
             supported_schemas: vec![AssetSchema::Cfa],
             allow_reckless_schemas: false,
+            address_reuse_vanilla: false,
+            address_reuse_colored_auto: false,
         },
         SinglesigKeys::from_keys(&keys, None),
     )
@@ -609,6 +627,8 @@ fn supported_schemas() {
             max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
             supported_schemas: vec![AssetSchema::Bfa],
             allow_reckless_schemas: false,
+            address_reuse_vanilla: false,
+            address_reuse_colored_auto: false,
         },
         SinglesigKeys::from_keys(&keys, None),
     )
@@ -642,6 +662,8 @@ fn supported_schemas() {
             max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
             supported_schemas: vec![],
             allow_reckless_schemas: false,
+            address_reuse_vanilla: false,
+            address_reuse_colored_auto: false,
         },
         SinglesigKeys::from_keys(&keys, None),
     );
@@ -666,6 +688,8 @@ fn supported_schemas() {
                 max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
                 supported_schemas: vec![AssetSchema::Nia, schema],
                 allow_reckless_schemas: false,
+                address_reuse_vanilla: false,
+                address_reuse_colored_auto: false,
             },
             SinglesigKeys::from_keys(&keys_mainnet, None),
         );
@@ -701,6 +725,8 @@ fn allow_reckless_schemas_success() {
         max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
         supported_schemas: reckless_schemas.clone(),
         allow_reckless_schemas: false,
+        address_reuse_vanilla: false,
+        address_reuse_colored_auto: false,
     };
 
     // without the opt-in the schemas are refused

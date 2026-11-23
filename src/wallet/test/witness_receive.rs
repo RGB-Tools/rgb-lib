@@ -24,6 +24,7 @@ fn success() {
             MIN_CONFIRMATIONS,
             None,
             None,
+            None,
         )
         .unwrap();
     let bak_info_after = party.db_backup_info();
@@ -52,6 +53,7 @@ fn success() {
             expiration_timestamp,
             TRANSPORT_ENDPOINTS.clone(),
             min_confirmations,
+            None,
             None,
             None,
         )
@@ -100,6 +102,7 @@ fn success() {
         MIN_CONFIRMATIONS,
         None,
         None,
+        None,
     );
     assert!(result.is_ok());
     let transfer = party.get_test_transfer_recipient(&result.unwrap().recipient_id);
@@ -129,6 +132,7 @@ fn schema_assignment_combinations() {
                 min_confirmations,
                 encryption,
                 None,
+                None,
             )
         },
     );
@@ -151,6 +155,7 @@ fn fail() {
             MIN_CONFIRMATIONS,
             None,
             None,
+            None,
         )
         .unwrap_err();
     #[cfg(feature = "_online")]
@@ -169,6 +174,7 @@ fn fail() {
             MIN_CONFIRMATIONS,
             None,
             None,
+            None,
         )
         .unwrap_err();
     assert_matches!(result, Error::InvalidExpiration);
@@ -182,6 +188,7 @@ fn fail() {
             (now().unix_timestamp() + i64::from(MAX_EXPIRATION_SECS) + 1) as u64,
             vec![],
             MIN_CONFIRMATIONS,
+            None,
             None,
             None,
         )

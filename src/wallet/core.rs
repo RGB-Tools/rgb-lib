@@ -48,6 +48,12 @@ pub(crate) struct WalletManifest {
     // which is what a wallet created without the setting was)
     #[serde(default)]
     pub(crate) allow_reckless_schemas: bool,
+    // defaulted, so manifests written before these settings existed keep loading (as not reusing
+    // addresses, which is what a wallet created without the settings did)
+    #[serde(default)]
+    pub(crate) address_reuse_vanilla: bool,
+    #[serde(default)]
+    pub(crate) address_reuse_colored_auto: bool,
     pub(crate) account_xpub_vanilla: String,
     pub(crate) account_xpub_colored: String,
     pub(crate) vanilla_keychain: u8,
@@ -64,6 +70,8 @@ impl WalletManifest {
             max_allocations_per_utxo: wallet_data.max_allocations_per_utxo,
             supported_schemas: wallet_data.supported_schemas.clone(),
             allow_reckless_schemas: wallet_data.allow_reckless_schemas,
+            address_reuse_vanilla: wallet_data.address_reuse_vanilla,
+            address_reuse_colored_auto: wallet_data.address_reuse_colored_auto,
             account_xpub_vanilla: keys.account_xpub_vanilla.clone(),
             account_xpub_colored: keys.account_xpub_colored.clone(),
             vanilla_keychain: keys.vanilla_keychain.unwrap_or(KEYCHAIN_BTC),
@@ -74,6 +82,10 @@ impl WalletManifest {
 
     fn path(wallet_dir: &Path) -> PathBuf {
         wallet_dir.join(WALLET_MANIFEST_FILE)
+    }
+
+    pub(crate) fn exists(wallet_dir: &Path) -> bool {
+        Self::path(wallet_dir).exists()
     }
 
     pub(crate) fn write(&self, wallet_dir: &Path) -> Result<(), Error> {
@@ -107,7 +119,7 @@ impl WalletManifest {
         wallet_data: &WalletData,
         keys: &SinglesigKeys,
     ) -> Result<(), Error> {
-        if !Self::path(wallet_dir).exists() {
+        if !Self::exists(wallet_dir) {
             // skip when no manifest exists (legacy directory or first creation)
             return Ok(());
         }
@@ -138,6 +150,8 @@ impl WalletManifest {
             vanilla_keychain,
             account_xpub_colored,
             account_xpub_vanilla,
+            address_reuse_vanilla,
+            address_reuse_colored_auto,
         );
         Ok(())
     }
@@ -155,6 +169,8 @@ impl WalletManifest {
                 max_allocations_per_utxo: self.max_allocations_per_utxo,
                 supported_schemas: self.supported_schemas,
                 allow_reckless_schemas: self.allow_reckless_schemas,
+                address_reuse_vanilla: self.address_reuse_vanilla,
+                address_reuse_colored_auto: self.address_reuse_colored_auto,
             },
             SinglesigKeys {
                 account_xpub_vanilla: self.account_xpub_vanilla,
@@ -281,6 +297,11 @@ pub(crate) fn setup_rgb(
     }
     txn.commit()?;
     Ok(())
+}
+
+/// Whether the wallet directory already holds the wallet DB, i.e. the wallet already exists.
+pub(crate) fn db_exists(wallet_dir: &Path) -> bool {
+    wallet_dir.join(RGB_LIB_DB_NAME).exists()
 }
 
 pub(crate) fn setup_db<P: AsRef<Path>>(wallet_dir: P) -> Result<RgbLibDatabase, Error> {
@@ -642,6 +663,17 @@ pub trait WalletCore {
         &self.internals().wallet_data
     }
 
+    /// Whether the wallet reuses the first address of the keychain instead of deriving a new one:
+    /// for every vanilla address (see [`WalletData::address_reuse_vanilla`]) or for the colored
+    /// outputs whose address it picks automatically (see
+    /// [`WalletData::address_reuse_colored_auto`]).
+    fn reuses_address(&self, keychain: KeychainKind) -> bool {
+        match keychain {
+            KeychainKind::Internal => self.wallet_data().address_reuse_vanilla,
+            KeychainKind::External => self.wallet_data().address_reuse_colored_auto,
+        }
+    }
+
     fn wallet_dir(&self) -> &PathBuf {
         &self.internals().wallet_dir
     }
@@ -758,8 +790,8 @@ pub trait WalletCore {
         // of this wallet's scripts too, when sending to oneself)
         let now = now().unix_timestamp();
         let failed_since = now - self.failed_witness_receive_grace_secs() as i64;
-        // a script can be paid by several transfers (reusable invoice), so it is pending if any of
-        // them is
+        // a script can be paid by several transfers (reusable invoice or reused address), so it is
+        // pending if any of them is
         let mut receives: HashMap<String, WatchedWitnessScript> = HashMap::new();
         // the script of a reusable invoice that can still receive transfers is pending whatever
         // the state of the transfers known so far, as a later one can pay it before its
@@ -1009,8 +1041,11 @@ pub trait WalletCore {
     /// `pending_witness_scripts` are the pending witness scripts returned by
     /// [`Self::reconcile_pending_witness`]: a TXO paying one of them is flagged as pending witness
     /// only if its receive is still pending, and the script is dropped as it has been paid, unless
-    /// it can be paid by more than one transfer (reusable invoice), in which case every
-    /// new TXO paying it is flagged.
+    /// it can be paid by more than one transfer (reusable invoice or reused address), in which
+    /// case every new TXO paying it is flagged. The outputs the wallet created for itself, which
+    /// it registered before broadcasting them, are neither flagged nor taken as paying the script,
+    /// as they can be on an address that also receives transfers (see
+    /// [`WalletData::address_reuse_colored_auto`]).
     #[cfg(feature = "_online")]
     fn update_db_colored_txos_from_bdk(
         &mut self,
@@ -1021,8 +1056,21 @@ pub trait WalletCore {
         let db_txos = txn.iter_txos()?;
 
         let db_outpoints: HashSet<String> = db_txos
-            .into_iter()
+            .iter()
             .filter(|t| t.exists && (include_spent || !t.spent))
+            .map(|u| u.outpoint().to_string())
+            .collect();
+        // registered before being broadcast, not as the payment of a witness receive (which gets
+        // a receive coloring when its consignment is accepted, kept if the receive then fails)
+        let unbroadcast_txos: Vec<&DbTxo> = db_txos.iter().filter(|t| !t.exists).collect();
+        let received_txo_idxs: HashSet<i32> = txn
+            .get_receive_colorings_by_txo_idxs(unbroadcast_txos.iter().map(|t| t.idx).collect())?
+            .into_iter()
+            .map(|c| c.txo_idx)
+            .collect();
+        let own_outpoints: HashSet<String> = unbroadcast_txos
+            .into_iter()
+            .filter(|t| !received_txo_idxs.contains(&t.idx))
             .map(|u| u.outpoint().to_string())
             .collect();
 
@@ -1038,6 +1086,10 @@ pub trait WalletCore {
         {
             let mut new_db_utxo: DbTxoActMod = new_utxo.clone().into();
             let script = new_utxo.txout.script_pubkey.to_hex_string();
+            if own_outpoints.contains(&new_utxo.outpoint.to_string()) {
+                txn.set_txo(new_db_utxo)?;
+                continue;
+            }
             if let Some(pws) = pending_witness_scripts.get(&script) {
                 new_db_utxo.pending_witness = ActiveValue::Set(pws.pending);
                 if !pws.shared {

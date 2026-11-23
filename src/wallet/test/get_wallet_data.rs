@@ -16,6 +16,8 @@ fn success() {
             max_allocations_per_utxo: 1,
             supported_schemas: AssetSchema::VALUES.to_vec(),
             allow_reckless_schemas: false,
+            address_reuse_vanilla: false,
+            address_reuse_colored_auto: false,
         },
         SinglesigKeys::from_keys(&keys, Some(2)),
     )
@@ -43,6 +45,8 @@ fn success() {
             max_allocations_per_utxo: 5,
             supported_schemas: AssetSchema::VALUES.to_vec(),
             allow_reckless_schemas: false,
+            address_reuse_vanilla: false,
+            address_reuse_colored_auto: false,
         },
         SinglesigKeys::from_keys_no_mnemonic(&keys_2, None),
     )

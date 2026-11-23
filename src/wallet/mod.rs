@@ -61,7 +61,7 @@ pub use singlesig::{SinglesigKeys, Wallet};
 pub(crate) use backup::WalletBackup;
 pub(crate) use core::{
     ASSETS_DIR, MEDIA_DIR, NUM_KNOWN_SCHEMAS, WalletCore, WalletInternals, WalletManifest,
-    setup_bdk, setup_db, setup_new_wallet, setup_rgb,
+    db_exists, setup_bdk, setup_db, setup_new_wallet, setup_rgb,
 };
 #[cfg(feature = "_online")]
 pub use core::{SyncKeychain, SyncOptions, SyncStrategy};

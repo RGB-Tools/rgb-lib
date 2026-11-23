@@ -39,6 +39,7 @@ fn reusable_receive(
             MIN_CONFIRMATIONS,
             encryption,
             quota,
+            None,
         )
     } else {
         party.wallet.blind_receive(
@@ -672,6 +673,7 @@ fn reuse_fail() {
         MIN_CONFIRMATIONS,
         None,
         Some(2),
+        None,
     );
     assert_matches!(result, Err(Error::InvalidQuota { details: m }) if m == "a reusable invoice requires transport endpoints");
 }

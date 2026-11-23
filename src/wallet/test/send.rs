@@ -10458,6 +10458,7 @@ fn out_of_band_success() {
             MIN_CONFIRMATIONS,
             None,
             None,
+            None,
         )
         .unwrap();
     // the out-of-band exchange stores no transport endpoint at all

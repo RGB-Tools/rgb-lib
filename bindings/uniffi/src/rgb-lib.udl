@@ -45,6 +45,7 @@ interface RgbLibError {
   CannotLinkToItself();
   CannotProvideOutOfBandAck(string details);
   CannotProvideOutOfBandConsignment(string details);
+  CannotReuseAddress(string details);
   CannotUseSchemaOnMainnet(AssetSchema asset_schema);
   ConsignmentRejected(sequence<string> opouts);
   ConsignmentValidationFailed(string details);
@@ -179,6 +180,7 @@ interface RgbLibError {
   UnknownLinkedContract(string contract_id);
   UnknownRgbSchema(string schema_id);
   UnknownTransfer(string txid);
+  UnsupportedAddressReuse(string details);
   UnsupportedBackupVersion(string version);
   UnsupportedBurn(AssetSchema asset_schema);
   UnsupportedInflation(AssetSchema asset_schema);
@@ -333,6 +335,7 @@ dictionary ReceiveData {
   u64 expiration_timestamp;
   i32 batch_transfer_idx;
   string public_key;
+  string? address;
 };
 
 interface RecipientInfo {
@@ -736,6 +739,8 @@ dictionary WalletData {
   u32 max_allocations_per_utxo;
   sequence<AssetSchema> supported_schemas;
   boolean allow_reckless_schemas;
+  boolean address_reuse_vanilla;
+  boolean address_reuse_colored_auto;
 };
 
 [Remote]
@@ -1194,7 +1199,7 @@ interface Wallet {
   ReceiveData witness_receive(
     Online? online, string? asset_id, Assignment assignment, u64 expiration_timestamp,
     sequence<string> transport_endpoints, u8 min_confirmations, Encryption? encryption,
-    u32? quota);
+    u32? quota, string? address);
 
   [Throws=RgbLibError]
   string finalize_psbt(string signed_psbt);

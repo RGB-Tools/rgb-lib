@@ -87,6 +87,8 @@
 //!         max_allocations_per_utxo: 5,
 //!         supported_schemas: vec![AssetSchema::Nia],
 //!         allow_reckless_schemas: false,
+//!         address_reuse_vanilla: false,
+//!         address_reuse_colored_auto: false,
 //!     };
 //!     let wallet = Wallet::new(wallet_data, single_sig_keys)?;
 //!
@@ -122,6 +124,8 @@
 //!         max_allocations_per_utxo: 5,
 //!         supported_schemas: vec![AssetSchema::Nia],
 //!         allow_reckless_schemas: false,
+//!         address_reuse_vanilla: false,
+//!         address_reuse_colored_auto: false,
 //!     };
 //!     let wallet = Wallet::new(wallet_data, SinglesigKeys::from_keys(&keys, None))?;
 //!     drop(wallet);

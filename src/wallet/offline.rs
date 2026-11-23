@@ -68,6 +68,13 @@ pub trait WalletOffline: WalletBackup {
         self.bitcoin_network().into()
     }
 
+    /// The address of the given script on the wallet's network, if the script has one.
+    fn script_address(&self, script: &ScriptBuf) -> Option<String> {
+        BdkAddress::from_script(script, BdkNetwork::from(self.bitcoin_network()))
+            .ok()
+            .map(|a| a.to_string())
+    }
+
     fn rgb_stock<'txn>(&self, db_txn: &'txn DbTxn) -> Result<RgbStock<'txn>, Error> {
         Ok(RgbStock::new(db_txn))
     }
@@ -1327,6 +1334,8 @@ pub trait WalletOffline: WalletBackup {
         recipient_type: RecipientType,
         encryption: Option<Encryption>,
         quota: u32,
+        // for a witness receive, the address to reuse (see check_reused_address)
+        address: Option<String>,
     ) -> Result<ReceiveDataInternal, Error> {
         let encryption = encryption.unwrap_or(Encryption::Required);
 
@@ -1344,6 +1353,19 @@ pub trait WalletOffline: WalletBackup {
         if out_of_band && quota > 1 {
             return Err(Error::InvalidQuota {
                 details: s!("a reusable invoice requires transport endpoints"),
+            });
+        }
+        // the same goes for a witness receive reusing an address, as the address is paid by the
+        // transfers to every invoice using it, so a unique seal per operation is needed
+        let reused_address = address.is_some();
+        if reused_address && recipient_type != RecipientType::Witness {
+            return Err(Error::UnsupportedAddressReuse {
+                details: s!("only witness receives can reuse an address"),
+            });
+        }
+        if out_of_band && reused_address {
+            return Err(Error::UnsupportedAddressReuse {
+                details: s!("a witness receive reusing an address requires transport endpoints"),
             });
         }
         // the blinded UTXO needs room for an allocation per transfer the invoice can receive
@@ -1404,12 +1426,21 @@ pub trait WalletOffline: WalletBackup {
                 (beneficiary, recipient_type_full, Some(blind_seal), None)
             }
             RecipientType::Witness => {
-                let script_pubkey = self.get_new_address()?.script_pubkey();
+                let script_pubkey = match &address {
+                    Some(address) => self.check_reused_address(address)?,
+                    None => self.get_new_address()?,
+                }
+                .script_pubkey();
                 let beneficiary = beneficiary_from_script_buf(script_pubkey.clone());
                 let recipient_type_full = RecipientTypeFull::Witness { vout: None };
                 (beneficiary, recipient_type_full, None, Some(script_pubkey))
             }
         };
+
+        // the address a witness receive pays, which can be passed to a later one to reuse it
+        let witness_address = script_pubkey
+            .as_ref()
+            .and_then(|script| self.script_address(script));
 
         #[cfg(test)]
         let network = mock_chain_net(self);
@@ -1419,6 +1450,15 @@ pub trait WalletOffline: WalletBackup {
         let beneficiary = XChainNet::with(network, beneficiary);
         let recipient_id = beneficiary.to_string();
         debug!(self.logger(), "Recipient ID: {recipient_id}");
+        // without online features any transport endpoint is refused, so an address can't be reused
+        #[cfg(feature = "_online")]
+        let earlier_receives_to_share = if reused_address {
+            self.earlier_witness_receives_to_share(txn, &recipient_id)?
+        } else {
+            vec![]
+        };
+        #[cfg(not(feature = "_online"))]
+        let earlier_receives_to_share = vec![];
         let (schema, contract_id) = if let Some(aid) = asset_id.clone() {
             let asset = txn.check_asset_exists(aid.clone())?;
             let contract_id = ContractId::from_str(&aid).expect("invalid contract ID");
@@ -1574,9 +1614,10 @@ pub trait WalletOffline: WalletBackup {
         #[cfg(not(feature = "_online"))]
         let invoice_deadline = None;
 
-        // the recipient ID of a reusable invoice is shared by its transfers, so the data of each
-        // transfer is kept in a directory of its own, named after the (unique) invoice key
-        let receive_dir = (quota > 1).then(|| {
+        // the recipient ID of a reusable invoice or of a reused address is shared by several
+        // transfers, so the data of each transfer is kept in a directory of its own, named after the
+        // (unique) invoice key (the earlier receives on a reused address keep theirs)
+        let receive_dir = (quota > 1 || reused_address).then(|| {
             format!(
                 "{}_{}",
                 self.normalize_recipient_id(&recipient_id),
@@ -1601,7 +1642,72 @@ pub trait WalletOffline: WalletBackup {
             quota,
             invoice_deadline,
             receive_dir,
+            address: witness_address,
+            earlier_receives_to_share,
         })
+    }
+
+    /// The address passed to a witness receive to reuse it, refused with an
+    /// [`Error::CannotReuseAddress`] if it isn't a revealed address of the colored keychain.
+    fn check_reused_address(&self, address: &str) -> Result<BdkAddress, Error> {
+        let address = parse_address_str(address, self.bitcoin_network()).map_err(|e| {
+            Error::CannotReuseAddress {
+                details: match e {
+                    Error::InvalidAddress { details } => format!("invalid address: {details}"),
+                    e => e.to_string(),
+                },
+            }
+        })?;
+        let spk_index = self.bdk_wallet().spk_index();
+        let Some((KeychainKind::External, index)) =
+            spk_index.index_of_spk(address.script_pubkey()).copied()
+        else {
+            return Err(Error::CannotReuseAddress {
+                details: s!("not an address of the wallet's colored keychain"),
+            });
+        };
+        if spk_index
+            .last_revealed_index(KeychainKind::External)
+            .is_none_or(|last| index > last)
+        {
+            return Err(Error::CannotReuseAddress {
+                details: s!("not revealed yet"),
+            });
+        }
+        Ok(address)
+    }
+
+    #[cfg(feature = "_online")]
+    /// The earlier witness receives on the recipient ID of an address to reuse that don't share
+    /// its data directory yet, refusing the address with an [`Error::CannotReuseAddress`] if one
+    /// of them used the out-of-band exchange, which doesn't tell apart the transfers paying the
+    /// address (see the `address` parameter of `witness_receive`).
+    fn earlier_witness_receives_to_share(
+        &self,
+        txn: &DbTxn,
+        recipient_id: &str,
+    ) -> Result<Vec<DbTransfer>, Error> {
+        let mut to_share = vec![];
+        for transfer in txn.get_incoming_transfers_by_recipient_id(recipient_id)? {
+            if !matches!(
+                transfer.recipient_type,
+                Some(RecipientTypeFull::Witness { .. })
+            ) {
+                continue;
+            }
+            if txn
+                .get_transfer_transport_endpoints_data(transfer.idx)?
+                .is_empty()
+            {
+                return Err(Error::CannotReuseAddress {
+                    details: s!("an earlier witness receive on it used the out-of-band exchange"),
+                });
+            }
+            if transfer.receive_dir.is_none() {
+                to_share.push(transfer);
+            }
+        }
+        Ok(to_share)
     }
 
     fn store_receive_transfer(
@@ -1630,6 +1736,17 @@ pub trait WalletOffline: WalletBackup {
             ..Default::default()
         };
         let asset_transfer_idx = txn.set_asset_transfer(asset_transfer)?;
+        // the earlier witness receives on a reused address now share its recipient ID: they keep
+        // their data where it is, in the directory named after the recipient ID, which is recorded
+        // to mark them as shared
+        #[cfg(feature = "_online")]
+        for transfer in &receive_data_internal.earlier_receives_to_share {
+            let mut updated_transfer: DbTransferActMod = transfer.clone().into();
+            updated_transfer.receive_dir = ActiveValue::Set(Some(
+                self.normalize_recipient_id(&receive_data_internal.recipient_id),
+            ));
+            txn.update_transfer(&mut updated_transfer)?;
+        }
         // a reusable invoice keeps receiving transfers after this first one, until it expires
         let invoice_idx = match receive_data_internal.invoice_deadline {
             Some(deadline) => Some(txn.set_invoice(DbInvoiceActMod {
@@ -1720,6 +1837,23 @@ pub trait WalletOffline: WalletBackup {
                     if let Some(txo) = txos.iter().find(|t| !t.exists && t.idx == c.txo_idx) {
                         txos_to_delete.insert(txo.idx);
                     }
+                });
+        }
+        // the outputs of the batch TX registered before broadcasting it, like its bitcoin change
+        // even when it gets no RGB change, never came to exist, unless another transfer colors
+        // them (e.g. a receive of the same wallet)
+        if let Some(txid) = &batch_transfer.txid {
+            let asset_transfer_idxs: HashSet<i32> =
+                asset_transfers.iter().map(|at| at.idx).collect();
+            txos.iter()
+                .filter(|t| !t.exists && &t.txid == txid)
+                .filter(|t| {
+                    !colorings.iter().any(|c| {
+                        c.txo_idx == t.idx && !asset_transfer_idxs.contains(&c.asset_transfer_idx)
+                    })
+                })
+                .for_each(|t| {
+                    txos_to_delete.insert(t.idx);
                 });
         }
         for txo in txos_to_delete {
@@ -1830,11 +1964,34 @@ pub trait WalletOffline: WalletBackup {
         keychain: KeychainKind,
         _count: u32,
     ) -> Result<BdkAddress, Error> {
+        // the first address is kept for the outputs the wallet creates for itself, so it's revealed
+        // first, as it's only revealed when first used
+        if self.reuses_address(keychain) {
+            self.get_first_address(keychain);
+        }
         Ok(self.bdk_wallet_mut().reveal_next_address(keychain).address)
     }
 
     fn get_new_address(&mut self) -> Result<BdkAddress, Error> {
         self.get_new_addresses(KeychainKind::External, 1)
+    }
+
+    /// The first address of the keychain, which a wallet reusing addresses uses for every output
+    /// it creates for itself. It is revealed, so the BDK wallet keeps track of it.
+    fn get_first_address(&mut self, keychain: KeychainKind) -> BdkAddress {
+        let bdk_wallet = self.bdk_wallet_mut();
+        let _ = bdk_wallet.reveal_addresses_to(keychain, 0);
+        bdk_wallet.peek_address(keychain, 0).address
+    }
+
+    /// The address for an output the wallet creates for itself on the keychain: the reused one if
+    /// the wallet reuses the keychain address, a new one otherwise.
+    fn get_output_address(&mut self, keychain: KeychainKind) -> Result<BdkAddress, Error> {
+        if self.reuses_address(keychain) {
+            Ok(self.get_first_address(keychain))
+        } else {
+            self.get_new_addresses(keychain, 1)
+        }
     }
 
     fn get_asset_balance_impl(&self, txn: &DbTxn, asset_id: String) -> Result<Balance, Error> {
@@ -2728,7 +2885,7 @@ pub trait WalletOffline: WalletBackup {
     }
 
     /// Directory holding the data of an incoming transfer: named after its recipient ID, unless
-    /// the recipient ID is shared with other transfers (reusable invoice).
+    /// the recipient ID is shared with other transfers (reusable invoice or reused address).
     fn get_receive_dir(&self, transfer: &DbTransfer) -> PathBuf {
         let dir = transfer.receive_dir.clone().unwrap_or_else(|| {
             self.normalize_recipient_id(

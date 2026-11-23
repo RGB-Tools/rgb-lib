@@ -145,6 +145,8 @@ pub(crate) fn get_test_wallet_data(data_dir: &str) -> WalletData {
         max_allocations_per_utxo: MAX_ALLOCATIONS_PER_UTXO,
         supported_schemas: AssetSchema::VALUES.to_vec(),
         allow_reckless_schemas: false,
+        address_reuse_vanilla: false,
+        address_reuse_colored_auto: false,
     }
 }
 
@@ -220,6 +222,8 @@ fn get_test_wallet_raw_in(
             max_allocations_per_utxo: max_allocations_per_utxo.unwrap_or(MAX_ALLOCATIONS_PER_UTXO),
             supported_schemas: AssetSchema::VALUES.to_vec(),
             allow_reckless_schemas: false,
+            address_reuse_vanilla: false,
+            address_reuse_colored_auto: false,
         },
         wallet_keys.clone(),
     )
@@ -284,6 +288,28 @@ pub(crate) fn get_funded_party(private_keys: bool, indexer_url: Option<String>) 
 pub(crate) fn get_empty_party(private_keys: bool, indexer_url: Option<String>) -> SinglesigParty {
     let (wallet, online) = get_empty_wallet(private_keys, indexer_url);
     party!(wallet, online)
+}
+
+/// An online wallet with the given address reuse settings, not funded.
+#[cfg(feature = "electrum")]
+pub(crate) fn get_reusing_party_unfunded(vanilla: bool, colored: bool) -> SinglesigParty {
+    create_test_data_dir();
+    let keys = generate_keys(BitcoinNetwork::Regtest, WitnessVersion::Taproot);
+    let mut wallet_data = get_test_wallet_data(&get_test_data_dir_string());
+    wallet_data.address_reuse_vanilla = vanilla;
+    wallet_data.address_reuse_colored_auto = colored;
+    let mut wallet = Wallet::new(wallet_data, SinglesigKeys::from_keys(&keys, None)).unwrap();
+    let online = wallet.go_online(test_go_online_options(None)).unwrap();
+    party!(wallet, online)
+}
+
+/// A funded wallet with the given address reuse settings and the default colored UTXOs.
+#[cfg(feature = "electrum")]
+pub(crate) fn get_reusing_party(vanilla: bool, colored: bool) -> SinglesigParty {
+    let mut party = get_reusing_party_unfunded(vanilla, colored);
+    fund_wallet(party.get_address());
+    party.create_utxos_default();
+    party
 }
 
 #[cfg(feature = "_online")]
@@ -518,6 +544,29 @@ pub(crate) fn blind_recipient_map(
         asset_id.to_string(),
         vec![blind_recipient(receive_data, assignment)],
     )])
+}
+
+/// Build a recipient map sending the given `assignment` of the asset with ID `asset_id` to the
+/// witness receive described by `receive_data`, with the given witness amount.
+#[cfg(feature = "electrum")]
+pub(crate) fn witness_recipient_map(
+    asset_id: &str,
+    receive_data: &ReceiveData,
+    assignment: Assignment,
+    amount_sat: u64,
+) -> HashMap<String, Vec<Recipient>> {
+    HashMap::from([(
+        asset_id.to_string(),
+        vec![witness_recipient(receive_data, assignment, amount_sat)],
+    )])
+}
+
+/// The script of the given regtest address.
+#[cfg(feature = "electrum")]
+pub(crate) fn script_of(address: &str) -> ScriptBuf {
+    parse_address_str(address, BitcoinNetwork::Regtest)
+        .unwrap()
+        .script_pubkey()
 }
 
 /// Refresh both parties until the batch send with the given TXID and each of the receives with

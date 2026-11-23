@@ -90,6 +90,13 @@ pub enum Error {
         details: String,
     },
 
+    /// The address passed to a witness receive cannot be reused
+    #[error("Cannot reuse address: {details}")]
+    CannotReuseAddress {
+        /// Error details
+        details: String,
+    },
+
     /// The schema cannot be used on mainnet, unless the wallet opts into it by setting
     /// `allow_reckless_schemas` (see `WalletData`)
     #[error("Cannot use {asset_schema} schema on mainnet")]
@@ -928,6 +935,13 @@ pub enum Error {
     UnknownTransfer {
         /// Transfer TXID
         txid: String,
+    },
+
+    /// Address reuse is not supported in the requested context
+    #[error("Address reuse is not supported: {details}")]
+    UnsupportedAddressReuse {
+        /// Error details
+        details: String,
     },
 
     /// The backup version is not supported

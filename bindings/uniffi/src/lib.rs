@@ -1684,6 +1684,7 @@ impl Wallet {
         min_confirmations: u8,
         encryption: Option<Encryption>,
         quota: Option<u32>,
+        address: Option<String>,
     ) -> Result<ReceiveData, RgbLibError> {
         self._get_wallet().witness_receive(
             online,
@@ -1694,6 +1695,7 @@ impl Wallet {
             min_confirmations,
             encryption,
             quota,
+            address,
         )
     }
 

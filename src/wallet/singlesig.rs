@@ -217,6 +217,25 @@ impl Wallet {
 
         // reject settings the wallet wasn't created with before any of them reaches the database
         WalletManifest::check_settings_unchanged(&wallet_dir, &wallet_data, &keys)?;
+        // address reuse can only be turned on when the wallet is created: an existing wallet without
+        // a manifest (from before manifest support) was created without it
+        if !WalletManifest::exists(&wallet_dir) && db_exists(&wallet_dir) {
+            for (setting, value) in [
+                ("address_reuse_vanilla", wdata.address_reuse_vanilla),
+                (
+                    "address_reuse_colored_auto",
+                    wdata.address_reuse_colored_auto,
+                ),
+            ] {
+                if value {
+                    return Err(Error::WalletSettingMismatch {
+                        setting: setting.to_string(),
+                        expected: format!("{:?}", false),
+                        provided: format!("{:?}", true),
+                    });
+                }
+            }
+        }
 
         // setup rgb-lib DB
         let database = setup_db(&wallet_dir)?;
@@ -353,10 +372,11 @@ impl Wallet {
         Ok(psbt.to_string())
     }
 
-    /// Return a new Bitcoin address from the vanilla wallet.
+    /// Return a new Bitcoin address from the vanilla wallet, or always the same one if the wallet
+    /// reuses its vanilla address (see [`WalletData::address_reuse_vanilla`]).
     pub fn get_address(&mut self) -> Result<String, Error> {
         info!(self.logger(), "Getting address...");
-        let address = self.get_new_addresses(KeychainKind::Internal, 1)?;
+        let address = self.get_output_address(KeychainKind::Internal)?;
         let txn = self.database().begin_transaction()?;
         self.update_backup_info(&txn, false)?;
         self.persist_and_commit(txn)?;
@@ -819,6 +839,7 @@ impl Wallet {
             RecipientType::Blind,
             encryption,
             quota.unwrap_or(1),
+            None,
         )?;
         let batch_transfer_idx =
             self.store_receive_transfer(&txn, &receive_data_internal, min_confirmations)?;
@@ -831,6 +852,7 @@ impl Wallet {
             expiration_timestamp: receive_data_internal.expiration_timestamp as u64,
             batch_transfer_idx,
             public_key: hex::encode(&receive_data_internal.recipient_pubkey),
+            address: receive_data_internal.address,
         })
     }
 
@@ -883,6 +905,25 @@ impl Wallet {
     /// transfer to a reusable invoice uses a different seal blinding, derived from the keys of the
     /// parties, which identifies the output paying it. The outputs paying a reusable invoice cannot
     /// be spent until the transfer each pays has been accepted.
+    ///
+    /// An optional `address` reuses an address paid by earlier witness receives (e.g. to give a
+    /// user the same deposit address every time), instead of a new one. Its value is the
+    /// [`ReceiveData::address`] of an earlier witness receive. The address must be a revealed
+    /// address of the colored keychain and no earlier witness receive on it must have used the
+    /// out-of-band exchange, otherwise an [`Error::CannotReuseAddress`] is returned. Reusing an
+    /// address requires transport endpoints, otherwise an [`Error::UnsupportedAddressReuse`] is
+    /// returned. Each transfer paying it uses a different seal blinding, derived from the keys of
+    /// the parties, which identifies the output paying it. The invoices on the same address share
+    /// its recipient ID, so a sender can't pay more than one of them in the same batch (it would
+    /// get an [`Error::RecipientIDDuplicated`]).
+    ///
+    /// The wallet can't tell what a new output on a reused address carries until a transfer claims
+    /// it, except for the outputs the wallet creates for itself, which are registered before being
+    /// broadcast. Until then, the output can't be used in RGB operations: it can't receive
+    /// allocations and RGB sends can't spend it. It stays like this while any receive on the
+    /// address is pending, so an output no transfer claims (e.g. dust) is only released once no
+    /// receive on the address is pending: an address that always has a pending receive can keep
+    /// it unusable indefinitely. Reusing an address also links on-chain all the payments to it.
     pub fn witness_receive(
         &mut self,
         online: Option<Online>,
@@ -893,6 +934,7 @@ impl Wallet {
         min_confirmations: u8,
         encryption: Option<Encryption>,
         quota: Option<u32>,
+        address: Option<String>,
     ) -> Result<ReceiveData, Error> {
         info!(
             self.logger(),
@@ -911,6 +953,7 @@ impl Wallet {
             RecipientType::Witness,
             encryption,
             quota.unwrap_or(1),
+            address,
         )?;
         let batch_transfer_idx =
             self.store_receive_transfer(&txn, &receive_data_internal, min_confirmations)?;
@@ -923,6 +966,7 @@ impl Wallet {
             expiration_timestamp: receive_data_internal.expiration_timestamp as u64,
             batch_transfer_idx,
             public_key: hex::encode(&receive_data_internal.recipient_pubkey),
+            address: receive_data_internal.address,
         })
     }
 }

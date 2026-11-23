@@ -1170,6 +1170,22 @@ fn fail() {
     let res = MultisigWallet::new(get_test_wallet_data(&data_dir), invalid_multisig_wlt_keys);
     assert_eq!(res.err().unwrap(), Error::NoCosignersSupplied);
 
+    // address reuse is not supported
+    for (vanilla, colored) in [(true, false), (false, true)] {
+        let mut wallet_data = get_test_wallet_data(&data_dir);
+        wallet_data.address_reuse_vanilla = vanilla;
+        wallet_data.address_reuse_colored_auto = colored;
+        let multisig_keys =
+            MultisigKeys::new(cosigners.clone(), threshold_colored, threshold_vanilla);
+        let err = MultisigWallet::new(wallet_data, multisig_keys)
+            .err()
+            .unwrap();
+        assert_matches!(
+            err,
+            Error::UnsupportedAddressReuse { details } if details == "multisig wallets don't support it"
+        );
+    }
+
     // invalid thresholds: higher than total cosigners
     let invalid_threshold = num_cosigners + 1;
     // - colored threshold

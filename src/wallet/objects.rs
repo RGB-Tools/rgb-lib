@@ -44,6 +44,34 @@ pub struct WalletData {
     /// <div class="warning">Warning: setting <tt>allow_reckless_schemas</tt> to true is dangerous,
     /// only do this if you know what you're doing!</div>
     pub allow_reckless_schemas: bool,
+    /// Whether the wallet reuses the first vanilla address instead of deriving a new one.
+    ///
+    /// When set, `get_address` always returns the first vanilla address and the bitcoin change of
+    /// the wallet's transactions goes to it.
+    ///
+    /// Reusing the address links on-chain all the wallet's bitcoin activity. The setting can only
+    /// be turned on when the wallet is created: it's recorded in the wallet manifest and opening
+    /// the wallet with a different value fails. Multisig wallets don't support it.
+    #[serde(default)]
+    pub address_reuse_vanilla: bool,
+    /// Whether the wallet reuses the first colored address for the colored outputs whose address it
+    /// picks automatically, instead of deriving a new one.
+    ///
+    /// When set, the UTXOs created by `create_utxos` and the change output of the RGB operations
+    /// (sends, inflations, burns, etc.), which also carries the allocations moved along with the
+    /// spent ones, go to the first colored address. The outputs receiving the new supply of an
+    /// inflation still go to new addresses. These outputs are registered before being broadcast,
+    /// so they're usable right away even if the address also has pending transfers.
+    ///
+    /// The setting doesn't cover witness receives: one with no `address` always gets a new address,
+    /// and passing an `address` reuses it whatever the setting (see the `address` parameter of
+    /// `witness_receive`). The first colored address is never picked for a new one.
+    ///
+    /// Reusing the address links on-chain all the wallet's colored outputs. The setting can only be
+    /// turned on when the wallet is created: it's recorded in the wallet manifest and opening the
+    /// wallet with a different value fails. Multisig wallets don't support it.
+    #[serde(default)]
+    pub address_reuse_colored_auto: bool,
 }
 
 /// Descriptors for an RGB wallet.
@@ -1403,6 +1431,9 @@ pub struct ReceiveData {
     pub batch_transfer_idx: i32,
     /// Recipient's Ed25519 public key (hex-encoded), as embedded in the invoice
     pub public_key: String,
+    /// Address paid by a witness receive, which can be passed to a later witness receive to reuse
+    /// it (`None` for a blind receive)
+    pub address: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -1445,6 +1476,12 @@ pub struct ReceiveDataInternal {
     /// Directory of the transfer data, set when the recipient ID can be shared with other
     /// transfers
     pub(crate) receive_dir: Option<String>,
+    /// Address paid by a witness receive
+    pub(crate) address: Option<String>,
+    /// For a witness receive reusing an address, the earlier witness receives on it that don't
+    /// share its data directory yet, to be marked as sharing it when this receive is stored
+    #[cfg_attr(not(feature = "_online"), allow(dead_code))]
+    pub(crate) earlier_receives_to_share: Vec<DbTransfer>,
 }
 
 // ────────────────────────────────────────────────────────────
@@ -2307,7 +2344,8 @@ pub enum SavedConsignment {
 pub struct WatchedWitnessScript {
     /// whether a receive paid by the script is pending, so the TXOs paying it must be flagged
     pub(crate) pending: bool,
-    /// whether the script can be paid by more than one transfer (reusable invoice)
+    /// whether the script can be paid by more than one transfer (reusable invoice or reused
+    /// address)
     pub(crate) shared: bool,
 }
 
