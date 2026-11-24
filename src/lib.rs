@@ -361,7 +361,8 @@ use reqwest::{
 };
 #[cfg(feature = "wallet")]
 use rgb_lib_migration::{
-    ArrayType, ColumnType, Migrator, MigratorTrait, Nullable, Value, ValueTypeErr,
+    ArrayType, ColumnType, ConsignmentExtensionMigration, MigrationName, Migrator, MigratorTrait,
+    Nullable, Value, ValueTypeErr,
 };
 #[cfg(feature = "wallet")]
 use rgbinvoice::RgbInvoiceBuilder;
@@ -551,7 +552,7 @@ use crate::no_wallet::{
 #[cfg(any(feature = "wallet", feature = "_validation"))]
 use crate::utils::atomic_write_with;
 #[cfg(feature = "wallet")]
-use crate::utils::{atomic_tmp_path, atomic_write};
+use crate::utils::{atomic_tmp_path, atomic_write, sync_dir};
 #[cfg(feature = "_online")]
 #[cfg(test)]
 use crate::wallet::test::{

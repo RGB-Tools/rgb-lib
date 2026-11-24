@@ -16,6 +16,9 @@ mod m20261020_142840_asset_transfer_transition;
 mod m20261020_143313_asset_links;
 mod m20261117_104500_asset_reject_list;
 mod m20261117_160000_asset_bridge_location;
+mod m20261124_120000_consignment_extension;
+
+pub use m20261124_120000_consignment_extension::Migration as ConsignmentExtensionMigration;
 
 pub struct Migrator;
 
@@ -39,6 +42,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261020_143313_asset_links::Migration),
             Box::new(m20261117_104500_asset_reject_list::Migration),
             Box::new(m20261117_160000_asset_bridge_location::Migration),
+            Box::new(m20261124_120000_consignment_extension::Migration),
         ]
     }
 }

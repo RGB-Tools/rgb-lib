@@ -512,7 +512,9 @@ pub trait WalletOffline: WalletBackup {
     }
 
     fn get_issue_consignment_path(&self, asset_id: &str) -> PathBuf {
-        self.wallet_dir().join(ASSETS_DIR).join(asset_id)
+        self.wallet_dir()
+            .join(ASSETS_DIR)
+            .join(format!("{asset_id}.{RGB_BIN_EXTENSION}"))
     }
 
     fn import_and_save_contract(
@@ -2570,7 +2572,7 @@ pub trait WalletOffline: WalletBackup {
     fn send_consignment_path(&self, asset_id: &str, transfer_id: &str) -> PathBuf {
         let transfer_dir = self.get_transfer_dir(transfer_id);
         let asset_transfer_dir = self.get_asset_transfer_dir(transfer_dir, asset_id);
-        asset_transfer_dir.join(CONSIGNMENT_FILE)
+        asset_transfer_dir.join(CONSIGNMENT_FILE.as_str())
     }
 
     fn get_transfer_data(
@@ -3091,7 +3093,7 @@ pub trait WalletOffline: WalletBackup {
     }
 
     fn get_send_consignment_path_impl<P: AsRef<Path>>(&self, asset_transfer_dir: P) -> PathBuf {
-        asset_transfer_dir.as_ref().join(CONSIGNMENT_FILE)
+        asset_transfer_dir.as_ref().join(CONSIGNMENT_FILE.as_str())
     }
 
     fn gen_consignments(

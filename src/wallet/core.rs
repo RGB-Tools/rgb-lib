@@ -14,6 +14,11 @@ pub(crate) const NUM_KNOWN_SCHEMAS: usize = 5;
 
 pub(crate) const RGB_LIB_DB_NAME: &str = "rgb_lib_db";
 
+// extension received consignment files were saved with before RGB_BIN_EXTENSION
+const LEGACY_RGB_BIN_EXTENSION: &str = "rgbc";
+// name sent consignment files were saved with before CONSIGNMENT_FILE
+const LEGACY_CONSIGNMENT_FILE: &str = "consignment_out";
+
 pub(crate) const ASSETS_DIR: &str = "assets";
 pub(crate) const MEDIA_DIR: &str = "media_files";
 
@@ -290,8 +295,84 @@ pub(crate) fn setup_db<P: AsRef<Path>>(wallet_dir: P) -> Result<RgbLibDatabase, 
         .max_lifetime(Duration::from_secs(8));
     let db_cnn = block_on(Database::connect(opt));
     let connection = db_cnn?;
+    let rename_legacy_consignments = block_on(Migrator::get_pending_migrations(&connection))?
+        .iter()
+        .any(|m| m.name() == ConsignmentExtensionMigration.name());
+    if rename_legacy_consignments {
+        rename_legacy_consignment_files(wallet_dir.as_ref())?;
+    }
     block_on(Migrator::up(&connection, None))?;
     Ok(RgbLibDatabase::new(connection))
+}
+
+/// Give the consignment files saved before [`RGB_BIN_EXTENSION`] that extension: the issued
+/// contracts, named after their asset ID, and the sent consignments, which had none, plus the
+/// received consignments and their validated copies, which had the legacy one.
+///
+/// This runs before [`ConsignmentExtensionMigration`] is applied, which then records it as done:
+/// each rename is atomic and synced to disk before the migration is committed, so a crash in
+/// between just has the next run rename what's left.
+fn rename_legacy_consignment_files(wallet_dir: &Path) -> Result<(), Error> {
+    // skipping the leftovers of an interrupted atomic write, which have an extension
+    rename_files(&wallet_dir.join(ASSETS_DIR), |path| {
+        path.extension()
+            .is_none()
+            .then(|| path.with_extension(RGB_BIN_EXTENSION))
+    })?;
+    for transfer_dir in subdirs(&wallet_dir.join(TRANSFERS_DIR))? {
+        rename_files(&transfer_dir, |path| {
+            (path.extension() == Some(LEGACY_RGB_BIN_EXTENSION.as_ref()))
+                .then(|| path.with_extension(RGB_BIN_EXTENSION))
+        })?;
+        // the sent consignments are in a dir per asset
+        for asset_transfer_dir in subdirs(&transfer_dir)? {
+            rename_files(&asset_transfer_dir, |path| {
+                path.ends_with(LEGACY_CONSIGNMENT_FILE)
+                    .then(|| path.with_file_name(CONSIGNMENT_FILE.as_str()))
+            })?;
+        }
+    }
+    Ok(())
+}
+
+/// The dirs directly inside `dir`, none if it doesn't exist.
+///
+/// Symlinks are skipped, never followed, as in a tampered-with wallet dir they could lead anywhere.
+fn subdirs(dir: &Path) -> Result<Vec<PathBuf>, Error> {
+    let mut dirs = vec![];
+    if !dir.is_dir() {
+        return Ok(dirs);
+    }
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() {
+            dirs.push(entry.path());
+        }
+    }
+    Ok(dirs)
+}
+
+/// Rename the regular files directly inside `dir` that `new_path` gives a new path, syncing `dir`
+/// if any is.
+fn rename_files(dir: &Path, new_path: impl Fn(&Path) -> Option<PathBuf>) -> Result<(), Error> {
+    if !dir.is_dir() {
+        return Ok(());
+    }
+    let mut renamed = false;
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if entry.file_type()?.is_file()
+            && let Some(new_path) = new_path(&path)
+        {
+            fs::rename(&path, new_path)?;
+            renamed = true;
+        }
+    }
+    if renamed {
+        sync_dir(dir)?;
+    }
+    Ok(())
 }
 
 /// Import the BDK data of a wallet created before the changeset moved into the rgb-lib DB.

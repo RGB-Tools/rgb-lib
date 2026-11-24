@@ -126,7 +126,7 @@ fn success() {
     // save consignment to file
     let txid = psbt_copy.unsigned_tx.compute_txid().to_string();
     let transfers_dir = party_send.wallet.get_transfers_dir().join(&txid);
-    let consignment_path = transfers_dir.join(CONSIGNMENT_FILE);
+    let consignment_path = transfers_dir.join(CONSIGNMENT_FILE.as_str());
     std::fs::create_dir_all(&transfers_dir).unwrap();
     assert_eq!(transfers.len(), 1);
     transfers
@@ -657,7 +657,10 @@ fn accept_transfer_consignment_fail() {
     let mut party = get_empty_party!();
 
     // invalid txid
-    let consignment_path = party.wallet.get_transfers_dir().join(CONSIGNMENT_FILE);
+    let consignment_path = party
+        .wallet
+        .get_transfers_dir()
+        .join(CONSIGNMENT_FILE.as_str());
     let result = party.wallet.accept_transfer_consignment(
         party.online,
         consignment_path,
@@ -727,7 +730,7 @@ fn color_psbt_and_save_consignment(
     let txid = psbt.unsigned_tx.compute_txid().to_string();
     let transfers_dir = party_send.wallet.get_transfers_dir().join(&txid);
     std::fs::create_dir_all(&transfers_dir).unwrap();
-    let consignment_path = transfers_dir.join(CONSIGNMENT_FILE);
+    let consignment_path = transfers_dir.join(CONSIGNMENT_FILE.as_str());
     transfers[0].save_file(&consignment_path).unwrap();
     (consignment_path, txid, vout)
 }
@@ -1132,7 +1135,7 @@ fn create_consignments_success() {
     let consignment_path = party
         .wallet
         .get_asset_transfer_dir(party.wallet.get_transfers_dir().join(txid), &asset.asset_id)
-        .join(CONSIGNMENT_FILE);
+        .join(CONSIGNMENT_FILE.as_str());
     assert!(consignment_path.is_file());
 }
 

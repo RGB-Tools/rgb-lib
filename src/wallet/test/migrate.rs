@@ -100,13 +100,14 @@ fn migrate_legacy_fs_store() {
     );
 
     // the legacy (V0) consignment files have been converted to the current container format:
-    // the received consignments (their validated copies are dropped) and the sent consignments,
-    // plus the fascia of each sent transfer
+    // the received consignments (their validated copies are dropped), renamed to the current
+    // extension, and the sent consignments, plus the fascia of each sent transfer
     let mut rcv_files = 0;
     let mut send_files = 0;
     let mut fascia_files = 0;
     for entry in fs::read_dir(wallet_dir.join(TRANSFERS_DIR)).unwrap() {
         let transfer_dir = entry.unwrap().path();
+        assert!(!transfer_dir.join("rcv_compose.rgbc").exists());
         let rcv_path = transfer_dir.join(CONSIGNMENT_RCV_FILE.as_str());
         if rcv_path.exists() {
             let consignment = RgbTransfer::load_file(&rcv_path).unwrap();
@@ -129,7 +130,7 @@ fn migrate_legacy_fs_store() {
             );
             fascia_files += 1;
             for entry in fs::read_dir(&transfer_dir).unwrap() {
-                let out_path = entry.unwrap().path().join(CONSIGNMENT_FILE);
+                let out_path = entry.unwrap().path().join(CONSIGNMENT_FILE.as_str());
                 if out_path.exists() {
                     let consignment = RgbTransfer::load_file(&out_path).unwrap();
                     let contract_id = consignment.contract_id().to_string();
@@ -143,6 +144,19 @@ fn migrate_legacy_fs_store() {
     assert_eq!(rcv_files, 5);
     assert_eq!(fascia_files, 3);
     assert_eq!(send_files, 3);
+    let rcv_consignment_paths: Vec<String> = wallet
+        .list_transfers(AssetFilter::AnyOrNone, TransferScope::All)
+        .unwrap()
+        .into_iter()
+        .filter(|t| {
+            matches!(
+                t.kind,
+                TransferKind::ReceiveBlind | TransferKind::ReceiveWitness
+            )
+        })
+        .filter_map(|t| t.consignment_path)
+        .collect();
+    assert_eq!(rcv_consignment_paths.len(), 5);
 
     // opening again is a no-op (idempotent): the legacy dir is gone, so nothing re-runs, except
     // that a retired store left behind by a run that crashed mid-delete is swept up
@@ -182,7 +196,7 @@ fn collect_consignment_txs(dir: &Path, txs: &mut HashMap<String, BdkTransaction>
             continue;
         }
         let name = path.file_name().unwrap().to_str().unwrap();
-        if name == CONSIGNMENT_RCV_FILE.as_str() || name == CONSIGNMENT_FILE {
+        if name == CONSIGNMENT_RCV_FILE.as_str() || name == CONSIGNMENT_FILE.as_str() {
             let consignment = RgbTransfer::load_file(&path).unwrap();
             for witness_bundle in consignment.bundled_witnesses() {
                 txs.insert(
@@ -431,4 +445,102 @@ fn asset_transfer_transition_backfill() {
     // the migration, applied when opening the wallet, backfills the same transfer kinds
     let party = offline_party!(Wallet::new(wallet_data, keys).unwrap());
     assert_eq!(kinds(&party), kinds_before);
+}
+
+/// Take the wallet of the given party back to before the consignment extension migration and
+/// open it again, which applies the migration.
+fn reopen_before_consignment_extension(party: SinglesigParty) -> SinglesigParty {
+    let wallet_data = party.wallet.get_wallet_data();
+    let keys = party.wallet.get_keys();
+    let db_path = party.wallet.get_wallet_dir().join(RGB_LIB_DB_NAME);
+    drop(party);
+    let db = block_on(sea_orm::Database::connect(format!(
+        "sqlite:{}?mode=rw",
+        db_path.display()
+    )))
+    .unwrap();
+    block_on(sea_orm::ConnectionTrait::execute_unprepared(
+        &db,
+        "DELETE FROM seaql_migrations WHERE version = 'm20261124_120000_consignment_extension'",
+    ))
+    .unwrap();
+    block_on(db.close()).unwrap();
+    let mut wallet = Wallet::new(wallet_data, keys).unwrap();
+    let online = wallet.go_online(test_go_online_options(None)).unwrap();
+    party!(wallet, online)
+}
+
+/// The consignment files saved with their legacy names are renamed when the wallet is opened.
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn consignment_extension_rename() {
+    initialize();
+
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+
+    // a transfer waiting for confirmations, so the receiver has a validated copy of its consignment
+    let asset = party.issue_asset_nia(None);
+    let receive_data = rcv_party.blind_receive();
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![Recipient {
+            assignment: Assignment::Fungible(AMOUNT_SMALL),
+            recipient_id: receive_data.recipient_id.clone(),
+            public_key: Some(receive_data.public_key.clone()),
+            expiration_timestamp: Some(receive_data.expiration_timestamp),
+            encryption: Encryption::Optional,
+            witness_data: None,
+            transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+        }],
+    )]);
+    let txid = party.send_retry(&recipient_map);
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(None);
+    assert_eq!(
+        rcv_party.transfer_status_recipient(&receive_data.recipient_id),
+        TransferStatus::WaitingConfirmations
+    );
+
+    // the consignment files, each with its legacy path: the issued contract and the sent
+    // consignment had no extension, the received consignment and its validated copy had .rgbc
+    let issue_path = party.wallet.get_issue_consignment_path(&asset.asset_id);
+    let send_path = party
+        .wallet
+        .get_send_consignment_path(&asset.asset_id, &txid);
+    let rcv_path = rcv_party
+        .wallet
+        .get_receive_consignment_path(&receive_data.recipient_id);
+    let valid_path = rcv_party
+        .wallet
+        .get_receive_valid_consignment_path(&rcv_path);
+    let paths = [
+        (issue_path.with_extension(""), issue_path),
+        (send_path.with_file_name("consignment_out"), send_path),
+        (rcv_path.with_extension("rgbc"), rcv_path),
+        (valid_path.with_extension("rgbc"), valid_path),
+    ];
+
+    // take the wallets back to before the migration, with the files saved with the legacy paths
+    for (legacy_path, path) in &paths {
+        fs::rename(path, legacy_path).unwrap();
+    }
+    let mut party = reopen_before_consignment_extension(party);
+    let mut rcv_party = reopen_before_consignment_extension(rcv_party);
+
+    // the migration, applied when opening the wallets, renamed them
+    for (legacy_path, path) in &paths {
+        assert!(path.exists());
+        assert!(!legacy_path.exists());
+    }
+
+    // and the transfer goes on
+    mine(false);
+    rcv_party.wait_for_transfer_status_recipient(
+        None,
+        &receive_data.recipient_id,
+        TransferStatus::Settled,
+    );
+    party.wait_for_transfer_status_sender(None, &txid, TransferStatus::Settled);
 }

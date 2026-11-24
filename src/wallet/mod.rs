@@ -85,7 +85,6 @@ pub(crate) use objects::{
 };
 #[cfg(feature = "_online")]
 pub(crate) use offline::TRANSFER_DATA_FILE;
-#[cfg(feature = "rgb_fs_store_migration")]
 pub(crate) use offline::TRANSFERS_DIR;
 pub(crate) use offline::WalletOffline;
 #[cfg(feature = "_online")]
@@ -95,8 +94,9 @@ pub(crate) use online::WalletOnline;
 
 use super::*;
 
-pub(crate) const RGB_BIN_EXTENSION: &str = "rgbc";
-pub(crate) const CONSIGNMENT_FILE: &str = "consignment_out";
+pub(crate) const RGB_BIN_EXTENSION: &str = "rgb";
+pub(crate) static CONSIGNMENT_FILE: LazyLock<String> =
+    LazyLock::new(|| format!("consignment_out.{RGB_BIN_EXTENSION}"));
 pub(crate) const FASCIA_FILE: &str = "fascia";
 pub(crate) const UNSIGNED_PSBT_FILE: &str = "unsigned.psbt";
 

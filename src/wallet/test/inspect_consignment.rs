@@ -351,7 +351,12 @@ fn media() {
     let mut party = get_funded_party!();
     // the contract consignments are saved on issuance, one per asset ID
     let assets_dir = party.wallet.get_wallet_dir().join(ASSETS_DIR);
-    let contract_path = |asset_id: &str| assets_dir.join(asset_id).to_string_lossy().to_string();
+    let contract_path = |asset_id: &str| {
+        assets_dir
+            .join(format!("{asset_id}.{RGB_BIN_EXTENSION}"))
+            .to_string_lossy()
+            .to_string()
+    };
 
     // an asset issued without media has none in its genesis
     let asset_nia = party.issue_asset_nia(None);
@@ -397,7 +402,10 @@ fn genesis_globals() {
     // the contract consignments are saved on issuance, one per asset ID
     let assets_dir = party.wallet.get_wallet_dir().join(ASSETS_DIR);
     let genesis = |asset_id: &str| {
-        let path = assets_dir.join(asset_id).to_string_lossy().to_string();
+        let path = assets_dir
+            .join(format!("{asset_id}.{RGB_BIN_EXTENSION}"))
+            .to_string_lossy()
+            .to_string();
         inspect_consignment(path, BundleFilter::All)
             .unwrap()
             .genesis
