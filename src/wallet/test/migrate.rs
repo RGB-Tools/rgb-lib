@@ -107,11 +107,15 @@ fn migrate_legacy_fs_store() {
     let mut fascia_files = 0;
     for entry in fs::read_dir(wallet_dir.join(TRANSFERS_DIR)).unwrap() {
         let transfer_dir = entry.unwrap().path();
-        let rcv_path = transfer_dir.join("rcv_compose.rgbc");
+        let rcv_path = transfer_dir.join(CONSIGNMENT_RCV_FILE.as_str());
         if rcv_path.exists() {
             let consignment = RgbTransfer::load_file(&rcv_path).unwrap();
             assert!(!consignment.bundles.is_empty());
-            assert!(!rcv_path.with_extension("valid.rgbc").exists());
+            assert!(
+                !rcv_path
+                    .with_extension(format!("valid.{RGB_BIN_EXTENSION}"))
+                    .exists()
+            );
             rcv_files += 1;
         }
         let fascia_path = transfer_dir.join(FASCIA_FILE);
@@ -178,7 +182,7 @@ fn collect_consignment_txs(dir: &Path, txs: &mut HashMap<String, BdkTransaction>
             continue;
         }
         let name = path.file_name().unwrap().to_str().unwrap();
-        if name == CONSIGNMENT_RCV_FILE || name == CONSIGNMENT_FILE {
+        if name == CONSIGNMENT_RCV_FILE.as_str() || name == CONSIGNMENT_FILE {
             let consignment = RgbTransfer::load_file(&path).unwrap();
             for witness_bundle in consignment.bundled_witnesses() {
                 txs.insert(

@@ -9,7 +9,8 @@ pub(crate) const TRANSFERS_DIR: &str = "transfers";
 const CONSIGNMENT_RCV_META_FILE: &str = "rcv_compose.meta.json";
 /// File holding the details of a received mint, saved once the wallet has checked it
 pub(crate) const MINT_RCV_FILE: &str = "rcv_mint.json";
-pub(crate) const CONSIGNMENT_RCV_FILE: &str = "rcv_compose.rgbc";
+pub(crate) static CONSIGNMENT_RCV_FILE: LazyLock<String> =
+    LazyLock::new(|| format!("rcv_compose.{RGB_BIN_EXTENSION}"));
 
 const ASSET_ID_PREFIX: &str = "rgb:";
 
@@ -2492,7 +2493,7 @@ pub trait WalletOffline: WalletBackup {
     fn get_receive_consignment_path(&self, recipient_id: &str) -> PathBuf {
         self.get_transfers_dir()
             .join(self.normalize_recipient_id(recipient_id))
-            .join(CONSIGNMENT_RCV_FILE)
+            .join(CONSIGNMENT_RCV_FILE.as_str())
     }
 
     fn get_received_mint_path(&self, recipient_id: &str) -> PathBuf {
@@ -2563,7 +2564,7 @@ pub trait WalletOffline: WalletBackup {
     /// Path of the validated copy of a received consignment, kept only while the transfer is
     /// pending
     fn get_receive_valid_consignment_path(&self, consignment_path: &Path) -> PathBuf {
-        consignment_path.with_extension("valid.rgbc")
+        consignment_path.with_extension(format!("valid.{RGB_BIN_EXTENSION}"))
     }
 
     fn send_consignment_path(&self, asset_id: &str, transfer_id: &str) -> PathBuf {

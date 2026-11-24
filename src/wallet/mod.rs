@@ -95,6 +95,7 @@ pub(crate) use online::WalletOnline;
 
 use super::*;
 
+pub(crate) const RGB_BIN_EXTENSION: &str = "rgbc";
 pub(crate) const CONSIGNMENT_FILE: &str = "consignment_out";
 pub(crate) const FASCIA_FILE: &str = "fascia";
 pub(crate) const UNSIGNED_PSBT_FILE: &str = "unsigned.psbt";
