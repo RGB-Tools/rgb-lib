@@ -514,6 +514,7 @@ pub(crate) fn check_file_exists(file_path: &str) -> Result<(), Error> {
 }
 
 /// Read a fascia file, which is strict-encoded like every other RGB container.
+#[cfg(feature = "wallet")]
 pub(crate) fn read_fascia(path: &Path) -> Result<Fascia, Error> {
     Fascia::strict_deserialize_from_file::<FASCIA_MAX_LEN>(path).map_err(|e| Error::Internal {
         details: format!("cannot read fascia {}: {e}", path.display()),

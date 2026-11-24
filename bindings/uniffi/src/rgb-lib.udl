@@ -16,7 +16,7 @@ namespace rgb_lib {
 
   [Throws=RgbLibError]
   RgbInspection inspect_fascia(string psbt, string fascia_path, u64? entropy,
-    BitcoinNetwork bitcoin_network);
+    u64 max_fascia_size, u32 max_bundles, BitcoinNetwork bitcoin_network);
 
   [Throws=RgbLibError]
   ConsignmentValidation validate_consignment(string consignment_path,
@@ -1173,7 +1173,8 @@ interface Wallet {
 
   [Throws=RgbLibError]
   RgbInspection inspect_fascia(
-    string psbt, string fascia_path, u64? entropy);
+    string psbt, string fascia_path, u64? entropy, u64 max_fascia_size,
+    u32 max_bundles);
 
   [Throws=RgbLibError]
   void backup(string backup_path, string password);
@@ -1414,7 +1415,8 @@ interface MultisigWallet {
 
   [Throws=RgbLibError]
   RgbInspection inspect_fascia(
-    string psbt, string fascia_path, u64? entropy);
+    string psbt, string fascia_path, u64? entropy, u64 max_fascia_size,
+    u32 max_bundles);
 
   [Throws=RgbLibError]
   void backup(string backup_path, string password);

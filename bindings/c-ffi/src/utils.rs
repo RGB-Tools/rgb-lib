@@ -599,13 +599,24 @@ pub(crate) fn inspect_fascia(
     psbt: *const c_char,
     fascia_path: *const c_char,
     entropy: *const c_char,
+    max_fascia_size: *const c_char,
+    max_bundles: *const c_char,
     bitcoin_network: *const c_char,
 ) -> Result<String, Error> {
     let psbt = ptr_to_string(psbt);
     let fascia_path = ptr_to_string(fascia_path);
     let entropy = convert_optional_number(entropy)?;
+    let max_fascia_size = ptr_to_num(max_fascia_size)?;
+    let max_bundles = ptr_to_num(max_bundles)?;
     let bitcoin_network = BitcoinNetwork::from_str(&ptr_to_string(bitcoin_network))?;
-    let res = rgb_lib::no_wallet::inspect_fascia(psbt, fascia_path, entropy, bitcoin_network)?;
+    let res = rgb_lib::no_wallet::inspect_fascia(
+        psbt,
+        fascia_path,
+        entropy,
+        max_fascia_size,
+        max_bundles,
+        bitcoin_network,
+    )?;
     Ok(serde_json::to_string(&res)?)
 }
 

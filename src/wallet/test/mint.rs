@@ -102,6 +102,8 @@ fn success() {
             res.psbt.clone(),
             res.details.fascia_path.clone(),
             Some(res.details.entropy),
+            MAX_FASCIA_SIZE,
+            MAX_FASCIA_BUNDLES,
         )
         .unwrap();
     assert_eq!(rgb_inspection.operations.len(), 1);

@@ -33,6 +33,8 @@ fn fail() {
             res.psbt.clone(),
             details.fascia_path.clone(),
             Some(details.entropy),
+            MAX_FASCIA_SIZE,
+            MAX_FASCIA_BUNDLES,
         )
         .unwrap();
 
@@ -41,6 +43,8 @@ fn fail() {
         res.psbt.clone(),
         details.fascia_path.clone(),
         Some(details.entropy.wrapping_add(1)),
+        MAX_FASCIA_SIZE,
+        MAX_FASCIA_BUNDLES,
     );
     assert_matches!(result, Err(Error::RgbInspection { details: d })
         if d.contains(&format!("built with entropy {}, not the given", details.entropy)));
@@ -56,6 +60,8 @@ fn fail() {
             res.psbt.clone(),
             tampered_file.path().to_string_lossy().to_string(),
             entropy,
+            MAX_FASCIA_SIZE,
+            MAX_FASCIA_BUNDLES,
         )
     };
 
@@ -99,6 +105,87 @@ fn fail() {
     known_transitions.push(known_transitions[0].clone());
     let result = inspect_tampered(&party.wallet, tampered_json, Some(details.entropy));
     assert_matches!(result, Err(Error::RgbInspection { details: d }) if d.contains("is listed twice"));
+
+    // a fascia file larger than the given maximum, with or without a wallet, while one as large is
+    // inspected
+    let fascia_size = fs::metadata(&details.fascia_path).unwrap().len();
+    let result = party.wallet.inspect_fascia(
+        res.psbt.clone(),
+        details.fascia_path.clone(),
+        Some(details.entropy),
+        fascia_size - 1,
+        MAX_FASCIA_BUNDLES,
+    );
+    assert_matches!(result, Err(Error::FileTooLarge { file_path, max_size })
+        if file_path == details.fascia_path && max_size == fascia_size - 1);
+    let result = inspect_fascia(
+        res.psbt.clone(),
+        details.fascia_path.clone(),
+        Some(details.entropy),
+        fascia_size - 1,
+        MAX_FASCIA_BUNDLES,
+        BitcoinNetwork::Regtest,
+    );
+    assert_matches!(result, Err(Error::FileTooLarge { file_path, max_size })
+        if file_path == details.fascia_path && max_size == fascia_size - 1);
+    party
+        .wallet
+        .inspect_fascia(
+            res.psbt.clone(),
+            details.fascia_path.clone(),
+            Some(details.entropy),
+            fascia_size,
+            MAX_FASCIA_BUNDLES,
+        )
+        .unwrap();
+
+    // a fascia file with data after the fascia
+    let trailing_file = tempfile::NamedTempFile::with_prefix("inspect_fascia::").unwrap();
+    let mut trailing_bytes = fs::read(&details.fascia_path).unwrap();
+    trailing_bytes.push(0);
+    fs::write(trailing_file.path(), trailing_bytes).unwrap();
+    let trailing_path = trailing_file.path().to_string_lossy().to_string();
+    let result = inspect_fascia(
+        res.psbt.clone(),
+        trailing_path.clone(),
+        Some(details.entropy),
+        MAX_FASCIA_SIZE,
+        MAX_FASCIA_BUNDLES,
+        BitcoinNetwork::Regtest,
+    );
+    assert_matches!(result, Err(Error::InvalidFilePath { file_path }) if file_path == trailing_path);
+
+    // a fascia with more bundles than the given maximum, with or without a wallet, while one with
+    // as many is inspected
+    let result = party.wallet.inspect_fascia(
+        res.psbt.clone(),
+        details.fascia_path.clone(),
+        Some(details.entropy),
+        MAX_FASCIA_SIZE,
+        0,
+    );
+    assert_matches!(result, Err(Error::RgbInspection { details: d })
+        if d == "fascia bundle count 1 exceeds the maximum of 0");
+    let result = inspect_fascia(
+        res.psbt.clone(),
+        details.fascia_path.clone(),
+        Some(details.entropy),
+        MAX_FASCIA_SIZE,
+        0,
+        BitcoinNetwork::Regtest,
+    );
+    assert_matches!(result, Err(Error::RgbInspection { details: d })
+        if d == "fascia bundle count 1 exceeds the maximum of 0");
+    party
+        .wallet
+        .inspect_fascia(
+            res.psbt.clone(),
+            details.fascia_path.clone(),
+            Some(details.entropy),
+            MAX_FASCIA_SIZE,
+            1,
+        )
+        .unwrap();
 
     // a fascia whose MPC commitment doesn't carry the entropy it was built with can only be
     // inspected by giving the entropy
@@ -144,6 +231,8 @@ fn fail_concealed_bundle_input() {
             res.psbt.clone(),
             details.fascia_path.clone(),
             Some(details.entropy),
+            MAX_FASCIA_SIZE,
+            MAX_FASCIA_BUNDLES,
         )
         .unwrap();
 
@@ -195,12 +284,16 @@ fn fail_concealed_bundle_input() {
         res.psbt.clone(),
         tampered_path.clone(),
         Some(details.entropy),
+        MAX_FASCIA_SIZE,
+        MAX_FASCIA_BUNDLES,
     );
     assert_matches!(result, Err(Error::RgbInspection { details: d }) if d.contains("isn't assigned by the bundle"));
     let result = inspect_fascia(
         res.psbt,
         tampered_path,
         Some(details.entropy),
+        MAX_FASCIA_SIZE,
+        MAX_FASCIA_BUNDLES,
         BitcoinNetwork::Regtest,
     );
     assert_matches!(result, Err(Error::RgbInspection { details: d }) if d.contains("isn't assigned by the bundle"));
@@ -247,12 +340,16 @@ fn without_wallet() {
             res.psbt.clone(),
             details.fascia_path.clone(),
             Some(details.entropy),
+            MAX_FASCIA_SIZE,
+            MAX_FASCIA_BUNDLES,
         )
         .unwrap();
     let inspection = inspect_fascia(
         res.psbt.clone(),
         details.fascia_path.clone(),
         Some(details.entropy),
+        MAX_FASCIA_SIZE,
+        MAX_FASCIA_BUNDLES,
         BitcoinNetwork::Regtest,
     )
     .unwrap();
@@ -261,6 +358,8 @@ fn without_wallet() {
         res.psbt.clone(),
         details.fascia_path.clone(),
         None,
+        MAX_FASCIA_SIZE,
+        MAX_FASCIA_BUNDLES,
         BitcoinNetwork::Regtest,
     )
     .unwrap();
@@ -353,6 +452,8 @@ fn without_wallet() {
         res.psbt.clone(),
         details.fascia_path.clone(),
         Some(details.entropy),
+        MAX_FASCIA_SIZE,
+        MAX_FASCIA_BUNDLES,
         BitcoinNetwork::Testnet,
     )
     .unwrap();
@@ -372,6 +473,8 @@ fn without_wallet() {
         res.psbt.clone(),
         details.fascia_path.clone(),
         Some(details.entropy.wrapping_add(1)),
+        MAX_FASCIA_SIZE,
+        MAX_FASCIA_BUNDLES,
         BitcoinNetwork::Regtest,
     );
     assert_matches!(result, Err(Error::RgbInspection { details: d })
@@ -386,6 +489,8 @@ fn without_wallet() {
         other_psbt.clone(),
         details.fascia_path.clone(),
         Some(details.entropy),
+        MAX_FASCIA_SIZE,
+        MAX_FASCIA_BUNDLES,
         BitcoinNetwork::Regtest,
     );
     assert_matches!(result, Err(Error::RgbInspection { details: d }) if d.contains("does not match PSBT TXID"));
@@ -393,6 +498,8 @@ fn without_wallet() {
         other_psbt,
         details.fascia_path.clone(),
         Some(details.entropy),
+        MAX_FASCIA_SIZE,
+        MAX_FASCIA_BUNDLES,
     );
     assert_matches!(result, Err(Error::RgbInspection { details: d }) if d.contains("does not match PSBT TXID"));
 
@@ -401,6 +508,8 @@ fn without_wallet() {
         s!("invalid"),
         details.fascia_path.clone(),
         Some(details.entropy),
+        MAX_FASCIA_SIZE,
+        MAX_FASCIA_BUNDLES,
         BitcoinNetwork::Regtest,
     );
     assert_matches!(result, Err(Error::InvalidPsbt { details: _ }));
@@ -408,6 +517,8 @@ fn without_wallet() {
         res.psbt,
         s!("inexistent"),
         Some(details.entropy),
+        MAX_FASCIA_SIZE,
+        MAX_FASCIA_BUNDLES,
         BitcoinNetwork::Regtest,
     );
     assert_matches!(result, Err(Error::InvalidFilePath { file_path: f }) if f == "inexistent");
@@ -444,7 +555,13 @@ fn inflation_rights() {
     let res = party.send_begin_result(&recipient_map).unwrap();
     let inspection = party
         .wallet
-        .inspect_fascia(res.psbt, res.details.fascia_path, Some(res.details.entropy))
+        .inspect_fascia(
+            res.psbt,
+            res.details.fascia_path,
+            Some(res.details.entropy),
+            MAX_FASCIA_SIZE,
+            MAX_FASCIA_BUNDLES,
+        )
         .unwrap();
     assert_eq!(inspection.operations.len(), 1);
     let transitions = &inspection.operations[0].transitions;
@@ -500,7 +617,13 @@ fn link_right() {
     let res = party.send_begin_result(&recipient_map).unwrap();
     let inspection = party
         .wallet
-        .inspect_fascia(res.psbt, res.details.fascia_path, Some(res.details.entropy))
+        .inspect_fascia(
+            res.psbt,
+            res.details.fascia_path,
+            Some(res.details.entropy),
+            MAX_FASCIA_SIZE,
+            MAX_FASCIA_BUNDLES,
+        )
         .unwrap();
     assert_eq!(inspection.operations.len(), 1);
     let transitions = &inspection.operations[0].transitions;

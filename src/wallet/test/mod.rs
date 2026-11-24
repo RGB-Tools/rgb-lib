@@ -111,6 +111,12 @@ const PASSWORD: &str = "password";
 #[cfg(feature = "electrum")]
 const RESTORE_DIR_PARTS: [&str; 3] = ["tests", "tmp_srv", "restored"];
 const MAX_ALLOCATIONS_PER_UTXO: u32 = 5;
+/// Maximum number of bundles of the inspected fascias, more than any test operation commits
+#[cfg(feature = "electrum")]
+const MAX_FASCIA_BUNDLES: u32 = 10;
+/// Maximum size of the inspected fascia files, larger than any test operation saves
+#[cfg(feature = "electrum")]
+const MAX_FASCIA_SIZE: u64 = 1024 * 1024;
 
 #[cfg(feature = "electrum")]
 const PROXY_HOST_MOD_API: &str = "127.0.0.1:3002/json-rpc";

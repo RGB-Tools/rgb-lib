@@ -3084,10 +3084,12 @@ pub trait WalletOffline: WalletBackup {
         psbt: String,
         fascia_path: String,
         entropy: Option<u64>,
+        max_fascia_size: u64,
+        max_bundles: u32,
     ) -> Result<RgbInspection, Error> {
         // check request data validity
         let psbt = Psbt::from_str(&psbt)?;
-        let fascia = fascia_from_file(&fascia_path)?;
+        let fascia = fascia_from_file(&fascia_path, max_fascia_size)?;
 
         // verify all PSBT inputs belong to this wallet
         for psbt_input in psbt.inputs.iter() {
@@ -3132,6 +3134,7 @@ pub trait WalletOffline: WalletBackup {
             &psbt,
             &fascia,
             entropy,
+            max_bundles,
             |contract_id, bundle, witness_tx| {
                 // collect the RGB inputs allocated in stock to the spent outputs
                 let mut stock_inputs = HashMap::new();
@@ -3567,16 +3570,28 @@ pub trait RgbWalletOpsOffline: WalletOffline + WalletBackup {
     /// allocations the transitions spend are resolved from the wallet (an input that isn't
     /// allocated in it, or that the bundle doesn't spend, is an error) and the outputs report
     /// whether they are the wallet's. The assignment types of the transitions are also checked
-    /// against the schemas of their assets, which the wallet has the genesis of.
+    /// against the schemas of their assets, which the wallet has the genesis of. As there, a
+    /// fascia file larger than `max_fascia_size` bytes is refused with [`Error::FileTooLarge`]
+    /// before being decoded, and a fascia with more than `max_bundles` bundles before inspecting
+    /// them.
     fn inspect_fascia(
         &self,
         psbt: String,
         fascia_path: String,
         entropy: Option<u64>,
+        max_fascia_size: u64,
+        max_bundles: u32,
     ) -> Result<RgbInspection, Error> {
         info!(self.logger(), "Inspecting fascia...");
         let txn = self.database().begin_transaction()?;
-        let inspection = self.inspect_fascia_impl(&txn, psbt, fascia_path, entropy)?;
+        let inspection = self.inspect_fascia_impl(
+            &txn,
+            psbt,
+            fascia_path,
+            entropy,
+            max_fascia_size,
+            max_bundles,
+        )?;
         txn.commit()?;
         info!(self.logger(), "Fascia inspection completed");
         Ok(inspection)

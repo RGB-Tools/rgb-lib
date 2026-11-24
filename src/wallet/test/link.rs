@@ -248,6 +248,8 @@ fn send_beside_fungible() {
             res.psbt.clone(),
             res.details.fascia_path.clone(),
             Some(res.details.entropy),
+            MAX_FASCIA_SIZE,
+            MAX_FASCIA_BUNDLES,
         )
         .unwrap();
     let mut transition_types: Vec<_> = inspection

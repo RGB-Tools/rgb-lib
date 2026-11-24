@@ -259,7 +259,8 @@ use std::{
 };
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
-    fmt,
+    fmt, fs,
+    io::{self, Read, Seek},
     num::NonZeroU32,
     path::Path,
     str::FromStr,
@@ -273,9 +274,7 @@ use std::{
 };
 // also needed without the wallet, to fill in the SPV proofs a consignment is missing
 #[cfg(any(feature = "wallet", feature = "_validation"))]
-use std::{collections::BTreeSet, fs, io};
-#[cfg(any(feature = "wallet", feature = "_validation"))]
-use std::{io::Read, time::Duration};
+use std::{collections::BTreeSet, time::Duration};
 
 use amplify::confinement::MediumOrdMap;
 #[cfg(test)]
@@ -492,11 +491,11 @@ use slog_term::{FullFormat, PlainDecorator};
 use strict_encoding::StrictDumb;
 #[cfg(any(feature = "_online", feature = "rgb_fs_store_migration"))]
 use strict_encoding::StrictSerialize;
-use strict_encoding::{DeserializeError, StrictDeserialize};
+use strict_encoding::{
+    DeserializeError, StreamReader, StrictDecode, StrictDeserialize, StrictReader,
+};
 #[cfg(feature = "wallet")]
-use strict_encoding::{FieldName, StrictDecode, StrictEncode};
-#[cfg(feature = "rgb_fs_store_migration")]
-use strict_encoding::{StreamReader, StrictReader};
+use strict_encoding::{FieldName, StrictEncode};
 #[cfg(feature = "wallet")]
 use strict_types::{TypeLib, TypeLibId};
 #[cfg(feature = "wallet")]

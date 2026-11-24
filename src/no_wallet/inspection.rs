@@ -502,6 +502,12 @@ fn consignment_inspection<const TRANSFER: bool>(
 /// transaction commits to, which proves it commits to these bundles only. The bundles are checked
 /// to commit to the inspected transitions.
 ///
+/// A fascia file larger than `max_fascia_size` bytes is refused with [`Error::FileTooLarge`] before
+/// being decoded, and a fascia with more than `max_bundles` bundles before inspecting them and
+/// rebuilding the commitment, whose cost grows with the number of bundles: an operation commits a
+/// bundle per asset it moves, so the limits are the size of the fascia and the most assets the
+/// signer expects an operation to move.
+///
 /// The entropy defaults to the one the MPC commitment of the fascia carries, so it only has to be
 /// given for a fascia whose commitment doesn't carry it, as a concealed one, while an inspection
 /// without either fails. The wallet that built the operation reports it as well, and a given one
@@ -534,16 +540,19 @@ pub fn inspect_fascia(
     psbt: String,
     fascia_path: String,
     entropy: Option<u64>,
+    max_fascia_size: u64,
+    max_bundles: u32,
     bitcoin_network: BitcoinNetwork,
 ) -> Result<RgbInspection, Error> {
     // check request data validity
     let psbt = Psbt::from_str(&psbt)?;
-    let fascia = fascia_from_file(&fascia_path)?;
+    let fascia = fascia_from_file(&fascia_path, max_fascia_size)?;
 
     fascia_inspection(
         &psbt,
         &fascia,
         entropy,
+        max_bundles,
         |contract_id, bundle, witness_tx| {
             bundle_info(
                 contract_id,
@@ -561,25 +570,49 @@ pub fn inspect_fascia(
     )
 }
 
-/// Read the fascia the inspection is given the path of.
-pub(crate) fn fascia_from_file(fascia_path: &str) -> Result<Fascia, Error> {
-    check_file_exists(fascia_path)?;
-    read_fascia(Path::new(fascia_path)).map_err(|_| Error::InvalidFilePath {
+/// Read the fascia the inspection is given the path of, refusing a file larger than the given size
+/// before decoding it.
+pub(crate) fn fascia_from_file(fascia_path: &str, max_fascia_size: u64) -> Result<Fascia, Error> {
+    let invalid_file_path = || Error::InvalidFilePath {
         file_path: fascia_path.to_string(),
-    })
+    };
+    // the size is checked on the opened file, which is then read only up to the max size
+    let file = fs::File::open(fascia_path).map_err(|_| invalid_file_path())?;
+    let file_metadata = file.metadata()?;
+    if !file_metadata.is_file() {
+        return Err(invalid_file_path());
+    }
+    if file_metadata.len() > max_fascia_size {
+        return Err(Error::FileTooLarge {
+            file_path: fascia_path.to_string(),
+            max_size: max_fascia_size,
+        });
+    }
+    let mut reader = StrictReader::with(StreamReader::new::<FASCIA_MAX_LEN>(
+        file.take(max_fascia_size),
+    ));
+    let fascia = Fascia::strict_decode(&mut reader).map_err(|_| invalid_file_path())?;
+    // as when reading a fascia the wallet saved, the whole file has to be the fascia
+    let mut file = reader.unbox().unconfine().into_inner();
+    if file.stream_position()? != file.seek(io::SeekFrom::End(0))? {
+        return Err(invalid_file_path());
+    }
+    Ok(fascia)
 }
 
 /// Build the inspection details of a fascia, inspecting each of its bundles with the given
 /// function (called with the contract ID of the bundle and the witness transaction).
 ///
-/// The fascia is checked to be the one of the PSBT transaction, which is then checked to commit to
-/// the MPC commitment rebuilt from the inspected bundles with the given entropy, so to these
-/// bundles only. The entropy defaults to the one the MPC commitment of the fascia carries, which
-/// only a concealed commitment doesn't, and a given one has to be the carried one.
+/// The fascia is checked to be the one of the PSBT transaction and to have at most `max_bundles`
+/// bundles, before inspecting them. The PSBT transaction is then checked to commit to the MPC
+/// commitment rebuilt from the inspected bundles with the given entropy, so to these bundles
+/// only. The entropy defaults to the one the MPC commitment of the fascia carries, which only a
+/// concealed commitment doesn't, and a given one has to be the carried one.
 pub(crate) fn fascia_inspection(
     psbt: &Psbt,
     fascia: &Fascia,
     entropy: Option<u64>,
+    max_bundles: u32,
     mut bundle_operation: impl FnMut(
         ContractId,
         &TransitionBundle,
@@ -593,6 +626,17 @@ pub(crate) fn fascia_inspection(
         return Err(Error::RgbInspection {
             details: format!(
                 "fascia witness ID {fascia_witness_id} does not match PSBT TXID {witness_id}"
+            ),
+        });
+    }
+
+    // refuse a fascia with too many bundles before inspecting them and rebuilding the MPC
+    // commitment, which holds a message per bundle
+    let bundle_count = fascia.bundles().len();
+    if bundle_count > max_bundles as usize {
+        return Err(Error::RgbInspection {
+            details: format!(
+                "fascia bundle count {bundle_count} exceeds the maximum of {max_bundles}"
             ),
         });
     }
@@ -1158,6 +1202,8 @@ mod tests {
                 psbt.to_string(),
                 fascia_path.to_string(),
                 None,
+                u64::MAX,
+                1,
                 BitcoinNetwork::Regtest,
             )
         };

@@ -1428,7 +1428,13 @@ pub(super) fn inspect_inflate(
     let details = InflateHandler::extract_details(&files).unwrap();
     let rgb_inspection = wallet
         .multisig
-        .inspect_fascia(psbt.clone(), details.fascia_path, Some(details.entropy))
+        .inspect_fascia(
+            psbt.clone(),
+            details.fascia_path,
+            Some(details.entropy),
+            MAX_FASCIA_SIZE,
+            MAX_FASCIA_BUNDLES,
+        )
         .unwrap();
     assert_eq!(
         rgb_inspection.txid,
@@ -1498,7 +1504,13 @@ pub(super) fn inspect_burn(
     assert_eq!(details.burn_reason.as_deref(), burn_reason);
     let rgb_inspection = wallet
         .multisig
-        .inspect_fascia(psbt.clone(), details.fascia_path, Some(details.entropy))
+        .inspect_fascia(
+            psbt.clone(),
+            details.fascia_path,
+            Some(details.entropy),
+            MAX_FASCIA_SIZE,
+            MAX_FASCIA_BUNDLES,
+        )
         .unwrap();
     assert_eq!(rgb_inspection.close_method, CloseMethod::OpretFirst);
     assert_eq!(rgb_inspection.operations.len(), 1);
@@ -1543,7 +1555,13 @@ pub(super) fn inspect_send(
     let details = SendRgbHandler::extract_details(&files).unwrap();
     let rgb_inspection = wallet
         .multisig
-        .inspect_fascia(psbt.to_string(), details.fascia_path, Some(details.entropy))
+        .inspect_fascia(
+            psbt.to_string(),
+            details.fascia_path,
+            Some(details.entropy),
+            MAX_FASCIA_SIZE,
+            MAX_FASCIA_BUNDLES,
+        )
         .unwrap();
     assert_eq!(rgb_inspection.close_method, CloseMethod::OpretFirst);
     assert_eq!(rgb_inspection.commitment_hex.len(), 64);

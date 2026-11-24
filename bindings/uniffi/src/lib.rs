@@ -1438,10 +1438,19 @@ fn inspect_fascia(
     psbt: String,
     fascia_path: String,
     entropy: Option<u64>,
+    max_fascia_size: u64,
+    max_bundles: u32,
     bitcoin_network: BitcoinNetwork,
 ) -> Result<RgbInspection, RgbLibError> {
-    rgb_lib::no_wallet::inspect_fascia(psbt, fascia_path, entropy, bitcoin_network)
-        .map(|i| i.into())
+    rgb_lib::no_wallet::inspect_fascia(
+        psbt,
+        fascia_path,
+        entropy,
+        max_fascia_size,
+        max_bundles,
+        bitcoin_network,
+    )
+    .map(|i| i.into())
 }
 
 fn validate_consignment(
@@ -2256,10 +2265,12 @@ impl Wallet {
         psbt: String,
         fascia_path: String,
         entropy: Option<u64>,
+        max_fascia_size: u64,
+        max_bundles: u32,
     ) -> Result<RgbInspection, RgbLibError> {
         Ok(self
             ._get_wallet()
-            .inspect_fascia(psbt, fascia_path, entropy)?
+            .inspect_fascia(psbt, fascia_path, entropy, max_fascia_size, max_bundles)?
             .into())
     }
 
@@ -2692,10 +2703,12 @@ impl MultisigWallet {
         psbt: String,
         fascia_path: String,
         entropy: Option<u64>,
+        max_fascia_size: u64,
+        max_bundles: u32,
     ) -> Result<RgbInspection, RgbLibError> {
         Ok(self
             ._get_wallet()
-            .inspect_fascia(psbt, fascia_path, entropy)?
+            .inspect_fascia(psbt, fascia_path, entropy, max_fascia_size, max_bundles)?
             .into())
     }
 }
