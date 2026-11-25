@@ -367,38 +367,6 @@ fn check_get_ack_error(err: JsonRpcError) -> Result<(), Error> {
     }
 }
 
-/// The wallet's reject list resolver: the one of the standalone validation, logging what the
-/// user may need to act on.
-#[doc(hidden)]
-pub struct WalletRejectListResolver<'a> {
-    inner: RemoteRejectListResolver<'a>,
-    logger: &'a Logger,
-}
-
-impl ResolveRejectList for WalletRejectListResolver<'_> {
-    fn get_reject_list(&self, source: &RejectListSource) -> Result<RejectList, Error> {
-        let (reject_list, invalid) =
-            self.inner
-                .get_reject_list_counting(source)
-                .inspect_err(|e| {
-                    if let Error::NoEvmRpcUrl { chain_id } = e {
-                        error!(
-                            self.logger,
-                            "No EVM RPC URL configured for chain ID {chain_id}"
-                        );
-                    }
-                })?;
-        // invalid lines are counted and reported once, as a list can contain many
-        if invalid > 0 {
-            warn!(
-                self.logger,
-                "Ignoring {invalid} invalid opout(s) in reject list"
-            );
-        }
-        Ok(reject_list)
-    }
-}
-
 pub trait WalletOnline: WalletOffline {
     fn blockchain_resolver(&self) -> ChainResolver<'_> {
         ChainResolver {
@@ -2100,15 +2068,30 @@ pub trait WalletOnline: WalletOffline {
         received
     }
 
-    fn reject_list_resolver(&self) -> WalletRejectListResolver<'_> {
-        WalletRejectListResolver {
+    /// The reject list published at the given source, read with the resolver of the standalone
+    /// validation, logging what the user may need to act on.
+    fn reject_list(&self, source: &RejectListSource) -> Result<RejectList, Error> {
+        let resolver = RemoteRejectListResolver {
+            evm_rpc_urls: self.evm_rpc_urls(),
             // going online checks the chain of every configured EVM RPC endpoint
-            inner: RemoteRejectListResolver {
-                evm_rpc_urls: self.evm_rpc_urls(),
-                evm_chains_checked: true,
-            },
-            logger: self.logger(),
+            evm_chains_checked: true,
+        };
+        let (reject_list, invalid) = RejectList::resolve(&resolver, source).inspect_err(|e| {
+            if let Error::NoEvmRpcUrl { chain_id } = e {
+                error!(
+                    self.logger(),
+                    "No EVM RPC URL configured for chain ID {chain_id}"
+                );
+            }
+        })?;
+        // invalid lines are counted and reported once, as a list can contain many
+        if invalid > 0 {
+            warn!(
+                self.logger(),
+                "Ignoring {invalid} invalid opout(s) in reject list"
+            );
         }
+        Ok(reject_list)
     }
 
     fn safe_height(&self, min_confirmations: u8) -> Result<u32, Error> {
@@ -3442,7 +3425,7 @@ pub trait WalletOnline: WalletOffline {
                 asset_schema,
                 valid_consignment.genesis(),
                 validation_status.ops_dag.as_ref(),
-                Some(&self.reject_list_resolver()),
+                |source| self.reject_list(source),
                 &receiving.keys().copied().collect(),
             )
             .inspect_err(|e| {
@@ -6284,7 +6267,7 @@ pub trait WalletOnline: WalletOffline {
                 // again and all decide on the same version of it
                 let source = reject_list_source.unwrap();
                 if !reject_lists.contains_key(&source) {
-                    let reject_list = self.reject_list_resolver().get_reject_list(&source)?;
+                    let reject_list = self.reject_list(&source)?;
                     reject_lists.insert(source.clone(), reject_list);
                 }
                 let reject_list = &reject_lists[&source];

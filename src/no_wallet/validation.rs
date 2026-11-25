@@ -313,6 +313,25 @@ impl From<RejectListLocation> for RejectListSource {
     }
 }
 
+/// An entry of a reject list kept by an `IRgbRejectList` EVM contract (`IRgbRejectList.Entry`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EvmRejectListEntry {
+    /// RGB operation output the entry is about, as `<operation ID>/<assignment type>/<index>`
+    pub opout: String,
+    /// Whether the entry rejects (`true`) or allows (`false`) the opout
+    pub reject: bool,
+}
+
+/// The entries of a reject list kept by an `IRgbRejectList` EVM contract, as read from it, see
+/// [`ResolveRejectList::get_evm_reject_list`].
+#[derive(Debug, PartialEq, Eq)]
+pub struct EvmRejectList {
+    /// All the entries, in append order, as of the latest block
+    pub entries: Vec<EvmRejectListEntry>,
+    /// How many of the leading entries were appended in finalized blocks
+    pub finalized: usize,
+}
+
 /// The decisions of a reject list about single opouts, each holding only its latest decision.
 ///
 /// This only tells whether an opout is listed: which decision applies to an allocation, given the
@@ -324,14 +343,20 @@ pub struct RejectList {
 }
 
 impl RejectList {
-    /// Build a reject list from the given decisions, in the order they were taken: each opout
-    /// rejected or, if `true`, allowed (the last decision for an opout wins).
-    pub fn from_decisions(decisions: impl IntoIterator<Item = (RgbOpout, bool)>) -> Self {
-        let mut reject_list = Self::default();
-        for (opout, allow) in decisions {
-            reject_list.insert(opout, allow);
-        }
-        reject_list
+    /// Read the reject list published at the given source with the given resolver.
+    ///
+    /// Returns the reject list and the number of invalid lines ignored when it's served at a URL
+    /// (see [`RejectList::parse`]).
+    pub(crate) fn resolve(
+        resolver: &dyn ResolveRejectList,
+        source: &RejectListSource,
+    ) -> Result<(Self, usize), Error> {
+        Ok(match source {
+            RejectListSource::Url(url) => Self::parse(&resolver.get_url_reject_list(url)?),
+            RejectListSource::Evm(contract) => {
+                (Self::from_evm(&resolver.get_evm_reject_list(contract)?)?, 0)
+            }
+        })
     }
 
     /// Record a decision about `opout`, replacing any earlier one.
@@ -351,7 +376,7 @@ impl RejectList {
     /// counted.
     ///
     /// Returns the reject list and the number of invalid lines.
-    pub fn parse(list: &str) -> (Self, usize) {
+    pub(crate) fn parse(list: &str) -> (Self, usize) {
         let mut reject_list = Self::default();
         let mut invalid = 0;
         for line in list.lines().map(str::trim).filter(|l| !l.is_empty()) {
@@ -364,14 +389,56 @@ impl RejectList {
         (reject_list, invalid)
     }
 
-    /// Read the reject list kept by the `IRgbRejectList` contract at `address`.
-    #[cfg(feature = "_validation")]
-    pub(crate) fn from_evm(evm_client: &EvmClient, address: &EvmAddress) -> Result<Self, Error> {
-        let (reject_opouts, allow_opouts) = evm_client.reject_list_entries(address)?.decisions();
-        Ok(Self {
+    /// Build the reject list from the entries of an `IRgbRejectList` contract.
+    ///
+    /// The latest entry for an opout wins, but entries in non-finalized blocks could still be
+    /// dropped or reordered by a reorg. So, erring on the safe side, a reject counts as soon as
+    /// it's seen, while an allow counts only once finalized: an opout is rejected if its finalized
+    /// decision is a reject or if any non-finalized entry rejects it, and allowed if its finalized
+    /// decision is an allow and no non-finalized entry rejects it.
+    ///
+    /// An [`Error::InvalidRejectList`] is returned if more entries are reported finalized than
+    /// there are or if an entry has an invalid opout.
+    pub(crate) fn from_evm(list: &EvmRejectList) -> Result<Self, Error> {
+        if list.finalized > list.entries.len() {
+            return Err(Error::InvalidRejectList {
+                details: format!(
+                    "{} finalized entries reported out of {}",
+                    list.finalized,
+                    list.entries.len()
+                ),
+            });
+        }
+        let entries = list
+            .entries
+            .iter()
+            .map(|e| {
+                RgbOpout::from_str(&e.opout)
+                    .map(|opout| (opout, e.reject))
+                    .map_err(|_| Error::InvalidRejectList {
+                        details: format!("invalid opout {}", e.opout),
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let (finalized, pending) = entries.split_at(list.finalized);
+        let finalized = finalized.iter().copied().collect::<HashMap<_, _>>();
+        let reject_opouts = pending
+            .iter()
+            .filter(|(_, reject)| *reject)
+            .map(|(opout, _)| *opout)
+            .collect::<HashSet<_>>();
+        let mut reject_list = Self {
             reject_opouts,
-            allow_opouts,
-        })
+            allow_opouts: HashSet::new(),
+        };
+        for (opout, rejected) in finalized {
+            if rejected {
+                reject_list.reject_opouts.insert(opout);
+            } else if !reject_list.reject_opouts.contains(&opout) {
+                reject_list.allow_opouts.insert(opout);
+            }
+        }
+        Ok(reject_list)
     }
 
     pub(crate) fn rejects(&self, opout: &RgbOpout) -> bool {
@@ -796,7 +863,10 @@ fn validate_loaded_consignment<const TRANSFER: bool>(
         asset_schema,
         consignment.genesis(),
         valid_consignment.validation_status().ops_dag.as_ref(),
-        reject_list_resolver,
+        |source| {
+            let resolver = reject_list_resolver.ok_or(Error::NoRejectListResolver)?;
+            Ok(RejectList::resolve(resolver, source)?.0)
+        },
         &reject_check_origins(consignment),
     )?;
 
@@ -807,20 +877,41 @@ fn validate_loaded_consignment<const TRANSFER: bool>(
     ))
 }
 
-/// Trait to read the reject list of an asset, see [`validate_consignment_with_resolver`].
+/// Trait to fetch the reject list of an asset, see [`validate_consignment_with_resolver`].
+///
+/// The resolver only fetches the list as published, rgb-lib reads which opouts it rejects or
+/// allows.
+///
+/// The location of the list is taken from the asset's genesis, so it's chosen by the issuer: it
+/// may point to a list that never ends, or to a URL on the local network. It's up to the
+/// implementor to bound the size of the list and the time taken to fetch it, and to choose which
+/// URLs to request. The resolver `validate_consignment` uses refuses lists served at a URL larger
+/// than 7.9 MB (100000 lines of the longest valid opout, allowed, with a CRLF ending) and lists
+/// kept by an EVM contract longer than 100000 entries, times out, only requests `http` and
+/// `https` URLs and doesn't follow redirects, but it does request a URL on the local network if
+/// the genesis states one.
 pub trait ResolveRejectList {
-    /// The reject list published at the given source.
+    /// The body of the reject list served at the given URL, as is.
     ///
-    /// The source is taken from the asset's genesis, so it's chosen by the issuer: it may point
-    /// to a list that never ends, or to a URL on the local network. It's up to the implementor to
-    /// bound the size of the list and the time taken to read it, and to choose which URLs to
-    /// request. The resolver `validate_consignment` uses refuses lists longer than 100000
-    /// entries, times out, only requests `http` and `https` URLs and doesn't follow redirects, but
-    /// it does request a URL on the local network if the genesis states one.
-    fn get_reject_list(&self, source: &RejectListSource) -> Result<RejectList, Error>;
+    /// It holds one opout per line, rejected or, if prefixed by `!`, allowed (the last line for
+    /// an opout wins). Each line is trimmed of leading and trailing whitespace, and empty lines
+    /// are skipped. Invalid lines (e.g. comments) are ignored.
+    fn get_url_reject_list(&self, url: &str) -> Result<String, Error>;
+
+    /// All the entries of the reject list kept by the given `IRgbRejectList` EVM contract, as of
+    /// the latest block, telling how many of them are finalized.
+    ///
+    /// The list is append-only, so the entries as of the latest finalized block are the leading
+    /// ones as of the latest block. A reject counts as soon as it's seen, an allow only once
+    /// finalized, as a reorg could drop non-finalized entries or reorder them.
+    ///
+    /// [`EvmRejectList::finalized`] must not exceed the number of entries returned and each
+    /// [`EvmRejectListEntry::opout`] must be a valid opout, or an [`Error::InvalidRejectList`] is
+    /// returned.
+    fn get_evm_reject_list(&self, contract: &EvmContract) -> Result<EvmRejectList, Error>;
 }
 
-/// Reject list resolver reading the reject lists served at a URL over HTTP and the ones kept by an
+/// Reject list resolver fetching the reject lists served at a URL over HTTP and the ones kept by an
 /// EVM contract through the EVM RPC URL configured for its chain ID.
 #[cfg(feature = "_validation")]
 pub(crate) struct RemoteRejectListResolver<'a> {
@@ -832,33 +923,18 @@ pub(crate) struct RemoteRejectListResolver<'a> {
 }
 
 #[cfg(feature = "_validation")]
-impl RemoteRejectListResolver<'_> {
-    /// The reject list published at the given source, along with the number of invalid lines
-    /// ignored when it's served at a URL (see [`RejectList::parse`]).
-    pub(crate) fn get_reject_list_counting(
-        &self,
-        source: &RejectListSource,
-    ) -> Result<(RejectList, usize), Error> {
-        Ok(match source {
-            RejectListSource::Url(url) => {
-                RejectList::parse(&RejectListClient::new(url)?.get_reject_list()?)
-            }
-            RejectListSource::Evm(contract) => {
-                let evm_client = if self.evm_chains_checked {
-                    evm_client(self.evm_rpc_urls, contract.chain_id)?
-                } else {
-                    checked_evm_client(self.evm_rpc_urls, contract.chain_id)?
-                };
-                (RejectList::from_evm(&evm_client, &contract.address)?, 0)
-            }
-        })
-    }
-}
-
-#[cfg(feature = "_validation")]
 impl ResolveRejectList for RemoteRejectListResolver<'_> {
-    fn get_reject_list(&self, source: &RejectListSource) -> Result<RejectList, Error> {
-        Ok(self.get_reject_list_counting(source)?.0)
+    fn get_url_reject_list(&self, url: &str) -> Result<String, Error> {
+        RejectListClient::new(url)?.get_reject_list()
+    }
+
+    fn get_evm_reject_list(&self, contract: &EvmContract) -> Result<EvmRejectList, Error> {
+        let evm_client = if self.evm_chains_checked {
+            evm_client(self.evm_rpc_urls, contract.chain_id)?
+        } else {
+            checked_evm_client(self.evm_rpc_urls, contract.chain_id)?
+        };
+        evm_client.reject_list_entries(&contract.address)
     }
 }
 
@@ -1151,26 +1227,23 @@ pub(crate) fn resolve_witnesses<const TRANSFER: bool>(
 }
 
 /// Check the given `opouts` against the reject list of the asset with the given schema and
-/// genesis, read with the given resolver: an [`Error::ConsignmentRejected`] is returned with the
-/// ones it rejects (see [`rejected_opouts`]), if any. Nothing is checked if the asset has no
-/// reject list.
+/// genesis, fetched and parsed by `get_reject_list`: an [`Error::ConsignmentRejected`] is returned
+/// with the ones it rejects (see [`rejected_opouts`]), if any. Nothing is checked, nor fetched, if
+/// the asset has no reject list.
 ///
 /// The `ops_dag` of the validated operations must be provided if the schema supports a reject
-/// list (see [`AssetSchema::supports_reject_list`]). An [`Error::NoRejectListResolver`] is
-/// returned if the asset has a reject list but no resolver is provided.
+/// list (see [`AssetSchema::supports_reject_list`]).
 pub(crate) fn check_reject_list(
     asset_schema: AssetSchema,
     genesis: &Genesis,
     ops_dag: Option<&OpsDag>,
-    reject_list_resolver: Option<&dyn ResolveRejectList>,
+    get_reject_list: impl FnOnce(&RejectListSource) -> Result<RejectList, Error>,
     opouts: &HashSet<RgbOpout>,
 ) -> Result<(), Error> {
     let Some(source) = genesis_reject_list_source_validated(asset_schema, genesis)? else {
         return Ok(());
     };
-    let reject_list = reject_list_resolver
-        .ok_or(Error::NoRejectListResolver)?
-        .get_reject_list(&source)?;
+    let reject_list = get_reject_list(&source)?;
     let ops_dag = ops_dag.ok_or_else(|| Error::Internal {
         details: s!("no operations DAG to check against the reject list"),
     })?;
@@ -1549,7 +1622,78 @@ pub(crate) mod tests {
         let (reject_list, invalid) = RejectList::parse(&format!("{opout}\n!{opout}\n"));
         assert_eq!(invalid, 0);
         assert!(!reject_list.rejects(&opout) && reject_list.allows(&opout));
-        let reject_list = RejectList::from_decisions([(opout, true), (opout, false)]);
+        let (reject_list, invalid) = RejectList::parse(&format!("!{opout}\n{opout}\n"));
+        assert_eq!(invalid, 0);
         assert!(reject_list.rejects(&opout) && !reject_list.allows(&opout));
+    }
+
+    #[test]
+    fn reject_list_from_evm() {
+        // an opout whose operation ID is filled with `b`
+        let opout = |b: u8| RgbOpout::new(OpId::from([b; 32]), AssignmentType::with(4000), 0);
+        let reject_list = |entries: &[(u8, bool)], finalized: usize| {
+            let entries = entries
+                .iter()
+                .map(|(b, reject)| EvmRejectListEntry {
+                    opout: opout(*b).to_string(),
+                    reject: *reject,
+                })
+                .collect();
+            RejectList::from_evm(&EvmRejectList { entries, finalized })
+        };
+        let decisions = |entries: &[(u8, bool)], finalized: usize| {
+            let reject_list = reject_list(entries, finalized).unwrap();
+            (reject_list.reject_opouts, reject_list.allow_opouts)
+        };
+        let set = |bytes: &[u8]| bytes.iter().map(|b| opout(*b)).collect::<HashSet<_>>();
+
+        // finalized decisions hold, the latest entry for an opout winning
+        let (reject, allow) = decisions(&[(1, true), (2, false), (3, false), (3, true)], 4);
+        assert_eq!(reject, set(&[1, 3]));
+        assert_eq!(allow, set(&[2]));
+
+        // non-finalized rejects count right away, superseding finalized allows
+        let (reject, allow) = decisions(&[(2, false), (1, true), (2, true)], 1);
+        assert_eq!(reject, set(&[1, 2]));
+        assert!(allow.is_empty());
+
+        // non-finalized allows don't count: an opout allowed only by them is not listed, and
+        // one they would allow again stays rejected
+        let (reject, allow) = decisions(&[(1, true), (2, false), (1, false)], 1);
+        assert_eq!(reject, set(&[1]));
+        assert!(allow.is_empty());
+
+        // a non-finalized reject counts even if a later non-finalized allow supersedes it, as a
+        // reorg could drop the allow or move it before the reject
+        let entries = [(1, false), (1, true), (1, false), (2, true), (2, false)];
+        let (reject, allow) = decisions(&entries, 1);
+        assert_eq!(reject, set(&[1, 2]));
+        assert!(allow.is_empty());
+
+        // once finalized, the latest entry wins again
+        let (reject, allow) = decisions(&entries, 5);
+        assert!(reject.is_empty());
+        assert_eq!(allow, set(&[1, 2]));
+
+        // decisions are about single opouts: rejecting an output of an operation leaves its other
+        // outputs alone
+        let sibling = RgbOpout { no: 1, ..opout(1) };
+        let (reject, allow) = decisions(&[(1, true)], 1);
+        assert!(reject.contains(&opout(1)) && !reject.contains(&sibling));
+        assert!(allow.is_empty());
+
+        // a resolver can't report more finalized entries than there are
+        let result = reject_list(&[(1, true)], 2);
+        assert_matches!(result, Err(Error::InvalidRejectList { .. }));
+
+        // a resolver can't report an invalid opout
+        let result = RejectList::from_evm(&EvmRejectList {
+            entries: vec![EvmRejectListEntry {
+                opout: s!("not an opout"),
+                reject: true,
+            }],
+            finalized: 1,
+        });
+        assert_matches!(result, Err(Error::InvalidRejectList { details }) if details == "invalid opout not an opout");
     }
 }

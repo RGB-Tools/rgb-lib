@@ -635,12 +635,16 @@ fn reject_list() {
     let result = validate_test_consignment(&consignment_path, Some(&txid), None);
     assert_matches!(result, Err(Error::ConsignmentRejected { opouts }) if opouts == inputs_and_change);
 
-    // a custom reject list resolver is trusted in place of the reject list server
-    struct MockRejectListResolver(Vec<(Opout, bool)>);
+    // a custom reject list resolver is trusted in place of the reject list server, rgb-lib reading
+    // the list it fetches
+    struct MockRejectListResolver(Vec<String>);
     impl ResolveRejectList for MockRejectListResolver {
-        fn get_reject_list(&self, source: &RejectListSource) -> Result<RejectList, Error> {
-            assert_matches!(source, RejectListSource::Url(url) if url.ends_with("validate_consignment.list"));
-            Ok(RejectList::from_decisions(self.0.clone()))
+        fn get_url_reject_list(&self, url: &str) -> Result<String, Error> {
+            assert!(url.ends_with("validate_consignment.list"));
+            Ok(self.0.join("\n"))
+        }
+        fn get_evm_reject_list(&self, _contract: &EvmContract) -> Result<EvmRejectList, Error> {
+            unreachable!("the asset's reject list is served at a URL")
         }
     }
     let indexer_resolver = get_resolver(
@@ -662,19 +666,17 @@ fn reject_list() {
             &validation_options(Some(&txid)),
         )
     };
-    let terminal = Opout::from_str(&terminal).unwrap();
-    let issuance = Opout::from_str(&issuance).unwrap();
     validate_with_resolver(Some(&MockRejectListResolver(vec![]))).unwrap();
-    let result = validate_with_resolver(Some(&MockRejectListResolver(vec![(issuance, false)])));
+    let result = validate_with_resolver(Some(&MockRejectListResolver(vec![issuance.clone()])));
     assert_matches!(result, Err(Error::ConsignmentRejected { opouts }) if opouts == all_checked);
     let result = validate_with_resolver(Some(&MockRejectListResolver(vec![
-        (issuance, false),
-        (terminal, true),
+        issuance.clone(),
+        format!("!{terminal}"),
     ])));
     assert_matches!(result, Err(Error::ConsignmentRejected { opouts }) if opouts == inputs_and_change);
     let result = validate_with_resolver(Some(&MockRejectListResolver(vec![
-        (terminal, true),
-        (terminal, false),
+        format!("!{terminal}"),
+        terminal.clone(),
     ])));
     assert_matches!(result, Err(Error::ConsignmentRejected { .. }));
     // the reject list resolver is needed for an asset with a reject list

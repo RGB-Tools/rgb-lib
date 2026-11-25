@@ -58,8 +58,8 @@ use crate::wallet::utils::{RGB_RUNTIME_DELETING_DIR, RGB_RUNTIME_DIR};
 use crate::{
     database::enums::{SCHEMA_ID_CFA, SCHEMA_ID_IFA, SCHEMA_ID_NIA, SCHEMA_ID_UDA},
     no_wallet::{
-        BundleFilter, ResolveRejectList, RgbBridgeLocationInfo, RgbEvmContractInfo, RgbMediaInfo,
-        RgbRejectListInfo, fill_spv_proofs, inspect_consignment, inspect_fascia,
+        BundleFilter, EvmRejectList, ResolveRejectList, RgbBridgeLocationInfo, RgbEvmContractInfo,
+        RgbMediaInfo, RgbRejectListInfo, fill_spv_proofs, inspect_consignment, inspect_fascia,
         validate_consignment, validate_consignment_with_resolver,
         validation::RemoteRejectListResolver,
     },

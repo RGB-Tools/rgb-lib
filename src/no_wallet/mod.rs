@@ -27,8 +27,8 @@ pub use spv::{SpvProofFill, WitnessWithoutProof, fill_spv_proofs};
 #[cfg(feature = "_validation")]
 pub use validation::{BitcoindAuth, IndexerConfig, IndexerProtocol, validate_consignment};
 pub use validation::{
-    ConsignmentValidation, RejectList, RejectListSource, ResolveRejectList, ValidatedWitness,
-    ValidationOptions, ValidationWarning, WitnessValidationStatus,
+    ConsignmentValidation, EvmRejectList, EvmRejectListEntry, RejectListSource, ResolveRejectList,
+    ValidatedWitness, ValidationOptions, ValidationWarning, WitnessValidationStatus,
     validate_consignment_with_resolver,
 };
 

@@ -544,6 +544,14 @@ pub enum Error {
     #[error("The provided recipient ID is for a different network than the wallet's one")]
     InvalidRecipientNetwork,
 
+    /// The reject list resolver returned an invalid reject list (see
+    /// [`ResolveRejectList`](crate::no_wallet::ResolveRejectList))
+    #[error("Invalid reject list: {details}")]
+    InvalidRejectList {
+        /// Error details
+        details: String,
+    },
+
     /// The provided reject list URL is invalid
     #[error("Invalid reject list URL: {details}")]
     InvalidRejectListUrl {

@@ -112,6 +112,7 @@ interface RgbLibError {
   InvalidRecipientID();
   InvalidRecipientMap();
   InvalidRecipientNetwork();
+  InvalidRejectList(string details);
   InvalidRejectListUrl(string details);
   InvalidTicker(string details);
   InvalidTransportEndpoint(string details);
