@@ -2300,6 +2300,8 @@ fn send_mint_right() {
             ),
         ],
     )]);
+    // no blocks until the transfers have been checked in status WaitingConfirmations
+    let guard = stop_mining();
     let txid = party.send_retry(&recipient_map);
     assert!(!txid.is_empty());
     party.show_unspent_colorings("after send");
@@ -2328,6 +2330,7 @@ fn send_mint_right() {
             .iter()
             .all(|t| t.status == TransferStatus::WaitingConfirmations)
     );
+    drop(guard);
 
     // the asset has been received, with no balance
     let rcv_assets = rcv_party.list_assets(&[]);
