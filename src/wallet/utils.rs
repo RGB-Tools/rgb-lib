@@ -667,6 +667,11 @@ impl<'txn> RgbStock<'txn> {
     }
 
     #[cfg(feature = "_online")]
+    pub(crate) fn export_contract(&self, contract_id: ContractId) -> Result<RgbContract, Error> {
+        self.stock.export_contract(contract_id).map_err(Error::from)
+    }
+
+    #[cfg(feature = "_online")]
     pub(crate) fn accept_transfer<R: ResolveWitness>(
         &mut self,
         contract: ValidTransfer,
