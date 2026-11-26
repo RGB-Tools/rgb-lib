@@ -94,9 +94,12 @@ fn success() {
     );
 
     // a proof already there is kept, even if it no longer verifies, as only the missing ones are
-    // retrieved
+    // retrieved. The proof is made stale by altering a sibling, as the position alone wouldn't
+    // always do: when the witness is the last TX of a level with an odd number of nodes, its
+    // sibling is itself, so its position can change by one without changing the merkle root
     let mut stale_proof = proof_2.clone();
-    stale_proof.pos += 1;
+    let sibling = stale_proof.merkle.get_mut(0).unwrap();
+    *sibling = Sha256Hash::from_byte_array(sibling.to_byte_array().map(|b| !b));
     let witness_id = RgbTxid::from_str(&txid_2).unwrap();
     let mut consignment = RgbTransfer::load_file(&consignment_path).unwrap();
     assert!(consignment.modify_bundle(witness_id, |witness_bundle| {
