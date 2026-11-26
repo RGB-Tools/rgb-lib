@@ -12,7 +12,7 @@ use std::{
 };
 
 use rgb_lib::{
-    AssetSchema, Assignment, BitcoinNetwork, Encryption, Error as RgbLibError,
+    AssetSchema, Assignment, BitcoinNetwork, Encryption, Error as RgbLibError, ReceiveAmountPolicy,
     keys::WitnessVersion,
     no_wallet::BundleFilter,
     wallet::{
@@ -139,6 +139,7 @@ pub extern "C" fn rgblib_blind_receive(
     online: *const c_char,
     asset_id: *const c_char,
     assignment: *const c_char,
+    receive_amount_policy: *const c_char,
     expiration_timestamp: *const c_char,
     transport_endpoints: *const c_char,
     min_confirmations: *const c_char,
@@ -150,6 +151,7 @@ pub extern "C" fn rgblib_blind_receive(
         online,
         asset_id,
         assignment,
+        receive_amount_policy,
         expiration_timestamp,
         transport_endpoints,
         min_confirmations,
@@ -828,6 +830,7 @@ pub extern "C" fn rgblib_witness_receive(
     online: *const c_char,
     asset_id: *const c_char,
     assignment: *const c_char,
+    receive_amount_policy: *const c_char,
     expiration_timestamp: *const c_char,
     transport_endpoints: *const c_char,
     min_confirmations: *const c_char,
@@ -840,6 +843,7 @@ pub extern "C" fn rgblib_witness_receive(
         online,
         asset_id,
         assignment,
+        receive_amount_policy,
         expiration_timestamp,
         transport_endpoints,
         min_confirmations,

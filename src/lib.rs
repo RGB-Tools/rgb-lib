@@ -240,7 +240,7 @@ pub use crate::{
 };
 #[cfg(feature = "wallet")]
 pub use crate::{
-    database::enums::{TransferStatus, WalletTransactionType},
+    database::enums::{ReceiveAmountPolicy, TransferStatus, WalletTransactionType},
     wallet::utils::block_on,
 };
 

@@ -400,6 +400,7 @@ struct ReceiveMetadata {
     seed: String,
     #[serde(default)]
     retention_deadline: Option<i64>,
+    receive_amount_policy: ReceiveAmountPolicy,
 }
 
 /// Operations for multisig wallets.
@@ -1537,6 +1538,7 @@ impl MultisigWallet {
         online: Online,
         asset_id: Option<String>,
         assignment: Assignment,
+        receive_amount_policy: ReceiveAmountPolicy,
         expiration_timestamp: u64,
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
@@ -1556,6 +1558,7 @@ impl MultisigWallet {
             Some(online),
             asset_id,
             assignment,
+            receive_amount_policy,
             expiration_timestamp as i64,
             transport_endpoints,
             recipient_type,
@@ -1574,6 +1577,7 @@ impl MultisigWallet {
             secret_seal: receive_data_internal.blind_seal,
             seed: hex::encode(&receive_data_internal.operation_secret_key),
             retention_deadline: receive_data_internal.retention_deadline,
+            receive_amount_policy,
         };
         let metadata_json = serde_json::to_vec(&receive_metadata).expect("serializable");
         let files = vec![(FileType::OperationData, FileSource::Bytes(metadata_json))];
@@ -1609,8 +1613,12 @@ impl MultisigWallet {
     /// An optional asset ID can be specified, which will be embedded in the invoice, resulting in
     /// the refusal of the transfer is the asset doesn't match.
     ///
-    /// An optional amount can be specified, which will be embedded in the invoice. It will not be
-    /// checked when accepting the transfer.
+    /// An optional amount can be specified, which will be embedded in the invoice. The
+    /// `receive_amount_policy` determines how the received amount is checked when accepting the
+    /// transfer (see [`ReceiveAmountPolicy`]): [`ReceiveAmountPolicy::Exact`] and
+    /// [`ReceiveAmountPolicy::AtLeast`] require an amount to be specified, otherwise an
+    /// [`Error::NoReceiveAmount`] is returned. Received assignments of a type other than the
+    /// requested one are refused (unless [`Assignment::Any`] is requested).
     ///
     /// A UTXO holds at most one mint right of an asset: an invoice requesting one
     /// ([`Assignment::MintRight`]) blinds a UTXO that doesn't hold one and isn't due to receive
@@ -1638,6 +1646,7 @@ impl MultisigWallet {
         online: Online,
         asset_id: Option<String>,
         assignment: Assignment,
+        receive_amount_policy: ReceiveAmountPolicy,
         expiration_timestamp: u64,
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
@@ -1655,6 +1664,7 @@ impl MultisigWallet {
             online,
             asset_id,
             assignment,
+            receive_amount_policy,
             expiration_timestamp,
             transport_endpoints,
             min_confirmations,
@@ -1672,8 +1682,12 @@ impl MultisigWallet {
     /// An optional asset ID can be specified, which will be embedded in the invoice, resulting in
     /// the refusal of the transfer is the asset doesn't match.
     ///
-    /// An optional amount can be specified, which will be embedded in the invoice. It will not be
-    /// checked when accepting the transfer.
+    /// An optional amount can be specified, which will be embedded in the invoice. The
+    /// `receive_amount_policy` determines how the received amount is checked when accepting the
+    /// transfer (see [`ReceiveAmountPolicy`]): [`ReceiveAmountPolicy::Exact`] and
+    /// [`ReceiveAmountPolicy::AtLeast`] require an amount to be specified, otherwise an
+    /// [`Error::NoReceiveAmount`] is returned. Received assignments of a type other than the
+    /// requested one are refused (unless [`Assignment::Any`] is requested).
     ///
     /// An expiration UTC timestamp must be specified, which will set the expiration of the
     /// invoice and the transfer. An expiration more than [`MAX_EXPIRATION_SECS`] in the future is
@@ -1696,6 +1710,7 @@ impl MultisigWallet {
         online: Online,
         asset_id: Option<String>,
         assignment: Assignment,
+        receive_amount_policy: ReceiveAmountPolicy,
         expiration_timestamp: u64,
         transport_endpoints: Vec<String>,
         min_confirmations: u8,
@@ -1713,6 +1728,7 @@ impl MultisigWallet {
             online,
             asset_id,
             assignment,
+            receive_amount_policy,
             expiration_timestamp,
             transport_endpoints,
             min_confirmations,
@@ -1893,6 +1909,7 @@ impl MultisigWallet {
         let receive_data_internal = ReceiveDataInternal {
             asset_id: invoice_data.asset_id.clone(),
             detected_assignment: invoice_data.assignment.clone(),
+            receive_amount_policy: receive_metadata.receive_amount_policy,
             invoice_string: receive_metadata.invoice.clone(),
             recipient_id: invoice_data.recipient_id.clone(),
             endpoints,

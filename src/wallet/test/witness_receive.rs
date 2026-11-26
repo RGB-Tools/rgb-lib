@@ -19,6 +19,7 @@ fn success() {
             Some(party.online),
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::Whatever,
             expiration_timestamp,
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -50,6 +51,7 @@ fn success() {
             Some(party.online),
             Some(asset_id.clone()),
             Assignment::Fungible(amount),
+            ReceiveAmountPolicy::Whatever,
             expiration_timestamp,
             TRANSPORT_ENDPOINTS.clone(),
             min_confirmations,
@@ -97,6 +99,7 @@ fn success() {
         Some(party.online),
         None,
         Assignment::Any,
+        ReceiveAmountPolicy::Whatever,
         default_rcv_expiration(),
         transport_endpoints.clone(),
         MIN_CONFIRMATIONS,
@@ -127,6 +130,7 @@ fn schema_assignment_combinations() {
                 online,
                 asset_id,
                 assignment,
+                ReceiveAmountPolicy::Whatever,
                 expiration,
                 endpoints,
                 min_confirmations,
@@ -150,6 +154,7 @@ fn fail() {
             None,
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::Whatever,
             (now().unix_timestamp() + 60) as u64,
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -169,6 +174,7 @@ fn fail() {
             None,
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::Whatever,
             (now().unix_timestamp() - 1) as u64,
             vec![],
             MIN_CONFIRMATIONS,
@@ -185,6 +191,7 @@ fn fail() {
             None,
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::Whatever,
             (now().unix_timestamp() + i64::from(MAX_EXPIRATION_SECS) + 1) as u64,
             vec![],
             MIN_CONFIRMATIONS,
@@ -194,4 +201,27 @@ fn fail() {
         )
         .unwrap_err();
     assert_matches!(result, Error::InvalidExpiration);
+
+    // receive amount policy requiring an amount, without an amount
+    for (assignment, receive_amount_policy) in [
+        (Assignment::Any, ReceiveAmountPolicy::Exact),
+        (Assignment::Any, ReceiveAmountPolicy::AtLeast),
+        (Assignment::Fungible(0), ReceiveAmountPolicy::Exact),
+    ] {
+        let result = wallet
+            .witness_receive(
+                None,
+                None,
+                assignment,
+                receive_amount_policy,
+                (now().unix_timestamp() + 60) as u64,
+                vec![],
+                MIN_CONFIRMATIONS,
+                None,
+                None,
+                None,
+            )
+            .unwrap_err();
+        assert_matches!(result, Error::NoReceiveAmount);
+    }
 }

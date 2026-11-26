@@ -150,6 +150,7 @@ interface RgbLibError {
   NoMaxAllocationsPerUtxo();
   NoMedia();
   NoMintRights();
+  NoReceiveAmount();
   NoRejectListResolver();
   NoSupportedSchemas();
   NoValidTransportEndpoint();
@@ -195,6 +196,13 @@ interface RgbLibError {
   WatchOnly();
   WrongOperation(string txid);
   WrongPassword();
+};
+
+[Remote]
+enum ReceiveAmountPolicy {
+  "Whatever",
+  "Exact",
+  "AtLeast",
 };
 
 [Remote]
@@ -1191,13 +1199,15 @@ interface Wallet {
 
   [Throws=RgbLibError]
   ReceiveData blind_receive(
-    Online? online, string? asset_id, Assignment assignment, u64 expiration_timestamp,
+    Online? online, string? asset_id, Assignment assignment,
+    ReceiveAmountPolicy receive_amount_policy, u64 expiration_timestamp,
     sequence<string> transport_endpoints, u8 min_confirmations, Encryption? encryption,
     u32? quota);
 
   [Throws=RgbLibError]
   ReceiveData witness_receive(
-    Online? online, string? asset_id, Assignment assignment, u64 expiration_timestamp,
+    Online? online, string? asset_id, Assignment assignment,
+    ReceiveAmountPolicy receive_amount_policy, u64 expiration_timestamp,
     sequence<string> transport_endpoints, u8 min_confirmations, Encryption? encryption,
     u32? quota, string? address);
 
@@ -1435,12 +1445,14 @@ interface MultisigWallet {
 
   [Throws=RgbLibError]
   ReceiveData blind_receive(
-    Online online, string? asset_id, Assignment assignment, u64 expiration_timestamp,
+    Online online, string? asset_id, Assignment assignment,
+    ReceiveAmountPolicy receive_amount_policy, u64 expiration_timestamp,
     sequence<string> transport_endpoints, u8 min_confirmations, Encryption? encryption);
 
   [Throws=RgbLibError]
   ReceiveData witness_receive(
-    Online online, string? asset_id, Assignment assignment, u64 expiration_timestamp,
+    Online online, string? asset_id, Assignment assignment,
+    ReceiveAmountPolicy receive_amount_policy, u64 expiration_timestamp,
     sequence<string> transport_endpoints, u8 min_confirmations, Encryption? encryption);
 
   [Throws=RgbLibError]

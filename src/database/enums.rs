@@ -320,6 +320,35 @@ impl ColoringType {
 }
 
 #[cfg(feature = "wallet")]
+/// Choice of policy to apply when receiving a transfer, based on the RGB amount.
+///
+/// A mint (a BFA transfer backed by a lock on another chain) has to pay exactly the amount the
+/// invoice requests, if it requests one, regardless of the policy: the receiver makes the lock, which
+/// has to match the amount minted, so receiving more would mean locking more.
+///
+/// A transfer the policy refuses is failed. A donation is broadcast by the sender without waiting
+/// for the recipient to accept it, so refusing one doesn't stop it and the wallet doesn't track
+/// the allocations it pays.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize, EnumIter, DeriveActiveEnum,
+)]
+#[sea_orm(rs_type = "u8", db_type = "TinyUnsigned")]
+pub enum ReceiveAmountPolicy {
+    /// Any received amount will be accepted, regardless of the amount that has been specified in
+    /// the invoice.
+    #[sea_orm(num_value = 1)]
+    Whatever = 1,
+    /// If the received amount is different from the requested one, the transfer will be refused.
+    /// This value is possible only when setting an amount in the invoice.
+    #[sea_orm(num_value = 2)]
+    Exact = 2,
+    /// If the received amount is lower than the requested one, the transfer will be refused. This
+    /// value is possible only when setting an amount in the invoice.
+    #[sea_orm(num_value = 3)]
+    AtLeast = 3,
+}
+
+#[cfg(feature = "wallet")]
 /// The type of an RGB recipient.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub enum RecipientTypeFull {
@@ -598,6 +627,14 @@ impl Assignment {
             Self::LinkRight => Some(RGB_STATE_LINK_RIGHT),
             Self::MintRight => Some(RGB_STATE_MINT_RIGHT),
             Self::Any => None,
+        }
+    }
+
+    // the amount requested by an invoice, if any (a zero amount means any amount)
+    pub(crate) fn requested_amount(&self) -> Option<u64> {
+        match self {
+            Self::Fungible(amt) | Self::InflationRight(amt) if *amt > 0 => Some(*amt),
+            _ => None,
         }
     }
 

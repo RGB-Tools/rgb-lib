@@ -786,6 +786,10 @@ pub enum Error {
     #[error("Issuance request with zero mint rights")]
     NoMintRights,
 
+    /// A receive amount policy different from `Whatever` requires an amount in the invoice
+    #[error("The receive amount policy requires an amount to be specified")]
+    NoReceiveAmount,
+
     /// The asset has a reject list, but no reject list resolver was provided to read it (see
     /// [`validate_consignment_with_resolver`](crate::no_wallet::validate_consignment_with_resolver))
     #[error("No reject list resolver provided to read the asset's reject list")]

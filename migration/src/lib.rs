@@ -19,6 +19,7 @@ mod m20261117_160000_asset_bridge_location;
 mod m20261124_120000_consignment_extension;
 mod m20261125_120000_invoice_reuse;
 mod m20261125_130000_transfer_recipient_id_index;
+mod m20261126_120000_add_receive_amount_policy;
 
 pub use m20261124_120000_consignment_extension::Migration as ConsignmentExtensionMigration;
 
@@ -47,6 +48,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261124_120000_consignment_extension::Migration),
             Box::new(m20261125_120000_invoice_reuse::Migration),
             Box::new(m20261125_130000_transfer_recipient_id_index::Migration),
+            Box::new(m20261126_120000_add_receive_amount_policy::Migration),
         ]
     }
 }

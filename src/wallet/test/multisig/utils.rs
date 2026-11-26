@@ -386,9 +386,19 @@ pub(super) trait MultisigOps: OfflineSigParty {
     }
 
     fn blind_receive(&mut self) -> ReceiveData {
+        self.blind_receive_with_policy(Assignment::Any, ReceiveAmountPolicy::Whatever)
+    }
+
+    fn blind_receive_with_policy(
+        &mut self,
+        assignment: Assignment,
+        receive_amount_policy: ReceiveAmountPolicy,
+    ) -> ReceiveData {
         println!("blind_receive {}", self.data_dir());
         let bt_before = self.bak_ts();
-        let res = self.blind_receive_res().unwrap();
+        let res = self
+            .blind_receive_res_with_policy(assignment, receive_amount_policy)
+            .unwrap();
         assert!(self.bak_ts() > bt_before);
         let op_idx = op_counter_bump();
         println!("initiated blind_receive with operation ID {op_idx}");
@@ -396,11 +406,20 @@ pub(super) trait MultisigOps: OfflineSigParty {
     }
 
     fn blind_receive_res(&mut self) -> Result<ReceiveData, Error> {
+        self.blind_receive_res_with_policy(Assignment::Any, ReceiveAmountPolicy::Whatever)
+    }
+
+    fn blind_receive_res_with_policy(
+        &mut self,
+        assignment: Assignment,
+        receive_amount_policy: ReceiveAmountPolicy,
+    ) -> Result<ReceiveData, Error> {
         let online = self.online();
         self.multisig_mut().blind_receive(
             online,
             None,
-            Assignment::Any,
+            assignment,
+            receive_amount_policy,
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -769,6 +788,7 @@ pub(super) trait MultisigOps: OfflineSigParty {
             online,
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::Whatever,
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,

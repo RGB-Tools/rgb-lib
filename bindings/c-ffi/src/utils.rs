@@ -268,6 +268,7 @@ pub(crate) fn blind_receive(
     online: *const c_char,
     asset_id: *const c_char,
     assignment: *const c_char,
+    receive_amount_policy: *const c_char,
     expiration_timestamp: *const c_char,
     transport_endpoints: *const c_char,
     min_confirmations: *const c_char,
@@ -280,6 +281,8 @@ pub(crate) fn blind_receive(
         serde_json::from_str(&ptr_to_string(transport_endpoints))?;
     let asset_id = convert_optional_string(asset_id);
     let assignment: Assignment = serde_json::from_str(&ptr_to_string(assignment))?;
+    let receive_amount_policy: ReceiveAmountPolicy =
+        serde_json::from_str(&ptr_to_string(receive_amount_policy))?;
     let expiration_timestamp = ptr_to_num(expiration_timestamp)?;
     let min_confirmations = ptr_to_num(min_confirmations)?;
     let encryption = convert_optional_encryption(encryption)?;
@@ -288,6 +291,7 @@ pub(crate) fn blind_receive(
         online,
         asset_id,
         assignment,
+        receive_amount_policy,
         expiration_timestamp,
         transport_endpoints,
         min_confirmations,
@@ -1149,6 +1153,7 @@ pub(crate) fn witness_receive(
     online: *const c_char,
     asset_id: *const c_char,
     assignment: *const c_char,
+    receive_amount_policy: *const c_char,
     expiration_timestamp: *const c_char,
     transport_endpoints: *const c_char,
     min_confirmations: *const c_char,
@@ -1162,6 +1167,8 @@ pub(crate) fn witness_receive(
         serde_json::from_str(&ptr_to_string(transport_endpoints))?;
     let asset_id = convert_optional_string(asset_id);
     let assignment: Assignment = serde_json::from_str(&ptr_to_string(assignment))?;
+    let receive_amount_policy: ReceiveAmountPolicy =
+        serde_json::from_str(&ptr_to_string(receive_amount_policy))?;
     let expiration_timestamp = ptr_to_num(expiration_timestamp)?;
     let min_confirmations = ptr_to_num(min_confirmations)?;
     let encryption = convert_optional_encryption(encryption)?;
@@ -1171,6 +1178,7 @@ pub(crate) fn witness_receive(
         online,
         asset_id,
         assignment,
+        receive_amount_policy,
         expiration_timestamp,
         transport_endpoints,
         min_confirmations,

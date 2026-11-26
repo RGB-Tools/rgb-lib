@@ -341,6 +341,7 @@ fn encryption_variants() {
                 Some(rcv_party.online),
                 None,
                 Assignment::Any,
+                ReceiveAmountPolicy::Whatever,
                 default_rcv_expiration(),
                 TRANSPORT_ENDPOINTS.clone(),
                 MIN_CONFIRMATIONS,
@@ -2955,6 +2956,7 @@ fn recipient_refuses_tampered_consignment() {
             Some(rcv_party.online),
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::Whatever,
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -3026,6 +3028,7 @@ fn recipient_refuses_consignment_not_paying_it() {
             Some(rcv_party_2.online),
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::Whatever,
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -4269,6 +4272,7 @@ fn fail() {
         Some(rcv_party.online),
         None,
         Assignment::Any,
+        ReceiveAmountPolicy::Whatever,
         default_rcv_expiration(),
         transport_endpoints,
         MIN_CONFIRMATIONS,
@@ -6506,6 +6510,120 @@ fn witness_multiple_inputs_success() {
     assert_eq!(transfer_data.status, TransferStatus::Settled);
 }
 
+#[cfg(feature = "electrum")]
+#[test]
+#[parallel]
+fn receive_amount_policy() {
+    initialize();
+
+    let amount: u64 = 66;
+
+    // wallets
+    let mut party = get_funded_party!();
+    let mut rcv_party = get_funded_party!();
+
+    // issue
+    let asset = party.issue_asset_nia(None);
+
+    let receive = |party: &mut SinglesigParty, blind: bool, receive_amount_policy| {
+        let online = Some(party.online);
+        if blind {
+            party.wallet.blind_receive(
+                online,
+                None,
+                Assignment::Fungible(amount),
+                receive_amount_policy,
+                default_rcv_expiration(),
+                TRANSPORT_ENDPOINTS.clone(),
+                MIN_CONFIRMATIONS,
+                None,
+                None,
+            )
+        } else {
+            party.wallet.witness_receive(
+                online,
+                None,
+                Assignment::Fungible(amount),
+                receive_amount_policy,
+                default_rcv_expiration(),
+                TRANSPORT_ENDPOINTS.clone(),
+                MIN_CONFIRMATIONS,
+                None,
+                None,
+                None,
+            )
+        }
+        .unwrap()
+    };
+    let recipient = |receive_data: &ReceiveData, blind: bool, sent: u64| Recipient {
+        assignment: Assignment::Fungible(sent),
+        recipient_id: receive_data.recipient_id.clone(),
+        public_key: Some(receive_data.public_key.clone()),
+        expiration_timestamp: Some(receive_data.expiration_timestamp),
+        encryption: Encryption::Optional,
+        witness_data: (!blind).then_some(WitnessData {
+            amount_sat: 1000,
+            blinding: None,
+        }),
+        transport_endpoints: TRANSPORT_ENDPOINTS.clone(),
+    };
+
+    // refused: exact underpaid (blind), exact overpaid (witness), at least underpaid (witness)
+    let exact_under = receive(&mut rcv_party, true, ReceiveAmountPolicy::Exact);
+    let exact_over = receive(&mut rcv_party, false, ReceiveAmountPolicy::Exact);
+    let at_least_under = receive(&mut rcv_party, false, ReceiveAmountPolicy::AtLeast);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![
+            recipient(&exact_under, true, amount - 1),
+            recipient(&exact_over, false, amount + 1),
+            recipient(&at_least_under, false, amount - 1),
+        ],
+    )]);
+    let txid = party.send_retry(&recipient_map);
+    assert!(!txid.is_empty());
+
+    // transfers progress to status Failed after a refresh
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(Some(&asset.asset_id));
+    for recipient_id in [&exact_under, &exact_over, &at_least_under] {
+        let rcv_transfer = rcv_party.get_test_transfer_recipient(&recipient_id.recipient_id);
+        let (rcv_transfer_data, _) = rcv_party.get_test_transfer_data(&rcv_transfer);
+        assert_eq!(rcv_transfer_data.status, TransferStatus::Failed);
+    }
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Failed));
+
+    // accepted: exact (blind), at least overpaid (witness), whatever underpaid (witness)
+    let exact = receive(&mut rcv_party, true, ReceiveAmountPolicy::Exact);
+    let at_least_over = receive(&mut rcv_party, false, ReceiveAmountPolicy::AtLeast);
+    let whatever_under = receive(&mut rcv_party, false, ReceiveAmountPolicy::Whatever);
+    let recipient_map = HashMap::from([(
+        asset.asset_id.clone(),
+        vec![
+            recipient(&exact, true, amount),
+            recipient(&at_least_over, false, amount + 1),
+            recipient(&whatever_under, false, amount - 1),
+        ],
+    )]);
+    let txid = party.send_retry(&recipient_map);
+    assert!(!txid.is_empty());
+
+    // transfers settle
+    rcv_party.wait_for_refresh(None);
+    party.wait_for_refresh(Some(&asset.asset_id));
+    mine(false);
+    rcv_party.wait_for_refresh(Some(&asset.asset_id));
+    party.wait_for_refresh(Some(&asset.asset_id));
+    for recipient_id in [&exact, &at_least_over, &whatever_under] {
+        let rcv_transfer = rcv_party.get_test_transfer_recipient(&recipient_id.recipient_id);
+        let (rcv_transfer_data, _) = rcv_party.get_test_transfer_data(&rcv_transfer);
+        assert_eq!(rcv_transfer_data.status, TransferStatus::Settled);
+    }
+    assert!(party.check_test_transfer_status_sender(&txid, TransferStatus::Settled));
+    let balance = rcv_party.get_asset_balance(&asset.asset_id);
+    assert_eq!(balance.settled, amount * 3);
+}
+
 #[cfg(feature = "_online")]
 fn min_confirmations_common(
     party: &mut SinglesigParty,
@@ -6532,6 +6650,7 @@ fn min_confirmations_common(
             Some(rcv_party.online),
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::Whatever,
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             min_confirmations,
@@ -6626,6 +6745,7 @@ fn min_confirmations_common(
             Some(rcv_party.online),
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::Whatever,
             default_rcv_expiration(),
             TRANSPORT_ENDPOINTS.clone(),
             min_confirmations,
@@ -9091,6 +9211,7 @@ fn blinded_change_failed_xfer() {
             Some(party_2.online),
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::Whatever,
             default_rcv_expiration(), // v1.0: keep the proxy reservation valid for the send; the recipient is failed via its explicit batch idx (is_fallible, no expiry needed)
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -9248,6 +9369,7 @@ fn blinded_change_send_begin_only() {
             Some(party_2.online),
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::Whatever,
             default_rcv_expiration(), // v1.0: keep the proxy reservation valid for the send; the recipient is failed via its explicit batch idx (is_fallible, no expiry needed)
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -9407,6 +9529,7 @@ fn donation_recipient_nack() {
             Some(party_2.online),
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::Whatever,
             default_rcv_expiration(), // v1.0: keep the proxy reservation valid for the send; the recipient is failed via its explicit batch idx (is_fallible, no expiry needed)
             TRANSPORT_ENDPOINTS.clone(),
             MIN_CONFIRMATIONS,
@@ -10252,6 +10375,7 @@ fn unsafe_history_waits_for_safe_height() {
             Some(party_2.online),
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::Whatever,
             (now().unix_timestamp() + DURATION_RCV_TRANSFER as i64) as u64,
             vec![],
             2,
@@ -10440,6 +10564,7 @@ fn out_of_band_success() {
             Some(rcv_party.online),
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::Whatever,
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
@@ -10453,6 +10578,7 @@ fn out_of_band_success() {
             Some(rcv_party.online),
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::Whatever,
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
@@ -10613,6 +10739,7 @@ fn out_of_band_fail() {
             Some(rcv_party.online),
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::Whatever,
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
@@ -10732,6 +10859,7 @@ fn out_of_band_fail() {
             Some(rcv_party.online),
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::Whatever,
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
@@ -10816,6 +10944,7 @@ fn out_of_band_fail() {
             Some(rcv_party.online),
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::Whatever,
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
@@ -10901,6 +11030,7 @@ fn out_of_band_media() {
             Some(rcv_party.online),
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::Whatever,
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
@@ -10914,6 +11044,7 @@ fn out_of_band_media() {
             Some(rcv_party.online),
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::Whatever,
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
@@ -10927,6 +11058,7 @@ fn out_of_band_media() {
             Some(rcv_party.online),
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::Whatever,
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
@@ -11057,6 +11189,7 @@ fn out_of_band_media_cleanup() {
             Some(rcv_party.online),
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::Whatever,
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
@@ -11258,6 +11391,7 @@ fn out_of_band_mixed_batch() {
             Some(rcv_out_of_band.online),
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::Whatever,
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
@@ -11400,6 +11534,7 @@ fn out_of_band_consignment_multiple_receives() {
             Some(rcv_party.online),
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::Whatever,
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,
@@ -11413,6 +11548,7 @@ fn out_of_band_consignment_multiple_receives() {
             Some(rcv_party.online),
             None,
             Assignment::Any,
+            ReceiveAmountPolicy::Whatever,
             default_rcv_expiration(),
             vec![],
             MIN_CONFIRMATIONS,

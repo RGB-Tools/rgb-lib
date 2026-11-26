@@ -2069,6 +2069,41 @@ pub trait WalletOnline: WalletOffline {
         })
     }
 
+    // check that the received assignments are of the type requested in the invoice and that their
+    // total amount satisfies the receive amount policy (a zero or missing amount means any amount)
+    fn received_matches_requested(
+        requested: Option<&Assignment>,
+        receive_amount_policy: ReceiveAmountPolicy,
+        received: &[Assignment],
+    ) -> bool {
+        let Some(requested) = requested else {
+            return true;
+        };
+        if *requested != Assignment::Any
+            && received
+                .iter()
+                .any(|a| std::mem::discriminant(a) != std::mem::discriminant(requested))
+        {
+            return false;
+        }
+        let Some(requested_amt) = requested.requested_amount() else {
+            return true;
+        };
+        // types already match the requested one, an overflow makes the sum missing
+        let received_amt = received.iter().try_fold(0u64, |acc, a| match a {
+            Assignment::Fungible(amt) | Assignment::InflationRight(amt) => acc.checked_add(*amt),
+            _ => Some(acc),
+        });
+        let Some(received_amt) = received_amt else {
+            return false;
+        };
+        match receive_amount_policy {
+            ReceiveAmountPolicy::Whatever => true,
+            ReceiveAmountPolicy::Exact => received_amt == requested_amt,
+            ReceiveAmountPolicy::AtLeast => received_amt >= requested_amt,
+        }
+    }
+
     // extract the assignments in a single bundle that pay the recipient at `payment_seal`
     fn assignments_for_bundle(
         &self,
@@ -3032,6 +3067,7 @@ pub trait WalletOnline: WalletOffline {
         let transfer_idx = txn.set_transfer(DbTransferActMod {
             asset_transfer_idx: ActiveValue::Set(asset_transfer_idx),
             requested_assignment: ActiveValue::Set(first.requested_assignment.clone()),
+            receive_amount_policy: ActiveValue::Set(first.receive_amount_policy),
             recipient_id: ActiveValue::Set(Some(recipient_id.clone())),
             recipient_type: ActiveValue::Set(Some(recipient_type)),
             invoice_string: ActiveValue::Set(first.invoice_string.clone()),
@@ -3762,6 +3798,24 @@ pub trait WalletOnline: WalletOffline {
             refuse!();
         }
 
+        // what is received has to satisfy the receive amount policy of the invoice
+        if !Self::received_matches_requested(
+            transfer.requested_assignment.as_ref(),
+            transfer
+                .receive_amount_policy
+                .unwrap_or(ReceiveAmountPolicy::Whatever),
+            &receiving.values().cloned().collect::<Vec<_>>(),
+        ) {
+            error!(
+                self.logger(),
+                "Received assignments {:?} don't match the requested one {:?} ({:?})",
+                receiving.values(),
+                transfer.requested_assignment,
+                transfer.receive_amount_policy
+            );
+            refuse!();
+        }
+
         // the mint paying this recipient, if any, is refused before it's checked, so that no lock
         // is made for it (see get_received_mint): by a wallet that doesn't accept mints; when
         // exchanged out-of-band, as mints are only sent through proxies (see mint_begin) and an
@@ -3806,6 +3860,8 @@ pub trait WalletOnline: WalletOffline {
                 );
                 refuse!();
             }
+            // a mint has to pay exactly the requested amount, even if the receive amount policy
+            // would accept more: the lock has to match the amount minted
             if !Self::mint_pays_requested(transfer, &receiving) {
                 error!(
                     self.logger(),
