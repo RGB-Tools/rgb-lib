@@ -295,6 +295,25 @@ pub(crate) fn setup_rgb(
             }
         }
     }
+    // Older databases did not cache the bridge location or EVM reject list. Derive both
+    // from the contract already validated and retained in the RGB stock. Keep this in the
+    // setup transaction so a missing contract cannot leave a partially backfilled wallet.
+    for asset in txn
+        .iter_assets()?
+        .into_iter()
+        .filter(|asset| asset.schema == AssetSchema::Bfa && asset.bridge_location.is_none())
+    {
+        let contract_id = ContractId::from_str(&asset.id).map_err(|_| Error::Inconsistency {
+            details: format!("invalid stored BFA contract ID: {}", asset.id),
+        })?;
+        let contract = stock.contract_wrapper::<BridgedFungibleAsset>(contract_id)?;
+        let bridge_location = Some(contract.bridge_location().into());
+        let reject_list = contract.reject_list().map(RgbRejectListInfo::from);
+        let mut asset: DbAssetActMod = asset.into();
+        asset.bridge_location = ActiveValue::Set(bridge_location);
+        asset.reject_list = ActiveValue::Set(reject_list);
+        txn.update_asset(&mut asset)?;
+    }
     txn.commit()?;
     Ok(())
 }

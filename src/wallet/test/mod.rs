@@ -686,6 +686,7 @@ pub(crate) use utils::{api::*, helpers::*};
 mod abort_pending_vanilla_tx;
 #[cfg(feature = "electrum")]
 mod address_reuse;
+mod asset_metadata_upgrade;
 mod backup;
 mod blind_receive;
 #[cfg(feature = "electrum")]

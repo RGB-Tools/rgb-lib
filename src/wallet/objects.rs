@@ -901,7 +901,9 @@ impl AssetBFA {
             bridge_location: asset
                 .bridge_location
                 .clone()
-                .expect("a BFA asset has a bridge location"),
+                .ok_or_else(|| Error::Inconsistency {
+                    details: format!("missing bridge location for BFA asset {}", asset.id),
+                })?,
             reject_list: asset.reject_list.clone(),
         })
     }

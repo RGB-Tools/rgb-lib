@@ -601,7 +601,6 @@ impl DbTxn {
         )?)
     }
 
-    #[cfg(feature = "_online")]
     pub(crate) fn update_asset(&self, asset: &mut DbAssetActMod) -> Result<DbAsset, Error> {
         Ok(block_on(Asset::update(asset.clone()).exec(self.inner()))?)
     }
